@@ -81,8 +81,8 @@ export default defineConfig({
       },
 
       manifest: {
-        name: 'FiscalStack POS',
-        short_name: 'FiscalStack',
+        name: 'FiscalZone POS',
+        short_name: 'FiscalZone',
         description: 'POS',
         theme_color: '#0f172a',
         background_color: '#f8fafc',

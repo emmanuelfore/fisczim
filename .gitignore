@@ -4,7 +4,6 @@ node_modules
 server/public
 vite.config.ts.*
 *.tar.gz
-.env
 .vercel
 .vs/
 /dist

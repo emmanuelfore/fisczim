@@ -1,19 +1,20 @@
 import "dotenv/config";
+console.log("ENV variables loaded:", process.env.PORT);
 import express, { type Request, Response, NextFunction } from "express";
-import { createServer } from "http";
-import cors from "cors";
-import compression from "compression";
 import { registerRoutes } from "./routes.js";
 import { serveStatic } from "./static.js";
+import { createServer } from "http";
 import { setupSwagger } from "./swagger.js";
-// import { startRecurringInvoiceWorker } from "./jobs.js";
+import { startRecurringInvoiceWorker } from "./jobs.js";
 
-console.log("ENV variables loaded:", process.env.PORT);
+import cors from "cors";
+import compression from "compression";
+
+// ... imports
 
 const app = express();
-app.use(cors());
+app.use(cors()); // Allow all origins for dev simplicity // Allow all origins for dev simplicity
 app.use(compression());
-
 const httpServer = createServer(app);
 
 declare module "http" {
@@ -22,7 +23,6 @@ declare module "http" {
   }
 }
 
-// Parse JSON and URL-encoded
 app.use(
   express.json({
     limit: "10mb",
@@ -31,9 +31,9 @@ app.use(
     },
   }),
 );
+
 app.use(express.urlencoded({ extended: false }));
 
-// Request logging
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
     hour: "numeric",
@@ -41,6 +41,7 @@ export function log(message: string, source = "express") {
     second: "2-digit",
     hour12: true,
   });
+
   console.log(`${formattedTime} [${source}] ${message}`);
 }
 
@@ -62,6 +63,7 @@ app.use((req, res, next) => {
       if (capturedJsonResponse) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
+
       log(logLine);
     }
   });
@@ -69,48 +71,52 @@ app.use((req, res, next) => {
   next();
 });
 
-// Initialize the app
+// Use an async function to initialize the app and routes
+// This avoids top-level await which is not supported in the CJS build format
 async function initializeApp() {
-  try {
-    // Setup Swagger & Routes
-    setupSwagger(app);
-    await registerRoutes(httpServer, app);
+  // Setup application
+  setupSwagger(app);
+  await registerRoutes(httpServer, app);
 
-    // Error handler
-    app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-      const status = err.status || err.statusCode || 500;
-      const message = err.message || "Internal Server Error";
-      res.status(status).json({ message });
-      if (process.env.NODE_ENV !== "production") console.error(err);
-    });
+  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+    const status = err.status || err.statusCode || 500;
+    const message = err.message || "Internal Server Error";
 
-    // Static files or Vite dev
-    if (process.env.NODE_ENV === "production") {
-      serveStatic(app);
-    } else {
-      const { setupVite } = await import("./vite.js");
-      await setupVite(httpServer, app);
+    res.status(status).json({ message });
+    if (process.env.NODE_ENV !== "production") {
+      console.error(err);
     }
+  });
 
-    // Start HTTP server
+  // Setup static files
+  if (process.env.NODE_ENV === "production") {
+    serveStatic(app);
+  } else {
+    const { setupVite } = await import("./vite.js");
+    await setupVite(httpServer, app);
+  }
+
+  // Start server if not on Vercel or in development
+  if (!process.env.VERCEL || process.env.NODE_ENV === "development") {
     const port = parseInt(process.env.PORT || "5001", 10);
     httpServer.listen(port, "0.0.0.0", () => {
       log(`serving on port ${port}`);
     });
-
-    // Start recurring jobs (optional)
-    // startRecurringInvoiceWorker();
-  } catch (err) {
-    console.error("Failed to initialize app:", err);
-    process.exit(1); // exit so PM2 restarts if needed
   }
+
+  // Start recurring invoice worker
+  // startRecurringInvoiceWorker();
 }
 
-// Export for Vercel / other modules
+// Export for Vercel
 export { app, httpServer };
 export default app;
 
-// Run initializeApp when executed directly
-if (require.main === module) {
-  initializeApp();
+// Start initialization if not imported as a module (e.g. by Vercel)
+// or always initialize routes if we're on Vercel (since it's a serverless entry point)
+if (process.env.VERCEL || process.argv[1]?.endsWith('index.ts') || process.argv[1]?.endsWith('index.js') || process.argv[1]?.endsWith('index.cjs')) {
+  initializeApp().catch((err) => {
+    console.error("Failed to initialize app:", err);
+    process.exit(1);
+  });
 }

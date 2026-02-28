@@ -1,4 +1,5 @@
 import "dotenv/config";
+console.log("ENV variables loaded:", process.env.PORT);
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes.js";
 import { serveStatic } from "./static.js";
@@ -97,7 +98,7 @@ async function initializeApp() {
 
   // Start server if not on Vercel or in development
   if (!process.env.VERCEL || process.env.NODE_ENV === "development") {
-    const port = parseInt(process.env.PORT || "5000", 10);
+    const port = parseInt(process.env.PORT || "5001", 10);
     httpServer.listen(port, "0.0.0.0", () => {
       log(`serving on port ${port}`);
     });

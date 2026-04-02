@@ -8,6 +8,8 @@ import { Package, AlertCircle, Search, ChevronLeft, ChevronRight, FileDown } fro
 import { CreateProductDialog } from "@/components/products/create-product-dialog";
 import { EditProductDialog } from "@/components/products/edit-product-dialog";
 import { StockInDialog } from "@/components/products/stock-in-dialog";
+import { StockAdjustmentDialog } from "@/components/products/stock-adjustment-dialog";
+import { PriceAdjustmentDialog } from "@/components/products/price-adjustment-dialog";
 import { DeleteButton } from "@/components/delete-button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -37,13 +39,23 @@ import {
 import { Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
+import { useBranchContext } from "@/lib/branch-context";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
+import { MoreVertical, Edit2, History, TrendingUp, PackagePlus, AlertTriangle } from "lucide-react";
 
-const ITEMS_PER_PAGE = 10;
 
 export default function ProductsPage() {
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   const { activeCompanyId } = useActiveCompany();
+  const { selectedBranchId } = useBranchContext();
   const companyId = activeCompanyId || 0;
-  const { data: allItems, isLoading } = useProducts(companyId);
+  const { data: allItems, isLoading } = useProducts(companyId, selectedBranchId || undefined);
   const updateProduct = useUpdateProduct();
   const { taxTypes } = useTaxConfig(companyId || undefined);
   const queryClient = useQueryClient();
@@ -124,9 +136,9 @@ export default function ProductsPage() {
   });
 
   // Pagination logic
-  const totalPages = Math.ceil((filteredProducts?.length || 0) / ITEMS_PER_PAGE);
-  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-  const paginatedProducts = filteredProducts?.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  const totalPages = Math.ceil((filteredProducts?.length || 0) / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedProducts = filteredProducts?.slice(startIndex, startIndex + itemsPerPage);
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchTerm(e.target.value);
@@ -263,18 +275,18 @@ export default function ProductsPage() {
       </div>
 
       <Card className="border-none shadow-xl shadow-slate-200/50 bg-white/80 backdrop-blur-sm rounded-[2rem] overflow-hidden ring-1 ring-slate-100">
-        <CardContent className="p-0 overflow-x-auto">
-          <table className="w-full text-left table-fixed md:table-auto">
+        <CardContent className="p-0 overflow-x-hidden">
+          <table className="w-full text-left">
             <thead>
               <tr className="bg-slate-50/80 border-b border-slate-100">
-                <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px] w-[50%] md:w-auto">Name</th>
+                <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px] w-[40%] md:w-auto">Name</th>
                 <th className="hidden lg:table-cell p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">Code</th>
                 <th className="hidden xl:table-cell p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">Details</th>
-                <th className="hidden md:table-cell p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">Category</th>
+                <th className="hidden sm:table-cell p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">Category</th>
                 <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">Price</th>
                 <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">Stock</th>
                 <th className="hidden lg:table-cell p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">Tax</th>
-                <th className="p-5 w-10"></th>
+                <th className="p-5 w-16 text-right"></th>
               </tr>
             </thead>
             <tbody>
@@ -361,8 +373,8 @@ export default function ProductsPage() {
                     <td className="p-4">
                       {p.isTracked ? (
                         <div className="flex items-center gap-2">
-                          <span className={`${Number(p.stockLevel) <= Number(p.lowStockThreshold || 0) ? "text-red-600 bg-red-50" : "text-slate-700 bg-slate-100"} px-2 py-0.5 rounded-md font-mono text-[11px] font-bold`}>
-                            {p.stockLevel}
+                          <span className={`${Number(p.branchStock || p.stockLevel) <= Number(p.lowStockThreshold || 0) ? "text-red-600 bg-red-50" : "text-slate-700 bg-slate-100"} px-2 py-0.5 rounded-md font-mono text-[11px] font-bold`}>
+                            {p.branchStock || p.stockLevel}
                           </span>
                         </div>
                       ) : (
@@ -379,21 +391,78 @@ export default function ProductsPage() {
                       )}
                     </td>
                     <td className="p-4 text-right">
-                      <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        {p.isTracked && <StockInDialog product={p} companyId={companyId} />}
-                        <EditProductDialog product={p} />
-                        <DeleteButton
-                          title="Delete Product"
-                          description={`Are you sure you want to delete ${p.name}? This will remove it from active inventory.`}
-                          onConfirm={async () => {
-                            await updateProduct.mutateAsync({
-                              id: p.id,
-                              data: { isActive: false }
-                            });
-                          }}
-                          isDeleting={updateProduct.isPending}
-                        />
-                      </div>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-900 transition-all active:scale-90">
+                            <MoreVertical className="w-4 h-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-56 bg-white/95 backdrop-blur-xl border-slate-200 rounded-2xl shadow-2xl p-2 z-50">
+                          <div className="px-3 py-2 border-b border-slate-100 mb-1">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Inventory Management</p>
+                          </div>
+                          
+                          {p.isTracked && (
+                            <>
+                              <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="p-0 rounded-xl mb-1 focus:bg-transparent">
+                                <StockInDialog product={p} companyId={companyId}>
+                                  <div className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-emerald-700 hover:bg-emerald-50 cursor-pointer font-bold transition-all text-xs">
+                                    <PackagePlus className="w-4 h-4" />
+                                    <span>Stock In</span>
+                                  </div>
+                                </StockInDialog>
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="p-0 rounded-xl mb-1 focus:bg-transparent">
+                                <StockAdjustmentDialog product={p} companyId={companyId} branchId={selectedBranchId || undefined}>
+                                  <div className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-amber-700 hover:bg-amber-50 cursor-pointer font-bold transition-all text-xs">
+                                    <History className="w-4 h-4" />
+                                    <span>Manual Adjust</span>
+                                  </div>
+                                </StockAdjustmentDialog>
+                              </DropdownMenuItem>
+                            </>
+                          )}
+
+                          <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="p-0 rounded-xl mb-1 focus:bg-transparent">
+                            <PriceAdjustmentDialog product={p} companyId={companyId}>
+                              <div className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-indigo-700 hover:bg-indigo-50 cursor-pointer font-bold transition-all text-xs">
+                                <TrendingUp className="w-4 h-4" />
+                                <span>Manage Price</span>
+                              </div>
+                            </PriceAdjustmentDialog>
+                          </DropdownMenuItem>
+
+                          <DropdownMenuSeparator className="my-1 bg-slate-100" />
+                          
+                          <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="p-0 rounded-xl mb-1 focus:bg-transparent">
+                            <EditProductDialog product={p}>
+                              <div className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-slate-700 hover:bg-slate-50 cursor-pointer font-bold transition-all text-xs">
+                                <Edit2 className="w-4 h-4" />
+                                <span>Edit Product</span>
+                              </div>
+                            </EditProductDialog>
+                          </DropdownMenuItem>
+
+                          <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="p-0 rounded-xl focus:bg-transparent">
+                            <DeleteButton
+                              title="Delete Product"
+                              description={`Are you sure you want to delete ${p.name}? This will remove it from active inventory.`}
+                              onConfirm={async () => {
+                                await updateProduct.mutateAsync({
+                                  id: p.id,
+                                  data: { isActive: false }
+                                });
+                              }}
+                              isDeleting={updateProduct.isPending}
+                            >
+                              <div className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-red-600 hover:bg-red-50 cursor-pointer font-bold transition-all text-xs">
+                                <Trash2 className="w-4 h-4" />
+                                <span>Delete Item</span>
+                              </div>
+                            </DeleteButton>
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </td>
                   </tr>
                 );
@@ -402,36 +471,60 @@ export default function ProductsPage() {
           </table>
 
           {/* Pagination Controls */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100 bg-slate-50/30">
-              <div className="text-xs font-bold text-slate-400 uppercase tracking-widest">
-                Page {currentPage} of {totalPages}
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                  disabled={currentPage === 1}
-                  className="rounded-xl h-9 text-xs font-bold border-slate-200"
-                >
-                  <ChevronLeft className="h-3 w-3 mr-1" />
-                  Previous
-                </Button>
-
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                  disabled={currentPage === totalPages}
-                  className="rounded-xl h-9 text-xs font-bold border-slate-200"
-                >
-                  Next
-                  <ChevronRight className="h-3 w-3 ml-1" />
-                </Button>
-              </div>
+          <div className="flex flex-col sm:flex-row items-center justify-between px-6 py-4 border-t border-slate-100 bg-slate-50/30 gap-4">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Items per page</span>
+              <Select 
+                value={itemsPerPage.toString()} 
+                onValueChange={(v) => {
+                  setItemsPerPage(parseInt(v));
+                  setCurrentPage(1);
+                }}
+              >
+                <SelectTrigger className="w-[70px] h-8 text-[10px] bg-white font-bold border-slate-200">
+                  <SelectValue placeholder="10" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="10">10</SelectItem>
+                  <SelectItem value="20">20</SelectItem>
+                  <SelectItem value="50">50</SelectItem>
+                  <SelectItem value="100">100</SelectItem>
+                </SelectContent>
+              </Select>
+              {filteredProducts && (
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-2">
+                  Showing {startIndex + 1}–{Math.min(startIndex + itemsPerPage, filteredProducts.length)} of {filteredProducts.length}
+                </span>
+              )}
             </div>
-          )}
+
+            <div className="flex items-center gap-2">
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mr-2">
+                Page {currentPage} of {totalPages || 1}
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="rounded-xl h-8 text-[10px] font-bold border-slate-200"
+              >
+                <ChevronLeft className="h-3 w-3 mr-1" />
+                Prev
+              </Button>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage >= totalPages}
+                className="rounded-xl h-8 text-[10px] font-bold border-slate-200"
+              >
+                Next
+                <ChevronRight className="h-3 w-3 ml-1" />
+              </Button>
+            </div>
+          </div>
         </CardContent>
       </Card>
     </Layout>

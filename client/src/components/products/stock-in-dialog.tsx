@@ -31,8 +31,9 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { PlusCircle, Loader2, Package } from "lucide-react";
+import { PlusCircle, Loader2, Package, Plus } from "lucide-react";
 import { useState } from "react";
+import { CreateSupplierDialog } from "@/components/suppliers/create-supplier-dialog";
 
 const stockInSchema = z.object({
     productId: z.number(),
@@ -55,7 +56,7 @@ export function StockInDialog({ product, companyId }: { product: Product, compan
         defaultValues: {
             productId: product.id,
             quantity: "" as any,
-            unitCost: (product.unitCost?.toString() || "") as any,
+            unitCost: (product.costPrice?.toString() || "") as any,
             supplierId: "" as any,
             notes: "",
         },
@@ -126,7 +127,23 @@ export function StockInDialog({ product, companyId }: { product: Product, compan
                             name="supplierId"
                             render={({ field }) => (
                                 <FormItem>
-                                    <FormLabel className="text-slate-700 font-semibold">Supplier (Optional)</FormLabel>
+                                    <div className="flex items-center justify-between">
+                                        <FormLabel className="text-slate-700 font-semibold">Supplier (Optional)</FormLabel>
+                                        <CreateSupplierDialog 
+                                            companyId={companyId} 
+                                            onSuccess={(s) => form.setValue("supplierId", s.id)}
+                                        >
+                                            <Button 
+                                                type="button" 
+                                                variant="ghost" 
+                                                size="sm" 
+                                                className="h-7 px-2 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg gap-1.5"
+                                            >
+                                                <Plus className="w-3.5 h-3.5" />
+                                                <span className="text-[11px] font-bold uppercase tracking-tight">New Supplier</span>
+                                            </Button>
+                                        </CreateSupplierDialog>
+                                    </div>
                                     <Select
                                         onValueChange={field.onChange}
                                         value={field.value?.toString() || ""}

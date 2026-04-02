@@ -50,10 +50,10 @@ export function POSReceipt({ invoice, company, customer, items, paperSize: paper
                     <span>Date:</span>
                     <span>{new Date(invoice.issueDate).toLocaleString()}</span>
                 </div>
-                {customer && (
+                {customer && !["walk-in", "walk in", "guest"].some(s => customer.name.toLowerCase().includes(s)) && (
                     <div className="flex justify-between">
                         <span>Customer:</span>
-                        <span className="truncate max-w-[120px]">{customer.name}</span>
+                        <span className="break-words max-w-[120px]">{customer.name}</span>
                     </div>
                 )}
                 <div className="flex justify-between">
@@ -88,7 +88,7 @@ export function POSReceipt({ invoice, company, customer, items, paperSize: paper
                 </div>
                 {receiptItems.map((item: any, idx: number) => (
                     <div key={idx} className="flex mb-1">
-                        <span className="flex-[2] truncate">{item.description || item.name}</span>
+                        <span className="flex-[2] break-words">{item.description || item.name}</span>
                         <span className="w-8 text-center">{Number(item.quantity).toFixed(0)}</span>
                         <span className="w-12 text-right">{Number(item.unitPrice || item.price).toFixed(2)}</span>
                         <span className="w-12 text-right">{Number(item.lineTotal || (Number(item.price) * Number(item.quantity))).toFixed(2)}</span>
@@ -201,7 +201,7 @@ export function POSReceipt({ invoice, company, customer, items, paperSize: paper
                         top: 0 !important;
                         transform: none !important;
                         width: ${receiptWidth} !important;
-                        padding: 4mm 4mm 1mm 4mm !important;
+                        padding: 4mm 8mm 0mm 8mm !important;
                         margin: ${isA4 ? '0 auto' : '0'} !important;
                         box-sizing: border-box;
                         background: white;

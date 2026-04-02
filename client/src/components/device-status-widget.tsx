@@ -71,7 +71,7 @@ export function DeviceStatusWidget({ companyId }: { companyId: number }) {
                         ${state === 'online' ? 'bg-emerald-50 border-emerald-100 hover:bg-emerald-100' : ''}
                         ${state === 'warning' ? 'bg-amber-50 border-amber-100 hover:bg-amber-100' : ''}
                         ${state === 'offline' ? 'bg-slate-50 border-slate-100 hover:bg-slate-100' : ''}
-                        ${state === 'error' ? 'bg-red-50 border-red-100 animate-pulse hover:bg-red-100 shadow-[0_0_10px_rgba(239,68,68,0.2)]' : ''}
+                        ${state === 'error' ? 'bg-red-50 border-red-100 hover:bg-red-100 shadow-[0_0_10px_rgba(239,68,68,0.2)]' : ''}
                     `}>
                             <div className={`w-2 h-2 rounded-full ${state === 'online' ? 'bg-emerald-500 animate-pulse' :
                                     state === 'warning' ? 'bg-amber-500' : 

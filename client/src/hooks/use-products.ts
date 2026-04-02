@@ -5,9 +5,9 @@ import { apiFetch } from "@/lib/api";
 import { cacheProducts, getCachedProducts, setLastCacheTime } from "@/lib/offline-db";
 import { getIsOnline } from "@/lib/online-state";
 
-export function useProducts(companyId: number) {
+export function useProducts(companyId: number, branchId?: number) {
   return useQuery({
-    queryKey: [api.products.list.path, companyId],
+    queryKey: [api.products.list.path, companyId, branchId],
     queryFn: async () => {
       // Always try cache first when offline
       if (!getIsOnline()) {
@@ -18,7 +18,8 @@ export function useProducts(companyId: number) {
       // Online path — try API, fall back to cache on any failure or 401
       try {
         const url = buildUrl(api.products.list.path, { companyId });
-        const res = await apiFetch(url);
+        const finalUrl = branchId ? `${url}?branchId=${branchId}` : url;
+        const res = await apiFetch(finalUrl);
         if (res.status === 401) {
           console.warn('[useProducts] 401 — using cached products');
           const cached = await getCachedProducts(companyId);
@@ -27,7 +28,7 @@ export function useProducts(companyId: number) {
         }
         if (!res.ok) throw new Error(`Failed to fetch products: ${res.status}`);
         const products = api.products.list.responses[200].parse(await res.json());
-        if (companyId) {
+        if (companyId && !branchId) { // Only cache global list for now to simplify
           await cacheProducts(companyId, products);
           await setLastCacheTime(companyId, Date.now());
         }
@@ -66,7 +67,7 @@ export function useCreateProduct(companyId: number) {
 export function useUpdateProduct() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: Partial<InsertProduct> }) => {
+    mutationFn: async ({ id, data, companyId }: { id: number; data: Partial<InsertProduct>; companyId?: number }) => {
       const url = buildUrl(api.products.update.path, { id });
       const res = await apiFetch(url, {
         method: "PATCH",
@@ -75,10 +76,56 @@ export function useUpdateProduct() {
       if (!res.ok) throw new Error("Failed to update product");
       return await res.json();
     },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: [api.products.list.path, variables.companyId] });
+    },
+  });
+}
+
+export function useAdjustPrice(companyId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: { newPrice: number | string; reason?: string; effectiveFrom?: string } }) => {
+      const url = buildUrl(api.products.adjustPrice.path, { id });
+      const res = await apiFetch(url, {
+        method: "POST",
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error("Failed to adjust price");
+      return await res.json();
+    },
     onSuccess: () => {
-      // Invalidate all product lists
-      // Note: better to invalidate specific company list if we had the ID, but this works
-      queryClient.invalidateQueries({ queryKey: [api.products.list.path] });
+      queryClient.invalidateQueries({ queryKey: [api.products.list.path, companyId] });
+    },
+  });
+}
+
+export function usePriceHistory(productId: number | undefined) {
+  return useQuery({
+    queryKey: [api.products.priceHistory.path, productId],
+    queryFn: async () => {
+      const url = buildUrl(api.products.priceHistory.path, { id: productId });
+      const res = await apiFetch(url);
+      if (!res.ok) throw new Error("Failed to fetch price history");
+      return await res.json();
+    },
+    enabled: !!productId,
+  });
+}
+
+export function useBulkConvertProducts(companyId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (ids: number[]) => {
+      const res = await apiFetch(`/api/companies/${companyId}/products/bulk-convert`, {
+        method: "POST",
+        body: JSON.stringify({ ids }),
+      });
+      if (!res.ok) throw new Error("Failed to convert items");
+      return await res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [api.products.list.path, companyId] });
     },
   });
 }

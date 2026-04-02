@@ -34,6 +34,8 @@ import { EmailInvoiceDialog } from "@/components/invoices/email-invoice-dialog";
 import { PaymentReceipt } from "@/components/invoices/payment-receipt";
 import { ValidationErrorsDisplay } from "@/components/invoices/validation-errors-display";
 import { useTaxConfig } from "@/hooks/use-tax-config";
+import { useActiveCompany } from "@/hooks/use-active-company";
+import { useBranchContext } from "@/lib/branch-context";
 import { pdf } from "@react-pdf/renderer";
 
 // ── Preview panel (used by invoice-details split view) ──────────────────────
@@ -225,10 +227,12 @@ export function InvoicePreviewPanel({ invoiceId, onClose }: { invoiceId: number;
 export default function InvoicesPage() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
-  const selectedCompanyId = parseInt(localStorage.getItem("selectedCompanyId") || "0");
+  const { activeCompanyId } = useActiveCompany();
+  const { selectedBranchId } = useBranchContext();
+  const selectedCompanyId = activeCompanyId || 0;
 
   const [page, setPage] = useState(1);
-  const pageSize = 20;
+  const [pageSize, setPageSize] = useState(20);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
@@ -239,6 +243,7 @@ export default function InvoicesPage() {
     search: searchTerm || undefined,
     status: statusFilter, type: typeFilter,
     dateFrom: dateRange?.from, dateTo: dateRange?.to,
+    branchId: selectedBranchId || undefined,
   });
 
   const { data: currencies } = useCurrencies(selectedCompanyId);
@@ -528,14 +533,35 @@ export default function InvoicesPage() {
 
           {/* Pagination */}
           {!isLoading && invoices && invoices.length > 0 && (
-            <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100">
-              <span className="text-sm text-slate-500">
-                Showing {((page - 1) * pageSize) + 1}–{Math.min(page * pageSize, totalInvoices)} of {totalInvoices} invoices
-              </span>
+            <div className="flex flex-col sm:flex-row items-center justify-between px-6 py-4 border-t border-slate-100 gap-4">
               <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" className="h-9 px-4 rounded-xl" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1 || isLoading}>Previous</Button>
-                <span className="text-sm font-bold text-slate-500 px-2">{page} / {totalPages || 1}</span>
-                <Button variant="outline" size="sm" className="h-9 px-4 rounded-xl" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages || isLoading}>Next</Button>
+                <span className="text-xs font-medium text-slate-500">Items per page</span>
+                <Select 
+                  value={pageSize.toString()} 
+                  onValueChange={(v) => {
+                    setPageSize(parseInt(v));
+                    setPage(1);
+                  }}
+                >
+                  <SelectTrigger className="w-[75px] h-8 text-xs bg-white rounded-lg border-slate-200 font-bold">
+                    <SelectValue placeholder="20" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="10">10</SelectItem>
+                    <SelectItem value="20">20</SelectItem>
+                    <SelectItem value="50">50</SelectItem>
+                    <SelectItem value="100">100</SelectItem>
+                  </SelectContent>
+                </Select>
+                <span className="text-[11px] font-bold text-slate-400 ml-2 uppercase tracking-widest leading-none">
+                  Showing {((page - 1) * pageSize) + 1}–{Math.min(page * pageSize, totalInvoices)} of {totalInvoices}
+                </span>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" className="h-8 px-3 rounded-lg text-xs font-bold shadow-sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1 || isLoading}>Prev</Button>
+                <span className="text-xs font-black text-slate-500 px-3 py-1 bg-slate-50 rounded-md ring-1 ring-slate-100">{page} / {totalPages || 1}</span>
+                <Button variant="outline" size="sm" className="h-8 px-3 rounded-lg text-xs font-bold shadow-sm" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages || isLoading}>Next</Button>
               </div>
             </div>
           )}

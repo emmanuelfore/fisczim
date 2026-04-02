@@ -200,6 +200,7 @@ export interface IStorage {
   getPosHolds(companyId: number, userId: string, branchId?: number): Promise<PosHold[]>;
   createPosHold(data: InsertPosHold): Promise<PosHold>;
   deletePosHold(id: number, userId: string): Promise<void>;
+  bulkConvertServicesToProducts(companyId: number, productIds: number[]): Promise<void>;
   getPosShifts(companyId: number, userId: string, branchId?: number): Promise<PosShift[]>;
   getActivePosShift(companyId: number, userId: string, branchId?: number): Promise<PosShift | undefined>;
   getPosSales(companyId: number, startDate: Date, endDate: Date, cashierId?: string, paymentMethod?: string, status?: string, search?: string, branchId?: number): Promise<any[]>;
@@ -309,6 +310,13 @@ export interface IStorage {
   getBranchStock(branchId: number, productId: number): Promise<BranchStock | undefined>;
   updateBranchStock(branchId: number, productId: number, stockLevel: string): Promise<void>;
   getBranchStocks(branchId: number): Promise<(BranchStock & { product: Product })[]>;
+
+  // Price Adjustments
+  recordPriceAdjustment(data: InsertPriceAdjustment): Promise<PriceAdjustment>;
+  getPriceHistory(productId: number, variationId?: number): Promise<(PriceAdjustment & { user?: { username: string } })[]>;
+
+  // Combined Inventory Adjustments
+  adjustInventory(companyId: number, data: { productId: number, branchId?: number, quantity: string | number, type: string, notes?: string, userId: string }): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -630,7 +638,22 @@ export class DatabaseStorage implements IStorage {
         .where(eq(productCategories.companyId, companyId));
     });
   }
-  
+
+  async bulkConvertServicesToProducts(companyId: number, productIds: number[]): Promise<void> {
+
+    if (productIds.length === 0) return;
+    
+    await db.update(products)
+      .set({ 
+        productType: 'good',
+        isTracked: true 
+      })
+      .where(and(
+        eq(products.companyId, companyId),
+        inArray(products.id, productIds)
+      ));
+  }
+
   async getProductsForExport(companyId: number): Promise<any[]> {
     return await db
       .select({
@@ -660,7 +683,9 @@ export class DatabaseStorage implements IStorage {
 
   async getInvoices(companyId: number, branchId?: number): Promise<(Invoice & { customer?: Customer })[]> {
     const filters = [eq(invoices.companyId, companyId)];
-    if (branchId) filters.push(eq(invoices.branchId, branchId));
+    if (branchId) {
+      filters.push(or(eq(invoices.branchId, branchId), isNull(invoices.branchId)));
+    }
 
     const rows = await db
       .select({
@@ -695,7 +720,7 @@ export class DatabaseStorage implements IStorage {
     const filters = [eq(invoices.companyId, companyId)];
 
     if (branchId) {
-      filters.push(eq(invoices.branchId, branchId));
+      filters.push(or(eq(invoices.branchId, branchId), isNull(invoices.branchId)));
     }
 
     // Add POS filter if specified
@@ -2906,15 +2931,75 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Inventory Transactions
-  async getInventoryTransactions(companyId: number, productId?: number): Promise<InventoryTransaction[]> {
+  async getInventoryTransactions(companyId: number, productId?: number): Promise<any[]> {
     const filters = [eq(inventoryTransactions.companyId, companyId)];
     if (productId) filters.push(eq(inventoryTransactions.productId, productId));
-    return await db.select().from(inventoryTransactions).where(and(...filters)).orderBy(desc(inventoryTransactions.createdAt));
+    
+    return await db
+      .select({
+        id: inventoryTransactions.id,
+        companyId: inventoryTransactions.companyId,
+        branchId: inventoryTransactions.branchId,
+        productId: inventoryTransactions.productId,
+        variationId: inventoryTransactions.variationId,
+        supplierId: inventoryTransactions.supplierId,
+        type: inventoryTransactions.type,
+        quantity: inventoryTransactions.quantity,
+        unitCost: inventoryTransactions.unitCost,
+        totalCost: inventoryTransactions.totalCost,
+        referenceId: inventoryTransactions.referenceId,
+        referenceType: inventoryTransactions.referenceType,
+        notes: inventoryTransactions.notes,
+        remainingQuantity: inventoryTransactions.remainingQuantity,
+        batchNumber: inventoryTransactions.batchNumber,
+        expiryDate: inventoryTransactions.expiryDate,
+        createdBy: inventoryTransactions.createdBy,
+        createdAt: inventoryTransactions.createdAt,
+        userName: users.username
+      })
+      .from(inventoryTransactions)
+      .leftJoin(users, eq(users.id, inventoryTransactions.createdBy))
+      .where(and(...filters))
+      .orderBy(desc(inventoryTransactions.createdAt));
   }
 
   async createInventoryTransaction(data: InsertInventoryTransaction & { companyId: number }): Promise<InventoryTransaction> {
     const [transaction] = await db.insert(inventoryTransactions).values(data).returning();
     return transaction;
+  }
+
+  // Price Adjustments
+  async recordPriceAdjustment(data: InsertPriceAdjustment): Promise<PriceAdjustment> {
+    const [adjustment] = await db.insert(priceAdjustments).values(data).returning();
+    return adjustment;
+  }
+
+  async getPriceHistory(productId: number, variationId?: number): Promise<(PriceAdjustment & { user?: { username: string } })[]> {
+    const filters = [eq(priceAdjustments.productId, productId)];
+    if (variationId) filters.push(eq(priceAdjustments.variationId, variationId));
+
+    const result = await db
+      .select({
+        adjustment: priceAdjustments,
+        username: users.username
+      })
+      .from(priceAdjustments)
+      .leftJoin(users, eq(priceAdjustments.createdBy, users.id))
+      .where(and(...filters))
+      .orderBy(desc(priceAdjustments.createdAt));
+
+    return result.map(r => ({
+      ...r.adjustment,
+      user: r.username ? { username: r.username } : undefined
+    }));
+  }
+
+  async adjustInventory(companyId: number, data: { productId: number, variationId?: number, branchId?: number, quantity: string | number, type: string, notes?: string, userId: string }): Promise<void> {
+    const { recordAdjustment } = await import("./lib/inventory.js");
+    await recordAdjustment(companyId, {
+      ...data,
+      quantity: Number(data.quantity)
+    });
   }
 
   // Expenses

@@ -95,7 +95,7 @@ export function Receipt48({ id = "receipt-48", invoice, company, customer, items
             </div>
 
             {/* [10] Buyer Info */}
-            {customer && (
+            {customer && !["walk-in", "walk in", "guest"].some(s => customer.name.toLowerCase().includes(s)) && (
                 <div className="mb-2 pb-2 border-b border-dashed border-black">
                     <p className="font-bold">Buyer:</p>
                     <p>{customer.name}</p> {/* [11] */}
@@ -217,7 +217,7 @@ export function Receipt48({ id = "receipt-48", invoice, company, customer, items
             </div>
 
             {invoice.qrCodeData && (
-                <div className="flex flex-col items-center gap-1 mb-2">
+                <div className="flex flex-col items-center gap-1 mb-0">
                     <QRCodeSVG value={invoice.qrCodeData} size={100} level="M" />
                     {invoice.verificationCode && (
                         <div className="text-center mt-1">
@@ -247,7 +247,7 @@ export function Receipt48({ id = "receipt-48", invoice, company, customer, items
                         width: ${receiptWidth} !important;
                         max-width: ${receiptWidth} !important;
                         margin: ${isA4 ? '0 auto' : '0'} !important;
-                        padding: 4mm 4mm 1mm 4mm !important;
+                        padding: 4mm 8mm 0mm 8mm !important;
                         box-sizing: border-box;
                         background: white;
                         overflow: visible !important;

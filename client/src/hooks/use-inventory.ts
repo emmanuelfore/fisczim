@@ -1,4 +1,3 @@
-
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, buildUrl } from "@shared/routes";
 import { type InventoryTransaction } from "@shared/schema";
@@ -69,6 +68,34 @@ export function useBatchStockIn(companyId: number) {
             queryClient.invalidateQueries({ queryKey: [api.inventory.transactions.path, companyId] });
             queryClient.invalidateQueries({ queryKey: [api.products.list.path, companyId] });
             queryClient.invalidateQueries({ queryKey: [api.reports.stockValuation.path, companyId] });
+        },
+    });
+}
+
+export function useInventoryAdjust(companyId: number) {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (data: {
+            productId: number;
+            type: "SHRINKAGE" | "ADJUSTMENT" | "CORRECTION" | "DAMAGE" | "EXPIRY";
+            quantity: number | string;
+            branchId?: number;
+            notes?: string;
+        }) => {
+            const url = buildUrl(api.inventory.adjust.path, { companyId });
+            const res = await apiFetch(url, {
+                method: "POST",
+                body: JSON.stringify(data),
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.message || "Failed to adjust stock");
+            }
+            return await res.json();
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: [api.inventory.transactions.path, companyId] });
+            queryClient.invalidateQueries({ queryKey: [api.products.list.path, companyId] });
         },
     });
 }

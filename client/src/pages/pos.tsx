@@ -192,6 +192,7 @@ export default function POSPage() {
     const [paidAmount, setPaidAmount] = useState<string>("");
     const [splitPayments, setSplitPayments] = useState<Array<{ method: string, amount: number }>>([]);
     const [selectedCurrencyCode, setSelectedCurrencyCode] = useState<string>("USD");
+    const [isFiscalized, setIsFiscalized] = useState(true);
 
     // UX: Pinned Products
     const [pinnedProducts, setPinnedProducts] = useState<number[]>(() => {
@@ -315,7 +316,7 @@ export default function POSPage() {
 
     // Manager Override State
     const [pendingOverride, setPendingOverride] = useState<{
-        type: "DISCOUNT" | "VOID_CART" | "REMOVE_ITEM" | "PRICE_CHANGE" | "OPEN_DRAWER",
+        type: "DISCOUNT" | "VOID_CART" | "REMOVE_ITEM" | "PRICE_CHANGE" | "OPEN_DRAWER" | "TOGGLE_FISCAL",
         data: any
     } | null>(null);
 
@@ -443,18 +444,21 @@ export default function POSPage() {
 
     // Handlers
     const addToCart = (product: any) => {
+        const settings = company?.posSettings as any;
+        const allowOutOfStock = settings?.allowOutOfStockSales ?? false;
+
         // Strict Stock Check
-        if (product && product.isTracked) {
-            const inCart = cart.find(item => item.productId === product.id)?.quantity || 0;
-            if (inCart >= Number(product.stockLevel || 0)) {
-                toast({
-                    title: "Out of Stock",
-                    description: `Only ${product.stockLevel || 0} units available for ${product.name}`,
-                    variant: "destructive"
-                });
-                return;
-            }
-        }
+        // if (product && product.isTracked && !allowOutOfStock) {
+        //     const inCart = cart.find(item => item.productId === product.id)?.quantity || 0;
+        //     if (inCart >= Number(product.stockLevel || 0)) {
+        //         toast({
+        //             title: "Out of Stock",
+        //             description: `Only ${product.stockLevel || 0} units available for ${product.name}`,
+        //             variant: "destructive"
+        //         });
+        //         return;
+        //     }
+        // }
 
         setCart(prev => {
             const existing = prev.find(item => item.productId === product.id);
@@ -484,8 +488,11 @@ export default function POSPage() {
     };
 
     const addWeightedToCart = (product: any, quantity: number) => {
+        const settings = company?.posSettings as any;
+        const allowOutOfStock = settings?.allowOutOfStockSales ?? false;
+
         // Strict Stock Check
-        if (product && product.isTracked) {
+        if (product && product.isTracked && !allowOutOfStock) {
             const inCart = cart.find(item => item.productId === product.id)?.quantity || 0;
             const newTotal = inCart + quantity;
             if (newTotal > Number(product.stockLevel || 0)) {
@@ -657,7 +664,7 @@ export default function POSPage() {
             const trimmed = barcode.trim();
             if (!trimmed) return;
             const found = resolvedProducts?.find((p: any) => p.barcode === trimmed || p.sku === trimmed);
-            
+
             // ── Configurable Variable Weight Barcode Handling ──
             const weightRulesE: any[] = posSettingsRef.current.variableWeightBarcodeRules || [];
             const matchedRuleE = weightRulesE.find(
@@ -718,7 +725,8 @@ export default function POSPage() {
                 if (newQty < 1) return item;
 
                 // Stock Validation
-                if (product?.isTracked && newQty > Number(product.stockLevel)) {
+                const allowOutOfStock = (company?.posSettings as any)?.allowOutOfStockSales ?? false;
+                if (product?.isTracked && !allowOutOfStock && newQty > Number(product.stockLevel)) {
                     toast({
                         title: "Limit Reached",
                         description: `Maximum stock for ${product.name} is ${product.stockLevel}`,
@@ -883,7 +891,7 @@ export default function POSPage() {
                     setIsShiftModalOpen(false);
                     setShiftBalance("");
                     fetchShift();
-                    
+
                     // Automatically show the Z-report
                     handleLoadReport('z');
                     return;
@@ -975,6 +983,7 @@ export default function POSPage() {
                 splitPayments: splitPayments.length > 0 ? splitPayments : undefined,
                 status: "issued",
                 isPos: true,
+                isFiscalized: isFiscalized,
                 createdBy: user?.id,
                 discountAmount: orderDiscount.toString(),
                 transactionType: "FiscalInvoice",
@@ -1068,6 +1077,7 @@ export default function POSPage() {
                         splitPayments: splitPayments.length > 0 ? splitPayments : undefined,
                         status: "issued",
                         isPos: true,
+                        isFiscalized: isFiscalized,
                         createdBy: user?.id,
                         discountAmount: orderDiscount.toString(),
                         transactionType: "FiscalInvoice",
@@ -1598,6 +1608,9 @@ export default function POSPage() {
         } else if (pendingOverride.type === "OPEN_DRAWER") {
             toast({ title: "Drawer Opened", description: `Approved by ${manager.name}` });
             // triggerOpenDrawer();
+        } else if (pendingOverride.type === "TOGGLE_FISCAL") {
+            setIsFiscalized(prev => !prev);
+            toast({ title: "Fiscal Mode Updated", description: `Authorized by ${manager.name}` });
         }
         setPendingOverride(null);
     };
@@ -1658,7 +1671,7 @@ export default function POSPage() {
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-center justify-between gap-2">
                                             <h4 className="text-[11px] font-black text-slate-800 truncate leading-none">{item.name}</h4>
-                                            <button 
+                                            <button
                                                 className="text-[11px] font-black text-slate-900 shrink-0 hover:text-primary transition-colors hover:underline"
                                                 title="Click to set target total"
                                                 onClick={() => {
@@ -1703,7 +1716,7 @@ export default function POSPage() {
                                             >
                                                 <Minus className="h-3.5 w-3.5 text-slate-600" />
                                             </Button>
-                                            <button 
+                                            <button
                                                 className="text-xs font-black w-10 text-center text-slate-700 hover:text-primary transition-colors hover:underline px-1"
                                                 title="Click to set exact quantity"
                                                 onClick={() => {
@@ -2182,7 +2195,7 @@ export default function POSPage() {
                                 </div>
                             </div>
 
-                             {/* Global Currency Switcher - Hyper Compact */}
+                            {/* Global Currency Switcher - Hyper Compact */}
                             <div className="flex bg-slate-100/60 p-0.5 rounded-lg shrink-0 border border-slate-200/30">
                                 {['USD', 'ZWG'].map(cc => (
                                     <button
@@ -2295,6 +2308,28 @@ export default function POSPage() {
 
                             {/* Quick Action Pills - Compact */}
                             <div className="flex items-center gap-1">
+                                <button
+                                    onClick={() => {
+                                        if (isCashier) {
+                                            setPendingOverride({ type: "TOGGLE_FISCAL", data: null });
+                                        } else {
+                                            setIsFiscalized(prev => !prev);
+                                            toast({ title: isFiscalized ? "Fiscal OFF" : "Fiscal ON", description: isFiscalized ? "Invoices will not be fiscalized" : "Invoices will be fiscalized" });
+                                        }
+                                    }}
+                                    title={isCashier ? "Manager PIN required to toggle fiscal mode" : "Toggle fiscal mode"}
+                                    className={cn(
+                                        "h-8 px-2 min-[1232px]:px-3 gap-1 min-[1232px]:gap-1.5 rounded-lg border transition-all font-bold flex items-center text-[10px]",
+                                        isFiscalized
+                                            ? "bg-emerald-50 border-emerald-200/50 text-emerald-700 hover:bg-emerald-100"
+                                            : "bg-slate-50 border-slate-200/40 text-slate-400 hover:bg-slate-100"
+                                    )}
+                                >
+                                    <div className={cn("w-2 h-2 rounded-full shrink-0", isFiscalized ? "bg-emerald-500" : "bg-slate-300")} />
+                                    <span className="hidden min-[1232px]:inline">Fiscal</span>
+                                    {isCashier && <Pin className="h-2.5 w-2.5 opacity-50 ml-1" />}
+                                </button>
+
                                 <Button
                                     variant="outline"
                                     className="h-8 px-2 min-[1232px]:px-3 gap-1 min-[1232px]:gap-1.5 border-slate-200/40 rounded-lg hover:bg-slate-50 transition-all font-bold group bg-white/50"
@@ -2312,9 +2347,9 @@ export default function POSPage() {
                                     </Badge>
                                 </Button>
 
-                                <div className="h-6 w-px bg-slate-200 mx-0.5 hidden min-[1232px]:block" />
-                                <BranchPickerModal 
-                                    companyId={companyId} 
+                                {/* <div className="h-6 w-px bg-slate-200 mx-0.5 hidden min-[1232px]:block" />
+                                <BranchPickerModal
+                                    companyId={companyId}
                                     selectedBranchId={selectedBranchId}
                                     onSelect={(id) => setSelectedBranchId(id)}
                                     trigger={
@@ -2325,8 +2360,8 @@ export default function POSPage() {
                                             </span>
                                         </Button>
                                     }
-                                />
-                                <div className="h-6 w-px bg-slate-200 mx-0.5 hidden min-[1232px]:block" />
+                                /> */}
+                                {/* <div className="h-6 w-px bg-slate-200 mx-0.5 hidden min-[1232px]:block" />
                                 <DeviceStatusWidget companyId={companyId} />
                                 <div className="h-6 w-px bg-slate-200 mx-0.5 hidden min-[1232px]:block" />
 
@@ -2364,7 +2399,7 @@ export default function POSPage() {
                                             <CheckCircle2 className="h-4 w-4" />
                                         </Button>
                                     )}
-                                </div>
+                                </div> */}
 
                                 {/* Fullscreen Toggle (Desktop Only) */}
                                 <Button
@@ -2718,1016 +2753,1000 @@ export default function POSPage() {
                     </button>
                 </div>
 
-            {/* Modals & Dialogs */}
-            <div className="pos-modals">
-                {/* Elite Single-Box Checkout - "Square" Inspired Design */}
-                <Dialog open={isCheckoutOpen} onOpenChange={setIsCheckoutOpen}>
-                    <DialogContent className="max-w-[95vw] md:max-w-[420px] max-h-[95vh] p-0 overflow-hidden border-none rounded-[2rem] md:rounded-[2.5rem] shadow-2xl bg-white flex flex-col">
-                        <DialogHeader className="sr-only">
-                            <DialogTitle>Checkout</DialogTitle>
-                            <DialogDescription>Complete payment</DialogDescription>
-                        </DialogHeader>
+                {/* Modals & Dialogs */}
+                <div className="pos-modals">
+                    {/* Elite Single-Box Checkout - "Square" Inspired Design */}
+                    <Dialog open={isCheckoutOpen} onOpenChange={setIsCheckoutOpen}>
+                        <DialogContent className="max-w-[95vw] md:max-w-[420px] max-h-[95vh] p-0 overflow-hidden border-none rounded-[2rem] md:rounded-[2.5rem] shadow-2xl bg-white flex flex-col">
+                            <DialogHeader className="sr-only">
+                                <DialogTitle>Checkout</DialogTitle>
+                                <DialogDescription>Complete payment</DialogDescription>
+                            </DialogHeader>
 
-                        <div className="p-3 sm:p-4 md:p-6 flex flex-col gap-2 sm:gap-3 md:gap-4 overflow-y-auto no-scrollbar h-full">
-                            {/* Header: Amount Focus */}
-                            <div className="space-y-2 sm:space-y-4 text-center">
-                                <div className="space-y-0.5 sm:space-y-1">
-                                    <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Total Due</span>
-                                    <div className="flex items-center justify-center gap-2">
-                                        <h2 className="text-2xl sm:text-3xl font-black text-slate-900 leading-none tracking-tight">{fmt(total)}</h2>
-                                        <Badge variant="outline" className="text-[8px] bg-slate-50 border-slate-200 text-slate-500 font-black h-5 uppercase tracking-tighter">
-                                            {selectedCurrencyCode}
-                                        </Badge>
-                                    </div>
-                                </div>
- 
-                                <div className="relative group max-w-[240px] sm:max-w-[280px] mx-auto py-0 sm:py-1">
-                                    <div className="absolute inset-0 bg-primary/5 rounded-2xl blur-xl opacity-0 group-focus-within:opacity-100 transition-opacity" />
-                                    <div className="relative">
-                                        <span className="absolute left-0 top-1/2 -translate-y-1/2 text-xl sm:text-2xl font-black text-slate-200 group-focus-within:text-primary transition-colors">$</span>
-                                        <Input
-                                            id="checkout-paid-amount"
-                                            type="number"
-                                            placeholder="Enter payment"
-                                            value={paidAmount}
-                                            onChange={(e) => setPaidAmount(e.target.value)}
-                                            className="h-10 sm:h-12 pl-8 pr-8 text-2xl sm:text-3xl font-black bg-transparent border-none text-slate-900 text-center shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-slate-100"
-                                        />
-                                        {paidAmount && (
-                                            <button onClick={() => setPaidAmount("")} className="absolute right-0 top-1/2 -translate-y-1/2 text-slate-200 hover:text-red-500 transition-colors">
-                                                <XCircle className="w-5 h-5 sm:w-6 h-6" />
-                                            </button>
-                                        )}
-                                    </div>
-                                    <div className="h-0.5 w-full bg-slate-100 group-focus-within:bg-primary transition-colors duration-500 mt-0.5" />
-                                </div>
-                            </div>
- 
-                            {/* NEW: Cart preview in checkout */}
-                            <div className="bg-slate-50/50 rounded-2xl p-3 border border-slate-100/50">
-                                <div className="max-h-[100px] overflow-y-auto space-y-1 pr-1 scrollbar-thin scrollbar-thumb-slate-200">
-                                    {cart.map(item => (
-                                        <div key={item.productId} className="flex justify-between items-center text-[10px] font-bold">
-                                            <span className="text-slate-500 truncate max-w-[180px]">{item.quantity}x {item.name}</span>
-                                            <span className="text-slate-900">${(item.price * item.quantity).toFixed(2)}</span>
+                            <div className="p-3 sm:p-4 md:p-6 flex flex-col gap-2 sm:gap-3 md:gap-4 overflow-y-auto no-scrollbar h-full">
+                                {/* Header: Amount Focus */}
+                                <div className="space-y-2 sm:space-y-4 text-center">
+                                    <div className="space-y-0.5 sm:space-y-1">
+                                        <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Total Due</span>
+                                        <div className="flex items-center justify-center gap-2">
+                                            <h2 className="text-2xl sm:text-3xl font-black text-slate-900 leading-none tracking-tight">{fmt(total)}</h2>
+                                            <Badge variant="outline" className="text-[8px] bg-slate-50 border-slate-200 text-slate-500 font-black h-5 uppercase tracking-tighter">
+                                                {selectedCurrencyCode}
+                                            </Badge>
                                         </div>
-                                    ))}
-                                </div>
-                                <div className="mt-2 pt-2 border-t border-slate-200 flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-slate-400">
-                                    <span>Subtotal</span>
-                                    <span>{fmt(total)}</span>
-                                </div>
-                            </div>
- 
-                            {/* Main Interactive: Large Pro Numpad */}
-                            <div className="flex flex-col items-center justify-center scale-90 sm:scale-95 py-0">
-                                <Numpad value={paidAmount} onChange={setPaidAmount} />
-                            </div>
- 
-                            {/* Payment Method Strip */}
-                            <div className="space-y-3 sm:space-y-6">
-                                <div className="flex gap-2 items-center overflow-x-auto no-scrollbar py-1 px-1">
-                                    {[
-                                        { id: 'CASH', icon: Banknote, label: 'Cash' },
-                                        { id: 'CARD', icon: CreditCard, label: 'Card' },
-                                        { id: 'ECOCASH', icon: ShoppingBag, label: 'EcoCash' },
-                                        { id: 'usd', icon: Banknote, label: 'USD' },
-                                        { id: 'zig', icon: Banknote, label: 'ZiG' }
-                                    ].filter(m => {
-                                        const allowed = (company?.posSettings as any)?.allowedPaymentMethods;
-                                        return !allowed || allowed.length === 0 || allowed.includes(m.id);
-                                    }).map(method => (
-                                        <Button
-                                            key={method.id}
-                                            variant={paymentMethod === method.id ? 'default' : 'outline'}
-                                            className={cn(
-                                                "h-9 sm:h-10 px-4 sm:px-6 rounded-xl sm:rounded-2xl flex items-center gap-2 sm:gap-3 font-black uppercase text-[9px] sm:text-[10px] transition-all border-none shrink-0 shadow-sm",
-                                                paymentMethod === method.id
-                                                    ? "bg-slate-900 text-white shadow-lg scale-100"
-                                                    : "bg-slate-50 text-slate-400 hover:bg-slate-100"
-                                            )}
-                                            onClick={() => setPaymentMethod(method.id as any)}
-                                        >
-                                            <method.icon className={cn("h-3.5 w-3.5 sm:h-4 w-4", paymentMethod === method.id ? "text-primary" : "text-slate-300")} />
-                                            {method.label}
-                                        </Button>
-                                    ))}
-                                </div>
- 
-                                {/* Results & Finish Block */}
-                                <div className="space-y-2 sm:space-y-4">
-                                    {((parseFloat(paidAmount || "0") > 0) || splitPayments.length > 0) && (
-                                        <div className="flex items-center justify-between px-4 sm:px-6 py-2 sm:py-3 bg-emerald-50 rounded-2xl sm:rounded-3xl border border-emerald-100 animate-in zoom-in-95">
-                                            <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-emerald-600">Change Due</span>
-                                            <div className="flex items-center gap-2 sm:gap-3">
-                                                <h3 className="text-xl sm:text-2xl font-black text-emerald-700">
-                                                    {(() => {
-                                                        const sumParams = splitPayments.reduce((a, b) => a + b.amount, 0) + parseFloat(paidAmount || "0");
-                                                        const req = total * Number(currencies?.find(c => c.code === selectedCurrencyCode)?.exchangeRate || 1);
-                                                        const change = Math.max(0, sumParams - req);
-                                                        return `+ ${fmt(change)}`;
-                                                    })()}
-                                                </h3>
-                                                <Banknote className="h-5 w-5 sm:h-6 w-6 text-emerald-500 opacity-30" />
-                                            </div>
-                                        </div>
-                                    )}
- 
-                                    <div className="flex gap-2 sm:gap-4">
-                                        <Button
-                                            variant="ghost"
-                                            className="h-10 sm:h-12 px-4 sm:px-8 rounded-xl sm:rounded-2xl font-black uppercase text-[9px] sm:text-[10px] text-slate-400 hover:text-red-500"
-                                            onClick={() => setIsCheckoutOpen(false)}
-                                        >
-                                            Cancel
-                                        </Button>
-                                        <Button
-                                            disabled={isProcessing || (!paidAmount && splitPayments.length === 0)}
-                                            className="flex-1 h-10 sm:h-12 rounded-2xl sm:rounded-3xl bg-slate-900 hover:bg-black text-white font-black uppercase tracking-[0.1em] sm:tracking-[0.2em] shadow-xl transition-all active:scale-[0.98] group"
-                                            onClick={processOrder}
-                                        >
-                                            {isProcessing ? <Loader2 className="h-5 w-5 animate-spin mx-auto" /> : (
-                                                <div className="flex items-center justify-center gap-3">
-                                                    <span>Complete Payment</span>
-                                                    <ChevronRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
-                                                </div>
-                                            )}
-                                        </Button>
                                     </div>
-                                </div>
-                            </div>
-                        </div>
-                    </DialogContent>
-                </Dialog>
 
-                {/* Held Sales (Restored with Elite Styling) */}
-                <Dialog open={isHoldsModalOpen} onOpenChange={setIsHoldsModalOpen}>
-                    <DialogContent className="sm:max-w-[500px] border-none rounded-[2rem] shadow-2xl p-0 overflow-hidden">
-                        <DialogHeader className="sr-only">
-                            <DialogTitle>Transaction Success</DialogTitle>
-                            <DialogDescription>Your transaction has been processed successfully.</DialogDescription>
-                        </DialogHeader>
-                        <div className="bg-slate-900 p-8 text-white">
-                            <h3 className="text-xl font-black flex items-center gap-3">
-                                <History className="h-6 w-6 text-primary" />
-                                Held Transactions
-                            </h3>
-                            <p className="text-xs text-slate-500 mt-2 font-bold uppercase tracking-widest">Resume or void parked sales</p>
-                        </div>
-                        <div className="p-6 space-y-4 max-h-[500px] overflow-y-auto bg-slate-50">
-                            {heldSales.length === 0 ? (
-                                <div className="text-center py-12">
-                                    <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-sm">
-                                        <Pause className="h-6 w-6 text-slate-200" />
-                                    </div>
-                                    <p className="text-slate-400 font-black uppercase text-[10px] tracking-widest">No held sales found</p>
-                                </div>
-                            ) : (
-                                heldSales.map(hold => (
-                                    <div key={hold.id} className="flex items-center justify-between p-5 bg-white border border-slate-100 rounded-2xl hover:border-primary/30 transition-all group shadow-sm">
-                                        <div>
-                                            <p className="font-black text-slate-900">{hold.holdName}</p>
-                                            <div className="flex items-center gap-3 mt-1">
-                                                <span className="text-[10px] font-bold text-slate-400">{new Date(hold.createdAt).toLocaleTimeString()}</span>
-                                                <Badge variant="secondary" className="h-5 text-[9px] bg-slate-100 text-slate-500 border-none font-black">
-                                                    {hold.cartData.length} Items
-                                                </Badge>
-                                            </div>
-                                        </div>
-                                        <Button
-                                            size="sm"
-                                            onClick={() => resumeHold(hold)}
-                                            className="h-10 px-5 gap-2 rounded-xl bg-slate-900 hover:bg-black text-white font-black text-xs"
-                                        >
-                                            <Play className="h-3 w-3 text-primary" /> Resume
-                                        </Button>
-                                    </div>
-                                ))
-                            )}
-                        </div>
-                    </DialogContent>
-                </Dialog>
-
-                {/* Success/Confetti Modal */}
-                {/* Advanced Shift Control Modal */}
-                <Dialog open={isShiftModalOpen} onOpenChange={setIsShiftModalOpen}>
-                    <DialogContent className="sm:max-w-[425px] rounded-[2rem] border-none shadow-2xl p-0 overflow-hidden">
-                        <DialogHeader className="sr-only">
-                            <DialogTitle>Apply Discount</DialogTitle>
-                            <DialogDescription>Enter a percentage or fixed amount to apply a discount to this order.</DialogDescription>
-                        </DialogHeader>
-                        <div className={cn(
-                            "p-8 text-white",
-                            shiftModalType === "OPEN" ? "bg-emerald-600" : "bg-red-600"
-                        )}>
-                            <h3 className="text-xl font-black flex items-center gap-3">
-                                {shiftModalType === "OPEN" ? <Play className="h-6 w-6 text-white" /> : <XCircle className="h-6 w-6 text-white" />}
-                                {shiftModalType === "OPEN" ? "Open New Session" : "Close Current Session"}
-                            </h3>
-                            <p className="text-xs opacity-80 mt-2 font-bold uppercase tracking-widest text-white/70">
-                                {shiftModalType === "OPEN" ? "Initialize register balance" : "Perform X-Report & reconciliation"}
-                            </p>
-                        </div>
-                        <div className="p-8 space-y-6 bg-white">
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                                    {shiftModalType === "OPEN" ? "Float / Opening Balance" : "Actual Counted Cash"}
-                                </label>
-                                <div className="relative">
-                                    <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-slate-300">$</span>
-                                    <Input
-                                        type="number"
-                                        value={shiftBalance}
-                                        onChange={(e) => setShiftBalance(e.target.value)}
-                                        className="h-14 pl-8 text-lg font-black bg-slate-50 border-none rounded-xl focus:ring-4 focus:ring-primary/5 transition-all outline-none"
-                                        placeholder="0.00"
-                                    />
-                                </div>
-                            </div>
-                            <Button
-                                className={cn(
-                                    "w-full h-14 rounded-xl font-black uppercase tracking-widest shadow-xl transition-all active:scale-95 text-white",
-                                    shiftModalType === "OPEN" ? "bg-emerald-600 hover:bg-emerald-700" : "bg-red-600 hover:bg-red-700"
-                                )}
-                                onClick={shiftModalType === "OPEN" ? openShift : handleCloseShift}
-                            >
-                                {shiftModalType === "OPEN" ? "Start Service" : "Close Shift & Harmonize"}
-                            </Button>
-                        </div>
-                    </DialogContent>
-                </Dialog>
-
-                {/* ── Custom Quantity / Reverse Price Dialog ── */}
-                <Dialog open={!!qtyDialog?.open} onOpenChange={open => { if (!open) setQtyDialog(null); }}>
-                    <DialogContent className="sm:max-w-[340px] rounded-[2rem] border-none shadow-2xl p-0 overflow-hidden">
-                        <DialogHeader className="sr-only">
-                            <DialogTitle>{qtyDialog?.mode === 'qty' ? 'Set Quantity' : 'Set Target Total'}</DialogTitle>
-                            <DialogDescription>Enter a value to update this cart item.</DialogDescription>
-                        </DialogHeader>
-                        <div className={`p-6 text-white ${qtyDialog?.mode === 'qty' ? 'bg-slate-900' : 'bg-indigo-600'}`}>
-                            <p className="text-[10px] font-black uppercase tracking-widest opacity-60 mb-1">
-                                {qtyDialog?.mode === 'qty' ? 'Set Quantity' : 'Reverse Pricing — Set Total'}
-                            </p>
-                            <h3 className="text-lg font-black leading-tight truncate">{qtyDialog?.productName}</h3>
-                            {qtyDialog?.mode === 'total' && (
-                                <p className="text-xs opacity-70 mt-1">@ ${qtyDialog.unitPrice.toFixed(2)} / unit</p>
-                            )}
-                        </div>
-                        <div className="p-6 bg-white space-y-4">
-                            <div className="relative">
-                                {qtyDialog?.mode === 'total' && (
-                                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-black text-lg">$</span>
-                                )}
-                                <input
-                                    type="number"
-                                    autoFocus
-                                    step="any"
-                                    min="0"
-                                    value={qtyDialogInput}
-                                    onChange={e => setQtyDialogInput(e.target.value)}
-                                    onKeyDown={e => {
-                                        if (e.key === 'Enter') {
-                                            document.getElementById('qty-dialog-confirm')?.click();
-                                        }
-                                    }}
-                                    className={`w-full h-16 rounded-2xl border border-slate-200 text-2xl font-black text-center bg-slate-50 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all ${qtyDialog?.mode === 'total' ? 'pl-8' : ''}`}
-                                    placeholder={qtyDialog?.mode === 'qty' ? '0.000' : '0.00'}
-                                />
-                            </div>
-                            {qtyDialog && qtyDialogInput && !isNaN(parseFloat(qtyDialogInput)) && (
-                                <div className="bg-slate-50 rounded-xl p-3 text-center">
-                                    {qtyDialog.mode === 'qty' ? (
-                                        <p className="text-sm font-bold text-slate-600">
-                                            Line Total = <span className="text-slate-900 font-black">${((parseFloat(qtyDialogInput) * qtyDialog.unitPrice) - qtyDialog.discountAmount).toFixed(2)}</span>
-                                        </p>
-                                    ) : (
-                                        <p className="text-sm font-bold text-slate-600">
-                                            Qty = <span className="text-slate-900 font-black">{((parseFloat(qtyDialogInput) + qtyDialog.discountAmount) / qtyDialog.unitPrice).toFixed(posSettings.quantityDecimalPlaces)}</span>
-                                        </p>
-                                    )}
-                                </div>
-                            )}
-                            <div className="flex gap-3">
-                                <Button variant="outline" className="flex-1 h-12 rounded-xl font-black border-slate-200" onClick={() => setQtyDialog(null)}>Cancel</Button>
-                                <Button
-                                    id="qty-dialog-confirm"
-                                    className="flex-[2] h-12 rounded-xl font-black btn-gradient"
-                                    onClick={() => {
-                                        if (!qtyDialog) return;
-                                        const val = parseFloat(qtyDialogInput);
-                                        if (isNaN(val) || val < 0) return;
-                                        if (qtyDialog.mode === 'qty') {
-                                            setCart(prev => prev.map(it =>
-                                                it.productId === qtyDialog.productId ? { ...it, quantity: val } : it
-                                            ));
-                                        } else {
-                                            if (qtyDialog.unitPrice > 0) {
-                                                const newQty = (val + qtyDialog.discountAmount) / qtyDialog.unitPrice;
-                                                setCart(prev => prev.map(it =>
-                                                    it.productId === qtyDialog.productId ? { ...it, quantity: Number(newQty.toFixed(posSettings.quantityDecimalPlaces + 1)) } : it
-                                                ));
-                                            }
-                                        }
-                                        setQtyDialog(null);
-                                    }}
-                                >
-                                    {qtyDialog?.mode === 'qty' ? 'Set Quantity' : 'Apply'}
-                                </Button>
-                            </div>
-                        </div>
-                    </DialogContent>
-                </Dialog>
-
-                {/* Terminal Settings Modal */}
-                <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
-                    <DialogContent className="sm:max-w-[450px] rounded-[2rem] border-none shadow-2xl p-0 overflow-hidden">
-                        <DialogHeader className="sr-only">
-                            <DialogTitle>Terminal Settings</DialogTitle>
-                            <DialogDescription>Configure local POS settings like printing preferences and terminal ID.</DialogDescription>
-                        </DialogHeader>
-                        <div className="p-6 bg-slate-900 text-white">
-                            <h3 className="text-xl font-black flex items-center gap-3">
-                                <SettingsIcon className="h-6 w-6 text-primary" />
-                                Terminal Settings
-                            </h3>
-                            <p className="text-xs text-slate-500 mt-2 font-bold uppercase tracking-widest">Local POS Configuration</p>
-                        </div>
-                        <div className="p-6 space-y-4 bg-white">
-                            <div className="space-y-3">
-                                <div className="grid grid-cols-2 gap-3">
-                                    <div className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl border border-slate-100">
-                                        <div className="space-y-0.5">
-                                            <Label className="text-[11px] font-black text-slate-700">Auto-Print</Label>
-                                            <p className="text-[8px] text-slate-400 font-bold uppercase tracking-widest">Instant</p>
-                                        </div>
-                                        <Button
-                                            variant="ghost"
-                                            className={cn(
-                                                "h-8 px-3 rounded-lg font-black text-[10px] transition-all",
-                                                posSettings.autoPrint ? "bg-primary text-white" : "text-slate-400"
-                                            )}
-                                            onClick={() => setPosSettings(prev => ({ ...prev, autoPrint: !prev.autoPrint }))}
-                                        >
-                                            {posSettings.autoPrint ? "ON" : "OFF"}
-                                        </Button>
-                                    </div>
-                                    <div className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl border border-slate-100">
-                                        <div className="space-y-0.5">
-                                            <Label className="text-[11px] font-black text-slate-700">Silent (Proxy)</Label>
-                                            <p className="text-[8px] text-slate-400 font-bold uppercase tracking-widest">No Dialog</p>
-                                        </div>
-                                        <Button
-                                            variant="ghost"
-                                            className={cn(
-                                                "h-8 px-3 rounded-lg font-black text-[10px] transition-all",
-                                                posSettings.silentPrinting ? "bg-emerald-500 text-white" : "text-slate-400"
-                                            )}
-                                            onClick={() => setPosSettings(prev => ({ ...prev, silentPrinting: !prev.silentPrinting }))}
-                                        >
-                                            {posSettings.silentPrinting ? "ON" : "OFF"}
-                                        </Button>
-                                    </div>
-                                </div>
-                                <div className="grid grid-cols-[1fr_2fr] gap-3">
-                                    <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100">
-                                        <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 block mb-1">Terminal ID</label>
-                                        <Input
-                                            value={posSettings.terminalId}
-                                            onChange={(e) => setPosSettings(prev => ({ ...prev, terminalId: e.target.value }))}
-                                            className="h-8 text-xs font-black bg-white border-slate-200 rounded-lg outline-none"
-                                        />
-                                    </div>
-                                    <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100">
-                                        <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 block mb-1">Paper Override</label>
-                                        <div className="flex gap-1">
-                                            {['', '80mm', '58mm'].map(size => (
-                                                <button
-                                                    key={size}
-                                                    onClick={() => setPosSettings(prev => ({ ...prev, paperSize: size }))}
-                                                    className={cn(
-                                                        "flex-1 h-8 rounded-lg text-[9px] font-black uppercase tracking-tight border transition-all",
-                                                        posSettings.paperSize === size
-                                                            ? "bg-slate-900 text-white border-slate-900"
-                                                            : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"
-                                                    )}
-                                                >
-                                                    {size === '' ? 'Def' : size}
+                                    <div className="relative group max-w-[240px] sm:max-w-[280px] mx-auto py-0 sm:py-1">
+                                        <div className="absolute inset-0 bg-primary/5 rounded-2xl blur-xl opacity-0 group-focus-within:opacity-100 transition-opacity" />
+                                        <div className="relative">
+                                            <span className="absolute left-0 top-1/2 -translate-y-1/2 text-xl sm:text-2xl font-black text-slate-200 group-focus-within:text-primary transition-colors">$</span>
+                                            <Input
+                                                id="checkout-paid-amount"
+                                                type="number"
+                                                placeholder="Enter payment"
+                                                value={paidAmount}
+                                                onChange={(e) => setPaidAmount(e.target.value)}
+                                                className="h-10 sm:h-12 pl-8 pr-8 text-2xl sm:text-3xl font-black bg-transparent border-none text-slate-900 text-center shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-slate-100"
+                                            />
+                                            {paidAmount && (
+                                                <button onClick={() => setPaidAmount("")} className="absolute right-0 top-1/2 -translate-y-1/2 text-slate-200 hover:text-red-500 transition-colors">
+                                                    <XCircle className="w-5 h-5 sm:w-6 h-6" />
                                                 </button>
-                                            ))}
+                                            )}
+                                        </div>
+                                        <div className="h-0.5 w-full bg-slate-100 group-focus-within:bg-primary transition-colors duration-500 mt-0.5" />
+                                    </div>
+                                </div>
+
+                                {/* Main Interactive: Large Pro Numpad */}
+                                {/* <div className="flex flex-col items-center justify-center scale-90 sm:scale-95 py-0">
+                                    <Numpad value={paidAmount} onChange={setPaidAmount} />
+                                </div> */}
+
+                                {/* Payment Method Strip */}
+                                <div className="space-y-3 sm:space-y-6">
+                                    <div className="flex gap-2 items-center overflow-x-auto no-scrollbar py-1 px-1">
+                                        {[
+                                            { id: 'CASH', icon: Banknote, label: 'Cash' },
+                                            { id: 'CARD', icon: CreditCard, label: 'Card' },
+                                            { id: 'ECOCASH', icon: ShoppingBag, label: 'EcoCash' },
+                                            { id: 'usd', icon: Banknote, label: 'USD' },
+                                            { id: 'zig', icon: Banknote, label: 'ZiG' }
+                                        ].filter(m => {
+                                            const allowed = (company?.posSettings as any)?.allowedPaymentMethods;
+                                            return !allowed || allowed.length === 0 || allowed.includes(m.id);
+                                        }).map(method => (
+                                            <Button
+                                                key={method.id}
+                                                variant={paymentMethod === method.id ? 'default' : 'outline'}
+                                                className={cn(
+                                                    "h-9 sm:h-10 px-4 sm:px-6 rounded-xl sm:rounded-2xl flex items-center gap-2 sm:gap-3 font-black uppercase text-[9px] sm:text-[10px] transition-all border-none shrink-0 shadow-sm",
+                                                    paymentMethod === method.id
+                                                        ? "bg-slate-900 text-white shadow-lg scale-100"
+                                                        : "bg-slate-50 text-slate-400 hover:bg-slate-100"
+                                                )}
+                                                onClick={() => setPaymentMethod(method.id as any)}
+                                            >
+                                                <method.icon className={cn("h-3.5 w-3.5 sm:h-4 w-4", paymentMethod === method.id ? "text-primary" : "text-slate-300")} />
+                                                {method.label}
+                                            </Button>
+                                        ))}
+                                    </div>
+
+                                    {/* Results & Finish Block */}
+                                    <div className="space-y-2 sm:space-y-4">
+                                        {((parseFloat(paidAmount || "0") > 0) || splitPayments.length > 0) && (
+                                            <div className="flex items-center justify-between px-4 sm:px-6 py-2 sm:py-3 bg-emerald-50 rounded-2xl sm:rounded-3xl border border-emerald-100 animate-in zoom-in-95">
+                                                <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-emerald-600">Change Due</span>
+                                                <div className="flex items-center gap-2 sm:gap-3">
+                                                    <h3 className="text-xl sm:text-2xl font-black text-emerald-700">
+                                                        {(() => {
+                                                            const sumParams = splitPayments.reduce((a, b) => a + b.amount, 0) + parseFloat(paidAmount || "0");
+                                                            const req = total * Number(currencies?.find(c => c.code === selectedCurrencyCode)?.exchangeRate || 1);
+                                                            const change = Math.max(0, sumParams - req);
+                                                            return `+ ${fmt(change)}`;
+                                                        })()}
+                                                    </h3>
+                                                    <Banknote className="h-5 w-5 sm:h-6 w-6 text-emerald-500 opacity-30" />
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        <div className="flex gap-2 sm:gap-4">
+                                            <Button
+                                                variant="ghost"
+                                                className="h-10 sm:h-12 px-4 sm:px-8 rounded-xl sm:rounded-2xl font-black uppercase text-[9px] sm:text-[10px] text-slate-400 hover:text-red-500"
+                                                onClick={() => setIsCheckoutOpen(false)}
+                                            >
+                                                Cancel
+                                            </Button>
+                                            <Button
+                                                disabled={isProcessing || (!paidAmount && splitPayments.length === 0)}
+                                                className="flex-1 h-10 sm:h-12 rounded-2xl sm:rounded-3xl bg-slate-900 hover:bg-black text-white font-black uppercase tracking-[0.1em] sm:tracking-[0.2em] shadow-xl transition-all active:scale-[0.98] group"
+                                                onClick={processOrder}
+                                            >
+                                                {isProcessing ? <Loader2 className="h-5 w-5 animate-spin mx-auto" /> : (
+                                                    <div className="flex items-center justify-center gap-3">
+                                                        <span>Complete Payment</span>
+                                                        <ChevronRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
+                                                    </div>
+                                                )}
+                                            </Button>
                                         </div>
                                     </div>
                                 </div>
-                                <div className="p-4 bg-emerald-50/50 rounded-2xl border border-emerald-100 animate-in fade-in slide-in-from-top-2 duration-300">
-                                    <div className="flex items-center justify-between mb-2">
-                                        <label className="text-[10px] font-black uppercase tracking-widest text-emerald-600 block">Target Printer</label>
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            className="h-6 px-2 text-[9px] font-black text-emerald-600 hover:bg-emerald-100"
-                                            onClick={async () => {
-                                                try {
-                                                    if (window.electronAPI) {
-                                                        const data = await window.electronAPI.getPrinters();
-                                                        setAvailablePrinters(Array.isArray(data) ? data : []);
-                                                    } else {
-                                                        const response = await fetch(`${posSettings.printServerUrl}/printers`);
-                                                        if (response.ok) {
-                                                            const data = await response.json();
-                                                            setAvailablePrinters(Array.isArray(data) ? data : []);
-                                                        }
-                                                    }
-                                                } catch (e) {
-                                                    console.error(e);
-                                                }
-                                            }}
-                                        >
-                                            <RefreshCw className="h-3 w-3 mr-1" /> Reload
-                                        </Button>
-                                    </div>
-                                    <Select
-                                        value={posSettings.printerName || "default"}
-                                        onValueChange={(val) => setPosSettings(prev => ({ ...prev, printerName: val === "default" ? "" : val }))}
-                                    >
-                                        <SelectTrigger className="h-10 text-xs font-black bg-white border-emerald-200 rounded-lg outline-none">
-                                            <SelectValue placeholder="Main Printer" />
-                                        </SelectTrigger>
-                                        <SelectContent className="rounded-xl border-emerald-200">
-                                            <SelectItem value="default" className="text-xs font-bold">System Default</SelectItem>
-                                            {availablePrinters.map((p: any) => (
-                                                <SelectItem key={p.name} value={p.name} className="text-xs font-bold">
-                                                    {p.name}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-
-                                <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100 animate-in fade-in slide-in-from-top-2 duration-300">
-                                    <label className="text-[10px] font-black uppercase tracking-widest text-blue-600 block mb-2">Secondary / Kitchen Printer</label>
-                                    <Select
-                                        value={posSettings.secondaryPrinterName || "none"}
-                                        onValueChange={(val) => setPosSettings(prev => ({ ...prev, secondaryPrinterName: val === "none" ? "" : val }))}
-                                    >
-                                        <SelectTrigger className="h-10 text-xs font-black bg-white border-blue-200 rounded-lg outline-none">
-                                            <SelectValue placeholder="Disabled" />
-                                        </SelectTrigger>
-                                        <SelectContent className="rounded-xl border-blue-200">
-                                            <SelectItem value="none" className="text-xs font-bold">Disabled</SelectItem>
-                                            {availablePrinters.map((p: any) => (
-                                                <SelectItem key={p.name} value={p.name} className="text-xs font-bold">
-                                                    {p.name}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
                             </div>
-                            <Button className="w-full h-12 rounded-xl bg-slate-900 hover:bg-black text-white font-black uppercase tracking-widest transition-all active:scale-95" onClick={() => setIsSettingsOpen(false)}>
-                                Save & Close
-                            </Button>
-                        </div>
-                    </DialogContent>
-                </Dialog>
+                        </DialogContent>
+                    </Dialog>
 
-                {/* Success/Confetti Modal */}
-                <Dialog open={!!lastSuccessfulInvoice} onOpenChange={() => { setLastSuccessfulInvoice(null); setActiveView("products"); }}>
-                    <DialogContent className="sm:max-w-[450px] p-0 overflow-hidden border-none rounded-[3rem] shadow-2xl">
-                        <DialogHeader className="sr-only">
-                            <DialogTitle>Sale Complete</DialogTitle>
-                            <DialogDescription>Transaction processed successfully. You can now print the receipt.</DialogDescription>
-                        </DialogHeader>
-                        <div className="bg-emerald-500 p-12 text-center text-white relative print:hidden">
-                            <div className="absolute top-0 left-0 w-full h-full opacity-10 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-white to-transparent" />
-                            <div className="relative z-10 flex flex-col items-center">
-                                <div className={cn("w-24 h-24 backdrop-blur-xl rounded-full flex items-center justify-center mb-6 shadow-2xl ring-4 ring-white/10 scale-110", lastSuccessfulInvoice?._offline ? 'bg-amber-500/30' : 'bg-white/20')}>
-                                    {lastSuccessfulInvoice?._offline ? <WifiOff className="h-12 w-12 text-white" /> : <CheckCircle2 className="h-12 w-12 text-white" />}
-                                </div>
-                                <h3 className="text-3xl font-black leading-tight mb-2">{lastSuccessfulInvoice?._offline ? 'Saved Offline' : 'Sale Perfect!'}</h3>
-                                <p className="text-emerald-100 text-sm font-bold uppercase tracking-widest">
-                                    {lastSuccessfulInvoice?._offline
-                                        ? 'Will sync when reconnected'
-                                        : lastSuccessfulInvoice?.fiscalCode
-                                            ? 'Transaction Fiscalized'
-                                            : 'Sale Complete'}
+                    {/* Held Sales (Restored with Elite Styling) */}
+                    <Dialog open={isHoldsModalOpen} onOpenChange={setIsHoldsModalOpen}>
+                        <DialogContent className="sm:max-w-[500px] border-none rounded-[2rem] shadow-2xl p-0 overflow-hidden">
+                            <DialogHeader className="sr-only">
+                                <DialogTitle>Transaction Success</DialogTitle>
+                                <DialogDescription>Your transaction has been processed successfully.</DialogDescription>
+                            </DialogHeader>
+                            <div className="bg-slate-900 p-8 text-white">
+                                <h3 className="text-xl font-black flex items-center gap-3">
+                                    <History className="h-6 w-6 text-primary" />
+                                    Held Transactions
+                                </h3>
+                                <p className="text-xs text-slate-500 mt-2 font-bold uppercase tracking-widest">Resume or void parked sales</p>
+                            </div>
+                            <div className="p-6 space-y-4 max-h-[500px] overflow-y-auto bg-slate-50">
+                                {heldSales.length === 0 ? (
+                                    <div className="text-center py-12">
+                                        <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-sm">
+                                            <Pause className="h-6 w-6 text-slate-200" />
+                                        </div>
+                                        <p className="text-slate-400 font-black uppercase text-[10px] tracking-widest">No held sales found</p>
+                                    </div>
+                                ) : (
+                                    heldSales.map(hold => (
+                                        <div key={hold.id} className="flex items-center justify-between p-5 bg-white border border-slate-100 rounded-2xl hover:border-primary/30 transition-all group shadow-sm">
+                                            <div>
+                                                <p className="font-black text-slate-900">{hold.holdName}</p>
+                                                <div className="flex items-center gap-3 mt-1">
+                                                    <span className="text-[10px] font-bold text-slate-400">{new Date(hold.createdAt).toLocaleTimeString()}</span>
+                                                    <Badge variant="secondary" className="h-5 text-[9px] bg-slate-100 text-slate-500 border-none font-black">
+                                                        {hold.cartData.length} Items
+                                                    </Badge>
+                                                </div>
+                                            </div>
+                                            <Button
+                                                size="sm"
+                                                onClick={() => resumeHold(hold)}
+                                                className="h-10 px-5 gap-2 rounded-xl bg-slate-900 hover:bg-black text-white font-black text-xs"
+                                            >
+                                                <Play className="h-3 w-3 text-primary" /> Resume
+                                            </Button>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </DialogContent>
+                    </Dialog>
+
+                    {/* Success/Confetti Modal */}
+                    {/* Advanced Shift Control Modal */}
+                    <Dialog open={isShiftModalOpen} onOpenChange={setIsShiftModalOpen}>
+                        <DialogContent className="sm:max-w-[425px] rounded-[2rem] border-none shadow-2xl p-0 overflow-hidden">
+                            <DialogHeader className="sr-only">
+                                <DialogTitle>Apply Discount</DialogTitle>
+                                <DialogDescription>Enter a percentage or fixed amount to apply a discount to this order.</DialogDescription>
+                            </DialogHeader>
+                            <div className={cn(
+                                "p-8 text-white",
+                                shiftModalType === "OPEN" ? "bg-emerald-600" : "bg-red-600"
+                            )}>
+                                <h3 className="text-xl font-black flex items-center gap-3">
+                                    {shiftModalType === "OPEN" ? <Play className="h-6 w-6 text-white" /> : <XCircle className="h-6 w-6 text-white" />}
+                                    {shiftModalType === "OPEN" ? "Open New Session" : "Close Current Session"}
+                                </h3>
+                                <p className="text-xs opacity-80 mt-2 font-bold uppercase tracking-widest text-white/70">
+                                    {shiftModalType === "OPEN" ? "Initialize register balance" : "Perform X-Report & reconciliation"}
                                 </p>
                             </div>
-                        </div>
-
-                        <div className="p-10 bg-white space-y-8 flex flex-col items-center">
-
-                            <div className="hidden print:block w-full">
-                                <Receipt48
-                                    invoice={lastSuccessfulInvoice}
-                                    company={resolvedCompany}
-                                    customer={resolvedCustomers?.find((c: any) => c.id === lastSuccessfulInvoice?.customerId)}
-                                    items={lastSuccessfulInvoice?.items}
-                                    user={user}
-                                    paperSize={posSettings.paperSize || (resolvedCompany?.posSettings as any)?.receiptPaperSize || '80mm'}
-                                />
-                            </div>
-
-                            <div className="flex flex-col gap-3 w-full print:hidden">
-                                {posSettings.printingEnabled && (
-                                    <Button className="h-16 rounded-2xl bg-slate-900 hover:bg-black text-white font-black uppercase tracking-widest shadow-xl flex items-center justify-center gap-3"
-                                        onClick={() => posSettings.silentPrinting ? handleSilentPrint() : window.print()}>
-                                        <Printer className="h-5 w-5" />
-                                        {posSettings.silentPrinting ? "Silent Print" : "Print Receipt"}
-                                    </Button>
-                                )}
-                                <Button variant="ghost" className="h-14 rounded-2xl font-black uppercase tracking-widest text-xs text-slate-400 hover:text-primary hover:bg-primary/5 active:scale-95" onClick={() => { setLastSuccessfulInvoice(null); setActiveView("products"); }}>
-                                    Proceed to Next Customer
+                            <div className="p-8 space-y-6 bg-white">
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                                        {shiftModalType === "OPEN" ? "Float / Opening Balance" : "Actual Counted Cash"}
+                                    </label>
+                                    <div className="relative">
+                                        <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-slate-300">$</span>
+                                        <Input
+                                            type="number"
+                                            value={shiftBalance}
+                                            onChange={(e) => setShiftBalance(e.target.value)}
+                                            className="h-14 pl-8 text-lg font-black bg-slate-50 border-none rounded-xl focus:ring-4 focus:ring-primary/5 transition-all outline-none"
+                                            placeholder="0.00"
+                                        />
+                                    </div>
+                                </div>
+                                <Button
+                                    className={cn(
+                                        "w-full h-14 rounded-xl font-black uppercase tracking-widest shadow-xl transition-all active:scale-95 text-white",
+                                        shiftModalType === "OPEN" ? "bg-emerald-600 hover:bg-emerald-700" : "bg-red-600 hover:bg-red-700"
+                                    )}
+                                    onClick={shiftModalType === "OPEN" ? openShift : handleCloseShift}
+                                >
+                                    {shiftModalType === "OPEN" ? "Start Service" : "Close Shift & Harmonize"}
                                 </Button>
                             </div>
+                        </DialogContent>
+                    </Dialog>
+
+                    {/* ── Custom Quantity / Reverse Price Dialog ── */}
+                    <Dialog open={!!qtyDialog?.open} onOpenChange={open => { if (!open) setQtyDialog(null); }}>
+                        <DialogContent className="sm:max-w-[340px] rounded-[2rem] border-none shadow-2xl p-0 overflow-hidden">
+                            <DialogHeader className="sr-only">
+                                <DialogTitle>{qtyDialog?.mode === 'qty' ? 'Set Quantity' : 'Set Target Total'}</DialogTitle>
+                                <DialogDescription>Enter a value to update this cart item.</DialogDescription>
+                            </DialogHeader>
+                            <div className={`p-6 text-white ${qtyDialog?.mode === 'qty' ? 'bg-slate-900' : 'bg-indigo-600'}`}>
+                                <p className="text-[10px] font-black uppercase tracking-widest opacity-60 mb-1">
+                                    {qtyDialog?.mode === 'qty' ? 'Set Quantity' : 'Reverse Pricing — Set Total'}
+                                </p>
+                                <h3 className="text-lg font-black leading-tight truncate">{qtyDialog?.productName}</h3>
+                                {qtyDialog?.mode === 'total' && (
+                                    <p className="text-xs opacity-70 mt-1">@ ${qtyDialog.unitPrice.toFixed(2)} / unit</p>
+                                )}
+                            </div>
+                            <div className="p-6 bg-white space-y-4">
+                                <div className="relative">
+                                    {qtyDialog?.mode === 'total' && (
+                                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-black text-lg">$</span>
+                                    )}
+                                    <input
+                                        type="number"
+                                        autoFocus
+                                        step="any"
+                                        min="0"
+                                        value={qtyDialogInput}
+                                        onChange={e => setQtyDialogInput(e.target.value)}
+                                        onKeyDown={e => {
+                                            if (e.key === 'Enter') {
+                                                document.getElementById('qty-dialog-confirm')?.click();
+                                            }
+                                        }}
+                                        className={`w-full h-16 rounded-2xl border border-slate-200 text-2xl font-black text-center bg-slate-50 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all ${qtyDialog?.mode === 'total' ? 'pl-8' : ''}`}
+                                        placeholder={qtyDialog?.mode === 'qty' ? '0.000' : '0.00'}
+                                    />
+                                </div>
+                                {qtyDialog && qtyDialogInput && !isNaN(parseFloat(qtyDialogInput)) && (
+                                    <div className="bg-slate-50 rounded-xl p-3 text-center">
+                                        {qtyDialog.mode === 'qty' ? (
+                                            <p className="text-sm font-bold text-slate-600">
+                                                Line Total = <span className="text-slate-900 font-black">${((parseFloat(qtyDialogInput) * qtyDialog.unitPrice) - qtyDialog.discountAmount).toFixed(2)}</span>
+                                            </p>
+                                        ) : (
+                                            <p className="text-sm font-bold text-slate-600">
+                                                Qty = <span className="text-slate-900 font-black">{((parseFloat(qtyDialogInput) + qtyDialog.discountAmount) / qtyDialog.unitPrice).toFixed(posSettings.quantityDecimalPlaces)}</span>
+                                            </p>
+                                        )}
+                                    </div>
+                                )}
+                                <div className="flex gap-3">
+                                    <Button variant="outline" className="flex-1 h-12 rounded-xl font-black border-slate-200" onClick={() => setQtyDialog(null)}>Cancel</Button>
+                                    <Button
+                                        id="qty-dialog-confirm"
+                                        className="flex-[2] h-12 rounded-xl font-black btn-gradient"
+                                        onClick={() => {
+                                            if (!qtyDialog) return;
+                                            const val = parseFloat(qtyDialogInput);
+                                            if (isNaN(val) || val < 0) return;
+                                            if (qtyDialog.mode === 'qty') {
+                                                setCart(prev => prev.map(it =>
+                                                    it.productId === qtyDialog.productId ? { ...it, quantity: val } : it
+                                                ));
+                                            } else {
+                                                if (qtyDialog.unitPrice > 0) {
+                                                    const newQty = (val + qtyDialog.discountAmount) / qtyDialog.unitPrice;
+                                                    setCart(prev => prev.map(it =>
+                                                        it.productId === qtyDialog.productId ? { ...it, quantity: Number(newQty.toFixed(posSettings.quantityDecimalPlaces + 1)) } : it
+                                                    ));
+                                                }
+                                            }
+                                            setQtyDialog(null);
+                                        }}
+                                    >
+                                        {qtyDialog?.mode === 'qty' ? 'Set Quantity' : 'Apply'}
+                                    </Button>
+                                </div>
+                            </div>
+                        </DialogContent>
+                    </Dialog>
+
+                    {/* Terminal Settings Modal */}
+                    <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
+                        <DialogContent className="sm:max-w-[450px] rounded-[2rem] border-none shadow-2xl p-0 overflow-hidden">
+                            <DialogHeader className="sr-only">
+                                <DialogTitle>Terminal Settings</DialogTitle>
+                                <DialogDescription>Configure local POS settings like printing preferences and terminal ID.</DialogDescription>
+                            </DialogHeader>
+                            <div className="p-6 bg-slate-900 text-white">
+                                <h3 className="text-xl font-black flex items-center gap-3">
+                                    <SettingsIcon className="h-6 w-6 text-primary" />
+                                    Terminal Settings
+                                </h3>
+                                <p className="text-xs text-slate-500 mt-2 font-bold uppercase tracking-widest">Local POS Configuration</p>
+                            </div>
+                            <div className="p-6 space-y-4 bg-white">
+                                <div className="space-y-3">
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                                            <div className="space-y-0.5">
+                                                <Label className="text-[11px] font-black text-slate-700">Auto-Print</Label>
+                                                <p className="text-[8px] text-slate-400 font-bold uppercase tracking-widest">Instant</p>
+                                            </div>
+                                            <Button
+                                                variant="ghost"
+                                                className={cn(
+                                                    "h-8 px-3 rounded-lg font-black text-[10px] transition-all",
+                                                    posSettings.autoPrint ? "bg-primary text-white" : "text-slate-400"
+                                                )}
+                                                onClick={() => setPosSettings(prev => ({ ...prev, autoPrint: !prev.autoPrint }))}
+                                            >
+                                                {posSettings.autoPrint ? "ON" : "OFF"}
+                                            </Button>
+                                        </div>
+                                        <div className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                                            <div className="space-y-0.5">
+                                                <Label className="text-[11px] font-black text-slate-700">Silent (Proxy)</Label>
+                                                <p className="text-[8px] text-slate-400 font-bold uppercase tracking-widest">No Dialog</p>
+                                            </div>
+                                            <Button
+                                                variant="ghost"
+                                                className={cn(
+                                                    "h-8 px-3 rounded-lg font-black text-[10px] transition-all",
+                                                    posSettings.silentPrinting ? "bg-emerald-500 text-white" : "text-slate-400"
+                                                )}
+                                                onClick={() => setPosSettings(prev => ({ ...prev, silentPrinting: !prev.silentPrinting }))}
+                                            >
+                                                {posSettings.silentPrinting ? "ON" : "OFF"}
+                                            </Button>
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-[1fr_2fr] gap-3">
+                                        <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                                            <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 block mb-1">Terminal ID</label>
+                                            <Input
+                                                value={posSettings.terminalId}
+                                                onChange={(e) => setPosSettings(prev => ({ ...prev, terminalId: e.target.value }))}
+                                                className="h-8 text-xs font-black bg-white border-slate-200 rounded-lg outline-none"
+                                            />
+                                        </div>
+                                        <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                                            <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 block mb-1">Paper Override</label>
+                                            <div className="flex gap-1">
+                                                {['', '80mm', '58mm'].map(size => (
+                                                    <button
+                                                        key={size}
+                                                        onClick={() => setPosSettings(prev => ({ ...prev, paperSize: size }))}
+                                                        className={cn(
+                                                            "flex-1 h-8 rounded-lg text-[9px] font-black uppercase tracking-tight border transition-all",
+                                                            posSettings.paperSize === size
+                                                                ? "bg-slate-900 text-white border-slate-900"
+                                                                : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"
+                                                        )}
+                                                    >
+                                                        {size === '' ? 'Def' : size}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="p-4 bg-emerald-50/50 rounded-2xl border border-emerald-100 animate-in fade-in slide-in-from-top-2 duration-300">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <label className="text-[10px] font-black uppercase tracking-widest text-emerald-600 block">Target Printer</label>
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className="h-6 px-2 text-[9px] font-black text-emerald-600 hover:bg-emerald-100"
+                                                onClick={async () => {
+                                                    try {
+                                                        if (window.electronAPI) {
+                                                            const data = await window.electronAPI.getPrinters();
+                                                            setAvailablePrinters(Array.isArray(data) ? data : []);
+                                                        } else {
+                                                            const response = await fetch(`${posSettings.printServerUrl}/printers`);
+                                                            if (response.ok) {
+                                                                const data = await response.json();
+                                                                setAvailablePrinters(Array.isArray(data) ? data : []);
+                                                            }
+                                                        }
+                                                    } catch (e) {
+                                                        console.error(e);
+                                                    }
+                                                }}
+                                            >
+                                                <RefreshCw className="h-3 w-3 mr-1" /> Reload
+                                            </Button>
+                                        </div>
+                                        <Select
+                                            value={posSettings.printerName || "default"}
+                                            onValueChange={(val) => setPosSettings(prev => ({ ...prev, printerName: val === "default" ? "" : val }))}
+                                        >
+                                            <SelectTrigger className="h-10 text-xs font-black bg-white border-emerald-200 rounded-lg outline-none">
+                                                <SelectValue placeholder="Main Printer" />
+                                            </SelectTrigger>
+                                            <SelectContent className="rounded-xl border-emerald-200">
+                                                <SelectItem value="default" className="text-xs font-bold">System Default</SelectItem>
+                                                {availablePrinters.map((p: any) => (
+                                                    <SelectItem key={p.name} value={p.name} className="text-xs font-bold">
+                                                        {p.name}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+
+                                    <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100 animate-in fade-in slide-in-from-top-2 duration-300">
+                                        <label className="text-[10px] font-black uppercase tracking-widest text-blue-600 block mb-2">Secondary / Kitchen Printer</label>
+                                        <Select
+                                            value={posSettings.secondaryPrinterName || "none"}
+                                            onValueChange={(val) => setPosSettings(prev => ({ ...prev, secondaryPrinterName: val === "none" ? "" : val }))}
+                                        >
+                                            <SelectTrigger className="h-10 text-xs font-black bg-white border-blue-200 rounded-lg outline-none">
+                                                <SelectValue placeholder="Disabled" />
+                                            </SelectTrigger>
+                                            <SelectContent className="rounded-xl border-blue-200">
+                                                <SelectItem value="none" className="text-xs font-bold">Disabled</SelectItem>
+                                                {availablePrinters.map((p: any) => (
+                                                    <SelectItem key={p.name} value={p.name} className="text-xs font-bold">
+                                                        {p.name}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                </div>
+                                <Button className="w-full h-12 rounded-xl bg-slate-900 hover:bg-black text-white font-black uppercase tracking-widest transition-all active:scale-95" onClick={() => setIsSettingsOpen(false)}>
+                                    Save & Close
+                                </Button>
+                            </div>
+                        </DialogContent>
+                    </Dialog>
+
+                    {/* Success/Confetti Modal */}
+                    <Dialog open={!!lastSuccessfulInvoice} onOpenChange={() => { setLastSuccessfulInvoice(null); setActiveView("products"); }}>
+                        <DialogContent className="sm:max-w-[450px] p-0 overflow-hidden border-none rounded-[3rem] shadow-2xl">
+                            <DialogHeader className="sr-only">
+                                <DialogTitle>Sale Complete</DialogTitle>
+                                <DialogDescription>Transaction processed successfully. You can now print the receipt.</DialogDescription>
+                            </DialogHeader>
+                            <div className="bg-emerald-500 p-12 text-center text-white relative print:hidden">
+                                <div className="absolute top-0 left-0 w-full h-full opacity-10 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-white to-transparent" />
+                                <div className="relative z-10 flex flex-col items-center">
+                                    <div className={cn("w-24 h-24 backdrop-blur-xl rounded-full flex items-center justify-center mb-6 shadow-2xl ring-4 ring-white/10 scale-110", lastSuccessfulInvoice?._offline ? 'bg-amber-500/30' : 'bg-white/20')}>
+                                        {lastSuccessfulInvoice?._offline ? <WifiOff className="h-12 w-12 text-white" /> : <CheckCircle2 className="h-12 w-12 text-white" />}
+                                    </div>
+                                    <h3 className="text-3xl font-black leading-tight mb-2">{lastSuccessfulInvoice?._offline ? 'Saved Offline' : 'Sale Perfect!'}</h3>
+                                    <p className="text-emerald-100 text-sm font-bold uppercase tracking-widest">
+                                        {lastSuccessfulInvoice?._offline
+                                            ? 'Will sync when reconnected'
+                                            : lastSuccessfulInvoice?.fiscalCode
+                                                ? 'Transaction Fiscalized'
+                                                : 'Sale Complete'}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="p-10 bg-white space-y-8 flex flex-col items-center">
+
+                                <div className="hidden print:block w-full">
+                                    <Receipt48
+                                        invoice={lastSuccessfulInvoice}
+                                        company={resolvedCompany}
+                                        customer={resolvedCustomers?.find((c: any) => c.id === lastSuccessfulInvoice?.customerId)}
+                                        items={lastSuccessfulInvoice?.items}
+                                        user={user}
+                                        paperSize={posSettings.paperSize || (resolvedCompany?.posSettings as any)?.receiptPaperSize || '80mm'}
+                                    />
+                                </div>
+
+                                <div className="flex flex-col gap-3 w-full print:hidden">
+                                    {posSettings.printingEnabled && (
+                                        <Button className="h-16 rounded-2xl bg-slate-900 hover:bg-black text-white font-black uppercase tracking-widest shadow-xl flex items-center justify-center gap-3"
+                                            onClick={() => posSettings.silentPrinting ? handleSilentPrint() : window.print()}>
+                                            <Printer className="h-5 w-5" />
+                                            {posSettings.silentPrinting ? "Silent Print" : "Print Receipt"}
+                                        </Button>
+                                    )}
+                                    <Button variant="ghost" className="h-14 rounded-2xl font-black uppercase tracking-widest text-xs text-slate-400 hover:text-primary hover:bg-primary/5 active:scale-95" onClick={() => { setLastSuccessfulInvoice(null); setActiveView("products"); }}>
+                                        Proceed to Next Customer
+                                    </Button>
+                                </div>
+                            </div>
+                        </DialogContent>
+                    </Dialog>
+                </div>
+
+                {/* Hidden Receipt for Silent Printing */}
+                <div className="fixed -left-[9999px] top-0 pointer-events-none overflow-hidden" style={{ width: (posSettings.paperSize || (resolvedCompany?.posSettings as any)?.receiptPaperSize) === 'A4' ? '210mm' : (posSettings.paperSize || (resolvedCompany?.posSettings as any)?.receiptPaperSize || '80mm') }}>
+                    {lastSuccessfulInvoice && (
+                        <Receipt48
+                            id="silent-receipt-48"
+                            invoice={lastSuccessfulInvoice}
+                            company={resolvedCompany}
+                            customer={resolvedCustomers?.find((c: any) => c.id === lastSuccessfulInvoice?.customerId)}
+                            items={lastSuccessfulInvoice?.items}
+                            user={user}
+                            paperSize={posSettings.paperSize || (resolvedCompany?.posSettings as any)?.receiptPaperSize || '80mm'}
+                        />
+                    )}
+                </div>
+
+                {/* Hidden Reprint Receipt */}
+                <div className="fixed -left-[9999px] top-0 pointer-events-none overflow-hidden" style={{ width: (posSettings.paperSize || (resolvedCompany?.posSettings as any)?.receiptPaperSize) === 'A4' ? '210mm' : (posSettings.paperSize || (resolvedCompany?.posSettings as any)?.receiptPaperSize || '80mm') }}>
+                    {reprintInvoice && (
+                        <Receipt48
+                            id="reprint-receipt-48"
+                            invoice={reprintInvoice}
+                            company={resolvedCompany}
+                            customer={resolvedCustomers?.find((c: any) => c.id === reprintInvoice?.customerId)}
+                            items={reprintInvoice?.items}
+                            originalInvoice={reprintInvoice?.originalInvoice}
+                            user={user}
+                            paperSize={posSettings.paperSize || (resolvedCompany?.posSettings as any)?.receiptPaperSize || '80mm'}
+                        />
+                    )}
+                </div>
+
+                {/* Reprint — single receipt confirm */}
+                <Dialog open={!!reprintInvoice} onOpenChange={() => setReprintInvoice(null)}>
+                    <DialogContent className="sm:max-w-[400px] rounded-3xl p-0 overflow-hidden border-none">
+                        <DialogHeader className="sr-only">
+                            <DialogTitle>Reprint Receipt</DialogTitle>
+                            <DialogDescription>Review and reprint a specific transaction receipt.</DialogDescription>
+                        </DialogHeader>
+                        <div className="bg-slate-900 p-6 text-white relative">
+                            <button onClick={() => setReprintInvoice(null)} className="absolute top-4 right-4 h-8 w-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all">
+                                <XCircle className="h-4 w-4 text-white" />
+                            </button>
+                            <Printer className="h-8 w-8 mb-2 text-white/70" />
+                            <h3 className="text-lg font-black">Reprint Receipt</h3>
+                            <p className="text-slate-400 text-xs mt-0.5 font-bold">{reprintInvoice?.invoiceNumber}</p>
+                        </div>
+                        <div className="p-6 bg-white space-y-3">
+                            <div className="text-sm text-slate-600 space-y-1.5">
+                                <div className="flex justify-between"><span className="font-bold text-slate-400">Customer</span><span className="font-black">{resolvedCustomers?.find((c: any) => c.id === reprintInvoice?.customerId)?.name || "Walk-in"}</span></div>
+                                <div className="flex justify-between"><span className="font-bold text-slate-400">Total</span><span className="font-black text-emerald-600">{fmt(Number(reprintInvoice?.total || 0))}</span></div>
+                                <div className="flex justify-between"><span className="font-bold text-slate-400">Payment</span><span className="font-black">{reprintInvoice?.paymentMethod}</span></div>
+                                <div className="flex justify-between"><span className="font-bold text-slate-400">Type</span><span className="font-black">{reprintInvoice?.transactionType || "Invoice"}</span></div>
+                            </div>
+                            <Button className="w-full h-12 rounded-xl bg-slate-900 hover:bg-black text-white font-black uppercase tracking-widest"
+                                onClick={() => {
+                                    if (posSettings.silentPrinting) {
+                                        const el = document.getElementById('reprint-receipt-48');
+                                        if (el && window.electronAPI) {
+                                            const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]')).map(s => {
+                                                if (s.tagName === 'LINK') return `<link rel="stylesheet" href="${(s as HTMLLinkElement).href}">`;
+                                                return s.outerHTML;
+                                            }).join('');
+                                            const html = `<!DOCTYPE html><html><head><meta charset="utf-8">${styles}</head><body class="bg-white p-0 m-0" style="margin:0;padding:0;">${el.outerHTML}</body></html>`;
+                                            window.electronAPI.printReceipt(html, posSettings.printerName || undefined);
+                                        }
+                                        else window.print();
+                                    } else { window.print(); }
+                                }}>
+                                <Printer className="h-4 w-4 mr-2" /> Print
+                            </Button>
+                            <Button variant="ghost" className="w-full h-10 rounded-xl font-black text-xs text-slate-400" onClick={() => setReprintInvoice(null)}>Back to List</Button>
                         </div>
                     </DialogContent>
                 </Dialog>
-            </div>
 
-            {/* Hidden Receipt for Silent Printing */}
-            <div className="fixed -left-[9999px] top-0 pointer-events-none overflow-hidden" style={{ width: (posSettings.paperSize || (resolvedCompany?.posSettings as any)?.receiptPaperSize) === 'A4' ? '210mm' : (posSettings.paperSize || (resolvedCompany?.posSettings as any)?.receiptPaperSize || '80mm') }}>
-                {lastSuccessfulInvoice && (
-                    <Receipt48
-                        id="silent-receipt-48"
-                        invoice={lastSuccessfulInvoice}
-                        company={resolvedCompany}
-                        customer={resolvedCustomers?.find((c: any) => c.id === lastSuccessfulInvoice?.customerId)}
-                        items={lastSuccessfulInvoice?.items}
-                        user={user}
-                        paperSize={posSettings.paperSize || (resolvedCompany?.posSettings as any)?.receiptPaperSize || '80mm'}
-                    />
-                )}
-            </div>
-
-            {/* Hidden Reprint Receipt */}
-            <div className="fixed -left-[9999px] top-0 pointer-events-none overflow-hidden" style={{ width: (posSettings.paperSize || (resolvedCompany?.posSettings as any)?.receiptPaperSize) === 'A4' ? '210mm' : (posSettings.paperSize || (resolvedCompany?.posSettings as any)?.receiptPaperSize || '80mm') }}>
-                {reprintInvoice && (
-                    <Receipt48
-                        id="reprint-receipt-48"
-                        invoice={reprintInvoice}
-                        company={resolvedCompany}
-                        customer={resolvedCustomers?.find((c: any) => c.id === reprintInvoice?.customerId)}
-                        items={reprintInvoice?.items}
-                        originalInvoice={reprintInvoice?.originalInvoice}
-                        user={user}
-                        paperSize={posSettings.paperSize || (resolvedCompany?.posSettings as any)?.receiptPaperSize || '80mm'}
-                    />
-                )}
-            </div>
-
-            {/* Reprint — single receipt confirm */}
-            <Dialog open={!!reprintInvoice} onOpenChange={() => setReprintInvoice(null)}>
-                <DialogContent className="sm:max-w-[400px] rounded-3xl p-0 overflow-hidden border-none">
-                    <DialogHeader className="sr-only">
-                        <DialogTitle>Reprint Receipt</DialogTitle>
-                        <DialogDescription>Review and reprint a specific transaction receipt.</DialogDescription>
-                    </DialogHeader>
-                    <div className="bg-slate-900 p-6 text-white relative">
-                        <button onClick={() => setReprintInvoice(null)} className="absolute top-4 right-4 h-8 w-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all">
-                            <XCircle className="h-4 w-4 text-white" />
-                        </button>
-                        <Printer className="h-8 w-8 mb-2 text-white/70" />
-                        <h3 className="text-lg font-black">Reprint Receipt</h3>
-                        <p className="text-slate-400 text-xs mt-0.5 font-bold">{reprintInvoice?.invoiceNumber}</p>
-                    </div>
-                    <div className="p-6 bg-white space-y-3">
-                        <div className="text-sm text-slate-600 space-y-1.5">
-                            <div className="flex justify-between"><span className="font-bold text-slate-400">Customer</span><span className="font-black">{resolvedCustomers?.find((c: any) => c.id === reprintInvoice?.customerId)?.name || "Walk-in"}</span></div>
-                            <div className="flex justify-between"><span className="font-bold text-slate-400">Total</span><span className="font-black text-emerald-600">{fmt(Number(reprintInvoice?.total || 0))}</span></div>
-                            <div className="flex justify-between"><span className="font-bold text-slate-400">Payment</span><span className="font-black">{reprintInvoice?.paymentMethod}</span></div>
-                            <div className="flex justify-between"><span className="font-bold text-slate-400">Type</span><span className="font-black">{reprintInvoice?.transactionType || "Invoice"}</span></div>
-                        </div>
-                        <Button className="w-full h-12 rounded-xl bg-slate-900 hover:bg-black text-white font-black uppercase tracking-widest"
-                            onClick={() => {
-                                if (posSettings.silentPrinting) {
-                                    const el = document.getElementById('reprint-receipt-48');
-                                    if (el && window.electronAPI) {
-                                        const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]')).map(s => {
-                                            if (s.tagName === 'LINK') return `<link rel="stylesheet" href="${(s as HTMLLinkElement).href}">`;
-                                            return s.outerHTML;
-                                        }).join('');
-                                        const html = `<!DOCTYPE html><html><head><meta charset="utf-8">${styles}</head><body class="bg-white p-0 m-0" style="margin:0;padding:0;">${el.outerHTML}</body></html>`;
-                                        window.electronAPI.printReceipt(html, posSettings.printerName || undefined);
-                                    }
-                                    else window.print();
-                                } else { window.print(); }
-                            }}>
-                            <Printer className="h-4 w-4 mr-2" /> Print
-                        </Button>
-                        <Button variant="ghost" className="w-full h-10 rounded-xl font-black text-xs text-slate-400" onClick={() => setReprintInvoice(null)}>Back to List</Button>
-                    </div>
-                </DialogContent>
-            </Dialog>
-
-            {/* Today's Receipts List */}
-            <Dialog open={isReprintOpen} onOpenChange={v => { setIsReprintOpen(v); if (!v) setReprintList([]); }}>
-                <DialogContent className="sm:max-w-[480px] rounded-3xl p-0 overflow-hidden border-none max-h-[85vh] flex flex-col">
-                    <DialogHeader className="sr-only">
-                        <DialogTitle>Today's Receipts</DialogTitle>
-                        <DialogDescription>Browse and select receipts from today's transactions for reprinting.</DialogDescription>
-                    </DialogHeader>
-                    <div className="bg-slate-900 p-6 text-white relative shrink-0">
-                        <button onClick={() => setIsReprintOpen(false)} className="absolute top-4 right-4 h-8 w-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all">
-                            <XCircle className="h-4 w-4 text-white" />
-                        </button>
-                        <Printer className="h-8 w-8 mb-2 text-white/70" />
-                        <h3 className="text-lg font-black">Today's Receipts</h3>
-                        <p className="text-slate-400 text-xs mt-0.5 font-bold">Select a receipt to reprint</p>
-                    </div>
-                    <div className="flex-1 overflow-y-auto p-4 bg-white space-y-2">
-                        {reprintListLoading && (
-                            <div className="flex items-center justify-center py-12">
-                                <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
-                            </div>
-                        )}
-                        {!reprintListLoading && reprintList.length === 0 && (
-                            <div className="text-center py-12">
-                                <Receipt className="h-10 w-10 text-slate-200 mx-auto mb-3" />
-                                <p className="text-slate-400 font-bold text-sm">No receipts today</p>
-                            </div>
-                        )}
-                        {reprintList.map((inv: any) => (
-                            <button key={inv.id}
-                                className="w-full flex items-center justify-between p-3 rounded-xl border border-slate-100 hover:border-slate-300 hover:bg-slate-50 transition-all text-left"
-                                onClick={() => { setReprintInvoice(inv); setIsReprintOpen(false); }}>
-                                <div>
-                                    <p className="text-sm font-black text-slate-800">{inv.invoiceNumber}</p>
-                                    <p className="text-xs text-slate-400 font-bold">
-                                        {resolvedCustomers?.find((c: any) => c.id === inv.customerId)?.name || "Walk-in"} · {inv.paymentMethod}
-                                    </p>
-                                    <p className="text-[10px] text-slate-300 font-bold">{new Date(inv.createdAt).toLocaleTimeString()}</p>
-                                </div>
-                                <div className="text-right">
-                                    <p className="text-sm font-black text-emerald-600">{fmt(Number(inv.total))}</p>
-                                    <p className="text-[10px] text-slate-400 font-bold">{inv.transactionType || "Invoice"}</p>
-                                </div>
+                {/* Today's Receipts List */}
+                <Dialog open={isReprintOpen} onOpenChange={v => { setIsReprintOpen(v); if (!v) setReprintList([]); }}>
+                    <DialogContent className="sm:max-w-[480px] rounded-3xl p-0 overflow-hidden border-none max-h-[85vh] flex flex-col">
+                        <DialogHeader className="sr-only">
+                            <DialogTitle>Today's Receipts</DialogTitle>
+                            <DialogDescription>Browse and select receipts from today's transactions for reprinting.</DialogDescription>
+                        </DialogHeader>
+                        <div className="bg-slate-900 p-6 text-white relative shrink-0">
+                            <button onClick={() => setIsReprintOpen(false)} className="absolute top-4 right-4 h-8 w-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all">
+                                <XCircle className="h-4 w-4 text-white" />
                             </button>
-                        ))}
-                    </div>
-                    <div className="p-4 border-t border-slate-100 bg-slate-50 shrink-0">
-                        <Button variant="ghost" className="w-full h-10 rounded-xl font-black text-xs text-slate-400" onClick={() => setIsReprintOpen(false)}>Close</Button>
-                    </div>
-                </DialogContent>
-            </Dialog>
-
-            {/* Credit / Debit Note Modal */}
-            <Dialog open={isCreditNoteOpen} onOpenChange={(v) => { setIsCreditNoteOpen(v); if (!v) setCnActiveInvoice(null); }}>
-                <DialogContent className="sm:max-w-[520px] rounded-3xl p-0 overflow-hidden border-none max-h-[85vh] flex flex-col">
-                    <DialogHeader className="sr-only">
-                        <DialogTitle>Issue Credit or Debit Note</DialogTitle>
-                        <DialogDescription>Search for an existing invoice to issue a credit or debit adjustment.</DialogDescription>
-                    </DialogHeader>
-                    <div className="bg-amber-500 p-6 text-white relative shrink-0">
-                        <button onClick={() => { setIsCreditNoteOpen(false); setCnSearchResults([]); setCnSearchQuery(""); setCnActiveInvoice(null); }} className="absolute top-4 right-4 h-8 w-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition-all">
-                            <XCircle className="h-4 w-4 text-white" />
-                        </button>
-                        <FileText className="h-8 w-8 mb-2 text-white/80" />
-                        <h3 className="text-xl font-black">Issue Credit / Debit Note</h3>
-                        <p className="text-amber-100 text-xs mt-1">Search for the original invoice to reverse or adjust</p>
-                    </div>
-                    <div className="flex-1 overflow-y-auto p-6 bg-white space-y-4">
-                        {/* Note type toggle */}
-                        <div className="flex bg-slate-100 p-1 rounded-xl">
-                            {(["credit", "debit"] as const).map(t => (
-                                <button key={t} onClick={() => setCnType(t)}
-                                    className={cn("flex-1 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all",
-                                        cnType === t ? "bg-white text-amber-600 shadow-sm" : "text-slate-400")}>
-                                    {t === "credit" ? "Credit Note (Return)" : "Debit Note (Adjustment)"}
+                            <Printer className="h-8 w-8 mb-2 text-white/70" />
+                            <h3 className="text-lg font-black">Today's Receipts</h3>
+                            <p className="text-slate-400 text-xs mt-0.5 font-bold">Select a receipt to reprint</p>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-4 bg-white space-y-2">
+                            {reprintListLoading && (
+                                <div className="flex items-center justify-center py-12">
+                                    <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+                                </div>
+                            )}
+                            {!reprintListLoading && reprintList.length === 0 && (
+                                <div className="text-center py-12">
+                                    <Receipt className="h-10 w-10 text-slate-200 mx-auto mb-3" />
+                                    <p className="text-slate-400 font-bold text-sm">No receipts today</p>
+                                </div>
+                            )}
+                            {reprintList.map((inv: any) => (
+                                <button key={inv.id}
+                                    className="w-full flex items-center justify-between p-3 rounded-xl border border-slate-100 hover:border-slate-300 hover:bg-slate-50 transition-all text-left"
+                                    onClick={() => { setReprintInvoice(inv); setIsReprintOpen(false); }}>
+                                    <div>
+                                        <p className="text-sm font-black text-slate-800">{inv.invoiceNumber}</p>
+                                        <p className="text-xs text-slate-400 font-bold">
+                                            {resolvedCustomers?.find((c: any) => c.id === inv.customerId)?.name || "Walk-in"} · {inv.paymentMethod}
+                                        </p>
+                                        <p className="text-[10px] text-slate-300 font-bold">{new Date(inv.createdAt).toLocaleTimeString()}</p>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="text-sm font-black text-emerald-600">{fmt(Number(inv.total))}</p>
+                                        <p className="text-[10px] text-slate-400 font-bold">{inv.transactionType || "Invoice"}</p>
+                                    </div>
                                 </button>
                             ))}
                         </div>
-                        {/* Search */}
-                        <div className="flex gap-2">
-                            <Input
-                                placeholder="Invoice number or customer name..."
-                                value={cnSearchQuery}
-                                onChange={e => setCnSearchQuery(e.target.value)}
-                                onKeyDown={e => e.key === 'Enter' && handleCnSearch()}
-                                className="flex-1 h-10 rounded-xl border-slate-200 text-sm font-bold"
-                            />
-                            <Button onClick={handleCnSearch} disabled={cnSearching} className="h-10 px-4 rounded-xl font-black text-xs">
-                                {cnSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : "Search"}
-                            </Button>
+                        <div className="p-4 border-t border-slate-100 bg-slate-50 shrink-0">
+                            <Button variant="ghost" className="w-full h-10 rounded-xl font-black text-xs text-slate-400" onClick={() => setIsReprintOpen(false)}>Close</Button>
                         </div>
-                        {/* Results / Selected Invoice */}
-                        {!cnActiveInvoice ? (
-                            <>
-                                {cnSearchResults.length > 0 && (
-                                    <div className="space-y-2 max-h-[280px] overflow-y-auto">
-                                        {cnSearchResults.map((inv: any) => (
-                                            <div key={inv.id} className="flex items-center justify-between p-3 rounded-xl border border-slate-100 hover:border-amber-200 hover:bg-amber-50 transition-all cursor-pointer"
-                                                onClick={() => handleSelectInvoiceForReturn(inv)}>
-                                                <div>
-                                                    <p className="text-sm font-black text-slate-800">{inv.invoiceNumber}</p>
-                                                    <p className="text-xs text-slate-400 font-bold">{inv.customerName || resolvedCustomers?.find((c: any) => c.id === inv.customerId)?.name || "Customer"} · {fmt(Number(inv.total))}</p>
-                                                    <p className="text-[10px] text-slate-300 font-bold">{inv.paymentMethod} · {new Date(inv.issueDate || inv.createdAt).toLocaleDateString()}</p>
+                    </DialogContent>
+                </Dialog>
+
+                {/* Credit / Debit Note Modal */}
+                <Dialog open={isCreditNoteOpen} onOpenChange={(v) => { setIsCreditNoteOpen(v); if (!v) setCnActiveInvoice(null); }}>
+                    <DialogContent className="sm:max-w-[520px] rounded-3xl p-0 overflow-hidden border-none max-h-[85vh] flex flex-col">
+                        <DialogHeader className="sr-only">
+                            <DialogTitle>Issue Credit or Debit Note</DialogTitle>
+                            <DialogDescription>Search for an existing invoice to issue a credit or debit adjustment.</DialogDescription>
+                        </DialogHeader>
+                        <div className="bg-amber-500 p-6 text-white relative shrink-0">
+                            <button onClick={() => { setIsCreditNoteOpen(false); setCnSearchResults([]); setCnSearchQuery(""); setCnActiveInvoice(null); }} className="absolute top-4 right-4 h-8 w-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition-all">
+                                <XCircle className="h-4 w-4 text-white" />
+                            </button>
+                            <FileText className="h-8 w-8 mb-2 text-white/80" />
+                            <h3 className="text-xl font-black">Issue Credit / Debit Note</h3>
+                            <p className="text-amber-100 text-xs mt-1">Search for the original invoice to reverse or adjust</p>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-6 bg-white space-y-4">
+                            {/* Note type toggle */}
+                            <div className="flex bg-slate-100 p-1 rounded-xl">
+                                {(["credit", "debit"] as const).map(t => (
+                                    <button key={t} onClick={() => setCnType(t)}
+                                        className={cn("flex-1 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all",
+                                            cnType === t ? "bg-white text-amber-600 shadow-sm" : "text-slate-400")}>
+                                        {t === "credit" ? "Credit Note (Return)" : "Debit Note (Adjustment)"}
+                                    </button>
+                                ))}
+                            </div>
+                            {/* Search */}
+                            <div className="flex gap-2">
+                                <Input
+                                    placeholder="Invoice number or customer name..."
+                                    value={cnSearchQuery}
+                                    onChange={e => setCnSearchQuery(e.target.value)}
+                                    onKeyDown={e => e.key === 'Enter' && handleCnSearch()}
+                                    className="flex-1 h-10 rounded-xl border-slate-200 text-sm font-bold"
+                                />
+                                <Button onClick={handleCnSearch} disabled={cnSearching} className="h-10 px-4 rounded-xl font-black text-xs">
+                                    {cnSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : "Search"}
+                                </Button>
+                            </div>
+                            {/* Results / Selected Invoice */}
+                            {!cnActiveInvoice ? (
+                                <>
+                                    {cnSearchResults.length > 0 && (
+                                        <div className="space-y-2 max-h-[280px] overflow-y-auto">
+                                            {cnSearchResults.map((inv: any) => (
+                                                <div key={inv.id} className="flex items-center justify-between p-3 rounded-xl border border-slate-100 hover:border-amber-200 hover:bg-amber-50 transition-all cursor-pointer"
+                                                    onClick={() => handleSelectInvoiceForReturn(inv)}>
+                                                    <div>
+                                                        <p className="text-sm font-black text-slate-800">{inv.invoiceNumber}</p>
+                                                        <p className="text-xs text-slate-400 font-bold">{inv.customerName || resolvedCustomers?.find((c: any) => c.id === inv.customerId)?.name || "Customer"} · {fmt(Number(inv.total))}</p>
+                                                        <p className="text-[10px] text-slate-300 font-bold">{inv.paymentMethod} · {new Date(inv.issueDate || inv.createdAt).toLocaleDateString()}</p>
+                                                    </div>
+                                                    <Button size="sm" disabled={cnProcessing}
+                                                        className="h-8 px-3 rounded-lg font-black text-xs bg-amber-50 hover:bg-amber-100 text-amber-600"
+                                                        onClick={(e) => { e.stopPropagation(); handleSelectInvoiceForReturn(inv); }}>
+                                                        {cnProcessing ? <Loader2 className="h-3 w-3 animate-spin" /> : "Select"}
+                                                    </Button>
                                                 </div>
-                                                <Button size="sm" disabled={cnProcessing}
-                                                    className="h-8 px-3 rounded-lg font-black text-xs bg-amber-50 hover:bg-amber-100 text-amber-600"
-                                                    onClick={(e) => { e.stopPropagation(); handleSelectInvoiceForReturn(inv); }}>
-                                                    {cnProcessing ? <Loader2 className="h-3 w-3 animate-spin" /> : "Select"}
-                                                </Button>
+                                            ))}
+                                        </div>
+                                    )}
+                                    {cnSearchResults.length === 0 && cnSearchQuery && !cnSearching && (
+                                        <p className="text-center text-slate-400 text-sm font-bold py-4">No invoices found</p>
+                                    )}
+                                </>
+                            ) : (
+                                <div className="space-y-3">
+                                    <div className="p-3 bg-amber-50 rounded-xl border border-amber-100 flex justify-between items-center">
+                                        <div>
+                                            <p className="text-xs font-black text-amber-800 uppercase tracking-widest">Selected Invoice</p>
+                                            <p className="text-sm font-bold text-amber-900">{cnActiveInvoice.invoiceNumber}</p>
+                                        </div>
+                                        <Button variant="ghost" size="sm" className="text-amber-700 h-8" onClick={() => setCnActiveInvoice(null)}>Change</Button>
+                                    </div>
+                                    <div className="space-y-2 max-h-[250px] overflow-y-auto">
+                                        {cnSelectedItems.map((sel, idx) => (
+                                            <div key={idx} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-xl border border-slate-100 bg-slate-50 gap-2">
+                                                <div className="flex-1">
+                                                    <p className="text-sm font-black text-slate-800">{sel.originalItem.description}</p>
+                                                    <p className="text-xs text-slate-400 font-bold">${Number(sel.originalItem.unitPrice).toFixed(2)} each (Max: {Number(sel.originalItem.quantity)})</p>
+                                                </div>
+                                                <div className="flex items-center gap-3 bg-white p-1 rounded-lg border border-slate-200">
+                                                    <Button variant="ghost" className="h-6 w-6 p-0 hover:bg-red-50 hover:text-red-500" onClick={() => {
+                                                        setCnSelectedItems(prev => prev.map((p, i) => i === idx ? { ...p, quantity: Math.max(0, p.quantity - 1) } : p));
+                                                    }}><Minus className="h-3 w-3" /></Button>
+                                                    <span className="font-black text-sm w-4 text-center">{sel.quantity}</span>
+                                                    <Button variant="ghost" className="h-6 w-6 p-0 hover:bg-emerald-50 hover:text-emerald-500" onClick={() => {
+                                                        setCnSelectedItems(prev => prev.map((p, i) => i === idx ? { ...p, quantity: Math.min(Number(p.originalItem.quantity), p.quantity + 1) } : p));
+                                                    }}><Plus className="h-3 w-3" /></Button>
+                                                </div>
                                             </div>
                                         ))}
                                     </div>
-                                )}
-                                {cnSearchResults.length === 0 && cnSearchQuery && !cnSearching && (
-                                    <p className="text-center text-slate-400 text-sm font-bold py-4">No invoices found</p>
-                                )}
-                            </>
-                        ) : (
-                            <div className="space-y-3">
-                                <div className="p-3 bg-amber-50 rounded-xl border border-amber-100 flex justify-between items-center">
-                                    <div>
-                                        <p className="text-xs font-black text-amber-800 uppercase tracking-widest">Selected Invoice</p>
-                                        <p className="text-sm font-bold text-amber-900">{cnActiveInvoice.invoiceNumber}</p>
-                                    </div>
-                                    <Button variant="ghost" size="sm" className="text-amber-700 h-8" onClick={() => setCnActiveInvoice(null)}>Change</Button>
                                 </div>
-                                <div className="space-y-2 max-h-[250px] overflow-y-auto">
-                                    {cnSelectedItems.map((sel, idx) => (
-                                        <div key={idx} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-xl border border-slate-100 bg-slate-50 gap-2">
-                                            <div className="flex-1">
-                                                <p className="text-sm font-black text-slate-800">{sel.originalItem.description}</p>
-                                                <p className="text-xs text-slate-400 font-bold">${Number(sel.originalItem.unitPrice).toFixed(2)} each (Max: {Number(sel.originalItem.quantity)})</p>
-                                            </div>
-                                            <div className="flex items-center gap-3 bg-white p-1 rounded-lg border border-slate-200">
-                                                <Button variant="ghost" className="h-6 w-6 p-0 hover:bg-red-50 hover:text-red-500" onClick={() => {
-                                                    setCnSelectedItems(prev => prev.map((p, i) => i === idx ? { ...p, quantity: Math.max(0, p.quantity - 1) } : p));
-                                                }}><Minus className="h-3 w-3" /></Button>
-                                                <span className="font-black text-sm w-4 text-center">{sel.quantity}</span>
-                                                <Button variant="ghost" className="h-6 w-6 p-0 hover:bg-emerald-50 hover:text-emerald-500" onClick={() => {
-                                                    setCnSelectedItems(prev => prev.map((p, i) => i === idx ? { ...p, quantity: Math.min(Number(p.originalItem.quantity), p.quantity + 1) } : p));
-                                                }}><Plus className="h-3 w-3" /></Button>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                    <div className="p-4 border-t border-slate-100 bg-slate-50 shrink-0 flex gap-2">
-                        <Button variant="ghost" className="flex-1 h-10 rounded-xl font-black text-xs text-slate-400" onClick={() => { setIsCreditNoteOpen(false); setCnSearchResults([]); setCnSearchQuery(""); setCnActiveInvoice(null); }}>Cancel</Button>
-                        {cnActiveInvoice && (
-                            <Button disabled={cnProcessing || cnSelectedItems.every(s => s.quantity === 0)} className="flex-1 h-10 rounded-xl font-black text-xs bg-amber-500 hover:bg-amber-600 text-white" onClick={handleIssueItemizedReturn}>
-                                {cnProcessing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                                Issue {cnType === "credit" ? "CN" : "DN"}
-                            </Button>
-                        )}
-                    </div>
-                </DialogContent>
-            </Dialog>
+                            )}
+                        </div>
+                        <div className="p-4 border-t border-slate-100 bg-slate-50 shrink-0 flex gap-2">
+                            <Button variant="ghost" className="flex-1 h-10 rounded-xl font-black text-xs text-slate-400" onClick={() => { setIsCreditNoteOpen(false); setCnSearchResults([]); setCnSearchQuery(""); setCnActiveInvoice(null); }}>Cancel</Button>
+                            {cnActiveInvoice && (
+                                <Button disabled={cnProcessing || cnSelectedItems.every(s => s.quantity === 0)} className="flex-1 h-10 rounded-xl font-black text-xs bg-amber-500 hover:bg-amber-600 text-white" onClick={handleIssueItemizedReturn}>
+                                    {cnProcessing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                                    Issue {cnType === "credit" ? "CN" : "DN"}
+                                </Button>
+                            )}
+                        </div>
+                    </DialogContent>
+                </Dialog>
 
-            {/* X / Z Report Modal */}
-            <Dialog open={isReportOpen} onOpenChange={setIsReportOpen}>
-                <DialogContent className="sm:max-w-[560px] rounded-3xl p-0 overflow-hidden border-none max-h-[90vh] flex flex-col">
-                    <DialogHeader className="sr-only">
-                        <DialogTitle>Daily Reports</DialogTitle>
-                        <DialogDescription>Generate and view X-Reports and Z-Reports for daily reconciliation.</DialogDescription>
-                    </DialogHeader>
-                    <div className="bg-purple-600 p-6 text-white relative shrink-0">
-                        <button onClick={() => setIsReportOpen(false)} className="absolute top-4 right-4 h-8 w-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition-all">
-                            <XCircle className="h-4 w-4 text-white" />
-                        </button>
-                        <div className="flex items-end justify-between pr-10">
-                            <div>
-                                <h3 className="text-xl font-black">{reportType === "x" ? "X-Report" : "Z-Report"}</h3>
-                                <p className="text-purple-200 text-xs mt-1">{reportType === "x" ? "Current day summary" : "Closed day summary"}</p>
-                            </div>
-                            <div className="flex items-center gap-3">
-                                 {reportData && !reportData.error && (
-                                     <PDFDownloadLink
-                                         document={<ZReportPDF data={{ ...reportData, company }} isZReport={reportType === 'z'} />}
-                                         fileName={`${reportType === 'z' ? 'Z' : 'X'}-Report-${new Date().toISOString().split('T')[0]}.pdf`}
-                                     >
-                                         {({ loading }) => (
-                                             <Button size="sm" variant="outline" className="h-8 px-3 text-xs gap-2 bg-white/10 border-white/20 text-white hover:bg-white/20 hover:text-white rounded-xl" disabled={loading}>
-                                                 {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-                                                 PDF
-                                             </Button>
-                                         )}
-                                     </PDFDownloadLink>
-                                 )}
-                                 <div className="flex bg-purple-700/50 p-1 rounded-xl">
-                                    {(["x", "z"] as const).map(t => (
-                                        <button key={t} onClick={() => handleLoadReport(t)}
-                                            className={cn("px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all",
-                                                reportType === t ? "bg-white text-purple-600" : "text-purple-200")}>
-                                            {t.toUpperCase()}
-                                        </button>
-                                    ))}
+                {/* X / Z Report Modal */}
+                <Dialog open={isReportOpen} onOpenChange={setIsReportOpen}>
+                    <DialogContent className="sm:max-w-[560px] rounded-3xl p-0 overflow-hidden border-none max-h-[90vh] flex flex-col">
+                        <DialogHeader className="sr-only">
+                            <DialogTitle>Daily Reports</DialogTitle>
+                            <DialogDescription>Generate and view X-Reports and Z-Reports for daily reconciliation.</DialogDescription>
+                        </DialogHeader>
+                        <div className="bg-purple-600 p-6 text-white relative shrink-0">
+                            <button onClick={() => setIsReportOpen(false)} className="absolute top-4 right-4 h-8 w-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition-all">
+                                <XCircle className="h-4 w-4 text-white" />
+                            </button>
+                            <div className="flex items-end justify-between pr-10">
+                                <div>
+                                    <h3 className="text-xl font-black">{reportType === "x" ? "X-Report" : "Z-Report"}</h3>
+                                    <p className="text-purple-200 text-xs mt-1">{reportType === "x" ? "Current day summary" : "Closed day summary"}</p>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    {reportData && !reportData.error && (
+                                        <PDFDownloadLink
+                                            document={<ZReportPDF data={{ ...reportData, company }} isZReport={reportType === 'z'} />}
+                                            fileName={`${reportType === 'z' ? 'Z' : 'X'}-Report-${new Date().toISOString().split('T')[0]}.pdf`}
+                                        >
+                                            {({ loading }) => (
+                                                <Button size="sm" variant="outline" className="h-8 px-3 text-xs gap-2 bg-white/10 border-white/20 text-white hover:bg-white/20 hover:text-white rounded-xl" disabled={loading}>
+                                                    {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                                                    PDF
+                                                </Button>
+                                            )}
+                                        </PDFDownloadLink>
+                                    )}
+                                    <div className="flex bg-purple-700/50 p-1 rounded-xl">
+                                        {(["x", "z"] as const).map(t => (
+                                            <button key={t} onClick={() => handleLoadReport(t)}
+                                                className={cn("px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all",
+                                                    reportType === t ? "bg-white text-purple-600" : "text-purple-200")}>
+                                                {t.toUpperCase()}
+                                            </button>
+                                        ))}
+                                    </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
-                    <div className="flex-1 overflow-y-auto p-6 bg-white space-y-4">
-                        {reportLoading && (
-                            <div className="flex items-center justify-center py-12">
-                                <Loader2 className="h-8 w-8 animate-spin text-purple-500" />
-                            </div>
-                        )}
-                        {reportData?.error && (
-                            <div className="bg-red-50 border border-red-100 rounded-2xl p-4 text-center">
-                                <XCircle className="h-8 w-8 text-red-400 mx-auto mb-2" />
-                                <p className="text-sm font-black text-red-600">{reportData.error}</p>
-                            </div>
-                        )}
-                        {reportData && !reportData.error && (
-                            <>
-                                {/* POS Sales Summary — always shown */}
-                                {reportData.posSummary && (
-                                    <div className="border border-purple-100 rounded-2xl overflow-hidden">
-                                        <div className="bg-purple-600 px-4 py-2 flex items-center justify-between">
-                                            <span className="text-xs font-black text-white uppercase tracking-widest">Today's Sales Summary</span>
-                                            <span className="text-xs font-black text-purple-200">{reportData.posSummary.totalTransactions} transactions</span>
-                                        </div>
-                                        <div className="divide-y divide-slate-50">
-                                            {reportData.posSummary.byPaymentMethod.map((pm: any) => (
-                                                <div key={pm.method} className="flex items-center justify-between px-4 py-3">
-                                                    <span className="text-sm font-bold text-slate-600">{pm.method}</span>
-                                                    <div className="flex items-center gap-4">
-                                                        <span className="text-xs font-black text-slate-400">{pm.count} sales</span>
-                                                        <span className="text-sm font-black text-emerald-600">{Number(pm.total).toFixed(2)}</span>
+                        <div className="flex-1 overflow-y-auto p-6 bg-white space-y-4">
+                            {reportLoading && (
+                                <div className="flex items-center justify-center py-12">
+                                    <Loader2 className="h-8 w-8 animate-spin text-purple-500" />
+                                </div>
+                            )}
+                            {reportData?.error && (
+                                <div className="bg-red-50 border border-red-100 rounded-2xl p-4 text-center">
+                                    <XCircle className="h-8 w-8 text-red-400 mx-auto mb-2" />
+                                    <p className="text-sm font-black text-red-600">{reportData.error}</p>
+                                </div>
+                            )}
+                            {reportData && !reportData.error && (
+                                <>
+                                    {/* POS Sales Summary — always shown */}
+                                    {reportData.posSummary && (
+                                        <div className="border border-purple-100 rounded-2xl overflow-hidden">
+                                            <div className="bg-purple-600 px-4 py-2 flex items-center justify-between">
+                                                <span className="text-xs font-black text-white uppercase tracking-widest">Today's Sales Summary</span>
+                                                <span className="text-xs font-black text-purple-200">{reportData.posSummary.totalTransactions} transactions</span>
+                                            </div>
+                                            <div className="divide-y divide-slate-50">
+                                                {reportData.posSummary.byPaymentMethod.map((pm: any) => (
+                                                    <div key={pm.method} className="flex items-center justify-between px-4 py-3">
+                                                        <span className="text-sm font-bold text-slate-600">{pm.method}</span>
+                                                        <div className="flex items-center gap-4">
+                                                            <span className="text-xs font-black text-slate-400">{pm.count} sales</span>
+                                                            <span className="text-sm font-black text-emerald-600">{Number(pm.total).toFixed(2)}</span>
+                                                        </div>
                                                     </div>
+                                                ))}
+                                                <div className="flex items-center justify-between px-4 py-3 bg-slate-50">
+                                                    <span className="text-sm font-black text-slate-800">Grand Total</span>
+                                                    <span className="text-base font-black text-slate-900">{Number(reportData.posSummary.grandTotal).toFixed(2)}</span>
                                                 </div>
-                                            ))}
-                                            <div className="flex items-center justify-between px-4 py-3 bg-slate-50">
-                                                <span className="text-sm font-black text-slate-800">Grand Total</span>
-                                                <span className="text-base font-black text-slate-900">{Number(reportData.posSummary.grandTotal).toFixed(2)}</span>
                                             </div>
                                         </div>
-                                    </div>
-                                )}
+                                    )}
 
-                                {/* Fiscal header info — only when fiscal day data is present */}
-                                {reportData.fiscalDayNo && (
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div className="bg-slate-50 rounded-2xl p-4">
-                                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Fiscal Day</p>
-                                            <p className="text-2xl font-black text-slate-800">#{reportData.fiscalDayNo}</p>
-                                        </div>
-                                        <div className="bg-slate-50 rounded-2xl p-4">
-                                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Opened</p>
-                                            <p className="text-sm font-black text-slate-800">{reportData.openedAt ? new Date(reportData.openedAt).toLocaleString() : "—"}</p>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Doc stats by currency — only when non-empty */}
-                                {(reportData.docStats || []).length > 0 && (reportData.docStats || []).map((stat: any) => (
-                                    <div key={stat.currency} className="border border-slate-100 rounded-2xl overflow-hidden">
-                                        <div className="bg-slate-800 px-4 py-2">
-                                            <span className="text-xs font-black text-white uppercase tracking-widest">{stat.currency}</span>
-                                        </div>
-                                        <div className="divide-y divide-slate-50">
-                                            {[
-                                                { label: "Invoices", data: stat.invoices, color: "text-emerald-600" },
-                                                { label: "Credit Notes", data: stat.creditNotes, color: "text-red-500" },
-                                                { label: "Debit Notes", data: stat.debitNotes, color: "text-amber-500" },
-                                            ].map(row => (
-                                                <div key={row.label} className="flex items-center justify-between px-4 py-3">
-                                                    <span className="text-sm font-bold text-slate-600">{row.label}</span>
-                                                    <div className="flex items-center gap-4">
-                                                        <span className="text-xs font-black text-slate-400">{row.data.quantity} docs</span>
-                                                        <span className={cn("text-sm font-black", row.color)}>{stat.currency} {Number(row.data.total).toFixed(2)}</span>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                            <div className="flex items-center justify-between px-4 py-3 bg-slate-50">
-                                                <span className="text-sm font-black text-slate-800">Total</span>
-                                                <span className="text-base font-black text-slate-900">{stat.currency} {Number(stat.totalDocuments.total).toFixed(2)}</span>
+                                    {/* Fiscal header info — only when fiscal day data is present */}
+                                    {reportData.fiscalDayNo && (
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div className="bg-slate-50 rounded-2xl p-4">
+                                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Fiscal Day</p>
+                                                <p className="text-2xl font-black text-slate-800">#{reportData.fiscalDayNo}</p>
+                                            </div>
+                                            <div className="bg-slate-50 rounded-2xl p-4">
+                                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Opened</p>
+                                                <p className="text-sm font-black text-slate-800">{reportData.openedAt ? new Date(reportData.openedAt).toLocaleString() : "—"}</p>
                                             </div>
                                         </div>
-                                    </div>
-                                ))}
+                                    )}
 
-                                {/* Fiscal counters — only when non-empty */}
-                                {reportData.counters && reportData.counters.length > 0 && (
-                                    <div className="border border-slate-100 rounded-2xl overflow-hidden">
-                                        <div className="bg-slate-100 px-4 py-2">
-                                            <span className="text-xs font-black text-slate-500 uppercase tracking-widest">Fiscal Counters</span>
+                                    {/* Doc stats by currency — only when non-empty */}
+                                    {(reportData.docStats || []).length > 0 && (reportData.docStats || []).map((stat: any) => (
+                                        <div key={stat.currency} className="border border-slate-100 rounded-2xl overflow-hidden">
+                                            <div className="bg-slate-800 px-4 py-2">
+                                                <span className="text-xs font-black text-white uppercase tracking-widest">{stat.currency}</span>
+                                            </div>
+                                            <div className="divide-y divide-slate-50">
+                                                {[
+                                                    { label: "Invoices", data: stat.invoices, color: "text-emerald-600" },
+                                                    { label: "Credit Notes", data: stat.creditNotes, color: "text-red-500" },
+                                                    { label: "Debit Notes", data: stat.debitNotes, color: "text-amber-500" },
+                                                ].map(row => (
+                                                    <div key={row.label} className="flex items-center justify-between px-4 py-3">
+                                                        <span className="text-sm font-bold text-slate-600">{row.label}</span>
+                                                        <div className="flex items-center gap-4">
+                                                            <span className="text-xs font-black text-slate-400">{row.data.quantity} docs</span>
+                                                            <span className={cn("text-sm font-black", row.color)}>{stat.currency} {Number(row.data.total).toFixed(2)}</span>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                                <div className="flex items-center justify-between px-4 py-3 bg-slate-50">
+                                                    <span className="text-sm font-black text-slate-800">Total</span>
+                                                    <span className="text-base font-black text-slate-900">{stat.currency} {Number(stat.totalDocuments.total).toFixed(2)}</span>
+                                                </div>
+                                            </div>
                                         </div>
-                                        <div className="divide-y divide-slate-50">
-                                            {reportData.counters.map((c: any, i: number) => (
-                                                <div key={i} className="flex items-center justify-between px-4 py-2">
-                                                    <span className="text-xs font-bold text-slate-500">
-                                                        {c.fiscalCounterTaxPercent !== undefined ? `${c.fiscalCounterTaxPercent}%` : (c.fiscalCounterMoneyType || c.fiscalCounterType)}
+                                    ))}
+
+                                    {/* Fiscal counters — only when non-empty */}
+                                    {reportData.counters && reportData.counters.length > 0 && (
+                                        <div className="border border-slate-100 rounded-2xl overflow-hidden">
+                                            <div className="bg-slate-100 px-4 py-2">
+                                                <span className="text-xs font-black text-slate-500 uppercase tracking-widest">Fiscal Counters</span>
+                                            </div>
+                                            <div className="divide-y divide-slate-50">
+                                                {reportData.counters.map((c: any, i: number) => (
+                                                    <div key={i} className="flex items-center justify-between px-4 py-2">
+                                                        <span className="text-xs font-bold text-slate-500">
+                                                            {c.fiscalCounterTaxPercent !== undefined ? `${c.fiscalCounterTaxPercent}%` : (c.fiscalCounterMoneyType || c.fiscalCounterType)}
+                                                        </span>
+                                                        <span className="text-xs font-black text-slate-800">{c.fiscalCounterCurrency} {Number(c.fiscalCounterValue || 0).toFixed(2)}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* POS Transactions (Drops/Payouts) */}
+                                    {reportData.posSummary?.posTransactions && reportData.posSummary.posTransactions.length > 0 && (
+                                        <div className="border border-slate-100 rounded-2xl overflow-hidden mt-4 shadow-sm">
+                                            <div className="bg-slate-100/80 px-4 py-2 flex items-center justify-between">
+                                                <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.15em]">Cash Movements</span>
+                                                <span className="text-[9px] font-black text-slate-400 bg-white px-2 py-0.5 rounded-full border border-slate-200/50">TRACKING</span>
+                                            </div>
+                                            <div className="divide-y divide-slate-50">
+                                                {reportData.posSummary.posTransactions.map((t: any, i: number) => (
+                                                    <div key={i} className="flex items-center justify-between px-4 py-3 hover:bg-slate-50/50 transition-colors">
+                                                        <div className="flex flex-col">
+                                                            <span className={cn("text-[10px] font-black tracking-tight", t.type === 'DROP' ? "text-emerald-600" : "text-rose-600")}>
+                                                                {t.type === 'DROP' ? 'REMITTANCE' : 'PAYOUT'}
+                                                            </span>
+                                                            <span className="text-[11px] font-bold text-slate-600 truncate max-w-[180px] leading-tight mt-0.5">{t.reason || 'Manual Adjustment'}</span>
+                                                            <span className="text-[9px] text-slate-300 font-black uppercase tracking-widest mt-1">Cashier: {t.userName}</span>
+                                                        </div>
+                                                        <div className="text-right flex flex-col items-end">
+                                                            <span className={cn("text-xs font-black", t.type === 'DROP' ? "text-emerald-700" : "text-rose-700")}>
+                                                                {t.type === 'DROP' ? '+' : '-'}${Number(t.amount).toFixed(2)}
+                                                            </span>
+                                                            <span className="text-[9px] text-slate-400 font-black opacity-60 mt-0.5">{new Date(t.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                                <div className="bg-slate-50/80 px-4 py-3 flex items-center justify-between border-t border-slate-100">
+                                                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Net Cash Movement</span>
+                                                    <span className="text-sm font-black text-slate-900">
+                                                        ${reportData.posSummary.posTransactions
+                                                            .reduce((acc: number, t: any) => acc + (t.type === 'DROP' ? Number(t.amount) : -Number(t.amount)), 0)
+                                                            .toFixed(2)}
                                                     </span>
-                                                    <span className="text-xs font-black text-slate-800">{c.fiscalCounterCurrency} {Number(c.fiscalCounterValue || 0).toFixed(2)}</span>
                                                 </div>
-                                            ))}
-                                         </div>
-                                    </div>
-                                )}
-
-                                {/* POS Transactions (Drops/Payouts) */}
-                                {reportData.posSummary?.posTransactions && reportData.posSummary.posTransactions.length > 0 && (
-                                    <div className="border border-slate-100 rounded-2xl overflow-hidden mt-4 shadow-sm">
-                                        <div className="bg-slate-100/80 px-4 py-2 flex items-center justify-between">
-                                            <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.15em]">Cash Movements</span>
-                                            <span className="text-[9px] font-black text-slate-400 bg-white px-2 py-0.5 rounded-full border border-slate-200/50">TRACKING</span>
-                                        </div>
-                                        <div className="divide-y divide-slate-50">
-                                            {reportData.posSummary.posTransactions.map((t: any, i: number) => (
-                                                <div key={i} className="flex items-center justify-between px-4 py-3 hover:bg-slate-50/50 transition-colors">
-                                                    <div className="flex flex-col">
-                                                        <span className={cn("text-[10px] font-black tracking-tight", t.type === 'DROP' ? "text-emerald-600" : "text-rose-600")}>
-                                                            {t.type === 'DROP' ? 'REMITTANCE' : 'PAYOUT'}
-                                                        </span>
-                                                        <span className="text-[11px] font-bold text-slate-600 truncate max-w-[180px] leading-tight mt-0.5">{t.reason || 'Manual Adjustment'}</span>
-                                                        <span className="text-[9px] text-slate-300 font-black uppercase tracking-widest mt-1">Cashier: {t.userName}</span>
-                                                    </div>
-                                                    <div className="text-right flex flex-col items-end">
-                                                        <span className={cn("text-xs font-black", t.type === 'DROP' ? "text-emerald-700" : "text-rose-700")}>
-                                                            {t.type === 'DROP' ? '+' : '-'}${Number(t.amount).toFixed(2)}
-                                                        </span>
-                                                        <span className="text-[9px] text-slate-400 font-black opacity-60 mt-0.5">{new Date(t.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                            <div className="bg-slate-50/80 px-4 py-3 flex items-center justify-between border-t border-slate-100">
-                                                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Net Cash Movement</span>
-                                                <span className="text-sm font-black text-slate-900">
-                                                    ${reportData.posSummary.posTransactions
-                                                        .reduce((acc: number, t: any) => acc + (t.type === 'DROP' ? Number(t.amount) : -Number(t.amount)), 0)
-                                                        .toFixed(2)}
-                                                </span>
                                             </div>
                                         </div>
-                                    </div>
-                                )}
-                            </>
-                        )}
-                    </div>
-                    <div className="p-4 border-t border-slate-100 bg-slate-50 shrink-0">
-                        <Button variant="ghost" className="w-full h-10 rounded-xl font-black text-xs text-slate-400" onClick={() => setIsReportOpen(false)}>Close</Button>
-                    </div>
-                </DialogContent>
-            </Dialog>
- 
-             {/* Quick Add Customer Dialog */}
-             <Dialog open={isQuickAddCustomerOpen} onOpenChange={setIsQuickAddCustomerOpen}>
-                 <DialogContent className="sm:max-w-[420px] rounded-[2.5rem] p-0 overflow-hidden border-none shadow-2xl bg-white">
-                     <div className="bg-slate-900 p-8 text-white relative">
-                         <button onClick={() => setIsQuickAddCustomerOpen(false)} className="absolute top-6 right-6 h-8 w-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all">
-                             <XCircle className="h-4 w-4 text-white" />
-                         </button>
-                         <UserPlus className="h-8 w-8 mb-4 text-primary" />
-                         <h3 className="text-2xl font-black">Quick Add Customer</h3>
-                         <p className="text-slate-400 text-xs mt-1 font-bold uppercase tracking-widest">Enroll new customer instantly</p>
-                     </div>
-                     <div className="p-8 space-y-5">
-                         <div className="space-y-2">
-                             <Label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-1">Full Name</Label>
-                             <Input 
-                                 placeholder="e.g. John Doe" 
-                                 className="h-12 rounded-2xl bg-slate-50 border-none font-bold"
-                                 value={newCustomer.name}
-                                 onChange={e => setNewCustomer(prev => ({ ...prev, name: e.target.value }))}
-                             />
-                         </div>
-                         <div className="grid grid-cols-2 gap-4">
-                             <div className="space-y-2">
-                                 <Label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-1">Phone</Label>
-                                 <Input 
-                                     placeholder="07..." 
-                                     className="h-12 rounded-2xl bg-slate-50 border-none font-bold"
-                                     value={newCustomer.phone}
-                                     onChange={e => setNewCustomer(prev => ({ ...prev, phone: e.target.value }))}
-                                 />
-                             </div>
-                             <div className="space-y-2">
-                                 <Label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-1">TIN (Optional)</Label>
-                                 <Input 
-                                     placeholder="10 digits" 
-                                     className="h-12 rounded-2xl bg-slate-50 border-none font-bold"
-                                     value={newCustomer.tin}
-                                     onChange={e => setNewCustomer(prev => ({ ...prev, tin: e.target.value }))}
-                                 />
-                             </div>
-                         </div>
-                         <div className="space-y-2">
-                             <Label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-1">Email</Label>
-                             <Input 
-                                 type="email" 
-                                 placeholder="customer@example.com" 
-                                 className="h-12 rounded-2xl bg-slate-50 border-none font-bold"
-                                 value={newCustomer.email}
-                                 onChange={e => setNewCustomer(prev => ({ ...prev, email: e.target.value }))}
-                             />
-                         </div>
-                         
-                         <Button 
-                             className="w-full h-14 rounded-2xl bg-slate-900 hover:bg-black text-white font-black uppercase tracking-widest mt-4 shadow-xl"
-                             disabled={isCreatingCustomer || !newCustomer.name}
-                             onClick={handleQuickAddCustomer}
-                         >
-                             {isCreatingCustomer ? <Loader2 className="h-5 w-5 animate-spin" /> : "Create & Select"}
-                         </Button>
-                     </div>
-                 </DialogContent>
-             </Dialog>
-         </div>
-</PosLayout>
+                                    )}
+                                </>
+                            )}
+                        </div>
+                        <div className="p-4 border-t border-slate-100 bg-slate-50 shrink-0">
+                            <Button variant="ghost" className="w-full h-10 rounded-xl font-black text-xs text-slate-400" onClick={() => setIsReportOpen(false)}>Close</Button>
+                        </div>
+                    </DialogContent>
+                </Dialog>
+
+                {/* Quick Add Customer Dialog */}
+                <Dialog open={isQuickAddCustomerOpen} onOpenChange={setIsQuickAddCustomerOpen}>
+                    <DialogContent className="sm:max-w-[420px] rounded-[2.5rem] p-0 overflow-hidden border-none shadow-2xl bg-white">
+                        <div className="bg-slate-900 p-8 text-white relative">
+                            <button onClick={() => setIsQuickAddCustomerOpen(false)} className="absolute top-6 right-6 h-8 w-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all">
+                                <XCircle className="h-4 w-4 text-white" />
+                            </button>
+                            <UserPlus className="h-8 w-8 mb-4 text-primary" />
+                            <h3 className="text-2xl font-black">Quick Add Customer</h3>
+                            <p className="text-slate-400 text-xs mt-1 font-bold uppercase tracking-widest">Enroll new customer instantly</p>
+                        </div>
+                        <div className="p-8 space-y-5">
+                            <div className="space-y-2">
+                                <Label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-1">Full Name</Label>
+                                <Input
+                                    placeholder="e.g. John Doe"
+                                    className="h-12 rounded-2xl bg-slate-50 border-none font-bold"
+                                    value={newCustomer.name}
+                                    onChange={e => setNewCustomer(prev => ({ ...prev, name: e.target.value }))}
+                                />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <Label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-1">Phone</Label>
+                                    <Input
+                                        placeholder="07..."
+                                        className="h-12 rounded-2xl bg-slate-50 border-none font-bold"
+                                        value={newCustomer.phone}
+                                        onChange={e => setNewCustomer(prev => ({ ...prev, phone: e.target.value }))}
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-1">TIN (Optional)</Label>
+                                    <Input
+                                        placeholder="10 digits"
+                                        className="h-12 rounded-2xl bg-slate-50 border-none font-bold"
+                                        value={newCustomer.tin}
+                                        onChange={e => setNewCustomer(prev => ({ ...prev, tin: e.target.value }))}
+                                    />
+                                </div>
+                            </div>
+                            <div className="space-y-2">
+                                <Label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-1">Email</Label>
+                                <Input
+                                    type="email"
+                                    placeholder="customer@example.com"
+                                    className="h-12 rounded-2xl bg-slate-50 border-none font-bold"
+                                    value={newCustomer.email}
+                                    onChange={e => setNewCustomer(prev => ({ ...prev, email: e.target.value }))}
+                                />
+                            </div>
+
+                            <Button
+                                className="w-full h-14 rounded-2xl bg-slate-900 hover:bg-black text-white font-black uppercase tracking-widest mt-4 shadow-xl"
+                                disabled={isCreatingCustomer || !newCustomer.name}
+                                onClick={handleQuickAddCustomer}
+                            >
+                                {isCreatingCustomer ? <Loader2 className="h-5 w-5 animate-spin" /> : "Create & Select"}
+                            </Button>
+                        </div>
+                    </DialogContent>
+                </Dialog>
+            </div>
+        </PosLayout>
     );
 
 }

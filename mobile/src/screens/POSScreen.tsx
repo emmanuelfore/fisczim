@@ -184,7 +184,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
       }
     } catch { /* ignore */ }
   };
-  
+
   useEffect(() => {
     fetchFiscalStatus();
     const interval = setInterval(fetchFiscalStatus, 30000); // 30s
@@ -895,7 +895,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
             </View>
 
             {/* Fiscal Status Badge - Mobile */}
-            <View style={{
+            {/* <View style={{
               flexDirection: "row", alignItems: "center", gap: 5,
               paddingHorizontal: 8, paddingVertical: 4, borderRadius: 20,
               backgroundColor: fiscalStatus === 'FiscalDayOpened' ? "rgba(0,208,132,0.1)" : 
@@ -916,7 +916,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
                                                                     "#fbbf24", textTransform: "uppercase" }}>
                 {fiscalStatus === 'FiscalDayCloseFailed' ? 'CLOSE FAIL' : (fiscalStatus === 'FiscalDayOpened' ? 'Day Open' : 'Day Closed')}
               </Text>
-            </View>
+            </View> */}
           </View>
 
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
@@ -939,15 +939,15 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
                 </Text>
               </TouchableOpacity>
             )}
-
-            <TouchableOpacity activeOpacity={0.7} onPress={() => setShowBranchPicker(true)}
+ 
+            {/* <TouchableOpacity activeOpacity={0.7} onPress={() => setShowBranchPicker(true)}
               style={{
                 width: 34, height: 34, borderRadius: 10, backgroundColor: C.bg.hover,
                 borderWidth: 1, borderColor: selectedBranchId ? C.status.success : C.border.default,
                 alignItems: "center", justifyContent: "center"
               }}>
               <MonitorSmartphone size={16} color={selectedBranchId ? C.status.success : C.text.secondary} />
-            </TouchableOpacity>
+            </TouchableOpacity> */}
 
             <TouchableOpacity activeOpacity={0.7} onPress={() => setShowPrinterSettings(true)}
               style={{
@@ -2407,14 +2407,14 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
                 <X size={16} color={C.text.primary} />
               </TouchableOpacity>
             </View>
-            
+
             {loadingBranches ? (
               <ActivityIndicator color={C.amber.primary} style={{ marginVertical: 40 }} />
             ) : (
               <ScrollView style={{ maxHeight: 400 }}>
                 {branchesData?.map((b: any) => (
-                  <TouchableOpacity 
-                    key={b.id} 
+                  <TouchableOpacity
+                    key={b.id}
                     onPress={async () => {
                       setInternalBranchId(b.id);
                       await setSelectedBranchId(b.id);
@@ -2438,7 +2438,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
                     )}
                   </TouchableOpacity>
                 ))}
-                
+
                 {(!branchesData || branchesData.length === 0) && (
                   <View style={{ paddingVertical: 40, alignItems: "center" }}>
                     <Text style={{ color: C.text.secondary }}>No branches found</Text>

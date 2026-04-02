@@ -221,6 +221,27 @@ export const api = {
         200: z.custom<typeof products.$inferSelect>(),
         404: errorSchemas.notFound,
       }
+    },
+    adjustPrice: {
+      method: 'POST' as const,
+      path: '/api/products/:id/adjust-price',
+      input: z.object({
+        newPrice: z.number().or(z.string()),
+        reason: z.string().optional(),
+        effectiveFrom: z.string().optional(),
+      }),
+      responses: {
+        200: z.custom<typeof products.$inferSelect>(),
+        404: errorSchemas.notFound,
+      }
+    },
+    priceHistory: {
+      method: 'GET' as const,
+      path: '/api/products/:id/price-history',
+      responses: {
+        200: z.array(z.custom<PriceAdjustment & { user?: { username: string } }>()),
+        404: errorSchemas.notFound,
+      }
     }
   },
   invoices: {
@@ -462,7 +483,7 @@ export const api = {
       method: 'GET' as const,
       path: '/api/companies/:companyId/inventory/transactions',
       responses: {
-        200: z.array(z.custom<InventoryTransaction>()),
+        200: z.array(z.custom<InventoryTransaction & { userName?: string }>()),
       }
     },
     stockIn: {
@@ -490,6 +511,21 @@ export const api = {
           quantity: z.number().or(z.string()),
           unitCost: z.number().or(z.string()),
         }))
+      }),
+      responses: {
+        201: z.object({ message: z.string() }),
+      }
+    },
+    adjust: {
+      method: 'POST' as const,
+      path: '/api/companies/:companyId/inventory/adjust',
+      input: z.object({
+        productId: z.number(),
+        variationId: z.number().optional(),
+        branchId: z.number().optional(),
+        quantity: z.number().or(z.string()), // positive or negative
+        type: z.enum(['ADJUSTMENT', 'SHRINKAGE', 'CORRECTION', 'DAMAGE', 'EXPIRY']).default('ADJUSTMENT'),
+        notes: z.string().optional()
       }),
       responses: {
         201: z.object({ message: z.string() }),

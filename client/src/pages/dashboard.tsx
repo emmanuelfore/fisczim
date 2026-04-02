@@ -44,8 +44,11 @@ import {
   Package,
   Key,
   ArrowRight,
-  ShieldCheck
+  ShieldCheck,
+  Store
 } from "lucide-react";
+import { BranchPickerModal } from "@/components/branch-picker-modal";
+import { useBranchContext } from "@/lib/branch-context";
 import { api, buildUrl } from "@shared/routes";
 import { cn } from "@/lib/utils";
 import React, { useMemo } from "react";
@@ -62,14 +65,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { format } from "date-fns";
 
 import { useActiveCompany } from "@/hooks/use-active-company";
 
 export default function Dashboard() {
   const { user } = useAuth();
   const { activeCompany, isLoading: isLoadingCompany } = useActiveCompany();
+  const { selectedBranchId } = useBranchContext();
   const selectedCompany = activeCompany;
-  const { data: invoicesResult, isLoading } = useInvoices(selectedCompany?.id || 0, { limit: 5 });
+  const { data: invoicesResult, isLoading } = useInvoices(selectedCompany?.id || 0, { limit: 5, branchId: selectedBranchId || undefined });
   const invoices = invoicesResult?.data;
   const [, setLocation] = useLocation();
 
@@ -202,7 +207,7 @@ export default function Dashboard() {
   const showTimeAlert = React.useMemo(() => {
     const now = new Date();
     const isPast5PM = now.getHours() >= 17;
-    const isFiscalDayOpen = deviceStatus?.isFiscalDayOpen || deviceStatus?.fiscalDayOpen;
+    const isFiscalDayOpen = deviceStatus?.fiscalDayOpen;
     return isPast5PM && isFiscalDayOpen;
   }, [deviceStatus]);
 
@@ -217,12 +222,98 @@ export default function Dashboard() {
   if (!selectedCompany) {
     return (
       <Layout>
-        <div className="flex flex-col items-center justify-center h-[60vh] text-center">
-          <h2 className="text-2xl font-bold mb-4">Welcome to ZimInvoice Pro</h2>
-          <p className="text-slate-500 mb-8 max-w-md">Let's get your business set up for ZIMRA compliance.</p>
-          <Button onClick={() => setLocation("/onboarding")} size="lg" className="btn-gradient">
-            Setup Business Profile
-          </Button>
+        <div className="min-h-[85vh] flex items-center justify-center p-6 sm:p-12 overflow-hidden relative">
+          {/* Background Decorative Elements */}
+          <div className="absolute top-[10%] left-[5%] w-64 h-64 bg-violet-500/10 rounded-full blur-[100px] animate-pulse" />
+          <div className="absolute bottom-[20%] right-[10%] w-80 h-80 bg-blue-500/10 rounded-full blur-[100px] animate-pulse" />
+          
+          <div className="max-w-6xl w-full grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-20 items-center relative z-10 font-jakarta">
+            {/* Left: Content & Actions */}
+            <div className="flex flex-col text-center lg:text-left space-y-8 animate-in fade-in slide-in-from-left-8 duration-1000">
+              <div className="space-y-4">
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-violet-100 border border-violet-200 text-violet-700 text-xs font-bold uppercase tracking-widest shadow-sm">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  Compliance Made Simple
+                </div>
+                <h1 className="text-4xl sm:text-6xl font-black text-slate-900 leading-[1.1] tracking-tight">
+                  Welcome to <br />
+                  <span className="text-gradient">ZimInvoice Pro</span>
+                </h1>
+                <p className="text-lg text-slate-500 font-medium max-w-xl mx-auto lg:mx-0 leading-relaxed">
+                  The ultimate fiscalization platform for Zimbabwe's modern businesses. Let's get you registered and ZIMRA-compliant in minutes.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-lg mx-auto lg:mx-0">
+                <div className="glass-card p-5 rounded-2xl flex flex-col items-center lg:items-start text-center lg:text-left">
+                  <div className="p-2 bg-violet-600 rounded-xl mb-3 shadow-lg shadow-violet-200">
+                    <Building2 className="w-5 h-5 text-white" />
+                  </div>
+                  <h3 className="text-sm font-bold text-slate-900 mb-1">Company Details</h3>
+                  <p className="text-xs text-slate-500">Capture your TIN, BP, and VAT details for official records.</p>
+                </div>
+                <div className="glass-card p-5 rounded-2xl flex flex-col items-center lg:items-start text-center lg:text-left">
+                  <div className="p-2 bg-blue-600 rounded-xl mb-3 shadow-lg shadow-blue-200">
+                    <Server className="w-5 h-5 text-white" />
+                  </div>
+                  <h3 className="text-sm font-bold text-slate-900 mb-1">ZIMRA Sync</h3>
+                  <p className="text-xs text-slate-500">Connect your FDMS device and start syncing tax data instantly.</p>
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-center gap-4 pt-4">
+                <Button 
+                  onClick={() => setLocation("/onboarding")} 
+                  size="lg" 
+                  className="btn-gradient w-full sm:w-auto h-14 px-10 text-base font-black rounded-2xl active:scale-95 shadow-2xl"
+                >
+                  Setup Business Profile
+                  <ArrowRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
+                </Button>
+                <div className="flex items-center gap-3 px-6 py-3 rounded-2xl border border-slate-200 text-slate-400">
+                  <Clock className="w-4 h-4" />
+                  <span className="text-xs font-bold uppercase tracking-wider">Takes about 5 mins</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Right: Illustration */}
+            <div className="relative group hidden lg:block animate-in fade-in zoom-in duration-1000 delay-200">
+              <div className="absolute inset-0 bg-gradient-to-tr from-violet-500/20 to-blue-500/20 rounded-[3rem] blur-3xl group-hover:scale-105 transition-transform duration-700" />
+              <div className="relative glass-card p-4 rounded-[3rem] border-white/60 shadow-2xl">
+                <img 
+                  src="/onboarding_illustration_1775117121192.png" 
+                  alt="Onboarding" 
+                  className="w-full h-auto rounded-[2.5rem] brightness-105 drop-shadow-2xl"
+                />
+                
+                {/* Float Indicators */}
+                <div className="absolute -top-6 -right-6 glass p-4 rounded-2xl shadow-xl animate-bounce duration-[3000ms]">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-green-500 rounded-full flex items-center justify-center text-white font-bold">
+                      ✓
+                    </div>
+                    <div>
+                      <div className="text-[10px] font-black text-slate-400 uppercase">Status</div>
+                      <div className="text-sm font-black text-slate-900 leading-tight">BP Number Verified</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="absolute -bottom-8 -left-8 glass p-5 rounded-2xl shadow-xl animate-pulse">
+                  <div className="flex items-center gap-4">
+                    <div className="p-2 bg-blue-50 rounded-xl border border-blue-100">
+                      <RefreshCw className="w-5 h-5 text-blue-600 animate-spin" />
+                    </div>
+                    <div>
+                      <div className="text-[10px] font-black text-slate-400 uppercase">Synchronizing</div>
+                      <div className="text-sm font-black text-slate-900 leading-tight">FDMS Device Active</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </Layout>
     );
@@ -248,6 +339,20 @@ export default function Dashboard() {
             <p className="text-slate-500 font-medium italic mt-1">Financial overview for the current fiscal year</p>
           </div>
           <div className="flex items-center gap-4">
+            <BranchPickerModal
+              companyId={selectedCompany?.id || 0}
+              selectedBranchId={selectedBranchId}
+              onSelect={(id) => setSelectedBranchId(id)}
+              trigger={
+                <Button variant="outline" size="sm" className="h-9 px-4 gap-2 bg-white border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors shadow-sm rounded-xl">
+                  <Store className="h-4 w-4 text-primary" />
+                  <span className="text-xs font-black uppercase tracking-widest">
+                    {selectedBranchId ? "Switch Branch" : "Select Branch"}
+                  </span>
+                </Button>
+              }
+            />
+
             {currencies && currencies.length > 0 && (
               <Select value={reportCurrencyCode} onValueChange={setReportCurrencyCode}>
                 <SelectTrigger className="w-[120px] bg-white border-slate-200">
@@ -517,6 +622,77 @@ export default function Dashboard() {
                   </div>
                 </div>
               </div>
+            </Card>
+
+            {/* Recent Invoices Section [NEW] */}
+            <Card className="lg:col-span-3 border-none shadow-xl rounded-3xl overflow-hidden bg-white">
+              <CardHeader className="border-b border-slate-50 flex flex-row items-center justify-between pb-4 px-6 pt-6">
+                <div>
+                  <CardTitle className="text-sm font-black uppercase tracking-widest text-slate-900">Recent Invoices</CardTitle>
+                  <p className="text-xs text-slate-400 font-medium mt-1">Your most recent billing activity</p>
+                </div>
+                <Link href="/invoices">
+                  <Button variant="ghost" size="sm" className="text-[10px] font-black uppercase tracking-widest text-primary hover:bg-primary/5">
+                    View All Invoices <ArrowRight className="w-3 h-3 ml-2" />
+                  </Button>
+                </Link>
+              </CardHeader>
+              <CardContent className="p-0">
+                {!invoices || invoices.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 text-slate-400">
+                    <Receipt className="w-12 h-12 text-slate-100 mb-4" />
+                    <p className="text-sm font-bold">No invoices found yet</p>
+                    <p className="text-[10px] uppercase tracking-widest mt-1">Start by creating your first sale</p>
+                    <Link href="/invoices/new" className="mt-4">
+                      <Button size="sm" className="btn-gradient rounded-xl px-6">Create Invoice</Button>
+                    </Link>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50/50">
+                          <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Invoice #</th>
+                          <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Customer</th>
+                          <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Date</th>
+                          <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 text-right">Amount</th>
+                          <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Status</th>
+                          <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {invoices.map((inv: any) => (
+                          <tr key={inv.id} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors group cursor-pointer" onClick={() => setLocation(`/invoices/${inv.id}`)}>
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-black font-mono text-slate-900">{inv.invoiceNumber}</span>
+                                {inv.fiscalCode && <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]" />}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className="text-xs font-bold text-slate-600">{inv.customer?.name || "Walk-in Customer"}</span>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className="text-[11px] text-slate-400 font-medium italic">
+                                {inv.issueDate ? format(new Date(inv.issueDate), "dd MMM yyyy") : "—"}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              <span className="text-xs font-black text-slate-900">{inv.currency} {Number(inv.total).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                            </td>
+                            <td className="px-6 py-4">
+                              <StatusBadge status={inv.status} />
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              <ArrowRight className="w-4 h-4 text-slate-200 group-hover:text-primary group-hover:translate-x-1 transition-all" />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
             </Card>
 
             <div className="space-y-6">

@@ -25,7 +25,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Plus, Loader2, Truck } from "lucide-react";
 import { useState } from "react";
 
-export function CreateSupplierDialog({ companyId }: { companyId: number }) {
+export function CreateSupplierDialog({ companyId, onSuccess, children }: { companyId: number, onSuccess?: (supplier: any) => void, children?: React.ReactNode }) {
     const [open, setOpen] = useState(false);
     const createSupplier = useCreateSupplier(companyId);
 
@@ -46,8 +46,9 @@ export function CreateSupplierDialog({ companyId }: { companyId: number }) {
 
     const onSubmit = async (data: InsertSupplier) => {
         try {
-            await createSupplier.mutateAsync(data);
+            const result = await createSupplier.mutateAsync(data);
             setOpen(false);
+            if (onSuccess) onSuccess(result);
             form.reset();
         } catch (error) {
             console.error("Failed to create supplier:", error);
@@ -57,10 +58,12 @@ export function CreateSupplierDialog({ companyId }: { companyId: number }) {
     return (
         <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
-                <Button className="gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-lg shadow-emerald-500/20 rounded-xl transition-all duration-300 hover:-translate-y-0.5">
-                    <Plus className="w-4 h-4" />
-                    Add Supplier
-                </Button>
+                {children ? children : (
+                    <Button className="gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-lg shadow-emerald-500/20 rounded-xl transition-all duration-300 hover:-translate-y-0.5">
+                        <Plus className="w-4 h-4" />
+                        Add Supplier
+                    </Button>
+                )}
             </DialogTrigger>
             <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl">
                 <DialogHeader>

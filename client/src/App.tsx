@@ -18,6 +18,7 @@ import CustomerDetailsPage from "@/pages/customer-details";
 import SuppliersPage from "@/pages/suppliers";
 import ExpensesPage from "@/pages/expenses";
 import InventoryTransactionsPage from "@/pages/inventory-transactions";
+import InventoryAdjustmentsPage from "@/pages/inventory-adjustments";
 import InventoryAccountPage from "@/pages/inventory-account";
 import ProductsPage from "@/pages/products";
 import ServicesPage from "@/pages/services";
@@ -183,6 +184,7 @@ function Router() {
       <Route path="/suppliers">{() => <ProtectedRoute component={SuppliersPage} />}</Route>
       <Route path="/expenses">{() => <ProtectedRoute component={ExpensesPage} />}</Route>
       <Route path="/inventory">{() => <ProtectedRoute component={InventoryTransactionsPage} />}</Route>
+      <Route path="/inventory/adjustments">{() => <ProtectedRoute component={InventoryAdjustmentsPage} />}</Route>
       <Route path="/inventory/account">{() => <ProtectedRoute component={InventoryAccountPage} />}</Route>
       <Route path="/reports/inventory">{() => <ProtectedRoute component={InventoryReportsPage} />}</Route>
       <Route path="/reports/financial">{() => <ProtectedRoute component={FinancialReportsPage} />}</Route>

@@ -73,7 +73,7 @@ export default function InventoryTransactionsPage() {
                                 <th className="p-6 font-bold text-slate-400">Date & Type</th>
                                 <th className="p-6 font-bold text-slate-400">Product</th>
                                 <th className="p-6 font-bold text-slate-400">Qty Change</th>
-                                <th className="p-6 font-bold text-slate-400">Cost Focus</th>
+                                <th className="p-6 font-bold text-slate-400">Auditor</th>
                                 <th className="p-6 font-bold text-slate-400">Reference</th>
                             </tr>
                         </thead>
@@ -138,8 +138,8 @@ export default function InventoryTransactionsPage() {
                                         </td>
                                         <td className="p-6 align-middle">
                                             <div className="flex flex-col">
-                                                <span className="text-sm font-bold text-slate-700">${Number(t.unitCost || 0).toFixed(2)} / unit</span>
-                                                <span className="text-[10px] text-slate-400">Total: ${Number(t.totalCost || 0).toFixed(2)}</span>
+                                                <span className="text-xs font-bold text-slate-700 capitalize">{t.userName || "System"}</span>
+                                                <span className="text-[10px] text-slate-400 lowercase">{t.type.replace('_', ' ')}</span>
                                             </div>
                                         </td>
                                         <td className="p-6 align-middle">

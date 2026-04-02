@@ -4,15 +4,15 @@ import { useBranding } from "@/hooks/use-branding";
 
 // ─── Design Tokens ─────────────────────────────────────────────────────────────
 const C = {
-  navy:      "#0D1B2A",
-  gold:      "#2563EB",
+  navy: "#0D1B2A",
+  gold: "#2563EB",
   goldLight: "#3B82F6",
-  slate:     "#1E2D3D",
-  ash:       "#F0EEE9",
-  steel:     "#6B7F96",
-  emerald:   "#16A34A",
-  charcoal:  "#0A0F14",
-  white:     "#FFFFFF",
+  slate: "#1E2D3D",
+  ash: "#F0EEE9",
+  steel: "#6B7F96",
+  emerald: "#16A34A",
+  charcoal: "#0A0F14",
+  white: "#FFFFFF",
 } as const;
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
@@ -243,7 +243,7 @@ const Hero = () => {
 
           <h1 style={{ fontFamily: "'Plus Jakarta Sans',sans-serif", lineHeight: 1 }}>
             <span style={{ ...fu(0.2), display: "block", fontSize: "clamp(2.6rem,5.5vw,4.2rem)", fontWeight: 800, color: "#fff", letterSpacing: "-0.03em" }}>
-              {brand.name}
+              Fiscalisation
             </span>
             <em style={{ ...fu(0.35), display: "block", fontFamily: "'Cormorant Garamond',serif", fontWeight: 300, fontStyle: "italic", fontSize: "clamp(3rem,6.5vw,5.2rem)", color: C.gold, letterSpacing: "-0.02em", lineHeight: 1 }}>
               Reimagined.
@@ -308,14 +308,14 @@ const Hero = () => {
 
 // ── Features ────────────────────────────────────────────────────────────────────
 const featureList: FeatureItem[] = [
-  { icon: "🏛️", tag: "COMPLIANCE",   title: "ZIMRA Compliant",      desc: "Always up to date with the latest tax regulations. Automatic updates keep you compliant without lifting a finger.", color: "#16a34a" },
-  { icon: "📡", tag: "INTEGRATION",  title: "FDMS Sync",            desc: "Real-time fiscal device synchronization with Zimbabwe's FDMS infrastructure. Zero manual steps.", color: C.gold },
-  { icon: "⬡",  tag: "VERIFICATION", title: "Smart QR Codes",       desc: "Every invoice embeds a cryptographically signed fiscal QR code for instant ZIMRA verification.", color: "#7c3aed" },
-  { icon: "🧮", tag: "AUTOMATION",   title: "Auto-Tax Engine",       desc: "VAT, withholding tax, and multiple rate tiers — calculated automatically on every transaction.", color: "#2563eb" },
-  { icon: "🖥️", tag: "POINT OF SALE",title: "Smart POS · Offline",  desc: "Complete offline-capable POS for retail. Queues transactions locally, syncs the moment connectivity returns.", color: "#db2777" },
-  { icon: "📦", tag: "STOCK CONTROL",title: "Inventory Management", desc: "Track stock levels, set reorder alerts, and manage products across multiple locations in real time.", color: "#ea580c" },
-  { icon: "✉️", tag: "COMMUNICATION",title: "Email Hosting",         desc: "Professional business email under your domain — fully integrated with invoicing and client communications.", color: "#0ea5e9" },
-  { icon: "📊", tag: "ANALYTICS",    title: "Smart Analytics",       desc: "Revenue trends, tax liabilities, and growth insights — presented in clear dashboards built for action.", color: C.goldLight },
+  { icon: "🏛️", tag: "COMPLIANCE", title: "ZIMRA Compliant", desc: "Always up to date with the latest tax regulations. Automatic updates keep you compliant without lifting a finger.", color: "#16a34a" },
+  { icon: "📡", tag: "INTEGRATION", title: "FDMS Sync", desc: "Real-time fiscal device synchronization with Zimbabwe's FDMS infrastructure. Zero manual steps.", color: C.gold },
+  { icon: "⬡", tag: "VERIFICATION", title: "Smart QR Codes", desc: "Every invoice embeds a cryptographically signed fiscal QR code for instant ZIMRA verification.", color: "#7c3aed" },
+  { icon: "🧮", tag: "AUTOMATION", title: "Auto-Tax Engine", desc: "VAT, withholding tax, and multiple rate tiers — calculated automatically on every transaction.", color: "#2563eb" },
+  { icon: "🖥️", tag: "POINT OF SALE", title: "Smart POS · Offline", desc: "Complete offline-capable POS for retail. Queues transactions locally, syncs the moment connectivity returns.", color: "#db2777" },
+  { icon: "📦", tag: "STOCK CONTROL", title: "Inventory Management", desc: "Track stock levels, set reorder alerts, and manage products across multiple locations in real time.", color: "#ea580c" },
+  { icon: "✉️", tag: "COMMUNICATION", title: "Email Hosting", desc: "Professional business email under your domain — fully integrated with invoicing and client communications.", color: "#0ea5e9" },
+  { icon: "📊", tag: "ANALYTICS", title: "Smart Analytics", desc: "Revenue trends, tax liabilities, and growth insights — presented in clear dashboards built for action.", color: C.goldLight },
 ];
 
 const Features = () => {
@@ -446,9 +446,9 @@ const Pricing = () => {
   const [, setLocation] = useLocation();
 
   const plans: PlanType[] = [
-    { name: "Test Mode",   badge: null,          price: "Free",   unit: "/yr", tagline: "For development & testing", features: ["Unlimited Invoices (Test)", "Sandboxed FDMS", "API Access", "Dev Support"],                                              cta: "Get Started",  highlight: false },
-    { name: "Production",  badge: "Most Popular", price: "$150",   unit: "/yr", tagline: "Per device / year",         features: ["Unlimited Invoices", "Live FDMS Sync", "Priority Support", "ZIMRA Compliant", "Smart QR Codes", "Auto-Tax Engine"],     cta: "Get Started",  highlight: true  },
-    { name: "Enterprise",  badge: null,           price: "Custom", unit: "",    tagline: "For large organizations",   features: ["Unlimited Users", "Dedicated Manager", "SLA Assurance", "Custom Integration", "Email Hosting", "On-premise option"],    cta: "Contact Sales",highlight: false },
+    { name: "Test Mode", badge: null, price: "Free", unit: "/yr", tagline: "For development & testing", features: ["Unlimited Invoices (Test)", "Sandboxed FDMS", "API Access", "Dev Support"], cta: "Get Started", highlight: false },
+    { name: "Production", badge: "Most Popular", price: "$150", unit: "/yr", tagline: "Per device / year", features: ["Unlimited Invoices", "Live FDMS Sync", "Priority Support", "ZIMRA Compliant", "Smart QR Codes", "Auto-Tax Engine"], cta: "Get Started", highlight: true },
+    { name: "Enterprise", badge: null, price: "Custom", unit: "", tagline: "For large organizations", features: ["Unlimited Users", "Dedicated Manager", "SLA Assurance", "Custom Integration", "Email Hosting", "On-premise option"], cta: "Contact Sales", highlight: false },
   ];
 
   return (
@@ -512,14 +512,14 @@ const FAQ = () => {
   const [open, setOpen] = useState<number | null>(null);
 
   const faqs: FaqType[] = [
-    { q: "What is ZIMRA compliance and why do I need it?",         a: `ZIMRA (Zimbabwe Revenue Authority) requires all VAT-registered businesses to use a certified Fiscal Device Management System (FDMS) to generate tamper-proof tax receipts. Non-compliance carries heavy penalties. ${brand.name} is a certified solution that handles all of this automatically.` },
-    { q: "How does the FDMS integration work?",                    a: `${brand.name} connects directly to Zimbabwe's FDMS infrastructure via secure API. Every invoice is cryptographically signed and submitted to FDMS in real time. A unique QR code is embedded on every receipt for instant verification by ZIMRA officials.` },
-    { q: `Can I try ${brand.name} before committing to a paid plan?`,a: "Yes — our Test Mode is completely free and gives you full access to a sandboxed FDMS environment, unlimited test invoices, and API access. No credit card required. When you're ready, upgrade to Production with one click." },
-    { q: "What happens to my data if I cancel my subscription?",   a: "Your data remains yours. You have a 90-day window to export all invoices, reports, and records in standard formats (PDF, CSV, JSON). We never delete data unilaterally, and you can reinstate your account at any time." },
-    { q: "Is my financial data secure?",                           a: "All data is encrypted in transit (TLS 1.3) and at rest (AES-256). We are hosted on ISO 27001-certified infrastructure with daily encrypted backups. We never share or sell your financial data." },
-    { q: `Can I use ${brand.name} for multiple businesses?`,         a: "Absolutely. You can manage multiple business entities under a single account, each with their own FDMS devices, VAT numbers, invoice sequences, and reporting dashboards." },
-    { q: "Do you provide customer support?",                       a: "All plans include email support. Production plans include priority support with a 4-hour response SLA. Enterprise plans receive a dedicated account manager and a guaranteed SLA for uptime and response times." },
-    { q: "Can I customize my invoice templates?",                  a: `Yes. ${brand.name}'s invoice builder supports full branding — logo, colors, fonts, custom line-item fields, and footer notes — while maintaining ZIMRA-required fiscal elements on every document.` },
+    { q: "What is ZIMRA compliance and why do I need it?", a: `ZIMRA (Zimbabwe Revenue Authority) requires all VAT-registered businesses to use a certified Fiscal Device Management System (FDMS) to generate tamper-proof tax receipts. Non-compliance carries heavy penalties. ${brand.name} is a certified solution that handles all of this automatically.` },
+    { q: "How does the FDMS integration work?", a: `${brand.name} connects directly to Zimbabwe's FDMS infrastructure via secure API. Every invoice is cryptographically signed and submitted to FDMS in real time. A unique QR code is embedded on every receipt for instant verification by ZIMRA officials.` },
+    { q: `Can I try ${brand.name} before committing to a paid plan?`, a: "Yes — our Test Mode is completely free and gives you full access to a sandboxed FDMS environment, unlimited test invoices, and API access. No credit card required. When you're ready, upgrade to Production with one click." },
+    { q: "What happens to my data if I cancel my subscription?", a: "Your data remains yours. You have a 90-day window to export all invoices, reports, and records in standard formats (PDF, CSV, JSON). We never delete data unilaterally, and you can reinstate your account at any time." },
+    { q: "Is my financial data secure?", a: "All data is encrypted in transit (TLS 1.3) and at rest (AES-256). We are hosted on ISO 27001-certified infrastructure with daily encrypted backups. We never share or sell your financial data." },
+    { q: `Can I use ${brand.name} for multiple businesses?`, a: "Absolutely. You can manage multiple business entities under a single account, each with their own FDMS devices, VAT numbers, invoice sequences, and reporting dashboards." },
+    { q: "Do you provide customer support?", a: "All plans include email support. Production plans include priority support with a 4-hour response SLA. Enterprise plans receive a dedicated account manager and a guaranteed SLA for uptime and response times." },
+    { q: "Can I customize my invoice templates?", a: `Yes. ${brand.name}'s invoice builder supports full branding — logo, colors, fonts, custom line-item fields, and footer notes — while maintaining ZIMRA-required fiscal elements on every document.` },
   ];
   return (
     <section id="faq" style={{ background: C.charcoal, padding: "100px 24px" }}>
@@ -581,57 +581,57 @@ const Footer = () => {
   const { brand } = useBranding();
   return (
     <footer style={{ background: C.charcoal, borderTop: "1px solid rgba(255,255,255,0.05)", padding: "56px 24px 32px", borderRadius: "3rem 3rem 0 0" }}>
-    <div style={{ maxWidth: 1180, margin: "0 auto" }}>
-      <div style={{ display: "grid", gridTemplateColumns: "1.5fr repeat(3,1fr)", gap: 40, marginBottom: 48 }} className="grid-footer">
-        <div>
-          <img src={brand.logo} alt={brand.name} style={{ height: 36, width: "auto", display: "block", marginBottom: 12 }} />
-          <p style={{ fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 13, color: "rgba(255,255,255,0.35)", lineHeight: 1.7, maxWidth: 240 }}>
-            Zimbabwe's intelligent fiscalization platform. Built for compliance, designed for growth.
-          </p>
+      <div style={{ maxWidth: 1180, margin: "0 auto" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1.5fr repeat(3,1fr)", gap: 40, marginBottom: 48 }} className="grid-footer">
+          <div>
+            <img src={brand.logo} alt={brand.name} style={{ height: 36, width: "auto", display: "block", marginBottom: 12 }} />
+            <p style={{ fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 13, color: "rgba(255,255,255,0.35)", lineHeight: 1.7, maxWidth: 240 }}>
+              Zimbabwe's intelligent fiscalization platform. Built for compliance, designed for growth.
+            </p>
 
-          <div style={{ marginTop: 20, display: "flex", flexDirection: "column", gap: 8 }}>
-            <a href={`mailto:${brand.supportEmail}`} style={{ fontFamily: "'DM Mono',monospace", fontSize: 11, color: "rgba(37,99,235,0.8)", textDecoration: "none", letterSpacing: "0.06em" }}>
-              {brand.supportEmail}
-            </a>
+            <div style={{ marginTop: 20, display: "flex", flexDirection: "column", gap: 8 }}>
+              <a href={`mailto:${brand.supportEmail}`} style={{ fontFamily: "'DM Mono',monospace", fontSize: 11, color: "rgba(37,99,235,0.8)", textDecoration: "none", letterSpacing: "0.06em" }}>
+                {brand.supportEmail}
+              </a>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 16 }}>
+              <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#22c55e", animation: "pulse 1.5s infinite", display: "inline-block" }} />
+              <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.08em" }}>System Operational</span>
+            </div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 16 }}>
-            <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#22c55e", animation: "pulse 1.5s infinite", display: "inline-block" }} />
-            <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: "0.08em" }}>System Operational</span>
-          </div>
-        </div>
-        {[
-          { title: "Platform", links: ["Invoicing", "FDMS Sync", "Smart POS", "Inventory", "Email Hosting", "Analytics"] },
-          { title: "Company",  links: ["About", "Careers", "Blog", "Press", "Partners"] },
-          { title: "Legal",    links: ["Privacy Policy", "Terms of Service", "Security", "ZIMRA Compliance"] },
-        ].map(col => (
-          <div key={col.title}>
-            <div style={{ fontFamily: "'DM Mono',monospace", fontSize: 9, letterSpacing: "0.16em", color: "rgba(255,255,255,0.2)", marginBottom: 16 }}>{col.title.toUpperCase()}</div>
-            <ul style={{ listStyle: "none", padding: 0, display: "flex", flexDirection: "column", gap: 10 }}>
-              {col.links.map(l => (
-                <li key={l}>
-                  <a
-                    href="#"
-                    style={{ fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 13, color: "rgba(255,255,255,0.38)", textDecoration: "none", transition: "color 0.2s" }}
-                    onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.color = "#fff"; }}
-                    onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.color = "rgba(255,255,255,0.38)"; }}
-                  >{l}</a>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
-      </div>
-      <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 24, display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-        <p style={{ fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 12, color: "rgba(255,255,255,0.22)" }}>
-          &copy; 2026 {brand.name}. Made with &hearts; in Zimbabwe.
-        </p>
-        <div style={{ display: "flex", gap: 16 }}>
-          {["Privacy", "Terms", "Security"].map(l => (
-            <a key={l} href="#" style={{ fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 12, color: "rgba(255,255,255,0.22)", textDecoration: "none" }}>{l}</a>
+          {[
+            { title: "Platform", links: ["Invoicing", "FDMS Sync", "Smart POS", "Inventory", "Email Hosting", "Analytics"] },
+            { title: "Company", links: ["About", "Careers", "Blog", "Press", "Partners"] },
+            { title: "Legal", links: ["Privacy Policy", "Terms of Service", "Security", "ZIMRA Compliance"] },
+          ].map(col => (
+            <div key={col.title}>
+              <div style={{ fontFamily: "'DM Mono',monospace", fontSize: 9, letterSpacing: "0.16em", color: "rgba(255,255,255,0.2)", marginBottom: 16 }}>{col.title.toUpperCase()}</div>
+              <ul style={{ listStyle: "none", padding: 0, display: "flex", flexDirection: "column", gap: 10 }}>
+                {col.links.map(l => (
+                  <li key={l}>
+                    <a
+                      href="#"
+                      style={{ fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 13, color: "rgba(255,255,255,0.38)", textDecoration: "none", transition: "color 0.2s" }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.color = "#fff"; }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.color = "rgba(255,255,255,0.38)"; }}
+                    >{l}</a>
+                  </li>
+                ))}
+              </ul>
+            </div>
           ))}
         </div>
+        <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 24, display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+          <p style={{ fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 12, color: "rgba(255,255,255,0.22)" }}>
+            &copy; 2026 {brand.name}. Made with &hearts; in Zimbabwe.
+          </p>
+          <div style={{ display: "flex", gap: 16 }}>
+            {["Privacy", "Terms", "Security"].map(l => (
+              <a key={l} href="#" style={{ fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 12, color: "rgba(255,255,255,0.22)", textDecoration: "none" }}>{l}</a>
+            ))}
+          </div>
+        </div>
       </div>
-    </div>
     </footer>
   );
 };
@@ -650,8 +650,8 @@ const ChatWidget = () => {
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               {/* WhatsApp icon */}
               <svg width="28" height="28" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <circle cx="16" cy="16" r="16" fill="#25D366"/>
-                <path d="M22.5 9.5A8.96 8.96 0 0 0 16 7C11.03 7 7 11.03 7 16c0 1.59.42 3.13 1.2 4.49L7 25l4.63-1.21A8.95 8.95 0 0 0 16 25c4.97 0 9-4.03 9-9 0-2.4-.94-4.66-2.5-6.5zm-6.5 13.84a7.44 7.44 0 0 1-3.79-1.03l-.27-.16-2.75.72.73-2.69-.18-.28A7.44 7.44 0 0 1 8.56 16c0-4.1 3.34-7.44 7.44-7.44 1.99 0 3.86.77 5.26 2.18a7.4 7.4 0 0 1 2.18 5.26c0 4.1-3.34 7.44-7.44 7.44zm4.08-5.57c-.22-.11-1.3-.64-1.5-.71-.2-.07-.35-.11-.5.11-.15.22-.57.71-.7.86-.13.15-.26.17-.48.06-.22-.11-.94-.35-1.79-1.1-.66-.59-1.1-1.32-1.23-1.54-.13-.22-.01-.34.1-.45.1-.1.22-.26.33-.39.11-.13.15-.22.22-.37.07-.15.04-.28-.02-.39-.06-.11-.5-1.2-.68-1.64-.18-.43-.36-.37-.5-.38h-.43c-.15 0-.39.06-.6.28-.2.22-.78.76-.78 1.86s.8 2.16.91 2.31c.11.15 1.58 2.41 3.83 3.38.54.23.96.37 1.28.47.54.17 1.03.15 1.42.09.43-.07 1.3-.53 1.49-1.04.18-.51.18-.95.13-1.04-.06-.09-.2-.15-.42-.26z" fill="white"/>
+                <circle cx="16" cy="16" r="16" fill="#25D366" />
+                <path d="M22.5 9.5A8.96 8.96 0 0 0 16 7C11.03 7 7 11.03 7 16c0 1.59.42 3.13 1.2 4.49L7 25l4.63-1.21A8.95 8.95 0 0 0 16 25c4.97 0 9-4.03 9-9 0-2.4-.94-4.66-2.5-6.5zm-6.5 13.84a7.44 7.44 0 0 1-3.79-1.03l-.27-.16-2.75.72.73-2.69-.18-.28A7.44 7.44 0 0 1 8.56 16c0-4.1 3.34-7.44 7.44-7.44 1.99 0 3.86.77 5.26 2.18a7.4 7.4 0 0 1 2.18 5.26c0 4.1-3.34 7.44-7.44 7.44zm4.08-5.57c-.22-.11-1.3-.64-1.5-.71-.2-.07-.35-.11-.5.11-.15.22-.57.71-.7.86-.13.15-.26.17-.48.06-.22-.11-.94-.35-1.79-1.1-.66-.59-1.1-1.32-1.23-1.54-.13-.22-.01-.34.1-.45.1-.1.22-.26.33-.39.11-.13.15-.22.22-.37.07-.15.04-.28-.02-.39-.06-.11-.5-1.2-.68-1.64-.18-.43-.36-.37-.5-.38h-.43c-.15 0-.39.06-.6.28-.2.22-.78.76-.78 1.86s.8 2.16.91 2.31c.11.15 1.58 2.41 3.83 3.38.54.23.96.37 1.28.47.54.17 1.03.15 1.42.09.43-.07 1.3-.53 1.49-1.04.18-.51.18-.95.13-1.04-.06-.09-.2-.15-.42-.26z" fill="white" />
               </svg>
               <div>
                 <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>{brand.name} Support</div>
@@ -679,7 +679,7 @@ const ChatWidget = () => {
             onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = "#25D366"; }}
           >
             <svg width="16" height="16" viewBox="0 0 32 32" fill="white" xmlns="http://www.w3.org/2000/svg">
-              <path d="M22.5 9.5A8.96 8.96 0 0 0 16 7C11.03 7 7 11.03 7 16c0 1.59.42 3.13 1.2 4.49L7 25l4.63-1.21A8.95 8.95 0 0 0 16 25c4.97 0 9-4.03 9-9 0-2.4-.94-4.66-2.5-6.5zm-6.5 13.84a7.44 7.44 0 0 1-3.79-1.03l-.27-.16-2.75.72.73-2.69-.18-.28A7.44 7.44 0 0 1 8.56 16c0-4.1 3.34-7.44 7.44-7.44 1.99 0 3.86.77 5.26 2.18a7.4 7.4 0 0 1 2.18 5.26c0 4.1-3.34 7.44-7.44 7.44z"/>
+              <path d="M22.5 9.5A8.96 8.96 0 0 0 16 7C11.03 7 7 11.03 7 16c0 1.59.42 3.13 1.2 4.49L7 25l4.63-1.21A8.95 8.95 0 0 0 16 25c4.97 0 9-4.03 9-9 0-2.4-.94-4.66-2.5-6.5zm-6.5 13.84a7.44 7.44 0 0 1-3.79-1.03l-.27-.16-2.75.72.73-2.69-.18-.28A7.44 7.44 0 0 1 8.56 16c0-4.1 3.34-7.44 7.44-7.44 1.99 0 3.86.77 5.26 2.18a7.4 7.4 0 0 1 2.18 5.26c0 4.1-3.34 7.44-7.44 7.44z" />
             </svg>
             Chat with us on WhatsApp
           </a>
@@ -695,7 +695,7 @@ const ChatWidget = () => {
         aria-label="Chat on WhatsApp"
       >
         <svg width="28" height="28" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M22.5 9.5A8.96 8.96 0 0 0 16 7C11.03 7 7 11.03 7 16c0 1.59.42 3.13 1.2 4.49L7 25l4.63-1.21A8.95 8.95 0 0 0 16 25c4.97 0 9-4.03 9-9 0-2.4-.94-4.66-2.5-6.5zm-6.5 13.84a7.44 7.44 0 0 1-3.79-1.03l-.27-.16-2.75.72.73-2.69-.18-.28A7.44 7.44 0 0 1 8.56 16c0-4.1 3.34-7.44 7.44-7.44 1.99 0 3.86.77 5.26 2.18a7.4 7.4 0 0 1 2.18 5.26c0 4.1-3.34 7.44-7.44 7.44zm4.08-5.57c-.22-.11-1.3-.64-1.5-.71-.2-.07-.35-.11-.5.11-.15.22-.57.71-.7.86-.13.15-.26.17-.48.06-.22-.11-.94-.35-1.79-1.1-.66-.59-1.1-1.32-1.23-1.54-.13-.22-.01-.34.1-.45.1-.1.22-.26.33-.39.11-.13.15-.22.22-.37.07-.15.04-.28-.02-.39-.06-.11-.5-1.2-.68-1.64-.18-.43-.36-.37-.5-.38h-.43c-.15 0-.39.06-.6.28-.2.22-.78.76-.78 1.86s.8 2.16.91 2.31c.11.15 1.58 2.41 3.83 3.38.54.23.96.37 1.28.47.54.17 1.03.15 1.42.09.43-.07 1.3-.53 1.49-1.04.18-.51.18-.95.13-1.04-.06-.09-.2-.15-.42-.26z" fill="white"/>
+          <path d="M22.5 9.5A8.96 8.96 0 0 0 16 7C11.03 7 7 11.03 7 16c0 1.59.42 3.13 1.2 4.49L7 25l4.63-1.21A8.95 8.95 0 0 0 16 25c4.97 0 9-4.03 9-9 0-2.4-.94-4.66-2.5-6.5zm-6.5 13.84a7.44 7.44 0 0 1-3.79-1.03l-.27-.16-2.75.72.73-2.69-.18-.28A7.44 7.44 0 0 1 8.56 16c0-4.1 3.34-7.44 7.44-7.44 1.99 0 3.86.77 5.26 2.18a7.4 7.4 0 0 1 2.18 5.26c0 4.1-3.34 7.44-7.44 7.44zm4.08-5.57c-.22-.11-1.3-.64-1.5-.71-.2-.07-.35-.11-.5.11-.15.22-.57.71-.7.86-.13.15-.26.17-.48.06-.22-.11-.94-.35-1.79-1.1-.66-.59-1.1-1.32-1.23-1.54-.13-.22-.01-.34.1-.45.1-.1.22-.26.33-.39.11-.13.15-.22.22-.37.07-.15.04-.28-.02-.39-.06-.11-.5-1.2-.68-1.64-.18-.43-.36-.37-.5-.38h-.43c-.15 0-.39.06-.6.28-.2.22-.78.76-.78 1.86s.8 2.16.91 2.31c.11.15 1.58 2.41 3.83 3.38.54.23.96.37 1.28.47.54.17 1.03.15 1.42.09.43-.07 1.3-.53 1.49-1.04.18-.51.18-.95.13-1.04-.06-.09-.2-.15-.42-.26z" fill="white" />
         </svg>
       </button>
     </div>

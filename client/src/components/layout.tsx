@@ -30,7 +30,8 @@ import {
   Truck,
   Menu,
   Utensils,
-  X
+  X,
+  ArrowRightLeft
 } from "lucide-react";
 import { useBranding } from "@/hooks/use-branding";
 import {
@@ -120,6 +121,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         { icon: Package, label: "Products", href: "/products" },
         { icon: Briefcase, label: "Services", href: "/services" },
         { icon: LayoutDashboard, label: "Goods Received", href: "/inventory/account" },
+        { icon: ArrowRightLeft, label: "Stock Adjustments", href: "/inventory/adjustments" },
         { icon: History, label: "Stock Ledger", href: "/inventory" },
         { icon: Truck, label: "Suppliers", href: "/suppliers" },
       ]

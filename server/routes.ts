@@ -62,7 +62,9 @@ import {
   type InsertQuotation,
   type InsertRecurringInvoice,
   type Branch,
-  type BranchStock
+  type BranchStock,
+  priceAdjustments,
+  insertPriceAdjustmentSchema,
 } from "@shared/schema";
 import { paynowService } from "./paynow.js";
 
@@ -1712,6 +1714,67 @@ export async function registerRoutes(
     }
   });
 
+  // --- PRICE MANAGEMENT ---
+  app.get(api.products.priceHistory.path, requireAuth, async (req, res) => {
+    try {
+      const productId = parseInt(req.params.id);
+      const history = await storage.getPriceHistory(productId);
+      res.json(history);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post(api.products.adjustPrice.path, requireAuth, async (req, res) => {
+    try {
+      const productId = parseInt(req.params.id);
+      const { newPrice, reason, effectiveFrom } = api.products.adjustPrice.input.parse(req.body);
+      
+      const [existing] = await db.select().from(products).where(eq(products.id, productId)).limit(1);
+      
+      if (!existing) return res.status(404).json({ message: "Product not found" });
+
+      // Record adjustment
+      await storage.recordPriceAdjustment({
+        companyId: existing.companyId,
+        productId,
+        oldPrice: existing.price.toString(),
+        newPrice: String(newPrice),
+        reason: reason || "Price Update",
+        effectiveFrom: effectiveFrom ? new Date(effectiveFrom) : new Date(),
+        createdBy: (req.user as any).id
+      });
+
+      // Update product price
+      const updated = await storage.updateProduct(productId, { price: String(newPrice) });
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // --- INVENTORY ADJUSTMENTS ---
+  app.post(api.inventory.adjust.path, requireAuth, async (req, res) => {
+    try {
+      const companyId = parseInt(req.params.companyId);
+      const { productId, variationId, branchId, quantity, type, notes } = api.inventory.adjust.input.parse(req.body);
+      
+      await storage.adjustInventory(companyId, {
+        productId,
+        variationId,
+        branchId,
+        quantity,
+        type,
+        notes,
+        userId: (req.user as any).id
+      });
+
+      res.status(201).json({ message: "Inventory adjusted successfully" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   app.get("/api/pos/shifts/current", requireAuth, async (req, res) => {
     try {
       const companyId = req.query.companyId ? parseInt(req.query.companyId as string) : (req as any).user?.companyId;
@@ -1840,22 +1903,44 @@ export async function registerRoutes(
 
   app.post("/api/pos/inventory/adjust", requireAuth, async (req, res) => {
     try {
-      const { productId, companyId, quantity, notes } = req.body;
-      const product = await storage.updateProduct(productId, {
-        stockLevel: quantity.toString()
+      const { productId, variationId, companyId, type = "ADJUSTMENT", quantityChange, unitCost, referenceId, notes } = req.body;
+      const amount = Number(quantityChange);
+      
+      if (isNaN(amount)) {
+        return res.status(400).json({ message: "Invalid quantity change" });
+      }
+
+      // Fetch the product directly to get current stock
+      const products = await storage.getProductsForCompany ? await storage.getProductsForCompany(companyId) : await storage.getProducts(companyId);
+      const product = products.find(p => p.id === productId);
+      if (!product) return res.status(404).json({ message: "Product not found" });
+
+      const currentStock = Number(product.stockLevel || 0);
+      const newStock = currentStock + amount;
+
+      const updatedProduct = await storage.updateProduct(productId, {
+        stockLevel: newStock.toString()
       });
+
+      const branchId = getBranchId(req);
 
       await storage.createInventoryTransaction({
         companyId,
+        branchId,
         productId,
-        type: "ADJUSTMENT",
-        quantity: quantity.toString(),
-        notes: notes || "Manual stocktake adjustment from POS"
+        variationId: variationId || null,
+        type: type,
+        quantity: amount.toString(),
+        unitCost: (unitCost || product.costPrice || 0).toString(),
+        referenceType: "MANUAL",
+        referenceId: referenceId || null,
+        notes: notes || "Manual stock adjustment"
       });
 
-      res.json(product);
+      res.json(updatedProduct);
     } catch (error: any) {
-      res.status(500).json({ message: error.message });
+      console.error("[Inventory Adjust]", error);
+      res.status(500).json({ message: "Failed to adjust stock", details: error.message });
     }
   });
 
@@ -4201,6 +4286,20 @@ export async function registerRoutes(
         detail: err.detail,
         constraint: err.constraint
       });
+    }
+  });
+
+  app.post("/api/companies/:companyId/products/bulk-convert", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const { ids } = req.body;
+      if (!ids || !Array.isArray(ids)) return res.status(400).json({ message: "Product IDs are required" });
+      
+      await storage.bulkConvertServicesToProducts(companyId, ids);
+      res.json({ success: true, message: `${ids.length} items converted to products.` });
+    } catch (err: any) {
+      console.error("Bulk convert products error:", err);
+      res.status(500).json({ message: err.message || "Failed to convert items" });
     }
   });
 

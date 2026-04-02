@@ -12,6 +12,7 @@ export interface InvoiceFilters {
   type?: string;
   dateFrom?: Date;
   dateTo?: Date;
+  branchId?: number;
 }
 
 export function useInvoices(companyId: number, filters: InvoiceFilters = {}) {
@@ -22,6 +23,7 @@ export function useInvoices(companyId: number, filters: InvoiceFilters = {}) {
       // Convert dates to strings
       if (filters.dateFrom) queryParams.dateFrom = filters.dateFrom.toISOString();
       if (filters.dateTo) queryParams.dateTo = filters.dateTo.toISOString();
+      if (filters.branchId) queryParams.branchId = filters.branchId;
 
       const url = buildUrl(api.invoices.list.path, queryParams);
       const res = await apiFetch(url);

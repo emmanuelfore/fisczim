@@ -2,7 +2,7 @@ import { Layout } from "@/components/layout";
 import { Link } from "wouter";
 import { useState } from "react";
 
-const ITEMS_PER_PAGE = 10;
+
 import { useCustomers, useUpdateCustomer } from "@/hooks/use-customers";
 import { Card, CardContent } from "@/components/ui/card";
 import { Users, Building2, Phone, Mail, Search, ChevronLeft, ChevronRight, Eye, FileDown } from "lucide-react";
@@ -22,6 +22,7 @@ import { CsvImportDialog } from "@/components/csv-import-dialog";
 import { useQueryClient } from "@tanstack/react-query";
 
 export default function CustomersPage() {
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   const companyId = parseInt(localStorage.getItem("selectedCompanyId") || "0");
   const { data: customers, isLoading } = useCustomers(companyId);
   const updateCustomer = useUpdateCustomer();
@@ -55,9 +56,9 @@ export default function CustomersPage() {
   });
 
   // Pagination logic
-  const totalPages = Math.ceil((filteredCustomers?.length || 0) / ITEMS_PER_PAGE);
-  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-  const paginatedCustomers = filteredCustomers?.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  const totalPages = Math.ceil((filteredCustomers?.length || 0) / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedCustomers = filteredCustomers?.slice(startIndex, startIndex + itemsPerPage);
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchTerm(e.target.value);
@@ -277,33 +278,57 @@ export default function CustomersPage() {
           </table>
 
           {/* Pagination Controls */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between px-6 py-6 border-t border-slate-50 bg-slate-50/30">
-              <div className="text-xs text-slate-400 font-medium">
-                Page {currentPage} of {totalPages}
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                  disabled={currentPage === 1}
-                  className="rounded-xl border-slate-200 shadow-sm hover:bg-white hover:text-primary transition-all disabled:opacity-50"
-                >
-                  <ChevronLeft className="h-4 w-4 mr-1" /> Prev
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                  disabled={currentPage === totalPages}
-                  className="rounded-xl border-slate-200 shadow-sm hover:bg-white hover:text-primary transition-all disabled:opacity-50"
-                >
-                  Next <ChevronRight className="h-4 w-4 ml-1" />
-                </Button>
-              </div>
+          <div className="flex flex-col sm:flex-row items-center justify-between px-6 py-4 border-t border-slate-50 bg-slate-50/30 gap-4">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-slate-400">Items per page</span>
+              <Select 
+                value={itemsPerPage.toString()} 
+                onValueChange={(v) => {
+                  setItemsPerPage(parseInt(v));
+                  setCurrentPage(1);
+                }}
+              >
+                <SelectTrigger className="w-[70px] h-8 text-xs bg-white border-slate-200 shadow-sm rounded-lg font-bold">
+                  <SelectValue placeholder="10" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="10">10</SelectItem>
+                  <SelectItem value="20">20</SelectItem>
+                  <SelectItem value="50">50</SelectItem>
+                  <SelectItem value="100">100</SelectItem>
+                </SelectContent>
+              </Select>
+              {filteredCustomers && (
+                <span className="text-xs text-slate-400 ml-2">
+                  Showing {startIndex + 1}–{Math.min(startIndex + itemsPerPage, filteredCustomers.length)} of {filteredCustomers.length}
+                </span>
+              )}
             </div>
-          )}
+
+            <div className="flex items-center gap-2">
+              <div className="text-xs text-slate-400 font-medium mr-2">
+                Page {currentPage} of {totalPages || 1}
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="rounded-xl border-slate-200 shadow-sm hover:bg-white hover:text-primary transition-all disabled:opacity-50"
+              >
+                <ChevronLeft className="h-4 w-4 mr-1" /> Prev
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage >= totalPages}
+                className="rounded-xl border-slate-200 shadow-sm hover:bg-white hover:text-primary transition-all disabled:opacity-50"
+              >
+                Next <ChevronRight className="h-4 w-4 ml-1" />
+              </Button>
+            </div>
+          </div>
         </CardContent>
       </Card>
     </Layout>

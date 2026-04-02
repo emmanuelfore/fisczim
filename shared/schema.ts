@@ -414,12 +414,39 @@ export const productBatchesRelations = relations(productBatches, ({ one }) => ({
   variation: one(productVariations, { fields: [productBatches.variationId], references: [productVariations.id] }),
 }));
 
+// Price Adjustments
+export const priceAdjustments = pgTable("price_adjustments", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  productId: integer("product_id").references(() => products.id).notNull(),
+  variationId: integer("variation_id").references(() => productVariations.id),
+  oldPrice: decimal("old_price", { precision: 10, scale: 2 }).notNull(),
+  newPrice: decimal("new_price", { precision: 10, scale: 2 }).notNull(),
+  reason: text("reason"),
+  effectiveFrom: timestamp("effective_from").defaultNow(),
+  createdBy: uuid("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  companyIdIdx: index("price_adj_company_id_idx").on(table.companyId),
+  productIdIdx: index("price_adj_product_id_idx").on(table.productId),
+}));
+
+export const priceAdjustmentsRelations = relations(priceAdjustments, ({ one }) => ({
+  company: one(companies, { fields: [priceAdjustments.companyId], references: [companies.id] }),
+  product: one(products, { fields: [priceAdjustments.productId], references: [products.id] }),
+  variation: one(productVariations, { fields: [priceAdjustments.variationId], references: [productVariations.id] }),
+  user: one(users, { fields: [priceAdjustments.createdBy], references: [users.id] }),
+}));
+
 export const insertProductVariationSchema = createInsertSchema(productVariations).omit({ id: true, createdAt: true });
 export const insertProductBatchSchema = createInsertSchema(productBatches).omit({ id: true, createdAt: true });
+export const insertPriceAdjustmentSchema = createInsertSchema(priceAdjustments).omit({ id: true, createdAt: true });
 export type ProductVariation = typeof productVariations.$inferSelect;
 export type InsertProductVariation = z.infer<typeof insertProductVariationSchema>;
 export type ProductBatch = typeof productBatches.$inferSelect;
 export type InsertProductBatch = z.infer<typeof insertProductBatchSchema>;
+export type PriceAdjustment = typeof priceAdjustments.$inferSelect;
+export type InsertPriceAdjustment = z.infer<typeof insertPriceAdjustmentSchema>;
 
 // Invoices
 export const invoices = pgTable("invoices", {
@@ -473,6 +500,7 @@ export const invoices = pgTable("invoices", {
 
   notes: text("notes"),
   invoiceTemplate: text("invoice_template").default("modern"),
+  isFiscalized: boolean("is_fiscalized").default(true),
 
   // Restaurant & Online Orders
   tableId: integer("table_id"), // Refers to restaurant_tables
@@ -584,6 +612,7 @@ export const insertInvoiceSchema = createInsertSchema(invoices).omit({
   receiptGlobalNo: z.number().int().optional(),
   validationStatus: z.string().optional(),
   lastValidationAttempt: z.date().optional(),
+  isFiscalized: z.boolean().optional(),
 });
 // When creating an invoice, the invoiceId foreign key is added after the invoice record is created.
 export const insertInvoiceItemSchema = createInsertSchema(invoiceItems).omit({ id: true, invoiceId: true });
@@ -940,6 +969,7 @@ export const inventoryTransactions = pgTable("inventory_transactions", {
   companyId: integer("company_id").references(() => companies.id).notNull(),
   branchId: integer("branch_id").references(() => branches.id),
   productId: integer("product_id").references(() => products.id).notNull(),
+  variationId: integer("variation_id"), // Added for pharma/variant tracking
   supplierId: integer("supplier_id").references(() => suppliers.id),
 
   type: text("type").notNull(), // 'STOCK_IN' (GRN), 'STOCK_OUT' (Invoice), 'ADJUSTMENT'
@@ -955,6 +985,7 @@ export const inventoryTransactions = pgTable("inventory_transactions", {
   expiryDate: timestamp("expiry_date"),
 
   notes: text("notes"),
+  createdBy: uuid("created_by").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => {
   return {

@@ -35,6 +35,7 @@ import { useBatchStockIn } from "@/hooks/use-inventory";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Package, Trash2, ListPlus, DollarSign, ListOrdered, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { CreateSupplierDialog } from "@/components/suppliers/create-supplier-dialog";
 
 const grnItemSchema = z.object({
     productId: z.string().min(1, "Product is required"),
@@ -133,8 +134,24 @@ export function GrnForm() {
                                     name="supplierId"
                                     render={({ field }) => (
                                         <FormItem>
-                                            <FormLabel className="text-[10px] font-black uppercase tracking-widest text-slate-400">Supplier (Optional)</FormLabel>
-                                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                            <div className="flex items-center justify-between">
+                                                <FormLabel className="text-[10px] font-black uppercase tracking-widest text-slate-400">Supplier (Optional)</FormLabel>
+                                                <CreateSupplierDialog 
+                                                    companyId={companyId} 
+                                                    onSuccess={(s) => form.setValue("supplierId", s.id?.toString())}
+                                                >
+                                                    <Button 
+                                                        type="button" 
+                                                        variant="ghost" 
+                                                        size="sm" 
+                                                        className="h-6 px-1.5 text-primary hover:text-primary hover:bg-primary/5 rounded-md gap-1"
+                                                    >
+                                                        <Plus className="w-3 h-3" />
+                                                        <span className="text-[9px] font-black uppercase tracking-tight">New Supplier</span>
+                                                    </Button>
+                                                </CreateSupplierDialog>
+                                            </div>
+                                            <Select onValueChange={field.onChange} value={field.value}>
                                                 <FormControl>
                                                     <SelectTrigger className="h-10 border-slate-200 rounded-lg focus:ring-primary/20">
                                                         <SelectValue placeholder="Select a supplier" />

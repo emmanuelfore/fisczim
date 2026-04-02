@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { inventoryTransactions, products, companies, stockTakes, stockTakeItems } from "@shared/schema";
+import { inventoryTransactions, products, companies, stockTakes, stockTakeItems, branchStocks } from "@shared/schema";
 import { eq, and, asc, desc, sql } from "drizzle-orm";
 
 export async function calculateCOGS(
@@ -243,6 +243,59 @@ export async function recordBatchStockIn(
                     costPrice: newCostPrice.toFixed(2),
                 })
                 .where(eq(products.id, item.productId));
+        }
+    });
+}
+
+export async function recordAdjustment(
+    companyId: number,
+    data: { productId: number, variationId?: number, branchId?: number, quantity: number, type: string, notes?: string, userId: string }
+) {
+    await db.transaction(async (tx) => {
+        const qty = data.quantity;
+        const absQty = Math.abs(qty);
+
+        // 1. Record the transaction
+        await tx.insert(inventoryTransactions).values({
+            companyId,
+            branchId: data.branchId || null,
+            productId: data.productId,
+            variationId: data.variationId || null,
+            type: data.type,
+            quantity: qty.toString(),
+            notes: data.notes || `Stock ${data.type.toLowerCase()}`,
+            referenceType: "MANUAL",
+            referenceId: `ADJ-${Date.now()}`,
+            createdBy: data.userId,
+            remainingQuantity: qty > 0 ? qty.toString() : "0"
+        });
+
+        // 2. Update stock level
+        if (data.branchId) {
+            const [existing] = await tx
+              .select()
+              .from(branchStocks)
+              .where(and(eq(branchStocks.branchId, data.branchId), eq(branchStocks.productId, data.productId)));
+
+            if (existing) {
+              const newLevel = (Number(existing.stockLevel) + qty).toString();
+              await tx.update(branchStocks).set({ stockLevel: newLevel }).where(eq(branchStocks.id, existing.id));
+            } else {
+              await tx.insert(branchStocks).values({
+                branchId: data.branchId,
+                productId: data.productId,
+                stockLevel: qty.toString()
+              });
+            }
+        } else {
+            await tx.update(products)
+                .set({ stockLevel: sql`stock_level + ${qty}` })
+                .where(eq(products.id, data.productId));
+        }
+
+        // 3. If negative adjustment, reduce from existing batches (FIFO)
+        if (qty < 0) {
+            await reduceStockTx(tx, data.productId, absQty, companyId, "FIFO");
         }
     });
 }

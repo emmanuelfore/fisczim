@@ -72,6 +72,7 @@ async function fix() {
     `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS waiter_id uuid REFERENCES users(id)`,
     `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS covers integer DEFAULT 1`,
     `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS dining_option text DEFAULT 'dine_in'`,
+    `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS is_fiscalized boolean DEFAULT true`,
     
     // Companies
     `ALTER TABLE companies ADD COLUMN IF NOT EXISTS api_key text UNIQUE`,
@@ -121,7 +122,7 @@ async function fix() {
     try {
       await client.query(q);
       console.log('SUCCESS:', q.substring(0, 50) + '...');
-    } catch (err) {
+    } catch (err: any) {
       console.error('FAILED:', q.substring(0, 50) + '...', err.message);
     }
   }

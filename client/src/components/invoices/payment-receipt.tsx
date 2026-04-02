@@ -54,7 +54,7 @@ export function PaymentReceipt({ open, onClose, payment, invoice, company, custo
               font-family: 'Courier New', monospace; 
               font-size: 11px; 
               margin: 0; 
-              padding: 8px; 
+              padding: 0 8mm; 
               color: #000; 
               overflow: visible !important;
               height: auto !important;
@@ -155,10 +155,10 @@ export function PaymentReceipt({ open, onClose, payment, invoice, company, custo
               <span>Invoice #:</span>
               <span className="font-semibold">{invoice.invoiceNumber}</span>
             </div>
-            {customer?.name && (
+            {customer?.name && !["walk-in", "walk in", "guest"].some(s => customer.name.toLowerCase().includes(s)) && (
               <div className="flex justify-between">
                 <span>Customer:</span>
-                <span className="font-semibold truncate max-w-[140px]">{customer.name}</span>
+                <span className="font-semibold break-words max-w-[140px]">{customer.name}</span>
               </div>
             )}
             <div className="flex justify-between">
@@ -186,7 +186,7 @@ export function PaymentReceipt({ open, onClose, payment, invoice, company, custo
             <p className="text-[10px] italic text-center">{payment.notes}</p>
           )}
 
-          <p className="text-center text-[10px] italic mt-2">Thank you for your payment!</p>
+          <p className="text-center text-[10px] italic mt-1">Thank you for your payment!</p>
         </div>
 
         <div className="flex justify-end mt-2">

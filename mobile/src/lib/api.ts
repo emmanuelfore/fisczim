@@ -52,7 +52,7 @@ export async function apiFetch(path: string, init?: RequestInit) {
   }
 
   const controller = init?.signal ? null : new AbortController();
-  const timeoutId = controller ? setTimeout(() => controller.abort(), 30000) : null;
+  const timeoutId = controller ? setTimeout(() => controller.abort(), 15000) : null;
 
   try {
     const url = joinUrl(ENV.apiBaseUrl, path);

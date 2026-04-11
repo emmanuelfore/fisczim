@@ -28,7 +28,8 @@ import {
   type InventoryTransaction,
   type Expense,
   type Branch,
-  type BranchStock
+  type BranchStock,
+  type PriceAdjustment
 } from './schema.js';
 
 export const errorSchemas = {
@@ -438,7 +439,7 @@ export const api = {
     create: {
       method: 'POST' as const,
       path: '/api/invoices/:invoiceId/payments',
-      input: insertPaymentSchema.omit({ invoiceId: true, companyId: true, createdBy: true }),
+      input: insertPaymentSchema.omit({ invoiceId: true }),
       responses: {
         201: z.custom<typeof payments.$inferSelect>(),
       }
@@ -716,6 +717,60 @@ export const api = {
           cumulativeShare: z.number(),
           category: z.enum(["A", "B", "C"])
         }))
+      }
+    },
+    revenueChart: {
+      method: "GET" as const,
+      path: "/api/reports/charts/revenue/:id",
+      responses: {
+        200: z.array(z.object({
+          name: z.string(),
+          total: z.number()
+        }))
+      }
+    },
+    fiscalReport: {
+      method: "GET" as const,
+      path: "/api/companies/:companyId/reports/fiscal-data",
+      responses: {
+        200: z.object({
+          summary: z.object({
+            totalRevenue: z.number(),
+            totalTax: z.number(),
+            receiptsCount: z.number(),
+            fiscalDayNo: z.number().nullable(),
+            date: z.string()
+          }),
+          currencies: z.array(z.object({
+            code: z.string(),
+            name: z.string(),
+            subtotal: z.number(),
+            taxAmount: z.number(),
+            total: z.number(),
+            count: z.number()
+          })),
+          cashiers: z.array(z.object({
+            id: z.string(),
+            name: z.string(),
+            total: z.number(),
+            count: z.number()
+          })),
+          items: z.array(z.object({
+            id: z.number().optional(),
+            name: z.string(),
+            sku: z.string().nullable(),
+            quantity: z.number(),
+            total: z.number()
+          })),
+          taxes: z.array(z.object({
+            taxID: z.number(),
+            taxCode: z.string().nullable(),
+            taxName: z.string(),
+            taxPercent: z.number().nullable(),
+            taxableAmount: z.number(),
+            taxAmount: z.number()
+          }))
+        })
       }
     }
   }

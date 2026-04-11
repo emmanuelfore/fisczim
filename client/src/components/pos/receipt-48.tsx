@@ -24,12 +24,10 @@ export function Receipt48({ id = "receipt-48", invoice, company, customer, items
     // Group taxes
     const taxGroups = receiptItems.reduce((acc: any, item: any) => {
         const taxRate = parseFloat(item.taxRate || 0);
-        const price = parseFloat(item.price || 0);
+        const price = parseFloat(item.price || item.unitPrice || 0);
         const qty = parseFloat(item.quantity || 0);
         const total = parseFloat(item.lineTotal || (price * qty));
 
-        // Calculate tax amount based on inclusive/exclusive logic (assuming inclusive for POS usually)
-        // Adjust logic if needed based on system settings
         const rate = taxRate / 100;
         const taxAmount = (total * rate) / (1 + rate);
         const netAmount = total - taxAmount;
@@ -50,37 +48,54 @@ export function Receipt48({ id = "receipt-48", invoice, company, customer, items
         return acc;
     }, {});
 
+    const totalQty = receiptItems.reduce((sum: number, item: any) => sum + parseFloat(item.quantity || 0), 0);
+
     const isCreditNote = invoice.transactionType === 'CreditNote' || invoice.type === 'credit_note';
     const isDebitNote = invoice.transactionType === 'DebitNote' || invoice.type === 'debit_note';
-    const isFiscalized = !!invoice.fiscalCode;
-    const documentTitle = isCreditNote ? "CREDIT NOTE"
-        : isDebitNote ? "DEBIT NOTE"
-        : isFiscalized ? "FISCAL TAX INVOICE"
-        : "TAX INVOICE";
+    const isFiscalized = !!invoice.fiscalCode || !!invoice.receiptGlobalNo;
+    const isVatPayer = !!company.vatNumber;
+
+    let documentTitle = "INVOICE";
+    if (isCreditNote) documentTitle = "CREDIT NOTE";
+    else if (isDebitNote) documentTitle = "DEBIT NOTE";
+    else if (isFiscalized) {
+        documentTitle = isVatPayer ? "FISCAL TAX INVOICE" : "FISCAL INVOICE";
+    } else {
+        documentTitle = isVatPayer ? "TAX INVOICE" : "INVOICE";
+    }
+
+    // Format verification code: XXXX-XXXX-XXXX...
+    const formatVerificationCode = (code: string) => {
+        if (!code) return "";
+        return code.replace(/-/g, "").match(/.{1,4}/g)?.join("-") || code;
+    };
 
     return (
         <div id={id} style={{ width: receiptWidth }} className={`bg-white p-2 text-black font-mono text-[10px] leading-tight receipt-content ${isA4 ? 'mx-auto' : ''}`}>
-            {/* [1] Logo (Placeholder if URL exists) */}
+            {/* [1] Logo */}
             {company.logoUrl && (
                 <div className="flex justify-center mb-2">
                     <img src={company.logoUrl} alt="Logo" className="max-h-16 object-contain" />
                 </div>
             )}
 
-            {/* [2] Company Name */}
+            {/* [2] Taxpayer Name */}
             <h1 className="text-center font-bold uppercase text-xs mb-1">{company.name}</h1>
 
-            {/* [3] TIN, [4] VAT */}
+            {/* [3] TIN, [4] VAT No */}
             <div className="text-center mb-1">
                 <p>TIN: {company.tin}</p>
-                {company.vatNumber && <p>VAT No: {company.vatNumber}</p>}
+                {isVatPayer && <p>VAT No: {company.vatNumber}</p>}
             </div>
 
-            {/* [5] Branch Name & [6] Address */}
+            {/* [5] Branch & [6] Address */}
             <div className="text-center mb-1">
-                <p>{company.tradingName || "Branch Name"}</p>
-                <p className="whitespace-pre-wrap">{company.address}</p>
-                <p>{company.city}</p>
+                {company.tradingName && company.tradingName !== company.name && (
+                    <p className="font-bold">{company.tradingName}</p>
+                )}
+                <p className="whitespace-pre-wrap">
+                    {[company.address, company.city, company.province].filter(Boolean).join(", ")}
+                </p>
             </div>
 
             {/* [7] Email, [8] Phone */}
@@ -89,144 +104,196 @@ export function Receipt48({ id = "receipt-48", invoice, company, customer, items
                 {company.phone && <p>{company.phone}</p>}
             </div>
 
-            {/* [9] Static Text */}
-            <div className="text-center font-bold mb-2 pb-2 border-b border-dashed border-black">
+            {/* [9] Label */}
+            <div className="text-center font-bold mb-2 pb-2 border-b border-dashed border-black text-xs">
                 <p>{documentTitle}</p>
             </div>
 
-            {/* [10] Buyer Info */}
-            {customer && !["walk-in", "walk in", "guest"].some(s => customer.name.toLowerCase().includes(s)) && (
+            {/* [10-16] Buyer Block */}
+            {customer && !["walk-in", "walk in", "guest"].some(s => customer.name?.toLowerCase().includes(s)) && (
                 <div className="mb-2 pb-2 border-b border-dashed border-black">
-                    <p className="font-bold">Buyer:</p>
-                    <p>{customer.name}</p> {/* [11] */}
-                    {customer.tin && <p>TIN: {customer.tin}</p>} {/* [13] */}
-                    {customer.vatNumber && <p>VAT: {customer.vatNumber}</p>} {/* [51] */}
-                    {customer.address && <p>{customer.address}</p>} {/* [14] */}
-                    {customer.email && <p>{customer.email}</p>} {/* [15] */}
-                    {customer.phone && <p>{customer.phone}</p>} {/* [16] */}
+                    <p className="font-bold underline">BUYER</p>
+                    <p>{customer.name}</p>
+                    {customer.tradingName && <p>{customer.tradingName}</p>}
+                    {customer.tin && <p>TIN: {customer.tin}</p>}
+                    {customer.vatNumber && <p>VAT No: {customer.vatNumber}</p>}
+                    {customer.address && <p>{customer.address}</p>}
+                    {customer.email && <p>{customer.email}</p>}
+                    {customer.phone && <p>{customer.phone}</p>}
                 </div>
             )}
 
-            {/* Invoice Details */}
+            {/* Receipt Information [17-23] */}
             <div className="mb-2 pb-2 border-b border-dashed border-black">
-                <p>Invoice No: {invoice.invoiceNumber}</p>
-                {invoice.fiscalCode && (
-                    <>
-                        <p>Receipt No: {invoice.receiptCounter} / {invoice.receiptGlobalNo}</p>
-                        <p>Fiscal Day No: {invoice.fiscalDayNo}</p>
-                        <p>Device Serial: {company.fdmsDeviceSerialNo || company.deviceSerialNo}</p>
-                        <p>Device ID: {company.fdmsDeviceId || company.deviceId}</p>
-                    </>
-                )}
-                {invoice.customerReference && <p>Customer Ref: {invoice.customerReference}</p>}
-                <p>Date: {format(new Date(invoice.issueDate), "dd/MM/yy HH:mm")}</p>
-                {user && <p>Cashier: {user.name || user.username || user.email}</p>}
-
-                {/* Credit/Debit Note Specifics */}
-                {(isCreditNote || isDebitNote) && (originalInvoice || invoice.originalInvoiceNumber) && (
-                    <div className="mt-1">
-                        <p className="font-bold">{isCreditNote ? "Credited Invoice" : "Debited Invoice"}</p>
-                        {originalInvoice?.fiscalCode && (
-                            <p>Device Serial: {originalInvoice?.fdmsDeviceSerialNo || company.fdmsDeviceSerialNo}</p>
-                        )}
-                        <p>Invoice No: {originalInvoice?.invoiceNumber || invoice.originalInvoiceNumber}</p>
-                        {originalInvoice?.issueDate && (
-                            <p>Date: {format(new Date(originalInvoice.issueDate), "dd/MM/yy HH:mm")}</p>
-                        )}
-                    </div>
-                )}
-            </div>
-
-            {/* Items Header */}
-            <div className="flex justify-between font-bold mb-1 border-b border-dashed border-black pb-1">
-                <span className="w-[45%]">Description</span>
-                <span className="w-[25%] text-right">Amount</span>
-                <span className="w-[10%] text-right">Tax</span>
-            </div>
-
-            {/* Items List */}
-            <div className="mb-2 pb-2 border-b border-dashed border-black">
-                {receiptItems.map((item: any, i: number) => (
-                    <div key={i} className="mb-2">
-                        <div className="flex justify-between">
-                            <span className="w-[60%] font-bold">{item.description || item.name}</span>
-                            <span className="w-[30%] text-right font-bold">
-                                {Number(item.lineTotal || (item.price * item.quantity)).toFixed(2)}
-                            </span>
-                            <span className="w-[10%] text-right">{item.taxCode || (item.taxRate > 0 ? "VT" : "ZE")}</span>
-                        </div>
-                        {/* Qty line */}
-                        <div className="text-[9px] pl-2">
-                            {Number(item.quantity).toFixed(2)} x {Number(item.unitPrice || item.price).toFixed(2)}
-                        </div>
-                    </div>
-                ))}
-            </div>
-
-            {/* Totals */}
-            <div className="mb-2 pb-2 border-b border-dashed border-black font-bold">
-                <div className="flex justify-between text-base">
-                    <span>Total {invoice.currency || "USD"}</span>
-                    <span>{Number(invoice.total).toFixed(2)}</span>
-                </div>
-            </div>
-
-            {/* Payments */}
-            <div className="mb-2 pb-2 border-b border-dashed border-black">
-                {/* Simplified payment display - assumes invoice has payment method or separate payments list */}
                 <div className="flex justify-between">
-                    <span>{invoice.paymentMethod || "Cash"}</span>
-                    <span>{Number(invoice.total).toFixed(2)}</span>
+                    <span>Invoice No:</span>
+                    <span className="font-bold">
+                        {(invoice.receiptCounter || "---")}/{(invoice.receiptGlobalNo || "---")}
+                    </span>
+                </div>
+                <div className="flex justify-between">
+                    <span>Fiscal Day No:</span>
+                    <span>{invoice.fiscalDayNo || "---"}</span>
+                </div>
+                <div className="flex justify-between">
+                    <span>Device Serial No:</span>
+                    <span>{company.fdmsDeviceSerialNo || company.deviceSerialNo || "---"}</span>
+                </div>
+                <div className="flex justify-between">
+                    <span>Device ID:</span>
+                    <span>{company.fdmsDeviceId || company.deviceId || "---"}</span>
+                </div>
+
+
+                <div className="flex justify-between">
+                    <span>Customer Ref No:</span>
+                    <span>{invoice.invoiceNo || invoice.invoiceNumber || invoice.customerReference}</span>
+                </div>
+                <div className="flex justify-between">
+                    <span>Date & Time:</span>
+                    <span>{format(new Date(invoice.issueDate || invoice.createdAt), "dd/MM/yy HH:mm:ss")}</span>
+                </div>
+                {user && <p>Cashier: {user.name || user.username}</p>}
+
+                {/* Credit/Debit Note information block [24-28] */}
+                {(isCreditNote || isDebitNote) && (invoice.creditNote || originalInvoice || invoice.originalInvoiceNumber) && (
+                    <div className="mt-1 pt-1 border-t border-dotted border-black text-[9px]">
+                        <p className="font-bold uppercase italic">
+                            {isCreditNote ? "Credited Invoice" : "Debited Invoice"}
+                        </p>
+                        <p>Inv No: {invoice.creditNote?.receiptGlobalNo || originalInvoice?.receiptGlobalNo || invoice.originalInvoiceNumber}</p>
+                        <p>Device ID: {invoice.creditNote?.deviceID || originalInvoice?.fdmsDeviceId || company.fdmsDeviceId}</p>
+                        <p>Date: {invoice.creditNote?.receiptDate || (originalInvoice?.issueDate && format(new Date(originalInvoice.issueDate), "dd/MM/yy"))}</p>
+                    </div>
+                )}
+            </div>
+
+            {/* Receipt lines block [29-34] */}
+            <div className="mb-2 pb-1 border-b border-dashed border-black">
+                {receiptItems.map((item: any, i: number) => {
+                    const itemName = item.description || item.name;
+                    const qty = parseFloat(item.quantity || 0);
+                    const price = parseFloat(item.unitPrice || item.price || 0);
+                    const total = parseFloat(item.lineTotal || (qty * price));
+                    const isDiscount = !!item.discount || item.type === 'discount';
+
+                    return (
+                        <div key={i} className="mb-1">
+                            <div className="flex justify-between items-start">
+                                <span className="w-[70%]">
+                                    {isDiscount && "Discount: "}{itemName}
+                                </span>
+                                <span className="w-[30%] text-right font-bold">
+                                    {total.toFixed(2)}
+                                </span>
+                            </div>
+                            {qty !== 1 && (
+                                <div className="text-[9px] pl-2 text-gray-700 italic">
+                                    {qty.toFixed(3)} each {price.toFixed(2)}
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+
+            {/* Receipt settlement block [35-38] */}
+            <div className="mb-2 pb-2 border-b border-dashed border-black">
+                <div className="flex justify-between text-xs font-bold">
+                    <span>TOTAL ({invoice.currency || "USD"})</span>
+                    <span>{Number(invoice.total || invoice.receiptTotal).toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between mt-1 pt-1 border-t border-dotted border-black/20">
+                    <span className="uppercase text-[9px]">TENDERED:</span>
+                    <span>{Number(invoice.paymentAmount || invoice.total).toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between">
+                    <span className="uppercase text-[9px]">CHANGE:</span>
+                    <span>{Number(invoice.change || 0).toFixed(2)}</span>
                 </div>
             </div>
 
-            {/* Item Count */}
-            <div className="mb-2 pb-2 border-b border-dashed border-black text-center">
-                <p>Number of Items: {receiptItems.length.toFixed(0)}</p>
+
+            {/* Number of Items block [39] */}
+            <div className="mb-2 pb-2 border-b border-dashed border-black">
+                <p>Number of Items: {totalQty.toFixed(3)}</p>
                 {invoice.exchangeRate && invoice.currency !== 'USD' && (
-                    <p className="font-bold mt-1 text-[11px]">
-                        USD Total: ${(Number(invoice.total) / Number(invoice.exchangeRate)).toFixed(2)}
+                    <p className="font-bold text-center mt-1">
+                        USD Equivalent: ${(Number(invoice.total) / Number(invoice.exchangeRate)).toFixed(2)}
                     </p>
                 )}
             </div>
 
-            {/* Tax Table */}
-            <div className="mb-2 pb-2 border-b border-dashed border-black">
-                <p className="font-bold text-center mb-1">Tax Table</p>
-                {Object.values(taxGroups).map((group: any, i) => (
-                    <div key={i} className="mb-1">
-                        <div className="flex justify-between">
-                            <span>Net Amount</span>
-                            <span>{group.net.toFixed(2)}</span>
+            {/* Taxes block [40-44] */}
+            {isVatPayer && (
+                <div className="mb-2 pb-2 border-b border-dashed border-black">
+                    <p className="font-bold text-center mb-1 underline">TAX SUMMARY</p>
+                    {Object.values(taxGroups).map((group: any, i) => (
+                        <div key={i} className="mb-1 border-b border-dotted border-gray-300 pb-1 last:border-0">
+                            <div className="flex justify-between uppercase text-[9px]">
+                                <span>Tax Code {group.name} ({group.rate}%)</span>
+                            </div>
+                            <div className="flex justify-between pl-2">
+                                <span>Net Amt</span>
+                                <span>{group.net.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between pl-2">
+                                <span>VAT</span>
+                                <span>{group.tax.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between pl-2 font-bold">
+                                <span>Total Amt</span>
+                                <span>{group.gross.toFixed(2)}</span>
+                            </div>
                         </div>
-                        <div className="flex justify-between">
-                            <span>VAT ({group.name})</span>
-                            <span>{group.tax.toFixed(2)}</span>
-                        </div>
-                        <div className="flex justify-between font-bold border-b border-dotted border-gray-400">
-                            <span>Gross Amount</span>
-                            <span>{group.gross.toFixed(2)}</span>
-                        </div>
-                    </div>
-                ))}
-            </div>
-
-            {/* Footer Text */}
-            <div className="text-center mb-2">
-                <p>{invoice.notes || "Invoice is issued after purchasing goods"}</p>
-            </div>
-
-            {invoice.qrCodeData && (
-                <div className="flex flex-col items-center gap-1 mb-0">
-                    <QRCodeSVG value={invoice.qrCodeData} size={100} level="M" />
-                    {invoice.verificationCode && (
-                        <div className="text-center mt-1">
-                            <p>Verification Code:</p>
-                            <p className="font-bold">{invoice.verificationCode}</p>
-                        </div>
-                    )}
+                    ))}
                 </div>
             )}
+
+            {/* Receipt verification block [45-48] */}
+            <div className="flex flex-col items-center gap-2 mb-2">
+                {(() => {
+                    // ZIMRA Field [21]: Device receipt verification code
+                    let vCode = invoice.verificationCode || "";
+                    
+                    // Simulation/Draft Logic
+                    const isSimulated = invoice._simulation || invoice._offline || invoice.status === 'draft';
+                    if (!vCode && isSimulated) {
+                        vCode = "9A2B-C48D-80FE-12A5-99BF"; // Realistic looking placeholder
+                    }
+
+                    // Field [29]: QR data
+                    const qrData = invoice.qrCodeData || invoice.receiptQRData || company.qrUrl || (isSimulated ? "https://fdms.zimra.co.zw/verify/SIMULATION-ONLY" : "");
+                    
+                    if (!qrData && !vCode) return null;
+
+                    return (
+                        <>
+                            {qrData && <QRCodeSVG value={qrData} size={110} level="M" marginSize={1} />}
+                            <div className="text-center w-full px-2">
+                                {vCode && (
+                                    <>
+                                        <p className="text-[8px] font-bold">VERIFICATION CODE:</p>
+                                        <p className="font-bold break-all">
+                                            {vCode.includes('-') ? vCode : formatVerificationCode(vCode)}
+                                        </p>
+                                    </>
+                                )}
+                                {(invoice.qrUrl || company.qrUrl || isSimulated) && (
+                                    <p className="text-[7px] mt-1 break-all italic">
+                                        Verify at: {invoice.qrUrl || company.qrUrl || "https://fdms.zimra.co.zw/verify"}
+                                    </p>
+                                )}
+                            </div>
+                        </>
+                    );
+                })()}
+            </div>
+
+            {/* [49] Note */}
+            <div className="text-center italic mb-4 text-[9px]">
+                <p>{invoice.notes || invoice.receiptNotes || "Thank you for your business"}</p>
+            </div>
 
 
             <style>{`

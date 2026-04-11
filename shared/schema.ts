@@ -479,6 +479,7 @@ export const invoices = pgTable("invoices", {
   fiscalCode: text("fiscal_code"),
   fiscalSignature: text("fiscal_signature"),
   qrCodeData: text("qr_code_data"),
+  verificationCode: text("verification_code"),
   syncedWithFdms: boolean("synced_with_fdms").default(false),
   fdmsStatus: text("fdms_status").default("pending"), // pending, issued, failed
   submissionId: text("submission_id"),
@@ -587,7 +588,11 @@ export const currenciesRelations = relations(currencies, ({ one }) => ({
 
 export const insertUserSchema = createInsertSchema(users).omit({ createdAt: true });
 export const insertResetTokenSchema = createInsertSchema(resetTokens).omit({ id: true, createdAt: true });
-export const insertCompanySchema = createInsertSchema(companies).omit({ id: true, createdAt: true });
+export const insertCompanySchema = createInsertSchema(companies).omit({ id: true, createdAt: true }).extend({
+  tin: z.string().regex(/^\d{10}$/, "TIN must be exactly 10 digits").or(z.string().length(0)).nullable().optional(),
+  vatNumber: z.string().regex(/^\d{9,10}$/, "VAT number must be 9 or 10 digits").or(z.string().length(0)).nullable().optional(),
+  bpNumber: z.string().regex(/^\d{10}$/, "BP number must be exactly 10 digits").or(z.string().length(0)).nullable().optional(),
+});
 export const insertCustomerSchema = createInsertSchema(customers).omit({ id: true, createdAt: true }).extend({
   tin: z.string().regex(/^\d{10}$/, "TIN must be exactly 10 digits").or(z.string().length(0)).nullable().optional(),
   vatNumber: z.string().regex(/^\d{9,10}$/, "VAT number must be 9 or 10 digits").or(z.string().length(0)).nullable().optional(),
@@ -605,6 +610,7 @@ export const insertInvoiceSchema = createInsertSchema(invoices).omit({
   fiscalCode: z.string().optional(),
   fiscalSignature: z.string().optional(),
   qrCodeData: z.string().optional(),
+  verificationCode: z.string().optional(),
   syncedWithFdms: z.boolean().optional(),
   fdmsStatus: z.string().optional(),
   submissionId: z.string().optional(),

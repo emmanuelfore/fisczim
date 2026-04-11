@@ -4,8 +4,10 @@ import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { RefreshCw, FileText, Download, Loader2, AlertTriangle } from "lucide-react";
-import { PDFDownloadLink } from "@react-pdf/renderer";
-import { ZReportPDF } from "@/components/invoices/z-report-pdf";
+import { PDFDownloadLink, pdf } from "@react-pdf/renderer";
+import { FiscalReportPDF } from "@/components/reports/fiscal-report-pdf";
+import { saveAs } from "file-saver";
+import dayjs from "dayjs";
 import { useState } from "react";
 import {
     Dialog,
@@ -134,10 +136,10 @@ export function DayManagementControls({ company, variant = 'light' }: DayManagem
 
                 <div className="flex flex-wrap gap-2 justify-center">
                     {/* X-Report (Only when open or failed close) */}
-                    {isOpen && <XReportButton companyId={company.id} variant={variant} />}
+                    {isOpen && <XReportButton companyId={company.id} variant={variant} company={company} />}
 
                     {/* Z-Report (For closed days or after successful closure) */}
-                    {!isOpen && <ZReportButton companyId={company.id} variant={variant} closeDayData={closeDayMutation.data} />}
+                    {!isOpen && <ZReportButton companyId={company.id} variant={variant} closeDayData={closeDayMutation.data} company={company} />}
 
                     {isOpen ? (
                         <Button
@@ -218,95 +220,78 @@ export function DayManagementControls({ company, variant = 'light' }: DayManagem
     );
 }
 
-function XReportButton({ companyId, variant }: { companyId: number, variant: 'light' | 'dark' }) {
-    const { data: reportData, isLoading, refetch } = useQuery({
-        queryKey: ["xReport", companyId],
-        queryFn: async () => {
-            const res = await apiFetch(`/api/companies/${companyId}/zimra/day/x-report`);
-            if (!res.ok) throw new Error("Failed to fetch X-report data");
-            return await res.json();
-        },
-        enabled: false
-    });
+function XReportButton({ companyId, variant, company }: { companyId: number, variant: 'light' | 'dark', company: any }) {
+    const { toast } = useToast();
+    const [isGenerating, setIsGenerating] = useState(false);
+
+    const handleDownloadX = async () => {
+        setIsGenerating(true);
+        toast({ title: "Generating X-Report", description: "Fetching and preparing PDF..." });
+        try {
+            const today = new Date().toISOString().split('T')[0];
+            const res = await apiFetch(`/api/companies/${companyId}/reports/fiscal-data?date=${today}`);
+            if (!res.ok) throw new Error("Failed to fetch report data");
+            const data = await res.json();
+            const blob = await pdf(<FiscalReportPDF type="X" data={data} company={company} />).toBlob();
+            saveAs(blob, `Fiscal-X-Report-${dayjs().format('YYYY-MM-DD-HHmm')}.pdf`);
+            toast({ title: "X-Report Downloaded" });
+        } catch (err: any) {
+            toast({ title: "Failed to generate report", description: err.message, variant: "destructive" });
+        } finally {
+            setIsGenerating(false);
+        }
+    };
 
     const isLight = variant === 'light';
-
-    if (reportData) {
-        return (
-            <PDFDownloadLink
-                document={<ZReportPDF data={reportData} isZReport={false} />}
-                fileName={`X-Report-Day-${reportData.fiscalDayNo}.pdf`}
-            >
-                {({ loading }) => (
-                    <Button variant="outline" size="sm" className={!isLight ? "bg-white/10 text-white border-white/20 hover:bg-white/20" : ""}>
-                        <Download className="w-4 h-4 mr-2" />
-                        {loading ? "Preparing..." : "Download X-Report"}
-                    </Button>
-                )}
-            </PDFDownloadLink>
-        );
-    }
 
     return (
         <Button
             variant="outline"
             size="sm"
-            onClick={() => refetch()}
-            disabled={isLoading}
+            onClick={handleDownloadX}
+            disabled={isGenerating}
             className={!isLight ? "bg-white/10 text-white border-white/20 hover:bg-white/20" : ""}
         >
-            {isLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileText className="w-4 h-4 mr-2" />}
-            Generate X-Report
+            {isGenerating ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileText className="w-4 h-4 mr-2" />}
+            Download X-Report
         </Button>
     );
 }
 
-function ZReportButton({ companyId, variant, closeDayData }: { companyId: number, variant: 'light' | 'dark', closeDayData?: any }) {
-    // Fetch Z-report data automatically for closed days
-    const { data: reportData, isLoading } = useQuery({
-        queryKey: ["zReport", companyId],
-        queryFn: async () => {
-            const res = await apiFetch(`/api/companies/${companyId}/zimra/day/z-report`);
-            if (!res.ok) {
-                // If it fails, it might be because the day is still open
-                return null;
-            }
-            return await res.json();
-        },
-        enabled: true, // Always try to fetch
-        retry: false,
-        staleTime: 5 * 60 * 1000 // Cache for 5 minutes
-    });
+function ZReportButton({ companyId, variant, closeDayData, company }: { companyId: number, variant: 'light' | 'dark', closeDayData?: any, company: any }) {
+    const { toast } = useToast();
+    const [isGenerating, setIsGenerating] = useState(false);
+
+    const handleDownloadZ = async () => {
+        setIsGenerating(true);
+        toast({ title: "Generating Z-Report", description: "Preparing audit report..." });
+        try {
+            const today = new Date().toISOString().split('T')[0];
+            const res = await apiFetch(`/api/companies/${companyId}/reports/fiscal-data?date=${today}`);
+            if (!res.ok) throw new Error("Failed to fetch report data");
+            const data = await res.json();
+            const blob = await pdf(<FiscalReportPDF type="Z" data={data} company={company} />).toBlob();
+            saveAs(blob, `Fiscal-Z-Report-${dayjs().format('YYYY-MM-DD-HHmm')}.pdf`);
+            toast({ title: "Z-Report Downloaded" });
+        } catch (err: any) {
+            toast({ title: "Failed to generate report", description: err.message, variant: "destructive" });
+        } finally {
+            setIsGenerating(false);
+        }
+    };
 
     const isLight = variant === 'light';
 
-    // Use data from close mutation if available, otherwise use fetched data
-    const data = closeDayData?.reportData || reportData;
-
-    if (isLoading) {
-        return (
-            <Button variant="outline" size="sm" disabled className={!isLight ? "bg-white/10 text-white border-white/20" : ""}>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Loading...
-            </Button>
-        );
-    }
-
-    if (!data) {
-        return null; // Don't show button if no data available
-    }
-
     return (
-        <PDFDownloadLink
-            document={<ZReportPDF data={data} isZReport={true} />}
-            fileName={`Z-Report-Day-${data.fiscalDayNo}.pdf`}
+        <Button
+            variant="outline"
+            size="sm"
+            onClick={handleDownloadZ}
+            disabled={isGenerating}
+            className={!isLight ? "bg-white/10 text-white border-white/20 hover:bg-white/20" : "bg-green-50 text-green-700 border-green-200 hover:bg-green-100"}
         >
-            {({ loading }) => (
-                <Button variant="outline" size="sm" className={!isLight ? "bg-white/10 text-white border-white/20 hover:bg-white/20" : "bg-green-50 text-green-700 border-green-200 hover:bg-green-100"}>
-                    <Download className="w-4 h-4 mr-2" />
-                    {loading ? "Preparing..." : "Download Z-Report"}
-                </Button>
-            )}
-        </PDFDownloadLink>
+            {isGenerating ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
+            Download Z-Report
+        </Button>
     );
 }

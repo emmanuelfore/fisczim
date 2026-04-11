@@ -28,3 +28,16 @@ export function useFinancialSummary(companyId: number, from?: string, to?: strin
         enabled: !!companyId,
     });
 }
+
+export function useFiscalReport(companyId: number, date?: string, cashierId?: string) {
+    return useQuery({
+        queryKey: [api.reports.fiscalReport.path, companyId, date, cashierId],
+        queryFn: async () => {
+            const url = buildUrl(api.reports.fiscalReport.path, { companyId, date, cashierId });
+            const res = await apiFetch(url);
+            if (!res.ok) throw new Error("Failed to fetch fiscal report data");
+            return api.reports.fiscalReport.responses[200].parse(await res.json());
+        },
+        enabled: !!companyId,
+    });
+}

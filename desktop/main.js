@@ -65,7 +65,7 @@ function validateIpcInput({ html, printerName, pin, companyId } = {}) {
     }
   }
 
-  if (printerName !== undefined) {
+  if (printerName !== undefined && printerName !== null) {
     if (typeof printerName !== 'string') {
       return { error: 'printerName must be a string', code: 'VALIDATION_ERROR' };
     }
@@ -219,6 +219,44 @@ function registerIpcHandlers(mainWindow) {
     }
     const testHtml = '<html><body><h1>Test Print</h1><p>POS Terminal Test Page</p></body></html>';
     return printHtmlToWindow(testHtml, printerName);
+  });
+
+  // print-raw — receive raw ESC/POS bytes from renderer and log/print
+  ipcMain.handle('print-raw', async (_event, data, printerName) => {
+    // Convert incoming ArrayBuffer to Buffer
+    const bytes = Buffer.from(data);
+    
+    if (bytes.length === 0) {
+      return Promise.reject('Invalid raw data: Data is empty');
+    }
+    
+    log.info(`[Main] print-raw: Received ${bytes.length} bytes for printer: ${printerName || 'System Default'}`);
+    
+    const tempFilePath = path.join(app.getPath('userData'), `receipt_${Date.now()}.bin`);
+    
+    try {
+        fs.writeFileSync(tempFilePath, bytes);
+
+        // Robust Windows spooling command for Raw ESC/POS data
+        const printerTarget = printerName ? `"${printerName}"` : `(Get-WmiObject -Query "SELECT * FROM Win32_Printer WHERE Default = TRUE").Name`;
+        const psCommand = `Get-Content "${tempFilePath}" -Encoding Byte -Raw | Out-Printer -Name ${printerTarget}`;
+        
+        return new Promise((resolve, reject) => {
+            require('child_process').exec(`powershell -Command "${psCommand}"`, (err) => {
+                if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+                if (err) {
+                    log.error('[print-raw] Native Spool Error:', err.message);
+                    return reject(err.message);
+                }
+                log.info('[print-raw] Successfully sent to Windows spooler');
+                resolve(true);
+            });
+        });
+    } catch (err) {
+        if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+        log.error('[print-raw] Exception:', err.message);
+        return Promise.reject(err.message);
+    }
   });
 
 

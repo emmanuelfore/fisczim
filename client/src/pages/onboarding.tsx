@@ -48,8 +48,17 @@ const companySchema = insertCompanySchema.pick({
     vatNumber: true,
     currency: true,
 }).extend({
-    // Make BP Number optional explicitly
+    // Enforce requirements for onboarding specifically
+    name: z.string().min(1, "Company Name is required"),
+    address: z.string().min(1, "Physical Address is required"),
+    city: z.string().min(1, "City is required"),
+    phone: z.string().min(1, "Phone number is required"),
+    email: z.string().email("Invalid email address"),
+    tin: z.string().regex(/^\d{10}$/, "TIN must be exactly 10 digits"),
+    
+    // Optional or specialized fields
     bpNumber: z.string().optional(),
+    vatNumber: z.string().optional(),
     logoUrl: z.string().optional(),
     tradingName: z.string().optional(),
     fdmsDeviceId: z.string().optional(),
@@ -71,7 +80,6 @@ export default function OnboardingPage() {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
 
-    // Form setup (omitted for brevity, assume unchanged logic)
     const companyForm = useForm<CompanyFormValues>({
         resolver: zodResolver(companySchema),
         defaultValues: {
@@ -85,10 +93,64 @@ export default function OnboardingPage() {
             city: "Harare",
             logoUrl: "",
             currency: "USD",
-        }
+        },
+        mode: "onBlur" // Validate as user navigates
     });
 
-    // ... handleFileUpload and useQuery logic ...
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        if (!file.type.startsWith("image/")) {
+            toast({ 
+                title: "Invalid file", 
+                description: "Please upload an image (PNG, JPG).", 
+                variant: "destructive" 
+            });
+            return;
+        }
+
+        setIsUploading(true);
+        const formData = new FormData();
+        formData.append("image", file);
+
+        try {
+            const res = await apiFetch("/api/upload", {
+                method: "POST",
+                body: formData,
+            });
+
+            if (!res.ok) throw new Error("Upload failed");
+
+            const data = await res.json();
+            companyForm.setValue("logoUrl", data.url);
+            toast({ title: "Logo uploaded", description: "Your company logo has been processed." });
+        } catch (error: any) {
+            toast({ title: "Upload Failed", description: error.message, variant: "destructive" });
+        } finally {
+            setIsUploading(false);
+        }
+    };
+
+    const onFinalSubmit = async (data: CompanyFormValues) => {
+        setIsSubmitting(true);
+        try {
+            await createCompany.mutateAsync(data);
+            toast({
+                title: "Organization Created",
+                description: "Your business profile is now active.",
+            });
+            setLocation("/");
+        } catch (error: any) {
+            toast({
+                title: "Registration Failed",
+                description: error.message || "Could not complete onboarding.",
+                variant: "destructive",
+            });
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
 
     const StepIndicator = ({ step, label, current }: { step: number; label: string; current: number }) => (
         <div className="flex flex-col items-center gap-2 flex-1">
@@ -107,75 +169,32 @@ export default function OnboardingPage() {
     );
 
     return (
-        <div className="min-h-screen bg-slate-50 flex overflow-hidden font-jakarta">
-            {/* Left: Guidance Sidebar (Desktop only) */}
-            <div className="hidden lg:flex w-[420px] bg-slate-900 p-12 flex-col relative overflow-hidden shrink-0">
-                <div className="absolute top-0 right-0 w-full h-full bg-gradient-to-br from-violet-600/20 to-blue-600/20" />
-                <div className="absolute -bottom-20 -left-20 w-64 h-64 bg-violet-500/20 rounded-full blur-[100px]" />
-                
-                <div className="relative z-10 space-y-12">
-                    <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-lg">
-                            <Building2 className="w-6 h-6 text-slate-900" />
-                        </div>
-                        <span className="text-xl font-black text-white italic tracking-tight">ZimInvoice Pro</span>
+        <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 sm:p-12 lg:p-20 font-jakarta">
+            {/* Simple, Centered Container */}
+            <div className="max-w-2xl w-full bg-white rounded-[2.5rem] shadow-2xl shadow-slate-200/50 p-8 sm:p-12 space-y-10 animate-in fade-in zoom-in-95 duration-700">
+                {/* Header */}
+                <div className="text-center space-y-4">
+                    <div className="inline-flex items-center gap-3 px-4 py-2 rounded-2xl bg-slate-50 border border-slate-100 shadow-sm">
+                        <Building2 className="w-5 h-5 text-violet-600" />
+                        <span className="text-sm font-black uppercase tracking-widest text-slate-900">{brand.name}</span>
                     </div>
-
-                    <div className="space-y-6">
-                        <h2 className="text-3xl font-black text-white leading-tight">
-                            Build your business on a <span className="text-sky-400">compliant</span> foundation.
-                        </h2>
-                        <p className="text-lg text-slate-400 leading-relaxed">
-                            Welcome to the future of Zimbabwe's fiscal management. We're here to help you navigate ZIMRA regulations with ease.
-                        </p>
-                    </div>
-
-                    <div className="space-y-4 pt-12">
-                        {[
-                            { title: "ZIMRA Registered", desc: "Official verification for tax records", icon: ShieldCheck },
-                            { title: "VAT Compliant", desc: "Automatic rate calculations", icon: Zap },
-                            { title: "Secure Data", desc: "Military-grade encryption", icon: Lock }
-                        ].map((item, i) => (
-                            <div key={i} className="flex gap-4 p-4 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-colors">
-                                <item.icon className="w-5 h-5 text-violet-400 shrink-0" />
-                                <div>
-                                    <h4 className="text-sm font-bold text-white">{item.title}</h4>
-                                    <p className="text-xs text-slate-500">{item.desc}</p>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
+                    <h2 className="text-4xl font-black text-slate-900 tracking-tight">Organization Profile</h2>
+                    <p className="text-slate-500 font-medium">Step {currentStep} of 2 &mdash; {currentStep === 1 ? "Organization Basics" : "Tax & Compliance"}</p>
                 </div>
 
-                <div className="mt-auto relative z-10 pt-12">
-                    <p className="text-xs text-slate-500 border-t border-white/10 pt-8">
-                        &copy; 2026 ZimInvoice Pro. All ZIMRA compliance standards enforced.
-                    </p>
+                {/* Progress Bar */}
+                <div className="flex items-center gap-2 max-w-sm mx-auto">
+                    <StepIndicator step={1} label="Company" current={currentStep} />
+                    <div className="h-0.5 w-12 bg-slate-100 relative top-[-10px]">
+                        <div className={cn("h-full bg-violet-600 transition-all duration-500", currentStep > 1 ? "w-full" : "w-0")} />
+                    </div>
+                    <StepIndicator step={2} label="Compliance" current={currentStep} />
                 </div>
-            </div>
 
-            {/* Right: Actual Form */}
-            <div className="flex-1 overflow-y-auto p-4 sm:p-12 lg:p-20 flex items-center justify-center bg-white">
-                <div className="max-w-xl w-full space-y-10 py-12">
-                    {/* Header */}
-                    <div className="space-y-3">
-                        <h2 className="text-3xl font-black text-slate-900 tracking-tight">Complete Organization Profile</h2>
-                        <p className="text-slate-500 font-medium">Step {currentStep} of 2 &mdash; {currentStep === 1 ? "Organization Basics" : "Tax & Compliance"}</p>
-                    </div>
-
-                    {/* Progress Bar */}
-                    <div className="flex items-center gap-2 max-w-sm">
-                        <StepIndicator step={1} label="Company" current={currentStep} />
-                        <div className="h-0.5 w-12 bg-slate-100 relative top-[-10px]">
-                            <div className={cn("h-full bg-violet-600 transition-all duration-500", currentStep > 1 ? "w-full" : "w-0")} />
-                        </div>
-                        <StepIndicator step={2} label="Compliance" current={currentStep} />
-                    </div>
-
-                    {/* Step 1 Form */}
-                    {currentStep === 1 && (
-                        <Form {...companyForm}>
-                            <form className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-500">
+                {/* Step 1 Form */}
+                {currentStep === 1 && (
+                    <Form {...companyForm}>
+                        <form className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-500">
                                 <div className="space-y-6">
                                     <div className="flex items-center gap-6">
                                         {/* Simple Logo Placeholder/Upload */}
@@ -399,7 +418,6 @@ export default function OnboardingPage() {
                             </form>
                         </Form>
                     )}
-                </div>
             </div>
         </div>
     );

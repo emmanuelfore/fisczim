@@ -49,6 +49,8 @@ import OrderStatusPage from "@/pages/order-status";
 import SubscriptionPage from "@/pages/subscription";
 import PosLoginPage from "@/pages/pos-login";
 import ReportsPage from "@/pages/reports";
+import BulkAdjustmentPage from "@/pages/bulk-adjustment";
+import StockTakePage from "@/pages/stock-take";
 import PaymentsReceivedPage from "@/pages/payments-received";
 import PaymentPreviewPage from "@/pages/payment-preview";
 import CustomerStatementsPage from "@/pages/customer-statements";
@@ -122,6 +124,11 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
   // if online send to /auth
   if (!user) return <Redirect to={isOffline ? "/pos" : "/auth"} />;
 
+  // Redirect to onboarding if online and company list is definitively empty
+  if (!isOffline && companies && companies.length === 0) {
+    if (location !== "/onboarding") return <Redirect to="/onboarding" />;
+  }
+
   if (!isOffline && activeCompany) {
     const role = (activeCompany as any).role;
     const isCashier = role === "cashier" && !user?.isSuperAdmin;
@@ -142,8 +149,11 @@ function OnboardingRoute() {
 
   if (isLoading) return <LoadingScreen />;
   if (!user) return <Redirect to="/auth" />;
+  
+  // If offline, we shouldn't attempt onboarding as it requires network to create companies
   if (!isOnline || isError) return <Redirect to="/pos" />;
 
+  // If we have companies, we shouldn't be here
   if (companies && companies.length > 0) {
     const role = (companies[0] as any).role;
     const isCashier = role === "cashier" && !user?.isSuperAdmin;
@@ -185,6 +195,8 @@ function Router() {
       <Route path="/expenses">{() => <ProtectedRoute component={ExpensesPage} />}</Route>
       <Route path="/inventory">{() => <ProtectedRoute component={InventoryTransactionsPage} />}</Route>
       <Route path="/inventory/adjustments">{() => <ProtectedRoute component={InventoryAdjustmentsPage} />}</Route>
+      <Route path="/inventory/bulk-adjust">{() => <ProtectedRoute component={BulkAdjustmentPage} />}</Route>
+      <Route path="/inventory/stock-take">{() => <ProtectedRoute component={StockTakePage} />}</Route>
       <Route path="/inventory/account">{() => <ProtectedRoute component={InventoryAccountPage} />}</Route>
       <Route path="/reports/inventory">{() => <ProtectedRoute component={InventoryReportsPage} />}</Route>
       <Route path="/reports/financial">{() => <ProtectedRoute component={FinancialReportsPage} />}</Route>

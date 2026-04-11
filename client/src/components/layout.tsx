@@ -78,6 +78,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const { activeCompany, activeCompanyId, setCompany } = useActiveCompany(!!user);
   const { brand, currentBrand } = useBranding();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   // Close mobile menu on location change
   useEffect(() => {
@@ -192,226 +193,331 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     <>
-      {/* Brand Specific Fonts & Styles */}
-      {currentBrand === "fiscalzone" && (
-        <style>{`
-          @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&display=swap');
-          .fz-admin { font-family: 'Syne', sans-serif !important; }
-          .fz-admin .font-display { font-family: 'Bricolage Grotesque', sans-serif !important; }
-          .fz-sidebar { background: rgba(15, 23, 42, 0.9) !important; color: white !important; border-color: rgba(255,255,255,0.1) !important; }
-          .fz-sidebar .text-slate-800 { color: white !important; }
-          .fz-sidebar .text-slate-500 { color: rgba(255,255,255,0.6) !important; }
-          .fz-sidebar .bg-white { background: rgba(255,255,255,0.05) !important; border-color: rgba(255,255,255,0.1) !important; }
-        `}</style>
-      )}
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800;900&family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&display=swap');
+        
+        .fz-admin { font-family: 'Outfit', sans-serif !important; }
+        .fz-admin .font-display { font-family: 'Bricolage Grotesque', sans-serif !important; }
+        
+        .sidebar-scroller::-webkit-scrollbar {
+          width: 4px;
+          opacity: 0;
+          transition: opacity 0.2s;
+        }
+        .sidebar-scroller:hover::-webkit-scrollbar {
+          opacity: 1;
+        }
+        .sidebar-scroller::-webkit-scrollbar-thumb {
+          background: rgba(0,0,0,0.1);
+          border-radius: 10px;
+        }
+        
+        .fz-sidebar { 
+          background: #020617 !important; 
+          color: white !important; 
+          border-right: 1px solid rgba(255,255,255,0.05) !important;
+        }
+        .fz-sidebar .sidebar-scroller::-webkit-scrollbar-thumb {
+          background: rgba(255,255,255,0.2) !important;
+        }
+        .fz-sidebar .text-slate-800 { color: #f8fafc !important; }
+        .fz-sidebar .text-slate-500 { color: #94a3b8 !important; }
+        
+        .nav-item-tooltip {
+          position: absolute;
+          left: 100%;
+          margin-left: 1rem;
+          padding: 0.5rem 0.75rem;
+          background: #1e293b;
+          color: white;
+          border-radius: 0.5rem;
+          font-size: 0.75rem;
+          font-weight: 700;
+          white-space: nowrap;
+          pointer-events: none;
+          opacity: 0;
+          transform: translateX(-10px);
+          transition: all 0.2s;
+          box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+          z-index: 100;
+        }
+        .collapsed-item:hover .nav-item-tooltip {
+          opacity: 1;
+          transform: translateX(0);
+        }
+      `}</style>
 
       <div className={cn(
-        "min-h-screen bg-slate-50/50 flex transition-all duration-300",
+        "min-h-screen bg-slate-50 flex transition-all duration-300",
         currentBrand === "fiscalzone" ? "fz-admin" : "font-sans selection:bg-violet-500/20"
       )}>
 
-      {/* Floating Sidebar */}
+      {/* Primary Navigation Sidebar */}
       <aside className={cn(
-        "w-72 bg-white/80 backdrop-blur-xl border border-white/50 shadow-2xl shadow-slate-200/50 flex flex-col fixed inset-y-4 left-4 z-50 rounded-[2rem] overflow-hidden transition-all duration-300",
-        isMobileMenuOpen ? "translate-x-0" : "-translate-x-[calc(100%+2rem)] lg:translate-x-0",
-        currentBrand === "fiscalzone" && "fz-sidebar"
+        "bg-white border-r border-slate-200/60 shadow-[1px_0_10px_rgba(0,0,0,0.02)] flex flex-col fixed inset-y-0 left-0 z-50 transition-all duration-500 ease-in-out",
+        isSidebarCollapsed ? "w-20" : "w-72",
+        isMobileMenuOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
+        currentBrand === "fiscalzone" && "fz-sidebar border-none"
       )}>
-        <div className="p-6 border-b border-slate-100/50 bg-white/50">
-          <div className="flex items-center gap-3 mb-6 px-1">
+        <div className={cn(
+          "flex flex-col border-b border-slate-50 relative",
+          currentBrand === "fiscalzone" ? "bg-slate-950/20" : "bg-white/50",
+          isSidebarCollapsed ? "p-4 items-center" : "p-6"
+        )}>
+          {/* Collapse Toggle Button */}
+          <button 
+            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+            className="absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-white border border-slate-200 shadow-sm flex items-center justify-center text-slate-400 hover:text-primary transition-all z-20 group hidden lg:flex active:scale-90"
+          >
+            <ChevronDown className={cn("w-3 h-3 transition-transform duration-500", isSidebarCollapsed ? "-rotate-90" : "rotate-90")} />
+          </button>
+
+          <div className={cn("flex items-center gap-2 mb-6 transition-all", isSidebarCollapsed ? "justify-center" : "px-1")}>
             {currentBrand === "fiscalzone" ? (
-              <span className="text-xl font-black text-slate-800 tracking-tight font-display">
-                Fiscal<span className="text-blue-600">Zone</span>
-              </span>
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-white shadow-lg shadow-primary/20">
+                  <MonitorCheck className="w-4 h-4" />
+                </div>
+                {!isSidebarCollapsed && (
+                  <span className="text-xl font-black text-slate-800 tracking-tight font-display">
+                    Fiscal<span className="text-primary">Zone</span>
+                  </span>
+                )}
+              </div>
             ) : (
-              <img src={brand.logo} alt={brand.name} className="h-9" />
+              <img src={brand.logo} alt={brand.name} className={cn("transition-all", isSidebarCollapsed ? "h-6 w-6 object-contain" : "h-8")} />
             )}
           </div>
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <div className="p-3 rounded-2xl bg-white border border-slate-200/60 shadow-sm hover:shadow-md hover:border-violet-200/60 transition-all cursor-pointer group active:scale-95 duration-200">
+              <div className={cn(
+                "rounded-xl transition-all cursor-pointer group active:scale-95 duration-200",
+                currentBrand === "fiscalzone" ? "bg-white/5 border-white/10 hover:bg-white/10" : "bg-slate-50 border border-slate-100 hover:bg-white",
+                isSidebarCollapsed ? "p-2" : "p-3"
+              )}>
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-slate-50 to-slate-100 border border-slate-100 flex items-center justify-center text-slate-400 overflow-hidden shadow-inner font-display font-bold text-xs">
+                  <div className="w-10 h-10 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-slate-300 overflow-hidden shadow-sm shrink-0">
                     {selectedCompany?.logoUrl ? (
                       <img src={selectedCompany.logoUrl} alt="Logo" className="w-full h-full object-contain" />
                     ) : (
-                      <Building2 className="w-5 h-5" />
+                      <Building2 className="w-5 h-5 text-slate-400" />
                     )}
                   </div>
-                  <div className="overflow-hidden flex-1 text-left">
-                    <div className="flex items-center justify-between mb-0.5">
-                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Active Entity</p>
-                      {user.isSuperAdmin && (
-                        <span className="text-[9px] bg-amber-50 text-amber-600 px-1.5 py-0 rounded-full font-black uppercase tracking-wider border border-amber-100">Super</span>
+                  {!isSidebarCollapsed && (
+                    <div className="overflow-hidden flex-1 text-left">
+                      <p className="text-sm font-black text-slate-800 truncate leading-none mb-1 font-display group-hover:text-primary transition-colors">
+                        {selectedCompany ? selectedCompany.name : "Setup"}
+                      </p>
+                      {selectedCompany && (
+                        <div className="flex items-center gap-1.5">
+                          <div className={cn("w-1.5 h-1.5 rounded-full", selectedCompany.zimraEnvironment === 'production' ? "bg-emerald-500" : "bg-amber-500")} />
+                          <span className={cn("text-[8px] font-black uppercase tracking-widest", selectedCompany.zimraEnvironment === 'production' ? "text-emerald-500" : "text-amber-500")}>
+                            {selectedCompany.zimraEnvironment === 'production' ? 'Production' : 'Test Environment'}
+                          </span>
+                        </div>
                       )}
                     </div>
-                    <p className="text-sm font-black text-slate-800 truncate flex items-center gap-1 group-hover:text-violet-700 transition-colors font-display">
-                      {selectedCompany ? selectedCompany.name : "Setup Required"}
-                    </p>
-                    {selectedCompany && (
-                      <span className={`text-[9px] px-1.5 rounded-md font-bold uppercase tracking-wider ${selectedCompany.zimraEnvironment === 'production' ? 'text-emerald-600 bg-emerald-50' : 'text-amber-600 bg-amber-50'}`}>
-                        {selectedCompany.zimraEnvironment === 'production' ? 'Production' : 'Test Mode'}
-                      </span>
-                    )}
-                  </div>
-                  <ChevronDown className="w-4 h-4 text-slate-300 group-hover:text-violet-400 transition-colors" />
+                  )}
+                  {!isSidebarCollapsed && <ChevronDown className="w-3.5 h-3.5 text-slate-300 group-hover:text-slate-400 transition-colors" />}
                 </div>
               </div>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-64 max-h-[300px] overflow-y-auto bg-white/90 backdrop-blur-xl border-slate-200 rounded-2xl shadow-xl p-2">
-              <div className="px-2 py-1.5">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2 pb-2">Switch Workspace</p>
+            <DropdownMenuContent align="start" className="w-60 max-h-[400px] overflow-y-auto bg-white border-slate-200 rounded-xl shadow-2xl p-1 z-[60]">
+              <div className="px-1 py-1">
                 {companies?.map((company) => (
                   <DropdownMenuItem
                     key={company.id}
                     onClick={() => handleCompanyChange(company.id)}
                     className={cn(
-                      "flex items-center gap-3 p-2.5 rounded-xl cursor-pointer transition-all duration-200 font-medium",
-                      selectedCompanyId === company.id ? "bg-violet-50 text-violet-700 shadow-sm" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                      "flex items-center gap-2.5 p-2 rounded-lg cursor-pointer transition-all duration-200 mb-0.5",
+                      selectedCompanyId === company.id ? "bg-slate-900 text-white shadow-md" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
                     )}
                   >
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-bold ${selectedCompanyId === company.id ? 'bg-white text-violet-600 shadow-sm' : 'bg-slate-100 text-slate-500'}`}>
-                      {company.logoUrl ? <img src={company.logoUrl} className="w-full h-full object-contain rounded-md" /> : company.name.substring(0, 2).toUpperCase()}
+                    <div className={`w-6 h-6 rounded flex items-center justify-center text-[8px] font-bold ${selectedCompanyId === company.id ? 'bg-white/10 text-white' : 'bg-slate-100 text-slate-400'}`}>
+                      {company.logoUrl ? <img src={company.logoUrl} className="w-full h-full object-contain rounded" /> : company.name.substring(0, 2).toUpperCase()}
                     </div>
-                    <span className="truncate flex-1 font-bold font-display">{company.name}</span>
-                    {selectedCompanyId === company.id && <div className="w-2 h-2 rounded-full bg-violet-500" />}
+                    <span className="truncate flex-1 font-bold font-display text-[12px]">{company.name}</span>
+                    {selectedCompanyId === company.id && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
                   </DropdownMenuItem>
                 ))}
-                <div className="h-px bg-slate-100 my-2" />
-                <DropdownMenuItem onClick={() => setLocation("/onboarding")} className="flex items-center justify-center gap-2 p-3 text-white bg-slate-900 font-bold cursor-pointer hover:bg-slate-800 rounded-xl shadow-lg shadow-slate-900/10 active:scale-95 transition-all">
-                  <Plus className="w-4 h-4" />
-                  <span>New Company</span>
+                <div className="h-px bg-slate-100 my-1" />
+                <DropdownMenuItem onClick={() => setLocation("/onboarding")} className="flex items-center justify-center gap-2 p-2.5 text-white bg-primary font-bold cursor-pointer hover:bg-primary/90 rounded-lg shadow-lg shadow-primary/10 active:scale-95 transition-all text-xs">
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Register Enterprise</span>
                 </DropdownMenuItem>
               </div>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
 
-        <nav className="flex-1 px-3 py-4 overflow-y-auto custom-scrollbar space-y-0.5">
-          {navItems.map((item, idx) => {
-            // Section dividers before logical groups
-            const showDivider = idx > 0 && [
-              "Invoices & Billing", "Expenses", "Compliance", "Administration"
-            ].includes(item.label);
+        <nav className={cn("flex-1 py-10 overflow-y-auto sidebar-scroller custom-scrollbar", isSidebarCollapsed ? "px-2" : "px-4")}>
+          <div className="space-y-1">
+            {navItems.map((item, idx) => {
+              const showDivider = idx > 0 && [
+                "Invoices & Billing", "Expenses", "Compliance", "Administration"
+              ].includes(item.label);
 
-            if (item.children) {
-              const isActiveGroup = item.children.some(child =>
-                location + window.location.search === child.href || (location === child.href && !child.href.includes("?"))
-              );
+              if (item.children) {
+                const isActiveGroup = item.children.some(child =>
+                  location + window.location.search === child.href || (location === child.href && !child.href.includes("?"))
+                );
 
-              const [isOpen, setIsOpen] = useState(isActiveGroup);
+                const [isOpen, setIsOpen] = useState(isActiveGroup);
 
-              useEffect(() => {
-                if (isActiveGroup) setIsOpen(true);
-              }, [isActiveGroup]);
+                useEffect(() => {
+                  if (isActiveGroup) setIsOpen(true);
+                }, [isActiveGroup]);
 
-              return (
-                <div key={item.label}>
-                  {showDivider && <div className="h-px bg-slate-100 my-3 mx-2" />}
-                  <Collapsible open={isOpen} onOpenChange={setIsOpen} className="space-y-0.5">
-                    <CollapsibleTrigger asChild>
-                      <div className={cn(
-                        "flex items-center justify-between w-full px-3 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 cursor-pointer select-none group",
-                        isActiveGroup
-                          ? "bg-violet-50 text-violet-700"
-                          : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
-                      )}>
-                        <div className="flex items-center gap-3">
-                          <div className={cn(
-                            "w-7 h-7 rounded-lg flex items-center justify-center transition-colors shrink-0",
-                            isActiveGroup ? "bg-violet-100 text-violet-600" : "bg-slate-100 text-slate-400 group-hover:bg-slate-200 group-hover:text-slate-600"
-                          )}>
-                            <item.icon className="w-3.5 h-3.5" />
-                          </div>
-                          <span className="font-display tracking-tight text-[13px]">{item.label}</span>
+                if (isSidebarCollapsed) {
+                  return (
+                    <DropdownMenu key={item.label}>
+                      <DropdownMenuTrigger asChild>
+                        <div className={cn(
+                          "w-12 h-12 rounded-xl flex items-center justify-center cursor-pointer transition-all duration-300 relative group collapsed-item mx-auto mb-1",
+                          isActiveGroup ? "bg-slate-900 text-white shadow-lg" : "text-slate-400 hover:bg-slate-100"
+                        )}>
+                          <item.icon className="w-5 h-5" />
+                          <span className="nav-item-tooltip shadow-2xl">{item.label}</span>
                         </div>
-                        <ChevronDown className={cn(
-                          "w-3.5 h-3.5 transition-transform duration-200 shrink-0",
-                          isOpen ? "rotate-180 text-violet-400" : "text-slate-300"
-                        )} />
-                      </div>
-                    </CollapsibleTrigger>
-                    <CollapsibleContent className="pb-1">
-                      <div className="ml-3 pl-3 border-l-2 border-slate-100 space-y-0.5 mt-0.5">
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent side="right" align="start" className="w-56 bg-white border-slate-200 rounded-xl shadow-2xl p-1 ml-4 animate-in fade-in slide-in-from-left-2 duration-200">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-3 py-2 border-b border-slate-50 mb-1">{item.label}</p>
                         {item.children.map((child) => {
                           const isChildActive = location + window.location.search === child.href || (location === child.href && !child.href.includes("?"));
                           return (
                             <Link key={child.label} href={child.href}>
                               <div className={cn(
-                                "flex items-center gap-2.5 px-3 py-2 rounded-lg text-[12px] font-semibold transition-all duration-150 cursor-pointer",
-                                isChildActive
-                                  ? "bg-violet-600 text-white shadow-sm shadow-violet-500/20"
-                                  : "text-slate-500 hover:text-slate-800 hover:bg-slate-50"
+                                "flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-all text-xs font-bold mb-0.5",
+                                isChildActive ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
                               )}>
-                                <child.icon className={cn("w-3.5 h-3.5 shrink-0", isChildActive ? "text-violet-200" : "text-slate-400")} />
-                                <span className="truncate">{child.label}</span>
+                                <child.icon className="w-3.5 h-3.5" />
+                                <span>{child.label}</span>
                               </div>
                             </Link>
                           );
                         })}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  );
+                }
+
+                return (
+                  <div key={item.label}>
+                    {showDivider && <div className="h-px bg-slate-50 my-4 mx-3" />}
+                    <Collapsible open={isOpen} onOpenChange={setIsOpen} className="space-y-1">
+                      <CollapsibleTrigger asChild>
+                        <div className={cn(
+                          "flex items-center justify-between w-full px-4 py-3 rounded-xl text-sm font-bold transition-all duration-200 cursor-pointer select-none group",
+                          isActiveGroup
+                            ? "bg-slate-900 text-white shadow-lg shadow-slate-900/10"
+                            : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
+                        )}>
+                          <div className="flex items-center gap-3.5">
+                            <div className={cn(
+                              "w-8 h-8 rounded-xl flex items-center justify-center transition-colors shrink-0",
+                              isActiveGroup ? "bg-white/10 text-white" : "bg-slate-100 text-slate-400 group-hover:bg-slate-200 group-hover:text-slate-600"
+                            )}>
+                              <item.icon className="w-4 h-4" />
+                            </div>
+                            <span className="font-display tracking-tight text-[15px]">{item.label}</span>
+                          </div>
+                          <ChevronDown className={cn(
+                            "w-4 h-4 transition-transform duration-300 shrink-0",
+                            isOpen ? "rotate-180 text-white/40" : "text-slate-400"
+                          )} />
+                        </div>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="pb-1 transition-all">
+                        <div className="ml-5 pl-5 border-l-2 border-slate-100 space-y-1 mt-1">
+                          {item.children.map((child) => {
+                            const isChildActive = location + window.location.search === child.href || (location === child.href && !child.href.includes("?"));
+                            return (
+                              <Link key={child.label} href={child.href}>
+                                <div className={cn(
+                                  "flex items-center gap-3 px-4 py-2.5 rounded-xl text-[14px] font-bold transition-all duration-150 cursor-pointer",
+                                  isChildActive
+                                    ? "bg-slate-100 text-slate-900"
+                                    : "text-slate-500 hover:text-slate-900 hover:bg-slate-50/50"
+                                )}>
+                                  <child.icon className={cn("w-4 h-4 shrink-0", isChildActive ? "text-slate-400" : "text-slate-400")} />
+                                  <span className="truncate">{child.label}</span>
+                                </div>
+                              </Link>
+                            );
+                          })}
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
+                  </div>
+                );
+              }
+
+              const isActive = location === item.href;
+              
+              if (isSidebarCollapsed) {
+                return (
+                  <Link key={item.label} href={item.href!}>
+                    <div className={cn(
+                      "w-12 h-12 rounded-xl flex items-center justify-center cursor-pointer transition-all duration-300 relative group collapsed-item mx-auto mb-1",
+                      isActive ? "bg-slate-900 text-white shadow-lg" : "text-slate-400 hover:bg-slate-100"
+                    )}>
+                      <item.icon className="w-5 h-5" />
+                      <span className="nav-item-tooltip shadow-2xl">{item.label}</span>
+                    </div>
+                  </Link>
+                );
+              }
+
+              return (
+                <div key={item.label}>
+                  {showDivider && <div className="h-px bg-slate-100 my-4 mx-3" />}
+                  <Link href={item.href!}>
+                    <div className={cn(
+                      "flex items-center gap-3.5 px-4 py-3 rounded-xl text-[15px] font-bold transition-all duration-200 cursor-pointer select-none group",
+                      isActive
+                        ? "bg-slate-900 text-white shadow-xl shadow-slate-900/20"
+                        : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
+                    )}>
+                      <div className={cn(
+                        "w-8 h-8 rounded-xl flex items-center justify-center shrink-0 transition-colors",
+                        isActive ? "bg-white/10 text-white" : "bg-slate-100 text-slate-400 group-hover:bg-slate-200 group-hover:text-slate-600"
+                      )}>
+                        <item.icon className="w-4 h-4" />
                       </div>
-                    </CollapsibleContent>
-                  </Collapsible>
+                      <span className="font-display tracking-tight">{item.label}</span>
+                    </div>
+                  </Link>
                 </div>
               );
-            }
-
-            const isActive = location === item.href;
-            return (
-              <div key={item.label}>
-                {showDivider && <div className="h-px bg-slate-100 my-3 mx-2" />}
-                <Link href={item.href!}>
-                  <div className={cn(
-                    "flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-semibold transition-all duration-200 cursor-pointer select-none group",
-                    isActive
-                      ? "bg-slate-900 text-white shadow-lg shadow-slate-900/15"
-                      : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
-                  )}>
-                    <div className={cn(
-                      "w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors",
-                      isActive ? "bg-white/15 text-white" : "bg-slate-100 text-slate-400 group-hover:bg-slate-200 group-hover:text-slate-600"
-                    )}>
-                      <item.icon className="w-3.5 h-3.5" />
-                    </div>
-                    <span className="font-display tracking-tight">{item.label}</span>
-                  </div>
-                </Link>
-              </div>
-            );
-          })}
-        </nav>
-
-        <div className="p-4 bg-slate-50/50 border-t border-slate-100/50">
-          <div className="flex items-center justify-center gap-1 text-[10px] font-bold text-slate-300 uppercase tracking-widest">
-            <ShieldCheck className="w-3 h-3" />
-            <span>{brand.name} Managed Server</span>
+            })}
           </div>
-        </div>
+        </nav>
       </aside>
 
-      {/* Main Content Wrapper */}
-      <div className="flex-1 lg:ml-80 flex flex-col min-h-screen transition-all duration-300">
+      {/* Main Administrative Workspace */}
+      <div className={cn("flex-1 flex flex-col min-h-screen transition-all duration-500 ease-in-out", isSidebarCollapsed ? "lg:ml-20" : "lg:ml-72")}>
 
         {/* Top Header */}
-        <header className="h-20 bg-transparent flex items-center justify-end gap-4 px-4 sm:px-8 pt-4 pb-2 z-40 sticky top-0 backdrop-blur-sm">
+        <header className="h-20 bg-white border-b border-slate-200/60 flex items-center justify-end gap-4 px-8 z-40 sticky top-0 shadow-sm">
           {/* Mobile Menu Toggle */}
           <Button
             variant="ghost"
             size="icon"
-            className="mr-auto lg:hidden bg-white/80 backdrop-blur-md border border-slate-200/50 rounded-xl shadow-sm"
+            className="mr-auto lg:hidden bg-slate-100 border border-slate-200 rounded-xl"
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
           >
             {isMobileMenuOpen ? <X className="w-5 h-5 text-slate-600" /> : <Menu className="w-5 h-5 text-slate-600" />}
           </Button>
 
           {user.isSuperAdmin && (
-            <div className="hidden sm:flex items-center gap-2 bg-amber-100/80 backdrop-blur-md border border-amber-200/50 px-4 py-1.5 rounded-full shadow-sm">
+            <div className="hidden sm:flex items-center gap-2 bg-amber-50 border border-amber-200 px-4 py-2 rounded-full">
               <LogOut className="w-4 h-4 text-amber-600" />
-              <span className="text-xs font-black text-amber-700 uppercase tracking-widest">Global Super Admin</span>
+              <span className="text-[10px] font-black text-amber-700 uppercase tracking-widest">Global Superuser</span>
             </div>
           )}
 
-          <div className="flex items-center gap-3 bg-white/80 backdrop-blur-xl border border-white/40 p-1.5 rounded-full shadow-lg shadow-slate-200/50">
+          <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 p-1 rounded-full">
             {selectedCompanyId && <DeviceStatusWidget companyId={selectedCompanyId} />}
             <BranchSwitcher />
 
@@ -430,46 +536,36 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="h-10 w-10 rounded-full p-0 border-2 border-slate-100 hover:border-violet-200 transition-all hover:scale-105 active:scale-95 shadow-sm">
+                <Button variant="ghost" className="h-10 w-10 rounded-full p-0 border-2 border-white hover:border-violet-200 transition-all hover:scale-105 active:scale-95 shadow-sm">
                   <Avatar className="h-9 w-9">
-                    <AvatarFallback className="bg-gradient-to-br from-violet-600 to-indigo-600 text-white text-xs font-black">
+                    <AvatarFallback className="bg-slate-900 text-white text-xs font-black">
                       {user.name?.substring(0, 2).toUpperCase() || "US"}
                     </AvatarFallback>
                   </Avatar>
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-64 bg-white/90 backdrop-blur-xl rounded-2xl shadow-2xl border-white/50 p-2 mt-2">
-                <div className="flex items-center justify-start gap-3 p-3 bg-slate-50/50 rounded-xl mb-2">
-                  <div className="h-10 w-10 rounded-full bg-violet-100 flex items-center justify-center text-violet-600 font-black text-sm">
+              <DropdownMenuContent align="end" className="w-64 bg-white rounded-2xl shadow-2xl border-slate-200 p-2 mt-2">
+                <div className="flex items-center justify-start gap-3 p-4 bg-slate-50 rounded-xl mb-2">
+                  <div className="h-10 w-10 rounded-full bg-slate-900 flex items-center justify-center text-white font-black text-sm">
                     {user.name?.charAt(0).toUpperCase()}
                   </div>
                   <div className="flex flex-col space-y-0.5 leading-none">
-                    <div className="flex items-center gap-2">
-                      {user.name && <p className="font-bold text-slate-900 font-display">{user.name}</p>}
-                    </div>
-                    {user.email && (
-                      <p className="w-[140px] truncate text-xs font-medium text-slate-500">
-                        {user.email}
-                      </p>
-                    )}
+                    <p className="font-bold text-slate-900 font-display">{user.name || "User"}</p>
+                    <p className="w-[140px] truncate text-[10px] font-bold text-slate-400 uppercase tracking-wider">{user.email || "No Email"}</p>
                   </div>
                 </div>
-                <DropdownMenuItem onClick={() => setLocation("/dashboard")} className="p-3 rounded-xl font-bold text-slate-600 cursor-pointer hover:bg-slate-50 hover:text-slate-900 hover:scale-[1.02] transition-all">
+                <DropdownMenuItem onClick={() => setLocation("/dashboard")} className="p-3 rounded-xl font-bold text-slate-600 cursor-pointer hover:bg-slate-50 hover:text-slate-900 transition-all">
                   <LayoutDashboard className="mr-3 h-4 w-4" />
-                  <span>Dashboard</span>
+                  <span>Dashboard Overview</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setLocation("/settings")} className="p-3 rounded-xl font-bold text-slate-600 cursor-pointer hover:bg-slate-50 hover:text-slate-900 hover:scale-[1.02] transition-all">
+                <DropdownMenuItem onClick={() => setLocation("/settings")} className="p-3 rounded-xl font-bold text-slate-600 cursor-pointer hover:bg-slate-50 hover:text-slate-900 transition-all">
                   <Settings className="mr-3 h-4 w-4" />
-                  <span>Admin Console</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setLocation("/profile")} className="p-3 rounded-xl font-bold text-slate-600 cursor-pointer hover:bg-slate-50 hover:text-slate-900 hover:scale-[1.02] transition-all">
-                  <UserCog className="mr-3 h-4 w-4" />
-                  <span>My Profile</span>
+                  <span>Security & Config</span>
                 </DropdownMenuItem>
                 <div className="h-px bg-slate-100 my-1" />
                 <DropdownMenuItem className="p-3 rounded-xl font-bold text-red-600 focus:text-red-700 focus:bg-red-50 hover:bg-red-50 cursor-pointer active:scale-95 transition-all" onClick={() => logout()}>
                   <LogOut className="mr-3 h-4 w-4" />
-                  <span>Log out</span>
+                  <span>Sign Out Session</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

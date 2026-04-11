@@ -3463,6 +3463,7 @@ export async function registerRoutes(
       await storage.updateInvoice(invoice.id, {
         fiscalCode: receiptData.hash,
         qrCodeData: receiptData.qrCode,
+        verificationCode: receiptData.verificationCode,
         status: "issued",
         syncedWithFdms: true,
         receiptGlobalNo: receiptData.receiptGlobalNo,
@@ -3622,6 +3623,7 @@ export async function registerRoutes(
       await storage.updateInvoice(invoice.id, {
         fiscalCode: receiptData.hash,
         qrCodeData: receiptData.qrCode,
+        verificationCode: receiptData.verificationCode,
         status: "issued",
         syncedWithFdms: true,
         receiptGlobalNo: receiptData.receiptGlobalNo,
@@ -4165,6 +4167,29 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/companies/:companyId/reports/fiscal-data", requireAuth, async (req, res) => {
+    try {
+      const companyId = parseInt(req.params.companyId);
+      const { date, cashierId } = req.query;
+      const reportDate = date ? new Date(date as string) : new Date();
+      const data = await storage.getFiscalReportData(companyId, reportDate, cashierId as string);
+      res.json(data);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/companies/:companyId/reports/abc-analysis", requireAuth, async (req, res) => {
+    try {
+      const companyId = parseInt(req.params.companyId);
+      const data = await storage.getAbcAnalysis(companyId);
+      res.json(data);
+    } catch (err: any) {
+      console.error("ABC Analysis Error:", err);
+      res.status(500).json({ message: "Failed to generate ABC analysis" });
+    }
+  });
+
 
   // Import Routes
   app.post("/api/import/products", requireAuth, (req, res, next) => {
@@ -4549,18 +4574,34 @@ export async function registerRoutes(
       }
 
       if (shouldFiscalize) {
-        try {
-          console.log(`[Fiscal] Triggering auto-fiscalization for invoice ${invoice.id} (Company: ${req.params.companyId}, isPos: ${!!input.isPos})`);
-          invoice = await processInvoiceFiscalization(
+        if (input.isPos) {
+          // 🚀 Snappy POS: Background the slow ZIMRA network call
+          console.log(`[Fiscal] Backgrounding POS fiscalization for invoice ${invoice.id}`);
+          processInvoiceFiscalization(
             invoice.id,
             invoice.companyId,
             req.user?.id,
             (req.user as any)?.isSuperAdmin,
-            undefined, // zimraSync
-            !!input.isPos // isPos
-          );
-        } catch (fiscalError) {
-          console.error("Automated Fiscalization Failed:", fiscalError);
+            undefined, 
+            true 
+          ).catch(err => {
+            console.error(`[Fiscal] Background POS Fiscalization Failed for invoice ${invoice.id}:`, err);
+          });
+        } else {
+          // Standard Invoice: Keep synchronous for now to ensure QR code for PDF downloads
+          try {
+            console.log(`[Fiscal] Triggering synchronous fiscalization for invoice ${invoice.id}`);
+            invoice = await processInvoiceFiscalization(
+              invoice.id,
+              invoice.companyId,
+              req.user?.id,
+              (req.user as any)?.isSuperAdmin,
+              undefined, 
+              false 
+            );
+          } catch (fiscalError) {
+            console.error("Automated Fiscalization Failed:", fiscalError);
+          }
         }
       }
 

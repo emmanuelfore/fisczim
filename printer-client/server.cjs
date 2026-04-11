@@ -24,6 +24,9 @@ const port = 12312; // Default port for our print server
 app.use(cors());
 app.use(bodyParser.json({ limit: '10mb' }));
 
+// Middleware for binary raw data
+const rawParser = bodyParser.raw({ type: 'application/octet-stream', limit: '10mb' });
+
 // Helper to find Chrome/Edge on Windows
 function getEdgePath() {
     const paths = [
@@ -98,6 +101,44 @@ app.post('/print', async (req, res) => {
         if (fs.existsSync(tempPdfPath)) {
             try { fs.unlinkSync(tempPdfPath); } catch (e) { }
         }
+    }
+});
+
+app.post('/print-raw', rawParser, async (req, res) => {
+    const data = req.body;
+    const printerName = req.query.printerName || req.headers['x-printer-name'];
+
+    if (!data || data.length === 0) {
+        console.error('Print-Raw: No data received');
+        return res.status(400).json({ error: 'No raw data provided' });
+    }
+
+    const tempFilePath = path.join(os.tmpdir(), `receipt_${Date.now()}.bin`);
+    
+    try {
+        console.log(`--- Received raw print request (${data.length} bytes) ---`);
+        fs.writeFileSync(tempFilePath, data);
+
+        // Windows command to send raw bytes to a printer (extremely robust for thermal printers)
+        const printerTarget = printerName ? `"${printerName}"` : `(Get-WmiObject -Query "SELECT * FROM Win32_Printer WHERE Default = TRUE").Name`;
+        
+        // This PowerShell command correctly pipes raw binary data to the spooler without character conversion
+        const psCommand = `Get-Content "${tempFilePath}" -Encoding Byte -Raw | Out-Printer -Name ${printerTarget}`;
+        
+        require('child_process').exec(`powershell -Command "${psCommand}"`, (err) => {
+            if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+            if (err) {
+                console.error('Native Raw Print Error:', err);
+                return res.status(500).json({ error: 'Failed to send raw data to spooler: ' + err.message });
+            }
+            console.log('Raw bytes sent to spooler successfully');
+            res.json({ success: true, message: 'Raw print job sent' });
+        });
+
+    } catch (error) {
+        if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+        console.error('Raw Print Exception:', error);
+        res.status(500).json({ error: error.message });
     }
 });
 

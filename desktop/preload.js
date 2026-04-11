@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   printReceipt: (html, printerName) => ipcRenderer.invoke('print-receipt', html, printerName),
   getPrinters: () => ipcRenderer.invoke('get-printers'),
   testPrint: (printerName) => ipcRenderer.invoke('test-print', printerName),
+  printRaw: (data, printerName) => ipcRenderer.invoke('print-raw', data, printerName),
 
   // Cash Drawer
   openCashDrawer: (printerName) => ipcRenderer.invoke('open-cash-drawer', printerName),

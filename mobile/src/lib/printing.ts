@@ -281,140 +281,32 @@ export const printReceipt = async (data: TicketData, printerUrl?: string, silent
   }
 };
 
+import { ReceiptTemplate, ReceiptData } from './printer/receipt-template';
+
 export const printToBluetooth = async (data: TicketData, address?: string) => {
   if (!ThermalPrinterModule) {
     throw new Error("Bluetooth printing is not available in this build. Please use a custom dev client.");
   }
 
-  const { invoice, company, items, customer, cashierName, paidAmount, paperWidth, noteType, originalInvoiceNumber } = data;
-  const receiptItems = items || invoice.items || [];
-  const width = paperWidth || 58;
-  const fiscal = isFiscal(company);
-  const { title, footerMarker } = getNoteLabels(noteType, fiscal);
-
-  const getMaxChars = (w: number) => {
-    if (w >= 80) return 48;
-    if (w >= 58) return 32;
-    if (w >= 50) return 26;
-    if (w >= 40) return 20;
-    return 15;
-  };
-  const maxChars = getMaxChars(width);
-  const sep = "-".repeat(maxChars);
-
-  const taxGroups = receiptItems.reduce((acc: any, item: any) => {
-    const taxRate = parseFloat(item.taxRate || 0);
-    const price = parseFloat(item.price || 0);
-    const qty = parseFloat(item.quantity || 0);
-    const total = parseFloat(item.lineTotal || (price * qty));
-    const rate = taxRate / 100;
-    const taxAmount = (total * rate) / (1 + rate);
-    const netAmount = total - taxAmount;
-    const key = taxRate.toFixed(2);
-    if (!acc[key]) acc[key] = { rate: taxRate, net: 0, tax: 0, gross: 0, name: item.taxCode || (taxRate === 0 ? "Exempt" : `${taxRate}%`) };
-    acc[key].net += netAmount;
-    acc[key].tax += taxAmount;
-    acc[key].gross += total;
-    return acc;
-  }, {});
-
-  const totalVal = Number(invoice.total || 0);
-  const paidVal = Number(paidAmount || totalVal);
-  const changeVal = Math.max(0, paidVal - totalVal);
-  const rate = (invoice.currency !== 'USD' ? Number(invoice.exchangeRate || 1) : 1);
-
-  // Format date identical to pos.tsx: dd/MM/yy HH:mm
-  const dateObj = new Date(invoice.issueDate || invoice.createdAt);
-  const pad = (n: number) => n.toString().padStart(2, '0');
-  const formattedDate = `${pad(dateObj.getDate())}/${pad(dateObj.getMonth() + 1)}/${dateObj.getFullYear().toString().slice(-2)} ${pad(dateObj.getHours())}:${pad(dateObj.getMinutes())}`;
-
-  let text = `[C]<b>${company.name}</b>\n`;
-  text += `[C]TIN: ${company.tin}\n`;
-  if (company.vatNumber) text += `[C]VAT No: ${company.vatNumber}\n`;
-  text += `[C]${company.tradingName || "Branch Name"}\n`;
-  text += `[C]${company.address || ''}\n`;
-  text += `[C]${company.city || ''}\n`;
-  text += `[C]${sep}\n`;
-  if (company.email) text += `[C]${company.email}\n`;
-  if (company.phone) text += `[C]${company.phone}\n`;
-  text += `[C]${sep}\n`;
-  text += `[C]<b>${title}</b>\n`;
-  text += `[C]${sep}\n`;
-
-  if (customer) {
-    text += `[L]Buyer: ${customer.name}\n`;
-    if (customer.tin) text += `[L]TIN: ${customer.tin}\n`;
-    if (customer.vatNumber) text += `[L]VAT: ${customer.vatNumber}\n`;
-    if (customer.address) text += `[L]${customer.address}\n`;
-    if (customer.email) text += `[L]${customer.email}\n`;
-    if (customer.phone) text += `[L]${customer.phone}\n`;
-    text += `[C]${sep}\n`;
-  }
-
-  if (invoice.invoiceNumber) text += `[L]Invoice No: [R]${invoice.invoiceNumber}\n`;
-  if (invoice.fiscalCode) {
-    text += `[L]Receipt No: [R]${invoice.receiptCounter || 'N/A'} / ${invoice.receiptGlobalNo || 'N/A'}\n`;
-    text += `[L]Fiscal Day No: [R]${invoice.fiscalDayNo || 'N/A'}\n`;
-    text += `[L]Device Serial: [R]${company.fdmsDeviceSerialNo || company.deviceSerialNo || 'N/A'}\n`;
-    text += `[L]Device ID: [R]${company.fdmsDeviceId || company.deviceId || 'N/A'}\n`;
-  }
-  if (invoice.customerReference) text += `[L]Customer Ref: [R]${invoice.customerReference}\n`;
-  text += `[L]Date: [R]${formattedDate}\n`;
-  if (cashierName) text += `[L]Cashier: [R]${cashierName}\n`;
+  const { invoice, company, items, customer, cashierName, paidAmount, paperWidth } = data;
   
-  if ((noteType === 'credit' || noteType === 'debit') && originalInvoiceNumber) {
-    text += `\n[L]<b>${noteType === 'credit' ? "Credited Invoice" : "Debited Invoice"}</b>\n`;
-    text += `[L]Invoice No: [R]${originalInvoiceNumber}\n`;
-  }
-  text += `[C]${sep}\n`;
-
-  text += `[L]<b>Description</b>[R]<b>Amount</b> Tax\n`;
-  receiptItems.forEach((item: any) => {
-    const nameLimit = Math.max(5, maxChars - 12);
-    const name = (item.description || item.name || '').slice(0, nameLimit);
-    const qty = Number(item.quantity).toFixed(0);
-    const lineTotal = (Number(item.lineTotal || (Number(item.price) * Number(item.quantity))) * rate).toFixed(2);
-    const taxCode = item.taxCode || (item.taxRate > 0 ? "VT" : "ZE");
-    text += `[L]<b>${name}</b>[R]<b>${lineTotal}</b> ${taxCode}\n`;
-    text += `[L]  ${qty} x ${Number(item.unitPrice || item.price).toFixed(2)}\n`;
+  // Use the new unified template for mobile
+  const payloadStr = ReceiptTemplate.formatFiscalReceipt({
+    company,
+    invoice,
+    items: items || invoice.items || [],
+    customer,
+    user: { name: cashierName },
+    paperWidth: paperWidth || 58
   });
-  text += `[C]${sep}\n`;
 
-  text += `[L]<b>Total ${invoice.currency || "USD"}</b>[R]<b>${(totalVal * rate).toFixed(2)}</b>\n`;
-  text += `[C]${sep}\n`;
-  text += `[L]${invoice.paymentMethod || "Cash"}[R]${(paidVal * rate).toFixed(2)}\n`;
-  if (changeVal > 0) text += `[L]Change[R]${(changeVal * rate).toFixed(2)}\n`;
-  text += `[C]${sep}\n`;
-  text += `[C]Number of Items: ${receiptItems.length}\n`;
-  text += `[C]${sep}\n`;
-
-  text += `[C]<b>Tax Table</b>\n`;
-  Object.values(taxGroups).forEach((group: any) => {
-    text += `[L]Net[R]${group.net.toFixed(2)}\n`;
-    text += `[L]VAT (${group.name})[R]${group.tax.toFixed(2)}\n`;
-    text += `[L]<b>Gross Amount</b>[R]<b>${group.gross.toFixed(2)}</b>\n`;
-    text += `[C] ${".".repeat(Math.floor(maxChars / 2))} \n`;
+  await ThermalPrinterModule.printBluetooth({ 
+    payload: payloadStr, 
+    macAddress: address,
+    autoCut: true,
+    openCashbox: true,
+    printerWidth: paperWidth || 58
   });
-  text += `[C]${sep}\n`;
-
-  text += `[C]${invoice.notes || "Invoice is issued after purchasing goods"}\n`;
-  text += `[C]${sep}\n`;
-
-  if (fiscal && invoice.qrCodeData) {
-    text += `[C][QR]${invoice.qrCodeData}\n`;
-    text += `[C]Scan to verify with ZIMRA\n`;
-    if (invoice.verificationCode) {
-      text += `[C]Verification Code:\n`;
-      text += `[C]<b>${invoice.verificationCode}</b>\n`;
-    }
-  }
-
-  text += `[C]${company.posSettings?.receiptFooter || "Thank you for your business!"}\n`;
-  if (invoice._offline) text += `[C]*** PENDING SYNC ***\n[C]Will sync when online\n`;
-  else if (footerMarker) text += `[C]${footerMarker}\n`;
-  text += `\n\n\n`;
-
-  await ThermalPrinterModule.printBluetooth({ payload: text, macAddress: address });
 };
 
 export const getBluetoothDevices = async (): Promise<{ deviceName: string; macAddress: string }[]> => {

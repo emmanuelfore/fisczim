@@ -37,9 +37,15 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetClose 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { MySalesModal } from "@/components/pos/my-sales-modal";
 import { PDFDownloadLink } from "@react-pdf/renderer";
-import { ZReportPDF } from "@/components/invoices/z-report-pdf";
+import { FiscalReportPDF } from "@/components/reports/fiscal-report-pdf";
+import { pdf } from "@react-pdf/renderer";
+import { saveAs } from "file-saver";
+import dayjs from "dayjs";
 import { BranchPickerModal } from "@/components/branch-picker-modal";
+import { PrinterService } from "@/lib/printer/printer-service";
+import { ReceiptTemplate } from "@/lib/printer/receipt-template";
 import { useBranchContext } from "@/lib/branch-context";
+import { EscPosVisualizer } from "@/components/EscPosVisualizer";
 
 interface CartItem {
     productId: number;
@@ -193,6 +199,7 @@ export default function POSPage() {
     const [splitPayments, setSplitPayments] = useState<Array<{ method: string, amount: number }>>([]);
     const [selectedCurrencyCode, setSelectedCurrencyCode] = useState<string>("USD");
     const [isFiscalized, setIsFiscalized] = useState(true);
+    const [pendingPrintQueue, setPendingPrintQueue] = useState<number[]>([]);
 
     // UX: Pinned Products
     const [pinnedProducts, setPinnedProducts] = useState<number[]>(() => {
@@ -274,6 +281,9 @@ export default function POSPage() {
         secondaryPrinterName: localStorage.getItem("pos_secondary_printer_name") || "",
         paperSize: localStorage.getItem("pos_paper_size") || "",
         printServerUrl: localStorage.getItem("pos_print_server") || "http://localhost:3001",
+        nativeEscPos: localStorage.getItem("pos_native_esc_pos") === "true",
+        printerWidth: parseInt(localStorage.getItem("pos_printer_width") || "32"),
+        simulationMode: localStorage.getItem("pos_simulation_mode") === "true",
         cashDrawerEnabled: localStorage.getItem("pos_cash_drawer") === "true",
         quantityDecimalPlaces: parseInt(localStorage.getItem("pos_quantity_decimals") || "2"),
         variableWeightBarcodeRules: [
@@ -291,6 +301,9 @@ export default function POSPage() {
             }
         ]
     });
+    // Printer simulation output
+    const [simulationData, setSimulationData] = useState<Uint8Array | null>(null);
+
     // Sync ref every render — barcode scanner closure reads this instead of posSettings directly
     posSettingsRef.current = { variableWeightBarcodeRules: posSettings.variableWeightBarcodeRules, quantityDecimalPlaces: posSettings.quantityDecimalPlaces };
     resolvedProductsRef.current = resolvedProducts || [];
@@ -551,6 +564,10 @@ export default function POSPage() {
             // ── Keyboard shortcuts (only when not typing in an input and no modal) ──
             if (!inInput && !modalOpen) {
                 switch (e.key) {
+                    case 'Enter':
+                        e.preventDefault();
+                        if (cart.length > 0) handleCheckout();
+                        return;
                     case 'F1':
                         e.preventDefault();
                         searchInputRef.current?.focus();
@@ -584,6 +601,13 @@ export default function POSPage() {
                 }
             }
 
+            // Global Enter key to complete checkout when modal is open
+            if (e.key === 'Enter' && isCheckoutOpen && !isProcessing) {
+                e.preventDefault();
+                processOrder();
+                return;
+            }
+
             // Escape closes checkout modal
             if (e.key === 'Escape' && isCheckoutOpen) {
                 setIsCheckoutOpen(false);
@@ -593,14 +617,8 @@ export default function POSPage() {
             // ── Barcode accumulation — chars arriving < 100ms apart are from a scanner ──
             if (gap > 100) {
                 barcodeBufferRef.current = e.key === 'Enter' ? '' : e.key;
-
-                // Allow Enter key to quickly complete POS checkout (human press, not scanner)
-                if (e.key === 'Enter' && isCheckoutOpen && !isProcessing && paidAmount) {
-                    e.preventDefault();
-                    processOrder();
-                    return;
-                }
             } else {
+
                 if (e.key === 'Enter') {
                     const barcode = barcodeBufferRef.current.trim();
                     barcodeBufferRef.current = '';
@@ -954,9 +972,11 @@ export default function POSPage() {
         if (!finalCustomerId) return;
         setIsProcessing(true);
 
+        const sumTendersValue = parseFloat(paidAmount || "0");
         const sumTenders = splitPayments.length > 0
             ? splitPayments.reduce((acc, p) => acc + p.amount, 0)
-            : parseFloat(paidAmount || "0");
+            : (sumTendersValue > 0 ? sumTendersValue : total);
+
 
         if (sumTenders < total - 0.05) {
             toast({
@@ -1047,11 +1067,16 @@ export default function POSPage() {
                 window.electronAPI.openCashDrawer(printerName).catch(console.error);
             }
             if (posSettings.printingEnabled) {
-                setLastSuccessfulInvoice(result);
+                setLastSuccessfulInvoice({
+                    ...result,
+                    paymentAmount: sumTenders,
+                    change: sumTenders - total
+                });
             } else {
                 toast({ title: "Success", description: "Order processed successfully" });
                 setActiveView("products");
             }
+
             setCart([]);
             setOrderDiscount(0);
             resetToDefaultCustomer();
@@ -1246,6 +1271,8 @@ export default function POSPage() {
                 silentPrinting: settings.silentPrinting ?? true,
                 printServerUrl: settings.printServerUrl || "http://localhost:12312",
                 printerName: prev.printerName || settings.printerName || "",
+                nativeEscPos: settings.nativeEscPos ?? prev.nativeEscPos,
+                printerWidth: settings.printerWidth ?? prev.printerWidth,
                 cashDrawerEnabled: settings.cashDrawerEnabled ?? false,
                 quantityDecimalPlaces: settings.quantityDecimalPlaces ?? 2,
                 variableWeightBarcodeRules: settings.variableWeightBarcodeRules ?? prev.variableWeightBarcodeRules
@@ -1253,29 +1280,78 @@ export default function POSPage() {
         }
     }, [company]);
 
-    // Auto-Print Effect
+    // Auto-Print Effect: Optimized for speed
     useEffect(() => {
         if (lastSuccessfulInvoice && posSettings.printingEnabled && posSettings.autoPrint) {
+            // Check if we have fiscal data. If not, queue for background printing.
+            const hasFiscalData = lastSuccessfulInvoice.qrCodeData || !isFiscalized; 
+            
+            if (!hasFiscalData) {
+                console.log(`[POS] Background Printing: Invoice ${lastSuccessfulInvoice.id} added to queue (waiting for ZIMRA)`);
+                setPendingPrintQueue(prev => [...prev, lastSuccessfulInvoice.id]);
+                setLastSuccessfulInvoice(null);
+                setActiveView("products");
+                return;
+            }
+
             if (posSettings.silentPrinting) {
-                handleSilentPrint().then(() => {
-                    // Auto-advance after silent print completes
-                    setTimeout(() => {
-                        setLastSuccessfulInvoice(null);
-                        setActiveView("products");
-                    }, 1500);
-                });
+                // For native/silent, trigger print and ALMOST immediately return to products
+                handleSilentPrint().catch(console.error);
+                
+                // Return to products view immediately so cashier can start next sale
+                setLastSuccessfulInvoice(null);
+                setActiveView("products");
             } else {
-                // Small delay to ensure Dialog content is rendered in the Portal
+                // Small delay only for browser-controlled window.print() 
+                // to ensure the Dialog is actually mounted in the portal
                 const timer = setTimeout(() => {
                     window.print();
-                    // Auto-advance after print dialog shows
                     setLastSuccessfulInvoice(null);
                     setActiveView("products");
-                }, 1000);
+                }, 500); // Reduced from 1000ms
                 return () => clearTimeout(timer);
             }
         }
-    }, [lastSuccessfulInvoice, posSettings.printingEnabled, posSettings.autoPrint, posSettings.silentPrinting]);
+    }, [lastSuccessfulInvoice, posSettings.printingEnabled, posSettings.autoPrint, posSettings.silentPrinting, isFiscalized]);
+
+    // 🚀 Background Print Queue Worker
+    useEffect(() => {
+        if (pendingPrintQueue.length === 0) return;
+
+        const pollInterval = setInterval(async () => {
+            const currentQueue = [...pendingPrintQueue];
+            for (const invoiceId of currentQueue) {
+                try {
+                    const res = await apiFetch(`/api/companies/${companyId}/invoices/${invoiceId}`);
+                    if (!res.ok) continue;
+                    const invoice = await res.json();
+
+                    if (invoice.qrCodeData || invoice.fdmsStatus === 'failed') {
+                        console.log(`[POS] Background Printing: Invoice ${invoiceId} ready! Printing now...`);
+                        
+                        // Trigger print
+                        handleSilentPrint(invoice).catch(console.error);
+                        
+                        // Remove from queue
+                        setPendingPrintQueue(prev => prev.filter(id => id !== invoiceId));
+                        
+                        if (invoice.fdmsStatus === 'failed') {
+                             toast({ 
+                                title: "Fiscalization Warning", 
+                                description: `Receipt ${invoice.invoiceNumber} printed but fiscalization failed. It will be retried later.`,
+                                variant: "destructive" 
+                            });
+                        }
+                    }
+                } catch (err) {
+                    console.warn(`[POS] Background Print Loop Error for invoice ${invoiceId}:`, err);
+                }
+            }
+        }, 2000); // Poll every 2 seconds
+
+        return () => clearInterval(pollInterval);
+    }, [pendingPrintQueue, companyId, posSettings]);
+
 
     // Fetch available printers when settings dialog opens
     useEffect(() => {
@@ -1326,11 +1402,82 @@ export default function POSPage() {
         localStorage.setItem("pos_terminal_id", posSettings.terminalId);
         localStorage.setItem("pos_silent_printing", posSettings.silentPrinting ? "true" : "false");
         localStorage.setItem("pos_print_server", posSettings.printServerUrl);
+        localStorage.setItem("pos_native_esc_pos", posSettings.nativeEscPos ? "true" : "false");
+        localStorage.setItem("pos_simulation_mode", posSettings.simulationMode ? "true" : "false");
+        localStorage.setItem("pos_printer_width", posSettings.printerWidth.toString());
         localStorage.setItem("pos_cash_drawer", posSettings.cashDrawerEnabled ? "true" : "false");
         localStorage.setItem("pos_quantity_decimals", posSettings.quantityDecimalPlaces.toString());
     }, [posSettings.autoPrint, posSettings.terminalId, posSettings.silentPrinting, posSettings.printServerUrl, posSettings.cashDrawerEnabled, posSettings.quantityDecimalPlaces]);
 
-    const handleSilentPrint = async () => {
+    const handleSilentPrint = async (invOverride?: any) => {
+        const inv = invOverride || lastSuccessfulInvoice;
+        if (!inv) return;
+
+        // --- GLOBAL SIMULATION INTERCEPTOR ---
+        // Catch simulation mode early for both Native and HTML flows
+        if (posSettings.simulationMode) {
+            console.log("%c--- PRINTER SIMULATION ACTIVE ---", "color: orange; font-weight: bold; background: #000; padding: 5px;");
+            
+            if (posSettings.nativeEscPos) {
+                try {
+                    const encoded = ReceiptTemplate.formatFiscalReceipt({
+                        company: resolvedCompany,
+                        branch: company?.branches?.find((b: any) => b.id === (inv.branchId || selectedBranchId)),
+                        invoice: { ...inv, _simulation: true },
+                        customer: resolvedCustomers?.find((c: any) => c.id === inv.customerId),
+                        items: inv.items,
+                        user: user
+                    }, { width: posSettings.printerWidth });
+
+                    const hex = Array.from(encoded).map(b => b.toString(16).padStart(2, '0')).join(' ');
+                    console.log("%cNative ESC/POS Bytes:", "color: cyan", encoded);
+                    console.log("%cHex Output:", "color: cyan", hex);
+                    console.log("%cPaste hex into https://escpos.tools/ to visualize", "color: #AAA; font-style: italic");
+                    setSimulationData(encoded);
+                    toast({ title: "Simulation Success", description: "Receipt ESC/POS bytes logged to console.", variant: "default" });
+                } catch (err: any) {
+                    console.error("Simulation Format Error:", err);
+                    toast({ title: "Format Error", description: err.message, variant: "destructive" });
+                }
+            } else {
+                console.log("%cLegacy HTML Simulation:", "color: cyan");
+                console.log("HTML silent print was triggered, but Simulation is ON. No data sent to agent.");
+                toast({ title: "Simulation Mode", description: "HTML print call captured and logged to console." });
+            }
+            return;
+        }
+
+        // --- Native ESC/POS Printing via WebUSB ---
+        if (posSettings.nativeEscPos) {
+            try {
+                const encoded = ReceiptTemplate.formatFiscalReceipt({
+                    company: resolvedCompany,
+                    branch: company?.branches?.find((b: any) => b.id === (inv.branchId || selectedBranchId)),
+                    invoice: inv,
+                    customer: resolvedCustomers?.find((c: any) => c.id === inv.customerId),
+                    items: inv.items,
+                    user: user
+                }, { width: posSettings.printerWidth });
+
+                const success = await PrinterService.printRaw(encoded, {
+                    useElectron: !!(window as any).electronAPI,
+                    printServerUrl: posSettings.printServerUrl || (companyId ? `http://localhost:3001` : undefined),
+                    printerName: posSettings.printerName || undefined
+                });
+                if (success) {
+                    toast({ title: "Printed", description: "Native ESC/POS print job successful" });
+                    return;
+                } else {
+                    toast({ title: "Print Failed", description: "Could not reach USB printer, Electron API, or Print Agent. Check connections.", variant: "destructive" });
+                }
+            } catch (err: any) {
+                console.error("Native Print Error:", err);
+                toast({ title: "Print Error", description: err.message, variant: "destructive" });
+            }
+            // Fallback to HTML if native fails? Only if requested, for now we stop.
+            return;
+        }
+
         let receiptElement = document.getElementById('silent-receipt-48');
 
         // Retry logic if element is not yet in DOM
@@ -1567,10 +1714,8 @@ export default function POSPage() {
         setReportData(null);
         setIsReportOpen(true);
         try {
-            const endpoint = type === "x"
-                ? `/api/companies/${companyId}/zimra/day/x-report`
-                : `/api/companies/${companyId}/zimra/day/z-report`;
-            const res = await apiFetch(endpoint);
+            const today = new Date().toISOString().split('T')[0];
+            const res = await apiFetch(`/api/companies/${companyId}/reports/fiscal-data?date=${today}`);
             if (!res.ok) {
                 const err = await res.json();
                 setReportData({ error: err.message });
@@ -1929,12 +2074,16 @@ export default function POSPage() {
                                                     ? "bg-emerald-50 text-emerald-600 border-emerald-100/50 shadow-[0_0_10px_rgba(16,185,129,0.1)]"
                                                     : "bg-amber-50 text-amber-600 border-amber-100/50"
                                             )}>
-                                                <div className={cn(
-                                                    "w-1.5 h-1.5 rounded-full",
-                                                    isOnline ? "bg-emerald-500 animate-pulse" : "bg-amber-500"
-                                                )} />
                                                 {isOnline ? <><Wifi className="h-2.5 w-2.5" /> Online</> : <><WifiOff className="h-2.5 w-2.5" /> Offline</>}
                                             </div>
+                                            
+                                            {/* 🚀 Background Print Queue Status */}
+                                            {pendingPrintQueue.length > 0 && (
+                                                <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[7px] md:text-[8px] font-black uppercase tracking-wider bg-blue-50 text-blue-600 border border-blue-100/50 animate-pulse shadow-[0_0_10px_rgba(59,130,246,0.1)]">
+                                                    <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                                                    {pendingPrintQueue.length} Printing
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
@@ -2131,7 +2280,7 @@ export default function POSPage() {
                         {/* Elite Search Bar - Full width on mobile */}
                         <div className="relative flex-1 group flex items-center gap-2">
                             <div className="relative flex-1">
-                                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                                <div className="absolute inset-0 left-0 pl-4 flex items-center pointer-events-none">
                                     <Search className="h-4 w-4 md:h-5 md:w-5 text-slate-400 group-focus-within:text-primary transition-colors" />
                                 </div>
                                 <Input
@@ -2346,60 +2495,6 @@ export default function POSPage() {
                                         {heldSales.length}
                                     </Badge>
                                 </Button>
-
-                                {/* <div className="h-6 w-px bg-slate-200 mx-0.5 hidden min-[1232px]:block" />
-                                <BranchPickerModal
-                                    companyId={companyId}
-                                    selectedBranchId={selectedBranchId}
-                                    onSelect={(id) => setSelectedBranchId(id)}
-                                    trigger={
-                                        <Button variant="ghost" size="sm" className="h-9 px-3 gap-2 rounded-xl hover:bg-slate-50 border-none text-slate-500 hover:text-blue-600 transition-colors shrink-0">
-                                            <Store className="h-4 w-4" />
-                                            <span className="text-[10px] font-black uppercase tracking-tight hidden min-[1400px]:inline">
-                                                {selectedBranchId ? "Switch Branch" : "Select Branch"}
-                                            </span>
-                                        </Button>
-                                    }
-                                /> */}
-                                {/* <div className="h-6 w-px bg-slate-200 mx-0.5 hidden min-[1232px]:block" />
-                                <DeviceStatusWidget companyId={companyId} />
-                                <div className="h-6 w-px bg-slate-200 mx-0.5 hidden min-[1232px]:block" />
-
-                                <div className={cn(
-                                    "flex items-center gap-1 px-1.5 h-8 rounded-lg border text-[9px] min-[1232px]:text-[10px] font-black shrink-0 transition-colors",
-                                    currentShift ? "bg-emerald-50/50 text-emerald-600 border-emerald-100/30" : "bg-red-50/50 text-red-600 border-red-100/30"
-                                )}>
-                                    <div className="relative">
-                                        <div className={cn("w-3 h-3 rounded-full", currentShift ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" : "bg-red-500")} />
-                                        {currentShift && <div className="absolute inset-0 rounded-full bg-emerald-500 animate-ping opacity-30" />}
-                                    </div>
-                                    <div className="flex flex-col leading-tight hidden min-[1232px]:flex">
-                                        <span className="text-[9px] uppercase tracking-widest text-slate-400">
-                                            {(user?.name || "Cashier").split(' ').slice(0, 2).join(' ')}
-                                        </span>
-                                        <span className="truncate max-w-[50px] md:max-w-none">{currentShift ? "ACTIVE" : "NO SHIFT"}</span>
-                                    </div>
-                                    {currentShift && (
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-7 w-7 ml-2 text-emerald-600 hover:bg-emerald-100 hover:text-emerald-700 rounded-lg"
-                                            onClick={() => { setShiftModalType("CLOSE"); setShiftBalance(""); setIsShiftModalOpen(true); }}
-                                        >
-                                            <XCircle className="h-4 w-4" />
-                                        </Button>
-                                    )}
-                                    {!currentShift && (
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-7 w-7 ml-2 text-red-600 hover:bg-red-100 hover:text-red-700 rounded-lg"
-                                            onClick={() => { setShiftModalType("OPEN"); setShiftBalance(""); setIsShiftModalOpen(true); }}
-                                        >
-                                            <CheckCircle2 className="h-4 w-4" />
-                                        </Button>
-                                    )}
-                                </div> */}
 
                                 {/* Fullscreen Toggle (Desktop Only) */}
                                 <Button
@@ -3059,90 +3154,155 @@ export default function POSPage() {
 
                     {/* Terminal Settings Modal */}
                     <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
-                        <DialogContent className="sm:max-w-[450px] rounded-[2rem] border-none shadow-2xl p-0 overflow-hidden">
+                        <DialogContent className="sm:max-w-[650px] rounded-[3rem] border-none shadow-2xl p-0 overflow-hidden outline-none">
                             <DialogHeader className="sr-only">
                                 <DialogTitle>Terminal Settings</DialogTitle>
                                 <DialogDescription>Configure local POS settings like printing preferences and terminal ID.</DialogDescription>
                             </DialogHeader>
-                            <div className="p-6 bg-slate-900 text-white">
-                                <h3 className="text-xl font-black flex items-center gap-3">
-                                    <SettingsIcon className="h-6 w-6 text-primary" />
-                                    Terminal Settings
-                                </h3>
-                                <p className="text-xs text-slate-500 mt-2 font-bold uppercase tracking-widest">Local POS Configuration</p>
-                            </div>
-                            <div className="p-6 space-y-4 bg-white">
-                                <div className="space-y-3">
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl border border-slate-100">
-                                            <div className="space-y-0.5">
-                                                <Label className="text-[11px] font-black text-slate-700">Auto-Print</Label>
-                                                <p className="text-[8px] text-slate-400 font-bold uppercase tracking-widest">Instant</p>
-                                            </div>
-                                            <Button
-                                                variant="ghost"
-                                                className={cn(
-                                                    "h-8 px-3 rounded-lg font-black text-[10px] transition-all",
-                                                    posSettings.autoPrint ? "bg-primary text-white" : "text-slate-400"
-                                                )}
-                                                onClick={() => setPosSettings(prev => ({ ...prev, autoPrint: !prev.autoPrint }))}
-                                            >
-                                                {posSettings.autoPrint ? "ON" : "OFF"}
-                                            </Button>
-                                        </div>
-                                        <div className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl border border-slate-100">
-                                            <div className="space-y-0.5">
-                                                <Label className="text-[11px] font-black text-slate-700">Silent (Proxy)</Label>
-                                                <p className="text-[8px] text-slate-400 font-bold uppercase tracking-widest">No Dialog</p>
-                                            </div>
-                                            <Button
-                                                variant="ghost"
-                                                className={cn(
-                                                    "h-8 px-3 rounded-lg font-black text-[10px] transition-all",
-                                                    posSettings.silentPrinting ? "bg-emerald-500 text-white" : "text-slate-400"
-                                                )}
-                                                onClick={() => setPosSettings(prev => ({ ...prev, silentPrinting: !prev.silentPrinting }))}
-                                            >
-                                                {posSettings.silentPrinting ? "ON" : "OFF"}
-                                            </Button>
-                                        </div>
+
+                            <div className="p-6 bg-slate-900 text-white flex items-center justify-between">
+                                <div>
+                                    <h3 className="text-xl font-black flex items-center gap-3">
+                                        <SettingsIcon className="h-6 w-6 text-primary" />
+                                        Terminal Settings
+                                    </h3>
+                                    <p className="text-[10px] text-slate-500 mt-1 font-black uppercase tracking-widest">Local POS Configuration</p>
+                                </div>
+                                <div className="px-4 py-2 bg-white/5 rounded-2xl border border-white/10">
+                                    <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest mb-0.5">Terminal Status</p>
+                                    <div className="flex items-center gap-2">
+                                        <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                                        <span className="text-xs font-black text-emerald-500 uppercase">{posSettings.terminalId}</span>
                                     </div>
-                                    <div className="grid grid-cols-[1fr_2fr] gap-3">
-                                        <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100">
-                                            <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 block mb-1">Terminal ID</label>
+                                </div>
+                            </div>
+
+                            <div className="p-6 grid grid-cols-2 gap-6 bg-white">
+                                <div className="space-y-4">
+                                    <div className="p-4 bg-slate-50 rounded-3xl border border-slate-100 space-y-3">
+                                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block px-1">System Identity</label>
+                                        <div className="relative">
+                                            <Label className="text-[9px] font-black absolute -top-2 left-3 bg-slate-50 px-1 text-slate-400 z-10">Terminal ID</Label>
                                             <Input
                                                 value={posSettings.terminalId}
                                                 onChange={(e) => setPosSettings(prev => ({ ...prev, terminalId: e.target.value }))}
-                                                className="h-8 text-xs font-black bg-white border-slate-200 rounded-lg outline-none"
+                                                className="h-11 text-xs font-black bg-white border-slate-200 rounded-xl px-4 focus:ring-2 focus:ring-primary/20 outline-none transition-all"
                                             />
                                         </div>
-                                        <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100">
-                                            <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 block mb-1">Paper Override</label>
-                                            <div className="flex gap-1">
-                                                {['', '80mm', '58mm'].map(size => (
-                                                    <button
-                                                        key={size}
-                                                        onClick={() => setPosSettings(prev => ({ ...prev, paperSize: size }))}
-                                                        className={cn(
-                                                            "flex-1 h-8 rounded-lg text-[9px] font-black uppercase tracking-tight border transition-all",
-                                                            posSettings.paperSize === size
-                                                                ? "bg-slate-900 text-white border-slate-900"
-                                                                : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"
-                                                        )}
-                                                    >
-                                                        {size === '' ? 'Def' : size}
-                                                    </button>
-                                                ))}
-                                            </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div className="flex flex-col gap-2 p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                                            <Label className="text-[10px] font-black text-slate-500 uppercase">Auto-Print</Label>
+                                            <Button
+                                                variant="ghost"
+                                                className={cn(
+                                                    "h-9 rounded-xl font-black text-[10px] transition-all w-full",
+                                                    posSettings.autoPrint ? "bg-primary text-white" : "bg-white text-slate-400 border border-slate-200"
+                                                )}
+                                                onClick={() => setPosSettings(prev => ({ ...prev, autoPrint: !prev.autoPrint }))}
+                                            >
+                                                {posSettings.autoPrint ? "ENABLED" : "DISABLED"}
+                                            </Button>
+                                        </div>
+                                        <div className="flex flex-col gap-2 p-3 bg-emerald-50/50 rounded-2xl border border-emerald-100">
+                                            <Label className="text-[10px] font-black text-emerald-600 uppercase">Silent Print</Label>
+                                            <Button
+                                                variant="ghost"
+                                                className={cn(
+                                                    "h-9 rounded-xl font-black text-[10px] transition-all w-full",
+                                                    posSettings.silentPrinting ? "bg-emerald-500 text-white" : "bg-white text-emerald-400 border border-emerald-100"
+                                                )}
+                                                onClick={() => setPosSettings(prev => ({ ...prev, silentPrinting: !prev.silentPrinting }))}
+                                            >
+                                                {posSettings.silentPrinting ? "ACTIVE" : "OFF"}
+                                            </Button>
                                         </div>
                                     </div>
-                                    <div className="p-4 bg-emerald-50/50 rounded-2xl border border-emerald-100 animate-in fade-in slide-in-from-top-2 duration-300">
-                                        <div className="flex items-center justify-between mb-2">
-                                            <label className="text-[10px] font-black uppercase tracking-widest text-emerald-600 block">Target Printer</label>
+
+                                    <div className="p-4 bg-amber-50/50 rounded-3xl border border-amber-100">
+                                        <div className="flex items-center justify-between">
+                                            <div className="space-y-0.5">
+                                                <Label className="text-[11px] font-black text-amber-700">Simulation</Label>
+                                                <p className="text-[8px] text-amber-500 font-bold uppercase tracking-widest">Debug Mode</p>
+                                            </div>
+                                            <Button
+                                                variant="ghost"
+                                                className={cn(
+                                                    "h-8 px-4 rounded-lg font-black text-[10px] transition-all",
+                                                    posSettings.simulationMode ? "bg-amber-500 text-white" : "text-amber-400 bg-white border border-amber-200"
+                                                )}
+                                                onClick={() => setPosSettings(prev => ({ ...prev, simulationMode: !prev.simulationMode }))}
+                                            >
+                                                {posSettings.simulationMode ? "DEBUG" : "STABLE"}
+                                            </Button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-4">
+                                    <div className="p-4 bg-indigo-50/50 rounded-3xl border border-indigo-100 space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <Label className="text-[10px] font-black text-indigo-700 uppercase tracking-widest">Printer Driver</Label>
                                             <Button
                                                 variant="ghost"
                                                 size="sm"
-                                                className="h-6 px-2 text-[9px] font-black text-emerald-600 hover:bg-emerald-100"
+                                                className={cn(
+                                                    "h-7 px-3 rounded-full font-black text-[9px] transition-all",
+                                                    posSettings.nativeEscPos ? "bg-indigo-500 text-white" : "text-indigo-400 bg-white border border-indigo-200"
+                                                )}
+                                                onClick={async () => {
+                                                    if (!posSettings.nativeEscPos) {
+                                                        // If simulation is ON, we allow "Virtual Pairing" without a device
+                                                        if (posSettings.simulationMode) {
+                                                            setPosSettings(prev => ({ ...prev, nativeEscPos: true }));
+                                                            toast({ title: "Virtual Printer Paired", description: "Simulation mode active." });
+                                                            return;
+                                                        }
+
+                                                        // Otherwise request real hardware
+                                                        try {
+                                                            const device = await PrinterService.requestDevice();
+                                                            if (device) {
+                                                                setPosSettings(prev => ({ ...prev, nativeEscPos: true }));
+                                                                toast({ title: "Printer Paired", description: `${device.productName} is ready.` });
+                                                            }
+                                                        } catch (e: any) {
+                                                            toast({ title: "Pairing Cancelled", description: e.message, variant: "destructive" });
+                                                        }
+                                                    } else {
+                                                        setPosSettings(prev => ({ ...prev, nativeEscPos: false }));
+                                                    }
+                                                }}
+                                            >
+                                                {posSettings.nativeEscPos ? "NATIVE ACTIVE" : (posSettings.simulationMode ? "VIRTUAL ENABLE" : "ENABLE USB")}
+                                            </Button>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-3 pt-1">
+                                            <div>
+                                                <label className="text-[8px] font-black uppercase tracking-widest text-indigo-400 block mb-1 px-1">Character Width</label>
+                                                <div className="flex gap-1 p-1 bg-white rounded-xl border border-indigo-100">
+                                                    {[32, 42, 48].map(w => (
+                                                        <button key={w} onClick={() => setPosSettings(prev => ({ ...prev, printerWidth: w }))}
+                                                            className={cn("flex-1 h-7 rounded-lg text-[9px] font-black transition-all", posSettings.printerWidth === w ? "bg-indigo-600 text-white" : "text-indigo-300 hover:bg-indigo-50")}>
+                                                            {w}ch
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label className="text-[8px] font-black uppercase tracking-widest text-indigo-400 block mb-1 px-1">Paper Type</label>
+                                                <p className="text-[9px] font-bold text-slate-400 px-1 mt-1">
+                                                    {posSettings.printerWidth === 32 ? "58mm Small" : "80mm Large"}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="p-4 bg-slate-900 rounded-3xl space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <label className="text-[9px] font-black uppercase tracking-widest text-slate-500">Target Printer</label>
+                                            <Button variant="ghost" size="sm" className="h-6 px-2 text-[8px] font-black text-slate-400 hover:text-white"
                                                 onClick={async () => {
                                                     try {
                                                         if (window.electronAPI) {
@@ -3155,54 +3315,31 @@ export default function POSPage() {
                                                                 setAvailablePrinters(Array.isArray(data) ? data : []);
                                                             }
                                                         }
-                                                    } catch (e) {
-                                                        console.error(e);
-                                                    }
-                                                }}
-                                            >
-                                                <RefreshCw className="h-3 w-3 mr-1" /> Reload
+                                                    } catch (e) { console.error(e); }
+                                                }}>
+                                                <RefreshCw className="h-3 w-3 mr-1" /> RELOAD
                                             </Button>
                                         </div>
                                         <Select
                                             value={posSettings.printerName || "default"}
                                             onValueChange={(val) => setPosSettings(prev => ({ ...prev, printerName: val === "default" ? "" : val }))}
                                         >
-                                            <SelectTrigger className="h-10 text-xs font-black bg-white border-emerald-200 rounded-lg outline-none">
-                                                <SelectValue placeholder="Main Printer" />
+                                            <SelectTrigger className="h-10 text-[10px] font-black bg-white/5 border-white/10 text-white rounded-xl focus:ring-0 outline-none">
+                                                <SelectValue placeholder="System Default" />
                                             </SelectTrigger>
-                                            <SelectContent className="rounded-xl border-emerald-200">
-                                                <SelectItem value="default" className="text-xs font-bold">System Default</SelectItem>
+                                            <SelectContent className="rounded-2xl border-slate-800 bg-slate-900 text-white">
+                                                <SelectItem value="default" className="text-[10px] font-black">System Default</SelectItem>
                                                 {availablePrinters.map((p: any) => (
-                                                    <SelectItem key={p.name} value={p.name} className="text-xs font-bold">
-                                                        {p.name}
-                                                    </SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-
-                                    <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100 animate-in fade-in slide-in-from-top-2 duration-300">
-                                        <label className="text-[10px] font-black uppercase tracking-widest text-blue-600 block mb-2">Secondary / Kitchen Printer</label>
-                                        <Select
-                                            value={posSettings.secondaryPrinterName || "none"}
-                                            onValueChange={(val) => setPosSettings(prev => ({ ...prev, secondaryPrinterName: val === "none" ? "" : val }))}
-                                        >
-                                            <SelectTrigger className="h-10 text-xs font-black bg-white border-blue-200 rounded-lg outline-none">
-                                                <SelectValue placeholder="Disabled" />
-                                            </SelectTrigger>
-                                            <SelectContent className="rounded-xl border-blue-200">
-                                                <SelectItem value="none" className="text-xs font-bold">Disabled</SelectItem>
-                                                {availablePrinters.map((p: any) => (
-                                                    <SelectItem key={p.name} value={p.name} className="text-xs font-bold">
-                                                        {p.name}
-                                                    </SelectItem>
+                                                    <SelectItem key={p.name} value={p.name} className="text-[10px] font-black">{p.name}</SelectItem>
                                                 ))}
                                             </SelectContent>
                                         </Select>
                                     </div>
                                 </div>
-                                <Button className="w-full h-12 rounded-xl bg-slate-900 hover:bg-black text-white font-black uppercase tracking-widest transition-all active:scale-95" onClick={() => setIsSettingsOpen(false)}>
-                                    Save & Close
+                            </div>
+                            <div className="p-6 bg-slate-50 border-t border-slate-100">
+                                <Button className="w-full h-12 rounded-[1.5rem] bg-slate-900 hover:bg-black text-white font-black uppercase tracking-widest shadow-xl transition-all active:scale-95" onClick={() => setIsSettingsOpen(false)}>
+                                    Update Configuration
                                 </Button>
                             </div>
                         </DialogContent>
@@ -3210,7 +3347,7 @@ export default function POSPage() {
 
                     {/* Success/Confetti Modal */}
                     <Dialog open={!!lastSuccessfulInvoice} onOpenChange={() => { setLastSuccessfulInvoice(null); setActiveView("products"); }}>
-                        <DialogContent className="sm:max-w-[450px] p-0 overflow-hidden border-none rounded-[3rem] shadow-2xl">
+                        <DialogContent className="sm:max-w-[450px] p-0 overflow-hidden border-none rounded-[3rem] shadow-2xl outline-none">
                             <DialogHeader className="sr-only">
                                 <DialogTitle>Sale Complete</DialogTitle>
                                 <DialogDescription>Transaction processed successfully. You can now print the receipt.</DialogDescription>
@@ -3223,17 +3360,11 @@ export default function POSPage() {
                                     </div>
                                     <h3 className="text-3xl font-black leading-tight mb-2">{lastSuccessfulInvoice?._offline ? 'Saved Offline' : 'Sale Perfect!'}</h3>
                                     <p className="text-emerald-100 text-sm font-bold uppercase tracking-widest">
-                                        {lastSuccessfulInvoice?._offline
-                                            ? 'Will sync when reconnected'
-                                            : lastSuccessfulInvoice?.fiscalCode
-                                                ? 'Transaction Fiscalized'
-                                                : 'Sale Complete'}
+                                        {lastSuccessfulInvoice?._offline ? 'Will sync when reconnected' : (lastSuccessfulInvoice?.fiscalCode ? 'Transaction Fiscalized' : 'Sale Complete')}
                                     </p>
                                 </div>
                             </div>
-
                             <div className="p-10 bg-white space-y-8 flex flex-col items-center">
-
                                 <div className="hidden print:block w-full">
                                     <Receipt48
                                         invoice={lastSuccessfulInvoice}
@@ -3244,7 +3375,6 @@ export default function POSPage() {
                                         paperSize={posSettings.paperSize || (resolvedCompany?.posSettings as any)?.receiptPaperSize || '80mm'}
                                     />
                                 </div>
-
                                 <div className="flex flex-col gap-3 w-full print:hidden">
                                     {posSettings.printingEnabled && (
                                         <Button className="h-16 rounded-2xl bg-slate-900 hover:bg-black text-white font-black uppercase tracking-widest shadow-xl flex items-center justify-center gap-3"
@@ -3260,7 +3390,6 @@ export default function POSPage() {
                             </div>
                         </DialogContent>
                     </Dialog>
-                </div>
 
                 {/* Hidden Receipt for Silent Printing */}
                 <div className="fixed -left-[9999px] top-0 pointer-events-none overflow-hidden" style={{ width: (posSettings.paperSize || (resolvedCompany?.posSettings as any)?.receiptPaperSize) === 'A4' ? '210mm' : (posSettings.paperSize || (resolvedCompany?.posSettings as any)?.receiptPaperSize || '80mm') }}>
@@ -3317,7 +3446,9 @@ export default function POSPage() {
                             </div>
                             <Button className="w-full h-12 rounded-xl bg-slate-900 hover:bg-black text-white font-black uppercase tracking-widest"
                                 onClick={() => {
-                                    if (posSettings.silentPrinting) {
+                                    if (posSettings.nativeEscPos) {
+                                        handleSilentPrint(reprintInvoice);
+                                    } else if (posSettings.silentPrinting) {
                                         const el = document.getElementById('reprint-receipt-48');
                                         if (el && window.electronAPI) {
                                             const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]')).map(s => {
@@ -3514,17 +3645,23 @@ export default function POSPage() {
                                 </div>
                                 <div className="flex items-center gap-3">
                                     {reportData && !reportData.error && (
-                                        <PDFDownloadLink
-                                            document={<ZReportPDF data={{ ...reportData, company }} isZReport={reportType === 'z'} />}
-                                            fileName={`${reportType === 'z' ? 'Z' : 'X'}-Report-${new Date().toISOString().split('T')[0]}.pdf`}
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-8 px-3 text-xs gap-2 bg-white/10 border-white/20 text-white hover:bg-white/20 hover:text-white rounded-xl"
+                                            onClick={async () => {
+                                                const doc = <FiscalReportPDF
+                                                    type={reportType === 'x' ? 'X' : 'Z'}
+                                                    data={reportData}
+                                                    company={company}
+                                                />;
+                                                const blob = await pdf(doc).toBlob();
+                                                saveAs(blob, `Fiscal-${reportType.toUpperCase()}-Report-${dayjs().format('YYYY-MM-DD-HHmm')}.pdf`);
+                                            }}
                                         >
-                                            {({ loading }) => (
-                                                <Button size="sm" variant="outline" className="h-8 px-3 text-xs gap-2 bg-white/10 border-white/20 text-white hover:bg-white/20 hover:text-white rounded-xl" disabled={loading}>
-                                                    {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-                                                    PDF
-                                                </Button>
-                                            )}
-                                        </PDFDownloadLink>
+                                            <Download className="w-3.5 h-3.5" />
+                                            PDF
+                                        </Button>
                                     )}
                                     <div className="flex bg-purple-700/50 p-1 rounded-xl">
                                         {(["x", "z"] as const).map(t => (
@@ -3552,128 +3689,95 @@ export default function POSPage() {
                             )}
                             {reportData && !reportData.error && (
                                 <>
-                                    {/* POS Sales Summary — always shown */}
-                                    {reportData.posSummary && (
-                                        <div className="border border-purple-100 rounded-2xl overflow-hidden">
-                                            <div className="bg-purple-600 px-4 py-2 flex items-center justify-between">
-                                                <span className="text-xs font-black text-white uppercase tracking-widest">Today's Sales Summary</span>
-                                                <span className="text-xs font-black text-purple-200">{reportData.posSummary.totalTransactions} transactions</span>
-                                            </div>
-                                            <div className="divide-y divide-slate-50">
-                                                {reportData.posSummary.byPaymentMethod.map((pm: any) => (
-                                                    <div key={pm.method} className="flex items-center justify-between px-4 py-3">
-                                                        <span className="text-sm font-bold text-slate-600">{pm.method}</span>
-                                                        <div className="flex items-center gap-4">
-                                                            <span className="text-xs font-black text-slate-400">{pm.count} sales</span>
-                                                            <span className="text-sm font-black text-emerald-600">{Number(pm.total).toFixed(2)}</span>
-                                                        </div>
+                                    {/* Summary Stats */}
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div className="bg-slate-50 rounded-2xl p-4">
+                                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Total Revenue</p>
+                                            <p className="text-xl font-black text-slate-900">${Number(reportData.summary.revenue).toFixed(2)}</p>
+                                        </div>
+                                        <div className="bg-slate-50 rounded-2xl p-4">
+                                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Items Sold</p>
+                                            <p className="text-xl font-black text-slate-900">{reportData.summary.productsSold}</p>
+                                        </div>
+                                    </div>
+
+                                    {/* Currency Breakdown */}
+                                    <div className="border border-purple-100 rounded-2xl overflow-hidden mt-4">
+                                        <div className="bg-purple-600 px-4 py-2 flex items-center justify-between">
+                                            <span className="text-xs font-black text-white uppercase tracking-widest">Revenue by Currency</span>
+                                            <span className="text-xs font-black text-purple-200">{reportData.summary.invoiceCount} invoices</span>
+                                        </div>
+                                        <div className="divide-y divide-slate-50">
+                                            {reportData.currencies.map((c: any) => (
+                                                <div key={c.code} className="flex items-center justify-between px-4 py-3">
+                                                    <span className="text-sm font-bold text-slate-600">{c.code}</span>
+                                                    <div className="flex items-center gap-4">
+                                                        <span className="text-xs font-black text-slate-400">{c.count} docs</span>
+                                                        <span className="text-sm font-black text-emerald-600">{Number(c.total).toFixed(2)}</span>
                                                     </div>
-                                                ))}
-                                                <div className="flex items-center justify-between px-4 py-3 bg-slate-50">
-                                                    <span className="text-sm font-black text-slate-800">Grand Total</span>
-                                                    <span className="text-base font-black text-slate-900">{Number(reportData.posSummary.grandTotal).toFixed(2)}</span>
                                                 </div>
-                                            </div>
+                                            ))}
                                         </div>
-                                    )}
+                                    </div>
 
-                                    {/* Fiscal header info — only when fiscal day data is present */}
-                                    {reportData.fiscalDayNo && (
-                                        <div className="grid grid-cols-2 gap-3">
-                                            <div className="bg-slate-50 rounded-2xl p-4">
-                                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Fiscal Day</p>
-                                                <p className="text-2xl font-black text-slate-800">#{reportData.fiscalDayNo}</p>
-                                            </div>
-                                            <div className="bg-slate-50 rounded-2xl p-4">
-                                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Opened</p>
-                                                <p className="text-sm font-black text-slate-800">{reportData.openedAt ? new Date(reportData.openedAt).toLocaleString() : "—"}</p>
-                                            </div>
+                                    {/* Breakdown by Cashier */}
+                                    <div className="border border-slate-100 rounded-2xl overflow-hidden mt-4">
+                                        <div className="bg-slate-100 px-4 py-2">
+                                            <span className="text-xs font-black text-slate-500 uppercase tracking-widest">Performance by Cashier</span>
                                         </div>
-                                    )}
-
-                                    {/* Doc stats by currency — only when non-empty */}
-                                    {(reportData.docStats || []).length > 0 && (reportData.docStats || []).map((stat: any) => (
-                                        <div key={stat.currency} className="border border-slate-100 rounded-2xl overflow-hidden">
-                                            <div className="bg-slate-800 px-4 py-2">
-                                                <span className="text-xs font-black text-white uppercase tracking-widest">{stat.currency}</span>
-                                            </div>
-                                            <div className="divide-y divide-slate-50">
-                                                {[
-                                                    { label: "Invoices", data: stat.invoices, color: "text-emerald-600" },
-                                                    { label: "Credit Notes", data: stat.creditNotes, color: "text-red-500" },
-                                                    { label: "Debit Notes", data: stat.debitNotes, color: "text-amber-500" },
-                                                ].map(row => (
-                                                    <div key={row.label} className="flex items-center justify-between px-4 py-3">
-                                                        <span className="text-sm font-bold text-slate-600">{row.label}</span>
-                                                        <div className="flex items-center gap-4">
-                                                            <span className="text-xs font-black text-slate-400">{row.data.quantity} docs</span>
-                                                            <span className={cn("text-sm font-black", row.color)}>{stat.currency} {Number(row.data.total).toFixed(2)}</span>
-                                                        </div>
+                                        <div className="divide-y divide-slate-50">
+                                            {reportData.cashiers.map((cashier: any) => (
+                                                <div key={cashier.cashierId} className="flex items-center justify-between px-4 py-3">
+                                                    <span className="text-sm font-bold text-slate-700">{cashier.name || 'Unknown'}</span>
+                                                    <div className="flex items-center gap-4">
+                                                        <span className="text-xs font-black text-slate-400">{cashier.count} sales</span>
+                                                        <span className="text-sm font-black text-slate-900">${Number(cashier.total).toFixed(2)}</span>
                                                     </div>
-                                                ))}
-                                                <div className="flex items-center justify-between px-4 py-3 bg-slate-50">
-                                                    <span className="text-sm font-black text-slate-800">Total</span>
-                                                    <span className="text-base font-black text-slate-900">{stat.currency} {Number(stat.totalDocuments.total).toFixed(2)}</span>
                                                 </div>
-                                            </div>
+                                            ))}
                                         </div>
-                                    ))}
+                                    </div>
 
-                                    {/* Fiscal counters — only when non-empty */}
-                                    {reportData.counters && reportData.counters.length > 0 && (
-                                        <div className="border border-slate-100 rounded-2xl overflow-hidden">
-                                            <div className="bg-slate-100 px-4 py-2">
-                                                <span className="text-xs font-black text-slate-500 uppercase tracking-widest">Fiscal Counters</span>
-                                            </div>
-                                            <div className="divide-y divide-slate-50">
-                                                {reportData.counters.map((c: any, i: number) => (
-                                                    <div key={i} className="flex items-center justify-between px-4 py-2">
-                                                        <span className="text-xs font-bold text-slate-500">
-                                                            {c.fiscalCounterTaxPercent !== undefined ? `${c.fiscalCounterTaxPercent}%` : (c.fiscalCounterMoneyType || c.fiscalCounterType)}
-                                                        </span>
-                                                        <span className="text-xs font-black text-slate-800">{c.fiscalCounterCurrency} {Number(c.fiscalCounterValue || 0).toFixed(2)}</span>
-                                                    </div>
-                                                ))}
-                                            </div>
+                                    {/* Top Items Sold */}
+                                    <div className="border border-slate-100 rounded-2xl overflow-hidden mt-4">
+                                        <div className="bg-slate-800 px-4 py-2">
+                                            <span className="text-xs font-black text-white uppercase tracking-widest">Itemized Sales (Top 5)</span>
                                         </div>
-                                    )}
-
-                                    {/* POS Transactions (Drops/Payouts) */}
-                                    {reportData.posSummary?.posTransactions && reportData.posSummary.posTransactions.length > 0 && (
-                                        <div className="border border-slate-100 rounded-2xl overflow-hidden mt-4 shadow-sm">
-                                            <div className="bg-slate-100/80 px-4 py-2 flex items-center justify-between">
-                                                <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.15em]">Cash Movements</span>
-                                                <span className="text-[9px] font-black text-slate-400 bg-white px-2 py-0.5 rounded-full border border-slate-200/50">TRACKING</span>
-                                            </div>
-                                            <div className="divide-y divide-slate-50">
-                                                {reportData.posSummary.posTransactions.map((t: any, i: number) => (
-                                                    <div key={i} className="flex items-center justify-between px-4 py-3 hover:bg-slate-50/50 transition-colors">
-                                                        <div className="flex flex-col">
-                                                            <span className={cn("text-[10px] font-black tracking-tight", t.type === 'DROP' ? "text-emerald-600" : "text-rose-600")}>
-                                                                {t.type === 'DROP' ? 'REMITTANCE' : 'PAYOUT'}
-                                                            </span>
-                                                            <span className="text-[11px] font-bold text-slate-600 truncate max-w-[180px] leading-tight mt-0.5">{t.reason || 'Manual Adjustment'}</span>
-                                                            <span className="text-[9px] text-slate-300 font-black uppercase tracking-widest mt-1">Cashier: {t.userName}</span>
-                                                        </div>
-                                                        <div className="text-right flex flex-col items-end">
-                                                            <span className={cn("text-xs font-black", t.type === 'DROP' ? "text-emerald-700" : "text-rose-700")}>
-                                                                {t.type === 'DROP' ? '+' : '-'}${Number(t.amount).toFixed(2)}
-                                                            </span>
-                                                            <span className="text-[9px] text-slate-400 font-black opacity-60 mt-0.5">{new Date(t.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                                                        </div>
+                                        <div className="divide-y divide-slate-50">
+                                            {reportData.items.slice(0, 5).map((item: any) => (
+                                                <div key={item.productId} className="flex items-center justify-between px-4 py-3">
+                                                    <div className="flex flex-col">
+                                                        <span className="text-sm font-bold text-slate-700 truncate max-w-[200px]">{item.name}</span>
+                                                        <span className="text-[10px] text-slate-400 font-bold">Qty: {item.quantity}</span>
                                                     </div>
-                                                ))}
-                                                <div className="bg-slate-50/80 px-4 py-3 flex items-center justify-between border-t border-slate-100">
-                                                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Net Cash Movement</span>
-                                                    <span className="text-sm font-black text-slate-900">
-                                                        ${reportData.posSummary.posTransactions
-                                                            .reduce((acc: number, t: any) => acc + (t.type === 'DROP' ? Number(t.amount) : -Number(t.amount)), 0)
-                                                            .toFixed(2)}
-                                                    </span>
+                                                    <span className="text-sm font-black text-slate-900">${Number(item.total).toFixed(2)}</span>
                                                 </div>
-                                            </div>
+                                            ))}
+                                            {reportData.items.length > 5 && (
+                                                <div className="px-4 py-2 bg-slate-50 text-center">
+                                                    <span className="text-[10px] font-bold text-slate-400 uppercase">+{reportData.items.length - 5} more items in PDF</span>
+                                                </div>
+                                            )}
                                         </div>
-                                    )}
+                                    </div>
+
+                                    {/* Tax Distributions */}
+                                    <div className="border border-slate-100 rounded-2xl overflow-hidden mt-4">
+                                        <div className="bg-slate-50 px-4 py-2">
+                                            <span className="text-xs font-black text-slate-500 uppercase tracking-widest">Tax Distributions</span>
+                                        </div>
+                                        <div className="divide-y divide-slate-50">
+                                            {reportData.taxes.map((t: any) => (
+                                                <div key={t.taxRate} className="flex items-center justify-between px-4 py-2">
+                                                    <span className="text-xs font-bold text-slate-500">VAT {t.taxRate}%</span>
+                                                    <div className="flex gap-4">
+                                                        <span className="text-[10px] font-black text-slate-400">Net: ${Number(t.net).toFixed(2)}</span>
+                                                        <span className="text-xs font-black text-slate-800">Tax: ${Number(t.tax).toFixed(2)}</span>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
                                 </>
                             )}
                         </div>
@@ -3745,8 +3849,36 @@ export default function POSPage() {
                         </div>
                     </DialogContent>
                 </Dialog>
-            </div>
-        </PosLayout>
-    );
 
+                {/* ── ESC/POS Visual Preview Modal ── */}
+                <Dialog open={!!simulationData} onOpenChange={open => { if (!open) setSimulationData(null); }}>
+                    <DialogContent className="sm:max-w-[400px] rounded-[3rem] border-none shadow-2xl p-0 overflow-hidden outline-none bg-slate-900">
+                        <DialogHeader className="p-6 text-white text-center pb-2">
+                            <div className="mx-auto w-12 h-12 rounded-2xl bg-primary/20 flex items-center justify-center mb-3">
+                                <Printer className="h-6 w-6 text-primary" />
+                            </div>
+                            <DialogTitle className="text-xl font-black">Virtual Receipt Preview</DialogTitle>
+                            <DialogDescription className="text-slate-400 font-bold uppercase text-[10px] tracking-widest mt-1">
+                                Simulation Mode — No hardware required
+                            </DialogDescription>
+                        </DialogHeader>
+                        
+                        <div className="p-6 pt-2 flex flex-col items-center">
+                            <div className="w-full max-h-[500px] overflow-y-auto rounded-2xl border-4 border-slate-800 shadow-xl scrollbar-hide">
+                                {simulationData && <EscPosVisualizer data={simulationData} />}
+                            </div>
+                            
+                            <Button 
+                                className="w-full mt-6 h-12 rounded-2xl font-black btn-gradient shadow-lg"
+                                onClick={() => setSimulationData(null)}
+                            >
+                                Close Preview
+                            </Button>
+                        </div>
+                    </DialogContent>
+                </Dialog>
+            </div>
+        </div>
+    </PosLayout>
+);
 }

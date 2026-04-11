@@ -42,46 +42,69 @@ export function AppRoot() {
 
   const [retryCount, setRetryCount] = useState(0);
 
-  const fetchUser = async () => {
-    const { data } = await supabase.auth.getUser();
-    if (data.user) {
-      setUserName(
-        data.user.user_metadata?.full_name ||
-        data.user.user_metadata?.name ||
-        data.user.email?.split("@")[0] ||
-        "Cashier"
-      );
-      setUserId(data.user.id);
+  const fetchUser = async (isBoot: boolean = false) => {
+    // 1. Try to load from cache immediately for speed
+    let cachedData: any[] = [];
+    try {
+      const cached = await AsyncStorage.getItem('cached_companies');
+      if (cached) {
+        cachedData = JSON.parse(cached);
+        if (Array.isArray(cachedData) && cachedData.length > 0) {
+          setCompanies(cachedData);
+        }
+      }
+    } catch { /* ignore cache errors */ }
+
+    // 2. Fetch user metadata from Supabase
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        setUserName(
+          user.user_metadata?.full_name ||
+          user.user_metadata?.name ||
+          user.email?.split("@")[0] ||
+          "Cashier"
+        );
+        setUserId(user.id);
+      }
+    } catch (e) {
+      console.warn("[Auth] Failed to fetch user metadata:", e);
     }
     
+    // 3. Fetch fresh companies from API
     try {
-      const companies = await apiJson<any[]>('/api/companies');
-      if (Array.isArray(companies)) {
-        // Cache for offline use
-        await AsyncStorage.setItem('cached_companies', JSON.stringify(companies));
-        setCompanies(companies);
-        return companies;
+      // If we are booting and have cache, we can be more aggressive with timeouts
+      // apiJson already has a 30s timeout, but we can wrap it or just rely on it.
+      const freshCompanies = await apiJson<any[]>('/api/companies');
+      
+      if (Array.isArray(freshCompanies)) {
+        await AsyncStorage.setItem('cached_companies', JSON.stringify(freshCompanies));
+        setCompanies(freshCompanies);
+        return freshCompanies;
+      }
+      return cachedData.length > 0 ? cachedData : [];
+    } catch (e: any) {
+      console.warn("[API] Companies fetch failed:", e);
+      
+      // If we have cached data, return it instead of failing the boot
+      if (cachedData.length > 0) return cachedData;
+      
+      // If this is a boot and we have absolutely no data, then we must error
+      if (isBoot) {
+        throw new Error(`Connection error: ${e.message || "Could not reach server"}. Please ensure you have an active internet connection.`);
       }
       return [];
-    } catch (e: any) {
-      // Offline — try cached companies
-      try {
-        const cached = await AsyncStorage.getItem('cached_companies');
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-        }
-      } catch { /* ignore */ }
-      
-      // If no cache and network failed, propagate the error so the boot sequence knows
-      throw new Error(`Connection error: ${e.message || "Could not reach server"}. Please ensure you have an active internet connection.`);
     }
   };
 
   useEffect(() => {
     let cancelled = false;
+    let initialized = false;
 
     const initialize = async () => {
+      if (initialized) return;
+      initialized = true;
+
       try {
         setBootError(null);
         assertEnv();
@@ -90,35 +113,47 @@ export function AppRoot() {
           throw new Error("Supabase client not initialized. Check your environment variables.");
         }
 
-        const cachedCompanyId = await getSelectedCompanyId();
-        if (!cancelled) setCompanyId(cachedCompanyId);
+        // Get cached company ID early
+        const [cachedCompanyId, sessionResult] = await Promise.all([
+          getSelectedCompanyId(),
+          // Race getSession against a timeout to prevent hanging on boot
+          Promise.race([
+            supabase.auth.getSession(),
+            new Promise<{ data: { session: null } }>((resolve) => 
+              setTimeout(() => resolve({ data: { session: null } }), 5000)
+            )
+          ])
+        ]);
 
-        const sessionResult = await supabase.auth.getSession();
+        if (cancelled) return;
+        setCompanyId(cachedCompanyId);
+
         const authed = !!sessionResult.data.session?.access_token;
         
-        if (!cancelled) {
-          if (!authed) {
-            setStage("login");
-          } else {
-            const companies = await fetchUser();
-            const cachedId = await getSelectedCompanyId();
-            const validCompany = companies.find(c => (c && c.id === cachedId));
+        if (!authed) {
+          setStage("login");
+        } else {
+          // Perform the boot fetch
+          const companiesList = await fetchUser(true);
+          if (cancelled) return;
 
-            if (validCompany) {
-              if (validCompany.role) setUserRole(validCompany.role);
-              setCompanyId(cachedId);
-              setStage("main");
-            } else {
-              await setSelectedCompanyId(null);
-              setCompanyId(null);
-              setStage(companies.length > 0 ? "company" : "onboarding");
-            }
+          const cachedId = await getSelectedCompanyId();
+          const validCompany = companiesList.find(c => (c && c.id === cachedId));
+
+          if (validCompany) {
+            if (validCompany.role) setUserRole(validCompany.role);
+            setCompanyId(cachedId);
+            setStage("main");
+          } else {
+            await setSelectedCompanyId(null);
+            setCompanyId(null);
+            setStage(companiesList.length > 0 ? "company" : "onboarding");
           }
         }
       } catch (e: any) {
         console.error("[Auth] Initialization error:", e);
         if (!cancelled) {
-          setBootError(e?.message || "Unknown error");
+          setBootError(e?.message || "Unknown error during initialization");
           setStage("boot");
         }
       }
@@ -136,9 +171,9 @@ export function AppRoot() {
         if (!authed) {
           setStage("login");
           setCompanyId(null);
-        } else {
-          // Re-fetch user/companies on auth change to ensure sync
-          await fetchUser();
+        } else if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
+          // Silent refresh of user data when auth state changes meaningfully
+          await fetchUser(false);
         }
       } catch (e) {
         console.error("[Auth] Error on auth change:", e);
@@ -349,7 +384,7 @@ export function AppRoot() {
         />
       </View>
     );
-  }, [bootError, stage, companyId, currentScreen, showDrawer, userName, userRole]);
+  }, [bootError, stage, companyId, currentScreen, showDrawer, userName, userRole, companies]);
 
   return (
     <View style={{ flex: 1, backgroundColor: PremiumColors.bg.base }}>

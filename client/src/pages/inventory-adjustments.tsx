@@ -16,14 +16,15 @@ import {
     TrendingUp,
     AlertCircle,
     Calendar,
-    Filter
+    Filter,
+    PlusCircle
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useState } from "react";
-import { BulkAdjustmentDialog } from "@/components/inventory/bulk-adjustment-dialog";
 import { format } from "date-fns";
+import { Link } from "wouter";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const ITEMS_PER_PAGE = 15;
@@ -78,95 +79,113 @@ export default function InventoryAdjustmentsPage() {
                         Inventory corrections and manual stock changes
                     </p>
                 </div>
-                <BulkAdjustmentDialog companyId={companyId} branchId={selectedBranchId || undefined} />
+            <div className="flex items-center gap-4">
+                <Link href="/inventory/bulk-adjust">
+                    <Button className="rounded-2xl bg-white border-slate-200 text-slate-800 hover:bg-slate-50 shadow-sm gap-2 h-12 px-6">
+                        <ArrowRightLeft className="w-4 h-4" />
+                        Bulk Adjustment
+                    </Button>
+                </Link>
+                <Link href="/inventory/stock-take">
+                    <Button className="rounded-2xl bg-slate-900 text-white hover:bg-slate-800 shadow-xl shadow-slate-900/10 gap-2 h-12 px-8">
+                        <History className="w-4 h-4" />
+                        Record Stock Take
+                    </Button>
+                </Link>
             </div>
+        </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-                <Card className="bg-white border-none shadow-sm rounded-3xl p-6 ring-1 ring-slate-100">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Adjustments</p>
-                    <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-600">
-                            <ArrowRightLeft className="w-5 h-5" />
-                        </div>
-                        <span className="text-2xl font-black text-slate-900">{filteredAdjustments?.length || 0}</span>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+            <Card className="bg-white border-none shadow-sm rounded-3xl p-6 ring-1 ring-slate-100">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Adjustments</p>
+                <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-600">
+                        <ArrowRightLeft className="w-5 h-5" />
                     </div>
-                </Card>
-                <Card className="bg-white border-none shadow-sm rounded-3xl p-6 ring-1 ring-slate-100">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Latest Update</p>
-                    <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-600">
-                            <Calendar className="w-5 h-5" />
-                        </div>
-                        <span className="text-lg font-bold text-slate-900">
-                            {filteredAdjustments?.[0] ? format(new Date(filteredAdjustments[0].createdAt!), 'MMM d, p') : '—'}
-                        </span>
+                    <span className="text-2xl font-black text-slate-900">{filteredAdjustments?.length || 0}</span>
+                </div>
+            </Card>
+            <Card className="bg-white border-none shadow-sm rounded-3xl p-6 ring-1 ring-slate-100">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Latest Update</p>
+                <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-600">
+                        <Calendar className="w-5 h-5" />
                     </div>
-                </Card>
-            </div>
-
-            <div className="flex flex-col md:flex-row gap-4 mb-6">
-                <div className="relative flex-1 max-w-md group">
-                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 group-hover:text-primary transition-all duration-300" />
-                    <Input
-                        placeholder="Search by product or notes..."
-                        className="pl-11 h-12 bg-white/80 border-slate-200/60 shadow-sm rounded-[1.25rem] focus-visible:ring-primary/10 transition-all duration-300"
-                        value={searchTerm}
-                        onChange={handleSearch}
-                    />
+                    <span className="text-lg font-bold text-slate-900">
+                        {filteredAdjustments?.[0] ? format(new Date(filteredAdjustments[0].createdAt!), 'MMM d, p') : '—'}
+                    </span>
                 </div>
-                <div className="flex items-center gap-3 bg-white/80 backdrop-blur-sm border border-slate-200/60 rounded-[1.25rem] px-4 shadow-sm h-12 overflow-hidden">
-                    <Filter className="w-4 h-4 text-slate-400" />
-                    <Select value={typeFilter} onValueChange={setTypeFilter}>
-                        <SelectTrigger className="border-none bg-transparent shadow-none focus:ring-0 w-[160px] text-xs font-bold uppercase tracking-widest p-0">
-                            <SelectValue placeholder="All Types" />
-                        </SelectTrigger>
-                        <SelectContent className="rounded-2xl shadow-xl overflow-hidden p-1">
-                            <SelectItem value="all">All Types</SelectItem>
-                            {ADJUSTMENT_TYPES.map(type => (
-                                <SelectItem key={type} value={type}>{type}</SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                </div>
-            </div>
+            </Card>
+        </div>
 
-            <Card className="border-none shadow-2xl shadow-slate-200/50 bg-white/50 backdrop-blur-md rounded-[2.5rem] overflow-hidden group">
-                <CardContent className="p-0">
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse">
-                            <thead>
-                                <tr className="bg-slate-50/80 border-b border-slate-100/60">
-                                    <th className="p-6 font-black text-slate-400 uppercase tracking-widest text-[10px]">Adjustment Info</th>
-                                    <th className="p-6 font-black text-slate-400 uppercase tracking-widest text-[10px]">Product / SKU</th>
-                                    <th className="p-6 font-black text-slate-400 uppercase tracking-widest text-[10px]">Quantity</th>
-                                    <th className="p-6 font-black text-slate-400 uppercase tracking-widest text-[10px]">Reason & Notes</th>
+        <div className="flex flex-col md:flex-row gap-4 mb-6">
+            <div className="relative flex-1 max-w-md group">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 group-hover:text-primary transition-all duration-300" />
+                <Input
+                    placeholder="Search by product or notes..."
+                    className="pl-11 h-12 bg-white/80 border-slate-200/60 shadow-sm rounded-[1.25rem] focus-visible:ring-primary/10 transition-all duration-300"
+                    value={searchTerm}
+                    onChange={handleSearch}
+                />
+            </div>
+            <div className="flex items-center gap-3 bg-white/80 backdrop-blur-sm border border-slate-200/60 rounded-[1.25rem] px-4 shadow-sm h-12 overflow-hidden">
+                <Filter className="w-4 h-4 text-slate-400" />
+                <Select value={typeFilter} onValueChange={setTypeFilter}>
+                    <SelectTrigger className="border-none bg-transparent shadow-none focus:ring-0 w-[160px] text-xs font-bold uppercase tracking-widest p-0">
+                        <SelectValue placeholder="All Types" />
+                    </SelectTrigger>
+                    <SelectContent className="rounded-2xl shadow-xl overflow-hidden p-1">
+                        <SelectItem value="all">All Types</SelectItem>
+                        {ADJUSTMENT_TYPES.map(type => (
+                            <SelectItem key={type} value={type}>{type}</SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+            </div>
+        </div>
+
+        <Card className="border-none shadow-2xl shadow-slate-200/50 bg-white/50 backdrop-blur-md rounded-[2.5rem] overflow-hidden group">
+            <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                        <thead>
+                            <tr className="bg-slate-50/80 border-b border-slate-100/60">
+                                <th className="p-6 font-black text-slate-400 uppercase tracking-widest text-[10px]">Adjustment Info</th>
+                                <th className="p-6 font-black text-slate-400 uppercase tracking-widest text-[10px]">Product / SKU</th>
+                                <th className="p-6 font-black text-slate-400 uppercase tracking-widest text-[10px]">Quantity</th>
+                                <th className="p-6 font-black text-slate-400 uppercase tracking-widest text-[10px]">Reason & Notes</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100/60">
+                            {isLoading ? (
+                                <tr>
+                                    <td colSpan={4} className="p-20 text-center">
+                                        <div className="flex flex-col items-center justify-center gap-4">
+                                            <div className="w-10 h-10 border-4 border-slate-200 border-t-amber-600 rounded-full animate-spin" />
+                                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Scanning Stock Audit Log...</p>
+                                        </div>
+                                    </td>
                                 </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100/60">
-                                {isLoading ? (
-                                    <tr>
-                                        <td colSpan={4} className="p-20 text-center">
-                                            <div className="flex flex-col items-center justify-center gap-4">
-                                                <div className="w-10 h-10 border-4 border-slate-200 border-t-amber-600 rounded-full animate-spin" />
-                                                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Scanning Stock Audit Log...</p>
+                            ) : paginatedAdjustments?.length === 0 ? (
+                                <tr>
+                                    <td colSpan={4} className="p-20 text-center">
+                                        <div className="flex flex-col items-center justify-center max-w-sm mx-auto">
+                                            <div className="w-20 h-20 rounded-[2.5rem] bg-slate-50 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-500">
+                                                <AlertCircle className="w-10 h-10 text-slate-200" />
                                             </div>
-                                        </td>
-                                    </tr>
-                                ) : paginatedAdjustments?.length === 0 ? (
-                                    <tr>
-                                        <td colSpan={4} className="p-20 text-center">
-                                            <div className="flex flex-col items-center justify-center max-w-sm mx-auto">
-                                                <div className="w-20 h-20 rounded-[2.5rem] bg-slate-50 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-500">
-                                                    <AlertCircle className="w-10 h-10 text-slate-200" />
-                                                </div>
-                                                <h3 className="text-xl font-display font-bold text-slate-900 mb-2">No adjustments yet</h3>
-                                                <p className="text-sm text-slate-400 mb-8 leading-relaxed">
-                                                    All manual stock changes, shrinkage, and corrections will be listed here for audit purposes.
-                                                </p>
-                                                <BulkAdjustmentDialog companyId={companyId} branchId={selectedBranchId || undefined} />
-                                            </div>
-                                        </td>
-                                    </tr>
+                                            <h3 className="text-xl font-display font-bold text-slate-900 mb-2">No adjustments yet</h3>
+                                            <p className="text-sm text-slate-400 mb-8 leading-relaxed">
+                                                All manual stock changes, shrinkage, and corrections will be listed here for audit purposes.
+                                            </p>
+                                            <Link href="/inventory/stock-take">
+                                                <Button className="rounded-2xl bg-slate-900 text-white hover:bg-slate-800 shadow-xl shadow-slate-900/10 gap-2 h-12 px-8">
+                                                    <PlusCircle className="w-4 h-4" />
+                                                    Start First Audit Session
+                                                </Button>
+                                            </Link>
+                                        </div>
+                                    </td>
+                                </tr>
                                 ) : paginatedAdjustments?.map((t) => {
                                     const product = products?.find(p => p.id === t.productId);
                                     const qty = Number(t.quantity);

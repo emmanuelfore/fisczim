@@ -736,6 +736,7 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
         const updatedInvoice = await storage.fiscalizeInvoice(invoiceId, {
             fiscalCode: result.hash, // Corrected to SHA256 Hash for verification independently
             qrCodeData: qrCode,
+            verificationCode: result.verificationCode,
             fiscalSignature: result.signature,
             fiscalDayNo: receiptData.fiscalDayNo,
             receiptCounter: receiptData.receiptCounter,

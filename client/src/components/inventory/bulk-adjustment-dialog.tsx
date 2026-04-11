@@ -14,6 +14,7 @@ import {
     DialogHeader,
     DialogTitle,
     DialogTrigger,
+    DialogClose,
 } from "@/components/ui/dialog";
 import {
     Form,
@@ -39,7 +40,8 @@ import {
     AlertCircle, 
     Plus, 
     ArrowRightLeft,
-    Search
+    Search,
+    X
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
@@ -48,6 +50,7 @@ import { Separator } from "@/components/ui/separator";
 
 const itemSchema = z.object({
     productId: z.number({ required_error: "Required" }),
+    variationId: z.number().optional(),
     quantity: z.string().transform((v) => parseFloat(v)).pipe(z.number()),
     type: z.enum(['ADJUSTMENT', 'SHRINKAGE', 'CORRECTION', 'DAMAGE', 'EXPIRY']),
     notes: z.string().optional(),

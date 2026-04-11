@@ -156,6 +156,7 @@ export interface IStorage {
   }>;
   getSalesReport(companyId: number, startDate: Date, endDate: Date, cashierId?: string): Promise<any[]>;
   getPaymentsReport(companyId: number, startDate: Date, endDate: Date): Promise<any[]>;
+  getFiscalReportData(companyId: number, date: Date, cashierId?: string): Promise<any>;
 
   // Audit Logs
   createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
@@ -1151,6 +1152,7 @@ export class DatabaseStorage implements IStorage {
   async fiscalizeInvoice(id: number, fiscalData: {
     fiscalCode: string;
     qrCodeData: string;
+    verificationCode?: string;
     fiscalSignature?: string;
     fiscalDayNo?: number;
     receiptCounter?: number;
@@ -1161,13 +1163,14 @@ export class DatabaseStorage implements IStorage {
     validationStatus?: string;
     lastValidationAttempt?: Date;
   }): Promise<Invoice> {
-    const { syncedWithFdms = true, fdmsStatus = "issued", validationStatus, lastValidationAttempt, submissionId, ...rest } = fiscalData;
+    const { syncedWithFdms = true, fdmsStatus = "issued", validationStatus, lastValidationAttempt, submissionId, verificationCode, ...rest } = fiscalData;
 
     await db
       .update(invoices)
       .set({
         ...rest,
         submissionId,
+        verificationCode,
         syncedWithFdms,
         fdmsStatus,
         validationStatus,
@@ -2955,10 +2958,12 @@ export class DatabaseStorage implements IStorage {
         expiryDate: inventoryTransactions.expiryDate,
         createdBy: inventoryTransactions.createdBy,
         createdAt: inventoryTransactions.createdAt,
-        userName: users.username
+        userName: users.username,
+        variationName: productVariations.name
       })
       .from(inventoryTransactions)
       .leftJoin(users, eq(users.id, inventoryTransactions.createdBy))
+      .leftJoin(productVariations, eq(productVariations.id, inventoryTransactions.variationId))
       .where(and(...filters))
       .orderBy(desc(inventoryTransactions.createdAt));
   }
@@ -3032,6 +3037,153 @@ export class DatabaseStorage implements IStorage {
       unitCost: p.costPrice || "0",
       totalValuation: Number(p.stockLevel || 0) * Number(p.costPrice || 0)
     }));
+  }
+
+  async getFiscalReportData(companyId: number, date: Date, cashierId?: string) {
+    const start = new Date(date);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(date);
+    end.setHours(23, 59, 59, 999);
+
+    const filters = [
+      eq(invoices.companyId, companyId),
+      gte(invoices.issueDate, start),
+      lte(invoices.issueDate, end),
+      ne(invoices.transactionType, 'CreditNote')
+    ];
+    if (cashierId) filters.push(eq(invoices.createdBy, cashierId));
+
+    const dayInvoices = await db
+      .select()
+      .from(invoices)
+      .leftJoin(users, eq(invoices.createdBy, users.id))
+      .where(and(...filters));
+
+    const invoiceIds = dayInvoices.map(r => r.invoices.id);
+    let allItems: any[] = [];
+    if (invoiceIds.length > 0) {
+      allItems = await db
+        .select()
+        .from(invoiceItems)
+        .where(inArray(invoiceItems.invoiceId, invoiceIds));
+    }
+
+    const companyCurrencies = await this.getCurrencies(companyId);
+    const taxTypesList = await this.getTaxTypes(companyId);
+
+    // Grouping
+    const currencyMap = new Map();
+    const cashierMap = new Map();
+    const itemMap = new Map();
+    const taxMap = new Map();
+
+    let totalRevenue = 0;
+    let totalTax = 0;
+
+    dayInvoices.forEach(({ invoices: inv, users: user }) => {
+      totalRevenue += Number(inv.total);
+      totalTax += Number(inv.taxAmount);
+
+      // Currency
+      const curr = currencyMap.get(inv.currency) || { 
+        code: inv.currency, 
+        name: companyCurrencies.find(c => c.code === inv.currency)?.name || inv.currency,
+        subtotal: 0, 
+        taxAmount: 0, 
+        total: 0, 
+        count: 0 
+      };
+      curr.subtotal += Number(inv.subtotal);
+      curr.taxAmount += Number(inv.taxAmount);
+      curr.total += Number(inv.total);
+      curr.count += 1;
+      currencyMap.set(inv.currency, curr);
+
+      // Cashier
+      const cashierName = user?.username || 'System';
+      const csh = cashierMap.get(user?.id || 'system') || { 
+        id: user?.id || 'system', 
+        name: cashierName, 
+        total: 0, 
+        count: 0 
+      };
+      csh.total += Number(inv.total);
+      csh.count += 1;
+      cashierMap.set(user?.id || 'system', csh);
+    });
+
+    allItems.forEach(item => {
+      // Item Sales
+      const itm = itemMap.get(item.productId || item.description) || { 
+        id: item.productId, 
+        name: item.description, 
+        sku: '', 
+        quantity: 0, 
+        total: 0 
+      };
+      itm.quantity += Number(item.quantity);
+      itm.total += Number(item.lineTotal);
+      itemMap.set(item.productId || item.description, itm);
+
+      // Tax Breakdown
+      const taxTypeId = item.taxTypeId;
+      if (taxTypeId) {
+        const taxInfo = taxTypesList.find(t => t.id === taxTypeId);
+        if (taxInfo) {
+          const tKey = taxInfo.id;
+          const tx = taxMap.get(tKey) || {
+            taxID: taxInfo.id,
+            taxCode: taxInfo.code,
+            taxName: taxInfo.name,
+            taxPercent: Number(taxInfo.rate),
+            taxableAmount: 0,
+            taxAmount: 0
+          };
+          
+          // Calculate tax from lineTotal if not explicit
+          // Assuming lineTotal is inclusive for some, exclusive for others?
+          // Actually shared/schema says lineTotal is the final line item amount.
+          const lineTax = (Number(item.lineTotal) * Number(item.taxRate)) / (100 + Number(item.taxRate));
+          tx.taxableAmount += Number(item.lineTotal) - lineTax;
+          tx.taxAmount += lineTax;
+          taxMap.set(tKey, tx);
+        }
+      }
+    });
+
+    const [comp] = await db.select().from(companies).where(eq(companies.id, companyId));
+
+    return {
+      summary: {
+        totalRevenue,
+        revenue: totalRevenue,
+        totalTax,
+        tax: totalTax,
+        receiptsCount: dayInvoices.length,
+        invoiceCount: dayInvoices.length,
+        productsSold: Array.from(itemMap.values()).reduce((acc, i) => acc + i.quantity, 0),
+        fiscalDayNo: comp?.fiscalDayNumber || null,
+        date: date.toISOString()
+      },
+      currencies: Array.from(currencyMap.values()).map(c => ({
+        ...c,
+        tax: c.taxAmount
+      })),
+      cashiers: Array.from(cashierMap.values()).map(c => ({
+        ...c,
+        cashierId: c.id
+      })),
+      items: Array.from(itemMap.values()).map(i => ({
+        ...i,
+        productId: i.id
+      })),
+      taxes: Array.from(taxMap.values()).map(t => ({
+        ...t,
+        taxRate: t.taxPercent,
+        net: t.taxableAmount,
+        tax: t.taxAmount
+      }))
+    };
   }
 
   async getFinancialSummary(companyId: number, dateFrom?: Date, dateTo?: Date, cashierId?: string, drillDown?: boolean) {
@@ -4012,6 +4164,64 @@ export class DatabaseStorage implements IStorage {
       unitCost: String(r.unitCost || "0"),
       totalValue: String(r.totalValue || "0")
     }));
+  }
+
+  async getAbcAnalysis(companyId: number): Promise<{
+    productId: number;
+    name: string;
+    sku: string | null;
+    revenue: number;
+    share: number;
+    cumulativeShare: number;
+    category: "A" | "B" | "C";
+  }[]> {
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    // 1. Get revenue by product
+    const productRevenue = await db
+      .select({
+        productId: products.id,
+        name: products.name,
+        sku: products.sku,
+        revenue: sql<number>`SUM(${invoiceItems.lineTotal})`
+      })
+      .from(invoiceItems)
+      .innerJoin(invoices, eq(invoiceItems.invoiceId, invoices.id))
+      .innerJoin(products, eq(invoiceItems.productId, products.id))
+      .where(and(
+        eq(invoices.companyId, companyId),
+        gte(invoices.issueDate, thirtyDaysAgo),
+        ne(invoices.status, 'cancelled'),
+        ne(invoices.status, 'draft')
+      ))
+      .groupBy(products.id, products.name, products.sku)
+      .orderBy(desc(sql`SUM(${invoiceItems.lineTotal})`));
+
+    const totalRevenue = productRevenue.reduce((sum, p) => sum + Number(p.revenue), 0);
+
+    if (totalRevenue === 0) return [];
+
+    let currentCumulative = 0;
+    return productRevenue.map(p => {
+      const revenue = Number(p.revenue);
+      const share = (revenue / totalRevenue) * 100;
+      currentCumulative += share;
+
+      let category: "A" | "B" | "C" = "C";
+      if (currentCumulative <= 70) category = "A";
+      else if (currentCumulative <= 90) category = "B";
+
+      return {
+        productId: p.productId,
+        name: p.name,
+        sku: p.sku,
+        revenue,
+        share,
+        cumulativeShare: currentCumulative,
+        category
+      };
+    });
   }
 
   async getReportInventoryMovements(companyId: number, start: Date, end: Date): Promise<{ transactionId: number; date: string; productName: string; type: string; quantity: string; unitCost: string | null; reference: string | null; notes: string | null }[]> {

@@ -81,7 +81,15 @@ export function PrinterSettingsModal({ visible, onClose }: Props) {
                 <Text style={{ color: PremiumColors.text.primary, fontWeight: "600" }}>Enable Printing</Text>
                 <TouchableOpacity 
                    activeOpacity={0.8}
-                   onPress={() => setDraft(p => ({ ...p, enabled: !p.enabled }))}
+                   onPress={() => setDraft(p => {
+                     const next = !p.enabled;
+                     return { 
+                       ...p, 
+                       enabled: next,
+                       autoPrint: next ? p.autoPrint : false,
+                       silentPrint: next ? p.silentPrint : false
+                     };
+                   })}
                    style={{ width: 44, height: 24, borderRadius: 12, backgroundColor: draft.enabled ? PremiumColors.amber.primary : PremiumColors.border.default, justifyContent: "center", paddingHorizontal: 2 }}
                 >
                   <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: "white", alignSelf: draft.enabled ? "flex-end" : "flex-start" }} />
@@ -92,8 +100,9 @@ export function PrinterSettingsModal({ visible, onClose }: Props) {
                 <Text style={{ color: PremiumColors.text.primary }}>Auto Print Receipt</Text>
                 <TouchableOpacity 
                    activeOpacity={0.8}
+                   disabled={!draft.enabled}
                    onPress={() => setDraft(p => ({ ...p, autoPrint: !p.autoPrint }))}
-                   style={{ width: 44, height: 24, borderRadius: 12, backgroundColor: draft.autoPrint ? PremiumColors.amber.primary : PremiumColors.border.default, justifyContent: "center", paddingHorizontal: 2 }}
+                   style={{ width: 44, height: 24, borderRadius: 12, backgroundColor: draft.autoPrint ? PremiumColors.amber.primary : PremiumColors.border.default, justifyContent: "center", paddingHorizontal: 2, opacity: draft.enabled ? 1 : 0.4 }}
                 >
                   <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: "white", alignSelf: draft.autoPrint ? "flex-end" : "flex-start" }} />
                 </TouchableOpacity>
@@ -114,8 +123,9 @@ export function PrinterSettingsModal({ visible, onClose }: Props) {
                 <Text style={{ color: PremiumColors.text.primary }}>Silent AirPrint</Text>
                 <TouchableOpacity 
                    activeOpacity={0.8}
+                   disabled={!draft.enabled}
                    onPress={() => setDraft(p => ({ ...p, silentPrint: !p.silentPrint }))}
-                   style={{ width: 44, height: 24, borderRadius: 12, backgroundColor: draft.silentPrint ? PremiumColors.amber.primary : PremiumColors.border.default, justifyContent: "center", paddingHorizontal: 2 }}
+                   style={{ width: 44, height: 24, borderRadius: 12, backgroundColor: draft.silentPrint ? PremiumColors.amber.primary : PremiumColors.border.default, justifyContent: "center", paddingHorizontal: 2, opacity: draft.enabled ? 1 : 0.4 }}
                 >
                   <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: "white", alignSelf: draft.silentPrint ? "flex-end" : "flex-start" }} />
                 </TouchableOpacity>

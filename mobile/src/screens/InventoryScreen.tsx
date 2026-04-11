@@ -2,7 +2,7 @@ import React, { useState, useMemo, useCallback } from "react";
 import {
   View, Text, FlatList, TouchableOpacity, TextInput,
   StyleSheet, SafeAreaView, ActivityIndicator, Alert, ScrollView, Modal,
-  KeyboardAvoidingView, Platform,
+  KeyboardAvoidingView, Platform, Image,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -11,6 +11,7 @@ import {
 import { StatusBar } from "expo-status-bar";
 import { useProducts, useTaxTypes } from "../hooks/usePosData";
 import { apiFetch } from "../lib/api";
+import { resolveMediaUrl } from "../lib/media";
 
 import { PremiumColors as C } from "../ui/PremiumColors";
 
@@ -23,7 +24,7 @@ interface Props { onOpenDrawer: () => void; companyId: number; }
 
 const emptyProduct = { 
   name: "", sku: "", barcode: "", hsCode: "0000.00.00", price: "", costPrice: "", 
-  category: "", description: "", productType: "good", 
+  category: "", ownerGroup: "", description: "", productType: "good", 
   isTracked: true, stockLevel: "0", lowStockThreshold: "10",
   taxTypeId: null as number | null, isActive: true 
 };
@@ -45,7 +46,8 @@ export function InventoryScreen({ onOpenDrawer, companyId }: Props) {
       (p.isActive !== false) && (
         p.name?.toLowerCase().includes(q) || 
         p.sku?.toLowerCase().includes(q) || 
-        p.category?.toLowerCase().includes(q)
+        p.category?.toLowerCase().includes(q) ||
+        p.ownerGroup?.toLowerCase().includes(q)
       )
     );
   }, [products, search]);
@@ -63,6 +65,7 @@ export function InventoryScreen({ onOpenDrawer, companyId }: Props) {
       hsCode: item.hsCode || "0000.00.00",
       price: String(item.price || ""),
       costPrice: String(item.costPrice || ""), category: item.category || "",
+      ownerGroup: item.ownerGroup || "",
       description: item.description || "", productType: item.productType || "good",
       isTracked: item.isTracked ?? true, stockLevel: String(item.stockLevel || 0),
       lowStockThreshold: String(item.lowStockThreshold || 10),
@@ -90,6 +93,7 @@ export function InventoryScreen({ onOpenDrawer, companyId }: Props) {
         price: form.price,
         costPrice: form.costPrice || "0",
         category: form.category || null,
+        ownerGroup: form.ownerGroup?.trim() ? form.ownerGroup.trim() : null,
         description: form.description || null,
         productType: form.productType,
         isTracked: form.isTracked,
@@ -121,21 +125,40 @@ export function InventoryScreen({ onOpenDrawer, companyId }: Props) {
   const renderItem = ({ item }: { item: any }) => {
     const stock = Number(item.stockLevel || 0);
     const lowThreshold = Number(item.lowStockThreshold || 10);
-    const stockColor = stock <= 0 ? C.status.error : stock <= lowThreshold ? C.amber.primary : C.status.success;
+    const isOutOfStock = stock <= 0;
+    const isLowStock = stock <= lowThreshold;
+    const imageUrl = resolveMediaUrl(item.imageUrl);
     return (
-      <TouchableOpacity style={styles.card} onPress={() => openEdit(item)} activeOpacity={0.7}>
-        <View style={styles.cardIcon}><Package size={18} color={C.amber.primary} /></View>
+      <TouchableOpacity style={styles.card} onPress={() => openEdit(item)} activeOpacity={0.8}>
+        {imageUrl ? (
+          <Image source={{ uri: imageUrl }} style={styles.cardImage} />
+        ) : (
+          <View style={styles.cardIcon}>
+            <Package size={22} color={C.text.secondary} opacity={0.6} />
+          </View>
+        )}
         <View style={styles.cardInfo}>
           <Text style={styles.cardTitle} numberOfLines={1}>{item.name}</Text>
-          <Text style={styles.cardSub}>{item.sku || "No SKU"}{item.category ? ` · ${item.category}` : ""}</Text>
+          <Text style={styles.cardSub}>
+            {item.sku || "No SKU"}
+            {item.category ? ` · ${item.category}` : ""}
+            {item.ownerGroup ? ` · ${item.ownerGroup}` : ""}
+          </Text>
         </View>
         <View style={styles.cardRight}>
           <Text style={styles.cardPrice}>${Number(item.price || 0).toFixed(2)}</Text>
-          <Text style={[styles.cardStock, { color: stockColor }]}>
-            {item.isTracked ? `${stock} in stock` : "Not tracked"}
-          </Text>
+          <View style={[
+            styles.stockBadge, 
+            { backgroundColor: isOutOfStock ? C.status.error : isLowStock ? "#fbbf24" : "#111827"}
+          ]}>
+            <Text style={[
+              styles.stockBadgeText, 
+              { color: isLowStock ? "#000" : "#fff" }
+            ]}>
+              {item.isTracked ? (isOutOfStock ? "OUT" : `${stock} UNITS`) : "NOT TRACKED"}
+            </Text>
+          </View>
         </View>
-        <Edit2 size={14} color={C.text.secondary} />
       </TouchableOpacity>
     );
   };
@@ -197,6 +220,17 @@ export function InventoryScreen({ onOpenDrawer, companyId }: Props) {
                       ))}
                     </View>
                   )}
+                </View>
+                {/* Owner Group */}
+                <View style={styles.field}>
+                  <Text style={styles.fieldLabel}>Owner Group (for separate reports)</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={form.ownerGroup}
+                    onChangeText={(v) => setForm({ ...form, ownerGroup: v })}
+                    placeholder="e.g. Beauty or Mother"
+                    placeholderTextColor={C.text.secondary}
+                  />
                 </View>
                 {/* Tax Type */}
                 <View style={styles.field}>
@@ -260,18 +294,20 @@ export function InventoryScreen({ onOpenDrawer, companyId }: Props) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg.base },
   header: { paddingHorizontal: 16, paddingVertical: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: C.border.default },
-  iconBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: C.bg.hover, borderWidth: 1, borderColor: C.border.default, alignItems: "center", justifyContent: "center" },
+  iconBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: C.bg.card, alignItems: "center", justifyContent: "center", shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 4 },
   title: { color: C.text.primary, fontSize: 18, fontWeight: "800" },
-  searchRow: { flexDirection: "row", alignItems: "center", backgroundColor: C.bg.hover, margin: 16, marginBottom: 0, borderRadius: 12, paddingHorizontal: 12, borderWidth: 1, borderColor: C.border.default, gap: 8 },
-  searchInput: { flex: 1, color: C.text.primary, height: 44, fontSize: 14 },
-  card: { flexDirection: "row", alignItems: "center", backgroundColor: C.bg.hover, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: C.border.default, marginBottom: 10, gap: 10 },
-  cardIcon: { width: 38, height: 38, borderRadius: 10, backgroundColor: "rgba(240,165,0,0.1)", alignItems: "center", justifyContent: "center" },
-  cardInfo: { flex: 1 },
-  cardTitle: { color: C.text.primary, fontSize: 13, fontWeight: "700" },
-  cardSub: { color: C.text.secondary, fontSize: 11, marginTop: 2 },
-  cardRight: { alignItems: "flex-end", marginRight: 4 },
-  cardPrice: { color: C.text.primary, fontSize: 13, fontWeight: "800" },
-  cardStock: { color: C.status.success, fontSize: 10, marginTop: 2, fontWeight: "600" },
+  searchRow: { flexDirection: "row", alignItems: "center", backgroundColor: C.bg.hover, margin: 16, marginBottom: 0, borderRadius: 16, paddingHorizontal: 16, height: 48, shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 3, gap: 10 },
+  searchInput: { flex: 1, color: C.text.primary, height: 48, fontSize: 15 },
+  card: { flexDirection: "row", alignItems: "center", backgroundColor: C.bg.card, padding: 12, borderRadius: 18, marginBottom: 12, gap: 12, shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 5 },
+  cardImage: { width: 44, height: 44, borderRadius: 14, backgroundColor: C.bg.hover },
+  cardIcon: { width: 44, height: 44, borderRadius: 14, backgroundColor: C.bg.hover, alignItems: "center", justifyContent: "center" },
+  cardInfo: { flex: 1, justifyContent: "center" },
+  cardTitle: { color: C.text.primary, fontSize: 15, fontWeight: "800", marginBottom: 3 },
+  cardSub: { color: C.text.secondary, fontSize: 12, fontWeight: "500" },
+  cardRight: { alignItems: "flex-end", marginRight: 2 },
+  cardPrice: { color: C.text.primary, fontSize: 15, fontWeight: "900", marginBottom: 4 },
+  stockBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  stockBadgeText: { fontSize: 9, fontWeight: "900", letterSpacing: 0.5 },
   errorText: { color: C.status.error, textAlign: "center", marginTop: 40 },
   emptyText: { color: C.text.secondary, textAlign: "center", marginTop: 40 },
   modalOverlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.7)" },
@@ -282,14 +318,14 @@ const styles = StyleSheet.create({
   fieldLabel: { color: C.text.secondary, fontSize: 11, fontWeight: "600", marginBottom: 5 },
   fieldInput: { backgroundColor: C.bg.hover, color: C.text.primary, borderRadius: 10, paddingHorizontal: 14, height: 42, borderWidth: 1, borderColor: C.border.default, fontSize: 14 },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6 },
-  chip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: C.bg.hover, borderWidth: 1, borderColor: C.border.default },
-  chipActive: { backgroundColor: `${C.amber.primary}20`, borderColor: C.amber.primary },
+  chip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: C.bg.card, shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
+  chipActive: { backgroundColor: `${C.amber.primary}20`, shadowColor: C.amber.primary, shadowOpacity: 0.2, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 5 },
   chipText: { color: C.text.secondary, fontSize: 11, fontWeight: "600" },
   chipTextActive: { color: C.amber.primary },
   toggleRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12, marginTop: 4 },
   toggleBox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: C.text.secondary, alignItems: "center", justifyContent: "center" },
   toggleBoxActive: { backgroundColor: C.amber.primary, borderColor: C.amber.primary },
   toggleLabel: { color: C.text.primary, fontSize: 13, fontWeight: "600" },
-  saveBtn: { backgroundColor: C.amber.primary, borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 8, marginBottom: 20 },
+  saveBtn: { backgroundColor: C.amber.primary, borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 8, marginBottom: 20 , shadowColor: C.amber.primary, shadowOpacity: 0.35, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 8 },
   saveBtnText: { color: "#000", fontWeight: "800", fontSize: 15 },
 });

@@ -11,6 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { Building2, Settings, Server, CheckCircle2, AlertTriangle, RefreshCw, Activity, Wifi, WifiOff, Loader2, Zap, ShieldCheck, CreditCard, Cpu, AlertCircle, Globe, UserCog } from "lucide-react";
+import { PageHeader } from "@/components/page-header";
 
 export default function SubscriptionPage() {
     const { user } = useAuth();
@@ -140,10 +141,10 @@ export default function SubscriptionPage() {
 
     return (
         <Layout>
-            <div className="mb-8">
-                <h1 className="text-3xl font-display font-bold text-slate-900">Subscription & Licensing</h1>
-                <p className="text-slate-500 mt-1">Manage physical hardware bindings for ZIMRA production access.</p>
-            </div>
+            <PageHeader
+                title="Subscription & Licensing"
+                subtitle="Manage physical hardware bindings for ZIMRA production access."
+            />
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="md:col-span-2 space-y-6">

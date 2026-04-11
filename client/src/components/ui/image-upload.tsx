@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Camera, X, Loader2, UploadCloud } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
+import { resolveMediaUrl } from "@/lib/media";
 
 interface Props {
   value?: string;
@@ -53,7 +54,7 @@ export function ImageUpload({ value, onChange, className }: Props) {
       <div className="relative group overflow-hidden rounded-2xl border-2 border-dashed border-slate-200 hover:border-primary/50 bg-slate-50/50 transition-all aspect-square sm:aspect-video flex items-center justify-center">
         {value ? (
           <>
-            <img src={value} alt="Product" className="w-full h-full object-cover rounded-xl" />
+            <img src={resolveMediaUrl(value)} alt="Product" className="w-full h-full object-cover rounded-xl" />
             <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
               <Button 
                 type="button" 

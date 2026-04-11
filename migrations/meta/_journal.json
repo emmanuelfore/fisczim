@@ -22,6 +22,20 @@
       "when": 1774784281294,
       "tag": "0002_known_sauron",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1775868000000,
+      "tag": "0003_product_owner_group",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1775868600000,
+      "tag": "0004_user_owner_group_scope",
+      "breakpoints": true
     }
   ]
 }

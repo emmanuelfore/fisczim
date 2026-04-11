@@ -1,5 +1,5 @@
 import React from "react";
-import { ActivityIndicator, Text, TouchableOpacity, ViewStyle } from "react-native";
+import { ActivityIndicator, Text, TouchableOpacity, ViewStyle, Platform } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { PremiumColors as C } from "./PremiumColors";
 
@@ -16,11 +16,11 @@ export function Button({ title, onPress, disabled, loading, style, variant = "pr
   const content = (
     <>
       {loading ? (
-        <ActivityIndicator color="white" />
+        <ActivityIndicator color={variant === "ghost" ? C.amber.primary : "black"} />
       ) : (
         <Text
           style={{
-            color: variant === "ghost" ? C.text.primary : "white",
+            color: variant === "ghost" ? C.text.primary : "black",
             fontWeight: "900",
             letterSpacing: 1.2,
             textTransform: "uppercase",
@@ -44,11 +44,14 @@ export function Button({ title, onPress, disabled, loading, style, variant = "pr
             borderRadius: 18,
             paddingVertical: 14,
             paddingHorizontal: 16,
-            backgroundColor: C.bg.hover,
-            borderWidth: 1,
-            borderColor: C.border.default,
+            backgroundColor: C.bg.card,
             alignItems: "center",
-            justifyContent: "center"
+            justifyContent: "center",
+            shadowColor: "#000",
+            shadowOpacity: 0.15,
+            shadowRadius: 10,
+            shadowOffset: { width: 0, height: 4 },
+            elevation: 6
           },
           style
         ]}
@@ -63,10 +66,17 @@ export function Button({ title, onPress, disabled, loading, style, variant = "pr
       activeOpacity={0.88}
       onPress={onPress}
       disabled={disabled || loading}
-      style={[{ borderRadius: 22, overflow: "hidden" }, style]}
+      style={[{ 
+        borderRadius: 22,
+        shadowColor: C.amber.primary,
+        shadowOpacity: disabled ? 0 : 0.35,
+        shadowRadius: 14,
+        shadowOffset: { width: 0, height: 6 },
+        elevation: disabled ? 0 : 8
+      }, style]}
     >
       <LinearGradient
-        colors={disabled ? ["#2a2a2a", "#1e1e1e"] : [C.amber.primary, "#D97000"]}
+        colors={disabled ? [C.bg.hover, C.bg.card] : [C.amber.primary, C.amber.light]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 0 }}
         style={{

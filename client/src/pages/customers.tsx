@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import { CsvImportDialog } from "@/components/csv-import-dialog";
 import { useQueryClient } from "@tanstack/react-query";
+import { PageHeader } from "@/components/page-header";
 
 export default function CustomersPage() {
   const [itemsPerPage, setItemsPerPage] = useState(10);
@@ -67,12 +68,11 @@ export default function CustomersPage() {
 
   return (
     <Layout>
-      <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between mb-8 gap-4">
-        <div>
-          <h1 className="text-3xl font-display font-bold text-slate-900">Customers</h1>
-          <p className="text-slate-500 mt-1">Manage your client base</p>
-        </div>
-        <div className="flex flex-wrap gap-2 w-full lg:w-auto">
+      <PageHeader
+        title="Customers"
+        subtitle="Manage your client base"
+        actions={
+          <>
           <Button
             variant="outline"
             onClick={() => {
@@ -96,8 +96,9 @@ export default function CustomersPage() {
           ) : (
             <Button disabled variant="outline" className="flex-1 sm:flex-none">Select a Company First</Button>
           )}
-        </div>
-      </div>
+          </>
+        }
+      />
 
       <div className="flex flex-col md:flex-row gap-4 mb-8">
         <div className="relative flex-1 w-full sm:max-w-sm group">

@@ -11,7 +11,7 @@ import { DeleteButton } from "@/components/delete-button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import {
+import { 
     Select,
     SelectContent,
     SelectItem,
@@ -35,6 +35,7 @@ import {
     AlertDialogHeader, 
     AlertDialogTitle, 
 } from "@/components/ui/alert-dialog";
+import { PageHeader } from "@/components/page-header";
 
 
 export default function ServicesPage() {
@@ -132,12 +133,11 @@ export default function ServicesPage() {
 
     return (
         <Layout>
-            <div className="flex items-center justify-between mb-8">
-                <div>
-                    <h1 className="text-3xl font-display font-bold text-slate-900">Services</h1>
-                    <p className="text-slate-500 mt-1">Manage service offerings</p>
-                </div>
-                <div className="flex gap-2">
+            <PageHeader
+                title="Services"
+                subtitle="Manage service offerings"
+                actions={
+                    <>
                     <CsvImportDialog
                         type="service"
                         companyId={companyId}
@@ -146,8 +146,9 @@ export default function ServicesPage() {
                         }}
                     />
                     <CreateProductDialog companyId={companyId} defaultType="service" triggerLabel="Add Service" />
-                </div>
-            </div>
+                    </>
+                }
+            />
 
             <div className="flex flex-col md:flex-row gap-4 mb-6">
                 <div className="relative flex-1 max-w-sm">

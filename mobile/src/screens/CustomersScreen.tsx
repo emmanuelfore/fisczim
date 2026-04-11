@@ -95,17 +95,18 @@ export function CustomersScreen({ onOpenDrawer, companyId }: Props) {
   }, [form, companyId, editingId]);
 
   const renderItem = ({ item }: { item: any }) => (
-    <TouchableOpacity style={[styles.card, !item.isActive && { opacity: 0.5 }]} onPress={() => openEdit(item)} activeOpacity={0.7}>
-      <View style={styles.avatar}><Text style={styles.avatarText}>{(item.name || "?").charAt(0).toUpperCase()}</Text></View>
+    <TouchableOpacity style={[styles.card, !item.isActive && { opacity: 0.5 }]} onPress={() => openEdit(item)} activeOpacity={0.8}>
+      <View style={styles.avatar}>
+        <Users size={22} color={C.text.secondary} opacity={0.6} />
+      </View>
       <View style={styles.cardInfo}>
         <Text style={styles.cardTitle} numberOfLines={1}>{item.name}</Text>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginTop: 4 }}>
-        {item.phone && <View style={styles.metaRow}><Phone size={10} color={C.text.secondary} /><Text style={styles.metaText}>{item.phone}</Text></View>}
-        {item.email && <View style={styles.metaRow}><Mail size={10} color={C.text.secondary} /><Text style={styles.metaText} numberOfLines={1}>{item.email}</Text></View>}
+          {item.phone && <View style={styles.metaRow}><Phone size={10} color={C.text.secondary} /><Text style={styles.metaText}>{item.phone}</Text></View>}
+          {item.email && <View style={styles.metaRow}><Mail size={10} color={C.text.secondary} /><Text style={styles.metaText} numberOfLines={1}>{item.email}</Text></View>}
+        </View>
+        {item.customerType && <Text style={[styles.metaText, { marginTop: 4, textTransform: "capitalize", fontWeight: "600", color: C.amber.primary }]}>{item.customerType}</Text>}
       </View>
-      {item.customerType && <Text style={[styles.metaText, { marginTop: 2, textTransform: "capitalize" }]}>{item.customerType}</Text>}
-    </View>
-    <Edit2 size={14} color={C.text.secondary} />
     </TouchableOpacity>
   );
 
@@ -205,17 +206,17 @@ export function CustomersScreen({ onOpenDrawer, companyId }: Props) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg.base },
   header: { paddingHorizontal: 16, paddingVertical: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: C.border.default },
-  iconBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: C.bg.hover, borderWidth: 1, borderColor: C.border.default, alignItems: "center", justifyContent: "center" },
+  iconBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: C.bg.card, alignItems: "center", justifyContent: "center", shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 4 },
   title: { color: C.text.primary, fontSize: 18, fontWeight: "800" },
-  searchRow: { flexDirection: "row", alignItems: "center", backgroundColor: C.bg.hover, margin: 16, marginBottom: 0, borderRadius: 12, paddingHorizontal: 12, borderWidth: 1, borderColor: C.border.default, gap: 8 },
-  searchInput: { flex: 1, color: C.text.primary, height: 44, fontSize: 14 },
-  card: { flexDirection: "row", alignItems: "center", backgroundColor: C.bg.hover, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: C.border.default, marginBottom: 10, gap: 10 },
-  avatar: { width: 38, height: 38, borderRadius: 19, backgroundColor: C.amber.primary, alignItems: "center", justifyContent: "center" },
+  searchRow: { flexDirection: "row", alignItems: "center", backgroundColor: C.bg.hover, margin: 16, marginBottom: 0, borderRadius: 16, paddingHorizontal: 16, height: 48, shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 3, gap: 10 },
+  searchInput: { flex: 1, color: C.text.primary, height: 48, fontSize: 15 },
+  card: { flexDirection: "row", alignItems: "center", backgroundColor: C.bg.card, padding: 12, borderRadius: 18, marginBottom: 12, gap: 14, shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 5 },
+  avatar: { width: 44, height: 44, borderRadius: 14, backgroundColor: C.bg.hover, alignItems: "center", justifyContent: "center" },
   avatarText: { color: "#000", fontWeight: "900", fontSize: 15 },
-  cardInfo: { flex: 1 },
-  cardTitle: { color: C.text.primary, fontSize: 13, fontWeight: "700" },
+  cardInfo: { flex: 1, justifyContent: "center" },
+  cardTitle: { color: C.text.primary, fontSize: 15, fontWeight: "800", marginBottom: 2 },
   metaRow: { flexDirection: "row", alignItems: "center", gap: 4 },
-  metaText: { color: C.text.secondary, fontSize: 10 },
+  metaText: { color: C.text.secondary, fontSize: 11 },
   emptyText: { color: C.text.secondary, textAlign: "center", marginTop: 40, fontSize: 14 },
   modalOverlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.7)" },
   modalContent: { backgroundColor: C.bg.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40, borderWidth: 1, borderColor: C.border.default, maxHeight: "92%" },
@@ -225,11 +226,11 @@ const styles = StyleSheet.create({
   fieldLabel: { color: C.text.secondary, fontSize: 11, fontWeight: "600", marginBottom: 5 },
   fieldInput: { backgroundColor: C.bg.hover, color: C.text.primary, borderRadius: 10, paddingHorizontal: 14, height: 42, borderWidth: 1, borderColor: C.border.default, fontSize: 14 },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 4 },
-  chip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: C.bg.hover, borderWidth: 1, borderColor: C.border.default },
-  chipActive: { backgroundColor: `${C.amber.primary}20`, borderColor: C.amber.primary },
+  chip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: C.bg.card, shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
+  chipActive: { backgroundColor: `${C.amber.primary}20`, shadowColor: C.amber.primary, shadowOpacity: 0.2, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 5 },
   chipText: { color: C.text.secondary, fontSize: 11, fontWeight: "600" },
   chipTextActive: { color: C.amber.primary },
-  saveBtn: { backgroundColor: C.amber.primary, borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 8, marginBottom: 20 },
+  saveBtn: { backgroundColor: C.amber.primary, borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 8, marginBottom: 20 , shadowColor: C.amber.primary, shadowOpacity: 0.35, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 8 },
   saveBtnText: { color: "#000", fontWeight: "800", fontSize: 15 },
   toggleRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12, marginTop: 4 },
   toggleBox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: C.text.secondary, alignItems: "center", justifyContent: "center" },

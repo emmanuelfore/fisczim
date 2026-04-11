@@ -50,7 +50,12 @@ export default function AuthPage() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    try { setError(null); setIsLoggingIn(true); await loginWithPassword({ email: loginData.email, password: loginData.password }); }
+    try {
+      setError(null);
+      setIsLoggingIn(true);
+      await loginWithPassword({ email: loginData.email, password: loginData.password });
+      setIsLoggingIn(false);
+    }
     catch (err: any) { setError(err.message || "Invalid email or password"); setIsLoggingIn(false); }
   };
 
@@ -61,8 +66,13 @@ export default function AuthPage() {
       setError(null); setIsLoggingIn(true);
       await registerWithPassword({ email: signupData.email, password: signupData.password, name: signupData.name });
       setSuccessMsg("Account created! Logging you in...");
+      setIsLoggingIn(false);
     } catch (err: any) { setError(err.message || "Registration failed"); setIsLoggingIn(false); }
   };
+
+  useEffect(() => {
+    if (!isLoading) setIsLoggingIn(false);
+  }, [isLoading, user]);
 
   useEffect(() => {
     if (user && !isLoading && !isLoadingCompanies) {

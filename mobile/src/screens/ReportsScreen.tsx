@@ -11,7 +11,7 @@ import {
 } from "lucide-react-native";
 import { StatusBar } from "expo-status-bar";
 import { Modal, ScrollView } from "react-native";
-import { usePosSales, useInvoiceItems, useCurrencies, useCompany } from "../hooks/usePosData";
+import { usePosSales, useInvoiceItems, useCurrencies, useCompany, useProducts } from "../hooks/usePosData";
 import { apiJson } from "../lib/api";
 import { printReceipt, printToBluetooth } from "../lib/printing";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -23,24 +23,24 @@ import { PremiumColors as C } from "../ui/PremiumColors";
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg.base },
   header: { paddingHorizontal: 16, paddingVertical: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: C.border.default },
-  iconBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: C.bg.hover, borderWidth: 1, borderColor: C.border.default, alignItems: "center", justifyContent: "center" },
+  iconBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: C.bg.card, alignItems: "center", justifyContent: "center", shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 4 },
   title: { color: C.text.primary, fontSize: 18, fontWeight: "800" },
   tabRow: { flexDirection: "row", paddingHorizontal: 16, paddingTop: 12, gap: 8 },
-  tab: { flex: 1, paddingVertical: 10, borderRadius: 10, backgroundColor: C.bg.hover, alignItems: "center", borderWidth: 1, borderColor: C.border.default },
-  tabActive: { backgroundColor: `${C.amber.primary}20`, borderColor: C.amber.primary },
+  tab: { flex: 1, paddingVertical: 10, borderRadius: 12, backgroundColor: C.bg.hover, alignItems: "center", shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 5, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
+  tabActive: { backgroundColor: `${C.amber.primary}15`, shadowColor: C.amber.primary, shadowOpacity: 0.2, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 4 },
   tabText: { color: C.text.secondary, fontSize: 13, fontWeight: "700" },
-  tabTextActive: { color: C.amber.primary },
+  tabTextActive: { color: C.amber.primary, fontWeight: "800" },
   filterRow: { flexDirection: "row", justifyContent: "space-between", gap: 8 },
-  periodBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10, backgroundColor: C.bg.hover, borderWidth: 1, borderColor: C.border.default, flex: 1 },
+  periodBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 12, backgroundColor: C.bg.card, shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 5, shadowOffset: { width: 0, height: 2 }, elevation: 2, flex: 1 },
   periodText: { color: C.text.primary, fontSize: 12, fontWeight: "600", flex: 1 },
   customDateRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10 },
-  dateInput: { flex: 1, backgroundColor: C.bg.hover, color: C.text.primary, borderRadius: 8, paddingHorizontal: 10, height: 36, borderWidth: 1, borderColor: C.border.default, fontSize: 12 },
-  dropdown: { backgroundColor: C.bg.card, borderRadius: 12, borderWidth: 1, borderColor: C.border.default, marginTop: 8, overflow: "hidden" },
-  dropdownItem: { paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.border.default },
+  dateInput: { flex: 1, backgroundColor: C.bg.card, color: C.text.primary, borderRadius: 10, paddingHorizontal: 12, height: 40, shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 4, shadowOffset: { width: 0, height: 2 }, elevation: 1, fontSize: 13 },
+  dropdown: { backgroundColor: C.bg.base, borderRadius: 12, marginTop: 8, overflow: "hidden", shadowColor: "#000", shadowOpacity: 0.15, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 5 },
+  dropdownItem: { paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "rgba(0,0,0,0.03)" },
   dropdownItemActive: { backgroundColor: `${C.amber.primary}10` },
-  dropdownText: { color: C.text.primary, fontSize: 13, fontWeight: "600" },
+  dropdownText: { color: C.text.primary, fontSize: 13, fontWeight: "700" },
   statsGrid: { flexDirection: "row", gap: 10, marginVertical: 20 },
-  statCard: { flex: 1, backgroundColor: C.bg.hover, padding: 12, borderRadius: 16, borderWidth: 1, borderColor: C.border.default },
+  statCard: { flex: 1, backgroundColor: C.bg.card, padding: 12, borderRadius: 16, shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 3 },
   statIconContainer: { width: 28, height: 28, borderRadius: 8, alignItems: "center", justifyContent: "center", marginBottom: 8 },
   statLabel: { color: C.text.secondary, fontSize: 9, fontWeight: "600", marginBottom: 3 },
   statValue: { color: C.text.primary, fontSize: 12, fontWeight: "800" },
@@ -48,8 +48,8 @@ const styles = StyleSheet.create({
   dayHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 10, paddingHorizontal: 4, marginTop: 4 },
   dayTitle: { color: C.amber.primary, fontSize: 13, fontWeight: "700" },
   dayTotal: { color: C.text.secondary, fontSize: 11, fontWeight: "600" },
-  saleCard: { backgroundColor: C.bg.hover, borderRadius: 14, borderWidth: 1, borderColor: C.border.default, overflow: "hidden", marginBottom: 6 },
-  saleCardExpanded: { borderColor: `${C.amber.primary}40` },
+  saleCard: { backgroundColor: C.bg.card, borderRadius: 16, shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 3, overflow: "hidden", marginBottom: 10 },
+  saleCardExpanded: { backgroundColor: C.bg.hover, shadowOpacity: 0.12, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 5 },
   saleHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 12 },
   saleMainInfo: { flexDirection: "row", alignItems: "center", gap: 10 },
   saleIcon: { width: 32, height: 32, borderRadius: 8, backgroundColor: "rgba(240,165,0,0.1)", alignItems: "center", justifyContent: "center" },
@@ -107,8 +107,8 @@ const styles = StyleSheet.create({
   typeBadge: { alignSelf: "flex-start", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, marginTop: 6 },
   typeBadgeText: { fontSize: 10, fontWeight: "900", textTransform: "uppercase" },
   itemRef: { color: C.text.secondary, fontSize: 11, marginTop: 4, fontStyle: "italic" },
-  netProfitCard: { padding: 20, borderRadius: 20, borderWidth: 1.5, marginBottom: 20, shadowColor: "#000", shadowOpacity: 0.15, shadowRadius: 15, shadowOffset: { width: 0, height: 6 }, elevation: 4 },
-  abcHeaderCard: { backgroundColor: C.bg.card, borderRadius: 16, padding: 20, marginBottom: 20, borderWidth: 1, borderColor: C.border.default },
+  netProfitCard: { backgroundColor: C.bg.card, padding: 20, borderRadius: 24, marginBottom: 20, shadowColor: "#000", shadowOpacity: 0.15, shadowRadius: 15, shadowOffset: { width: 0, height: 6 }, elevation: 6 },
+  abcHeaderCard: { backgroundColor: C.bg.card, borderRadius: 20, padding: 20, marginBottom: 20, shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 4 },
   abcHeaderTitle: { fontSize: 20, fontWeight: '900', color: C.text.primary, marginBottom: 5 },
   abcHeaderSubtitle: { fontSize: 13, color: C.text.secondary, marginBottom: 15 },
   abcLegend: { flexDirection: 'row', justifyContent: 'space-around', marginTop: 15 },
@@ -499,6 +499,9 @@ export function ReportsScreen({ onOpenDrawer, companyId, userRole = "member", us
   const [activeInvTab, setActiveInvTab] = useState<InventorySubTab>("valuation");
   const [cashierFilter, setCashierFilter] = useState<string>(isCashier ? (userName || "me") : "all");
   const [showCashierPicker, setShowCashierPicker] = useState(false);
+  const [ownerGroupFilter, setOwnerGroupFilter] = useState<string>("all");
+  const [showOwnerGroupPicker, setShowOwnerGroupPicker] = useState(false);
+  const { data: products } = useProducts(companyId);
 
   // Drill-down State
   const [drillDownType, setDrillDownType] = useState<"Revenue" | "COGS" | "Expenses" | null>(null);
@@ -508,20 +511,31 @@ export function ReportsScreen({ onOpenDrawer, companyId, userRole = "member", us
   const showDateFilter = activeTab === "sales" || (activeTab === "inventory" && activeInvTab !== "valuation") || activeTab === "abc";
   // Cashier filter only applies to sales
   const showCashierFilter = !isCashier && activeTab === "sales";
+  const ownerGroups = useMemo(() => {
+    const values = new Set<string>();
+    products?.forEach((p: any) => {
+      const group = p.ownerGroup?.trim();
+      if (group) values.add(group);
+    });
+    return Array.from(values).sort((a, b) => a.localeCompare(b));
+  }, [products]);
+  const showOwnerGroupFilter = activeTab === "sales" && ownerGroups.length > 0;
 
   // Close pickers when switching to a tab/subtab where they don't apply
   useEffect(() => {
     if (!showDateFilter) setShowPeriodPicker(false);
     if (!showCashierFilter) setShowCashierPicker(false);
+    if (!showOwnerGroupFilter) setShowOwnerGroupPicker(false);
     
     // Default to "All Time" for ABC and Movements as per user request
     if (activeTab === "abc" || (activeTab === "inventory" && activeInvTab === "movements")) {
       setPeriod("All Time");
     }
-  }, [showDateFilter, showCashierFilter, activeTab, activeInvTab]);
+  }, [showDateFilter, showCashierFilter, showOwnerGroupFilter, activeTab, activeInvTab]);
 
   const { start, end } = useMemo(() => getDateRange(period, customStart, customEnd), [period, customStart, customEnd]);
-  const { data: sales, isLoading: loadingSales } = usePosSales(companyId, start, end);
+  const selectedOwnerGroup = ownerGroupFilter === "all" ? undefined : ownerGroupFilter;
+  const { data: sales, isLoading: loadingSales } = usePosSales(companyId, start, end, selectedOwnerGroup);
   const { data: currencies } = useCurrencies(companyId);
 
   const { data: expandedSaleItems, isLoading: loadingExpandedSaleItems } = useInvoiceItems(expandedSaleId);
@@ -787,12 +801,12 @@ export function ReportsScreen({ onOpenDrawer, companyId, userRole = "member", us
 
       <View style={{ padding: 16 }}>
         {/* Filters Row — date hidden on stock sub-tab, cashier only on sales/pnl */}
-        {(showDateFilter || showCashierFilter) && (
+        {(showDateFilter || showCashierFilter || showOwnerGroupFilter) && (
           <View style={styles.filterRow}>
             {showDateFilter && (
               <TouchableOpacity
                 style={styles.periodBtn}
-                onPress={() => { setShowPeriodPicker(!showPeriodPicker); setShowCashierPicker(false); }}
+                onPress={() => { setShowPeriodPicker(!showPeriodPicker); setShowCashierPicker(false); setShowOwnerGroupPicker(false); }}
               >
                 <Calendar size={14} color={C.text.secondary} />
                 <Text style={styles.periodText}>{period}</Text>
@@ -802,11 +816,23 @@ export function ReportsScreen({ onOpenDrawer, companyId, userRole = "member", us
             {showCashierFilter && (
               <TouchableOpacity
                 style={styles.periodBtn}
-                onPress={() => { setShowCashierPicker(!showCashierPicker); setShowPeriodPicker(false); }}
+                onPress={() => { setShowCashierPicker(!showCashierPicker); setShowPeriodPicker(false); setShowOwnerGroupPicker(false); }}
               >
                 <Filter size={14} color={C.text.secondary} />
                 <Text style={styles.periodText} numberOfLines={1}>
                   {cashierFilter === "all" ? "All Cashiers" : cashierFilter}
+                </Text>
+                <ChevronDown size={14} color={C.text.secondary} />
+              </TouchableOpacity>
+            )}
+            {showOwnerGroupFilter && (
+              <TouchableOpacity
+                style={styles.periodBtn}
+                onPress={() => { setShowOwnerGroupPicker(!showOwnerGroupPicker); setShowPeriodPicker(false); setShowCashierPicker(false); }}
+              >
+                <Package size={14} color={C.text.secondary} />
+                <Text style={styles.periodText} numberOfLines={1}>
+                  {ownerGroupFilter === "all" ? "All Owner Groups" : ownerGroupFilter}
                 </Text>
                 <ChevronDown size={14} color={C.text.secondary} />
               </TouchableOpacity>
@@ -840,6 +866,18 @@ export function ReportsScreen({ onOpenDrawer, companyId, userRole = "member", us
             {cashiers.map((c) => (
               <TouchableOpacity key={c} style={[styles.dropdownItem, cashierFilter === c && styles.dropdownItemActive]} onPress={() => { setCashierFilter(c); setShowCashierPicker(false); }}>
                 <Text style={[styles.dropdownText, cashierFilter === c && { color: C.amber.primary }]}>{c}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+        {showOwnerGroupPicker && showOwnerGroupFilter && (
+          <View style={styles.dropdown}>
+            <TouchableOpacity style={[styles.dropdownItem, ownerGroupFilter === "all" && styles.dropdownItemActive]} onPress={() => { setOwnerGroupFilter("all"); setShowOwnerGroupPicker(false); }}>
+              <Text style={[styles.dropdownText, ownerGroupFilter === "all" && { color: C.amber.primary }]}>All Owner Groups</Text>
+            </TouchableOpacity>
+            {ownerGroups.map((group) => (
+              <TouchableOpacity key={group} style={[styles.dropdownItem, ownerGroupFilter === group && styles.dropdownItemActive]} onPress={() => { setOwnerGroupFilter(group); setShowOwnerGroupPicker(false); }}>
+                <Text style={[styles.dropdownText, ownerGroupFilter === group && { color: C.amber.primary }]}>{group}</Text>
               </TouchableOpacity>
             ))}
           </View>

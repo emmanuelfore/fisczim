@@ -10,7 +10,6 @@ import {
   Settings,
   LogOut,
   Building2,
-  ChevronDown,
   Plus,
   Calculator,
   Briefcase,
@@ -19,8 +18,6 @@ import {
   UserCog,
   BarChart3,
   Activity,
-  RefreshCw,
-  AlertTriangle,
   CreditCard,
   MonitorCheck,
   TrendingUp,
@@ -31,7 +28,8 @@ import {
   Menu,
   Utensils,
   X,
-  ArrowRightLeft
+  ArrowRightLeft,
+  RefreshCw
 } from "lucide-react";
 import { useBranding } from "@/hooks/use-branding";
 import {
@@ -48,10 +46,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useState, useEffect } from "react";
-import { CreateCompanyDialog } from "./create-company-dialog";
 import { cn } from "@/lib/utils";
-import { DeviceStatusWidget } from "./device-status-widget";
 import { BranchSwitcher } from "./branch-switcher";
+import { DeviceStatusWidget } from "./device-status-widget";
 
 type NavItem = {
   icon: any;
@@ -93,6 +90,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const selectedCompany = activeCompany;
 
   const activeRole = (activeCompany as any)?.role;
+  const roleLabel = user?.isSuperAdmin
+    ? "Super Admin"
+    : activeRole
+      ? String(activeRole).charAt(0).toUpperCase() + String(activeRole).slice(1)
+      : "User";
 
   const allNavItems: NavItem[] = [
     { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
@@ -189,6 +191,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
     ]
     : allNavItems;
 
+  const immersiveRoutes = ["/pos", "/restaurant/kds", "/order-status"];
+  const isImmersiveRoute = immersiveRoutes.some((route) => location.startsWith(route));
+
   if (!user) return null;
 
   return (
@@ -198,9 +203,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
         
         .fz-admin { font-family: 'Outfit', sans-serif !important; }
         .fz-admin .font-display { font-family: 'Bricolage Grotesque', sans-serif !important; }
+        .admin-shell {
+          background:
+            radial-gradient(980px 320px at 18% -120px, rgba(99,102,241,0.10), transparent 62%),
+            radial-gradient(820px 280px at 92% -130px, rgba(14,165,233,0.08), transparent 62%),
+            #f8fafc;
+        }
         
         .sidebar-scroller::-webkit-scrollbar {
-          width: 4px;
+          width: 2px;
           opacity: 0;
           transition: opacity 0.2s;
         }
@@ -208,8 +219,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
           opacity: 1;
         }
         .sidebar-scroller::-webkit-scrollbar-thumb {
-          background: rgba(0,0,0,0.1);
-          border-radius: 10px;
+          background: rgba(15,23,42,0.3);
+          border-radius: 999px;
+          min-height: 24px;
         }
         
         .fz-sidebar { 
@@ -218,7 +230,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           border-right: 1px solid rgba(255,255,255,0.05) !important;
         }
         .fz-sidebar .sidebar-scroller::-webkit-scrollbar-thumb {
-          background: rgba(255,255,255,0.2) !important;
+          background: rgba(255,255,255,0.35) !important;
         }
         .fz-sidebar .text-slate-800 { color: #f8fafc !important; }
         .fz-sidebar .text-slate-500 { color: #94a3b8 !important; }
@@ -245,34 +257,44 @@ export function Layout({ children }: { children: React.ReactNode }) {
           opacity: 1;
           transform: translateX(0);
         }
+        .admin-header::before {
+          content: "";
+          position: absolute;
+          left: -14px;
+          top: 0;
+          height: 100%;
+          width: 14px;
+          background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(255,255,255,0.84));
+          border-top-left-radius: 12px;
+          border-bottom-left-radius: 12px;
+          border-left: 1px solid rgba(148,163,184,0.18);
+          border-top: 1px solid rgba(148,163,184,0.12);
+          border-bottom: 1px solid rgba(148,163,184,0.12);
+        }
+        .page-shell > div > h1 {
+          letter-spacing: -0.02em;
+          font-weight: 900;
+        }
       `}</style>
 
       <div className={cn(
-        "min-h-screen bg-slate-50 flex transition-all duration-300",
+        "min-h-screen bg-slate-50 flex transition-all duration-300 admin-shell",
         currentBrand === "fiscalzone" ? "fz-admin" : "font-sans selection:bg-violet-500/20"
       )}>
 
       {/* Primary Navigation Sidebar */}
       <aside className={cn(
         "bg-white border-r border-slate-200/60 shadow-[1px_0_10px_rgba(0,0,0,0.02)] flex flex-col fixed inset-y-0 left-0 z-50 transition-all duration-500 ease-in-out",
-        isSidebarCollapsed ? "w-20" : "w-72",
+        isSidebarCollapsed ? "w-20" : "w-64",
         isMobileMenuOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
         currentBrand === "fiscalzone" && "fz-sidebar border-none"
       )}>
         <div className={cn(
           "flex flex-col border-b border-slate-50 relative",
           currentBrand === "fiscalzone" ? "bg-slate-950/20" : "bg-white/50",
-          isSidebarCollapsed ? "p-4 items-center" : "p-6"
+          isSidebarCollapsed ? "p-3 items-center" : "p-4"
         )}>
-          {/* Collapse Toggle Button */}
-          <button 
-            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-            className="absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-white border border-slate-200 shadow-sm flex items-center justify-center text-slate-400 hover:text-primary transition-all z-20 group hidden lg:flex active:scale-90"
-          >
-            <ChevronDown className={cn("w-3 h-3 transition-transform duration-500", isSidebarCollapsed ? "-rotate-90" : "rotate-90")} />
-          </button>
-
-          <div className={cn("flex items-center gap-2 mb-6 transition-all", isSidebarCollapsed ? "justify-center" : "px-1")}>
+          <div className={cn("flex items-center gap-2 mb-3 transition-all", isSidebarCollapsed ? "justify-center" : "px-1")}>
             {currentBrand === "fiscalzone" ? (
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-white shadow-lg shadow-primary/20">
@@ -294,7 +316,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <div className={cn(
                 "rounded-xl transition-all cursor-pointer group active:scale-95 duration-200",
                 currentBrand === "fiscalzone" ? "bg-white/5 border-white/10 hover:bg-white/10" : "bg-slate-50 border border-slate-100 hover:bg-white",
-                isSidebarCollapsed ? "p-2" : "p-3"
+                isSidebarCollapsed ? "p-2" : "p-2.5"
               )}>
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-slate-300 overflow-hidden shadow-sm shrink-0">
@@ -319,7 +341,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
                       )}
                     </div>
                   )}
-                  {!isSidebarCollapsed && <ChevronDown className="w-3.5 h-3.5 text-slate-300 group-hover:text-slate-400 transition-colors" />}
                 </div>
               </div>
             </DropdownMenuTrigger>
@@ -341,7 +362,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     {selectedCompanyId === company.id && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
                   </DropdownMenuItem>
                 ))}
-                <div className="h-px bg-slate-100 my-1" />
                 <DropdownMenuItem onClick={() => setLocation("/onboarding")} className="flex items-center justify-center gap-2 p-2.5 text-white bg-primary font-bold cursor-pointer hover:bg-primary/90 rounded-lg shadow-lg shadow-primary/10 active:scale-95 transition-all text-xs">
                   <Plus className="w-3.5 h-3.5" />
                   <span>Register Enterprise</span>
@@ -351,12 +371,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </DropdownMenu>
         </div>
 
-        <nav className={cn("flex-1 py-10 overflow-y-auto sidebar-scroller custom-scrollbar", isSidebarCollapsed ? "px-2" : "px-4")}>
+        <nav className={cn("flex-1 py-4 overflow-y-auto sidebar-scroller custom-scrollbar", isSidebarCollapsed ? "px-2" : "px-3")}>
           <div className="space-y-1">
-            {navItems.map((item, idx) => {
-              const showDivider = idx > 0 && [
-                "Invoices & Billing", "Expenses", "Compliance", "Administration"
-              ].includes(item.label);
+            {navItems.map((item) => {
 
               if (item.children) {
                 const isActiveGroup = item.children.some(child =>
@@ -374,7 +391,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     <DropdownMenu key={item.label}>
                       <DropdownMenuTrigger asChild>
                         <div className={cn(
-                          "w-12 h-12 rounded-xl flex items-center justify-center cursor-pointer transition-all duration-300 relative group collapsed-item mx-auto mb-1",
+                          "w-11 h-11 rounded-xl flex items-center justify-center cursor-pointer transition-all duration-300 relative group collapsed-item mx-auto mb-1",
                           isActiveGroup ? "bg-slate-900 text-white shadow-lg" : "text-slate-400 hover:bg-slate-100"
                         )}>
                           <item.icon className="w-5 h-5" />
@@ -404,38 +421,33 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
                 return (
                   <div key={item.label}>
-                    {showDivider && <div className="h-px bg-slate-50 my-4 mx-3" />}
                     <Collapsible open={isOpen} onOpenChange={setIsOpen} className="space-y-1">
                       <CollapsibleTrigger asChild>
                         <div className={cn(
-                          "flex items-center justify-between w-full px-4 py-3 rounded-xl text-sm font-bold transition-all duration-200 cursor-pointer select-none group",
+                          "flex items-center w-full px-3 py-2 rounded-xl text-sm font-bold transition-all duration-200 cursor-pointer select-none group",
                           isActiveGroup
                             ? "bg-slate-900 text-white shadow-lg shadow-slate-900/10"
                             : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
                         )}>
-                          <div className="flex items-center gap-3.5">
+                          <div className="flex items-center gap-3">
                             <div className={cn(
                               "w-8 h-8 rounded-xl flex items-center justify-center transition-colors shrink-0",
                               isActiveGroup ? "bg-white/10 text-white" : "bg-slate-100 text-slate-400 group-hover:bg-slate-200 group-hover:text-slate-600"
                             )}>
                               <item.icon className="w-4 h-4" />
                             </div>
-                            <span className="font-display tracking-tight text-[15px]">{item.label}</span>
+                            <span className="font-display tracking-tight text-[14px]">{item.label}</span>
                           </div>
-                          <ChevronDown className={cn(
-                            "w-4 h-4 transition-transform duration-300 shrink-0",
-                            isOpen ? "rotate-180 text-white/40" : "text-slate-400"
-                          )} />
                         </div>
                       </CollapsibleTrigger>
                       <CollapsibleContent className="pb-1 transition-all">
-                        <div className="ml-5 pl-5 border-l-2 border-slate-100 space-y-1 mt-1">
+                        <div className="ml-4 pl-4 border-l-2 border-slate-100 space-y-1 mt-1">
                           {item.children.map((child) => {
                             const isChildActive = location + window.location.search === child.href || (location === child.href && !child.href.includes("?"));
                             return (
                               <Link key={child.label} href={child.href}>
                                 <div className={cn(
-                                  "flex items-center gap-3 px-4 py-2.5 rounded-xl text-[14px] font-bold transition-all duration-150 cursor-pointer",
+                                  "flex items-center gap-3 px-3 py-2 rounded-xl text-[13px] font-bold transition-all duration-150 cursor-pointer",
                                   isChildActive
                                     ? "bg-slate-100 text-slate-900"
                                     : "text-slate-500 hover:text-slate-900 hover:bg-slate-50/50"
@@ -459,7 +471,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 return (
                   <Link key={item.label} href={item.href!}>
                     <div className={cn(
-                      "w-12 h-12 rounded-xl flex items-center justify-center cursor-pointer transition-all duration-300 relative group collapsed-item mx-auto mb-1",
+                      "w-11 h-11 rounded-xl flex items-center justify-center cursor-pointer transition-all duration-300 relative group collapsed-item mx-auto mb-1",
                       isActive ? "bg-slate-900 text-white shadow-lg" : "text-slate-400 hover:bg-slate-100"
                     )}>
                       <item.icon className="w-5 h-5" />
@@ -471,10 +483,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
               return (
                 <div key={item.label}>
-                  {showDivider && <div className="h-px bg-slate-100 my-4 mx-3" />}
                   <Link href={item.href!}>
                     <div className={cn(
-                      "flex items-center gap-3.5 px-4 py-3 rounded-xl text-[15px] font-bold transition-all duration-200 cursor-pointer select-none group",
+                      "flex items-center gap-3 px-3 py-2 rounded-xl text-[14px] font-bold transition-all duration-200 cursor-pointer select-none group",
                       isActive
                         ? "bg-slate-900 text-white shadow-xl shadow-slate-900/20"
                         : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
@@ -496,10 +507,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* Main Administrative Workspace */}
-      <div className={cn("flex-1 flex flex-col min-h-screen transition-all duration-500 ease-in-out", isSidebarCollapsed ? "lg:ml-20" : "lg:ml-72")}>
+      <div className={cn("flex-1 flex flex-col min-h-screen transition-all duration-500 ease-in-out", isSidebarCollapsed ? "lg:ml-20" : "lg:ml-64")}>
 
         {/* Top Header */}
-        <header className="h-20 bg-white border-b border-slate-200/60 flex items-center justify-end gap-4 px-8 z-40 sticky top-0 shadow-sm">
+        <header className="admin-header h-16 bg-white/90 border-b border-slate-200/60 flex items-center justify-end gap-3 px-4 sm:px-6 z-40 sticky top-0 shadow-sm relative backdrop-blur-xl">
           {/* Mobile Menu Toggle */}
           <Button
             variant="ghost"
@@ -510,29 +521,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
             {isMobileMenuOpen ? <X className="w-5 h-5 text-slate-600" /> : <Menu className="w-5 h-5 text-slate-600" />}
           </Button>
 
-          {user.isSuperAdmin && (
-            <div className="hidden sm:flex items-center gap-2 bg-amber-50 border border-amber-200 px-4 py-2 rounded-full">
-              <LogOut className="w-4 h-4 text-amber-600" />
-              <span className="text-[10px] font-black text-amber-700 uppercase tracking-widest">Global Superuser</span>
+          <div className="flex items-center gap-2">
+            <div className="hidden md:flex items-center gap-2">
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-slate-200 bg-slate-50">
+                <ShieldCheck className="w-3.5 h-3.5 text-slate-600" />
+                <span className="text-[10px] font-black uppercase tracking-wide text-slate-700">
+                  {roleLabel}
+                </span>
+              </div>
+              {selectedCompany?.id && <DeviceStatusWidget companyId={selectedCompany.id} />}
             </div>
-          )}
-
-          <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 p-1 rounded-full">
-            {selectedCompanyId && <DeviceStatusWidget companyId={selectedCompanyId} />}
             <BranchSwitcher />
-
-            <div className="h-6 w-px bg-slate-200 mx-1" />
-
-            {selectedCompany?.subscriptionStatus !== 'active' && (
-              <Link href="/subscription">
-                <div className="flex items-center gap-2 bg-red-50 border border-red-100 px-3 py-1.5 rounded-full hover:bg-red-100 transition-colors cursor-pointer group">
-                  <AlertTriangle className="w-3.5 h-3.5 text-red-600 group-hover:scale-110 transition-transform" />
-                  <span className="text-[10px] font-black text-red-700 uppercase tracking-widest">
-                    {selectedCompany?.subscriptionStatus || 'Inactive'}
-                  </span>
-                </div>
-              </Link>
-            )}
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -562,7 +561,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   <Settings className="mr-3 h-4 w-4" />
                   <span>Security & Config</span>
                 </DropdownMenuItem>
-                <div className="h-px bg-slate-100 my-1" />
                 <DropdownMenuItem className="p-3 rounded-xl font-bold text-red-600 focus:text-red-700 focus:bg-red-50 hover:bg-red-50 cursor-pointer active:scale-95 transition-all" onClick={() => logout()}>
                   <LogOut className="mr-3 h-4 w-4" />
                   <span>Sign Out Session</span>
@@ -574,7 +572,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
         {/* Password Warning Banner */}
         {user && user.passwordChanged === false && (
-          <div className="mx-8 mt-4 rounded-xl bg-amber-50 border border-amber-200/60 p-4 flex items-center justify-between shadow-sm">
+          <div className="mx-4 sm:mx-6 mt-3 rounded-xl bg-amber-50 border border-amber-200/60 p-3.5 flex items-center justify-between shadow-sm">
             <div className="flex items-center gap-3 text-amber-800 text-sm font-medium">
               <div className="p-2 bg-amber-100 rounded-lg text-amber-600">
                 <ShieldCheck className="w-5 h-5" />
@@ -588,8 +586,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
         )}
 
         {/* Page Content */}
-        <main className="flex-1 p-4 sm:p-8 pt-6 max-w-[1600px] w-full mx-auto">
-          {children}
+        <main className="flex-1 p-3 sm:p-5 pt-4 max-w-[1600px] w-full mx-auto">
+          {isImmersiveRoute ? (
+            children
+          ) : (
+            <section className="page-shell rounded-[1.5rem] border border-slate-200/70 bg-white/88 backdrop-blur-sm shadow-[0_10px_30px_rgba(15,23,42,0.06)] p-4 sm:p-5 lg:p-6">
+              {children}
+            </section>
+          )}
         </main>
       </div>
     </div>

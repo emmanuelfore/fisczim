@@ -257,7 +257,7 @@ export function StockInScreen({ onOpenDrawer, onClose, companyId }: Props) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg.base },
   header: { paddingHorizontal: 16, paddingVertical: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: C.border.default },
-  iconBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: C.bg.hover, borderWidth: 1, borderColor: C.border.default, alignItems: "center", justifyContent: "center" },
+  iconBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: C.bg.card, alignItems: "center", justifyContent: "center", shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 4 },
   title: { color: C.text.primary, fontSize: 18, fontWeight: "800" },
   label: { color: C.text.secondary, fontSize: 11, fontWeight: "600", marginBottom: 5, marginTop: 14 },
   input: { backgroundColor: C.bg.hover, color: C.text.primary, borderRadius: 12, paddingHorizontal: 14, height: 46, borderWidth: 1, borderColor: C.border.default, fontSize: 14 },

@@ -158,7 +158,11 @@ export function useAuth() {
     // Try online login first; fall back to offline credentials if network fails
     if (getIsOnline()) {
       try {
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        const signInPromise = supabase.auth.signInWithPassword({ email, password });
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          window.setTimeout(() => reject(new Error("Login request timed out")), 12000);
+        });
+        const { data, error } = await Promise.race([signInPromise, timeoutPromise]) as Awaited<typeof signInPromise>;
         if (error) throw error;
 
         if (data.user) {

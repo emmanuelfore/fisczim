@@ -8,6 +8,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { Link } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { useState } from "react";
+import { PageHeader } from "@/components/page-header";
 
 export default function QuotationsPage() {
     const selectedCompanyId = parseInt(localStorage.getItem("selectedCompanyId") || "0");
@@ -27,18 +28,18 @@ export default function QuotationsPage() {
 
     return (
         <Layout>
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-8 gap-4">
-                <div>
-                    <h1 className="text-3xl font-display font-bold text-slate-900">Quotations</h1>
-                    <p className="text-slate-500 mt-1">Manage and track your customer quotations</p>
-                </div>
-                <Link href="/quotations/new">
-                    <Button className="shadow-lg shadow-primary/20 hover:shadow-primary/30 transition-all">
-                        <Plus className="w-4 h-4 mr-2" />
-                        Create Quotation
-                    </Button>
-                </Link>
-            </div>
+            <PageHeader
+                title="Quotations"
+                subtitle="Manage and track your customer quotations"
+                actions={
+                    <Link href="/quotations/new">
+                        <Button className="shadow-lg shadow-primary/20 hover:shadow-primary/30 transition-all">
+                            <Plus className="w-4 h-4 mr-2" />
+                            Create Quotation
+                        </Button>
+                    </Link>
+                }
+            />
 
             <Card className="card-depth border-none overflow-hidden">
                 <div className="p-4 border-b border-slate-100 bg-white">

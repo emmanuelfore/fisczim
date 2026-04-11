@@ -29,14 +29,15 @@ export async function startPosShift(companyId: number, userId: string, openingBa
 }
 
 export async function endPosShift(shiftId: number, actualCash: number, notes?: string, reconciledBy?: string) {
+    const hasActualCash = Number.isFinite(actualCash);
     const [shift] = await db.update(posShifts)
         .set({
             status: "closed",
             endTime: new Date(),
-            actualCash: actualCash.toString(),
-            reconciledAt: new Date(),
+            actualCash: hasActualCash ? actualCash.toString() : null,
+            reconciledAt: hasActualCash ? new Date() : null,
             reconciledBy: reconciledBy || null,
-            reconciliationStatus: "reconciled",
+            reconciliationStatus: reconciledBy ? "approved" : "submitted",
             notes
         })
         .where(eq(posShifts.id, shiftId))

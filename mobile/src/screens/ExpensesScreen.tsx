@@ -229,7 +229,7 @@ export function ExpensesScreen({ onOpenDrawer, companyId }: Props) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg.base },
   header: { paddingHorizontal: 16, paddingVertical: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: C.border.default },
-  iconBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: C.bg.hover, borderWidth: 1, borderColor: C.border.default, alignItems: "center", justifyContent: "center" },
+  iconBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: C.bg.card, alignItems: "center", justifyContent: "center", shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 4 },
   title: { color: C.text.primary, fontSize: 18, fontWeight: "800" },
   totalBar: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, paddingVertical: 12, backgroundColor: C.bg.card, borderBottomWidth: 1, borderBottomColor: C.border.default },
   totalLabel: { color: C.text.secondary, fontSize: 13, fontWeight: "600" },
@@ -257,6 +257,6 @@ const styles = StyleSheet.create({
   catChipActive: { backgroundColor: `${C.amber.primary}20`, borderColor: C.amber.primary },
   catChipText: { color: C.text.secondary, fontSize: 12, fontWeight: "600" },
   catChipTextActive: { color: C.amber.primary },
-  saveBtn: { backgroundColor: C.amber.primary, borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 8 },
+  saveBtn: { backgroundColor: C.amber.primary, borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 8 , shadowColor: C.amber.primary, shadowOpacity: 0.35, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 8 },
   saveBtnText: { color: "#000", fontWeight: "800", fontSize: 15 },
 });

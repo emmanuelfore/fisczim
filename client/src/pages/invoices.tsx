@@ -37,6 +37,7 @@ import { useTaxConfig } from "@/hooks/use-tax-config";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useBranchContext } from "@/lib/branch-context";
 import { pdf } from "@react-pdf/renderer";
+import { PageHeader } from "@/components/page-header";
 
 // ── Preview panel (used by invoice-details split view) ──────────────────────
 export function InvoicePreviewPanel({ invoiceId, onClose }: { invoiceId: number; onClose: () => void }) {
@@ -298,25 +299,25 @@ export default function InvoicesPage() {
     <Layout>
       <SmartFixDialog isOpen={!!smartError} onClose={() => setSmartError(null)} error={smartError} onRetry={() => setSmartError(null)} />
 
-      {/* Page header */}
-      <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between mb-8 gap-4 pt-2">
-        <div>
-          <h1 className="text-3xl font-display font-black text-slate-900 tracking-tight uppercase">Invoices</h1>
-          <p className="text-slate-500 mt-0.5 text-sm font-medium italic">Manage and track your customer billing cycle</p>
-        </div>
-        <div className="flex gap-3">
-          <Link href="/quotations">
-            <Button variant="outline" className="border-slate-200 rounded-xl h-10">
-              <ClipboardList className="w-4 h-4 mr-2" /> Quotations
-            </Button>
-          </Link>
-          <Link href="/invoices/new">
-            <Button className="btn-gradient rounded-xl px-5 h-10">
-              <Plus className="w-4 h-4 mr-2" /> Create Invoice
-            </Button>
-          </Link>
-        </div>
-      </div>
+      <PageHeader
+        title="Invoices"
+        subtitle="Manage and track your customer billing cycle"
+        className="pt-2"
+        actions={
+          <>
+            <Link href="/quotations">
+              <Button variant="outline" className="border-slate-200 rounded-xl h-10">
+                <ClipboardList className="w-4 h-4 mr-2" /> Quotations
+              </Button>
+            </Link>
+            <Link href="/invoices/new">
+              <Button className="btn-gradient rounded-xl px-5 h-10">
+                <Plus className="w-4 h-4 mr-2" /> Create Invoice
+              </Button>
+            </Link>
+          </>
+        }
+      />
 
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">

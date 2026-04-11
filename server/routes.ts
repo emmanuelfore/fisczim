@@ -89,6 +89,13 @@ export async function registerRoutes(
     return isNaN(bid) ? undefined : bid;
   };
 
+  const getUserOwnerGroupScope = async (userId?: string): Promise<string | undefined> => {
+    if (!userId) return undefined;
+    const user = await storage.getUser(userId);
+    const scope = user?.ownerGroupScope?.trim();
+    return scope || undefined;
+  };
+
   app.get("/api/health", (_req, res) => {
     console.log(`[HEALTH] Health check from ${_req.ip}`);
     res.json({ ok: true });
@@ -1803,16 +1810,13 @@ export async function registerRoutes(
   app.post("/api/pos/shifts/:id/close", requireAuth, async (req, res) => {
     try {
       const shiftId = parseInt(req.params.id);
-      const { actualCash, closingBalance, notes } = req.body;
+      const { actualCash, closingBalance, notes, reconciledBy } = req.body;
 
       // Support both naming conventions for compatibility
       const cashAmount = actualCash !== undefined ? actualCash : closingBalance;
 
-      if (cashAmount === undefined || cashAmount === null) {
-        return res.status(400).json({ message: "Actual cash count is required to close shift." });
-      }
-
-      const shift = await endPosShift(shiftId, Number(cashAmount), notes);
+      const parsedCash = cashAmount === undefined || cashAmount === null ? Number.NaN : Number(cashAmount);
+      const shift = await endPosShift(shiftId, parsedCash, notes, reconciledBy);
       res.json(shift);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -1884,6 +1888,8 @@ export async function registerRoutes(
       const branchId = getBranchId(req);
       const startDate = req.query.startDate ? new Date(req.query.startDate as string) : new Date(new Date().setDate(new Date().getDate() - 30));
       const endDate = req.query.endDate ? new Date(req.query.endDate as string) : new Date();
+      const ownerGroupScope = await getUserOwnerGroupScope((req.user as any)?.id);
+      const ownerGroup = ownerGroupScope || (req.query.ownerGroup as string | undefined);
       
       const sales = await storage.getPosSales(
         companyId, 
@@ -1893,7 +1899,8 @@ export async function registerRoutes(
         req.query.paymentMethod as string,
         req.query.status as string,
         req.query.search as string,
-        branchId
+        branchId,
+        ownerGroup
       );
       res.json(sales);
     } catch (error: any) {
@@ -2450,7 +2457,7 @@ export async function registerRoutes(
       const companyId = Number(req.params.companyId);
       const targetUserId = req.params.userId;
       const userId = (req as any).user.id;
-      const { role } = req.body;
+      const { role, ownerGroupScope } = req.body;
 
       // Validate role
       const validRoles = ['owner', 'admin', 'member', 'cashier'];
@@ -2468,8 +2475,18 @@ export async function registerRoutes(
         }
       }
 
-      await storage.updateUserRole(targetUserId, companyId, role);
-      res.json({ message: "Role updated" });
+      if (role) {
+        await storage.updateUserRole(targetUserId, companyId, role);
+      }
+
+      if (ownerGroupScope !== undefined) {
+        const normalizedScope = typeof ownerGroupScope === "string" && ownerGroupScope.trim().length > 0
+          ? ownerGroupScope.trim()
+          : null;
+        await storage.updateUser(targetUserId, { ownerGroupScope: normalizedScope as any });
+      }
+
+      res.json({ message: "User access updated" });
     } catch (err: any) {
       console.error("Update Role Error:", err);
       res.status(500).json({ message: "Failed to update role" });
@@ -4141,7 +4158,8 @@ export async function registerRoutes(
   app.get("/api/companies/:companyId/reports/stock-valuation", requireAuth, async (req, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
-      const data = await storage.getStockValuationReport(companyId);
+      const ownerGroupScope = await getUserOwnerGroupScope((req.user as any)?.id);
+      const data = await storage.getStockValuationReport(companyId, ownerGroupScope);
       res.json(data);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -4182,7 +4200,8 @@ export async function registerRoutes(
   app.get("/api/companies/:companyId/reports/abc-analysis", requireAuth, async (req, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
-      const data = await storage.getAbcAnalysis(companyId);
+      const ownerGroupScope = await getUserOwnerGroupScope((req.user as any)?.id);
+      const data = await storage.getAbcAnalysis(companyId, ownerGroupScope);
       res.json(data);
     } catch (err: any) {
       console.error("ABC Analysis Error:", err);
@@ -4242,6 +4261,7 @@ export async function registerRoutes(
               productType: productType,
               hsCode: row["HS Code"] || "0000.00.00",
               category: row["Category"] || "General",
+              ownerGroup: row["Owner Group"] || row["Owner"] || null,
               isTracked: isTracked
             });
 
@@ -4263,7 +4283,8 @@ export async function registerRoutes(
   // Product Routes
   app.get(api.products.list.path, requireAuth, async (req, res) => {
     const branchId = getBranchId(req);
-    const products = await storage.getProducts(Number(req.params.companyId), branchId);
+    const ownerGroupScope = await getUserOwnerGroupScope((req.user as any)?.id);
+    const products = await storage.getProducts(Number(req.params.companyId), branchId, ownerGroupScope);
     res.json(products);
   });
 
@@ -4539,6 +4560,7 @@ export async function registerRoutes(
         status: initialStatus,
         items: input.items as any,
         companyId,
+        createdBy: userId,
         shiftId: activeShift?.id || undefined,
         branchId: getBranchId(req)
       });
@@ -5383,6 +5405,8 @@ export async function registerRoutes(
     try {
       const companyId = Number(req.params.companyId);
       const { from, to } = req.query;
+      const ownerGroupScope = await getUserOwnerGroupScope((req.user as any)?.id);
+      const ownerGroupFilter = ownerGroupScope ? eq(products.ownerGroup, ownerGroupScope) : sql`true`;
 
       const startDate = from ? new Date(from as string) : new Date(new Date().setDate(new Date().getDate() - 30)); // Default 30 days
       const endDate = to ? new Date(to as string) : new Date();
@@ -5408,6 +5432,7 @@ export async function registerRoutes(
           ne(invoices.status, 'draft'),
           ne(invoices.status, 'cancelled'),
           ne(invoices.status, 'quote'),
+          ownerGroupFilter,
         ))
         .groupBy(invoiceItemsTable.productId)
         .orderBy(sql`revenue desc`);
@@ -6093,7 +6118,8 @@ export async function registerRoutes(
   app.get("/api/reports/inventory/stock-on-hand/:id", requireAuth, async (req, res) => {
     try {
       const companyId = parseInt(req.params.id);
-      const data = await storage.getReportStockOnHand(companyId);
+      const ownerGroupScope = await getUserOwnerGroupScope((req.user as any)?.id);
+      const data = await storage.getReportStockOnHand(companyId, ownerGroupScope);
       res.json(data);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -6107,8 +6133,9 @@ export async function registerRoutes(
       const startDate = req.query.startDate ? new Date(req.query.startDate as string) : new Date(0);
       const endDate = req.query.endDate ? new Date(req.query.endDate as string) : new Date();
       endDate.setHours(23, 59, 59, 999);
+      const ownerGroupScope = await getUserOwnerGroupScope((req.user as any)?.id);
 
-      const data = await storage.getReportInventoryMovements(companyId, startDate, endDate);
+      const data = await storage.getReportInventoryMovements(companyId, startDate, endDate, ownerGroupScope);
       res.json(data);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -6122,8 +6149,9 @@ export async function registerRoutes(
       const startDate = req.query.startDate ? new Date(req.query.startDate as string) : new Date(0);
       const endDate = req.query.endDate ? new Date(req.query.endDate as string) : new Date();
       endDate.setHours(23, 59, 59, 999);
+      const ownerGroupScope = await getUserOwnerGroupScope((req.user as any)?.id);
 
-      const data = await storage.getReportPurchaseHistory(companyId, startDate, endDate);
+      const data = await storage.getReportPurchaseHistory(companyId, startDate, endDate, ownerGroupScope);
       res.json(data);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -6250,7 +6278,8 @@ export async function registerRoutes(
     try {
       const shiftId = Number(req.params.id);
       const { actualCash, notes, reconciledBy } = req.body;
-      const shift = await endPosShift(shiftId, Number(actualCash), notes, reconciledBy);
+      const parsedCash = actualCash === undefined || actualCash === null ? Number.NaN : Number(actualCash);
+      const shift = await endPosShift(shiftId, parsedCash, notes, reconciledBy);
       res.json(shift);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -6290,10 +6319,12 @@ export async function registerRoutes(
       const endDate = req.query.endDate ? new Date(req.query.endDate as string) : new Date();
       endDate.setHours(23, 59, 59, 999);
 
-      const cashierId = req.query.cashierId ? parseInt(req.query.cashierId as string) : undefined;
+      const cashierId = req.query.cashierId as string | undefined;
       const paymentMethod = req.query.paymentMethod as string | undefined;
+      const ownerGroupScope = await getUserOwnerGroupScope((req.user as any)?.id);
+      const ownerGroup = ownerGroupScope || (req.query.ownerGroup as string | undefined);
 
-      const sales = await storage.getPosSales(companyId, startDate, endDate, cashierId, paymentMethod);
+      const sales = await storage.getPosSales(companyId, startDate, endDate, cashierId, paymentMethod, undefined, undefined, undefined, ownerGroup);
       res.json(sales);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -6339,8 +6370,10 @@ export async function registerRoutes(
       endDate.setHours(23, 59, 59, 999);
 
       const cashierId = user.id;
+      const ownerGroupScope = await getUserOwnerGroupScope((req.user as any)?.id);
+      const ownerGroup = ownerGroupScope || (req.query.ownerGroup as string | undefined);
 
-      const sales = await storage.getPosSales(companyId, startDate, endDate, cashierId);
+      const sales = await storage.getPosSales(companyId, startDate, endDate, cashierId, undefined, undefined, undefined, undefined, ownerGroup);
       res.json(sales);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -6359,6 +6392,8 @@ export async function registerRoutes(
       let cashierId = req.query.cashierId as string;
       const status = req.query.status as string;
       const search = req.query.search as string;
+      const ownerGroupScope = await getUserOwnerGroupScope((req.user as any)?.id);
+      const ownerGroup = ownerGroupScope || (req.query.ownerGroup as string | undefined);
 
       // Enforcement: Cashiers can ONLY see their own sales
       const role = await storage.getCompanyUserRole(user.id, companyId);
@@ -6366,7 +6401,7 @@ export async function registerRoutes(
         cashierId = user.id;
       }
 
-      const sales = await storage.getPosSales(companyId, startDate, endDate, cashierId, undefined, status, search);
+      const sales = await storage.getPosSales(companyId, startDate, endDate, cashierId, undefined, status, search, undefined, ownerGroup);
       res.json(sales);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -6429,8 +6464,10 @@ export async function registerRoutes(
       endDate.setHours(23, 59, 59, 999);
 
       const cashierId = req.query.cashierId as string;
+      const ownerGroupScope = await getUserOwnerGroupScope((req.user as any)?.id);
+      const ownerGroup = ownerGroupScope || (req.query.ownerGroup as string | undefined);
 
-      const sales = await storage.getPosSales(companyId, startDate, endDate, cashierId);
+      const sales = await storage.getPosSales(companyId, startDate, endDate, cashierId, undefined, undefined, undefined, undefined, ownerGroup);
       res.json(sales);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -6555,12 +6592,8 @@ export async function registerRoutes(
   app.post("/api/pos/shifts/:id/reconcile", requireAuth, async (req, res) => {
     try {
       const shiftId = parseInt(req.params.id);
-      const { actualCash, notes } = req.body;
+      const { actualCash, notes, decision } = req.body;
       const user = req.user as any;
-
-      if (actualCash === undefined || actualCash === null) {
-        return res.status(400).json({ message: "Actual cash amount is required" });
-      }
 
       // Get shift to calculate expected cash
       const shift = await db.query.posShifts.findFirst({
@@ -6569,6 +6602,23 @@ export async function registerRoutes(
 
       if (!shift) {
         return res.status(404).json({ message: "Shift not found" });
+      }
+
+      // Only owner/admin can do explicit final decisions
+      if (decision === "approve" || decision === "dispute") {
+        const role = await storage.getCompanyUserRole(user.id, shift.companyId);
+        if (role !== "owner" && role !== "admin" && !user.isSuperAdmin) {
+          return res.status(403).json({ message: "Only owner/admin can approve or dispute reconciliation." });
+        }
+      }
+
+      const effectiveActualCash =
+        actualCash !== undefined && actualCash !== null
+          ? Number(actualCash)
+          : (shift.actualCash !== null && shift.actualCash !== undefined ? Number(shift.actualCash) : Number.NaN);
+
+      if (!Number.isFinite(effectiveActualCash)) {
+        return res.status(400).json({ message: "Actual cash amount is required" });
       }
 
       // Calculate expected cash (same logic as reports endpoint)
@@ -6603,23 +6653,30 @@ export async function registerRoutes(
         .reduce((sum, t) => sum + Number(t.amount), 0);
 
       const expectedCash = Number(shift.openingBalance) + cashSales - cashDrops - cashPayouts;
-      const variance = Number(actualCash) - expectedCash;
+      const variance = Number(effectiveActualCash) - expectedCash;
       const variancePercentage = expectedCash > 0 ? (Math.abs(variance) / expectedCash) * 100 : 0;
 
       // Determine reconciliation status based on variance percentage
-      let reconciliationStatus = 'reconciled';
-      if (variancePercentage > 5) {
-        reconciliationStatus = 'critical_discrepancy'; // >5% variance
-      } else if (variancePercentage > 2) {
-        reconciliationStatus = 'major_discrepancy'; // 2-5% variance
-      } else if (variancePercentage > 0.5) {
-        reconciliationStatus = 'minor_discrepancy'; // 0.5-2% variance
+      let reconciliationStatus: string;
+      if (decision === "approve") {
+        reconciliationStatus = "approved";
+      } else if (decision === "dispute") {
+        reconciliationStatus = "disputed";
+      } else {
+        reconciliationStatus = 'reconciled';
+        if (variancePercentage > 5) {
+          reconciliationStatus = 'critical_discrepancy'; // >5% variance
+        } else if (variancePercentage > 2) {
+          reconciliationStatus = 'major_discrepancy'; // 2-5% variance
+        } else if (variancePercentage > 0.5) {
+          reconciliationStatus = 'minor_discrepancy'; // 0.5-2% variance
+        }
       }
 
       // Update shift with reconciliation data
       const [updatedShift] = await db.update(posShifts)
         .set({
-          actualCash: actualCash.toString(),
+          actualCash: effectiveActualCash.toString(),
           reconciledAt: new Date(),
           reconciledBy: user.id,
           reconciliationNotes: notes,

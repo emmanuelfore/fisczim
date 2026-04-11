@@ -55,6 +55,23 @@ export function CreateProductDialog({ companyId, defaultType = "good", triggerLa
         },
         enabled: open
     });
+    const { data: existingProducts } = useQuery({
+        queryKey: ["products", companyId, "owner-groups"],
+        queryFn: async () => {
+            const res = await apiFetch(`/api/companies/${companyId}/products`);
+            if (!res.ok) throw new Error("Failed to fetch products");
+            return res.json();
+        },
+        enabled: open && companyId > 0
+    });
+
+    const existingOwnerGroups = Array.from(
+        new Set(
+            (existingProducts || [])
+                .map((p: any) => (typeof p.ownerGroup === "string" ? p.ownerGroup.trim() : ""))
+                .filter((v: string) => v.length > 0)
+        )
+    );
 
     const form = useForm<InsertProduct>({
         resolver: zodResolver(insertProductSchema),
@@ -65,6 +82,7 @@ export function CreateProductDialog({ companyId, defaultType = "good", triggerLa
             barcode: "",
             hsCode: "",
             category: "",
+            ownerGroup: "",
             price: "0.00",
             costPrice: "0.00",
             taxRate: "15.00",
@@ -196,6 +214,42 @@ export function CreateProductDialog({ companyId, defaultType = "good", triggerLa
                                 )}
                             />
                         </div>
+
+                        <FormField
+                            control={form.control}
+                            name="ownerGroup"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel className="text-slate-700 font-semibold">Cost Center</FormLabel>
+                                    <FormControl>
+                                        <Input
+                                            placeholder="e.g. Mother"
+                                            value={field.value || ""}
+                                            onChange={field.onChange}
+                                            className="rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-primary/20"
+                                        />
+                                    </FormControl>
+                                    {existingOwnerGroups.length > 0 && (
+                                        <div className="flex flex-wrap gap-2 pt-2">
+                                            {existingOwnerGroups.map((group) => (
+                                                <Button
+                                                    key={group}
+                                                    type="button"
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="h-7 rounded-full px-3 text-[10px] font-bold border-slate-200"
+                                                    onClick={() => form.setValue("ownerGroup", group, { shouldDirty: true })}
+                                                >
+                                                    {group}
+                                                </Button>
+                                            ))}
+                                        </div>
+                                    )}
+                                    <FormDescription>Optional. Used to separate reporting by owner/group.</FormDescription>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
 
                         {/* Restaurant & BOM Flags */}
                         {!isService && (

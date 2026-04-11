@@ -12,6 +12,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { PageHeader } from "@/components/page-header";
 
 export default function TeamSettingsPage() {
     const { toast } = useToast();
@@ -123,18 +124,17 @@ export default function TeamSettingsPage() {
 
     return (
         <Layout>
-            <div className="mb-8 flex justify-between items-end">
-                <div>
-                    <h1 className="text-3xl font-display font-bold text-slate-900">Team Management</h1>
-                    <p className="text-slate-500 mt-1">Manage user access and roles for {currentCompany.name}</p>
-                </div>
-                <Dialog open={isAddUserOpen} onOpenChange={setIsAddUserOpen}>
-                    <DialogTrigger asChild>
-                        <Button className="flex items-center gap-2">
-                            <UserPlus className="w-4 h-4" />
-                            Add Member
-                        </Button>
-                    </DialogTrigger>
+            <PageHeader
+                title="Team Management"
+                subtitle={`Manage user access and roles for ${currentCompany.name}`}
+                actions={
+                    <Dialog open={isAddUserOpen} onOpenChange={setIsAddUserOpen}>
+                        <DialogTrigger asChild>
+                            <Button className="flex items-center gap-2">
+                                <UserPlus className="w-4 h-4" />
+                                Add Member
+                            </Button>
+                        </DialogTrigger>
                     <DialogContent>
                         <DialogHeader>
                             <DialogTitle>Add Team Member</DialogTitle>
@@ -206,7 +206,8 @@ export default function TeamSettingsPage() {
                         </DialogFooter>
                     </DialogContent>
                 </Dialog>
-            </div>
+                }
+            />
 
             <Card className="card-depth border-none">
                 <CardHeader>

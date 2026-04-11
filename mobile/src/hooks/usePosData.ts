@@ -13,6 +13,17 @@ const CACHE_KEYS = {
   company: (companyId: number) => `pos:cache:company:${companyId}`,
 } as const;
 
+function normalizeProductImage<T extends Record<string, any>>(product: T): T {
+  if (!product) return product;
+  const imageUrl =
+    product.imageUrl ??
+    product.image_url ??
+    product.image ??
+    product.photoUrl ??
+    null;
+  return { ...product, imageUrl } as T;
+}
+
 export function useProducts(companyId: number | null) {
   const key = CACHE_KEYS.products(companyId || 0);
   const [data, setData] = useState<any[] | null>(() => memCache[key] ?? null);
@@ -40,7 +51,8 @@ export function useProducts(companyId: number | null) {
         try {
           const cached = await AsyncStorage.getItem(key);
           if (cached && !cancelled) {
-            const parsed = JSON.parse(cached);
+            const parsedRaw = JSON.parse(cached);
+            const parsed = Array.isArray(parsedRaw) ? parsedRaw.map(normalizeProductImage) : parsedRaw;
             memCache[key] = parsed;
             setData(parsed);
             setFromCache(true);
@@ -53,7 +65,8 @@ export function useProducts(companyId: number | null) {
 
       // 2. Fetch from network in background
       try {
-        const res = await apiJson<any[]>(`/api/companies/${companyId}/products`);
+        const resRaw = await apiJson<any[]>(`/api/companies/${companyId}/products`);
+        const res = Array.isArray(resRaw) ? resRaw.map(normalizeProductImage) : resRaw;
         if (!cancelled) {
           memCache[key] = res;
           setData(res);
@@ -76,7 +89,8 @@ export function useProducts(companyId: number | null) {
   const refresh = async () => {
     try {
       setLoading(true);
-      const res = await apiJson<any[]>(`/api/companies/${companyId}/products`);
+      const resRaw = await apiJson<any[]>(`/api/companies/${companyId}/products`);
+      const res = Array.isArray(resRaw) ? resRaw.map(normalizeProductImage) : resRaw;
       memCache[key] = res;
       setData(res);
       setFromCache(false);
@@ -361,7 +375,7 @@ export function useCreateInvoice(companyId: number | null) {
   return { create };
 }
 
-export function usePosSales(companyId: number | null, startDate: Date, endDate: Date) {
+export function usePosSales(companyId: number | null, startDate: Date, endDate: Date, ownerGroup?: string) {
   const [data, setData] = useState<any[] | null>(null);
   const [isLoading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -375,7 +389,8 @@ export function usePosSales(companyId: number | null, startDate: Date, endDate: 
       try {
         const start = startDate.toISOString();
         const end = endDate.toISOString();
-        const res = await apiJson<any[]>(`/api/pos/all-sales?companyId=${companyId}&startDate=${start}&endDate=${end}`);
+        const ownerGroupParam = ownerGroup ? `&ownerGroup=${encodeURIComponent(ownerGroup)}` : "";
+        const res = await apiJson<any[]>(`/api/pos/all-sales?companyId=${companyId}&startDate=${start}&endDate=${end}${ownerGroupParam}`);
         if (!cancelled) setData(res);
       } catch (e: any) {
         if (!cancelled) setError(e?.message ?? "Failed to load sales");
@@ -385,7 +400,7 @@ export function usePosSales(companyId: number | null, startDate: Date, endDate: 
     };
     fetchSales();
     return () => { cancelled = true; };
-  }, [companyId, startDate.toISOString(), endDate.toISOString()]);
+  }, [companyId, startDate.toISOString(), endDate.toISOString(), ownerGroup]);
 
   return { data, isLoading, error };
 }

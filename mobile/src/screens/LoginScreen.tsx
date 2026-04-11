@@ -98,7 +98,6 @@ export function LoginScreen({ onLoggedIn, onForgotPassword }: Props) {
             <Text style={styles.brandText}>
               Field<Text style={{ color: C.amber.primary }}>POS</Text>
             </Text>
-            <Text style={styles.tagline}>Precision enterprise management</Text>
           </View>
 
           <View style={styles.glassCard}>
@@ -106,7 +105,7 @@ export function LoginScreen({ onLoggedIn, onForgotPassword }: Props) {
               {mode === "login" ? "Welcome Back" : "Create Account"}
             </Text>
             <Text style={styles.modeSub}>
-              {mode === "login" ? "Sign in to manage your inventory" : "Register your business to get started"}
+              {mode === "login" ? "Sign in" : "Register to get started"}
             </Text>
 
             {mode === "register" && (

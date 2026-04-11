@@ -16,6 +16,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import { PageHeader } from "@/components/page-header";
 
 
 export default function SuppliersPage() {
@@ -54,12 +55,11 @@ export default function SuppliersPage() {
 
     return (
         <Layout>
-            <div className="flex items-center justify-between mb-8">
-                <div>
-                    <h1 className="text-3xl font-display font-bold text-slate-900">Suppliers</h1>
-                    <p className="text-slate-500 mt-1">Manage your vendor relationships</p>
-                </div>
-                <div className="flex gap-2">
+            <PageHeader
+                title="Suppliers"
+                subtitle="Manage your vendor relationships"
+                actions={
+                    <>
                     <Button
                         variant="outline"
                         onClick={() => {
@@ -76,8 +76,9 @@ export default function SuppliersPage() {
                     ) : (
                         <Button disabled variant="outline">Select a Company First</Button>
                     )}
-                </div>
-            </div>
+                    </>
+                }
+            />
 
             <div className="flex flex-col md:flex-row gap-4 mb-8">
                 <div className="relative flex-1 max-w-sm group">

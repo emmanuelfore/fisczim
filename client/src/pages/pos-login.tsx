@@ -60,12 +60,17 @@ export default function PosLoginPage() {
       setError(null);
       setIsLoggingIn(true);
       await loginWithPassword({ email: loginData.email, password: loginData.password });
+      setIsLoggingIn(false);
     } catch (error: any) {
       console.error("Login failed:", error);
       setError(error.message || "Invalid email or password");
       setIsLoggingIn(false);
     }
   };
+
+  useEffect(() => {
+    if (!isLoading) setIsLoggingIn(false);
+  }, [isLoading, user]);
 
   useEffect(() => {
     // In Electron, redirect as soon as user is authenticated — don't wait for companies

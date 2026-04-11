@@ -18,6 +18,7 @@ import {
 import { useState } from "react";
 import { downloadExcel } from "@/lib/export-utils";
 import { format } from "date-fns";
+import { PageHeader } from "@/components/page-header";
 
 const ITEMS_PER_PAGE = 10;
 
@@ -63,12 +64,11 @@ export default function ExpensesPage() {
 
     return (
         <Layout>
-            <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between mb-8 gap-4">
-                <div>
-                    <h1 className="text-3xl font-display font-bold text-slate-900">Expenses</h1>
-                    <p className="text-slate-500 mt-1">Track your business spending and overheads</p>
-                </div>
-                <div className="flex gap-2 w-full lg:w-auto">
+            <PageHeader
+                title="Expenses"
+                subtitle="Track your business spending and overheads"
+                actions={
+                    <>
                     <Button 
                         variant="outline" 
                         className="rounded-xl border-slate-200 shadow-sm hover:bg-slate-50 hover:text-indigo-600 transition-all font-bold text-xs gap-2"
@@ -82,8 +82,9 @@ export default function ExpensesPage() {
                     ) : (
                         <Button disabled variant="outline" className="flex-1 sm:flex-none">Select a Company First</Button>
                     )}
-                </div>
-            </div>
+                    </>
+                }
+            />
 
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 mb-8">
                 <Card className="border-none shadow-lg bg-white rounded-3xl overflow-hidden">

@@ -40,6 +40,8 @@ import { Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
 import { useBranchContext } from "@/lib/branch-context";
+import { resolveMediaUrl } from "@/lib/media";
+import { PageHeader } from "@/components/page-header";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -147,12 +149,11 @@ export default function ProductsPage() {
 
   return (
     <Layout>
-      <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between mb-8 gap-4">
-        <div>
-          <h1 className="text-3xl font-display font-black text-slate-900">Products</h1>
-          <p className="text-slate-500 mt-1 font-medium">Inventory and goods</p>
-        </div>
-        <div className="flex flex-wrap gap-2 w-full lg:w-auto">
+      <PageHeader
+        title="Products"
+        subtitle="Inventory and goods"
+        actions={
+          <>
           <Button
             variant="outline"
             onClick={() => {
@@ -204,8 +205,9 @@ export default function ProductsPage() {
           ) : (
             <Button disabled variant="outline" className="rounded-xl flex-1 sm:flex-none">Select a Company First</Button>
           )}
-        </div>
-      </div>
+          </>
+        }
+      />
 
       <div className="flex flex-col md:flex-row gap-4 mb-6">
         <div className="relative flex-1 w-full sm:max-w-sm group">
@@ -335,7 +337,7 @@ export default function ProductsPage() {
                       <div className="flex items-center gap-3 overflow-hidden">
                         {p.imageUrl ? (
                           <img 
-                            src={p.imageUrl} 
+                            src={resolveMediaUrl(p.imageUrl)} 
                             alt={p.name} 
                             className="w-8 h-8 md:w-10 md:h-10 rounded-lg object-cover shadow-sm bg-slate-100 ring-1 ring-slate-200 shrink-0" 
                             onError={(e) => (e.currentTarget.style.display = 'none')}

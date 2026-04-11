@@ -2,7 +2,7 @@ import { Layout } from "@/components/layout";
 import { cn } from "@/lib/utils";
 import { useRecurringInvoices, useDeleteRecurringInvoice, useUpdateRecurringInvoice } from "@/hooks/use-recurring";
 import { Button } from "@/components/ui/button";
-import { Plus, Search, FileText, Loader2, RefreshCw, Calendar, MoreHorizontal, Trash2, Play, Pause } from "lucide-react";
+import { Plus, Search, FileText, Loader2, RefreshCw, Calendar, MoreHorizontal, Trash2, Play, Pause, ArrowRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
 import { Link } from "wouter";
@@ -25,6 +25,7 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { format } from "date-fns";
+import { PageHeader } from "@/components/page-header";
 
 export default function RecurringInvoicesPage() {
     const selectedCompanyId = parseInt(localStorage.getItem("selectedCompanyId") || "0");
@@ -48,18 +49,18 @@ export default function RecurringInvoicesPage() {
 
     return (
         <Layout>
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-8 gap-4">
-                <div>
-                    <h1 className="text-3xl font-display font-bold text-slate-900">Recurring Invoices</h1>
-                    <p className="text-slate-500 mt-1">Automate your regular billing cycles</p>
-                </div>
-                <Link href="/invoices">
-                    <Button variant="outline">
-                        <ArrowRight className="w-4 h-4 mr-2" />
-                        Go to Invoices
-                    </Button>
-                </Link>
-            </div>
+            <PageHeader
+                title="Recurring Invoices"
+                subtitle="Automate your regular billing cycles"
+                actions={
+                    <Link href="/invoices">
+                        <Button variant="outline">
+                            <ArrowRight className="w-4 h-4 mr-2" />
+                            Go to Invoices
+                        </Button>
+                    </Link>
+                }
+            />
 
             <Card className="card-depth border-none overflow-hidden">
                 <div className="p-4 border-b border-slate-100 bg-white">
@@ -172,25 +173,5 @@ export default function RecurringInvoicesPage() {
                 </CardContent>
             </Card>
         </Layout>
-    );
-}
-
-function ArrowRight(props: any) {
-    return (
-        <svg
-            {...props}
-            xmlns="http://www.w3.org/2000/svg"
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-        >
-            <path d="M5 12h14" />
-            <path d="m12 5 7 7-7 7" />
-        </svg>
     );
 }

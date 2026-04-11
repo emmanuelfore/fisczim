@@ -73,7 +73,7 @@ export interface IStorage {
   ensureGenericCustomer(companyId: number): Promise<number>;
 
   // Products
-  getProducts(companyId: number, branchId?: number): Promise<(Product & { branchStock?: string })[]>;
+  getProducts(companyId: number, branchId?: number, ownerGroup?: string): Promise<(Product & { branchStock?: string })[]>;
   createProduct(product: InsertProduct): Promise<Product>;
   updateProduct(id: number, product: Partial<InsertProduct>): Promise<Product>;
   deleteCompanyProducts(companyId: number): Promise<void>;
@@ -204,7 +204,7 @@ export interface IStorage {
   bulkConvertServicesToProducts(companyId: number, productIds: number[]): Promise<void>;
   getPosShifts(companyId: number, userId: string, branchId?: number): Promise<PosShift[]>;
   getActivePosShift(companyId: number, userId: string, branchId?: number): Promise<PosShift | undefined>;
-  getPosSales(companyId: number, startDate: Date, endDate: Date, cashierId?: string, paymentMethod?: string, status?: string, search?: string, branchId?: number): Promise<any[]>;
+  getPosSales(companyId: number, startDate: Date, endDate: Date, cashierId?: string, paymentMethod?: string, status?: string, search?: string, branchId?: number, ownerGroup?: string): Promise<any[]>;
   createPosShift(data: InsertPosShift): Promise<PosShift>;
   updatePosShift(id: number, userId: string, data: Partial<PosShift>): Promise<PosShift>;
 
@@ -237,7 +237,7 @@ export interface IStorage {
   updateExpense(id: number, data: Partial<InsertExpense>): Promise<Expense | undefined>;
 
   // Reports & Analytics
-  getStockValuationReport(companyId: number): Promise<any[]>;
+  getStockValuationReport(companyId: number, ownerGroup?: string): Promise<any[]>;
   getFinancialSummary(companyId: number, dateFrom?: Date, dateTo?: Date, cashierId?: string): Promise<any>;
 
   // Report Module Methods
@@ -266,9 +266,9 @@ export interface IStorage {
   getHourlySalesDistribution(companyId: number, startDate: Date, endDate: Date): Promise<{ hour: number; count: number; total: number }[]>;
   getOperationalMetrics(companyId: number, startDate: Date, endDate: Date): Promise<{ atv: number; profitMargin: number; itemsPerReceipt: number; totalRevenue: number; totalCogs: number }>;
   getLowStockItems(companyId: number): Promise<(Product & { categoryName?: string })[]>;
-  getReportStockOnHand(companyId: number): Promise<{ productId: number; name: string; sku: string | null; category: string | null; stockLevel: string; unitCost: string; totalValue: string }[]>;
-  getReportInventoryMovements(companyId: number, start: Date, end: Date): Promise<{ transactionId: number; date: string; productName: string; type: string; quantity: string; unitCost: string | null; reference: string | null; notes: string | null }[]>;
-  getReportPurchaseHistory(companyId: number, start: Date, end: Date): Promise<{ transactionId: number; date: string; productName: string; supplierName: string | null; quantity: string; unitCost: string; totalCost: string; reference: string | null }[]>;
+  getReportStockOnHand(companyId: number, ownerGroup?: string): Promise<{ productId: number; name: string; sku: string | null; category: string | null; stockLevel: string; unitCost: string; totalValue: string }[]>;
+  getReportInventoryMovements(companyId: number, start: Date, end: Date, ownerGroup?: string): Promise<{ transactionId: number; date: string; productName: string; type: string; quantity: string; unitCost: string | null; reference: string | null; notes: string | null }[]>;
+  getReportPurchaseHistory(companyId: number, start: Date, end: Date, ownerGroup?: string): Promise<{ transactionId: number; date: string; productName: string; supplierName: string | null; quantity: string; unitCost: string; totalCost: string; reference: string | null }[]>;
 
   // Stock Takes
   getStockTakes(companyId: number): Promise<StockTake[]>;
@@ -550,7 +550,12 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async getProducts(companyId: number, branchId?: number): Promise<(Product & { branchStock?: string })[]> {
+  async getProducts(companyId: number, branchId?: number, ownerGroup?: string): Promise<(Product & { branchStock?: string })[]> {
+    const baseFilters: any[] = [eq(products.companyId, companyId), eq(products.isActive, true)];
+    if (ownerGroup) {
+      baseFilters.push(eq(products.ownerGroup, ownerGroup));
+    }
+
     if (branchId) {
       const result = await db
         .select({
@@ -559,17 +564,12 @@ export class DatabaseStorage implements IStorage {
         })
         .from(products)
         .leftJoin(branchStocks, and(eq(branchStocks.productId, products.id), eq(branchStocks.branchId, branchId)))
-        .where(and(eq(products.companyId, companyId), eq(products.isActive, true)));
+        .where(and(...baseFilters));
       
       return result.map(r => ({ ...r.product, branchStock: r.branchStock || "0" }));
     }
 
-    return await db.select().from(products).where(
-      and(
-        eq(products.companyId, companyId),
-        eq(products.isActive, true)
-      )
-    );
+    return await db.select().from(products).where(and(...baseFilters));
   }
 
   async createProduct(product: InsertProduct): Promise<Product> {
@@ -2677,7 +2677,9 @@ export class DatabaseStorage implements IStorage {
       .select({
         invoice: invoices,
         customerName: customers.name,
-        cashierName: users.username
+        cashierName: users.name,
+        cashierUsername: users.username,
+        cashierEmail: users.email
       })
       .from(invoices)
       .leftJoin(customers, eq(invoices.customerId, customers.id))
@@ -2688,7 +2690,7 @@ export class DatabaseStorage implements IStorage {
     return result.map(r => ({
       ...r.invoice,
       customerName: r.customerName,
-      cashierName: r.cashierName || "System"
+      cashierName: r.cashierName || r.cashierUsername || r.cashierEmail?.split("@")[0] || "System"
     }));
   }
 
@@ -2722,12 +2724,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getSalesByUser(companyId: number, startDate: Date, endDate: Date): Promise<{ userId: string; userName: string; totalSales: number; count: number }[]> {
-    const result = await db
+    const rows = await db
       .select({
-        userId: invoices.createdBy,
-        userName: users.username,
-        totalSales: sql<number>`sum(${invoices.total})`,
-        count: count(invoices.id)
+        createdBy: invoices.createdBy,
+        shiftId: invoices.shiftId,
+        total: invoices.total,
+        directName: users.name,
+        directUsername: users.username,
+        directEmail: users.email
       })
       .from(invoices)
       .leftJoin(users, eq(invoices.createdBy, users.id))
@@ -2737,18 +2741,65 @@ export class DatabaseStorage implements IStorage {
         lte(invoices.issueDate, endDate),
         ne(invoices.status, 'cancelled'),
         ne(invoices.status, 'draft')
-      ))
-      .groupBy(invoices.createdBy, users.username);
+      ));
 
-    // After grouping in SQL, we might still have multiple null entries if they don't join to a user.
-    // However, groupBy(invoices.createdBy) should handle the nulls as one group.
-    
-    return result.map(r => ({
-      userId: r.userId || "system",
-      userName: r.userName || "System",
-      totalSales: Number(r.totalSales || 0),
-      count: Number(r.count || 0)
-    }));
+    const unresolvedShiftIds = Array.from(
+      new Set(
+        rows
+          .filter((r) => !r.directName && !r.directUsername && !r.directEmail && r.shiftId)
+          .map((r) => Number(r.shiftId))
+      )
+    );
+
+    const shiftCashierMap = new Map<number, { userId: string | null; name: string | null; username: string | null; email: string | null }>();
+    if (unresolvedShiftIds.length > 0) {
+      const shiftRows = await db
+        .select({
+          shiftId: posShifts.id,
+          userId: posShifts.userId,
+          name: users.name,
+          username: users.username,
+          email: users.email
+        })
+        .from(posShifts)
+        .leftJoin(users, eq(posShifts.userId, users.id))
+        .where(inArray(posShifts.id, unresolvedShiftIds));
+
+      shiftRows.forEach((r) => {
+        shiftCashierMap.set(r.shiftId, {
+          userId: r.userId ?? null,
+          name: r.name ?? null,
+          username: r.username ?? null,
+          email: r.email ?? null
+        });
+      });
+    }
+
+    const byCashier = new Map<string, { userId: string; userName: string; totalSales: number; count: number }>();
+    for (const row of rows) {
+      const shiftCashier = row.shiftId ? shiftCashierMap.get(Number(row.shiftId)) : undefined;
+      const resolvedUserId = row.createdBy || shiftCashier?.userId || "system";
+      const resolvedUserName =
+        row.directName ||
+        row.directUsername ||
+        row.directEmail?.split("@")[0] ||
+        shiftCashier?.name ||
+        shiftCashier?.username ||
+        shiftCashier?.email?.split("@")[0] ||
+        "System";
+
+      const existing = byCashier.get(resolvedUserId) || {
+        userId: resolvedUserId,
+        userName: resolvedUserName,
+        totalSales: 0,
+        count: 0
+      };
+      existing.totalSales += Number(row.total || 0);
+      existing.count += 1;
+      byCashier.set(resolvedUserId, existing);
+    }
+
+    return Array.from(byCashier.values()).sort((a, b) => b.totalSales - a.totalSales);
   }
 
   async getProductPerformance(companyId: number, startDate: Date, endDate: Date, isPosOnly?: boolean): Promise<{ productId: number; productName: string; quantity: number; revenue: number }[]> {
@@ -2794,10 +2845,12 @@ export class DatabaseStorage implements IStorage {
     paymentMethod?: string,
     status?: string,
     search?: string,
-    branchId?: number
+    branchId?: number,
+    ownerGroup?: string
   ): Promise<any[]> {
     const conditions = [
       eq(invoices.companyId, companyId),
+      eq(invoices.isPos, true),
       gte(invoices.issueDate, startDate),
       lte(invoices.issueDate, endDate)
     ] as any[];
@@ -2807,9 +2860,7 @@ export class DatabaseStorage implements IStorage {
     }
 
     if (cashierId && cashierId !== 'all') {
-      // Show sales created by this cashier, OR sales where createdBy is null 
-      // (to support historical data visibility for the primary user/admin)
-      conditions.push(or(eq(invoices.createdBy, cashierId), isNull(invoices.createdBy)) as any);
+      conditions.push(eq(invoices.createdBy, cashierId));
     }
 
     if (status && status !== 'all') {
@@ -2829,10 +2880,24 @@ export class DatabaseStorage implements IStorage {
       ) as any);
     }
 
+    if (ownerGroup && ownerGroup !== "all") {
+      conditions.push(
+        sql`exists (
+          select 1
+          from ${invoiceItems} ii
+          inner join ${products} p on p.id = ii.product_id
+          where ii.invoice_id = ${invoices.id}
+            and p.owner_group = ${ownerGroup}
+        )`
+      );
+    }
+
     const query = db
       .select({
         invoice: invoices,
-        cashierName: users.username,
+        cashierName: users.name,
+        cashierUsername: users.username,
+        cashierEmail: users.email,
         customerName: customers.name
       })
       .from(invoices)
@@ -2842,9 +2907,46 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(invoices.createdAt));
 
     const results = await query;
+    const unresolvedShiftIds = Array.from(
+      new Set(
+        results
+          .filter((r) => !r.cashierName && !r.cashierUsername && !r.cashierEmail && r.invoice.shiftId)
+          .map((r) => Number(r.invoice.shiftId))
+      )
+    );
+
+    const shiftCashierMap = new Map<number, { name: string | null; username: string | null; email: string | null }>();
+    if (unresolvedShiftIds.length > 0) {
+      const shiftRows = await db
+        .select({
+          shiftId: posShifts.id,
+          name: users.name,
+          username: users.username,
+          email: users.email
+        })
+        .from(posShifts)
+        .leftJoin(users, eq(posShifts.userId, users.id))
+        .where(inArray(posShifts.id, unresolvedShiftIds));
+
+      shiftRows.forEach((r) => {
+        shiftCashierMap.set(r.shiftId, {
+          name: r.name ?? null,
+          username: r.username ?? null,
+          email: r.email ?? null
+        });
+      });
+    }
+
     return results.map(r => ({
       ...r.invoice,
-      cashierName: r.cashierName,
+      cashierName:
+        r.cashierName ||
+        r.cashierUsername ||
+        r.cashierEmail?.split("@")[0] ||
+        shiftCashierMap.get(Number(r.invoice.shiftId || 0))?.name ||
+        shiftCashierMap.get(Number(r.invoice.shiftId || 0))?.username ||
+        shiftCashierMap.get(Number(r.invoice.shiftId || 0))?.email?.split("@")[0] ||
+        "System",
       customerName: r.customerName
     }));
   }
@@ -3023,11 +3125,15 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Reports
-  async getStockValuationReport(companyId: number) {
+  async getStockValuationReport(companyId: number, ownerGroup?: string) {
+    const filters: any[] = [eq(products.companyId, companyId), eq(products.isTracked, true)];
+    if (ownerGroup) {
+      filters.push(eq(products.ownerGroup, ownerGroup));
+    }
     const trackedProducts = await db
       .select()
       .from(products)
-      .where(and(eq(products.companyId, companyId), eq(products.isTracked, true)));
+      .where(and(...filters));
 
     return trackedProducts.map(p => ({
       productId: p.id,
@@ -4142,7 +4248,11 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getReportStockOnHand(companyId: number): Promise<{ productId: number; name: string; sku: string | null; category: string | null; stockLevel: string; unitCost: string; totalValue: string }[]> {
+  async getReportStockOnHand(companyId: number, ownerGroup?: string): Promise<{ productId: number; name: string; sku: string | null; category: string | null; stockLevel: string; unitCost: string; totalValue: string }[]> {
+    const filters: any[] = [eq(products.companyId, companyId), eq(products.isTracked, true)];
+    if (ownerGroup) {
+      filters.push(eq(products.ownerGroup, ownerGroup));
+    }
     const results = await db.select({
       productId: products.id,
       name: products.name,
@@ -4153,10 +4263,7 @@ export class DatabaseStorage implements IStorage {
       totalValue: sql<string>`(${products.stockLevel} * ${products.costPrice})`
     })
       .from(products)
-      .where(and(
-        eq(products.companyId, companyId),
-        eq(products.isTracked, true)
-      ))
+      .where(and(...filters))
       .orderBy(products.name);
     return results.map(r => ({
       ...r,
@@ -4166,7 +4273,7 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getAbcAnalysis(companyId: number): Promise<{
+  async getAbcAnalysis(companyId: number, ownerGroup?: string): Promise<{
     productId: number;
     name: string;
     sku: string | null;
@@ -4179,6 +4286,16 @@ export class DatabaseStorage implements IStorage {
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
     // 1. Get revenue by product
+    const filters: any[] = [
+      eq(invoices.companyId, companyId),
+      gte(invoices.issueDate, thirtyDaysAgo),
+      ne(invoices.status, 'cancelled'),
+      ne(invoices.status, 'draft')
+    ];
+    if (ownerGroup) {
+      filters.push(eq(products.ownerGroup, ownerGroup));
+    }
+
     const productRevenue = await db
       .select({
         productId: products.id,
@@ -4189,12 +4306,7 @@ export class DatabaseStorage implements IStorage {
       .from(invoiceItems)
       .innerJoin(invoices, eq(invoiceItems.invoiceId, invoices.id))
       .innerJoin(products, eq(invoiceItems.productId, products.id))
-      .where(and(
-        eq(invoices.companyId, companyId),
-        gte(invoices.issueDate, thirtyDaysAgo),
-        ne(invoices.status, 'cancelled'),
-        ne(invoices.status, 'draft')
-      ))
+      .where(and(...filters))
       .groupBy(products.id, products.name, products.sku)
       .orderBy(desc(sql`SUM(${invoiceItems.lineTotal})`));
 
@@ -4224,7 +4336,15 @@ export class DatabaseStorage implements IStorage {
     });
   }
 
-  async getReportInventoryMovements(companyId: number, start: Date, end: Date): Promise<{ transactionId: number; date: string; productName: string; type: string; quantity: string; unitCost: string | null; reference: string | null; notes: string | null }[]> {
+  async getReportInventoryMovements(companyId: number, start: Date, end: Date, ownerGroup?: string): Promise<{ transactionId: number; date: string; productName: string; type: string; quantity: string; unitCost: string | null; reference: string | null; notes: string | null }[]> {
+    const filters: any[] = [
+      eq(inventoryTransactions.companyId, companyId),
+      gte(inventoryTransactions.createdAt, start),
+      lte(inventoryTransactions.createdAt, end)
+    ];
+    if (ownerGroup) {
+      filters.push(eq(products.ownerGroup, ownerGroup));
+    }
     const results = await db.select({
       transactionId: inventoryTransactions.id,
       date: inventoryTransactions.createdAt,
@@ -4237,11 +4357,7 @@ export class DatabaseStorage implements IStorage {
     })
       .from(inventoryTransactions)
       .innerJoin(products, eq(inventoryTransactions.productId, products.id))
-      .where(and(
-        eq(inventoryTransactions.companyId, companyId),
-        gte(inventoryTransactions.createdAt, start),
-        lte(inventoryTransactions.createdAt, end)
-      ))
+      .where(and(...filters))
       .orderBy(desc(inventoryTransactions.createdAt));
 
     return results.map(r => ({
@@ -4252,7 +4368,16 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getReportPurchaseHistory(companyId: number, start: Date, end: Date): Promise<{ transactionId: number; date: string; productName: string; supplierName: string | null; quantity: string; unitCost: string; totalCost: string; reference: string | null }[]> {
+  async getReportPurchaseHistory(companyId: number, start: Date, end: Date, ownerGroup?: string): Promise<{ transactionId: number; date: string; productName: string; supplierName: string | null; quantity: string; unitCost: string; totalCost: string; reference: string | null }[]> {
+    const filters: any[] = [
+      eq(inventoryTransactions.companyId, companyId),
+      eq(inventoryTransactions.type, 'STOCK_IN'),
+      gte(inventoryTransactions.createdAt, start),
+      lte(inventoryTransactions.createdAt, end)
+    ];
+    if (ownerGroup) {
+      filters.push(eq(products.ownerGroup, ownerGroup));
+    }
     const results = await db.select({
       transactionId: inventoryTransactions.id,
       date: inventoryTransactions.createdAt,
@@ -4266,12 +4391,7 @@ export class DatabaseStorage implements IStorage {
       .from(inventoryTransactions)
       .innerJoin(products, eq(inventoryTransactions.productId, products.id))
       .leftJoin(suppliers, eq(inventoryTransactions.supplierId, suppliers.id))
-      .where(and(
-        eq(inventoryTransactions.companyId, companyId),
-        eq(inventoryTransactions.type, 'STOCK_IN'),
-        gte(inventoryTransactions.createdAt, start),
-        lte(inventoryTransactions.createdAt, end)
-      ))
+      .where(and(...filters))
       .orderBy(desc(inventoryTransactions.createdAt));
 
     return results.map(r => ({

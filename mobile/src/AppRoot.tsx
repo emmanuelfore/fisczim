@@ -24,6 +24,7 @@ import { AppDrawer } from "./ui/AppDrawer";
 import { BottomTabs } from "./ui/BottomTabs";
 import { Button } from "./ui/Button";
 import { getSelectedCompanyId, setSelectedCompanyId } from "./lib/storage";
+import { PrinterProvider } from "./contexts/PrinterContext";
 
 type Stage = "boot" | "login" | "forgot-password" | "onboarding" | "company" | "main";
 
@@ -387,9 +388,11 @@ export function AppRoot() {
   }, [bootError, stage, companyId, currentScreen, showDrawer, userName, userRole, companies]);
 
   return (
-    <View style={{ flex: 1, backgroundColor: PremiumColors.bg.base }}>
-      {content}
-    </View>
+    <PrinterProvider>
+      <View style={{ flex: 1, backgroundColor: PremiumColors.bg.base }}>
+        {content}
+      </View>
+    </PrinterProvider>
   );
 }
 

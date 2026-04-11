@@ -13,6 +13,7 @@ export const users = pgTable("users", {
   username: text("username").unique(),
   passwordChanged: boolean("password_changed").default(false),
   pin: text("pin"), // Encrypted PIN for POS overrides
+  ownerGroupScope: text("owner_group_scope"), // Optional data-scope guard (e.g. Beauty, Mother)
   createdAt: timestamp("created_at").defaultNow(),
   isSuperAdmin: boolean("is_super_admin").default(false),
 });
@@ -301,6 +302,7 @@ export const products = pgTable("products", {
   unitOfMeasure: text("unit_of_measure"),
   hsCode: text("hs_code").default("0000.00.00"),
   category: text("category"),
+  ownerGroup: text("owner_group"),
   price: decimal("price", { precision: 10, scale: 2 }).notNull(),
   costPrice: decimal("cost_price", { precision: 10, scale: 2 }),
   taxRate: decimal("tax_rate", { precision: 5, scale: 2 }).default("15.00"), // Default VAT

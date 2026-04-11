@@ -61,6 +61,7 @@ export default function AuthPage() {
       setError(null);
       setIsLoggingIn(true);
       await loginWithPassword({ email: loginData.email, password: loginData.password });
+      setIsLoggingIn(false);
     } catch (error: any) {
       console.error("Login failed:", error);
       setError(error.message || "Invalid email or password");
@@ -85,12 +86,17 @@ export default function AuthPage() {
         name: signupData.name
       });
       setSuccessMsg("Account created! Logging you in...");
+      setIsLoggingIn(false);
     } catch (error: any) {
       console.error("Signup failed:", error);
       setError(error.message || "Registration failed");
       setIsLoggingIn(false);
     }
   };
+
+  useEffect(() => {
+    if (!isLoading) setIsLoggingIn(false);
+  }, [isLoading, user]);
 
   useEffect(() => {
     if (user && !isLoading && !isLoadingCompanies) {

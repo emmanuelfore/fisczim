@@ -43,6 +43,18 @@ import { format } from "date-fns";
 
 const scryptAsync = promisify(scrypt);
 
+function parseOwnerGroups(raw?: string): string[] {
+  if (!raw) return [];
+  return Array.from(
+    new Set(
+      String(raw)
+        .split(",")
+        .map((v) => v.trim())
+        .filter((v) => v.length > 0 && v.toLowerCase() !== "all")
+    )
+  );
+}
+
 export interface IStorage {
   // User & Auth
   getUser(id: string): Promise<User | undefined>;
@@ -228,7 +240,7 @@ export interface IStorage {
   updateSupplier(id: number, data: Partial<InsertSupplier>): Promise<Supplier | undefined>;
 
   // Inventory Transactions
-  getInventoryTransactions(companyId: number, productId?: number): Promise<InventoryTransaction[]>;
+  getInventoryTransactions(companyId: number, productId?: number, ownerGroup?: string): Promise<InventoryTransaction[]>;
   createInventoryTransaction(data: InsertInventoryTransaction & { companyId: number }): Promise<InventoryTransaction>;
 
   // Expenses
@@ -238,7 +250,7 @@ export interface IStorage {
 
   // Reports & Analytics
   getStockValuationReport(companyId: number, ownerGroup?: string): Promise<any[]>;
-  getFinancialSummary(companyId: number, dateFrom?: Date, dateTo?: Date, cashierId?: string): Promise<any>;
+  getFinancialSummary(companyId: number, dateFrom?: Date, dateTo?: Date, cashierId?: string, drillDown?: boolean, ownerGroup?: string): Promise<any>;
 
   // Report Module Methods
   getReportSalesSummary(companyId: number, start: Date, end: Date): Promise<{ date: string; invoiceCount: number; subtotal: string; taxAmount: string; total: string }[]>;
@@ -552,8 +564,11 @@ export class DatabaseStorage implements IStorage {
 
   async getProducts(companyId: number, branchId?: number, ownerGroup?: string): Promise<(Product & { branchStock?: string })[]> {
     const baseFilters: any[] = [eq(products.companyId, companyId), eq(products.isActive, true)];
-    if (ownerGroup) {
-      baseFilters.push(eq(products.ownerGroup, ownerGroup));
+    const ownerGroups = parseOwnerGroups(ownerGroup);
+    if (ownerGroups.length === 1) {
+      baseFilters.push(eq(products.ownerGroup, ownerGroups[0]));
+    } else if (ownerGroups.length > 1) {
+      baseFilters.push(inArray(products.ownerGroup, ownerGroups));
     }
 
     if (branchId) {
@@ -2880,14 +2895,18 @@ export class DatabaseStorage implements IStorage {
       ) as any);
     }
 
-    if (ownerGroup && ownerGroup !== "all") {
+    const ownerGroups = parseOwnerGroups(ownerGroup);
+    if (ownerGroups.length > 0) {
+      const ownerGroupPredicate = ownerGroups.length === 1
+        ? sql`p.owner_group = ${ownerGroups[0]}`
+        : sql`p.owner_group in (${sql.join(ownerGroups.map((g) => sql`${g}`), sql`, `)})`;
       conditions.push(
         sql`exists (
           select 1
           from ${invoiceItems} ii
           inner join ${products} p on p.id = ii.product_id
           where ii.invoice_id = ${invoices.id}
-            and p.owner_group = ${ownerGroup}
+            and ${ownerGroupPredicate}
         )`
       );
     }
@@ -3036,9 +3055,15 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Inventory Transactions
-  async getInventoryTransactions(companyId: number, productId?: number): Promise<any[]> {
+  async getInventoryTransactions(companyId: number, productId?: number, ownerGroup?: string): Promise<any[]> {
     const filters = [eq(inventoryTransactions.companyId, companyId)];
     if (productId) filters.push(eq(inventoryTransactions.productId, productId));
+    const ownerGroups = parseOwnerGroups(ownerGroup);
+    if (ownerGroups.length === 1) {
+      filters.push(eq(products.ownerGroup, ownerGroups[0]));
+    } else if (ownerGroups.length > 1) {
+      filters.push(inArray(products.ownerGroup, ownerGroups));
+    }
     
     return await db
       .select({
@@ -3064,6 +3089,7 @@ export class DatabaseStorage implements IStorage {
         variationName: productVariations.name
       })
       .from(inventoryTransactions)
+      .leftJoin(products, eq(products.id, inventoryTransactions.productId))
       .leftJoin(users, eq(users.id, inventoryTransactions.createdBy))
       .leftJoin(productVariations, eq(productVariations.id, inventoryTransactions.variationId))
       .where(and(...filters))

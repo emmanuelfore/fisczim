@@ -687,6 +687,7 @@ export async function registerRoutes(
           const hsHeader = findHeader(row, ['HS Code', 'HSCode', 'Harmonized Code']);
           const categoryHeader = findHeader(row, ['Category', 'Cat', 'Product Category', 'Group']);
           const trackHeader = findHeader(row, ['Track Inventory', 'Track', 'Inventory Tracking']);
+          const costCenterHeader = findHeader(row, ['Cost Center', 'Cost Centre', 'Owner Group', 'Owner']);
 
           const name = nameHeader ? (row as any)[nameHeader] : null;
           if (!name) throw new Error("Missing 'Name' column");
@@ -718,6 +719,10 @@ export async function registerRoutes(
 
           // Handle Category Auto-Creation
           const categoryName = categoryHeader ? (row as any)[categoryHeader]?.toString().trim() : "General";
+          const ownerGroupValueRaw = costCenterHeader ? (row as any)[costCenterHeader] : null;
+          const ownerGroupValue = ownerGroupValueRaw !== null && ownerGroupValueRaw !== undefined
+            ? ownerGroupValueRaw.toString().trim()
+            : "";
           if (categoryName && categoryName !== "") {
             const existingCat = categoriesList.find(c => c.name.toLowerCase() === categoryName.toLowerCase());
             if (!existingCat) {
@@ -743,6 +748,7 @@ export async function registerRoutes(
             productType: type,
             hsCode: hsHeader ? (row as any)[hsHeader] : "0000.00.00",
             category: categoryName || "General",
+            ownerGroup: ownerGroupValue.length > 0 ? ownerGroupValue : null,
             isActive: true,
             stockLevel: stockHeader ? cleanNum((row as any)[stockHeader]).toString() : "0.00",
             isTracked: trackHeader ? isTracked : (!!stockHeader && type === 'good')
@@ -4261,7 +4267,7 @@ export async function registerRoutes(
               productType: productType,
               hsCode: row["HS Code"] || "0000.00.00",
               category: row["Category"] || "General",
-              ownerGroup: row["Owner Group"] || row["Owner"] || null,
+              ownerGroup: row["Cost Center"] || row["Cost Centre"] || row["Owner Group"] || row["Owner"] || null,
               isTracked: isTracked
             });
 
@@ -6119,7 +6125,8 @@ export async function registerRoutes(
     try {
       const companyId = parseInt(req.params.id);
       const ownerGroupScope = await getUserOwnerGroupScope((req.user as any)?.id);
-      const data = await storage.getReportStockOnHand(companyId, ownerGroupScope);
+      const ownerGroup = ownerGroupScope || (req.query.ownerGroup as string | undefined);
+      const data = await storage.getReportStockOnHand(companyId, ownerGroup);
       res.json(data);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -6134,8 +6141,9 @@ export async function registerRoutes(
       const endDate = req.query.endDate ? new Date(req.query.endDate as string) : new Date();
       endDate.setHours(23, 59, 59, 999);
       const ownerGroupScope = await getUserOwnerGroupScope((req.user as any)?.id);
+      const ownerGroup = ownerGroupScope || (req.query.ownerGroup as string | undefined);
 
-      const data = await storage.getReportInventoryMovements(companyId, startDate, endDate, ownerGroupScope);
+      const data = await storage.getReportInventoryMovements(companyId, startDate, endDate, ownerGroup);
       res.json(data);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -6150,8 +6158,9 @@ export async function registerRoutes(
       const endDate = req.query.endDate ? new Date(req.query.endDate as string) : new Date();
       endDate.setHours(23, 59, 59, 999);
       const ownerGroupScope = await getUserOwnerGroupScope((req.user as any)?.id);
+      const ownerGroup = ownerGroupScope || (req.query.ownerGroup as string | undefined);
 
-      const data = await storage.getReportPurchaseHistory(companyId, startDate, endDate, ownerGroupScope);
+      const data = await storage.getReportPurchaseHistory(companyId, startDate, endDate, ownerGroup);
       res.json(data);
     } catch (error: any) {
       res.status(500).json({ message: error.message });

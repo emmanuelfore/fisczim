@@ -276,21 +276,22 @@ function InvoiceItemRow({ invoiceId, currencyCode, exchangeRate, symbols, items 
   );
 }
 
-function InventoryContent({ tab, companyId, start, end, symbol, onNavigate }: { tab: InventorySubTab; companyId: number; start: Date; end: Date; symbol: string; onNavigate?: (screen: any) => void }) {
+function InventoryContent({ tab, companyId, start, end, symbol, ownerGroup, onNavigate }: { tab: InventorySubTab; companyId: number; start: Date; end: Date; symbol: string; ownerGroup?: string; onNavigate?: (screen: any) => void }) {
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     setLoading(true);
+    const ownerGroupParam = ownerGroup ? `ownerGroup=${encodeURIComponent(ownerGroup)}` : "";
     let endpoint = "";
-    if (tab === "valuation") endpoint = `/api/reports/inventory/stock-on-hand/${companyId}`;
-    else if (tab === "movements") endpoint = `/api/reports/inventory/movements/${companyId}?startDate=${start.toISOString()}&endDate=${end.toISOString()}`;
-    else if (tab === "purchases") endpoint = `/api/reports/inventory/purchases/${companyId}?startDate=${start.toISOString()}&endDate=${end.toISOString()}`;
+    if (tab === "valuation") endpoint = `/api/reports/inventory/stock-on-hand/${companyId}${ownerGroupParam ? `?${ownerGroupParam}` : ""}`;
+    else if (tab === "movements") endpoint = `/api/reports/inventory/movements/${companyId}?startDate=${start.toISOString()}&endDate=${end.toISOString()}${ownerGroupParam ? `&${ownerGroupParam}` : ""}`;
+    else if (tab === "purchases") endpoint = `/api/reports/inventory/purchases/${companyId}?startDate=${start.toISOString()}&endDate=${end.toISOString()}${ownerGroupParam ? `&${ownerGroupParam}` : ""}`;
 
     apiJson<any[]>(endpoint)
       .then(res => { setData(res); setLoading(false); })
       .catch(() => { setData([]); setLoading(false); });
-  }, [tab, companyId, start, end]);
+  }, [tab, companyId, start, end, ownerGroup]);
 
   if (loading) return <ActivityIndicator color={C.amber.primary} style={{ marginTop: 40 }} />;
 
@@ -519,7 +520,7 @@ export function ReportsScreen({ onOpenDrawer, companyId, userRole = "member", us
     });
     return Array.from(values).sort((a, b) => a.localeCompare(b));
   }, [products]);
-  const showOwnerGroupFilter = activeTab === "sales" && ownerGroups.length > 0;
+  const showOwnerGroupFilter = (activeTab === "sales" || activeTab === "inventory") && ownerGroups.length > 0;
 
   // Close pickers when switching to a tab/subtab where they don't apply
   useEffect(() => {
@@ -647,7 +648,7 @@ export function ReportsScreen({ onOpenDrawer, companyId, userRole = "member", us
           </TouchableOpacity>
         ))}
       </View>
-      <InventoryContent tab={activeInvTab} companyId={companyId} start={start} end={end} symbol={baseSymbol} onNavigate={onNavigate} />
+      <InventoryContent tab={activeInvTab} companyId={companyId} start={start} end={end} symbol={baseSymbol} ownerGroup={selectedOwnerGroup} onNavigate={onNavigate} />
     </View>
   );
 

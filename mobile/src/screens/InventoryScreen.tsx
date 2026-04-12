@@ -22,11 +22,11 @@ const PRODUCT_TYPES = [
 
 interface Props { onOpenDrawer: () => void; companyId: number; }
 
-const emptyProduct = { 
-  name: "", sku: "", barcode: "", hsCode: "0000.00.00", price: "", costPrice: "", 
-  category: "", ownerGroup: "", description: "", productType: "good", 
+const emptyProduct = {
+  name: "", sku: "", barcode: "", hsCode: "0000.00.00", price: "", costPrice: "",
+  category: "", ownerGroup: "", description: "", productType: "good",
   isTracked: true, stockLevel: "0", lowStockThreshold: "10",
-  taxTypeId: null as number | null, isActive: true 
+  taxTypeId: null as number | null, isActive: true
 };
 
 export function InventoryScreen({ onOpenDrawer, companyId }: Props) {
@@ -34,23 +34,37 @@ export function InventoryScreen({ onOpenDrawer, companyId }: Props) {
   const { data: products, isLoading, error, refresh: refreshProducts } = useProducts(companyId);
   const { data: taxTypes } = useTaxTypes(companyId);
   const [search, setSearch] = useState("");
+  const [ownerGroupFilter, setOwnerGroupFilter] = useState<string>("all");
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState(emptyProduct);
   const [saving, setSaving] = useState(false);
 
+  const ownerGroups = useMemo(() => {
+    if (!products) return [];
+    const groups = new Set<string>();
+    products.forEach((p: any) => {
+      const group = p.ownerGroup?.trim();
+      if (group) groups.add(group);
+    });
+    return Array.from(groups).sort((a, b) => a.localeCompare(b));
+  }, [products]);
+
   const filtered = useMemo(() => {
     if (!products) return [];
     const q = search.toLowerCase();
+    const selectedGroup = ownerGroupFilter === "all" ? null : ownerGroupFilter;
     return products.filter((p: any) =>
-      (p.isActive !== false) && (
-        p.name?.toLowerCase().includes(q) || 
-        p.sku?.toLowerCase().includes(q) || 
+      (p.isActive !== false) &&
+      (!selectedGroup || p.ownerGroup === selectedGroup) &&
+      (
+        p.name?.toLowerCase().includes(q) ||
+        p.sku?.toLowerCase().includes(q) ||
         p.category?.toLowerCase().includes(q) ||
         p.ownerGroup?.toLowerCase().includes(q)
       )
     );
-  }, [products, search]);
+  }, [products, search, ownerGroupFilter]);
 
   const categories = useMemo(() => {
     if (!products) return [];
@@ -61,7 +75,7 @@ export function InventoryScreen({ onOpenDrawer, companyId }: Props) {
   const openEdit = (item: any) => {
     setEditingId(item.id);
     setForm({
-      name: item.name || "", sku: item.sku || "", barcode: item.barcode || "", 
+      name: item.name || "", sku: item.sku || "", barcode: item.barcode || "",
       hsCode: item.hsCode || "0000.00.00",
       price: String(item.price || ""),
       costPrice: String(item.costPrice || ""), category: item.category || "",
@@ -148,11 +162,11 @@ export function InventoryScreen({ onOpenDrawer, companyId }: Props) {
         <View style={styles.cardRight}>
           <Text style={styles.cardPrice}>${Number(item.price || 0).toFixed(2)}</Text>
           <View style={[
-            styles.stockBadge, 
-            { backgroundColor: isOutOfStock ? C.status.error : isLowStock ? "#fbbf24" : "#111827"}
+            styles.stockBadge,
+            { backgroundColor: isOutOfStock ? C.status.error : isLowStock ? "#fbbf24" : "#111827" }
           ]}>
             <Text style={[
-              styles.stockBadgeText, 
+              styles.stockBadgeText,
               { color: isLowStock ? "#000" : "#fff" }
             ]}>
               {item.isTracked ? (isOutOfStock ? "OUT" : `${stock} UNITS`) : "NOT TRACKED"}
@@ -176,6 +190,29 @@ export function InventoryScreen({ onOpenDrawer, companyId }: Props) {
           <Package size={14} color={C.text.secondary} />
           <TextInput style={styles.searchInput} placeholder="Search products..." placeholderTextColor={C.text.secondary} value={search} onChangeText={setSearch} />
         </View>
+        {ownerGroups.length > 0 && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.filterChipsRow}
+          >
+            <TouchableOpacity
+              style={[styles.filterChip, ownerGroupFilter === "all" && styles.filterChipActive]}
+              onPress={() => setOwnerGroupFilter("all")}
+            >
+              <Text style={[styles.filterChipText, ownerGroupFilter === "all" && styles.filterChipTextActive]}>All Cost Centers</Text>
+            </TouchableOpacity>
+            {ownerGroups.map((group) => (
+              <TouchableOpacity
+                key={group}
+                style={[styles.filterChip, ownerGroupFilter === group && styles.filterChipActive]}
+                onPress={() => setOwnerGroupFilter(group)}
+              >
+                <Text style={[styles.filterChipText, ownerGroupFilter === group && styles.filterChipTextActive]}>{group}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        )}
         {isLoading ? (
           <ActivityIndicator size="small" color={C.amber.primary} style={{ marginVertical: 10 }} />
         ) : error ? (
@@ -185,7 +222,7 @@ export function InventoryScreen({ onOpenDrawer, companyId }: Props) {
         )}
 
         <Modal visible={showForm} transparent animationType="slide">
-          <KeyboardAvoidingView 
+          <KeyboardAvoidingView
             behavior={Platform.OS === "ios" ? "padding" : "height"}
             style={styles.modalOverlay}
           >
@@ -268,7 +305,7 @@ export function InventoryScreen({ onOpenDrawer, companyId }: Props) {
                 {/* Description */}
                 <View style={styles.field}><Text style={styles.fieldLabel}>Description</Text>
                   <TextInput style={[styles.fieldInput, { height: 70, textAlignVertical: "top" }]} multiline value={form.description} onChangeText={(v) => setForm({ ...form, description: v })} placeholderTextColor={C.text.secondary} /></View>
-                
+
                 {/* Active Status */}
                 <TouchableOpacity style={styles.toggleRow} onPress={() => setForm({ ...form, isActive: !form.isActive })}>
                   <View style={[styles.toggleBox, form.isActive && styles.toggleBoxActive]}>
@@ -297,6 +334,11 @@ const styles = StyleSheet.create({
   iconBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: C.bg.card, alignItems: "center", justifyContent: "center", shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 4 },
   title: { color: C.text.primary, fontSize: 18, fontWeight: "800" },
   searchRow: { flexDirection: "row", alignItems: "center", backgroundColor: C.bg.hover, margin: 16, marginBottom: 0, borderRadius: 16, paddingHorizontal: 16, height: 48, shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 3, gap: 10 },
+  filterChipsRow: { paddingHorizontal: 16, paddingTop: 10, gap: 8 },
+  filterChip: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: C.bg.hover, borderWidth: 1, borderColor: C.border.default },
+  filterChipActive: { backgroundColor: `${C.amber.primary}20`, borderColor: C.amber.primary },
+  filterChipText: { color: C.text.secondary, fontSize: 12, fontWeight: "700" },
+  filterChipTextActive: { color: C.amber.primary },
   searchInput: { flex: 1, color: C.text.primary, height: 48, fontSize: 15 },
   card: { flexDirection: "row", alignItems: "center", backgroundColor: C.bg.card, padding: 12, borderRadius: 18, marginBottom: 12, gap: 12, shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 5 },
   cardImage: { width: 44, height: 44, borderRadius: 14, backgroundColor: C.bg.hover },
@@ -326,6 +368,6 @@ const styles = StyleSheet.create({
   toggleBox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: C.text.secondary, alignItems: "center", justifyContent: "center" },
   toggleBoxActive: { backgroundColor: C.amber.primary, borderColor: C.amber.primary },
   toggleLabel: { color: C.text.primary, fontSize: 13, fontWeight: "600" },
-  saveBtn: { backgroundColor: C.amber.primary, borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 8, marginBottom: 20 , shadowColor: C.amber.primary, shadowOpacity: 0.35, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 8 },
+  saveBtn: { backgroundColor: C.amber.primary, borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 8, marginBottom: 20, shadowColor: C.amber.primary, shadowOpacity: 0.35, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 8 },
   saveBtnText: { color: "#000", fontWeight: "800", fontSize: 15 },
 });

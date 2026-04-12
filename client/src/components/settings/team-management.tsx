@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Users, UserPlus, Trash2, Shield, Loader2 } from "lucide-react";
+import { Users, UserPlus, Trash2, Shield, Loader2, Save } from "lucide-react";
 
 interface TeamManagementProps {
   companyId: number;
@@ -24,6 +24,7 @@ export function TeamManagement({ companyId }: TeamManagementProps) {
   const [newUsername, setNewUsername] = useState("");
   const [newUserPassword, setNewUserPassword] = useState("Zimra123!");
   const [newUserRole, setNewUserRole] = useState("member");
+  const [scopeDrafts, setScopeDrafts] = useState<Record<string, string>>({});
 
   // Fetch Users
   const { data: users, isLoading: isLoadingUsers } = useQuery({
@@ -106,6 +107,28 @@ export function TeamManagement({ companyId }: TeamManagementProps) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["users", companyId] });
       toast({ title: "Role Updated", description: "User role updated successfully." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
+  });
+
+  // Update Cost Center Scope Mutation
+  const updateScopeMutation = useMutation({
+    mutationFn: async ({ userId, ownerGroupScope }: { userId: string; ownerGroupScope: string }) => {
+      const normalizedScope = ownerGroupScope.trim();
+      const res = await apiFetch(`/api/companies/${companyId}/users/${userId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ ownerGroupScope: normalizedScope.length > 0 ? normalizedScope : null })
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || "Failed to update cost center scope");
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["users", companyId] });
+      toast({ title: "Cost Center Access Updated", description: "User visibility scope updated successfully." });
     },
     onError: (err: Error) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -219,6 +242,7 @@ export function TeamManagement({ companyId }: TeamManagementProps) {
                   <TableHead className="font-bold text-slate-700">Name</TableHead>
                   <TableHead className="font-bold text-slate-700">Email</TableHead>
                   <TableHead className="font-bold text-slate-700">Role</TableHead>
+                  <TableHead className="font-bold text-slate-700">Cost Center Access</TableHead>
                   <TableHead className="font-bold text-slate-700">Joined</TableHead>
                   <TableHead className="text-right font-bold text-slate-700">Actions</TableHead>
                 </TableRow>
@@ -226,13 +250,13 @@ export function TeamManagement({ companyId }: TeamManagementProps) {
               <TableBody>
                 {isLoadingUsers ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center py-8">
+                    <TableCell colSpan={6} className="text-center py-8">
                       <Loader2 className="w-6 h-6 animate-spin mx-auto text-slate-300" />
                     </TableCell>
                   </TableRow>
                 ) : users?.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center py-8 text-slate-500">No users found.</TableCell>
+                    <TableCell colSpan={6} className="text-center py-8 text-slate-500">No users found.</TableCell>
                   </TableRow>
                 ) : (users || []).map((user: any) => (
                   <TableRow key={user.id} className="hover:bg-slate-50/50 transition-colors">
@@ -256,6 +280,32 @@ export function TeamManagement({ companyId }: TeamManagementProps) {
                           </SelectContent>
                         </Select>
                       </div>
+                    </TableCell>
+                    <TableCell className="min-w-[260px]">
+                      {(() => {
+                        const currentScope = (user.ownerGroupScope || "").trim();
+                        const draftScope = scopeDrafts[user.id] ?? currentScope;
+                        const changed = draftScope.trim() !== currentScope;
+                        return (
+                          <div className="flex items-center gap-2">
+                            <Input
+                              value={draftScope}
+                              onChange={(e) => setScopeDrafts((prev) => ({ ...prev, [user.id]: e.target.value }))}
+                              placeholder="Blank = All, or Beauty,Mother"
+                              className="h-8 text-xs"
+                            />
+                            <Button
+                              size="sm"
+                              variant={changed ? "default" : "secondary"}
+                              className="h-8 px-2"
+                              disabled={!changed || updateScopeMutation.isPending}
+                              onClick={() => updateScopeMutation.mutate({ userId: user.id, ownerGroupScope: draftScope })}
+                            >
+                              {updateScopeMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                            </Button>
+                          </div>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell className="text-slate-500 text-sm">
                       {user.createdAt ? new Date(user.createdAt).toLocaleDateString() : "-"}

@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Users, UserPlus, Trash2, Shield } from "lucide-react";
+import { Users, UserPlus, Trash2, Shield, Save, Loader2 } from "lucide-react";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
@@ -30,6 +30,7 @@ export default function TeamSettingsPage() {
     const [newUsername, setNewUsername] = useState("");
     const [newUserPassword, setNewUserPassword] = useState("Zimra123!");
     const [newUserRole, setNewUserRole] = useState("member");
+    const [scopeDrafts, setScopeDrafts] = useState<Record<string, string>>({});
 
     // Fetch Users
     const { data: users, isLoading: isLoadingUsers } = useQuery({
@@ -112,6 +113,27 @@ export default function TeamSettingsPage() {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["users", companyId] });
             toast({ title: "Role Updated", description: "User role updated successfully." });
+        },
+        onError: (err: Error) => {
+            toast({ title: "Error", description: err.message, variant: "destructive" });
+        }
+    });
+
+    const updateScopeMutation = useMutation({
+        mutationFn: async ({ userId, ownerGroupScope }: { userId: string; ownerGroupScope: string }) => {
+            const normalizedScope = ownerGroupScope.trim();
+            const res = await apiFetch(`/api/companies/${companyId}/users/${userId}`, {
+                method: "PATCH",
+                body: JSON.stringify({ ownerGroupScope: normalizedScope.length > 0 ? normalizedScope : null })
+            });
+            if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.message || "Failed to update cost center scope");
+            }
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["users", companyId] });
+            toast({ title: "Cost Center Access Updated", description: "User visibility scope updated successfully." });
         },
         onError: (err: Error) => {
             toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -226,6 +248,7 @@ export default function TeamSettingsPage() {
                                 <TableHead>Name</TableHead>
                                 <TableHead>Email</TableHead>
                                 <TableHead>Role</TableHead>
+                                <TableHead>Cost Center Access</TableHead>
                                 <TableHead>Joined</TableHead>
                                 <TableHead className="text-right">Actions</TableHead>
                             </TableRow>
@@ -233,11 +256,11 @@ export default function TeamSettingsPage() {
                         <TableBody>
                             {isLoadingUsers ? (
                                 <TableRow>
-                                    <TableCell colSpan={5} className="text-center py-4">Loading users...</TableCell>
+                                    <TableCell colSpan={6} className="text-center py-4">Loading users...</TableCell>
                                 </TableRow>
                             ) : users?.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={5} className="text-center py-4 text-slate-500">No users found.</TableCell>
+                                    <TableCell colSpan={6} className="text-center py-4 text-slate-500">No users found.</TableCell>
                                 </TableRow>
                             ) : (users || []).map((user: any) => (
                                 <TableRow key={user.id}>
@@ -262,6 +285,32 @@ export default function TeamSettingsPage() {
                                                 </SelectContent>
                                             </Select>
                                         </div>
+                                    </TableCell>
+                                    <TableCell className="min-w-[260px]">
+                                        {(() => {
+                                            const currentScope = (user.ownerGroupScope || "").trim();
+                                            const draftScope = scopeDrafts[user.id] ?? currentScope;
+                                            const changed = draftScope.trim() !== currentScope;
+                                            return (
+                                                <div className="flex items-center gap-2">
+                                                    <Input
+                                                        value={draftScope}
+                                                        onChange={(e) => setScopeDrafts((prev) => ({ ...prev, [user.id]: e.target.value }))}
+                                                        placeholder="Blank = All, or Beauty,Mother"
+                                                        className="h-8 text-xs"
+                                                    />
+                                                    <Button
+                                                        size="sm"
+                                                        variant={changed ? "default" : "secondary"}
+                                                        className="h-8 px-2"
+                                                        disabled={!changed || updateScopeMutation.isPending}
+                                                        onClick={() => updateScopeMutation.mutate({ userId: user.id, ownerGroupScope: draftScope })}
+                                                    >
+                                                        {updateScopeMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                                                    </Button>
+                                                </div>
+                                            );
+                                        })()}
                                     </TableCell>
                                     <TableCell>
                                         {/* CreatedAt might not be join date, but it's something */}

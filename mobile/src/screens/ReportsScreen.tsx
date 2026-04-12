@@ -833,7 +833,7 @@ export function ReportsScreen({ onOpenDrawer, companyId, userRole = "member", us
               >
                 <Package size={14} color={C.text.secondary} />
                 <Text style={styles.periodText} numberOfLines={1}>
-                  {ownerGroupFilter === "all" ? "All Owner Groups" : ownerGroupFilter}
+                  {ownerGroupFilter === "all" ? "All Cost Centers" : ownerGroupFilter}
                 </Text>
                 <ChevronDown size={14} color={C.text.secondary} />
               </TouchableOpacity>
@@ -874,7 +874,7 @@ export function ReportsScreen({ onOpenDrawer, companyId, userRole = "member", us
         {showOwnerGroupPicker && showOwnerGroupFilter && (
           <View style={styles.dropdown}>
             <TouchableOpacity style={[styles.dropdownItem, ownerGroupFilter === "all" && styles.dropdownItemActive]} onPress={() => { setOwnerGroupFilter("all"); setShowOwnerGroupPicker(false); }}>
-              <Text style={[styles.dropdownText, ownerGroupFilter === "all" && { color: C.amber.primary }]}>All Owner Groups</Text>
+              <Text style={[styles.dropdownText, ownerGroupFilter === "all" && { color: C.amber.primary }]}>All Cost Centers</Text>
             </TouchableOpacity>
             {ownerGroups.map((group) => (
               <TouchableOpacity key={group} style={[styles.dropdownItem, ownerGroupFilter === group && styles.dropdownItemActive]} onPress={() => { setOwnerGroupFilter(group); setShowOwnerGroupPicker(false); }}>

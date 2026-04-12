@@ -55,6 +55,15 @@ function parseOwnerGroups(raw?: string): string[] {
   );
 }
 
+function buildOwnerGroupSql(column: any, raw?: string) {
+  const groups = parseOwnerGroups(raw).map((v) => v.toLowerCase());
+  if (groups.length === 0) return undefined;
+  if (groups.length === 1) {
+    return sql`lower(coalesce(${column}, '')) = ${groups[0]}`;
+  }
+  return sql`lower(coalesce(${column}, '')) in (${sql.join(groups.map((g) => sql`${g}`), sql`, `)})`;
+}
+
 export interface IStorage {
   // User & Auth
   getUser(id: string): Promise<User | undefined>;
@@ -2897,9 +2906,10 @@ export class DatabaseStorage implements IStorage {
 
     const ownerGroups = parseOwnerGroups(ownerGroup);
     if (ownerGroups.length > 0) {
+      const normalizedOwnerGroups = ownerGroups.map((g) => g.toLowerCase());
       const ownerGroupPredicate = ownerGroups.length === 1
-        ? sql`p.owner_group = ${ownerGroups[0]}`
-        : sql`p.owner_group in (${sql.join(ownerGroups.map((g) => sql`${g}`), sql`, `)})`;
+        ? sql`lower(coalesce(p.owner_group, '')) = ${normalizedOwnerGroups[0]}`
+        : sql`lower(coalesce(p.owner_group, '')) in (${sql.join(normalizedOwnerGroups.map((g) => sql`${g}`), sql`, `)})`;
       conditions.push(
         sql`exists (
           select 1
@@ -3153,8 +3163,9 @@ export class DatabaseStorage implements IStorage {
   // Reports
   async getStockValuationReport(companyId: number, ownerGroup?: string) {
     const filters: any[] = [eq(products.companyId, companyId), eq(products.isTracked, true)];
-    if (ownerGroup) {
-      filters.push(eq(products.ownerGroup, ownerGroup));
+    const ownerGroupFilter = buildOwnerGroupSql(products.ownerGroup, ownerGroup);
+    if (ownerGroupFilter) {
+      filters.push(ownerGroupFilter);
     }
     const trackedProducts = await db
       .select()
@@ -4276,8 +4287,9 @@ export class DatabaseStorage implements IStorage {
 
   async getReportStockOnHand(companyId: number, ownerGroup?: string): Promise<{ productId: number; name: string; sku: string | null; category: string | null; stockLevel: string; unitCost: string; totalValue: string }[]> {
     const filters: any[] = [eq(products.companyId, companyId), eq(products.isTracked, true)];
-    if (ownerGroup) {
-      filters.push(eq(products.ownerGroup, ownerGroup));
+    const ownerGroupFilter = buildOwnerGroupSql(products.ownerGroup, ownerGroup);
+    if (ownerGroupFilter) {
+      filters.push(ownerGroupFilter);
     }
     const results = await db.select({
       productId: products.id,
@@ -4318,8 +4330,9 @@ export class DatabaseStorage implements IStorage {
       ne(invoices.status, 'cancelled'),
       ne(invoices.status, 'draft')
     ];
-    if (ownerGroup) {
-      filters.push(eq(products.ownerGroup, ownerGroup));
+    const ownerGroupFilter = buildOwnerGroupSql(products.ownerGroup, ownerGroup);
+    if (ownerGroupFilter) {
+      filters.push(ownerGroupFilter);
     }
 
     const productRevenue = await db
@@ -4368,8 +4381,9 @@ export class DatabaseStorage implements IStorage {
       gte(inventoryTransactions.createdAt, start),
       lte(inventoryTransactions.createdAt, end)
     ];
-    if (ownerGroup) {
-      filters.push(eq(products.ownerGroup, ownerGroup));
+    const ownerGroupFilter = buildOwnerGroupSql(products.ownerGroup, ownerGroup);
+    if (ownerGroupFilter) {
+      filters.push(ownerGroupFilter);
     }
     const results = await db.select({
       transactionId: inventoryTransactions.id,
@@ -4401,8 +4415,9 @@ export class DatabaseStorage implements IStorage {
       gte(inventoryTransactions.createdAt, start),
       lte(inventoryTransactions.createdAt, end)
     ];
-    if (ownerGroup) {
-      filters.push(eq(products.ownerGroup, ownerGroup));
+    const ownerGroupFilter = buildOwnerGroupSql(products.ownerGroup, ownerGroup);
+    if (ownerGroupFilter) {
+      filters.push(ownerGroupFilter);
     }
     const results = await db.select({
       transactionId: inventoryTransactions.id,

@@ -7,6 +7,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   Menu, Search, Plus, Package, X, Edit2, Check,
+  Filter, ChevronDown,
 } from "lucide-react-native";
 import { StatusBar } from "expo-status-bar";
 import { useProducts, useTaxTypes } from "../hooks/usePosData";
@@ -35,6 +36,7 @@ export function InventoryScreen({ onOpenDrawer, companyId }: Props) {
   const { data: taxTypes } = useTaxTypes(companyId);
   const [search, setSearch] = useState("");
   const [ownerGroupFilter, setOwnerGroupFilter] = useState<string>("all");
+  const [showOwnerGroupPicker, setShowOwnerGroupPicker] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState(emptyProduct);
@@ -191,27 +193,40 @@ export function InventoryScreen({ onOpenDrawer, companyId }: Props) {
           <TextInput style={styles.searchInput} placeholder="Search products..." placeholderTextColor={C.text.secondary} value={search} onChangeText={setSearch} />
         </View>
         {ownerGroups.length > 0 && (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.filterChipsRow}
-          >
+          <View style={styles.filterWrap}>
             <TouchableOpacity
-              style={[styles.filterChip, ownerGroupFilter === "all" && styles.filterChipActive]}
-              onPress={() => setOwnerGroupFilter("all")}
+              style={styles.filterBtn}
+              onPress={() => setShowOwnerGroupPicker((v) => !v)}
             >
-              <Text style={[styles.filterChipText, ownerGroupFilter === "all" && styles.filterChipTextActive]}>All Cost Centers</Text>
+              <View style={styles.filterBtnLeft}>
+                <Filter size={14} color={C.text.secondary} />
+                <Text style={styles.filterBtnText} numberOfLines={1}>
+                  {ownerGroupFilter === "all" ? "All Cost Centers" : ownerGroupFilter}
+                </Text>
+              </View>
+              <ChevronDown size={14} color={C.text.secondary} />
             </TouchableOpacity>
-            {ownerGroups.map((group) => (
-              <TouchableOpacity
-                key={group}
-                style={[styles.filterChip, ownerGroupFilter === group && styles.filterChipActive]}
-                onPress={() => setOwnerGroupFilter(group)}
-              >
-                <Text style={[styles.filterChipText, ownerGroupFilter === group && styles.filterChipTextActive]}>{group}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
+
+            {showOwnerGroupPicker && (
+              <View style={styles.dropdown}>
+                <TouchableOpacity
+                  style={[styles.dropdownItem, ownerGroupFilter === "all" && styles.dropdownItemActive]}
+                  onPress={() => { setOwnerGroupFilter("all"); setShowOwnerGroupPicker(false); }}
+                >
+                  <Text style={[styles.dropdownText, ownerGroupFilter === "all" && styles.dropdownTextActive]}>All Cost Centers</Text>
+                </TouchableOpacity>
+                {ownerGroups.map((group) => (
+                  <TouchableOpacity
+                    key={group}
+                    style={[styles.dropdownItem, ownerGroupFilter === group && styles.dropdownItemActive]}
+                    onPress={() => { setOwnerGroupFilter(group); setShowOwnerGroupPicker(false); }}
+                  >
+                    <Text style={[styles.dropdownText, ownerGroupFilter === group && styles.dropdownTextActive]}>{group}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </View>
         )}
         {isLoading ? (
           <ActivityIndicator size="small" color={C.amber.primary} style={{ marginVertical: 10 }} />
@@ -334,11 +349,15 @@ const styles = StyleSheet.create({
   iconBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: C.bg.card, alignItems: "center", justifyContent: "center", shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 4 },
   title: { color: C.text.primary, fontSize: 18, fontWeight: "800" },
   searchRow: { flexDirection: "row", alignItems: "center", backgroundColor: C.bg.hover, margin: 16, marginBottom: 0, borderRadius: 16, paddingHorizontal: 16, height: 48, shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 3, gap: 10 },
-  filterChipsRow: { paddingHorizontal: 16, paddingTop: 10, gap: 8 },
-  filterChip: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: C.bg.hover, borderWidth: 1, borderColor: C.border.default },
-  filterChipActive: { backgroundColor: `${C.amber.primary}20`, borderColor: C.amber.primary },
-  filterChipText: { color: C.text.secondary, fontSize: 12, fontWeight: "700" },
-  filterChipTextActive: { color: C.amber.primary },
+  filterWrap: { marginHorizontal: 16, marginTop: 10, position: "relative", zIndex: 10 },
+  filterBtn: { height: 44, borderRadius: 12, backgroundColor: C.bg.hover, borderWidth: 1, borderColor: C.border.default, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  filterBtnLeft: { flexDirection: "row", alignItems: "center", gap: 8, flex: 1, marginRight: 8 },
+  filterBtnText: { color: C.text.primary, fontSize: 13, fontWeight: "700", flexShrink: 1 },
+  dropdown: { marginTop: 6, backgroundColor: C.bg.card, borderRadius: 12, borderWidth: 1, borderColor: C.border.default, overflow: "hidden", shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 5 },
+  dropdownItem: { paddingHorizontal: 12, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: C.border.default },
+  dropdownItemActive: { backgroundColor: `${C.amber.primary}14` },
+  dropdownText: { color: C.text.primary, fontSize: 13, fontWeight: "600" },
+  dropdownTextActive: { color: C.amber.primary, fontWeight: "800" },
   searchInput: { flex: 1, color: C.text.primary, height: 48, fontSize: 15 },
   card: { flexDirection: "row", alignItems: "center", backgroundColor: C.bg.card, padding: 12, borderRadius: 18, marginBottom: 12, gap: 12, shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 5 },
   cardImage: { width: 44, height: 44, borderRadius: 14, backgroundColor: C.bg.hover },

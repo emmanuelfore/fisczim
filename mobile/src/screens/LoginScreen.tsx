@@ -51,7 +51,7 @@ export function LoginScreen({ onLoggedIn, onForgotPassword }: Props) {
           password,
         });
         if (e) throw e;
-        onLoggedIn();
+        await onLoggedIn();
       } else {
         const { data, error: e } = await supabase.auth.signUp({
           email: email.trim(),
@@ -61,7 +61,7 @@ export function LoginScreen({ onLoggedIn, onForgotPassword }: Props) {
         if (e) throw e;
 
         if (data.session) {
-          onLoggedIn();
+          await onLoggedIn();
         } else {
           // Registration successful but requires email verification
           setError("account_created_verify");

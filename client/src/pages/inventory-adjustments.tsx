@@ -5,6 +5,7 @@ import { useProducts } from "@/hooks/use-products";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useBranchContext } from "@/lib/branch-context";
 import { Card, CardContent } from "@/components/ui/card";
+import { SummaryStatCard } from "@/components/ui/summary-stat-card";
 import { 
     Search, 
     ChevronLeft, 
@@ -96,26 +97,19 @@ export default function InventoryAdjustmentsPage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-            <Card className="bg-white border-none shadow-sm rounded-3xl p-6 ring-1 ring-slate-100">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Adjustments</p>
-                <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-600">
-                        <ArrowRightLeft className="w-5 h-5" />
-                    </div>
-                    <span className="text-2xl font-black text-slate-900">{filteredAdjustments?.length || 0}</span>
-                </div>
-            </Card>
-            <Card className="bg-white border-none shadow-sm rounded-3xl p-6 ring-1 ring-slate-100">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Latest Update</p>
-                <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-600">
-                        <Calendar className="w-5 h-5" />
-                    </div>
-                    <span className="text-lg font-bold text-slate-900">
-                        {filteredAdjustments?.[0] ? format(new Date(filteredAdjustments[0].createdAt!), 'MMM d, p') : '—'}
-                    </span>
-                </div>
-            </Card>
+            <SummaryStatCard
+                label="Total Adjustments"
+                value={filteredAdjustments?.length || 0}
+                icon={ArrowRightLeft}
+                tone="slate"
+            />
+            <SummaryStatCard
+                label="Latest Update"
+                value={filteredAdjustments?.[0] ? format(new Date(filteredAdjustments[0].createdAt!), 'MMM d, p') : "-"}
+                icon={Calendar}
+                tone="blue"
+                valueClassName="text-lg font-bold"
+            />
         </div>
 
         <div className="flex flex-col md:flex-row gap-4 mb-6">

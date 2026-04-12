@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/status-badge";
 import { Link, useLocation } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
+import { SummaryStatCard } from "@/components/ui/summary-stat-card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { useState, useEffect } from "react";
@@ -322,24 +323,17 @@ export default function InvoicesPage() {
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         {[
-          { label: "Total Revenue", value: stats.total, icon: TrendingUp, color: "emerald" },
-          { label: "Outstanding", value: stats.pending, icon: Clock, color: "amber" },
-          { label: "Overdue", value: stats.overdue, icon: AlertCircle, color: "rose" },
-        ].map(({ label, value, icon: Icon, color }) => (
-          <Card key={label} className="glass-card border-none overflow-hidden">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-xs font-black uppercase tracking-widest text-slate-400">{label}</p>
-                <div className={`w-9 h-9 rounded-xl bg-${color}-50 flex items-center justify-center`}>
-                  <Icon className={`h-4 w-4 text-${color}-600`} />
-                </div>
-              </div>
-              <div className="text-3xl font-black text-slate-900 font-display">
-                <span className="text-sm font-bold text-slate-400 mr-1">{currentSymbol}</span>
-                {value.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-              </div>
-            </CardContent>
-          </Card>
+          { label: "Total Revenue", value: stats.total, icon: TrendingUp, tone: "emerald" as const },
+          { label: "Outstanding", value: stats.pending, icon: Clock, tone: "amber" as const },
+          { label: "Overdue", value: stats.overdue, icon: AlertCircle, tone: "rose" as const },
+        ].map(({ label, value, icon, tone }) => (
+          <SummaryStatCard
+            key={label}
+            label={label}
+            value={`${currentSymbol}${value.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
+            icon={icon}
+            tone={tone}
+          />
         ))}
       </div>
 

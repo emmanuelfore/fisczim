@@ -58,7 +58,13 @@ export function AppRoot() {
 
     // 2. Fetch user metadata from Supabase
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data } = await Promise.race([
+        supabase.auth.getUser(),
+        new Promise<{ data: { user: null } }>((resolve) => 
+          setTimeout(() => resolve({ data: { user: null } }), 4000)
+        )
+      ]);
+      const user = data?.user;
       if (user) {
         setUserName(
           user.user_metadata?.full_name ||
@@ -238,19 +244,24 @@ export function AppRoot() {
         <LoginScreen
           onForgotPassword={() => setStage("forgot-password")}
           onLoggedIn={async () => {
+            setStage("boot");
+            try {
+              const companies = await fetchUser(true);
+              const cachedId = await getSelectedCompanyId();
+              const validCompany = companies.find((c: any) => c.id === cachedId);
 
-            const companies = await fetchUser();
-            const cachedId = await getSelectedCompanyId();
-            const validCompany = companies.find(c => c.id === cachedId);
-
-            if (validCompany) {
-              if (validCompany.role) setUserRole(validCompany.role);
-              setCompanyId(cachedId);
-              setStage("main");
-            } else {
-              await setSelectedCompanyId(null);
-              setCompanyId(null);
-              setStage(companies.length > 0 ? "company" : "onboarding");
+              if (validCompany) {
+                if (validCompany.role) setUserRole(validCompany.role);
+                setCompanyId(cachedId);
+                setStage("main");
+              } else {
+                await setSelectedCompanyId(null);
+                setCompanyId(null);
+                setStage(companies.length > 0 ? "company" : "onboarding");
+              }
+            } catch (e: any) {
+              setBootError(e.message || "Failed to initialize after login");
+              setStage("boot");
             }
           }}
         />

@@ -29,6 +29,7 @@ export function StockInScreen({ onOpenDrawer, onClose, companyId }: Props) {
   const [unitCost, setUnitCost] = useState("");
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
+  const [importCompleted, setImportCompleted] = useState(false);
 
   const filteredSuppliers = (suppliers || []).filter((s: any) => {
     if (s.isActive === false) return false;
@@ -50,6 +51,7 @@ export function StockInScreen({ onOpenDrawer, onClose, companyId }: Props) {
   });
 
   const handleSubmit = useCallback(async () => {
+    if (importCompleted) return;
     if (!selectedProduct) return Alert.alert("Error", "Please select a product");
     const qty = parseFloat(quantity);
     if (!qty || qty <= 0) return Alert.alert("Error", "Please enter a valid quantity");
@@ -72,19 +74,15 @@ export function StockInScreen({ onOpenDrawer, onClose, companyId }: Props) {
         const errText = await res.text().catch(() => "");
         throw new Error(errText || "Failed to record stock in");
       }
-      // Feedback handled by clearing form or modal close
-      setSelectedProduct(null);
-      setSelectedSupplier(null);
-      setQuantity("");
-      setUnitCost("");
-      setNotes("");
-      Alert.alert("Success", "Stock recorded successfully!", [
-        { text: "OK", onPress: () => { if (onClose) onClose(); } }
+      // Lock submit to prevent accidental double-import after success.
+      setImportCompleted(true);
+      Alert.alert("Success", "Stock imported successfully.", [
+        { text: "Close", onPress: () => { if (onClose) onClose(); } }
       ]);
     } catch (e: any) {
       Alert.alert("Error", e.message);
     } finally { setSaving(false); }
-  }, [selectedProduct, quantity, unitCost, notes, companyId]);
+  }, [selectedProduct, quantity, unitCost, notes, companyId, importCompleted, onClose]);
 
   const currentStock = Number(selectedProduct?.stockLevel || 0);
 
@@ -103,7 +101,7 @@ export function StockInScreen({ onOpenDrawer, onClose, companyId }: Props) {
         >
           <ScrollView contentContainerStyle={{ padding: 16 }}>
             <Text style={styles.label}>Select Product *</Text>
-            <TouchableOpacity style={styles.selector} onPress={() => setShowPicker(true)}>
+            <TouchableOpacity style={[styles.selector, importCompleted && { opacity: 0.6 }]} onPress={() => !importCompleted && setShowPicker(true)}>
               {selectedProduct ? (
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                   <Package size={16} color={C.amber.primary} />
@@ -116,7 +114,7 @@ export function StockInScreen({ onOpenDrawer, onClose, companyId }: Props) {
             </TouchableOpacity>
 
             <Text style={styles.label}>Select Supplier</Text>
-            <TouchableOpacity style={styles.selector} onPress={() => setShowSupplierPicker(true)}>
+            <TouchableOpacity style={[styles.selector, importCompleted && { opacity: 0.6 }]} onPress={() => !importCompleted && setShowSupplierPicker(true)}>
               {selectedSupplier ? (
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                   <Users size={16} color={C.amber.primary} />
@@ -129,13 +127,19 @@ export function StockInScreen({ onOpenDrawer, onClose, companyId }: Props) {
             </TouchableOpacity>
 
             <Text style={styles.label}>Quantity *</Text>
-            <TextInput style={styles.input} keyboardType="numeric" placeholder="0" placeholderTextColor={C.text.secondary} value={quantity} onChangeText={setQuantity} />
+            <TextInput style={styles.input} keyboardType="numeric" placeholder="0" placeholderTextColor={C.text.secondary} value={quantity} onChangeText={setQuantity} editable={!importCompleted} />
             
             <Text style={styles.label}>Unit Cost *</Text>
-            <TextInput style={styles.input} keyboardType="numeric" placeholder="0.00" placeholderTextColor={C.text.secondary} value={unitCost} onChangeText={setUnitCost} />
+            <TextInput style={styles.input} keyboardType="numeric" placeholder="0.00" placeholderTextColor={C.text.secondary} value={unitCost} onChangeText={setUnitCost} editable={!importCompleted} />
             
             <Text style={styles.label}>Notes</Text>
-            <TextInput style={[styles.input, { height: 72, textAlignVertical: "top" }]} multiline placeholder="Optional notes..." placeholderTextColor={C.text.secondary} value={notes} onChangeText={setNotes} />
+            <TextInput style={[styles.input, { height: 72, textAlignVertical: "top" }]} multiline placeholder="Optional notes..." placeholderTextColor={C.text.secondary} value={notes} onChangeText={setNotes} editable={!importCompleted} />
+
+            {importCompleted && (
+              <View style={styles.successInfo}>
+                <Text style={styles.successInfoText}>Import completed. Close this screen to reload inventory.</Text>
+              </View>
+            )}
 
             {selectedProduct && quantity ? (
               <View style={styles.summary}>
@@ -156,14 +160,19 @@ export function StockInScreen({ onOpenDrawer, onClose, companyId }: Props) {
 
           </ScrollView>
           <View style={{ paddingHorizontal: 16, paddingBottom: Math.max(insets.bottom, 20), paddingTop: 10, borderTopWidth: 1, borderTopColor: C.border.default }}>
-            <TouchableOpacity style={[styles.submitBtn, { marginTop: 0, marginBottom: 0 }]} onPress={handleSubmit} disabled={saving}>
+            <TouchableOpacity style={[styles.submitBtn, importCompleted && styles.submitBtnDisabled, { marginTop: 0, marginBottom: 0 }]} onPress={handleSubmit} disabled={saving || importCompleted}>
               {saving ? <ActivityIndicator color="#000" /> : (
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                   <Plus size={18} color="#000" />
-                  <Text style={styles.submitBtnText}>Receive Stock</Text>
+                  <Text style={styles.submitBtnText}>{importCompleted ? "Imported" : "Receive Stock"}</Text>
                 </View>
               )}
             </TouchableOpacity>
+            {importCompleted && !!onClose && (
+              <TouchableOpacity style={[styles.closeBtn, { marginTop: 10 }]} onPress={onClose}>
+                <Text style={styles.closeBtnText}>Close</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </KeyboardAvoidingView>
 
@@ -281,6 +290,11 @@ const styles = StyleSheet.create({
   summaryRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 6 },
   summaryLabel: { color: C.text.secondary, fontSize: 13 },
   summaryValue: { color: C.text.primary, fontSize: 13, fontWeight: "600" },
+  successInfo: { marginTop: 14, backgroundColor: `${C.status.success}18`, borderWidth: 1, borderColor: `${C.status.success}55`, padding: 12, borderRadius: 10 },
+  successInfoText: { color: C.status.success, fontSize: 12, fontWeight: "700" },
   submitBtn: { backgroundColor: C.amber.primary, borderRadius: 12, paddingVertical: 16, alignItems: "center", marginTop: 20, marginBottom: 40 },
+  submitBtnDisabled: { opacity: 0.55 },
   submitBtnText: { color: "#000", fontWeight: "800", fontSize: 15 },
+  closeBtn: { backgroundColor: C.bg.card, borderColor: C.border.default, borderWidth: 1, borderRadius: 12, paddingVertical: 14, alignItems: "center" },
+  closeBtnText: { color: C.text.primary, fontWeight: "700", fontSize: 14 },
 });

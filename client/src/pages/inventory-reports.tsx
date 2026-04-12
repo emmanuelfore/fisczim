@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { SummaryStatCard } from "@/components/ui/summary-stat-card";
 import {
     Package,
     AlertTriangle,
@@ -112,53 +113,32 @@ export default function InventoryReportsPage() {
 
                 {/* Stats Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                    <Card className="border-none shadow-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white rounded-[2rem] overflow-hidden group hover:scale-[1.02] transition-all duration-300 cursor-pointer">
-                        <CardContent className="p-8">
-                            <div className="flex items-center justify-between mb-4">
-                                <div className="p-3 bg-white/20 rounded-2xl backdrop-blur-sm">
-                                    <DollarSign className="h-6 w-6 text-white" />
-                                </div>
-                                <div className="text-[10px] font-black uppercase tracking-widest opacity-60 group-hover:opacity-100 transition-opacity">Total Value (Cost)</div>
-                            </div>
-                            <h3 className="text-4xl font-black font-display tracking-tight">${totalCostValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}</h3>
-                        </CardContent>
-                    </Card>
-
-                    <Card className="border-none shadow-xl bg-white rounded-[2rem] overflow-hidden group hover:shadow-2xl transition-all duration-500">
-                        <CardContent className="p-8">
-                            <div className="flex items-center justify-between mb-4">
-                                <div className="p-3 bg-violet-50 rounded-2xl">
-                                    <Package className="h-6 w-6 text-violet-600" />
-                                </div>
-                                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Tracked Items</div>
-                            </div>
-                            <h3 className="text-4xl font-black text-slate-900 font-display tracking-tight">{products?.length || 0}</h3>
-                        </CardContent>
-                    </Card>
-
-                    <Card className="border-none shadow-xl bg-white rounded-[2rem] overflow-hidden group hover:shadow-2xl transition-all duration-500">
-                        <CardContent className="p-8">
-                            <div className="flex items-center justify-between mb-4">
-                                <div className="p-3 bg-amber-50 rounded-2xl">
-                                    <AlertTriangle className="h-6 w-6 text-amber-600" />
-                                </div>
-                                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Low Stock</div>
-                            </div>
-                            <h3 className="text-4xl font-black text-amber-600 font-display tracking-tight">{lowStockItems.length}</h3>
-                        </CardContent>
-                    </Card>
-
-                    <Card className="border-none shadow-xl bg-white rounded-[2rem] overflow-hidden group hover:shadow-2xl transition-all duration-500">
-                        <CardContent className="p-8">
-                            <div className="flex items-center justify-between mb-4">
-                                <div className="p-3 bg-rose-50 rounded-2xl">
-                                    <AlertTriangle className="h-6 w-6 text-rose-600" />
-                                </div>
-                                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Out of Stock</div>
-                            </div>
-                            <h3 className="text-4xl font-black text-rose-600 font-display tracking-tight">{outOfStockItems.length}</h3>
-                        </CardContent>
-                    </Card>
+                    <SummaryStatCard
+                        label="Total Value (Cost)"
+                        value={`$${totalCostValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
+                        icon={DollarSign}
+                        tone="emerald"
+                    />
+                    <SummaryStatCard
+                        label="Tracked Items"
+                        value={products?.length || 0}
+                        icon={Package}
+                        tone="violet"
+                    />
+                    <SummaryStatCard
+                        label="Low Stock"
+                        value={lowStockItems.length}
+                        icon={AlertTriangle}
+                        tone="amber"
+                        valueClassName="text-2xl font-black text-amber-600"
+                    />
+                    <SummaryStatCard
+                        label="Out of Stock"
+                        value={outOfStockItems.length}
+                        icon={AlertTriangle}
+                        tone="rose"
+                        valueClassName="text-2xl font-black text-rose-600"
+                    />
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">

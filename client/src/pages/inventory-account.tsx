@@ -45,6 +45,7 @@ import {
 import { GrnForm } from "@/components/inventory/grn-form";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
+import { SummaryStatCard } from "@/components/ui/summary-stat-card";
 
 export default function InventoryAccountPage() {
     const companyId = parseInt(localStorage.getItem("selectedCompanyId") || "0");
@@ -92,52 +93,28 @@ export default function InventoryAccountPage() {
 
                 {/* Performance Highlights */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <Card className="border-none shadow-xl bg-gradient-to-br from-violet-600 to-indigo-700 text-white rounded-[2rem] overflow-hidden group">
-                        <CardContent className="p-8">
-                            <div className="flex items-center justify-between mb-4">
-                                <div className="p-3 bg-white/20 rounded-2xl backdrop-blur-md">
-                                    <DollarSign className="h-6 w-6" />
-                                </div>
-                                <TrendingUp className="h-5 w-5 opacity-40 group-hover:opacity-100 transition-opacity" />
-                            </div>
-                            <h3 className="text-4xl font-black font-display tracking-tight leading-tight">
-                                ${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                            </h3>
-                            <p className="text-white/60 text-xs font-black uppercase tracking-widest mt-2">Total Net Stock Value</p>
-                        </CardContent>
-                    </Card>
-
-                    <Card className="border-none shadow-xl bg-white rounded-[2rem] overflow-hidden hover:shadow-2xl transition-all duration-300">
-                        <CardContent className="p-8 text-slate-600">
-                            <div className="flex items-center justify-between mb-4">
-                                <div className="p-3 bg-emerald-50 rounded-2xl">
-                                    <Layers className="h-6 w-6 text-emerald-600" />
-                                </div>
-                            </div>
-                            <h3 className="text-4xl font-black text-slate-900 font-display tracking-tight leading-tight">
-                                {valuation?.length || 0}
-                            </h3>
-                            <p className="text-slate-400 text-xs font-black uppercase tracking-widest mt-2">Total SKU Varieties</p>
-                        </CardContent>
-                    </Card>
-
-                    <Card className="border-none shadow-xl bg-white rounded-[2rem] overflow-hidden hover:shadow-2xl transition-all duration-300">
-                        <CardContent className="p-8 text-slate-600">
-                            <div className="flex items-center justify-between mb-4">
-                                <div className="p-3 bg-amber-50 rounded-2xl">
-                                    <Activity className="h-6 w-6 text-amber-600" />
-                                </div>
-                            </div>
-                            <h3 className="text-4xl font-black text-slate-900 font-display tracking-tight leading-tight">
-                                {transactions?.filter(t => {
-                                    const d = new Date(t.createdAt!);
-                                    const now = new Date();
-                                    return d.getTime() > now.getTime() - 30 * 24 * 60 * 60 * 1000;
-                                }).length || 0}
-                            </h3>
-                            <p className="text-slate-400 text-xs font-black uppercase tracking-widest mt-2">Movements (30d)</p>
-                        </CardContent>
-                    </Card>
+                    <SummaryStatCard
+                        label="Total Net Stock Value"
+                        value={`$${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
+                        icon={DollarSign}
+                        tone="violet"
+                    />
+                    <SummaryStatCard
+                        label="Total SKU Varieties"
+                        value={valuation?.length || 0}
+                        icon={Layers}
+                        tone="emerald"
+                    />
+                    <SummaryStatCard
+                        label="Movements (30d)"
+                        value={transactions?.filter(t => {
+                            const d = new Date(t.createdAt!);
+                            const now = new Date();
+                            return d.getTime() > now.getTime() - 30 * 24 * 60 * 60 * 1000;
+                        }).length || 0}
+                        icon={Activity}
+                        tone="amber"
+                    />
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">

@@ -5,17 +5,12 @@ import { useFinancialSummary } from "@/hooks/use-reports";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { 
     TrendingUp, 
-    TrendingDown, 
     DollarSign, 
     PieChart as PieChartIcon, 
-    ArrowUpRight, 
-    ArrowDownRight, 
-    Printer,
     Activity,
     ShoppingBag,
     Wallet
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import {
     PieChart,
     Pie,
@@ -41,6 +36,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { SummaryStatCard } from "@/components/ui/summary-stat-card";
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
@@ -81,78 +77,47 @@ export function ProfitAndLossView({ companyId, dateRange, consolidatedSymbol, co
         <div className="space-y-8 animate-in fade-in duration-500">
             {/* Summary Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-                {/* Revenue */}
-                <MetricCard 
-                    title="Gross Revenue"
-                    value={summary?.revenue || 0}
-                    formatValue={formatValue}
-                    symbol={consolidatedSymbol}
+                <SummaryStatCard
+                    label="Gross Revenue"
+                    value={`${consolidatedSymbol}${formatValue(summary?.revenue || 0)}`}
                     icon={TrendingUp}
-                    color="bg-indigo-600"
+                    tone="violet"
                     onClick={() => setDrillDownType("revenue")}
                 />
-
-                {/* COGS */}
-                <MetricCard 
-                    title="Cost of Sales"
-                    value={summary?.cogs || 0}
-                    formatValue={formatValue}
-                    symbol={consolidatedSymbol}
+                <SummaryStatCard
+                    label="Cost of Sales"
+                    value={`${consolidatedSymbol}${formatValue(summary?.cogs || 0)}`}
                     icon={ShoppingBag}
-                    color="bg-rose-500"
+                    tone="rose"
                     onClick={() => setDrillDownType("cogs")}
                 />
-
-                {/* Gross Profit */}
-                <Card className="border-none shadow-xl bg-white rounded-[2rem] overflow-hidden group hover:shadow-2xl transition-all duration-300 border border-slate-100">
-                    <CardContent className="p-6">
-                        <div className="flex justify-between items-start mb-4">
-                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Gross Profit</p>
-                            <div className="p-2 bg-slate-50 rounded-xl group-hover:bg-indigo-50 transition-colors">
-                                <Activity className="w-4 h-4 text-slate-400 group-hover:text-indigo-500" />
-                            </div>
-                        </div>
-                        <h3 className="text-2xl font-black text-slate-900 font-display tracking-tight">
-                            {consolidatedSymbol}{formatValue(summary?.grossProfit || 0)}
-                        </h3>
-                        <div className={cn(
-                            "mt-3 flex items-center gap-1.5 text-xs font-black px-2 py-1 rounded-full w-fit",
-                            summary!.grossProfit >= 0 ? "text-emerald-600 bg-emerald-50" : "text-rose-600 bg-rose-50"
-                        )}>
-                            {((summary!.grossProfit / summary!.revenue) * 100 || 0).toFixed(1)}% Margin
-                        </div>
-                    </CardContent>
-                </Card>
-
-                {/* Expenses */}
-                <MetricCard 
-                    title="Operating Expenses"
-                    value={summary?.expenses || 0}
-                    formatValue={formatValue}
-                    symbol={consolidatedSymbol}
+                <SummaryStatCard
+                    label="Gross Profit"
+                    value={`${consolidatedSymbol}${formatValue(summary?.grossProfit || 0)}`}
+                    icon={Activity}
+                    tone="blue"
+                    valueClassName={cn(
+                        "text-2xl font-black",
+                        (summary?.grossProfit || 0) >= 0 ? "text-emerald-600" : "text-rose-600"
+                    )}
+                />
+                <SummaryStatCard
+                    label="Operating Expenses"
+                    value={`${consolidatedSymbol}${formatValue(summary?.expenses || 0)}`}
                     icon={Wallet}
-                    color="bg-slate-800"
+                    tone="slate"
                     onClick={() => setDrillDownType("expenses")}
                 />
-
-                {/* Net Profit */}
-                <Card className={cn(
-                    "border-none shadow-xl rounded-[2rem] overflow-hidden text-white transition-all duration-300 group hover:scale-[1.02]",
-                    summary!.netProfit >= 0 ? "bg-emerald-500" : "bg-red-500"
-                )}>
-                    <CardContent className="p-6">
-                        <div className="flex justify-between items-start mb-4">
-                            <p className="text-[10px] font-black uppercase tracking-widest opacity-60">Net Profit</p>
-                            <div className="p-2 bg-white/20 rounded-xl">
-                                <DollarSign className="w-4 h-4 text-white" />
-                            </div>
-                        </div>
-                        <h3 className="text-2xl font-black font-display tracking-tight">
-                            {consolidatedSymbol}{formatValue(summary?.netProfit || 0)}
-                        </h3>
-                        <p className="text-[10px] font-black uppercase tracking-widest mt-4 opacity-80 group-hover:opacity-100 transition-opacity">Bottom Line Contribution</p>
-                    </CardContent>
-                </Card>
+                <SummaryStatCard
+                    label="Net Profit"
+                    value={`${consolidatedSymbol}${formatValue(summary?.netProfit || 0)}`}
+                    icon={DollarSign}
+                    tone={(summary?.netProfit || 0) >= 0 ? "emerald" : "rose"}
+                    valueClassName={cn(
+                        "text-2xl font-black",
+                        (summary?.netProfit || 0) >= 0 ? "text-emerald-600" : "text-rose-600"
+                    )}
+                />
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -356,33 +321,5 @@ export function ProfitAndLossView({ companyId, dateRange, consolidatedSymbol, co
                 </DialogContent>
             </Dialog>
         </div>
-    );
-}
-
-function MetricCard({ title, value, formatValue, symbol, icon: Icon, color, onClick }: any) {
-    return (
-        <Card 
-            className={cn(
-                "border-none shadow-xl text-white rounded-[2rem] overflow-hidden cursor-pointer hover:scale-[1.02] transition-transform duration-300",
-                color
-            )}
-            onClick={onClick}
-        >
-            <CardContent className="p-6">
-                <div className="flex justify-between items-start mb-4">
-                    <p className="text-[10px] font-black uppercase tracking-widest opacity-60">{title}</p>
-                    <div className="p-2 bg-white/20 rounded-xl backdrop-blur-sm">
-                        <Icon className="w-4 h-4 text-white" />
-                    </div>
-                </div>
-                <h3 className="text-2xl font-black font-display tracking-tight leading-none mb-4">
-                    {symbol}{formatValue(value)}
-                </h3>
-                <div className="flex items-center gap-1.5 text-[10px] font-black bg-white/20 w-fit px-3 py-1.5 rounded-full backdrop-blur-sm group hover:bg-white/30 transition-colors">
-                    <ArrowUpRight className="w-3.5 h-3.5" />
-                    EXPLORE DATA
-                </div>
-            </CardContent>
-        </Card>
     );
 }

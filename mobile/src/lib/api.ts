@@ -12,7 +12,7 @@ function joinUrl(base: string, path: string) {
 
 import { getSelectedBranchId } from "./storage";
 
-export async function apiFetch(path: string, init?: RequestInit) {
+export async function apiFetch(path: string, init?: RequestInit & { timeout?: number }) {
   let session = null;
   let branchId = null;
   
@@ -23,7 +23,7 @@ export async function apiFetch(path: string, init?: RequestInit) {
         const sessionResult = await Promise.race([
           supabase.auth.getSession(),
           new Promise<{ data: { session: null } }>((resolve) =>
-            setTimeout(() => resolve({ data: { session: null } }), 5000)
+            setTimeout(() => resolve({ data: { session: null } }), 10000)
           )
         ]);
         session = sessionResult?.data?.session ?? null;
@@ -52,7 +52,8 @@ export async function apiFetch(path: string, init?: RequestInit) {
   }
 
   const controller = init?.signal ? null : new AbortController();
-  const timeoutId = controller ? setTimeout(() => controller.abort(), 15000) : null;
+  const timeoutMs = init?.timeout ?? 15000;
+  const timeoutId = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
 
   try {
     const url = joinUrl(ENV.apiBaseUrl, path);
@@ -66,7 +67,7 @@ export async function apiFetch(path: string, init?: RequestInit) {
   }
 }
 
-export async function apiJson<T = Json>(path: string, init?: RequestInit): Promise<T> {
+export async function apiJson<T = Json>(path: string, init?: RequestInit & { timeout?: number }): Promise<T> {
   try {
     const res = await apiFetch(path, init);
     if (!res.ok) {

@@ -1271,7 +1271,7 @@ export default function POSPage() {
                 silentPrinting: settings.silentPrinting ?? true,
                 printServerUrl: settings.printServerUrl || "http://localhost:12312",
                 printerName: prev.printerName || settings.printerName || "",
-                nativeEscPos: settings.nativeEscPos ?? prev.nativeEscPos,
+                nativeEscPos: prev.nativeEscPos || (settings.nativeEscPos ?? false),
                 printerWidth: settings.printerWidth ?? prev.printerWidth,
                 cashDrawerEnabled: settings.cashDrawerEnabled ?? false,
                 quantityDecimalPlaces: settings.quantityDecimalPlaces ?? 2,
@@ -2077,6 +2077,9 @@ export default function POSPage() {
                                                 {isOnline ? <><Wifi className="h-2.5 w-2.5" /> Online</> : <><WifiOff className="h-2.5 w-2.5" /> Offline</>}
                                             </div>
                                             
+                                            {/* Printer Status Widget */}
+                                            <DeviceStatusWidget />
+                                            
                                             {/* 🚀 Background Print Queue Status */}
                                             {pendingPrintQueue.length > 0 && (
                                                 <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[7px] md:text-[8px] font-black uppercase tracking-wider bg-blue-50 text-blue-600 border border-blue-100/50 animate-pulse shadow-[0_0_10px_rgba(59,130,246,0.1)]">
@@ -2717,12 +2720,15 @@ export default function POSPage() {
                                                         ) : (
                                                             <Package className="h-4 w-4" style={{ color: iconColor }} />
                                                         )}
+                                                        {product.isTracked && Number(product.stockLevel) <= 0 && (
+                                                            <div className="absolute top-0.5 right-0.5 bg-red-500 text-[5px] font-black h-2.5 px-1 rounded-sm flex items-center text-white uppercase">OUT</div>
+                                                        )}
+                                                        {product.isTracked && Number(product.stockLevel) > 0 && Number(product.stockLevel) <= Number(product.lowStockThreshold) && (
+                                                            <div className="absolute top-0.5 right-0.5 bg-amber-500 text-[5px] font-black h-2.5 px-1 rounded-sm flex items-center text-white uppercase">LOW</div>
+                                                        )}
                                                         <div className="absolute inset-0 bg-primary/20 opacity-0 active:opacity-100 transition-opacity flex items-center justify-center">
                                                             <Plus className="h-4 w-4 text-primary" />
                                                         </div>
-                                                        {product.isTracked && Number(product.stockLevel) <= Number(product.lowStockThreshold) && (
-                                                            <div className="absolute top-0.5 right-0.5 bg-red-500 text-[5px] font-black h-2.5 px-1 rounded-sm flex items-center text-white uppercase">OUT</div>
-                                                        )}
                                                     </div>
                                                     <div className="flex flex-col gap-0.5 pb-0.5">
                                                         <h4 className="text-[8px] font-black text-slate-800 line-clamp-1 leading-tight px-0.5">{product.name}</h4>
@@ -2757,14 +2763,17 @@ export default function POSPage() {
                                                                     <Package className="h-6 w-6 md:h-8 md:w-8" style={{ color: iconColor }} />
                                                                 </div>
                                                             )}
+                                                            {product.isTracked && Number(product.stockLevel) <= 0 && (
+                                                                <Badge className="absolute top-2 right-2 bg-red-500 text-[8px] font-black h-4 px-1 border-none">OUT</Badge>
+                                                            )}
+                                                            {product.isTracked && Number(product.stockLevel) > 0 && Number(product.stockLevel) <= Number(product.lowStockThreshold) && (
+                                                                <Badge className="absolute top-2 right-2 bg-amber-500 text-[8px] font-black h-4 px-1 border-none">LOW</Badge>
+                                                            )}
                                                             <div className="absolute inset-0 bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                                                                 <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-lg">
                                                                     <Plus className="h-5 w-5 text-primary" />
                                                                 </div>
                                                             </div>
-                                                            {product.isTracked && Number(product.stockLevel) <= Number(product.lowStockThreshold) && (
-                                                                <Badge className="absolute top-2 right-2 bg-red-500 text-[8px] font-black h-4 px-1 border-none">OUT</Badge>
-                                                            )}
                                                             <button
                                                                 onClick={(e) => togglePinProduct(e, product.id)}
                                                                 className={cn(

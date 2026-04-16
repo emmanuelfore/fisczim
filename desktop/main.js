@@ -173,7 +173,16 @@ function printHtmlToWindow(html, printerName) {
       printWindow.webContents.print({
         silent: true,
         printBackground: true,
-        deviceName: printerName || undefined
+        deviceName: printerName || undefined,
+        // Use no margins so the content itself controls positioning
+        marginsType: 0,
+        // Custom page size: match typical 80mm thermal roll width with a
+        // very tall height so the content length drives the printed page
+        // rather than the system default A4/Letter leaving blank space.
+        pageSize: {
+          width: 80000,   // 80 mm in microns
+          height: 800000  // 800 mm tall — crops to content automatically
+        }
       }, (success, errorType) => {
         if (!printWindow.isDestroyed()) {
           printWindow.destroy();
@@ -238,12 +247,15 @@ function registerIpcHandlers(mainWindow) {
         fs.writeFileSync(tempFilePath, bytes);
 
         // Robust Windows spooling command for Raw ESC/POS data
+        // We use a more direct way to send bytes to Out-Printer to avoid text rendering issues
         const printerTarget = printerName ? `"${printerName}"` : `(Get-WmiObject -Query "SELECT * FROM Win32_Printer WHERE Default = TRUE").Name`;
-        const psCommand = `Get-Content "${tempFilePath}" -Encoding Byte -Raw | Out-Printer -Name ${printerTarget}`;
+        const psCommand = `$bytes = [System.IO.File]::ReadAllBytes('${tempFilePath}'); $bytes | Out-Printer -Name ${printerTarget}`;
         
         return new Promise((resolve, reject) => {
             require('child_process').exec(`powershell -Command "${psCommand}"`, (err) => {
-                if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+                if (fs.existsSync(tempFilePath)) {
+                    try { fs.unlinkSync(tempFilePath); } catch(e) {}
+                }
                 if (err) {
                     log.error('[print-raw] Native Spool Error:', err.message);
                     return reject(err.message);

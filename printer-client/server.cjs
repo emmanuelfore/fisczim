@@ -123,10 +123,13 @@ app.post('/print-raw', rawParser, async (req, res) => {
         const printerTarget = printerName ? `"${printerName}"` : `(Get-WmiObject -Query "SELECT * FROM Win32_Printer WHERE Default = TRUE").Name`;
         
         // This PowerShell command correctly pipes raw binary data to the spooler without character conversion
-        const psCommand = `Get-Content "${tempFilePath}" -Encoding Byte -Raw | Out-Printer -Name ${printerTarget}`;
+        // We use ReadAllBytes and pipe directly to Out-Printer
+        const psCommand = `$bytes = [System.IO.File]::ReadAllBytes('${tempFilePath}'); $bytes | Out-Printer -Name ${printerTarget}`;
         
         require('child_process').exec(`powershell -Command "${psCommand}"`, (err) => {
-            if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+            if (fs.existsSync(tempFilePath)) {
+                try { fs.unlinkSync(tempFilePath); } catch(e) {}
+            }
             if (err) {
                 console.error('Native Raw Print Error:', err);
                 return res.status(500).json({ error: 'Failed to send raw data to spooler: ' + err.message });

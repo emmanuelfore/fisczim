@@ -1,13 +1,15 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Text, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, AppState, AppStateStatus, Text, View } from "react-native";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import NetInfo from "@react-native-community/netinfo";
 import { assertEnv } from "./lib/env";
 import { supabase } from "./lib/supabase";
 import { apiJson } from "./lib/api";
 import { PremiumColors } from "./ui/PremiumColors";
 import { LoginScreen } from "./screens/LoginScreen";
 import { ForgotPasswordScreen } from "./screens/ForgotPasswordScreen";
+
 
 import { CompanySelectScreen } from "./screens/CompanySelectScreen";
 import { POSScreen } from "./screens/POSScreen";
@@ -42,6 +44,44 @@ export function AppRoot() {
   const [companies, setCompanies] = useState<any[]>([]);
 
   const [retryCount, setRetryCount] = useState(0);
+  const [bootStartTime] = useState(Date.now());
+  const [showSlowMessage, setShowSlowMessage] = useState(false);
+  const [isOnline, setIsOnline] = useState<boolean | null>(true);
+  
+  const lastOnlineState = useRef<boolean | null | undefined>(undefined);
+
+  // Monitor connectivity status
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener(state => {
+      if (state.isConnected !== lastOnlineState.current) {
+         console.log("[Network] Connection type:", state.type, "Connected:", state.isConnected);
+         lastOnlineState.current = state.isConnected;
+         setIsOnline(state.isConnected);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Monitor app state (Foreground/Background)
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextAppState: AppStateStatus) => {
+      if (nextAppState === "active" && stage === "main") {
+        console.log("[Sync] App returned to foreground, performing silent refresh...");
+        fetchUser(false).catch(() => {});
+      }
+    });
+
+    return () => subscription.remove();
+  }, [stage]);
+
+  useEffect(() => {
+    if (stage === "boot") {
+      const timer = setTimeout(() => setShowSlowMessage(true), 7000);
+      return () => clearTimeout(timer);
+    } else {
+      setShowSlowMessage(false);
+    }
+  }, [stage, retryCount]);
 
   const fetchUser = async (isBoot: boolean = false) => {
     // 1. Try to load from cache immediately for speed
@@ -56,15 +96,32 @@ export function AppRoot() {
       }
     } catch { /* ignore cache errors */ }
 
-    // 2. Fetch user metadata from Supabase
+    // If we know we are offline, don't even try the network
+    if (isOnline === false) {
+      console.log("[Boot] Device is offline, skipping network fetch.");
+      return cachedData.length > 0 ? cachedData : [];
+    }
+
+    // 2. Fetch user metadata and companies in parallel for speed
     try {
-      const { data } = await Promise.race([
-        supabase.auth.getUser(),
-        new Promise<{ data: { user: null } }>((resolve) => 
-          setTimeout(() => resolve({ data: { user: null } }), 4000)
-        )
+      const metadataTimeout = isBoot ? 4000 : 8000;
+      const apiTimeout = isBoot ? 8000 : 15000;
+
+      const [metadataResult, freshCompanies] = await Promise.all([
+        Promise.race([
+          supabase.auth.getUser(),
+          new Promise<{ data: { user: null } }>((resolve) => 
+            setTimeout(() => resolve({ data: { user: null } }), metadataTimeout)
+          )
+        ]).catch(() => ({ data: { user: null } })),
+        
+        apiJson<any[]>('/api/companies', { timeout: apiTimeout }).catch((e) => {
+          console.warn("[API] Fresh companies fetch failed:", e);
+          return null;
+        })
       ]);
-      const user = data?.user;
+
+      const user = metadataResult?.data?.user;
       if (user) {
         setUserName(
           user.user_metadata?.full_name ||
@@ -74,31 +131,21 @@ export function AppRoot() {
         );
         setUserId(user.id);
       }
-    } catch (e) {
-      console.warn("[Auth] Failed to fetch user metadata:", e);
-    }
-    
-    // 3. Fetch fresh companies from API
-    try {
-      // If we are booting and have cache, we can be more aggressive with timeouts
-      // apiJson already has a 30s timeout, but we can wrap it or just rely on it.
-      const freshCompanies = await apiJson<any[]>('/api/companies');
-      
+
       if (Array.isArray(freshCompanies)) {
         await AsyncStorage.setItem('cached_companies', JSON.stringify(freshCompanies));
         setCompanies(freshCompanies);
         return freshCompanies;
       }
+
+      // If network fetch failed, return cached data if available
       return cachedData.length > 0 ? cachedData : [];
     } catch (e: any) {
-      console.warn("[API] Companies fetch failed:", e);
-      
-      // If we have cached data, return it instead of failing the boot
+      console.error("[Boot] Parallel fetch failed:", e);
       if (cachedData.length > 0) return cachedData;
       
-      // If this is a boot and we have absolutely no data, then we must error
       if (isBoot) {
-        throw new Error(`Connection error: ${e.message || "Could not reach server"}. Please ensure you have an active internet connection.`);
+        throw new Error(`Initialization failed: ${e.message || "Connection error"}.`);
       }
       return [];
     }
@@ -107,6 +154,7 @@ export function AppRoot() {
   useEffect(() => {
     let cancelled = false;
     let initialized = false;
+    let isBooting = true; 
 
     const initialize = async () => {
       if (initialized) return;
@@ -117,44 +165,91 @@ export function AppRoot() {
         assertEnv();
 
         if (!supabase) {
-          throw new Error("Supabase client not initialized. Check your environment variables.");
+          throw new Error("Supabase client not initialized.");
         }
 
-        // Get cached company ID early
+        // Check network state before starting
+        const networkState = await NetInfo.fetch();
+        setIsOnline(networkState.isConnected);
+
+        // Get cached company ID and check session in parallel
         const [cachedCompanyId, sessionResult] = await Promise.all([
-          getSelectedCompanyId(),
-          // Race getSession against a timeout to prevent hanging on boot
+          getSelectedCompanyId().catch(() => null),
           Promise.race([
             supabase.auth.getSession(),
-            new Promise<{ data: { session: null } }>((resolve) => 
-              setTimeout(() => resolve({ data: { session: null } }), 5000)
+            new Promise<{ data: { session: null }, error: any }>((resolve) => 
+              setTimeout(() => resolve({ data: { session: null }, error: null }), 8000)
             )
-          ])
+          ]).catch(e => ({ data: { session: null }, error: e }))
         ]);
 
         if (cancelled) return;
         setCompanyId(cachedCompanyId);
 
-        const authed = !!sessionResult.data.session?.access_token;
+        const session = sessionResult.data.session;
+        const sessionError = sessionResult.error;
         
-        if (!authed) {
+        // DETERMINING AUTH STATUS:
+        // We consider the user "authed" if they have a session OR if they have a session that failed to refresh
+        // but hasn't been explicitly revoked (e.g. they are offline).
+        let authed = !!session?.access_token;
+        
+        // If we are offline and have an error/no session but we HAVE evidence of a previous session,
+        // we should try to look at what's actually in storage directly as a last resort.
+        if (!authed && isOnline === false) {
+          // This is a "Basement" scenario. We check if there's *any* token string in storage.
+          // Since we use the SecureStorageAdapter, we can't easily peek, but Supabase usually 
+          // returns the expired session in getSession() even if it fails to refresh.
+          if (session) authed = true; 
+        }
+
+        // Handle explicitly revoked sessions (Only happens when online)
+        const isRevoked = sessionError?.message?.includes("Refresh Token Not Found") || 
+                         sessionError?.message?.includes("invalid refresh token");
+
+        if (isRevoked) {
+          console.warn("[Auth] Session explicitly revoked by server, resetting...");
+          await supabase.auth.signOut().catch(() => {});
           setStage("login");
+          isBooting = false;
+          return;
+        }
+        
+        if (!authed && !session) {
+          setStage("login");
+          isBooting = false;
         } else {
-          // Perform the boot fetch
-          const companiesList = await fetchUser(true);
-          if (cancelled) return;
+          try {
+            // If we are offline, fetchUser will automatically return cached data.
+            const companiesList = await fetchUser(true);
+            if (cancelled) return;
 
-          const cachedId = await getSelectedCompanyId();
-          const validCompany = companiesList.find(c => (c && c.id === cachedId));
+            const cachedId = await getSelectedCompanyId().catch(() => null);
+            const validCompany = companiesList.find(c => (c && c.id === cachedId));
 
-          if (validCompany) {
-            if (validCompany.role) setUserRole(validCompany.role);
-            setCompanyId(cachedId);
-            setStage("main");
-          } else {
-            await setSelectedCompanyId(null);
-            setCompanyId(null);
-            setStage(companiesList.length > 0 ? "company" : "onboarding");
+            if (validCompany) {
+              if (validCompany.role) setUserRole(validCompany.role);
+              setCompanyId(cachedId);
+              setStage("main");
+            } else if (companiesList.length > 0) {
+              setStage("company");
+            } else {
+              // If we are offline and have no valid company match in cache, 
+              // but we think we are authed, let's at least try the main screen 
+              // with the cached company ID if it exists.
+              if (cachedId) {
+                setCompanyId(cachedId);
+                setStage("main");
+              } else {
+                setStage("company");
+              }
+            }
+          } catch (e: any) {
+             console.warn("[Auth] Initialization fetch failed, but proceeding as authed:", e.message);
+             // Last resort: If we are authed, go to main. fetchUser already showed cached data.
+             setStage("main");
+          } finally {
+            isBooting = false;
           }
         }
       } catch (e: any) {
@@ -163,6 +258,7 @@ export function AppRoot() {
           setBootError(e?.message || "Unknown error during initialization");
           setStage("boot");
         }
+        isBooting = false;
       }
     };
 
@@ -171,15 +267,14 @@ export function AppRoot() {
     if (!supabase) return;
 
     const { data } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (cancelled) return;
+      if (cancelled || isBooting) return;
+      
       try {
-        console.log("[Auth] Event:", event, session ? "Session active" : "No session");
         const authed = !!session?.access_token;
         if (!authed) {
           setStage("login");
           setCompanyId(null);
         } else if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
-          // Silent refresh of user data when auth state changes meaningfully
           await fetchUser(false);
         }
       } catch (e) {
@@ -199,7 +294,7 @@ export function AppRoot() {
     await setSelectedCompanyId(null);
     setCompanyId(null);
     setStage("login");
-    setBootError(null); // Clear error on logout
+    setBootError(null); 
   };
 
   const content = useMemo(() => {
@@ -233,8 +328,22 @@ export function AppRoot() {
 
     if (stage === "boot") {
       return (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-          <ActivityIndicator color={PremiumColors.amber.primary} />
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <ActivityIndicator color={PremiumColors.amber.primary} size="large" />
+          
+          {showSlowMessage && (
+            <View style={{ marginTop: 32, alignItems: "center" }}>
+              <Text style={{ color: PremiumColors.text.secondary, textAlign: "center", marginBottom: 20, fontSize: 14, fontWeight: "600" }}>
+                This is taking longer than usual{"\n"}Check your connection?
+              </Text>
+              <Button 
+                title="Retry Connection" 
+                variant="ghost"
+                onPress={() => setRetryCount(prev => prev + 1)} 
+                style={{ height: 44, paddingHorizontal: 24 }}
+              />
+            </View>
+          )}
         </View>
       );
     }

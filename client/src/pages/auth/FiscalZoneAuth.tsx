@@ -9,7 +9,11 @@ import { isStorageBroken } from "@/lib/offline-db";
 
 export default function AuthPage() {
   const { user, isLoading, loginWithPassword, registerWithPassword } = useAuth();
-  const { data: companies, isLoading: isLoadingCompanies } = useCompanies(!!user);
+  const {
+    data: companies,
+    isLoading: isLoadingCompanies,
+    isError: isCompaniesError,
+  } = useCompanies(!!user, user?.id ?? null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [, setLocation] = useLocation();
 
@@ -75,7 +79,7 @@ export default function AuthPage() {
   }, [isLoading, user]);
 
   useEffect(() => {
-    if (user && !isLoading && !isLoadingCompanies) {
+    if (user && !isLoading && !isLoadingCompanies && Array.isArray(companies)) {
       setLocation(companies && companies.length > 0 ? "/dashboard" : "/onboarding");
     }
   }, [user, companies, isLoading, isLoadingCompanies, setLocation]);
@@ -85,7 +89,18 @@ export default function AuthPage() {
       <Loader2 style={{ color: "#1565FF", width: 36, height: 36 }} className="animate-spin" />
     </div>
   );
-  if (user) return <Redirect to={companies && companies.length > 0 ? "/dashboard" : "/onboarding"} />;
+  if (user && (isLoadingCompanies || !Array.isArray(companies))) {
+    if (isCompaniesError) {
+      return <Redirect to="/pos" />;
+    }
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", background: "#04080f" }}>
+        <Loader2 style={{ color: "#1565FF", width: 36, height: 36 }} className="animate-spin" />
+      </div>
+    );
+  }
+
+  if (user) return <Redirect to={Array.isArray(companies) && companies.length > 0 ? "/dashboard" : "/onboarding"} />;
 
   return (
     <>

@@ -5,20 +5,24 @@ import { apiFetch } from "@/lib/api";
 import { cacheCompaniesList, getCachedCompaniesList, cacheCompanySettings, getCachedCompanySettings } from "@/lib/offline-db";
 import { getIsOnline } from "@/lib/online-state";
 
-export function useCompanies(enabled: boolean = true) {
+export function useCompanies(
+  enabled: boolean = true,
+  userScopeKey: string | number | null = null,
+) {
   return useQuery({
-    queryKey: [api.companies.list.path],
+    queryKey: [api.companies.list.path, userScopeKey ?? "anon"],
     queryFn: async () => {
       if (!getIsOnline()) {
         const cached = await getCachedCompaniesList();
         if (cached && cached.length > 0) return cached;
-        return [];
+        throw new Error("Offline and no cached companies available");
       }
       try {
         const res = await apiFetch(api.companies.list.path);
         if (res.status === 401) {
           const cached = await getCachedCompaniesList();
-          return cached && cached.length > 0 ? cached : [];
+          if (cached && cached.length > 0) return cached;
+          throw new Error("Unauthorized while fetching companies");
         }
         if (!res.ok) throw new Error("Failed to fetch companies");
         const companies = api.companies.list.responses[200].parse(await res.json());
@@ -27,7 +31,8 @@ export function useCompanies(enabled: boolean = true) {
       } catch (err) {
         console.warn("Companies fetch failed, trying offline cache...", err);
         const cached = await getCachedCompaniesList();
-        return cached && cached.length > 0 ? cached : [];
+        if (cached && cached.length > 0) return cached;
+        throw err instanceof Error ? err : new Error("Failed to load companies");
       }
     },
     enabled,

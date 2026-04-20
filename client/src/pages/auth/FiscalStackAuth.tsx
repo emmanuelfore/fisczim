@@ -17,7 +17,11 @@ export default function AuthPage() {
   const { user, isLoading, loginWithPassword, registerWithPassword } = useAuth();
   const { brand } = useBranding();
   // Gate on !!user so this never fires when unauthenticated
-  const { data: companies, isLoading: isLoadingCompanies } = useCompanies(!!user);
+  const {
+    data: companies,
+    isLoading: isLoadingCompanies,
+    isError: isCompaniesError,
+  } = useCompanies(!!user, user?.id ?? null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [, setLocation] = useLocation();
 
@@ -99,7 +103,7 @@ export default function AuthPage() {
   }, [isLoading, user]);
 
   useEffect(() => {
-    if (user && !isLoading && !isLoadingCompanies) {
+    if (user && !isLoading && !isLoadingCompanies && Array.isArray(companies)) {
       if (companies && companies.length > 0) {
         setLocation("/dashboard");
       } else {
@@ -116,8 +120,19 @@ export default function AuthPage() {
     );
   }
 
+  if (user && (isLoadingCompanies || !Array.isArray(companies))) {
+    if (isCompaniesError) {
+      return <Redirect to="/pos" />;
+    }
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-slate-50">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
   if (user) {
-    return <Redirect to={companies && companies.length > 0 ? "/dashboard" : "/onboarding"} />;
+    return <Redirect to={Array.isArray(companies) && companies.length > 0 ? "/dashboard" : "/onboarding"} />;
   }
 
   return (

@@ -99,8 +99,8 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
     data: companies,
     isLoading: isLoadingCompanies,
     isError: isCompaniesError,
-  } = useCompanies(!!user);
-  const { activeCompany, isLoading: isLoadingActiveCompany } = useActiveCompany(!!user);
+  } = useCompanies(!!user, user?.id ?? null);
+  const { activeCompany, isLoading: isLoadingActiveCompany } = useActiveCompany(!!user, user?.id ?? null);
   const [location, setLocation] = useLocation();
   const isOnline = useIsOnline();
   const hasRedirectedToPosRef = useRef(false);
@@ -141,7 +141,7 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
 
 function OnboardingRoute() {
   const { user, isLoading: isLoadingAuth } = useAuth();
-  const { data: companies, isLoading: isLoadingCompanies, isError } = useCompanies(!!user);
+  const { data: companies, isLoading: isLoadingCompanies, isError } = useCompanies(!!user, user?.id ?? null);
   const isOnline = useIsOnline();
 
   const rawLoading = isLoadingAuth || (!!user && isLoadingCompanies);
@@ -149,6 +149,7 @@ function OnboardingRoute() {
 
   if (isLoading) return <LoadingScreen />;
   if (!user) return <Redirect to="/auth" />;
+  if (!Array.isArray(companies)) return <LoadingScreen />;
   
   // If offline, we shouldn't attempt onboarding as it requires network to create companies
   if (!isOnline || isError) return <Redirect to="/pos" />;

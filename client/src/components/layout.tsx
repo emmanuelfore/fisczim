@@ -71,8 +71,8 @@ import { useActiveCompany } from "@/hooks/use-active-company";
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location, setLocation] = useLocation();
   const { user, logout } = useAuth();
-  const { data: companies } = useCompanies(!!user);
-  const { activeCompany, activeCompanyId, setCompany } = useActiveCompany(!!user);
+  const { data: companies } = useCompanies(!!user, user?.id ?? null);
+  const { activeCompany, activeCompanyId, setCompany } = useActiveCompany(!!user, user?.id ?? null);
   const { brand, currentBrand } = useBranding();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);

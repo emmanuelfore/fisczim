@@ -79,7 +79,7 @@ export default function ProductsPage() {
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["products", companyId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/companies/:companyId/products", companyId] });
       toast({
         title: "Products Deleted",
         description: "All products have been successfully deleted.",
@@ -119,7 +119,7 @@ export default function ProductsPage() {
       const stock = Number(p.stockLevel);
       const lowThreshold = Number(p.lowStockThreshold || 0);
 
-      if (stockFilter === "in_stock") matchesStock = stock > lowThreshold;
+      if (stockFilter === "in_stock") matchesStock = stock > 0; // Show everything available including low stock
       if (stockFilter === "low_stock") matchesStock = stock <= lowThreshold && stock > 0;
       if (stockFilter === "out_of_stock") matchesStock = stock <= 0;
     } else if (stockFilter !== "all" && !p.isTracked) {
@@ -156,8 +156,26 @@ export default function ProductsPage() {
           <>
           <Button
             variant="outline"
-            onClick={() => {
-              window.location.href = `/api/export/products?companyId=${companyId}`;
+            onClick={async () => {
+              try {
+                const res = await apiFetch(`/api/export/products?companyId=${companyId}`);
+                if (!res.ok) throw new Error("Export failed");
+                const blob = await res.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `products_export_${new Date().toISOString().split('T')[0]}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+              } catch (err: any) {
+                toast({
+                  title: "Export Failed",
+                  description: err.message,
+                  variant: "destructive",
+                });
+              }
             }}
             disabled={!companyId}
             className="rounded-xl"
@@ -197,7 +215,7 @@ export default function ProductsPage() {
             type="product"
             companyId={companyId}
             onSuccess={() => {
-              queryClient.invalidateQueries({ queryKey: ["products", companyId] });
+              queryClient.invalidateQueries({ queryKey: ["/api/companies/:companyId/products", companyId] });
             }}
           />
           {companyId > 0 ? (

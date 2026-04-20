@@ -589,7 +589,7 @@ export class DatabaseStorage implements IStorage {
         .from(products)
         .leftJoin(branchStocks, and(eq(branchStocks.productId, products.id), eq(branchStocks.branchId, branchId)))
         .where(and(...baseFilters));
-      
+
       return result.map(r => ({ ...r.product, branchStock: r.branchStock || "0" }));
     }
 
@@ -613,7 +613,7 @@ export class DatabaseStorage implements IStorage {
     const [updated] = await db.update(products).set(data).where(eq(products.id, id)).returning();
     return updated;
   }
-  
+
   async deleteCompanyProducts(companyId: number): Promise<void> {
     await db.transaction(async (tx) => {
       // 1. Identify non-test products for this company
@@ -633,7 +633,7 @@ export class DatabaseStorage implements IStorage {
       if (productIds.length === 0) return;
 
       // 2. Clear related data for these products
-      
+
       // Nullify references in invoice items
       await tx.update(invoiceItems)
         .set({ productId: null })
@@ -649,7 +649,7 @@ export class DatabaseStorage implements IStorage {
         .where(inArray(inventoryTransactions.productId, productIds));
 
       // 3. Clear company-wide product structures
-      
+
       // Delete POS holds (since they contain cart snapshots)
       await tx.delete(posHolds)
         .where(eq(posHolds.companyId, companyId));
@@ -667,11 +667,11 @@ export class DatabaseStorage implements IStorage {
   async bulkConvertServicesToProducts(companyId: number, productIds: number[]): Promise<void> {
 
     if (productIds.length === 0) return;
-    
+
     await db.update(products)
-      .set({ 
+      .set({
         productType: 'good',
-        isTracked: true 
+        isTracked: true
       })
       .where(and(
         eq(products.companyId, companyId),
@@ -932,11 +932,11 @@ export class DatabaseStorage implements IStorage {
   async createInvoice(data: CreateInvoiceRequest): Promise<Invoice> {
     return await db.transaction(async (tx) => {
       const { items, ...invoiceData } = data;
-      
+
       // Auto-assign order number for POS/Restaurant sales if not provided
       let orderNumber = data.orderNumber;
       let receiptNums = { receiptGlobalNo: 0, receiptCounter: 0 };
-      
+
       if (!orderNumber && (invoiceData.isPos || invoiceData.tableId)) {
         // We can use the company's daily receipt counter for the short order number
         // but we need to fetch/claim it here if we're not already doing it in Zimbabwe 
@@ -963,16 +963,16 @@ export class DatabaseStorage implements IStorage {
 
           if (item.productId) {
             const [product] = await tx.select().from(products).where(eq(products.id, item.productId));
-            
+
             // --- BOM / Recipe Deduction Logic ---
             if (product && product.hasRecipe) {
               const recipes = await tx.select().from(recipeItems).where(eq(recipeItems.parentProductId, product.id));
               let totalRecipeCogs = 0;
-              
+
               for (const recipe of recipes) {
                 const ingredientQty = parseFloat(item.quantity.toString()) * parseFloat(recipe.quantity.toString());
                 const [ingredient] = await tx.select().from(products).where(eq(products.id, recipe.ingredientProductId));
-                
+
                 if (ingredient && ingredient.isTracked) {
                   const ingredientCogs = await calculateCOGS(ingredient.id, ingredientQty, invoiceData.companyId, tx);
                   totalRecipeCogs += (ingredientCogs || 0);
@@ -995,7 +995,7 @@ export class DatabaseStorage implements IStorage {
                 }
               }
               cogsAmount = totalRecipeCogs;
-            } 
+            }
             // --- Standard Tracked Product Logic ---
             else if (product && product.isTracked) {
               const quantity = parseFloat(item.quantity.toString());
@@ -1045,9 +1045,9 @@ export class DatabaseStorage implements IStorage {
                     eq(branchStocks.branchId, invoiceData.branchId),
                     eq(branchStocks.productId, item.productId)
                   ));
-                
+
                 const newBranchStock = (parseFloat(currentBranchStock?.stockLevel || "0") + stockChange).toString();
-                
+
                 await tx
                   .insert(branchStocks)
                   .values({
@@ -1932,13 +1932,13 @@ export class DatabaseStorage implements IStorage {
 
     for (const inv of allInvoices) {
       const total = Number(inv.total);
-      
+
       // Calculate paid amount from payments for this invoice
       const invoicePayments = await db.select({ amount: payments.amount })
         .from(payments)
         .where(eq(payments.invoiceId, inv.id));
       const paid = invoicePayments.reduce((sum, p) => sum + Number(p.amount), 0);
-      
+
       const balance = total - paid;
 
       if (balance <= 0) continue;
@@ -2065,11 +2065,11 @@ export class DatabaseStorage implements IStorage {
       customer: customers,
       company: companies
     })
-    .from(payments)
-    .leftJoin(invoices, eq(payments.invoiceId, invoices.id))
-    .leftJoin(customers, eq(invoices.customerId, customers.id))
-    .leftJoin(companies, eq(payments.companyId, companies.id))
-    .where(eq(payments.id, id));
+      .from(payments)
+      .leftJoin(invoices, eq(payments.invoiceId, invoices.id))
+      .leftJoin(customers, eq(invoices.customerId, customers.id))
+      .leftJoin(companies, eq(payments.companyId, companies.id))
+      .where(eq(payments.id, id));
 
     if (!result) return undefined;
 
@@ -3074,7 +3074,7 @@ export class DatabaseStorage implements IStorage {
     } else if (ownerGroups.length > 1) {
       filters.push(inArray(products.ownerGroup, ownerGroups));
     }
-    
+
     return await db
       .select({
         id: inventoryTransactions.id,
@@ -3228,13 +3228,13 @@ export class DatabaseStorage implements IStorage {
       totalTax += Number(inv.taxAmount);
 
       // Currency
-      const curr = currencyMap.get(inv.currency) || { 
-        code: inv.currency, 
+      const curr = currencyMap.get(inv.currency) || {
+        code: inv.currency,
         name: companyCurrencies.find(c => c.code === inv.currency)?.name || inv.currency,
-        subtotal: 0, 
-        taxAmount: 0, 
-        total: 0, 
-        count: 0 
+        subtotal: 0,
+        taxAmount: 0,
+        total: 0,
+        count: 0
       };
       curr.subtotal += Number(inv.subtotal);
       curr.taxAmount += Number(inv.taxAmount);
@@ -3244,11 +3244,11 @@ export class DatabaseStorage implements IStorage {
 
       // Cashier
       const cashierName = user?.username || 'System';
-      const csh = cashierMap.get(user?.id || 'system') || { 
-        id: user?.id || 'system', 
-        name: cashierName, 
-        total: 0, 
-        count: 0 
+      const csh = cashierMap.get(user?.id || 'system') || {
+        id: user?.id || 'system',
+        name: cashierName,
+        total: 0,
+        count: 0
       };
       csh.total += Number(inv.total);
       csh.count += 1;
@@ -3257,12 +3257,12 @@ export class DatabaseStorage implements IStorage {
 
     allItems.forEach(item => {
       // Item Sales
-      const itm = itemMap.get(item.productId || item.description) || { 
-        id: item.productId, 
-        name: item.description, 
-        sku: '', 
-        quantity: 0, 
-        total: 0 
+      const itm = itemMap.get(item.productId || item.description) || {
+        id: item.productId,
+        name: item.description,
+        sku: '',
+        quantity: 0,
+        total: 0
       };
       itm.quantity += Number(item.quantity);
       itm.total += Number(item.lineTotal);
@@ -3282,7 +3282,7 @@ export class DatabaseStorage implements IStorage {
             taxableAmount: 0,
             taxAmount: 0
           };
-          
+
           // Calculate tax from lineTotal if not explicit
           // Assuming lineTotal is inclusive for some, exclusive for others?
           // Actually shared/schema says lineTotal is the final line item amount.
@@ -3343,7 +3343,7 @@ export class DatabaseStorage implements IStorage {
 
     let revenue = 0;
     const revenueItems: any[] = [];
-    
+
     companyInvoices.forEach(inv => {
       const amount = Number(inv.total);
       if (inv.transactionType === 'CreditNote') {
@@ -4208,14 +4208,14 @@ export class DatabaseStorage implements IStorage {
 
     const distribution: Record<number, { count: number; total: number }> = {};
     for (let i = 0; i < 24; i++) {
-        distribution[i] = { count: 0, total: 0 };
+      distribution[i] = { count: 0, total: 0 };
     }
 
     periodInvoices.forEach(inv => {
       const date = inv.issueDate ? new Date(inv.issueDate) : new Date();
       const hour = date.getHours();
       const amount = Number(inv.total);
-      
+
       distribution[hour].count++;
       distribution[hour].total += amount;
     });
@@ -4250,7 +4250,7 @@ export class DatabaseStorage implements IStorage {
     const totalRevenue = periodInvoices.reduce((sum, inv) => sum + Number(inv.total), 0);
     const totalCogs = items.reduce((sum, item) => sum + Number(item.cogsAmount || 0), 0);
     const totalItems = items.reduce((sum, item) => sum + Number(item.quantity), 0);
-    
+
     const atv = totalRevenue / periodInvoices.length;
     const itemsPerReceipt = totalItems / periodInvoices.length;
     const profitMargin = totalRevenue > 0 ? ((totalRevenue - totalCogs) / totalRevenue) * 100 : 0;
@@ -4594,9 +4594,9 @@ export class DatabaseStorage implements IStorage {
       item: invoiceItems,
       product: products
     })
-    .from(invoiceItems)
-    .leftJoin(products, eq(invoiceItems.productId, products.id))
-    .where(inArray(invoiceItems.invoiceId, orderIds));
+      .from(invoiceItems)
+      .leftJoin(products, eq(invoiceItems.productId, products.id))
+      .where(inArray(invoiceItems.invoiceId, orderIds));
 
     return orders.map(o => ({
       ...o,
@@ -4643,7 +4643,7 @@ export class DatabaseStorage implements IStorage {
       .from(branchUsers)
       .innerJoin(branches, eq(branchUsers.branchId, branches.id))
       .where(eq(branchUsers.userId, userId));
-    
+
     return result.map(r => r.branch);
   }
 
@@ -4692,7 +4692,7 @@ export class DatabaseStorage implements IStorage {
       .from(branchStocks)
       .innerJoin(products, eq(branchStocks.productId, products.id))
       .where(eq(branchStocks.branchId, branchId));
-    
+
     return result.map(r => ({
       ...r.stock,
       product: r.product

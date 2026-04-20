@@ -175,28 +175,41 @@ router.post("/close-day", async (req, res) => {
       fiscalDayDate = formatHarareDateOnly(new Date(company.fiscalDayOpenedAt));
     }
 
-    let response;
+    const counters = await storage.calculateFiscalCounters(company.id, fiscalDayNo);
+
+    let response: any;
     try {
       response = await device.closeDay(
         fiscalDayNo,
         fiscalDayDate,
-        company.lastFiscalHash || '',
-        receiptCount
+        receiptCount,
+        counters
       );
     } catch (e: any) {
-      // Basic trap
       throw e;
     }
 
-    await storage.updateCompany(company.id, {
-      fiscalDayOpen: false,
-      lastFiscalDayStatus: 'FiscalDayClosed'
-    });
+    const resultStatus = (response.fiscalDayStatus || "").toLowerCase();
+
+    // Only reset local counters and mark as closed if ZIMRA confirms success
+    if (resultStatus === 'fiscaldayclosed') {
+      await storage.updateCompany(company.id, {
+        fiscalDayOpen: false,
+        lastFiscalDayStatus: 'FiscalDayClosed',
+        dailyReceiptCount: 0
+      });
+    } else {
+      console.warn(`[ZIMRA] CloseDay returned status: ${response.fiscalDayStatus}. Local counters preserved.`);
+      await storage.updateCompany(company.id, {
+        lastFiscalDayStatus: response.fiscalDayStatus || 'FiscalDayCloseFailed'
+      });
+    }
 
     return res.status(200).json({
-      success: true,
+      success: resultStatus === 'fiscaldayclosed',
       fiscalDayNo,
       receiptsDayCount: receiptCount,
+      zimraStatus: response.fiscalDayStatus
     });
   } catch (err: any) {
     console.error("ZIMRA v1 Close Day Error:", err);

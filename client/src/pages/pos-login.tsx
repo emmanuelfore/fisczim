@@ -12,7 +12,7 @@ import { isStorageBroken } from "@/lib/offline-db";
 
 export default function PosLoginPage() {
   const { user, isLoading, loginWithPassword } = useAuth();
-  const { data: companies, isLoading: isLoadingCompanies } = useCompanies(!!user);
+  const { data: companies, isLoading: isLoadingCompanies } = useCompanies(!!user, user?.id ?? null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [, setLocation] = useLocation();
   const [loginData, setLoginData] = useState({ email: "", password: "" });

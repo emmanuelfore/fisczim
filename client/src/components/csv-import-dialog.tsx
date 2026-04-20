@@ -209,9 +209,9 @@ export function CsvImportDialog({ type, companyId, onSuccess, trigger }: CsvImpo
                     <Button variant="outline" onClick={() => setOpen(false)} disabled={isUploading}>
                         Cancel
                     </Button>
-                    <Button onClick={handleImport} disabled={!file || isUploading}>
+                    <Button onClick={handleImport} disabled={!file || isUploading || result !== null}>
                         {isUploading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        Import Data
+                        {result !== null ? "Import Complete" : "Import Data"}
                     </Button>
                 </DialogFooter>
             </DialogContent>

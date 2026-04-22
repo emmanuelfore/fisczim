@@ -757,17 +757,29 @@ export async function registerRoutes(
           // Validate via Zod
           const validated = api.products.create.input.parse(productData);
 
-          const newProduct = await storage.createProduct({
-            ...validated,
-            companyId: targetCompanyId
-          });
+          // Upsert Logic: Check if product with SKU exists
+          let product;
+          const existing = await storage.getProductBySku(targetCompanyId, validated.sku);
+          const isNew = !existing;
 
-          // If stock is provided and product is tracked, create initial inventory transaction
+          if (existing) {
+            product = await storage.updateProduct(existing.id, {
+              ...validated,
+              companyId: targetCompanyId
+            });
+          } else {
+            product = await storage.createProduct({
+              ...validated,
+              companyId: targetCompanyId
+            });
+          }
+
+          // If stock is provided and product is tracked, create initial inventory transaction (NEW PRODUCTS ONLY)
           const initialStock = cleanNum(productData.stockLevel);
-          if (initialStock > 0 && newProduct.isTracked) {
+          if (isNew && initialStock > 0 && product.isTracked) {
             await storage.createInventoryTransaction({
               companyId: targetCompanyId,
-              productId: newProduct.id,
+              productId: product.id,
               type: "STOCK_IN",
               quantity: initialStock.toString(),
               unitCost: productData.costPrice,

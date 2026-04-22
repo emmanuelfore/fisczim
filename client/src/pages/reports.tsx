@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { SalesReport, SalesByCustomerReport, SalesByItemReport, SalesBySalespersonReport } from "@/components/reports/sales-reports";
 import { OperationalMetricsReport, HourlySalesAnalysisReport, InventoryHealthReport, StockOnHandReport, InventoryMovementsReport, PurchaseHistoryReport } from "@/components/reports/retail-reports";
 import { ArAgingSummaryReport, ArAgingDetailsReport, InvoiceDetailsReport, QuoteDetailsReport, CustomerBalanceSummaryReport, ReceivableSummaryReport, ReceivableDetailsReport, BadDebtsReport, BankChargesReport } from "@/components/reports/receivables-reports";
-import { TimeToGetPaidReport, RefundHistoryReport, WithholdingTaxReport } from "@/components/reports/payments-reports";
+import { TimeToGetPaidReport, RefundHistoryReport, WithholdingTaxReport, CashCollectionReport } from "@/components/reports/payments-reports";
 import { ExpenseDetailsReport, ExpensesByCategoryReport, ExpensesByCustomerReport, ExpensesByProjectReport, BillableExpenseDetailsReport } from "@/components/reports/expenses-reports";
 import { TaxSummaryReport } from "@/components/reports/tax-reports";
 import { cn } from "@/lib/utils";
@@ -76,6 +76,7 @@ const REPORT_CATEGORIES: {
       { key: "time-to-get-paid", label: "Time to Get Paid", category: "payments-received", endpoint: "time-to-get-paid" },
       { key: "refund-history", label: "Refund History", category: "payments-received", endpoint: "refund-history" },
       { key: "withholding-tax", label: "Withholding Tax", category: "payments-received", endpoint: "withholding-tax" },
+      { key: "cash-collection", label: "Cash Collection Report", category: "payments-received", externalHref: "/reports/cash-collection" },
     ],
   },
   {
@@ -443,6 +444,7 @@ function ActiveReportComponent({ reportKey, companyId, dateRange, search }: {
     case "time-to-get-paid": return <TimeToGetPaidReport {...props} />;
     case "refund-history": return <RefundHistoryReport {...props} />;
     case "withholding-tax": return <WithholdingTaxReport {...props} />;
+    case "cash-collection": return <CashCollectionReport {...props} />;
     case "expense-details": return <ExpenseDetailsReport {...props} />;
     case "expenses-by-category": return <ExpensesByCategoryReport {...props} />;
     case "expenses-by-customer": return <ExpensesByCustomerReport {...props} />;

@@ -138,6 +138,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         { icon: BarChart3, label: "Analytics", href: "/reports?tab=analytics" },
         { icon: Receipt, label: "Daily Sales", href: "/reports/daily" },
         { icon: TrendingUp, label: "Profit & Loss", href: "/reports/financial" },
+        { icon: CreditCard, label: "Cash Collection", href: "/reports/cash-collection" },
         { icon: FileText, label: "Customer Statements", href: "/reports/customer-statements" },
         { icon: Package, label: "Stock Reports", href: "/reports/inventory" },
         { icon: FileText, label: "Tax & ZIMRA", href: "/reports/tax" },

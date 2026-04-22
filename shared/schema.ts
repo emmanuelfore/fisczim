@@ -334,6 +334,7 @@ export const products = pgTable("products", {
 }, (table) => {
   return {
     companyIdIdx: index("products_company_id_idx").on(table.companyId),
+    companySkuUnique: unique("products_company_sku_idx").on(table.companyId, table.sku),
   };
 });
 

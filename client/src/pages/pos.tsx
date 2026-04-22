@@ -259,6 +259,7 @@ export default function POSPage() {
     const [cnType, setCnType] = useState<"credit" | "debit">("credit");
     const [cnActiveInvoice, setCnActiveInvoice] = useState<any>(null);
     const [cnSelectedItems, setCnSelectedItems] = useState<{ productId: number, quantity: number, originalItem: any }[]>([]);
+    const [cnReason, setCnReason] = useState("");
 
     // X/Z Report modal
     const [isReportOpen, setIsReportOpen] = useState(false);
@@ -1677,14 +1678,20 @@ export default function POSPage() {
                 return;
             }
 
-            const endpoint = cnType === "credit"
-                ? `/api/invoices/${cnActiveInvoice.id}/credit-note`
-                : `/api/invoices/${cnActiveInvoice.id}/debit-note`;
+            if (!cnReason.trim()) {
+                toast({ 
+                    title: "Reason Required", 
+                    description: `Please provide a reason for this ${cnType === 'credit' ? 'Credit' : 'Debit'} Note.`, 
+                    variant: "destructive" 
+                });
+                setCnProcessing(false);
+                return;
+            }
 
             const res = await apiFetch(endpoint, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ items: itemsToReturn })
+                body: JSON.stringify({ items: itemsToReturn, reason: cnReason })
             });
 
             if (!res.ok) {
@@ -1699,6 +1706,7 @@ export default function POSPage() {
             setCnSearchQuery("");
             setCnSearchResults([]);
             setCnActiveInvoice(null);
+            setCnReason("");
             // Show receipt for the note
             setReprintInvoice({ ...note, originalInvoice: cnActiveInvoice });
         } catch {
@@ -3536,7 +3544,7 @@ export default function POSPage() {
                             <DialogDescription>Search for an existing invoice to issue a credit or debit adjustment.</DialogDescription>
                         </DialogHeader>
                         <div className="bg-amber-500 p-6 text-white relative shrink-0">
-                            <button onClick={() => { setIsCreditNoteOpen(false); setCnSearchResults([]); setCnSearchQuery(""); setCnActiveInvoice(null); }} className="absolute top-4 right-4 h-8 w-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition-all">
+                            <button onClick={() => { setIsCreditNoteOpen(false); setCnSearchResults([]); setCnSearchQuery(""); setCnActiveInvoice(null); setCnReason(""); }} className="absolute top-4 right-4 h-8 w-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition-all">
                                 <XCircle className="h-4 w-4 text-white" />
                             </button>
                             <FileText className="h-8 w-8 mb-2 text-white/80" />
@@ -3621,13 +3629,29 @@ export default function POSPage() {
                                             </div>
                                         ))}
                                     </div>
+                                    <div className="space-y-2">
+                                        <div className="flex items-center justify-between">
+                                            <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Reason for {cnType === 'credit' ? 'Return' : 'Adjustment'} <span className="text-red-500">*</span></Label>
+                                            {cnReason.length > 0 && <span className="text-[10px] font-bold text-emerald-500 uppercase">Input Valid</span>}
+                                        </div>
+                                        <textarea
+                                            placeholder="Explain why this note is being issued..."
+                                            className={cn(
+                                                "w-full h-20 rounded-xl border p-3 text-sm font-bold bg-slate-50 focus:outline-none focus:ring-2 transition-all",
+                                                !cnReason.trim() ? "border-red-200 focus:ring-red-50 font-bold" : "border-slate-200 focus:ring-amber-50"
+                                            )}
+                                            value={cnReason}
+                                            onChange={e => setCnReason(e.target.value)}
+                                        />
+                                        <p className="text-[9px] text-slate-400 font-bold uppercase tracking-tighter">This field is required for tax compliance</p>
+                                    </div>
                                 </div>
                             )}
                         </div>
                         <div className="p-4 border-t border-slate-100 bg-slate-50 shrink-0 flex gap-2">
                             <Button variant="ghost" className="flex-1 h-10 rounded-xl font-black text-xs text-slate-400" onClick={() => { setIsCreditNoteOpen(false); setCnSearchResults([]); setCnSearchQuery(""); setCnActiveInvoice(null); }}>Cancel</Button>
                             {cnActiveInvoice && (
-                                <Button disabled={cnProcessing || cnSelectedItems.every(s => s.quantity === 0)} className="flex-1 h-10 rounded-xl font-black text-xs bg-amber-500 hover:bg-amber-600 text-white" onClick={handleIssueItemizedReturn}>
+                                <Button disabled={cnProcessing || cnSelectedItems.every(s => s.quantity === 0) || !cnReason.trim()} className="flex-1 h-10 rounded-xl font-black text-xs bg-amber-500 hover:bg-amber-600 text-white" onClick={handleIssueItemizedReturn}>
                                     {cnProcessing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                                     Issue {cnType === "credit" ? "CN" : "DN"}
                                 </Button>

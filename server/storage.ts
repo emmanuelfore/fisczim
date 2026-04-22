@@ -97,6 +97,7 @@ export interface IStorage {
   getProducts(companyId: number, branchId?: number, ownerGroup?: string): Promise<(Product & { branchStock?: string })[]>;
   createProduct(product: InsertProduct): Promise<Product>;
   updateProduct(id: number, product: Partial<InsertProduct>): Promise<Product>;
+  getProductBySku(companyId: number, sku: string): Promise<Product | undefined>;
   deleteCompanyProducts(companyId: number): Promise<void>;
   getProductsForExport(companyId: number): Promise<any[]>;
 
@@ -594,6 +595,20 @@ export class DatabaseStorage implements IStorage {
     }
 
     return await db.select().from(products).where(and(...baseFilters));
+  }
+
+  async getProductBySku(companyId: number, sku: string): Promise<Product | undefined> {
+    const [product] = await db
+      .select()
+      .from(products)
+      .where(
+        and(
+          eq(products.companyId, companyId),
+          eq(sql`lower(${products.sku})`, sku.toLowerCase()),
+          eq(products.isActive, true)
+        )
+      );
+    return product;
   }
 
   async createProduct(product: InsertProduct): Promise<Product> {

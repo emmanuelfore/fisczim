@@ -54,6 +54,7 @@ import StockTakePage from "@/pages/stock-take";
 import PaymentsReceivedPage from "@/pages/payments-received";
 import PaymentPreviewPage from "@/pages/payment-preview";
 import CustomerStatementsPage from "@/pages/customer-statements";
+import CashCollectionReportPage from "@/pages/cash-collection-report-page";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
 import { useCompanies } from "@/hooks/use-companies";
@@ -215,6 +216,7 @@ function Router() {
       <Route path="/payments-received/:id?">{() => <ProtectedRoute component={PaymentsReceivedPage} />}</Route>
       <Route path="/payments/:id/preview">{() => <ProtectedRoute component={PaymentPreviewPage} />}</Route>
       <Route path="/reports/customer-statements">{() => <ProtectedRoute component={CustomerStatementsPage} />}</Route>
+      <Route path="/reports/cash-collection">{() => <ProtectedRoute component={CashCollectionReportPage} />}</Route>
       <Route path="/profile">{() => <ProtectedRoute component={UserProfilePage} />}</Route>
       <Route path="/restaurant/layout">{() => <ProtectedRoute component={RestaurantLayoutPage} />}</Route>
       <Route path="/zimra-settings">{() => <ProtectedRoute component={ZimraSettingsPage} />}</Route>

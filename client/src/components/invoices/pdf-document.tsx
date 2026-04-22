@@ -374,6 +374,13 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes }: 
                             <Text style={{ fontSize: 7 }}>
                                 <Text style={{ color: '#64748b' }}>Serial: </Text>
                                 <Text style={{ fontWeight: 700 }}>{company?.fdmsDeviceSerialNo || "N/A"}</Text>
+                                {invoice.notes && (
+                                    <View style={{ marginTop: 3 }}>
+                                        <Text style={{ fontSize: 8, fontStyle: 'italic', color: '#64748b' }}>
+                                            Reason: {invoice.notes}
+                                        </Text>
+                                    </View>
+                                )}
                             </Text>
                         </View>
                     </View>
@@ -456,7 +463,14 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes }: 
                                     isExclusive ? (
                                         <>
                                             <Text style={styles.colExCode}>{item.product?.hsCode || "0000"}</Text>
-                                            <Text style={styles.colExDesc}>{item.description}</Text>
+                                            <View style={styles.colExDesc}>
+                                                <Text>{item.description}</Text>
+                                                {item.notes && (
+                                                    <Text style={{ fontSize: 7, color: '#64748b', marginTop: 1, fontStyle: 'italic' }}>
+                                                        Note: {item.notes}
+                                                    </Text>
+                                                )}
+                                            </View>
                                             <Text style={styles.colExQty}>{qty}</Text>
                                             <Text style={styles.colExPrice}>{displayPrice.toFixed(2)}</Text>
                                             <Text style={styles.colExAmt}>{displayAmtExcl.toFixed(2)}</Text>
@@ -466,7 +480,14 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes }: 
                                     ) : (
                                         <>
                                             <Text style={styles.colCode}>{item.product?.hsCode || "0000"}</Text>
-                                            <Text style={styles.colDesc}>{item.description}</Text>
+                                            <View style={styles.colDesc}>
+                                                <Text>{item.description}</Text>
+                                                {item.notes && (
+                                                    <Text style={{ fontSize: 7, color: '#64748b', marginTop: 1, fontStyle: 'italic' }}>
+                                                        Note: {item.notes}
+                                                    </Text>
+                                                )}
+                                            </View>
                                             <Text style={styles.colQty}>{qty}</Text>
                                             <Text style={styles.colPrice}>{displayPrice.toFixed(2)}</Text>
                                             <Text style={styles.colVat}>{isExempt ? "-" : (isZeroRated || vatAmt === 0 ? "0.00" : vatAmt.toFixed(2))}</Text>
@@ -595,7 +616,11 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes }: 
                 {/* Notes Section */}
                 {invoice.notes ? (
                     <View style={{ marginTop: 20, padding: 10, borderWidth: 1, borderColor: '#e2e8f0', backgroundColor: '#f8fafc' }}>
-                        <Text style={{ fontSize: 9, fontWeight: 700, color: '#1e293b', marginBottom: 4, textTransform: 'uppercase' }}>{invoice.status === 'quote' ? "Terms & Conditions" : "Notes"}</Text>
+                        <Text style={{ fontSize: 9, fontWeight: 700, color: '#1e293b', marginBottom: 4, textTransform: 'uppercase' }}>
+                            {invoice.transactionType === 'CreditNote' || invoice.transactionType === 'DebitNote' 
+                                ? "REASON" 
+                                : (invoice.status === 'quote' ? "Terms & Conditions" : "Notes")}
+                        </Text>
                         <Text style={{ fontSize: 9, color: '#475569' }}>{invoice.notes}</Text>
                     </View>
                 ) : null}

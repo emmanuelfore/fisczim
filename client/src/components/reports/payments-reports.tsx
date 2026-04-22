@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { filterRecords, computeTotal } from "@/lib/report-utils";
@@ -267,6 +267,184 @@ export function WithholdingTaxReport({ companyId, dateRange, search }: ReportPro
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── CashCollectionReport ──────────────────────────────────────────────────────
+
+export function CashCollectionReport({ companyId, dateRange, search }: ReportProps) {
+  const { data = [], isLoading, error } = useQuery<any[]>({
+    queryKey: ["reports/cash-collection", companyId, dateRange.from, dateRange.to],
+    queryFn: async () => {
+      const start = dateRange.from.toISOString();
+      const end = dateRange.to.toISOString();
+      const res = await apiFetch(`/api/companies/${companyId}/reports/payments?startDate=${start}&endDate=${end}`);
+      if (!res.ok) throw new Error(`Failed to load collections (${res.status})`);
+      return res.json();
+    },
+    enabled: !!companyId,
+  });
+
+  const filtered = filterRecords(data, search, ["invoiceNumber", "customerName", "reference", "paymentMethod"]);
+  
+  // Aggregations
+  const stats = useMemo(() => {
+    const methods: Record<string, { total: number, count: number }> = {};
+    let total = 0;
+    
+    filtered.forEach(p => {
+      const m = p.paymentMethod || "OTHER";
+      if (!methods[m]) methods[m] = { total: 0, count: 0 };
+      const amt = Number(p.amount);
+      methods[m].total += amt;
+      methods[m].count += 1;
+      total += amt;
+    });
+
+    return { total, methods: Object.entries(methods).sort((a, b) => b[1].total - a[1].total) };
+  }, [filtered]);
+
+  const dailyStats = useMemo(() => {
+    const daily: Record<string, { date: string, total: number, count: number }> = {};
+    
+    filtered.forEach(p => {
+      const date = p.paymentDate ? format(new Date(p.paymentDate), "yyyy-MM-dd") : "Unknown";
+      if (!daily[date]) daily[date] = { date, total: 0, count: 0 };
+      daily[date].total += Number(p.amount);
+      daily[date].count += 1;
+    });
+
+    return Object.values(daily).sort((a, b) => b.date.localeCompare(a.date));
+  }, [filtered]);
+
+  if (isLoading) return <div className="flex justify-center p-12"><Loader2 className="w-8 h-8 animate-spin text-violet-400" /></div>;
+  if (error) return <EmptyState message="Failed to load collection report" />;
+
+  return (
+    <div className="p-6 space-y-8 max-w-7xl mx-auto">
+      {/* Stat Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="bg-slate-900 text-white p-5 rounded-3xl shadow-xl shadow-slate-200">
+          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Total Collected</p>
+          <p className="text-2xl font-black font-display">${stats.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+          <p className="text-[10px] font-bold text-slate-500 mt-1 uppercase">{filtered.length} TRANSACTIONS</p>
+        </div>
+        {stats.methods.slice(0, 3).map(([method, data]) => (
+          <div key={method} className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm transition-all hover:bg-slate-50">
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{method}</p>
+            <p className="text-2xl font-black text-slate-900 font-display">${data.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+            <p className="text-[10px] font-bold text-slate-500 mt-1 uppercase">{data.count} PAYMENTS</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Method Summary */}
+        <div className="lg:col-span-1 space-y-4">
+          <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
+            <div className="w-1.5 h-4 bg-violet-600 rounded-full" />
+            Collection by Method
+          </h3>
+          <div className="bg-white rounded-3xl border border-slate-100 overflow-hidden shadow-sm">
+            <table className="w-full text-xs text-left">
+              <thead className="bg-slate-50 border-b border-slate-100">
+                <tr>
+                  <th className="px-4 py-3 font-bold text-slate-500 uppercase tracking-widest">Method</th>
+                  <th className="px-4 py-3 font-bold text-slate-500 uppercase tracking-widest text-center">Count</th>
+                  <th className="px-4 py-3 font-bold text-slate-500 uppercase tracking-widest text-right">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stats.methods.map(([method, data]) => (
+                  <tr key={method} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50">
+                    <td className="px-4 py-3 font-bold text-slate-700">{method}</td>
+                    <td className="px-4 py-3 text-center text-slate-600 font-semibold">{data.count}</td>
+                    <td className="px-4 py-3 text-right font-black text-slate-900">${data.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Daily Summary */}
+        <div className="lg:col-span-2 space-y-4">
+          <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
+            <div className="w-1.5 h-4 bg-emerald-500 rounded-full" />
+            Daily Collections
+          </h3>
+          <div className="bg-white rounded-3xl border border-slate-100 overflow-hidden shadow-sm">
+            <table className="w-full text-xs text-left">
+              <thead className="bg-slate-50 border-b border-slate-100">
+                <tr>
+                  <th className="px-4 py-3 font-bold text-slate-500 uppercase tracking-widest">Date</th>
+                  <th className="px-4 py-3 font-bold text-slate-500 uppercase tracking-widest text-center">Transactions</th>
+                  <th className="px-4 py-3 font-bold text-slate-500 uppercase tracking-widest text-right">Total Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dailyStats.map((day) => (
+                  <tr key={day.date} className="border-b border-slate-50 last:border-0 hover:bg-emerald-50/30 transition-colors">
+                    <td className="px-4 py-3 font-bold text-slate-700">{format(new Date(day.date), "EEEE, dd MMM yyyy")}</td>
+                    <td className="px-4 py-3 text-center">
+                      <span className="bg-slate-100 px-2.5 py-1 rounded-lg font-black text-[10px] text-slate-600">{day.count}</span>
+                    </td>
+                    <td className="px-4 py-3 text-right font-black text-slate-900">${day.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                  </tr>
+                ))}
+                {dailyStats.length === 0 && (
+                  <tr><td colSpan={3} className="text-center py-20 text-slate-300 font-bold italic tracking-wider">No collections recorded in this date range</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* Detailed Transaction List */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
+            <div className="w-1.5 h-4 bg-slate-400 rounded-full" />
+            Detailed Transaction Log
+          </h3>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{filtered.length} entries matching filters</p>
+        </div>
+        <div className="bg-white rounded-3xl border border-slate-100 overflow-hidden shadow-2xl shadow-slate-100">
+          <table className="w-full text-[11px] text-left">
+            <thead className="bg-slate-50 text-slate-500 border-b border-slate-100">
+              <tr>
+                <th className="px-4 py-3 font-black uppercase tracking-widest">Date/Time</th>
+                <th className="px-4 py-3 font-black uppercase tracking-widest">Reference</th>
+                <th className="px-4 py-3 font-black uppercase tracking-widest">Invoice</th>
+                <th className="px-4 py-3 font-black uppercase tracking-widest">Customer</th>
+                <th className="px-4 py-3 font-black uppercase tracking-widest">Method</th>
+                <th className="px-4 py-3 font-black uppercase tracking-widest text-right">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((p) => (
+                <tr key={p.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
+                  <td className="px-4 py-3 text-slate-500">{format(new Date(p.paymentDate), "dd MMM, HH:mm")}</td>
+                  <td className="px-4 py-3 font-mono font-bold text-slate-700">{p.reference || "—"}</td>
+                  <td className="px-4 py-3 font-mono text-violet-600 font-bold">{p.invoiceNumber || "—"}</td>
+                  <td className="px-4 py-3 font-bold text-slate-800">{p.customerName || "Walk-in Guest"}</td>
+                  <td className="px-4 py-3">
+                    <span className="bg-slate-100 px-2 py-0.5 rounded-md font-black text-[9px] uppercase tracking-tighter text-slate-500 border border-slate-200">
+                      {p.paymentMethod}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-right font-black text-slate-900">${Number(p.amount).toFixed(2)}</td>
+                </tr>
+              ))}
+              {filtered.length === 0 && (
+                <tr><td colSpan={6} className="text-center py-20 text-slate-300 font-black uppercase tracking-widest opacity-50 italic">No matching transactions found</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

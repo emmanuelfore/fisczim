@@ -468,7 +468,13 @@ export default function CreateInvoicePage() {
     // Credit Note / Debit Note: A reason is required by ZIMRA.
     const isCnDn = existingInvoice?.transactionType === "CreditNote" || existingInvoice?.transactionType === "DebitNote";
     if (isCnDn && !notes?.trim()) {
-      console.log("No notes provided for CN/DN draft, using system default.");
+      toast({
+        title: "Reason Required",
+        description: `Please provide a reason for this ${existingInvoice?.transactionType === "CreditNote" ? "Credit Note" : "Debit Note"}.`,
+        variant: "destructive",
+      });
+      setLoadingAction(null);
+      return;
     }
 
     try {
@@ -559,7 +565,13 @@ export default function CreateInvoicePage() {
     // Credit Note / Debit Note: A reason is required by ZIMRA.
     const isCnDn = existingInvoice?.transactionType === "CreditNote" || existingInvoice?.transactionType === "DebitNote";
     if (isCnDn && !notes?.trim()) {
-      console.log("No notes provided for CN/DN quotation, using system default.");
+      toast({
+        title: "Reason Required",
+        description: `Please provide a reason for this ${existingInvoice?.transactionType === "CreditNote" ? "Credit Note" : "Debit Note"}.`,
+        variant: "destructive",
+      });
+      setLoadingAction(null);
+      return;
     }
 
     try {
@@ -711,9 +723,12 @@ export default function CreateInvoicePage() {
     // Credit Note / Debit Note: A reason is required by ZIMRA.
     if (isCnDn && !notes?.trim()) {
       toast({
-        title: "Default Reason Used",
-        description: `No reason was provided. A default reason ("Correction of data entry error") will be used for this ${existingInvoice?.transactionType === "CreditNote" ? "Credit Note" : "Debit Note"}.`,
+        title: "Reason Required",
+        description: `Please provide a reason for this ${existingInvoice?.transactionType === "CreditNote" ? "Credit Note" : "Debit Note"}.`,
+        variant: "destructive",
       });
+      setLoadingAction(null);
+      return;
     }
 
     try {
@@ -1418,15 +1433,23 @@ export default function CreateInvoicePage() {
                       </svg>
                     </div>
                     <div className="flex-1">
-                      <h3 className="text-lg font-semibold text-slate-800 uppercase tracking-wide">Notes</h3>
+                      <h3 className="text-lg font-semibold text-slate-800 uppercase tracking-wide">
+                        {(existingInvoice?.transactionType === "CreditNote" || existingInvoice?.transactionType === "DebitNote") ? "REASON" : "Notes"}
+                        {(existingInvoice?.transactionType === "CreditNote" || existingInvoice?.transactionType === "DebitNote") && <span className="text-red-500 ml-1">*</span>}
+                      </h3>
                       {(existingInvoice?.transactionType === "CreditNote" || existingInvoice?.transactionType === "DebitNote") && (
-                        <span className="text-xs font-bold text-red-500 uppercase tracking-tight">Required for CN/DN</span>
+                        <span className="text-[10px] font-black text-red-500 uppercase tracking-tighter">Legal Requirement</span>
                       )}
                     </div>
                   </div>
                   <Textarea
-                    placeholder="Invoice notes, terms and conditions, payment instructions, etc."
-                    className="bg-slate-50 border-slate-200 min-h-[120px] resize-none text-sm rounded-lg"
+                    placeholder={(existingInvoice?.transactionType === "CreditNote" || existingInvoice?.transactionType === "DebitNote") 
+                      ? "Explain why this credit/debit note is being issued (e.g., Return of damaged goods, Price adjustment)..."
+                      : "Invoice notes, terms and conditions, payment instructions, etc."}
+                    className={cn(
+                      "bg-slate-50 border-slate-200 min-h-[120px] resize-none text-sm rounded-lg transition-all",
+                      (existingInvoice?.transactionType === "CreditNote" || existingInvoice?.transactionType === "DebitNote") && !notes?.trim() && "border-red-200 focus:border-red-500"
+                    )}
                     value={notes}
                     onChange={e => setNotes(e.target.value)}
                   />

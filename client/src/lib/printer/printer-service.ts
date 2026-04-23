@@ -46,66 +46,71 @@ export class PrinterService {
   }
 
   /**
-   * Send raw data to the device using the optimal transport layer
+   * Send raw data to the device using the optimal transport layer.
+   * Priority: Electron IPC → Print Agent → WebUSB (browser-only fallback)
    */
   static async printRaw(data: Uint8Array, options: { 
     useElectron?: boolean, 
     printServerUrl?: string, 
     printerName?: string 
   } = {}): Promise<boolean> {
-    
-    // 1. ELECTRON BRIDGE (Native Node Access)
+
+    // 1. ELECTRON BRIDGE — preferred path when running inside the desktop app
     if (options.useElectron && (window as any).electronAPI?.printRaw) {
       try {
+        console.log(`[PrinterService] Electron IPC → printer: "${options.printerName || 'system default'}"`);
         const result = await (window as any).electronAPI.printRaw(data, options.printerName);
         if (result) return true;
-      } catch (e) {
-        console.error("Electron printRaw failed, trying fallbacks...", e);
+        console.warn('[PrinterService] Electron printRaw returned falsy');
+      } catch (e: any) {
+        console.error('[PrinterService] Electron printRaw threw:', e?.message ?? e);
+      }
+      // Do NOT fall through to WebUSB in Electron — it is meaningless there
+      return false;
+    }
+
+    // 2. PRINT AGENT (Localhost Proxy for Ethernet / non-Electron web)
+    if (options.printServerUrl) {
+      try {
+        // Pass printer name as a query param so the agent can route to the right printer
+        const url = options.printerName
+          ? `${options.printServerUrl}/print-raw?printer=${encodeURIComponent(options.printerName)}`
+          : `${options.printServerUrl}/print-raw`;
+        console.log(`[PrinterService] Print Agent → ${url}`);
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/octet-stream' },
+          body: new Blob([data as any])
+        });
+        if (response.ok) return true;
+        console.warn('[PrinterService] Print Agent responded with', response.status);
+      } catch (e: any) {
+        console.error('[PrinterService] Print Agent request failed:', e?.message ?? e);
       }
     }
 
-    // 2. WEBUSB (Direct Browser Access) - OPTIMIZED: Stay claimed
+    // 3. WEBUSB — browser-only, no Electron, no Print Agent
     try {
       let device = this.currentDevice;
-      if (!device) {
-        device = await this.getPairedDevice();
-      }
+      if (!device) device = await this.getPairedDevice();
 
       if (device) {
         if (!device.opened) {
-            await device.open();
-            try { await device.selectConfiguration(1); } catch (e) {}
-            await device.claimInterface(0);
+          await device.open();
+          try { await device.selectConfiguration(1); } catch (e) {}
+          await device.claimInterface(0);
         }
-
-        const endpoint = device.configuration?.interfaces[0].alternate.endpoints.find(
-          (e: any) => e.direction === 'out'
-        );
-
+        const endpoint = device.configuration?.interfaces[0].alternate.endpoints
+          .find((e: any) => e.direction === 'out');
         if (endpoint) {
-          // Send data WITHOUT releasing so the next call is instant
+          console.log(`[PrinterService] WebUSB → endpoint ${endpoint.endpointNumber}`);
           await device.transferOut(endpoint.endpointNumber, data);
           return true;
         }
       }
-    } catch (err) {
-      console.warn("WebUSB printing failed, trying Print Agent...", err);
-      // If WebUSB error occurred, reset current device to force fresh connect
+    } catch (err: any) {
+      console.warn('[PrinterService] WebUSB failed:', err?.message ?? err);
       this.currentDevice = null;
-    }
-
-    // 3. PRINT AGENT (Localhost Proxy for Ethernet/Legacy)
-    if (options.printServerUrl) {
-      try {
-        const response = await fetch(`${options.printServerUrl}/print-raw`, {
-          method: "POST",
-          headers: { "Content-Type": "application/octet-stream" },
-          body: new Blob([data as any])
-        });
-        if (response.ok) return true;
-      } catch (e) {
-        console.error("Print Agent reached but failed:", e);
-      }
     }
 
     return false;

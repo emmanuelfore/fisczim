@@ -233,27 +233,27 @@ function registerIpcHandlers(mainWindow) {
   // print-raw — receive raw ESC/POS bytes from renderer and send to printer
   ipcMain.handle('print-raw', async (_event, data, printerName) => {
     const bytes = Buffer.from(data);
-    
+
     if (bytes.length === 0) {
       return Promise.reject('Invalid raw data: Data is empty');
     }
-    
+
     log.info(`[Main] print-raw: Received ${bytes.length} bytes for printer: ${printerName || 'System Default'}`);
-    
+
     const ts = Date.now();
-    const binPath  = path.join(app.getPath('userData'), `receipt_${ts}.bin`);
-    const ps1Path  = path.join(app.getPath('userData'), `print_${ts}.ps1`);
+    const binPath = path.join(app.getPath('userData'), `receipt_${ts}.bin`);
+    const ps1Path = path.join(app.getPath('userData'), `print_${ts}.ps1`);
 
     try {
-        fs.writeFileSync(binPath, bytes);
+      fs.writeFileSync(binPath, bytes);
 
-        // Determine the printer name — fall back to the system default via WMI
-        const resolvedPrinter = printerName
-            ? printerName
-            : '$(Get-WmiObject -Query \\"SELECT * FROM Win32_Printer WHERE Default = TRUE\\").Name';
+      // Determine the printer name — fall back to the system default via WMI
+      const resolvedPrinter = printerName
+        ? printerName
+        : '$(Get-WmiObject -Query \\"SELECT * FROM Win32_Printer WHERE Default = TRUE\\").Name';
 
-        // Write a proper multi-line .ps1 file — avoids all -Command quoting/newline issues
-        const psScript = `
+      // Write a proper multi-line .ps1 file — avoids all -Command quoting/newline issues
+      const psScript = `
 $code = @'
 using System;
 using System.Runtime.InteropServices;
@@ -305,39 +305,39 @@ $result = [RawPrint]::Send($printerName, [System.IO.File]::ReadAllBytes($binFile
 Write-Output $result
 `.trimStart();
 
-        fs.writeFileSync(ps1Path, psScript, 'utf8');
-        log.info(`[print-raw] Script written to: ${ps1Path}`);
+      fs.writeFileSync(ps1Path, psScript, 'utf8');
+      log.info(`[print-raw] Script written to: ${ps1Path}`);
 
-        return new Promise((resolve, reject) => {
-            require('child_process').exec(
-                `powershell -ExecutionPolicy Bypass -NonInteractive -File "${ps1Path}"`,
-                (err, stdout, stderr) => {
-                    // Cleanup temp files
-                    for (const f of [binPath, ps1Path]) {
-                        if (fs.existsSync(f)) try { fs.unlinkSync(f); } catch(e) {}
-                    }
-                    const output = (stdout || '').trim();
-                    if (output) log.info(`[print-raw] Result: ${output}`);
-                    if (stderr && stderr.trim()) log.warn(`[print-raw] stderr: ${stderr.trim()}`);
-                    if (err) {
-                        log.error('[print-raw] Error:', err.message);
-                        return reject(err.message);
-                    }
-                    if (output.startsWith('FAIL:')) {
-                        log.error('[print-raw] Printer failure:', output);
-                        return reject(output);
-                    }
-                    log.info('[print-raw] Success:', output);
-                    resolve(true);
-                }
-            );
-        });
+      return new Promise((resolve, reject) => {
+        require('child_process').exec(
+          `powershell -ExecutionPolicy Bypass -NonInteractive -File "${ps1Path}"`,
+          (err, stdout, stderr) => {
+            // Cleanup temp files
+            for (const f of [binPath, ps1Path]) {
+              if (fs.existsSync(f)) try { fs.unlinkSync(f); } catch (e) { }
+            }
+            const output = (stdout || '').trim();
+            if (output) log.info(`[print-raw] Result: ${output}`);
+            if (stderr && stderr.trim()) log.warn(`[print-raw] stderr: ${stderr.trim()}`);
+            if (err) {
+              log.error('[print-raw] Error:', err.message);
+              return reject(err.message);
+            }
+            if (output.startsWith('FAIL:')) {
+              log.error('[print-raw] Printer failure:', output);
+              return reject(output);
+            }
+            log.info('[print-raw] Success:', output);
+            resolve(true);
+          }
+        );
+      });
     } catch (err) {
-        for (const f of [binPath, ps1Path]) {
-            if (fs.existsSync(f)) try { fs.unlinkSync(f); } catch(e) {}
-        }
-        log.error('[print-raw] Exception:', err.message);
-        return Promise.reject(err.message);
+      for (const f of [binPath, ps1Path]) {
+        if (fs.existsSync(f)) try { fs.unlinkSync(f); } catch (e) { }
+      }
+      log.error('[print-raw] Exception:', err.message);
+      return Promise.reject(err.message);
     }
   });
 
@@ -539,7 +539,7 @@ function setupAutoUpdater(mainWindow) {
     log.info(`[Updater] Update available: ${info.version}`);
     // Notify renderer (pos-login uses this)
     if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('update-available', info);
+      mainWindow.webContents.send('update-available', info);
     }
   });
   autoUpdater.on('update-not-available', (info) => {

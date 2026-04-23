@@ -371,7 +371,7 @@ export default function POSPage() {
         localStorage.setItem(`${prefix}discount`, orderDiscount.toString());
         localStorage.setItem(`${prefix}currency`, selectedCurrencyCode);
         localStorage.setItem(`${prefix}paymentMethod`, paymentMethod);
-        
+
         // Persist detailed printer settings
         localStorage.setItem("pos_auto_print", posSettings.autoPrint.toString());
         localStorage.setItem("pos_terminal_id", posSettings.terminalId);
@@ -1301,8 +1301,8 @@ export default function POSPage() {
     useEffect(() => {
         if (lastSuccessfulInvoice && posSettings.printingEnabled && posSettings.autoPrint) {
             // Check if we have fiscal data. If not, queue for background printing.
-            const hasFiscalData = lastSuccessfulInvoice.qrCodeData || !isFiscalized; 
-            
+            const hasFiscalData = lastSuccessfulInvoice.qrCodeData || !isFiscalized;
+
             if (!hasFiscalData) {
                 console.log(`[POS] Background Printing: Invoice ${lastSuccessfulInvoice.id} added to queue (waiting for ZIMRA)`);
                 setPendingPrintQueue(prev => [...prev, lastSuccessfulInvoice.id]);
@@ -1311,25 +1311,12 @@ export default function POSPage() {
                 return;
             }
 
-            if (posSettings.silentPrinting) {
-                // For native/silent, trigger print and ALMOST immediately return to products
-                handleSilentPrint().catch(console.error);
-                
-                // Return to products view immediately so cashier can start next sale
-                setLastSuccessfulInvoice(null);
-                setActiveView("products");
-            } else {
-                // Small delay only for browser-controlled window.print() 
-                // to ensure the Dialog is actually mounted in the portal
-                const timer = setTimeout(() => {
-                    window.print();
-                    setLastSuccessfulInvoice(null);
-                    setActiveView("products");
-                }, 500); // Reduced from 1000ms
-                return () => clearTimeout(timer);
-            }
+            // Always use native ESC/POS — no window.print() fallback
+            handleSilentPrint().catch(console.error);
+            setLastSuccessfulInvoice(null);
+            setActiveView("products");
         }
-    }, [lastSuccessfulInvoice, posSettings.printingEnabled, posSettings.autoPrint, posSettings.silentPrinting, isFiscalized]);
+    }, [lastSuccessfulInvoice, posSettings.printingEnabled, posSettings.autoPrint, isFiscalized]);
 
     // 🚀 Background Print Queue Worker
     useEffect(() => {
@@ -1339,24 +1326,39 @@ export default function POSPage() {
             const currentQueue = [...pendingPrintQueue];
             for (const invoiceId of currentQueue) {
                 try {
-                    const res = await apiFetch(`/api/companies/${companyId}/invoices/${invoiceId}`);
-                    if (!res.ok) continue;
+                    const res = await apiFetch(`/api/invoices/${invoiceId}`);
+                    if (!res.ok) {
+                        if (res.status === 404 || res.status === 401 || res.status === 403) {
+                            console.warn(`[POS] Background Printing: removing invoice ${invoiceId} from queue (status ${res.status})`);
+                            setPendingPrintQueue(prev => prev.filter(id => id !== invoiceId));
+                        }
+                        continue;
+                    }
+
+                    const contentType = res.headers.get("content-type") || "";
+                    if (!contentType.includes("application/json")) {
+                        const payload = await res.text();
+                        throw new Error(
+                            `[POS] Background print expected JSON for invoice ${invoiceId}, got "${contentType}" (${payload.slice(0, 120)})`
+                        );
+                    }
+
                     const invoice = await res.json();
 
                     if (invoice.qrCodeData || invoice.fdmsStatus === 'failed') {
                         console.log(`[POS] Background Printing: Invoice ${invoiceId} ready! Printing now...`);
-                        
+
                         // Trigger print
                         handleSilentPrint(invoice).catch(console.error);
-                        
+
                         // Remove from queue
                         setPendingPrintQueue(prev => prev.filter(id => id !== invoiceId));
-                        
+
                         if (invoice.fdmsStatus === 'failed') {
-                             toast({ 
-                                title: "Fiscalization Warning", 
+                            toast({
+                                title: "Fiscalization Warning",
                                 description: `Receipt ${invoice.invoiceNumber} printed but fiscalization failed. It will be retried later.`,
-                                variant: "destructive" 
+                                variant: "destructive"
                             });
                         }
                     }
@@ -1456,14 +1458,16 @@ export default function POSPage() {
             }
             try {
                 console.log(`%c${logPrefix} → Encoding receipt bytes...`, "color: #94a3b8");
+                // Normalize items — API may return them as different keys depending on endpoint
+                const invItems = inv.items || inv.lineItems || inv.invoiceItems || [];
                 const encoded = ReceiptTemplate.formatFiscalReceipt({
                     company: resolvedCompany || { name: "TEST COMPANY", tin: "123456789", vatNumber: "VAT001" },
                     branch: company?.branches?.find((b: any) => b.id === (inv.branchId || selectedBranchId)),
                     invoice: inv,
                     customer: resolvedCustomers?.find((c: any) => c.id === inv.customerId),
-                    items: inv.items,
+                    items: invItems,
                     user: user
-                }, { 
+                }, {
                     width: posSettings.printerWidth,
                     autoCut: posSettings.autoCut,
                     feedLines: posSettings.feedLines,
@@ -1710,10 +1714,10 @@ export default function POSPage() {
             }
 
             if (!cnReason.trim()) {
-                toast({ 
-                    title: "Reason Required", 
-                    description: `Please provide a reason for this ${cnType === 'credit' ? 'Credit' : 'Debit'} Note.`, 
-                    variant: "destructive" 
+                toast({
+                    title: "Reason Required",
+                    description: `Please provide a reason for this ${cnType === 'credit' ? 'Credit' : 'Debit'} Note.`,
+                    variant: "destructive"
                 });
                 setCnProcessing(false);
                 return;
@@ -2115,10 +2119,10 @@ export default function POSPage() {
                                             )}>
                                                 {isOnline ? <><Wifi className="h-2.5 w-2.5" /> Online</> : <><WifiOff className="h-2.5 w-2.5" /> Offline</>}
                                             </div>
-                                            
+
                                             {/* Printer Status Widget */}
                                             <DeviceStatusWidget />
-                                            
+
                                             {/* 🚀 Background Print Queue Status */}
                                             {pendingPrintQueue.length > 0 && (
                                                 <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[7px] md:text-[8px] font-black uppercase tracking-wider bg-blue-50 text-blue-600 border border-blue-100/50 animate-pulse shadow-[0_0_10px_rgba(59,130,246,0.1)]">
@@ -3268,8 +3272,8 @@ export default function POSPage() {
                                         </div>
                                     </div>
 
-                                    <Button 
-                                        variant="outline" 
+                                    <Button
+                                        variant="outline"
                                         className="w-full h-12 rounded-2xl border-indigo-100 text-indigo-600 font-black text-xs uppercase tracking-widest hover:bg-indigo-50 flex items-center justify-center gap-2"
                                         onClick={async () => {
                                             console.clear();
@@ -3304,16 +3308,16 @@ export default function POSPage() {
                                         <div className="grid grid-cols-2 gap-3">
                                             <div className="flex items-center justify-between p-2 bg-white rounded-xl border border-indigo-50">
                                                 <Label className="text-[9px] font-black text-slate-500 uppercase">Auto-Cut</Label>
-                                                <Switch 
-                                                    checked={posSettings.autoCut} 
+                                                <Switch
+                                                    checked={posSettings.autoCut}
                                                     onCheckedChange={(v) => setPosSettings(prev => ({ ...prev, autoCut: v }))}
                                                     className="scale-75 data-[state=checked]:bg-indigo-600"
                                                 />
                                             </div>
                                             <div className="flex items-center justify-between p-2 bg-white rounded-xl border border-indigo-50">
                                                 <Label className="text-[9px] font-black text-slate-500 uppercase">Cash Drawer</Label>
-                                                <Switch 
-                                                    checked={posSettings.openDrawerOnPrint} 
+                                                <Switch
+                                                    checked={posSettings.openDrawerOnPrint}
                                                     onCheckedChange={(v) => setPosSettings(prev => ({ ...prev, openDrawerOnPrint: v }))}
                                                     className="scale-75 data-[state=checked]:bg-indigo-600"
                                                 />
@@ -3323,16 +3327,16 @@ export default function POSPage() {
                                         <div className="grid grid-cols-2 gap-3">
                                             <div className="flex items-center justify-between p-2 bg-white rounded-xl border border-indigo-50">
                                                 <Label className="text-[9px] font-black text-slate-500 uppercase">Large Header</Label>
-                                                <Switch 
-                                                    checked={posSettings.doubleHeightHeader} 
+                                                <Switch
+                                                    checked={posSettings.doubleHeightHeader}
                                                     onCheckedChange={(v) => setPosSettings(prev => ({ ...prev, doubleHeightHeader: v }))}
                                                     className="scale-75 data-[state=checked]:bg-indigo-600"
                                                 />
                                             </div>
                                             <div className="flex items-center justify-between p-2 bg-white rounded-xl border border-indigo-50">
                                                 <Label className="text-[9px] font-black text-slate-500 uppercase">Feed Lines</Label>
-                                                <Input 
-                                                    type="number" 
+                                                <Input
+                                                    type="number"
                                                     value={posSettings.feedLines}
                                                     onChange={(e) => setPosSettings(prev => ({ ...prev, feedLines: parseInt(e.target.value) || 0 }))}
                                                     className="w-12 h-6 p-0 text-center text-[10px] font-black bg-slate-50 border-none outline-none"
@@ -3445,497 +3449,497 @@ export default function POSPage() {
                         </DialogContent>
                     </Dialog>
 
-                {/* Hidden Receipt for Silent Printing */}
-                <div className="fixed -left-[9999px] top-0 pointer-events-none overflow-hidden" style={{ width: (posSettings.paperSize || (resolvedCompany?.posSettings as any)?.receiptPaperSize) === 'A4' ? '210mm' : (posSettings.paperSize || (resolvedCompany?.posSettings as any)?.receiptPaperSize || '80mm') }}>
-                    {lastSuccessfulInvoice && (
-                        <Receipt48
-                            id="silent-receipt-48"
-                            invoice={lastSuccessfulInvoice}
-                            company={resolvedCompany}
-                            customer={resolvedCustomers?.find((c: any) => c.id === lastSuccessfulInvoice?.customerId)}
-                            items={lastSuccessfulInvoice?.items}
-                            user={user}
-                            paperSize={posSettings.paperSize || (resolvedCompany?.posSettings as any)?.receiptPaperSize || '80mm'}
-                        />
-                    )}
-                </div>
+                    {/* Hidden Receipt for Silent Printing */}
+                    <div className="fixed -left-[9999px] top-0 pointer-events-none overflow-hidden" style={{ width: (posSettings.paperSize || (resolvedCompany?.posSettings as any)?.receiptPaperSize) === 'A4' ? '210mm' : (posSettings.paperSize || (resolvedCompany?.posSettings as any)?.receiptPaperSize || '80mm') }}>
+                        {lastSuccessfulInvoice && (
+                            <Receipt48
+                                id="silent-receipt-48"
+                                invoice={lastSuccessfulInvoice}
+                                company={resolvedCompany}
+                                customer={resolvedCustomers?.find((c: any) => c.id === lastSuccessfulInvoice?.customerId)}
+                                items={lastSuccessfulInvoice?.items}
+                                user={user}
+                                paperSize={posSettings.paperSize || (resolvedCompany?.posSettings as any)?.receiptPaperSize || '80mm'}
+                            />
+                        )}
+                    </div>
 
-                {/* Hidden Reprint Receipt */}
-                <div className="fixed -left-[9999px] top-0 pointer-events-none overflow-hidden" style={{ width: (posSettings.paperSize || (resolvedCompany?.posSettings as any)?.receiptPaperSize) === 'A4' ? '210mm' : (posSettings.paperSize || (resolvedCompany?.posSettings as any)?.receiptPaperSize || '80mm') }}>
-                    {reprintInvoice && (
-                        <Receipt48
-                            id="reprint-receipt-48"
-                            invoice={reprintInvoice}
-                            company={resolvedCompany}
-                            customer={resolvedCustomers?.find((c: any) => c.id === reprintInvoice?.customerId)}
-                            items={reprintInvoice?.items}
-                            originalInvoice={reprintInvoice?.originalInvoice}
-                            user={user}
-                            paperSize={posSettings.paperSize || (resolvedCompany?.posSettings as any)?.receiptPaperSize || '80mm'}
-                        />
-                    )}
-                </div>
+                    {/* Hidden Reprint Receipt */}
+                    <div className="fixed -left-[9999px] top-0 pointer-events-none overflow-hidden" style={{ width: (posSettings.paperSize || (resolvedCompany?.posSettings as any)?.receiptPaperSize) === 'A4' ? '210mm' : (posSettings.paperSize || (resolvedCompany?.posSettings as any)?.receiptPaperSize || '80mm') }}>
+                        {reprintInvoice && (
+                            <Receipt48
+                                id="reprint-receipt-48"
+                                invoice={reprintInvoice}
+                                company={resolvedCompany}
+                                customer={resolvedCustomers?.find((c: any) => c.id === reprintInvoice?.customerId)}
+                                items={reprintInvoice?.items}
+                                originalInvoice={reprintInvoice?.originalInvoice}
+                                user={user}
+                                paperSize={posSettings.paperSize || (resolvedCompany?.posSettings as any)?.receiptPaperSize || '80mm'}
+                            />
+                        )}
+                    </div>
 
-                {/* Reprint — single receipt confirm */}
-                <Dialog open={!!reprintInvoice} onOpenChange={() => setReprintInvoice(null)}>
-                    <DialogContent className="sm:max-w-[400px] rounded-3xl p-0 overflow-hidden border-none">
-                        <DialogHeader className="sr-only">
-                            <DialogTitle>Reprint Receipt</DialogTitle>
-                            <DialogDescription>Review and reprint a specific transaction receipt.</DialogDescription>
-                        </DialogHeader>
-                        <div className="bg-slate-900 p-6 text-white relative">
-                            <button onClick={() => setReprintInvoice(null)} className="absolute top-4 right-4 h-8 w-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all">
-                                <XCircle className="h-4 w-4 text-white" />
-                            </button>
-                            <Printer className="h-8 w-8 mb-2 text-white/70" />
-                            <h3 className="text-lg font-black">Reprint Receipt</h3>
-                            <p className="text-slate-400 text-xs mt-0.5 font-bold">{reprintInvoice?.invoiceNumber}</p>
-                        </div>
-                        <div className="p-6 bg-white space-y-3">
-                            <div className="text-sm text-slate-600 space-y-1.5">
-                                <div className="flex justify-between"><span className="font-bold text-slate-400">Customer</span><span className="font-black">{resolvedCustomers?.find((c: any) => c.id === reprintInvoice?.customerId)?.name || "Walk-in"}</span></div>
-                                <div className="flex justify-between"><span className="font-bold text-slate-400">Total</span><span className="font-black text-emerald-600">{fmt(Number(reprintInvoice?.total || 0))}</span></div>
-                                <div className="flex justify-between"><span className="font-bold text-slate-400">Payment</span><span className="font-black">{reprintInvoice?.paymentMethod}</span></div>
-                                <div className="flex justify-between"><span className="font-bold text-slate-400">Type</span><span className="font-black">{reprintInvoice?.transactionType || "Invoice"}</span></div>
-                            </div>
-                            <Button className="w-full h-12 rounded-xl bg-slate-900 hover:bg-black text-white font-black uppercase tracking-widest"
-                                onClick={() => {
-                                    handleSilentPrint(reprintInvoice);
-                                }}>
-                                <Printer className="h-4 w-4 mr-2" /> Print
-                            </Button>
-                            <Button variant="ghost" className="w-full h-10 rounded-xl font-black text-xs text-slate-400" onClick={() => setReprintInvoice(null)}>Back to List</Button>
-                        </div>
-                    </DialogContent>
-                </Dialog>
-
-                {/* Today's Receipts List */}
-                <Dialog open={isReprintOpen} onOpenChange={v => { setIsReprintOpen(v); if (!v) setReprintList([]); }}>
-                    <DialogContent className="sm:max-w-[480px] rounded-3xl p-0 overflow-hidden border-none max-h-[85vh] flex flex-col">
-                        <DialogHeader className="sr-only">
-                            <DialogTitle>Today's Receipts</DialogTitle>
-                            <DialogDescription>Browse and select receipts from today's transactions for reprinting.</DialogDescription>
-                        </DialogHeader>
-                        <div className="bg-slate-900 p-6 text-white relative shrink-0">
-                            <button onClick={() => setIsReprintOpen(false)} className="absolute top-4 right-4 h-8 w-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all">
-                                <XCircle className="h-4 w-4 text-white" />
-                            </button>
-                            <Printer className="h-8 w-8 mb-2 text-white/70" />
-                            <h3 className="text-lg font-black">Today's Receipts</h3>
-                            <p className="text-slate-400 text-xs mt-0.5 font-bold">Select a receipt to reprint</p>
-                        </div>
-                        <div className="flex-1 overflow-y-auto p-4 bg-white space-y-2">
-                            {reprintListLoading && (
-                                <div className="flex items-center justify-center py-12">
-                                    <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
-                                </div>
-                            )}
-                            {!reprintListLoading && reprintList.length === 0 && (
-                                <div className="text-center py-12">
-                                    <Receipt className="h-10 w-10 text-slate-200 mx-auto mb-3" />
-                                    <p className="text-slate-400 font-bold text-sm">No receipts today</p>
-                                </div>
-                            )}
-                            {reprintList.map((inv: any) => (
-                                <button key={inv.id}
-                                    className="w-full flex items-center justify-between p-3 rounded-xl border border-slate-100 hover:border-slate-300 hover:bg-slate-50 transition-all text-left"
-                                    onClick={() => { setReprintInvoice(inv); setIsReprintOpen(false); }}>
-                                    <div>
-                                        <p className="text-sm font-black text-slate-800">{inv.invoiceNumber}</p>
-                                        <p className="text-xs text-slate-400 font-bold">
-                                            {resolvedCustomers?.find((c: any) => c.id === inv.customerId)?.name || "Walk-in"} · {inv.paymentMethod}
-                                        </p>
-                                        <p className="text-[10px] text-slate-300 font-bold">{new Date(inv.createdAt).toLocaleTimeString()}</p>
-                                    </div>
-                                    <div className="text-right">
-                                        <p className="text-sm font-black text-emerald-600">{fmt(Number(inv.total))}</p>
-                                        <p className="text-[10px] text-slate-400 font-bold">{inv.transactionType || "Invoice"}</p>
-                                    </div>
+                    {/* Reprint — single receipt confirm */}
+                    <Dialog open={!!reprintInvoice} onOpenChange={() => setReprintInvoice(null)}>
+                        <DialogContent className="sm:max-w-[400px] rounded-3xl p-0 overflow-hidden border-none">
+                            <DialogHeader className="sr-only">
+                                <DialogTitle>Reprint Receipt</DialogTitle>
+                                <DialogDescription>Review and reprint a specific transaction receipt.</DialogDescription>
+                            </DialogHeader>
+                            <div className="bg-slate-900 p-6 text-white relative">
+                                <button onClick={() => setReprintInvoice(null)} className="absolute top-4 right-4 h-8 w-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all">
+                                    <XCircle className="h-4 w-4 text-white" />
                                 </button>
-                            ))}
-                        </div>
-                        <div className="p-4 border-t border-slate-100 bg-slate-50 shrink-0">
-                            <Button variant="ghost" className="w-full h-10 rounded-xl font-black text-xs text-slate-400" onClick={() => setIsReprintOpen(false)}>Close</Button>
-                        </div>
-                    </DialogContent>
-                </Dialog>
+                                <Printer className="h-8 w-8 mb-2 text-white/70" />
+                                <h3 className="text-lg font-black">Reprint Receipt</h3>
+                                <p className="text-slate-400 text-xs mt-0.5 font-bold">{reprintInvoice?.invoiceNumber}</p>
+                            </div>
+                            <div className="p-6 bg-white space-y-3">
+                                <div className="text-sm text-slate-600 space-y-1.5">
+                                    <div className="flex justify-between"><span className="font-bold text-slate-400">Customer</span><span className="font-black">{resolvedCustomers?.find((c: any) => c.id === reprintInvoice?.customerId)?.name || "Walk-in"}</span></div>
+                                    <div className="flex justify-between"><span className="font-bold text-slate-400">Total</span><span className="font-black text-emerald-600">{fmt(Number(reprintInvoice?.total || 0))}</span></div>
+                                    <div className="flex justify-between"><span className="font-bold text-slate-400">Payment</span><span className="font-black">{reprintInvoice?.paymentMethod}</span></div>
+                                    <div className="flex justify-between"><span className="font-bold text-slate-400">Type</span><span className="font-black">{reprintInvoice?.transactionType || "Invoice"}</span></div>
+                                </div>
+                                <Button className="w-full h-12 rounded-xl bg-slate-900 hover:bg-black text-white font-black uppercase tracking-widest"
+                                    onClick={() => {
+                                        handleSilentPrint(reprintInvoice);
+                                    }}>
+                                    <Printer className="h-4 w-4 mr-2" /> Print
+                                </Button>
+                                <Button variant="ghost" className="w-full h-10 rounded-xl font-black text-xs text-slate-400" onClick={() => setReprintInvoice(null)}>Back to List</Button>
+                            </div>
+                        </DialogContent>
+                    </Dialog>
 
-                {/* Credit / Debit Note Modal */}
-                <Dialog open={isCreditNoteOpen} onOpenChange={(v) => { setIsCreditNoteOpen(v); if (!v) setCnActiveInvoice(null); }}>
-                    <DialogContent className="sm:max-w-[520px] rounded-3xl p-0 overflow-hidden border-none max-h-[85vh] flex flex-col">
-                        <DialogHeader className="sr-only">
-                            <DialogTitle>Issue Credit or Debit Note</DialogTitle>
-                            <DialogDescription>Search for an existing invoice to issue a credit or debit adjustment.</DialogDescription>
-                        </DialogHeader>
-                        <div className="bg-amber-500 p-6 text-white relative shrink-0">
-                            <button onClick={() => { setIsCreditNoteOpen(false); setCnSearchResults([]); setCnSearchQuery(""); setCnActiveInvoice(null); setCnReason(""); }} className="absolute top-4 right-4 h-8 w-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition-all">
-                                <XCircle className="h-4 w-4 text-white" />
-                            </button>
-                            <FileText className="h-8 w-8 mb-2 text-white/80" />
-                            <h3 className="text-xl font-black">Issue Credit / Debit Note</h3>
-                            <p className="text-amber-100 text-xs mt-1">Search for the original invoice to reverse or adjust</p>
-                        </div>
-                        <div className="flex-1 overflow-y-auto p-6 bg-white space-y-4">
-                            {/* Note type toggle */}
-                            <div className="flex bg-slate-100 p-1 rounded-xl">
-                                {(["credit", "debit"] as const).map(t => (
-                                    <button key={t} onClick={() => setCnType(t)}
-                                        className={cn("flex-1 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all",
-                                            cnType === t ? "bg-white text-amber-600 shadow-sm" : "text-slate-400")}>
-                                        {t === "credit" ? "Credit Note (Return)" : "Debit Note (Adjustment)"}
+                    {/* Today's Receipts List */}
+                    <Dialog open={isReprintOpen} onOpenChange={v => { setIsReprintOpen(v); if (!v) setReprintList([]); }}>
+                        <DialogContent className="sm:max-w-[480px] rounded-3xl p-0 overflow-hidden border-none max-h-[85vh] flex flex-col">
+                            <DialogHeader className="sr-only">
+                                <DialogTitle>Today's Receipts</DialogTitle>
+                                <DialogDescription>Browse and select receipts from today's transactions for reprinting.</DialogDescription>
+                            </DialogHeader>
+                            <div className="bg-slate-900 p-6 text-white relative shrink-0">
+                                <button onClick={() => setIsReprintOpen(false)} className="absolute top-4 right-4 h-8 w-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all">
+                                    <XCircle className="h-4 w-4 text-white" />
+                                </button>
+                                <Printer className="h-8 w-8 mb-2 text-white/70" />
+                                <h3 className="text-lg font-black">Today's Receipts</h3>
+                                <p className="text-slate-400 text-xs mt-0.5 font-bold">Select a receipt to reprint</p>
+                            </div>
+                            <div className="flex-1 overflow-y-auto p-4 bg-white space-y-2">
+                                {reprintListLoading && (
+                                    <div className="flex items-center justify-center py-12">
+                                        <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+                                    </div>
+                                )}
+                                {!reprintListLoading && reprintList.length === 0 && (
+                                    <div className="text-center py-12">
+                                        <Receipt className="h-10 w-10 text-slate-200 mx-auto mb-3" />
+                                        <p className="text-slate-400 font-bold text-sm">No receipts today</p>
+                                    </div>
+                                )}
+                                {reprintList.map((inv: any) => (
+                                    <button key={inv.id}
+                                        className="w-full flex items-center justify-between p-3 rounded-xl border border-slate-100 hover:border-slate-300 hover:bg-slate-50 transition-all text-left"
+                                        onClick={() => { setReprintInvoice(inv); setIsReprintOpen(false); }}>
+                                        <div>
+                                            <p className="text-sm font-black text-slate-800">{inv.invoiceNumber}</p>
+                                            <p className="text-xs text-slate-400 font-bold">
+                                                {resolvedCustomers?.find((c: any) => c.id === inv.customerId)?.name || "Walk-in"} · {inv.paymentMethod}
+                                            </p>
+                                            <p className="text-[10px] text-slate-300 font-bold">{new Date(inv.createdAt).toLocaleTimeString()}</p>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className="text-sm font-black text-emerald-600">{fmt(Number(inv.total))}</p>
+                                            <p className="text-[10px] text-slate-400 font-bold">{inv.transactionType || "Invoice"}</p>
+                                        </div>
                                     </button>
                                 ))}
                             </div>
-                            {/* Search */}
-                            <div className="flex gap-2">
-                                <Input
-                                    placeholder="Invoice number or customer name..."
-                                    value={cnSearchQuery}
-                                    onChange={e => setCnSearchQuery(e.target.value)}
-                                    onKeyDown={e => e.key === 'Enter' && handleCnSearch()}
-                                    className="flex-1 h-10 rounded-xl border-slate-200 text-sm font-bold"
-                                />
-                                <Button onClick={handleCnSearch} disabled={cnSearching} className="h-10 px-4 rounded-xl font-black text-xs">
-                                    {cnSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : "Search"}
-                                </Button>
+                            <div className="p-4 border-t border-slate-100 bg-slate-50 shrink-0">
+                                <Button variant="ghost" className="w-full h-10 rounded-xl font-black text-xs text-slate-400" onClick={() => setIsReprintOpen(false)}>Close</Button>
                             </div>
-                            {/* Results / Selected Invoice */}
-                            {!cnActiveInvoice ? (
-                                <>
-                                    {cnSearchResults.length > 0 && (
-                                        <div className="space-y-2 max-h-[280px] overflow-y-auto">
-                                            {cnSearchResults.map((inv: any) => (
-                                                <div key={inv.id} className="flex items-center justify-between p-3 rounded-xl border border-slate-100 hover:border-amber-200 hover:bg-amber-50 transition-all cursor-pointer"
-                                                    onClick={() => handleSelectInvoiceForReturn(inv)}>
-                                                    <div>
-                                                        <p className="text-sm font-black text-slate-800">{inv.invoiceNumber}</p>
-                                                        <p className="text-xs text-slate-400 font-bold">{inv.customerName || resolvedCustomers?.find((c: any) => c.id === inv.customerId)?.name || "Customer"} · {fmt(Number(inv.total))}</p>
-                                                        <p className="text-[10px] text-slate-300 font-bold">{inv.paymentMethod} · {new Date(inv.issueDate || inv.createdAt).toLocaleDateString()}</p>
+                        </DialogContent>
+                    </Dialog>
+
+                    {/* Credit / Debit Note Modal */}
+                    <Dialog open={isCreditNoteOpen} onOpenChange={(v) => { setIsCreditNoteOpen(v); if (!v) setCnActiveInvoice(null); }}>
+                        <DialogContent className="sm:max-w-[520px] rounded-3xl p-0 overflow-hidden border-none max-h-[85vh] flex flex-col">
+                            <DialogHeader className="sr-only">
+                                <DialogTitle>Issue Credit or Debit Note</DialogTitle>
+                                <DialogDescription>Search for an existing invoice to issue a credit or debit adjustment.</DialogDescription>
+                            </DialogHeader>
+                            <div className="bg-amber-500 p-6 text-white relative shrink-0">
+                                <button onClick={() => { setIsCreditNoteOpen(false); setCnSearchResults([]); setCnSearchQuery(""); setCnActiveInvoice(null); setCnReason(""); }} className="absolute top-4 right-4 h-8 w-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition-all">
+                                    <XCircle className="h-4 w-4 text-white" />
+                                </button>
+                                <FileText className="h-8 w-8 mb-2 text-white/80" />
+                                <h3 className="text-xl font-black">Issue Credit / Debit Note</h3>
+                                <p className="text-amber-100 text-xs mt-1">Search for the original invoice to reverse or adjust</p>
+                            </div>
+                            <div className="flex-1 overflow-y-auto p-6 bg-white space-y-4">
+                                {/* Note type toggle */}
+                                <div className="flex bg-slate-100 p-1 rounded-xl">
+                                    {(["credit", "debit"] as const).map(t => (
+                                        <button key={t} onClick={() => setCnType(t)}
+                                            className={cn("flex-1 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all",
+                                                cnType === t ? "bg-white text-amber-600 shadow-sm" : "text-slate-400")}>
+                                            {t === "credit" ? "Credit Note (Return)" : "Debit Note (Adjustment)"}
+                                        </button>
+                                    ))}
+                                </div>
+                                {/* Search */}
+                                <div className="flex gap-2">
+                                    <Input
+                                        placeholder="Invoice number or customer name..."
+                                        value={cnSearchQuery}
+                                        onChange={e => setCnSearchQuery(e.target.value)}
+                                        onKeyDown={e => e.key === 'Enter' && handleCnSearch()}
+                                        className="flex-1 h-10 rounded-xl border-slate-200 text-sm font-bold"
+                                    />
+                                    <Button onClick={handleCnSearch} disabled={cnSearching} className="h-10 px-4 rounded-xl font-black text-xs">
+                                        {cnSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : "Search"}
+                                    </Button>
+                                </div>
+                                {/* Results / Selected Invoice */}
+                                {!cnActiveInvoice ? (
+                                    <>
+                                        {cnSearchResults.length > 0 && (
+                                            <div className="space-y-2 max-h-[280px] overflow-y-auto">
+                                                {cnSearchResults.map((inv: any) => (
+                                                    <div key={inv.id} className="flex items-center justify-between p-3 rounded-xl border border-slate-100 hover:border-amber-200 hover:bg-amber-50 transition-all cursor-pointer"
+                                                        onClick={() => handleSelectInvoiceForReturn(inv)}>
+                                                        <div>
+                                                            <p className="text-sm font-black text-slate-800">{inv.invoiceNumber}</p>
+                                                            <p className="text-xs text-slate-400 font-bold">{inv.customerName || resolvedCustomers?.find((c: any) => c.id === inv.customerId)?.name || "Customer"} · {fmt(Number(inv.total))}</p>
+                                                            <p className="text-[10px] text-slate-300 font-bold">{inv.paymentMethod} · {new Date(inv.issueDate || inv.createdAt).toLocaleDateString()}</p>
+                                                        </div>
+                                                        <Button size="sm" disabled={cnProcessing}
+                                                            className="h-8 px-3 rounded-lg font-black text-xs bg-amber-50 hover:bg-amber-100 text-amber-600"
+                                                            onClick={(e) => { e.stopPropagation(); handleSelectInvoiceForReturn(inv); }}>
+                                                            {cnProcessing ? <Loader2 className="h-3 w-3 animate-spin" /> : "Select"}
+                                                        </Button>
                                                     </div>
-                                                    <Button size="sm" disabled={cnProcessing}
-                                                        className="h-8 px-3 rounded-lg font-black text-xs bg-amber-50 hover:bg-amber-100 text-amber-600"
-                                                        onClick={(e) => { e.stopPropagation(); handleSelectInvoiceForReturn(inv); }}>
-                                                        {cnProcessing ? <Loader2 className="h-3 w-3 animate-spin" /> : "Select"}
-                                                    </Button>
+                                                ))}
+                                            </div>
+                                        )}
+                                        {cnSearchResults.length === 0 && cnSearchQuery && !cnSearching && (
+                                            <p className="text-center text-slate-400 text-sm font-bold py-4">No invoices found</p>
+                                        )}
+                                    </>
+                                ) : (
+                                    <div className="space-y-3">
+                                        <div className="p-3 bg-amber-50 rounded-xl border border-amber-100 flex justify-between items-center">
+                                            <div>
+                                                <p className="text-xs font-black text-amber-800 uppercase tracking-widest">Selected Invoice</p>
+                                                <p className="text-sm font-bold text-amber-900">{cnActiveInvoice.invoiceNumber}</p>
+                                            </div>
+                                            <Button variant="ghost" size="sm" className="text-amber-700 h-8" onClick={() => setCnActiveInvoice(null)}>Change</Button>
+                                        </div>
+                                        <div className="space-y-2 max-h-[250px] overflow-y-auto">
+                                            {cnSelectedItems.map((sel, idx) => (
+                                                <div key={idx} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-xl border border-slate-100 bg-slate-50 gap-2">
+                                                    <div className="flex-1">
+                                                        <p className="text-sm font-black text-slate-800">{sel.originalItem.description}</p>
+                                                        <p className="text-xs text-slate-400 font-bold">${Number(sel.originalItem.unitPrice).toFixed(2)} each (Max: {Number(sel.originalItem.quantity)})</p>
+                                                    </div>
+                                                    <div className="flex items-center gap-3 bg-white p-1 rounded-lg border border-slate-200">
+                                                        <Button variant="ghost" className="h-6 w-6 p-0 hover:bg-red-50 hover:text-red-500" onClick={() => {
+                                                            setCnSelectedItems(prev => prev.map((p, i) => i === idx ? { ...p, quantity: Math.max(0, p.quantity - 1) } : p));
+                                                        }}><Minus className="h-3 w-3" /></Button>
+                                                        <span className="font-black text-sm w-4 text-center">{sel.quantity}</span>
+                                                        <Button variant="ghost" className="h-6 w-6 p-0 hover:bg-emerald-50 hover:text-emerald-500" onClick={() => {
+                                                            setCnSelectedItems(prev => prev.map((p, i) => i === idx ? { ...p, quantity: Math.min(Number(p.originalItem.quantity), p.quantity + 1) } : p));
+                                                        }}><Plus className="h-3 w-3" /></Button>
+                                                    </div>
                                                 </div>
                                             ))}
                                         </div>
-                                    )}
-                                    {cnSearchResults.length === 0 && cnSearchQuery && !cnSearching && (
-                                        <p className="text-center text-slate-400 text-sm font-bold py-4">No invoices found</p>
-                                    )}
-                                </>
-                            ) : (
-                                <div className="space-y-3">
-                                    <div className="p-3 bg-amber-50 rounded-xl border border-amber-100 flex justify-between items-center">
-                                        <div>
-                                            <p className="text-xs font-black text-amber-800 uppercase tracking-widest">Selected Invoice</p>
-                                            <p className="text-sm font-bold text-amber-900">{cnActiveInvoice.invoiceNumber}</p>
-                                        </div>
-                                        <Button variant="ghost" size="sm" className="text-amber-700 h-8" onClick={() => setCnActiveInvoice(null)}>Change</Button>
-                                    </div>
-                                    <div className="space-y-2 max-h-[250px] overflow-y-auto">
-                                        {cnSelectedItems.map((sel, idx) => (
-                                            <div key={idx} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-xl border border-slate-100 bg-slate-50 gap-2">
-                                                <div className="flex-1">
-                                                    <p className="text-sm font-black text-slate-800">{sel.originalItem.description}</p>
-                                                    <p className="text-xs text-slate-400 font-bold">${Number(sel.originalItem.unitPrice).toFixed(2)} each (Max: {Number(sel.originalItem.quantity)})</p>
-                                                </div>
-                                                <div className="flex items-center gap-3 bg-white p-1 rounded-lg border border-slate-200">
-                                                    <Button variant="ghost" className="h-6 w-6 p-0 hover:bg-red-50 hover:text-red-500" onClick={() => {
-                                                        setCnSelectedItems(prev => prev.map((p, i) => i === idx ? { ...p, quantity: Math.max(0, p.quantity - 1) } : p));
-                                                    }}><Minus className="h-3 w-3" /></Button>
-                                                    <span className="font-black text-sm w-4 text-center">{sel.quantity}</span>
-                                                    <Button variant="ghost" className="h-6 w-6 p-0 hover:bg-emerald-50 hover:text-emerald-500" onClick={() => {
-                                                        setCnSelectedItems(prev => prev.map((p, i) => i === idx ? { ...p, quantity: Math.min(Number(p.originalItem.quantity), p.quantity + 1) } : p));
-                                                    }}><Plus className="h-3 w-3" /></Button>
-                                                </div>
+                                        <div className="space-y-2">
+                                            <div className="flex items-center justify-between">
+                                                <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Reason for {cnType === 'credit' ? 'Return' : 'Adjustment'} <span className="text-red-500">*</span></Label>
+                                                {cnReason.length > 0 && <span className="text-[10px] font-bold text-emerald-500 uppercase">Input Valid</span>}
                                             </div>
-                                        ))}
+                                            <textarea
+                                                placeholder="Explain why this note is being issued..."
+                                                className={cn(
+                                                    "w-full h-20 rounded-xl border p-3 text-sm font-bold bg-slate-50 focus:outline-none focus:ring-2 transition-all",
+                                                    !cnReason.trim() ? "border-red-200 focus:ring-red-50 font-bold" : "border-slate-200 focus:ring-amber-50"
+                                                )}
+                                                value={cnReason}
+                                                onChange={e => setCnReason(e.target.value)}
+                                            />
+                                            <p className="text-[9px] text-slate-400 font-bold uppercase tracking-tighter">This field is required for tax compliance</p>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="p-4 border-t border-slate-100 bg-slate-50 shrink-0 flex gap-2">
+                                <Button variant="ghost" className="flex-1 h-10 rounded-xl font-black text-xs text-slate-400" onClick={() => { setIsCreditNoteOpen(false); setCnSearchResults([]); setCnSearchQuery(""); setCnActiveInvoice(null); }}>Cancel</Button>
+                                {cnActiveInvoice && (
+                                    <Button disabled={cnProcessing || cnSelectedItems.every(s => s.quantity === 0) || !cnReason.trim()} className="flex-1 h-10 rounded-xl font-black text-xs bg-amber-500 hover:bg-amber-600 text-white" onClick={handleIssueItemizedReturn}>
+                                        {cnProcessing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                                        Issue {cnType === "credit" ? "CN" : "DN"}
+                                    </Button>
+                                )}
+                            </div>
+                        </DialogContent>
+                    </Dialog>
+
+                    {/* X / Z Report Modal */}
+                    <Dialog open={isReportOpen} onOpenChange={setIsReportOpen}>
+                        <DialogContent className="sm:max-w-[560px] rounded-3xl p-0 overflow-hidden border-none max-h-[90vh] flex flex-col">
+                            <DialogHeader className="sr-only">
+                                <DialogTitle>Daily Reports</DialogTitle>
+                                <DialogDescription>Generate and view X-Reports and Z-Reports for daily reconciliation.</DialogDescription>
+                            </DialogHeader>
+                            <div className="bg-purple-600 p-6 text-white relative shrink-0">
+                                <button onClick={() => setIsReportOpen(false)} className="absolute top-4 right-4 h-8 w-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition-all">
+                                    <XCircle className="h-4 w-4 text-white" />
+                                </button>
+                                <div className="flex items-end justify-between pr-10">
+                                    <div>
+                                        <h3 className="text-xl font-black">{reportType === "x" ? "X-Report" : "Z-Report"}</h3>
+                                        <p className="text-purple-200 text-xs mt-1">{reportType === "x" ? "Current day summary" : "Closed day summary"}</p>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                        {reportData && !reportData.error && (
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                className="h-8 px-3 text-xs gap-2 bg-white/10 border-white/20 text-white hover:bg-white/20 hover:text-white rounded-xl"
+                                                onClick={async () => {
+                                                    const doc = <FiscalReportPDF
+                                                        type={reportType === 'x' ? 'X' : 'Z'}
+                                                        data={reportData}
+                                                        company={company}
+                                                    />;
+                                                    const blob = await pdf(doc).toBlob();
+                                                    saveAs(blob, `Fiscal-${reportType.toUpperCase()}-Report-${dayjs().format('YYYY-MM-DD-HHmm')}.pdf`);
+                                                }}
+                                            >
+                                                <Download className="w-3.5 h-3.5" />
+                                                PDF
+                                            </Button>
+                                        )}
+                                        <div className="flex bg-purple-700/50 p-1 rounded-xl">
+                                            {(["x", "z"] as const).map(t => (
+                                                <button key={t} onClick={() => handleLoadReport(t)}
+                                                    className={cn("px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all",
+                                                        reportType === t ? "bg-white text-purple-600" : "text-purple-200")}>
+                                                    {t.toUpperCase()}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="flex-1 overflow-y-auto p-6 bg-white space-y-4">
+                                {reportLoading && (
+                                    <div className="flex items-center justify-center py-12">
+                                        <Loader2 className="h-8 w-8 animate-spin text-purple-500" />
+                                    </div>
+                                )}
+                                {reportData?.error && (
+                                    <div className="bg-red-50 border border-red-100 rounded-2xl p-4 text-center">
+                                        <XCircle className="h-8 w-8 text-red-400 mx-auto mb-2" />
+                                        <p className="text-sm font-black text-red-600">{reportData.error}</p>
+                                    </div>
+                                )}
+                                {reportData && !reportData.error && (
+                                    <>
+                                        {/* Summary Stats */}
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div className="bg-slate-50 rounded-2xl p-4">
+                                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Total Revenue</p>
+                                                <p className="text-xl font-black text-slate-900">${Number(reportData.summary.revenue).toFixed(2)}</p>
+                                            </div>
+                                            <div className="bg-slate-50 rounded-2xl p-4">
+                                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Items Sold</p>
+                                                <p className="text-xl font-black text-slate-900">{reportData.summary.productsSold}</p>
+                                            </div>
+                                        </div>
+
+                                        {/* Currency Breakdown */}
+                                        <div className="border border-purple-100 rounded-2xl overflow-hidden mt-4">
+                                            <div className="bg-purple-600 px-4 py-2 flex items-center justify-between">
+                                                <span className="text-xs font-black text-white uppercase tracking-widest">Revenue by Currency</span>
+                                                <span className="text-xs font-black text-purple-200">{reportData.summary.invoiceCount} invoices</span>
+                                            </div>
+                                            <div className="divide-y divide-slate-50">
+                                                {reportData.currencies.map((c: any) => (
+                                                    <div key={c.code} className="flex items-center justify-between px-4 py-3">
+                                                        <span className="text-sm font-bold text-slate-600">{c.code}</span>
+                                                        <div className="flex items-center gap-4">
+                                                            <span className="text-xs font-black text-slate-400">{c.count} docs</span>
+                                                            <span className="text-sm font-black text-emerald-600">{Number(c.total).toFixed(2)}</span>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        {/* Breakdown by Cashier */}
+                                        <div className="border border-slate-100 rounded-2xl overflow-hidden mt-4">
+                                            <div className="bg-slate-100 px-4 py-2">
+                                                <span className="text-xs font-black text-slate-500 uppercase tracking-widest">Performance by Cashier</span>
+                                            </div>
+                                            <div className="divide-y divide-slate-50">
+                                                {reportData.cashiers.map((cashier: any) => (
+                                                    <div key={cashier.cashierId} className="flex items-center justify-between px-4 py-3">
+                                                        <span className="text-sm font-bold text-slate-700">{cashier.name || 'Unknown'}</span>
+                                                        <div className="flex items-center gap-4">
+                                                            <span className="text-xs font-black text-slate-400">{cashier.count} sales</span>
+                                                            <span className="text-sm font-black text-slate-900">${Number(cashier.total).toFixed(2)}</span>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        {/* Top Items Sold */}
+                                        <div className="border border-slate-100 rounded-2xl overflow-hidden mt-4">
+                                            <div className="bg-slate-800 px-4 py-2">
+                                                <span className="text-xs font-black text-white uppercase tracking-widest">Itemized Sales (Top 5)</span>
+                                            </div>
+                                            <div className="divide-y divide-slate-50">
+                                                {reportData.items.slice(0, 5).map((item: any) => (
+                                                    <div key={item.productId} className="flex items-center justify-between px-4 py-3">
+                                                        <div className="flex flex-col">
+                                                            <span className="text-sm font-bold text-slate-700 truncate max-w-[200px]">{item.name}</span>
+                                                            <span className="text-[10px] text-slate-400 font-bold">Qty: {item.quantity}</span>
+                                                        </div>
+                                                        <span className="text-sm font-black text-slate-900">${Number(item.total).toFixed(2)}</span>
+                                                    </div>
+                                                ))}
+                                                {reportData.items.length > 5 && (
+                                                    <div className="px-4 py-2 bg-slate-50 text-center">
+                                                        <span className="text-[10px] font-bold text-slate-400 uppercase">+{reportData.items.length - 5} more items in PDF</span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {/* Tax Distributions */}
+                                        <div className="border border-slate-100 rounded-2xl overflow-hidden mt-4">
+                                            <div className="bg-slate-50 px-4 py-2">
+                                                <span className="text-xs font-black text-slate-500 uppercase tracking-widest">Tax Distributions</span>
+                                            </div>
+                                            <div className="divide-y divide-slate-50">
+                                                {reportData.taxes.map((t: any) => (
+                                                    <div key={t.taxRate} className="flex items-center justify-between px-4 py-2">
+                                                        <span className="text-xs font-bold text-slate-500">VAT {t.taxRate}%</span>
+                                                        <div className="flex gap-4">
+                                                            <span className="text-[10px] font-black text-slate-400">Net: ${Number(t.net).toFixed(2)}</span>
+                                                            <span className="text-xs font-black text-slate-800">Tax: ${Number(t.tax).toFixed(2)}</span>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                            <div className="p-4 border-t border-slate-100 bg-slate-50 shrink-0">
+                                <Button variant="ghost" className="w-full h-10 rounded-xl font-black text-xs text-slate-400" onClick={() => setIsReportOpen(false)}>Close</Button>
+                            </div>
+                        </DialogContent>
+                    </Dialog>
+
+                    {/* Quick Add Customer Dialog */}
+                    <Dialog open={isQuickAddCustomerOpen} onOpenChange={setIsQuickAddCustomerOpen}>
+                        <DialogContent className="sm:max-w-[420px] rounded-[2.5rem] p-0 overflow-hidden border-none shadow-2xl bg-white">
+                            <div className="bg-slate-900 p-8 text-white relative">
+                                <button onClick={() => setIsQuickAddCustomerOpen(false)} className="absolute top-6 right-6 h-8 w-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all">
+                                    <XCircle className="h-4 w-4 text-white" />
+                                </button>
+                                <UserPlus className="h-8 w-8 mb-4 text-primary" />
+                                <h3 className="text-2xl font-black">Quick Add Customer</h3>
+                                <p className="text-slate-400 text-xs mt-1 font-bold uppercase tracking-widest">Enroll new customer instantly</p>
+                            </div>
+                            <div className="p-8 space-y-5">
+                                <div className="space-y-2">
+                                    <Label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-1">Full Name</Label>
+                                    <Input
+                                        placeholder="e.g. John Doe"
+                                        className="h-12 rounded-2xl bg-slate-50 border-none font-bold"
+                                        value={newCustomer.name}
+                                        onChange={e => setNewCustomer(prev => ({ ...prev, name: e.target.value }))}
+                                    />
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <Label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-1">Phone</Label>
+                                        <Input
+                                            placeholder="07..."
+                                            className="h-12 rounded-2xl bg-slate-50 border-none font-bold"
+                                            value={newCustomer.phone}
+                                            onChange={e => setNewCustomer(prev => ({ ...prev, phone: e.target.value }))}
+                                        />
                                     </div>
                                     <div className="space-y-2">
-                                        <div className="flex items-center justify-between">
-                                            <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Reason for {cnType === 'credit' ? 'Return' : 'Adjustment'} <span className="text-red-500">*</span></Label>
-                                            {cnReason.length > 0 && <span className="text-[10px] font-bold text-emerald-500 uppercase">Input Valid</span>}
-                                        </div>
-                                        <textarea
-                                            placeholder="Explain why this note is being issued..."
-                                            className={cn(
-                                                "w-full h-20 rounded-xl border p-3 text-sm font-bold bg-slate-50 focus:outline-none focus:ring-2 transition-all",
-                                                !cnReason.trim() ? "border-red-200 focus:ring-red-50 font-bold" : "border-slate-200 focus:ring-amber-50"
-                                            )}
-                                            value={cnReason}
-                                            onChange={e => setCnReason(e.target.value)}
+                                        <Label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-1">TIN (Optional)</Label>
+                                        <Input
+                                            placeholder="10 digits"
+                                            className="h-12 rounded-2xl bg-slate-50 border-none font-bold"
+                                            value={newCustomer.tin}
+                                            onChange={e => setNewCustomer(prev => ({ ...prev, tin: e.target.value }))}
                                         />
-                                        <p className="text-[9px] text-slate-400 font-bold uppercase tracking-tighter">This field is required for tax compliance</p>
                                     </div>
                                 </div>
-                            )}
-                        </div>
-                        <div className="p-4 border-t border-slate-100 bg-slate-50 shrink-0 flex gap-2">
-                            <Button variant="ghost" className="flex-1 h-10 rounded-xl font-black text-xs text-slate-400" onClick={() => { setIsCreditNoteOpen(false); setCnSearchResults([]); setCnSearchQuery(""); setCnActiveInvoice(null); }}>Cancel</Button>
-                            {cnActiveInvoice && (
-                                <Button disabled={cnProcessing || cnSelectedItems.every(s => s.quantity === 0) || !cnReason.trim()} className="flex-1 h-10 rounded-xl font-black text-xs bg-amber-500 hover:bg-amber-600 text-white" onClick={handleIssueItemizedReturn}>
-                                    {cnProcessing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                                    Issue {cnType === "credit" ? "CN" : "DN"}
+                                <div className="space-y-2">
+                                    <Label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-1">Email</Label>
+                                    <Input
+                                        type="email"
+                                        placeholder="customer@example.com"
+                                        className="h-12 rounded-2xl bg-slate-50 border-none font-bold"
+                                        value={newCustomer.email}
+                                        onChange={e => setNewCustomer(prev => ({ ...prev, email: e.target.value }))}
+                                    />
+                                </div>
+
+                                <Button
+                                    className="w-full h-14 rounded-2xl bg-slate-900 hover:bg-black text-white font-black uppercase tracking-widest mt-4 shadow-xl"
+                                    disabled={isCreatingCustomer || !newCustomer.name}
+                                    onClick={handleQuickAddCustomer}
+                                >
+                                    {isCreatingCustomer ? <Loader2 className="h-5 w-5 animate-spin" /> : "Create & Select"}
                                 </Button>
-                            )}
-                        </div>
-                    </DialogContent>
-                </Dialog>
-
-                {/* X / Z Report Modal */}
-                <Dialog open={isReportOpen} onOpenChange={setIsReportOpen}>
-                    <DialogContent className="sm:max-w-[560px] rounded-3xl p-0 overflow-hidden border-none max-h-[90vh] flex flex-col">
-                        <DialogHeader className="sr-only">
-                            <DialogTitle>Daily Reports</DialogTitle>
-                            <DialogDescription>Generate and view X-Reports and Z-Reports for daily reconciliation.</DialogDescription>
-                        </DialogHeader>
-                        <div className="bg-purple-600 p-6 text-white relative shrink-0">
-                            <button onClick={() => setIsReportOpen(false)} className="absolute top-4 right-4 h-8 w-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition-all">
-                                <XCircle className="h-4 w-4 text-white" />
-                            </button>
-                            <div className="flex items-end justify-between pr-10">
-                                <div>
-                                    <h3 className="text-xl font-black">{reportType === "x" ? "X-Report" : "Z-Report"}</h3>
-                                    <p className="text-purple-200 text-xs mt-1">{reportType === "x" ? "Current day summary" : "Closed day summary"}</p>
-                                </div>
-                                <div className="flex items-center gap-3">
-                                    {reportData && !reportData.error && (
-                                        <Button
-                                            size="sm"
-                                            variant="outline"
-                                            className="h-8 px-3 text-xs gap-2 bg-white/10 border-white/20 text-white hover:bg-white/20 hover:text-white rounded-xl"
-                                            onClick={async () => {
-                                                const doc = <FiscalReportPDF
-                                                    type={reportType === 'x' ? 'X' : 'Z'}
-                                                    data={reportData}
-                                                    company={company}
-                                                />;
-                                                const blob = await pdf(doc).toBlob();
-                                                saveAs(blob, `Fiscal-${reportType.toUpperCase()}-Report-${dayjs().format('YYYY-MM-DD-HHmm')}.pdf`);
-                                            }}
-                                        >
-                                            <Download className="w-3.5 h-3.5" />
-                                            PDF
-                                        </Button>
-                                    )}
-                                    <div className="flex bg-purple-700/50 p-1 rounded-xl">
-                                        {(["x", "z"] as const).map(t => (
-                                            <button key={t} onClick={() => handleLoadReport(t)}
-                                                className={cn("px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all",
-                                                    reportType === t ? "bg-white text-purple-600" : "text-purple-200")}>
-                                                {t.toUpperCase()}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
                             </div>
-                        </div>
-                        <div className="flex-1 overflow-y-auto p-6 bg-white space-y-4">
-                            {reportLoading && (
-                                <div className="flex items-center justify-center py-12">
-                                    <Loader2 className="h-8 w-8 animate-spin text-purple-500" />
+                        </DialogContent>
+                    </Dialog>
+
+                    {/* ── ESC/POS Visual Preview Modal ── */}
+                    <Dialog open={!!simulationData} onOpenChange={open => { if (!open) setSimulationData(null); }}>
+                        <DialogContent className="sm:max-w-[400px] rounded-[3rem] border-none shadow-2xl p-0 overflow-hidden outline-none bg-slate-900">
+                            <DialogHeader className="p-6 text-white text-center pb-2">
+                                <div className="mx-auto w-12 h-12 rounded-2xl bg-primary/20 flex items-center justify-center mb-3">
+                                    <Printer className="h-6 w-6 text-primary" />
                                 </div>
-                            )}
-                            {reportData?.error && (
-                                <div className="bg-red-50 border border-red-100 rounded-2xl p-4 text-center">
-                                    <XCircle className="h-8 w-8 text-red-400 mx-auto mb-2" />
-                                    <p className="text-sm font-black text-red-600">{reportData.error}</p>
+                                <DialogTitle className="text-xl font-black">Virtual Receipt Preview</DialogTitle>
+                                <DialogDescription className="text-slate-400 font-bold uppercase text-[10px] tracking-widest mt-1">
+                                    Simulation Mode — No hardware required
+                                </DialogDescription>
+                            </DialogHeader>
+
+                            <div className="p-6 pt-2 flex flex-col items-center">
+                                <div className="w-full max-h-[500px] overflow-y-auto rounded-2xl border-4 border-slate-800 shadow-xl scrollbar-hide">
+                                    {simulationData && <EscPosVisualizer data={simulationData} />}
                                 </div>
-                            )}
-                            {reportData && !reportData.error && (
-                                <>
-                                    {/* Summary Stats */}
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div className="bg-slate-50 rounded-2xl p-4">
-                                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Total Revenue</p>
-                                            <p className="text-xl font-black text-slate-900">${Number(reportData.summary.revenue).toFixed(2)}</p>
-                                        </div>
-                                        <div className="bg-slate-50 rounded-2xl p-4">
-                                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Items Sold</p>
-                                            <p className="text-xl font-black text-slate-900">{reportData.summary.productsSold}</p>
-                                        </div>
-                                    </div>
 
-                                    {/* Currency Breakdown */}
-                                    <div className="border border-purple-100 rounded-2xl overflow-hidden mt-4">
-                                        <div className="bg-purple-600 px-4 py-2 flex items-center justify-between">
-                                            <span className="text-xs font-black text-white uppercase tracking-widest">Revenue by Currency</span>
-                                            <span className="text-xs font-black text-purple-200">{reportData.summary.invoiceCount} invoices</span>
-                                        </div>
-                                        <div className="divide-y divide-slate-50">
-                                            {reportData.currencies.map((c: any) => (
-                                                <div key={c.code} className="flex items-center justify-between px-4 py-3">
-                                                    <span className="text-sm font-bold text-slate-600">{c.code}</span>
-                                                    <div className="flex items-center gap-4">
-                                                        <span className="text-xs font-black text-slate-400">{c.count} docs</span>
-                                                        <span className="text-sm font-black text-emerald-600">{Number(c.total).toFixed(2)}</span>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-
-                                    {/* Breakdown by Cashier */}
-                                    <div className="border border-slate-100 rounded-2xl overflow-hidden mt-4">
-                                        <div className="bg-slate-100 px-4 py-2">
-                                            <span className="text-xs font-black text-slate-500 uppercase tracking-widest">Performance by Cashier</span>
-                                        </div>
-                                        <div className="divide-y divide-slate-50">
-                                            {reportData.cashiers.map((cashier: any) => (
-                                                <div key={cashier.cashierId} className="flex items-center justify-between px-4 py-3">
-                                                    <span className="text-sm font-bold text-slate-700">{cashier.name || 'Unknown'}</span>
-                                                    <div className="flex items-center gap-4">
-                                                        <span className="text-xs font-black text-slate-400">{cashier.count} sales</span>
-                                                        <span className="text-sm font-black text-slate-900">${Number(cashier.total).toFixed(2)}</span>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-
-                                    {/* Top Items Sold */}
-                                    <div className="border border-slate-100 rounded-2xl overflow-hidden mt-4">
-                                        <div className="bg-slate-800 px-4 py-2">
-                                            <span className="text-xs font-black text-white uppercase tracking-widest">Itemized Sales (Top 5)</span>
-                                        </div>
-                                        <div className="divide-y divide-slate-50">
-                                            {reportData.items.slice(0, 5).map((item: any) => (
-                                                <div key={item.productId} className="flex items-center justify-between px-4 py-3">
-                                                    <div className="flex flex-col">
-                                                        <span className="text-sm font-bold text-slate-700 truncate max-w-[200px]">{item.name}</span>
-                                                        <span className="text-[10px] text-slate-400 font-bold">Qty: {item.quantity}</span>
-                                                    </div>
-                                                    <span className="text-sm font-black text-slate-900">${Number(item.total).toFixed(2)}</span>
-                                                </div>
-                                            ))}
-                                            {reportData.items.length > 5 && (
-                                                <div className="px-4 py-2 bg-slate-50 text-center">
-                                                    <span className="text-[10px] font-bold text-slate-400 uppercase">+{reportData.items.length - 5} more items in PDF</span>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    {/* Tax Distributions */}
-                                    <div className="border border-slate-100 rounded-2xl overflow-hidden mt-4">
-                                        <div className="bg-slate-50 px-4 py-2">
-                                            <span className="text-xs font-black text-slate-500 uppercase tracking-widest">Tax Distributions</span>
-                                        </div>
-                                        <div className="divide-y divide-slate-50">
-                                            {reportData.taxes.map((t: any) => (
-                                                <div key={t.taxRate} className="flex items-center justify-between px-4 py-2">
-                                                    <span className="text-xs font-bold text-slate-500">VAT {t.taxRate}%</span>
-                                                    <div className="flex gap-4">
-                                                        <span className="text-[10px] font-black text-slate-400">Net: ${Number(t.net).toFixed(2)}</span>
-                                                        <span className="text-xs font-black text-slate-800">Tax: ${Number(t.tax).toFixed(2)}</span>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                </>
-                            )}
-                        </div>
-                        <div className="p-4 border-t border-slate-100 bg-slate-50 shrink-0">
-                            <Button variant="ghost" className="w-full h-10 rounded-xl font-black text-xs text-slate-400" onClick={() => setIsReportOpen(false)}>Close</Button>
-                        </div>
-                    </DialogContent>
-                </Dialog>
-
-                {/* Quick Add Customer Dialog */}
-                <Dialog open={isQuickAddCustomerOpen} onOpenChange={setIsQuickAddCustomerOpen}>
-                    <DialogContent className="sm:max-w-[420px] rounded-[2.5rem] p-0 overflow-hidden border-none shadow-2xl bg-white">
-                        <div className="bg-slate-900 p-8 text-white relative">
-                            <button onClick={() => setIsQuickAddCustomerOpen(false)} className="absolute top-6 right-6 h-8 w-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all">
-                                <XCircle className="h-4 w-4 text-white" />
-                            </button>
-                            <UserPlus className="h-8 w-8 mb-4 text-primary" />
-                            <h3 className="text-2xl font-black">Quick Add Customer</h3>
-                            <p className="text-slate-400 text-xs mt-1 font-bold uppercase tracking-widest">Enroll new customer instantly</p>
-                        </div>
-                        <div className="p-8 space-y-5">
-                            <div className="space-y-2">
-                                <Label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-1">Full Name</Label>
-                                <Input
-                                    placeholder="e.g. John Doe"
-                                    className="h-12 rounded-2xl bg-slate-50 border-none font-bold"
-                                    value={newCustomer.name}
-                                    onChange={e => setNewCustomer(prev => ({ ...prev, name: e.target.value }))}
-                                />
+                                <Button
+                                    className="w-full mt-6 h-12 rounded-2xl font-black btn-gradient shadow-lg"
+                                    onClick={() => setSimulationData(null)}
+                                >
+                                    Close Preview
+                                </Button>
                             </div>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <Label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-1">Phone</Label>
-                                    <Input
-                                        placeholder="07..."
-                                        className="h-12 rounded-2xl bg-slate-50 border-none font-bold"
-                                        value={newCustomer.phone}
-                                        onChange={e => setNewCustomer(prev => ({ ...prev, phone: e.target.value }))}
-                                    />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-1">TIN (Optional)</Label>
-                                    <Input
-                                        placeholder="10 digits"
-                                        className="h-12 rounded-2xl bg-slate-50 border-none font-bold"
-                                        value={newCustomer.tin}
-                                        onChange={e => setNewCustomer(prev => ({ ...prev, tin: e.target.value }))}
-                                    />
-                                </div>
-                            </div>
-                            <div className="space-y-2">
-                                <Label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-1">Email</Label>
-                                <Input
-                                    type="email"
-                                    placeholder="customer@example.com"
-                                    className="h-12 rounded-2xl bg-slate-50 border-none font-bold"
-                                    value={newCustomer.email}
-                                    onChange={e => setNewCustomer(prev => ({ ...prev, email: e.target.value }))}
-                                />
-                            </div>
-
-                            <Button
-                                className="w-full h-14 rounded-2xl bg-slate-900 hover:bg-black text-white font-black uppercase tracking-widest mt-4 shadow-xl"
-                                disabled={isCreatingCustomer || !newCustomer.name}
-                                onClick={handleQuickAddCustomer}
-                            >
-                                {isCreatingCustomer ? <Loader2 className="h-5 w-5 animate-spin" /> : "Create & Select"}
-                            </Button>
-                        </div>
-                    </DialogContent>
-                </Dialog>
-
-                {/* ── ESC/POS Visual Preview Modal ── */}
-                <Dialog open={!!simulationData} onOpenChange={open => { if (!open) setSimulationData(null); }}>
-                    <DialogContent className="sm:max-w-[400px] rounded-[3rem] border-none shadow-2xl p-0 overflow-hidden outline-none bg-slate-900">
-                        <DialogHeader className="p-6 text-white text-center pb-2">
-                            <div className="mx-auto w-12 h-12 rounded-2xl bg-primary/20 flex items-center justify-center mb-3">
-                                <Printer className="h-6 w-6 text-primary" />
-                            </div>
-                            <DialogTitle className="text-xl font-black">Virtual Receipt Preview</DialogTitle>
-                            <DialogDescription className="text-slate-400 font-bold uppercase text-[10px] tracking-widest mt-1">
-                                Simulation Mode — No hardware required
-                            </DialogDescription>
-                        </DialogHeader>
-                        
-                        <div className="p-6 pt-2 flex flex-col items-center">
-                            <div className="w-full max-h-[500px] overflow-y-auto rounded-2xl border-4 border-slate-800 shadow-xl scrollbar-hide">
-                                {simulationData && <EscPosVisualizer data={simulationData} />}
-                            </div>
-                            
-                            <Button 
-                                className="w-full mt-6 h-12 rounded-2xl font-black btn-gradient shadow-lg"
-                                onClick={() => setSimulationData(null)}
-                            >
-                                Close Preview
-                            </Button>
-                        </div>
-                    </DialogContent>
-                </Dialog>
+                        </DialogContent>
+                    </Dialog>
+                </div>
             </div>
-        </div>
-    </PosLayout>
-);
+        </PosLayout>
+    );
 }

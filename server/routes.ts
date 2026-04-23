@@ -5518,7 +5518,8 @@ export async function registerRoutes(
       ];
 
       if (!isOwner) {
-        conditions.push(eq(posShiftTransactions.createdBy, req.user.id));
+        // Cashiers should see collections done on THEIR shifts, regardless of who did the collection (admin/supervisor)
+        conditions.push(eq(posShifts.userId, req.user.id));
       }
 
       const rows = await db
@@ -5532,7 +5533,7 @@ export async function registerRoutes(
         })
         .from(posShiftTransactions)
         .innerJoin(posShifts, eq(posShiftTransactions.shiftId, posShifts.id))
-        .innerJoin(users, eq(posShiftTransactions.createdBy, users.id))
+        .innerJoin(users, eq(posShifts.userId, users.id))
         .where(and(...conditions))
         .orderBy(desc(posShiftTransactions.createdAt));
 
@@ -6491,6 +6492,76 @@ export async function registerRoutes(
       const sales = await storage.getPosSales(companyId, startDate, endDate, cashierId, undefined, undefined, undefined, undefined, ownerGroup);
       res.json(sales);
     } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Get all active shifts for a company (Admin view)
+  app.get("/api/pos/shifts/active", requireAuth, async (req, res) => {
+    try {
+      const user = req.user as any;
+      const companyId = parseInt(req.query.companyId as string) || user.companyId;
+      
+      const shifts = await db.query.posShifts.findMany({
+        where: and(
+          eq(posShifts.companyId, companyId),
+          eq(posShifts.status, "open")
+        ),
+        with: {
+          user: true
+        }
+      });
+
+      const shiftsWithBalance = await Promise.all(shifts.map(async (shift) => {
+        const shiftTransactions = await db.query.posShiftTransactions.findMany({
+          where: eq(posShiftTransactions.shiftId, shift.id),
+          orderBy: [desc(posShiftTransactions.createdAt)]
+        });
+
+        // Get cash sales since start or since last DROP
+        const lastDrop = shiftTransactions.find(t => t.type === 'DROP');
+        const sinceDate = lastDrop ? new Date(lastDrop.createdAt!) : new Date(shift.startTime);
+
+        const shiftInvoices = await db.query.invoices.findMany({
+          where: and(
+            eq(invoices.companyId, companyId),
+            eq(invoices.createdBy, shift.userId),
+            eq(invoices.isPos, true),
+            gte(invoices.createdAt, sinceDate),
+            ne(invoices.status, 'cancelled')
+          )
+        });
+
+        const cashSales = shiftInvoices.reduce((sum, inv) => {
+          const mult = inv.transactionType === "CreditNote" ? -1 : 1;
+          if (inv.paymentMethod?.toUpperCase() === 'CASH') {
+            return sum + (Number(inv.total) * mult);
+          } else if (inv.paymentMethod?.toUpperCase() === 'SPLIT' && Array.isArray(inv.splitPayments)) {
+            const cashPart = (inv.splitPayments as any[])
+              .filter((p: any) => p.method.toUpperCase() === 'CASH')
+              .reduce((s: number, p: any) => s + Number(p.amount), 0);
+            return sum + (cashPart * mult);
+          }
+          return sum;
+        }, 0);
+
+        // Payouts since last drop
+        const payoutsSinceLastDrop = shiftTransactions
+          .filter(t => t.type === 'PAYOUT' && new Date(t.createdAt!) >= sinceDate)
+          .reduce((sum, t) => sum + Number(t.amount), 0);
+
+        const availableCash = cashSales - payoutsSinceLastDrop;
+
+        return {
+          ...shift,
+          availableCash: availableCash.toFixed(2),
+          cashierName: shift.user?.name || 'Unknown'
+        };
+      }));
+
+      res.json(shiftsWithBalance);
+    } catch (error: any) {
+      console.error("Active Shifts Error:", error);
       res.status(500).json({ message: error.message });
     }
   });

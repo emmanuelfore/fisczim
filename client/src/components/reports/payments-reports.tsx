@@ -274,7 +274,7 @@ export function WithholdingTaxReport({ companyId, dateRange, search }: ReportPro
 
 // ── CashCollectionReport ──────────────────────────────────────────────────────
 
-export function CashCollectionReport({ companyId, dateRange, search }: ReportProps) {
+export function PaymentsReceivedReport({ companyId, dateRange, search }: ReportProps) {
   const { data = [], isLoading, error } = useQuery<any[]>({
     queryKey: ["reports/cash-collection", companyId, dateRange.from, dateRange.to],
     queryFn: async () => {
@@ -441,6 +441,79 @@ export function CashCollectionReport({ companyId, dateRange, search }: ReportPro
               ))}
               {filtered.length === 0 && (
                 <tr><td colSpan={6} className="text-center py-20 text-slate-300 font-black uppercase tracking-widest opacity-50 italic">No matching transactions found</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function CashCollectionReport({ companyId, dateRange, search }: ReportProps) {
+  const { data = [], isLoading, error } = useQuery<any[]>({
+    queryKey: ["reports/cash-collections", companyId, dateRange.from, dateRange.to],
+    queryFn: async () => {
+      const start = dateRange.from.toISOString();
+      const end = dateRange.to.toISOString();
+      const res = await apiFetch(`/api/companies/${companyId}/reports/cash-collections?from=${start}&to=${end}`);
+      if (!res.ok) throw new Error(`Failed to load cashier collections (${res.status})`);
+      return res.json();
+    },
+    enabled: !!companyId,
+  });
+
+  const filtered = filterRecords(data, search, ["cashierName", "reason", "shiftId"]);
+  
+  const stats = useMemo(() => {
+    const total = filtered.reduce((sum, r) => sum + Number(r.amount), 0);
+    return { total };
+  }, [filtered]);
+
+  if (isLoading) return <div className="flex justify-center p-12"><Loader2 className="w-8 h-8 animate-spin text-violet-400" /></div>;
+  if (error) return <EmptyState message="Failed to load cashier collection report" />;
+
+  return (
+    <div className="p-6 space-y-8 max-w-7xl mx-auto">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="bg-slate-900 text-white p-5 rounded-3xl shadow-xl shadow-slate-200">
+          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Total Collected (Drops)</p>
+          <p className="text-2xl font-black font-display">${stats.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+          <p className="text-[10px] font-bold text-slate-500 mt-1 uppercase">{filtered.length} COLLECTIONS</p>
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
+            <div className="w-1.5 h-4 bg-amber-500 rounded-full" />
+            Cashier Collections (Drops)
+          </h3>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{filtered.length} entries</p>
+        </div>
+        <div className="bg-white rounded-3xl border border-slate-100 overflow-hidden shadow-2xl shadow-slate-100">
+          <table className="w-full text-[11px] text-left">
+            <thead className="bg-slate-50 text-slate-500 border-b border-slate-100">
+              <tr>
+                <th className="px-4 py-3 font-black uppercase tracking-widest">Date/Time</th>
+                <th className="px-4 py-3 font-black uppercase tracking-widest">Cashier</th>
+                <th className="px-4 py-3 font-black uppercase tracking-widest">Shift ID</th>
+                <th className="px-4 py-3 font-black uppercase tracking-widest">Reason / Reference</th>
+                <th className="px-4 py-3 font-black uppercase tracking-widest text-right">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((r) => (
+                <tr key={r.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
+                  <td className="px-4 py-3 text-slate-500">{format(new Date(r.createdAt), "dd MMM yyyy, HH:mm")}</td>
+                  <td className="px-4 py-3 font-bold text-slate-800">{r.cashierName}</td>
+                  <td className="px-4 py-3 font-mono text-violet-600 font-bold">#{r.shiftId}</td>
+                  <td className="px-4 py-3 text-slate-600">{r.reason || "—"}</td>
+                  <td className="px-4 py-3 text-right font-black text-slate-900">${Number(r.amount).toFixed(2)}</td>
+                </tr>
+              ))}
+              {filtered.length === 0 && (
+                <tr><td colSpan={5} className="text-center py-20 text-slate-300 font-black uppercase tracking-widest opacity-50 italic">No collections found</td></tr>
               )}
             </tbody>
           </table>

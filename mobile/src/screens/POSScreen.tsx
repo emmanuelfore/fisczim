@@ -285,6 +285,38 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
   const [isSupervisorAuthVisible, setIsSupervisorAuthVisible] = useState(false);
   const [supervisorAction, setSupervisorAction] = useState<"DROP" | "CLOSE" | null>(null);
 
+  // Admin Collection States
+  const [activeShifts, setActiveShifts] = useState<any[]>([]);
+  const [isFetchingActiveShifts, setIsFetchingActiveShifts] = useState(false);
+  const [selectedShift, setSelectedShift] = useState<any>(null);
+
+  const fetchActiveShifts = async () => {
+    if (userRole !== "admin" && userRole !== "owner") return;
+    setIsFetchingActiveShifts(true);
+    try {
+      const res = await apiFetch(`/api/pos/shifts/active?companyId=${companyId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setActiveShifts(data);
+        // If there's an active shift for the current user, pre-select it or just wait
+        if (currentShift) {
+          const mine = data.find((s: any) => s.id === currentShift.id);
+          if (mine) setSelectedShift(mine);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to fetch active shifts", e);
+    } finally {
+      setIsFetchingActiveShifts(false);
+    }
+  };
+
+  useEffect(() => {
+    if (showPayoutModal && (userRole === "admin" || userRole === "owner")) {
+      fetchActiveShifts();
+    }
+  }, [showPayoutModal]);
+
   // Sync input field when orderDiscount is changed from OUTSIDE (e.g. resuming hold, manager override)
   // Use a ref to avoid the loop: don't overwrite when the user is actively typing
   const isTypingDiscount = React.useRef(false);
@@ -622,7 +654,11 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
   };
 
   const handlePayout = async (supervisorId?: string) => {
-    if (!currentShift || !payoutAmount) return;
+    const targetShift = (userRole === "admin" || userRole === "owner") ? selectedShift : currentShift;
+    if (!targetShift || !payoutAmount) {
+      if (!targetShift) Alert.alert("Error", "Please select a cashier/shift for collection.");
+      return;
+    }
 
     // Require supervisor PIN for Drops (Collections)
     if (transactionType === "DROP" && !supervisorId) {
@@ -634,7 +670,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
 
     setIsSubmitting(true);
     try {
-      const res = await apiFetch(`/api/pos/shifts/${currentShift.id}/transaction`, {
+      const res = await apiFetch(`/api/pos/shifts/${targetShift.id}/transaction`, {
         method: "POST",
         body: JSON.stringify({
           type: transactionType,
@@ -647,9 +683,11 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
         setShowPayoutModal(false);
         setPayoutAmount("");
         setPayoutReason("");
+        setSelectedShift(null);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         // Refresh summary if it was open or just as good practice
         if (showSummaryModal) fetchShiftSummary();
+        if (userRole === "admin" || userRole === "owner") fetchActiveShifts();
       } else {
         const err = await res.text();
         Alert.alert("Error", `Failed to log ${transactionType.toLowerCase()}: ${err}`);
@@ -1112,24 +1150,31 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
               </Text>
             </TouchableOpacity>
 
-            {currentShift && (
+            {/* If user is admin/owner, they see Collection even without their own shift */}
+            {(currentShift || userRole === "admin" || userRole === "owner") && (
               <>
                 <View style={{ width: 1, height: 12, backgroundColor: C.border.default }} />
+
+
                 <TouchableOpacity
-                  onPress={() => { setTransactionType("PAYOUT"); setShowPayoutModal(true); }}
+                  onPress={() => { setTransactionType("DROP"); setShowPayoutModal(true); }}
                   style={{ flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 4 }}>
-                  <Banknote size={14} color={C.amber.primary} />
-                  <Text style={{ color: C.text.primary, fontSize: 11, fontWeight: "700" }}>Payout</Text>
+                  <Download size={14} color={C.amber.primary} />
+                  <Text style={{ color: C.text.primary, fontSize: 11, fontWeight: "700" }}>Collection</Text>
                 </TouchableOpacity>
 
-                <View style={{ width: 1, height: 12, backgroundColor: C.border.default }} />
-                <TouchableOpacity
-                  onPress={fetchShiftSummary}
-                  style={{ flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 4 }}>
-                  <ActivityIndicator size="small" color={C.amber.primary} animating={isFetchingSummary} style={{ display: isFetchingSummary ? 'flex' : 'none' }} />
-                  {!isFetchingSummary && <History size={14} color={C.amber.primary} />}
-                  <Text style={{ color: C.text.primary, fontSize: 11, fontWeight: "700" }}>X/Z-Report</Text>
-                </TouchableOpacity>
+                {currentShift && (
+                  <>
+                    <View style={{ width: 1, height: 12, backgroundColor: C.border.default }} />
+                    <TouchableOpacity
+                      onPress={fetchShiftSummary}
+                      style={{ flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 4 }}>
+                      <ActivityIndicator size="small" color={C.amber.primary} animating={isFetchingSummary} style={{ display: isFetchingSummary ? 'flex' : 'none' }} />
+                      {!isFetchingSummary && <History size={14} color={C.amber.primary} />}
+                      <Text style={{ color: C.text.primary, fontSize: 11, fontWeight: "700" }}>X/Z Report</Text>
+                    </TouchableOpacity>
+                  </>
+                )}
               </>
             )}
           </View>
@@ -2389,9 +2434,9 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
                 {/* Type Selector within modal */}
                 <View style={{ flexDirection: "row", gap: 8, marginBottom: 20 }}>
                   {[
-                    { type: "PAYOUT", label: "Payout", Icon: Banknote, color: C.status.error },
-                    { type: "DROP", label: "Collection", Icon: Download, color: C.status.info }
-                  ].map((t) => (
+                    { type: "PAYOUT", label: "Payout", Icon: Banknote, color: C.status.error, hidden: userRole === "admin" || userRole === "owner" },
+                    { type: "DROP", label: "Collection", Icon: Download, color: C.status.info, hidden: false }
+                  ].filter(t => !t.hidden).map((t) => (
                     <TouchableOpacity key={t.type} onPress={() => setTransactionType(t.type as any)}
                       style={{
                         flex: 1, height: 48, borderRadius: 12, flexDirection: "row",
@@ -2405,6 +2450,60 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
                     </TouchableOpacity>
                   ))}
                 </View>
+
+                {/* Cashier Selector for Admins */}
+                {(userRole === "admin" || userRole === "owner") && (
+                  <View style={{ marginBottom: 20 }}>
+                    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                      <Text style={{ color: C.text.secondary, fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 1 }}>
+                        Select Cashier to Collect From
+                      </Text>
+                      <TouchableOpacity onPress={fetchActiveShifts} disabled={isFetchingActiveShifts}>
+                        {isFetchingActiveShifts ? (
+                          <ActivityIndicator size="small" color={C.amber.primary} />
+                        ) : (
+                          <History size={14} color={C.text.secondary} />
+                        )}
+                      </TouchableOpacity>
+                    </View>
+
+                    {activeShifts.length === 0 && !isFetchingActiveShifts ? (
+                      <View style={{ padding: 20, backgroundColor: C.bg.hover, borderRadius: 16, alignItems: "center", borderWidth: 1, borderColor: C.border.default, borderStyle: "dashed" }}>
+                        <Text style={{ color: C.text.secondary, fontSize: 12, textAlign: "center" }}>
+                          No active cashier shifts found.
+                        </Text>
+                      </View>
+                    ) : (
+                      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                        {activeShifts.map((s) => (
+                          <TouchableOpacity
+                            key={s.id}
+                            onPress={() => setSelectedShift(s)}
+                            style={{
+                              paddingHorizontal: 12, paddingVertical: 12, borderRadius: 12,
+                              backgroundColor: selectedShift?.id === s.id ? `${C.amber.primary}20` : C.bg.card,
+                              borderWidth: 1.5, borderColor: selectedShift?.id === s.id ? C.amber.primary : C.border.default,
+                              minWidth: "47%"
+                            }}
+                          >
+                            <Text style={{ color: C.text.primary, fontWeight: "800", fontSize: 13 }} numberOfLines={1}>{s.cashierName}</Text>
+                            <Text style={{ color: C.text.secondary, fontSize: 10, marginTop: 4 }}>Shift #{s.id}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                )}
+
+                {/* Show expected cash if a shift is selected */}
+                {selectedShift && (
+                  <View style={{ backgroundColor: `${C.amber.primary}10`, padding: 12, borderRadius: 12, marginBottom: 16, borderWidth: 1, borderColor: `${C.amber.primary}30` }}>
+                    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                      <Text style={{ color: C.text.secondary, fontSize: 12 }}>Expected Cash since last collection:</Text>
+                      <Text style={{ color: C.amber.primary, fontWeight: "800", fontSize: 16 }}>${selectedShift.availableCash}</Text>
+                    </View>
+                  </View>
+                )}
 
                 <Text style={{ color: C.text.secondary, fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>
                   {transactionType === "PAYOUT" ? "Amount (Out of Till)" : "Amount to Collect"}

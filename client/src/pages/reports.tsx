@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { SalesReport, SalesByCustomerReport, SalesByItemReport, SalesBySalespersonReport } from "@/components/reports/sales-reports";
 import { OperationalMetricsReport, HourlySalesAnalysisReport, InventoryHealthReport, StockOnHandReport, InventoryMovementsReport, PurchaseHistoryReport } from "@/components/reports/retail-reports";
 import { ArAgingSummaryReport, ArAgingDetailsReport, InvoiceDetailsReport, QuoteDetailsReport, CustomerBalanceSummaryReport, ReceivableSummaryReport, ReceivableDetailsReport, BadDebtsReport, BankChargesReport } from "@/components/reports/receivables-reports";
-import { TimeToGetPaidReport, RefundHistoryReport, WithholdingTaxReport, CashCollectionReport } from "@/components/reports/payments-reports";
+import { TimeToGetPaidReport, RefundHistoryReport, WithholdingTaxReport, CashCollectionReport, PaymentsReceivedReport } from "@/components/reports/payments-reports";
 import { ExpenseDetailsReport, ExpensesByCategoryReport, ExpensesByCustomerReport, ExpensesByProjectReport, BillableExpenseDetailsReport } from "@/components/reports/expenses-reports";
 import { TaxSummaryReport } from "@/components/reports/tax-reports";
 import { cn } from "@/lib/utils";
@@ -72,7 +72,7 @@ const REPORT_CATEGORIES: {
     label: "Payments Received",
     icon: CreditCard,
     reports: [
-      { key: "payments-received", label: "Payments Received", category: "payments-received", externalHref: "/payments-received" },
+      { key: "payments-received", label: "Payments Received", category: "payments-received", endpoint: "payments-received" },
       { key: "time-to-get-paid", label: "Time to Get Paid", category: "payments-received", endpoint: "time-to-get-paid" },
       { key: "refund-history", label: "Refund History", category: "payments-received", endpoint: "refund-history" },
       { key: "withholding-tax", label: "Withholding Tax", category: "payments-received", endpoint: "withholding-tax" },
@@ -445,6 +445,7 @@ function ActiveReportComponent({ reportKey, companyId, dateRange, search }: {
     case "refund-history": return <RefundHistoryReport {...props} />;
     case "withholding-tax": return <WithholdingTaxReport {...props} />;
     case "cash-collection": return <CashCollectionReport {...props} />;
+    case "payments-received": return <PaymentsReceivedReport {...props} />;
     case "expense-details": return <ExpenseDetailsReport {...props} />;
     case "expenses-by-category": return <ExpensesByCategoryReport {...props} />;
     case "expenses-by-customer": return <ExpensesByCustomerReport {...props} />;

@@ -45,6 +45,7 @@ import { BranchPickerModal } from "@/components/branch-picker-modal";
 import { PrinterService } from "@/lib/printer/printer-service";
 import { ReceiptTemplate } from "@/lib/printer/receipt-template";
 import { useBranchContext } from "@/lib/branch-context";
+import { Switch } from "@/components/ui/switch";
 import { EscPosVisualizer } from "@/components/EscPosVisualizer";
 
 interface CartItem {
@@ -284,8 +285,11 @@ export default function POSPage() {
         printServerUrl: localStorage.getItem("pos_print_server") || "http://localhost:3001",
         nativeEscPos: localStorage.getItem("pos_native_esc_pos") === "true",
         printerWidth: parseInt(localStorage.getItem("pos_printer_width") || "32"),
-        simulationMode: localStorage.getItem("pos_simulation_mode") === "true",
         cashDrawerEnabled: localStorage.getItem("pos_cash_drawer") === "true",
+        autoCut: localStorage.getItem("pos_auto_cut") !== "false",
+        feedLines: parseInt(localStorage.getItem("pos_feed_lines") || "1"),
+        openDrawerOnPrint: localStorage.getItem("pos_open_drawer_on_print") === "true",
+        doubleHeightHeader: localStorage.getItem("pos_double_height_header") !== "false",
         quantityDecimalPlaces: parseInt(localStorage.getItem("pos_quantity_decimals") || "2"),
         variableWeightBarcodeRules: [
             {
@@ -367,7 +371,19 @@ export default function POSPage() {
         localStorage.setItem(`${prefix}discount`, orderDiscount.toString());
         localStorage.setItem(`${prefix}currency`, selectedCurrencyCode);
         localStorage.setItem(`${prefix}paymentMethod`, paymentMethod);
-    }, [companyId, cart, selectedCustomerId, orderDiscount, selectedCurrencyCode, paymentMethod]);
+        
+        // Persist detailed printer settings
+        localStorage.setItem("pos_auto_print", posSettings.autoPrint.toString());
+        localStorage.setItem("pos_terminal_id", posSettings.terminalId);
+        localStorage.setItem("pos_silent_printing", posSettings.silentPrinting.toString());
+        localStorage.setItem("pos_printer_name", posSettings.printerName);
+        localStorage.setItem("pos_printer_width", posSettings.printerWidth.toString());
+        localStorage.setItem("pos_native_esc_pos", posSettings.nativeEscPos.toString());
+        localStorage.setItem("pos_auto_cut", posSettings.autoCut.toString());
+        localStorage.setItem("pos_feed_lines", posSettings.feedLines.toString());
+        localStorage.setItem("pos_open_drawer_on_print", posSettings.openDrawerOnPrint.toString());
+        localStorage.setItem("pos_double_height_header", posSettings.doubleHeightHeader.toString());
+    }, [companyId, cart, selectedCustomerId, orderDiscount, selectedCurrencyCode, paymentMethod, posSettings]);
 
     const clearPersistedSession = () => {
         if (!companyId) return;
@@ -1414,43 +1430,28 @@ export default function POSPage() {
         const inv = invOverride || lastSuccessfulInvoice;
         if (!inv) return;
 
-        // --- GLOBAL SIMULATION INTERCEPTOR ---
-        // Catch simulation mode early for both Native and HTML flows
-        if (posSettings.simulationMode) {
-            console.log("%c--- PRINTER SIMULATION ACTIVE ---", "color: orange; font-weight: bold; background: #000; padding: 5px;");
-            
-            if (posSettings.nativeEscPos) {
-                try {
-                    const encoded = ReceiptTemplate.formatFiscalReceipt({
-                        company: resolvedCompany,
-                        branch: company?.branches?.find((b: any) => b.id === (inv.branchId || selectedBranchId)),
-                        invoice: { ...inv, _simulation: true },
-                        customer: resolvedCustomers?.find((c: any) => c.id === inv.customerId),
-                        items: inv.items,
-                        user: user
-                    }, { width: posSettings.printerWidth });
+        const isTestPrint = inv._testPrint === true;
+        const logPrefix = isTestPrint ? "[TEST PRINT]" : "[PRINT]";
 
-                    const hex = Array.from(encoded).map(b => b.toString(16).padStart(2, '0')).join(' ');
-                    console.log("%cNative ESC/POS Bytes:", "color: cyan", encoded);
-                    console.log("%cHex Output:", "color: cyan", hex);
-                    console.log("%cPaste hex into https://escpos.tools/ to visualize", "color: #AAA; font-style: italic");
-                    setSimulationData(encoded);
-                    toast({ title: "Simulation Success", description: "Receipt ESC/POS bytes logged to console.", variant: "default" });
-                } catch (err: any) {
-                    console.error("Simulation Format Error:", err);
-                    toast({ title: "Format Error", description: err.message, variant: "destructive" });
-                }
-            } else {
-                console.log("%cLegacy HTML Simulation:", "color: cyan");
-                console.log("HTML silent print was triggered, but Simulation is ON. No data sent to agent.");
-                toast({ title: "Simulation Mode", description: "HTML print call captured and logged to console." });
-            }
-            return;
-        }
+        console.group(`%c${logPrefix} Starting print job`, "color: #6366f1; font-weight: bold; font-size: 12px");
+        console.log("Invoice:", inv.invoiceNo || inv.id);
+        console.log("Settings:", {
+            nativeEscPos: posSettings.nativeEscPos,
+            printerName: posSettings.printerName || "(default)",
+            printerWidth: posSettings.printerWidth,
+            autoCut: posSettings.autoCut,
+            feedLines: posSettings.feedLines,
+            openDrawerOnPrint: posSettings.openDrawerOnPrint,
+            doubleHeightHeader: posSettings.doubleHeightHeader,
+            printServerUrl: posSettings.printServerUrl,
+            useElectron: !!(window as any).electronAPI,
+        });
 
-        // --- Native ESC/POS Printing via WebUSB ---
+        // --- Native ESC/POS Printing ---
         if (posSettings.nativeEscPos) {
+            console.log(`%c${logPrefix} → Path: Native ESC/POS`, "color: #6366f1");
             try {
+                console.log(`%c${logPrefix} → Encoding receipt bytes...`, "color: #94a3b8");
                 const encoded = ReceiptTemplate.formatFiscalReceipt({
                     company: resolvedCompany,
                     branch: company?.branches?.find((b: any) => b.id === (inv.branchId || selectedBranchId)),
@@ -1458,32 +1459,50 @@ export default function POSPage() {
                     customer: resolvedCustomers?.find((c: any) => c.id === inv.customerId),
                     items: inv.items,
                     user: user
-                }, { width: posSettings.printerWidth });
+                }, { 
+                    width: posSettings.printerWidth,
+                    autoCut: posSettings.autoCut,
+                    feedLines: posSettings.feedLines,
+                    openDrawer: posSettings.openDrawerOnPrint,
+                    doubleHeightHeader: posSettings.doubleHeightHeader
+                });
+                console.log(`%c${logPrefix} → Encoded ${encoded.byteLength} bytes`, "color: #22c55e");
+
+                const transport = (window as any).electronAPI ? "Electron IPC" : `Print Agent (${posSettings.printServerUrl})`;
+                console.log(`%c${logPrefix} → Sending via: ${transport}`, "color: #94a3b8");
 
                 const success = await PrinterService.printRaw(encoded, {
                     useElectron: !!(window as any).electronAPI,
                     printServerUrl: posSettings.printServerUrl || (companyId ? `http://localhost:3001` : undefined),
                     printerName: posSettings.printerName || undefined
                 });
+
                 if (success) {
-                    toast({ title: "Printed", description: "Native ESC/POS print job successful" });
+                    console.log(`%c${logPrefix} ✓ Print job accepted by driver`, "color: #22c55e; font-weight: bold");
+                    console.groupEnd();
+                    toast({ title: isTestPrint ? "Test Print Sent" : "Printed", description: "Native ESC/POS print job successful" });
                     return;
                 } else {
+                    console.warn(`%c${logPrefix} ✗ Driver returned false — printer unreachable`, "color: #ef4444");
+                    console.groupEnd();
                     toast({ title: "Print Failed", description: "Could not reach USB printer, Electron API, or Print Agent. Check connections.", variant: "destructive" });
                 }
             } catch (err: any) {
-                console.error("Native Print Error:", err);
+                console.error(`%c${logPrefix} ✗ Exception thrown:`, "color: #ef4444; font-weight: bold", err);
+                console.groupEnd();
                 toast({ title: "Print Error", description: err.message, variant: "destructive" });
             }
-            // Fallback to HTML if native fails? Only if requested, for now we stop.
             return;
         }
 
+        console.log(`%c${logPrefix} → Path: HTML / Print Agent`, "color: #f59e0b");
+
         let receiptElement = document.getElementById('silent-receipt-48');
+        console.log(`%c${logPrefix} → Looking for DOM receipt element #silent-receipt-48`, "color: #94a3b8");
 
         // Retry logic if element is not yet in DOM
         if (!receiptElement) {
-            console.log("Silent receipt element not found, retrying...");
+            console.warn(`%c${logPrefix} → Element not found yet, retrying up to 5 times...`, "color: #f59e0b");
             for (let i = 0; i < 5; i++) {
                 await new Promise(resolve => setTimeout(resolve, 200));
                 receiptElement = document.getElementById('silent-receipt-48');
@@ -1497,10 +1516,12 @@ export default function POSPage() {
                 description: "Receipt element not found. Please try again.",
                 variant: "destructive"
             });
+            console.error(`%c${logPrefix} ✗ DOM element still not found after retries`, "color: #ef4444");
+            console.groupEnd();
             return;
         }
 
-        try {
+        console.log(`%c${logPrefix} → Receipt element found, building HTML...`, "color: #94a3b8");
             // Grab all styles from current page so Tailwind classes work in hidden window
             const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
                 .map(s => {
@@ -1520,7 +1541,9 @@ export default function POSPage() {
                 const targetPrinter = pName || undefined;
 
                 if (window.electronAPI) {
+                    console.log(`%c${logPrefix} → Sending to Electron: printer="${targetPrinter || 'default'}"`, "color: #94a3b8");
                     await window.electronAPI.printReceipt(html, targetPrinter);
+                    console.log(`%c${logPrefix} ✓ Electron printReceipt call dispatched`, "color: #22c55e");
                 } else {
                     const printController = new AbortController();
                     const printTimeout = setTimeout(() => printController.abort(), 60000);
@@ -1546,9 +1569,12 @@ export default function POSPage() {
                 }
             }
 
+            console.log(`%c${logPrefix} ✓ All printers dispatched`, "color: #22c55e; font-weight: bold");
+            console.groupEnd();
             toast({ title: "Sent to Printer(s)", description: `Print job sent to ${printersToPrint.filter(Boolean).length || 1} printer(s).` });
         } catch (error: any) {
-            console.error("Silent Print Error:", error);
+            console.error(`%c${logPrefix} ✗ Exception:`, "color: #ef4444; font-weight: bold", error);
+            console.groupEnd();
             toast({
                 title: "Print Failed",
                 description: "Print server not reachable or error occurred. Is the middleware running?",
@@ -3237,24 +3263,33 @@ export default function POSPage() {
                                         </div>
                                     </div>
 
-                                    <div className="p-4 bg-amber-50/50 rounded-3xl border border-amber-100">
-                                        <div className="flex items-center justify-between">
-                                            <div className="space-y-0.5">
-                                                <Label className="text-[11px] font-black text-amber-700">Simulation</Label>
-                                                <p className="text-[8px] text-amber-500 font-bold uppercase tracking-widest">Debug Mode</p>
-                                            </div>
-                                            <Button
-                                                variant="ghost"
-                                                className={cn(
-                                                    "h-8 px-4 rounded-lg font-black text-[10px] transition-all",
-                                                    posSettings.simulationMode ? "bg-amber-500 text-white" : "text-amber-400 bg-white border border-amber-200"
-                                                )}
-                                                onClick={() => setPosSettings(prev => ({ ...prev, simulationMode: !prev.simulationMode }))}
-                                            >
-                                                {posSettings.simulationMode ? "DEBUG" : "STABLE"}
-                                            </Button>
-                                        </div>
-                                    </div>
+                                    <Button 
+                                        variant="outline" 
+                                        className="w-full h-12 rounded-2xl border-indigo-100 text-indigo-600 font-black text-xs uppercase tracking-widest hover:bg-indigo-50 flex items-center justify-center gap-2"
+                                        onClick={async () => {
+                                            console.clear();
+                                            console.log("%c━━━ TEST PRINT INITIATED ━━━", "color: #6366f1; font-size: 14px; font-weight: bold");
+                                            const dummyInvoice = {
+                                                id: 0,
+                                                invoiceNo: "TEST-0001",
+                                                issueDate: new Date().toISOString(),
+                                                total: 10.00,
+                                                currency: "USD",
+                                                items: [
+                                                    { description: "Test Product", quantity: 1, unitPrice: 10.00, lineTotal: 10.00, taxRate: 15 }
+                                                ],
+                                                verificationCode: "TEST-PRINT-SUCCESS",
+                                                receiptCounter: 1,
+                                                receiptGlobalNo: 1,
+                                                _simulation: true,
+                                                _testPrint: true
+                                            };
+                                            await handleSilentPrint(dummyInvoice);
+                                        }}
+                                    >
+                                        <Printer className="h-4 w-4" />
+                                        Run Test Print
+                                    </Button>
                                 </div>
 
                                 <div className="space-y-4">
@@ -3270,14 +3305,7 @@ export default function POSPage() {
                                                 )}
                                                 onClick={async () => {
                                                     if (!posSettings.nativeEscPos) {
-                                                        // If simulation is ON, we allow "Virtual Pairing" without a device
-                                                        if (posSettings.simulationMode) {
-                                                            setPosSettings(prev => ({ ...prev, nativeEscPos: true }));
-                                                            toast({ title: "Virtual Printer Paired", description: "Simulation mode active." });
-                                                            return;
-                                                        }
-
-                                                        // Otherwise request real hardware
+                                                        // Request real hardware
                                                         try {
                                                             const device = await PrinterService.requestDevice();
                                                             if (device) {
@@ -3292,8 +3320,49 @@ export default function POSPage() {
                                                     }
                                                 }}
                                             >
-                                                {posSettings.nativeEscPos ? "NATIVE ACTIVE" : (posSettings.simulationMode ? "VIRTUAL ENABLE" : "ENABLE USB")}
+                                                {posSettings.nativeEscPos ? "NATIVE ACTIVE" : "ENABLE USB"}
                                             </Button>
+                                        </div>
+
+                                        <div className="space-y-3 pt-2 border-t border-indigo-100/50">
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <div className="flex items-center justify-between p-2 bg-white rounded-xl border border-indigo-50">
+                                                    <Label className="text-[9px] font-black text-slate-500 uppercase">Auto-Cut</Label>
+                                                    <Switch 
+                                                        checked={posSettings.autoCut} 
+                                                        onCheckedChange={(v) => setPosSettings(prev => ({ ...prev, autoCut: v }))}
+                                                        className="scale-75 data-[state=checked]:bg-indigo-600"
+                                                    />
+                                                </div>
+                                                <div className="flex items-center justify-between p-2 bg-white rounded-xl border border-indigo-50">
+                                                    <Label className="text-[9px] font-black text-slate-500 uppercase">Cash Drawer</Label>
+                                                    <Switch 
+                                                        checked={posSettings.openDrawerOnPrint} 
+                                                        onCheckedChange={(v) => setPosSettings(prev => ({ ...prev, openDrawerOnPrint: v }))}
+                                                        className="scale-75 data-[state=checked]:bg-indigo-600"
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <div className="flex items-center justify-between p-2 bg-white rounded-xl border border-indigo-50">
+                                                    <Label className="text-[9px] font-black text-slate-500 uppercase">Large Header</Label>
+                                                    <Switch 
+                                                        checked={posSettings.doubleHeightHeader} 
+                                                        onCheckedChange={(v) => setPosSettings(prev => ({ ...prev, doubleHeightHeader: v }))}
+                                                        className="scale-75 data-[state=checked]:bg-indigo-600"
+                                                    />
+                                                </div>
+                                                <div className="flex items-center justify-between p-2 bg-white rounded-xl border border-indigo-50">
+                                                    <Label className="text-[9px] font-black text-slate-500 uppercase">Feed Lines</Label>
+                                                    <Input 
+                                                        type="number" 
+                                                        value={posSettings.feedLines}
+                                                        onChange={(e) => setPosSettings(prev => ({ ...prev, feedLines: parseInt(e.target.value) || 0 }))}
+                                                        className="w-12 h-6 p-0 text-center text-[10px] font-black bg-slate-50 border-none outline-none"
+                                                    />
+                                                </div>
+                                            </div>
                                         </div>
                                         <div className="grid grid-cols-2 gap-3 pt-1">
                                             <div>
@@ -3395,7 +3464,7 @@ export default function POSPage() {
                                 <div className="flex flex-col gap-3 w-full print:hidden">
                                     {posSettings.printingEnabled && (
                                         <Button className="h-16 rounded-2xl bg-slate-900 hover:bg-black text-white font-black uppercase tracking-widest shadow-xl flex items-center justify-center gap-3"
-                                            onClick={() => posSettings.silentPrinting ? handleSilentPrint() : window.print()}>
+                                            onClick={() => handleSilentPrint()}>
                                             <Printer className="h-5 w-5" />
                                             {posSettings.silentPrinting ? "Silent Print" : "Print Receipt"}
                                         </Button>
@@ -3463,20 +3532,7 @@ export default function POSPage() {
                             </div>
                             <Button className="w-full h-12 rounded-xl bg-slate-900 hover:bg-black text-white font-black uppercase tracking-widest"
                                 onClick={() => {
-                                    if (posSettings.nativeEscPos) {
-                                        handleSilentPrint(reprintInvoice);
-                                    } else if (posSettings.silentPrinting) {
-                                        const el = document.getElementById('reprint-receipt-48');
-                                        if (el && window.electronAPI) {
-                                            const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]')).map(s => {
-                                                if (s.tagName === 'LINK') return `<link rel="stylesheet" href="${(s as HTMLLinkElement).href}">`;
-                                                return s.outerHTML;
-                                            }).join('');
-                                            const html = `<!DOCTYPE html><html><head><meta charset="utf-8">${styles}</head><body class="bg-white p-0 m-0" style="margin:0;padding:0;">${el.outerHTML}</body></html>`;
-                                            window.electronAPI.printReceipt(html, posSettings.printerName || undefined);
-                                        }
-                                        else window.print();
-                                    } else { window.print(); }
+                                    handleSilentPrint(reprintInvoice);
                                 }}>
                                 <Printer className="h-4 w-4 mr-2" /> Print
                             </Button>

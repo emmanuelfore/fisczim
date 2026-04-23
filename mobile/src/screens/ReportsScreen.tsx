@@ -509,7 +509,7 @@ export function ReportsScreen({ onOpenDrawer, companyId, userRole = "member", us
   const [showDrillDown, setShowDrillDown] = useState(false);
 
   // Date filter: hidden on valuation sub-tab and pnl (pnl is always all-time)
-  const showDateFilter = activeTab === "sales" || (activeTab === "inventory" && activeInvTab !== "valuation") || activeTab === "abc";
+  const showDateFilter = activeTab === "sales" || (activeTab === "inventory" && activeInvTab !== "valuation") || activeTab === "abc" || activeTab === "collections";
   // Cashier filter only applies to sales
   const showCashierFilter = !isCashier && activeTab === "sales";
   const ownerGroups = useMemo(() => {
@@ -520,7 +520,8 @@ export function ReportsScreen({ onOpenDrawer, companyId, userRole = "member", us
     });
     return Array.from(values).sort((a, b) => a.localeCompare(b));
   }, [products]);
-  const showOwnerGroupFilter = (activeTab === "sales" || activeTab === "inventory") && ownerGroups.length > 0;
+
+  const showOwnerGroupFilter = (activeTab === "sales" || activeTab === "inventory" || activeTab === "collections") && ownerGroups.length > 0;
 
   // Close pickers when switching to a tab/subtab where they don't apply
   useEffect(() => {

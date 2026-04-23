@@ -98,7 +98,7 @@ export function DailySalesTable({ sales, currencies, consolidatedSymbol, consoli
                     ))}
                     {sortedDates.length === 0 && (
                         <TableRow>
-                            <TableCell colSpan={5} className="h-32 text-center text-slate-400 italic">
+                            <TableCell colSpan={7} className="h-32 text-center text-slate-400 italic">
                                 No sales data found for this period
                             </TableCell>
                         </TableRow>
@@ -198,11 +198,11 @@ function InvoiceRow({ inv, currencies, isExpanded, onToggle, consolidatedSymbol,
                 <TableCell className="pl-8">
                     {isExpanded ? <ChevronDown className="w-3.5 h-3.5 text-indigo-500" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-400" />}
                 </TableCell>
-                <TableCell className="text-sm font-medium text-slate-600">
-                    {format(new Date(inv.issueDate || inv.createdAt), 'HH:mm')}
-                </TableCell>
-                <TableCell className="text-sm font-bold text-indigo-600">
-                    {inv.invoiceNumber}
+                <TableCell className="text-sm font-medium text-slate-600 whitespace-nowrap">
+                    <div className="flex flex-col">
+                        <span className="text-[10px] text-slate-400 font-bold">{format(new Date(inv.issueDate || inv.createdAt), 'HH:mm')}</span>
+                        <span className="font-bold text-indigo-600">{inv.invoiceNumber}</span>
+                    </div>
                 </TableCell>
                 <TableCell className="text-sm text-slate-700">
                     {inv.customerName || "Walk-in Customer"}

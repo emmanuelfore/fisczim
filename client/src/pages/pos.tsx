@@ -283,7 +283,7 @@ export default function POSPage() {
         secondaryPrinterName: localStorage.getItem("pos_secondary_printer_name") || "",
         paperSize: localStorage.getItem("pos_paper_size") || "",
         printServerUrl: localStorage.getItem("pos_print_server") || "http://localhost:3001",
-        nativeEscPos: localStorage.getItem("pos_native_esc_pos") === "true",
+        nativeEscPos: true,
         printerWidth: parseInt(localStorage.getItem("pos_printer_width") || "32"),
         cashDrawerEnabled: localStorage.getItem("pos_cash_drawer") === "true",
         autoCut: localStorage.getItem("pos_auto_cut") !== "false",
@@ -1448,12 +1448,16 @@ export default function POSPage() {
         });
 
         // --- Native ESC/POS Printing ---
-        if (posSettings.nativeEscPos) {
+        // Test prints always use this path (they have their own data, no DOM element needed).
+        if (posSettings.nativeEscPos || isTestPrint) {
             console.log(`%c${logPrefix} → Path: Native ESC/POS`, "color: #6366f1");
+            if (isTestPrint && !posSettings.nativeEscPos) {
+                console.log(`%c${logPrefix} → (nativeEscPos is OFF but this is a test — using ESC/POS encoder anyway)`, "color: #f59e0b");
+            }
             try {
                 console.log(`%c${logPrefix} → Encoding receipt bytes...`, "color: #94a3b8");
                 const encoded = ReceiptTemplate.formatFiscalReceipt({
-                    company: resolvedCompany,
+                    company: resolvedCompany || { name: "TEST COMPANY", tin: "123456789", vatNumber: "VAT001" },
                     branch: company?.branches?.find((b: any) => b.id === (inv.branchId || selectedBranchId)),
                     invoice: inv,
                     customer: resolvedCustomers?.find((c: any) => c.id === inv.customerId),
@@ -1480,7 +1484,7 @@ export default function POSPage() {
                 if (success) {
                     console.log(`%c${logPrefix} ✓ Print job accepted by driver`, "color: #22c55e; font-weight: bold");
                     console.groupEnd();
-                    toast({ title: isTestPrint ? "Test Print Sent" : "Printed", description: "Native ESC/POS print job successful" });
+                    toast({ title: isTestPrint ? "Test Print Sent ✓" : "Printed", description: "Native ESC/POS print job successful" });
                     return;
                 } else {
                     console.warn(`%c${logPrefix} ✗ Driver returned false — printer unreachable`, "color: #ef4444");
@@ -1522,6 +1526,7 @@ export default function POSPage() {
         }
 
         console.log(`%c${logPrefix} → Receipt element found, building HTML...`, "color: #94a3b8");
+        try {
             // Grab all styles from current page so Tailwind classes work in hidden window
             const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
                 .map(s => {
@@ -3294,93 +3299,56 @@ export default function POSPage() {
 
                                 <div className="space-y-4">
                                     <div className="p-4 bg-indigo-50/50 rounded-3xl border border-indigo-100 space-y-3">
-                                        <div className="flex items-center justify-between">
-                                            <Label className="text-[10px] font-black text-indigo-700 uppercase tracking-widest">Printer Driver</Label>
-                                            <Button
-                                                variant="ghost"
-                                                size="sm"
-                                                className={cn(
-                                                    "h-7 px-3 rounded-full font-black text-[9px] transition-all",
-                                                    posSettings.nativeEscPos ? "bg-indigo-500 text-white" : "text-indigo-400 bg-white border border-indigo-200"
-                                                )}
-                                                onClick={async () => {
-                                                    if (!posSettings.nativeEscPos) {
-                                                        // Request real hardware
-                                                        try {
-                                                            const device = await PrinterService.requestDevice();
-                                                            if (device) {
-                                                                setPosSettings(prev => ({ ...prev, nativeEscPos: true }));
-                                                                toast({ title: "Printer Paired", description: `${device.productName} is ready.` });
-                                                            }
-                                                        } catch (e: any) {
-                                                            toast({ title: "Pairing Cancelled", description: e.message, variant: "destructive" });
-                                                        }
-                                                    } else {
-                                                        setPosSettings(prev => ({ ...prev, nativeEscPos: false }));
-                                                    }
-                                                }}
-                                            >
-                                                {posSettings.nativeEscPos ? "NATIVE ACTIVE" : "ENABLE USB"}
-                                            </Button>
+                                        <Label className="text-[10px] font-black text-indigo-700 uppercase tracking-widest block">ESC/POS Settings</Label>
+
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div className="flex items-center justify-between p-2 bg-white rounded-xl border border-indigo-50">
+                                                <Label className="text-[9px] font-black text-slate-500 uppercase">Auto-Cut</Label>
+                                                <Switch 
+                                                    checked={posSettings.autoCut} 
+                                                    onCheckedChange={(v) => setPosSettings(prev => ({ ...prev, autoCut: v }))}
+                                                    className="scale-75 data-[state=checked]:bg-indigo-600"
+                                                />
+                                            </div>
+                                            <div className="flex items-center justify-between p-2 bg-white rounded-xl border border-indigo-50">
+                                                <Label className="text-[9px] font-black text-slate-500 uppercase">Cash Drawer</Label>
+                                                <Switch 
+                                                    checked={posSettings.openDrawerOnPrint} 
+                                                    onCheckedChange={(v) => setPosSettings(prev => ({ ...prev, openDrawerOnPrint: v }))}
+                                                    className="scale-75 data-[state=checked]:bg-indigo-600"
+                                                />
+                                            </div>
                                         </div>
 
-                                        <div className="space-y-3 pt-2 border-t border-indigo-100/50">
-                                            <div className="grid grid-cols-2 gap-3">
-                                                <div className="flex items-center justify-between p-2 bg-white rounded-xl border border-indigo-50">
-                                                    <Label className="text-[9px] font-black text-slate-500 uppercase">Auto-Cut</Label>
-                                                    <Switch 
-                                                        checked={posSettings.autoCut} 
-                                                        onCheckedChange={(v) => setPosSettings(prev => ({ ...prev, autoCut: v }))}
-                                                        className="scale-75 data-[state=checked]:bg-indigo-600"
-                                                    />
-                                                </div>
-                                                <div className="flex items-center justify-between p-2 bg-white rounded-xl border border-indigo-50">
-                                                    <Label className="text-[9px] font-black text-slate-500 uppercase">Cash Drawer</Label>
-                                                    <Switch 
-                                                        checked={posSettings.openDrawerOnPrint} 
-                                                        onCheckedChange={(v) => setPosSettings(prev => ({ ...prev, openDrawerOnPrint: v }))}
-                                                        className="scale-75 data-[state=checked]:bg-indigo-600"
-                                                    />
-                                                </div>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div className="flex items-center justify-between p-2 bg-white rounded-xl border border-indigo-50">
+                                                <Label className="text-[9px] font-black text-slate-500 uppercase">Large Header</Label>
+                                                <Switch 
+                                                    checked={posSettings.doubleHeightHeader} 
+                                                    onCheckedChange={(v) => setPosSettings(prev => ({ ...prev, doubleHeightHeader: v }))}
+                                                    className="scale-75 data-[state=checked]:bg-indigo-600"
+                                                />
                                             </div>
-
-                                            <div className="grid grid-cols-2 gap-3">
-                                                <div className="flex items-center justify-between p-2 bg-white rounded-xl border border-indigo-50">
-                                                    <Label className="text-[9px] font-black text-slate-500 uppercase">Large Header</Label>
-                                                    <Switch 
-                                                        checked={posSettings.doubleHeightHeader} 
-                                                        onCheckedChange={(v) => setPosSettings(prev => ({ ...prev, doubleHeightHeader: v }))}
-                                                        className="scale-75 data-[state=checked]:bg-indigo-600"
-                                                    />
-                                                </div>
-                                                <div className="flex items-center justify-between p-2 bg-white rounded-xl border border-indigo-50">
-                                                    <Label className="text-[9px] font-black text-slate-500 uppercase">Feed Lines</Label>
-                                                    <Input 
-                                                        type="number" 
-                                                        value={posSettings.feedLines}
-                                                        onChange={(e) => setPosSettings(prev => ({ ...prev, feedLines: parseInt(e.target.value) || 0 }))}
-                                                        className="w-12 h-6 p-0 text-center text-[10px] font-black bg-slate-50 border-none outline-none"
-                                                    />
-                                                </div>
+                                            <div className="flex items-center justify-between p-2 bg-white rounded-xl border border-indigo-50">
+                                                <Label className="text-[9px] font-black text-slate-500 uppercase">Feed Lines</Label>
+                                                <Input 
+                                                    type="number" 
+                                                    value={posSettings.feedLines}
+                                                    onChange={(e) => setPosSettings(prev => ({ ...prev, feedLines: parseInt(e.target.value) || 0 }))}
+                                                    className="w-12 h-6 p-0 text-center text-[10px] font-black bg-slate-50 border-none outline-none"
+                                                />
                                             </div>
                                         </div>
-                                        <div className="grid grid-cols-2 gap-3 pt-1">
-                                            <div>
-                                                <label className="text-[8px] font-black uppercase tracking-widest text-indigo-400 block mb-1 px-1">Character Width</label>
-                                                <div className="flex gap-1 p-1 bg-white rounded-xl border border-indigo-100">
-                                                    {[32, 42, 48].map(w => (
-                                                        <button key={w} onClick={() => setPosSettings(prev => ({ ...prev, printerWidth: w }))}
-                                                            className={cn("flex-1 h-7 rounded-lg text-[9px] font-black transition-all", posSettings.printerWidth === w ? "bg-indigo-600 text-white" : "text-indigo-300 hover:bg-indigo-50")}>
-                                                            {w}ch
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <label className="text-[8px] font-black uppercase tracking-widest text-indigo-400 block mb-1 px-1">Paper Type</label>
-                                                <p className="text-[9px] font-bold text-slate-400 px-1 mt-1">
-                                                    {posSettings.printerWidth === 32 ? "58mm Small" : "80mm Large"}
-                                                </p>
+
+                                        <div>
+                                            <label className="text-[8px] font-black uppercase tracking-widest text-indigo-400 block mb-1 px-1">Paper Width</label>
+                                            <div className="flex gap-1 p-1 bg-white rounded-xl border border-indigo-100">
+                                                {[{ w: 32, label: "32ch · 58mm" }, { w: 42, label: "42ch · 80mm" }, { w: 48, label: "48ch" }].map(({ w, label }) => (
+                                                    <button key={w} onClick={() => setPosSettings(prev => ({ ...prev, printerWidth: w }))}
+                                                        className={cn("flex-1 h-7 rounded-lg text-[8px] font-black transition-all", posSettings.printerWidth === w ? "bg-indigo-600 text-white" : "text-indigo-300 hover:bg-indigo-50")}>
+                                                        {label}
+                                                    </button>
+                                                ))}
                                             </div>
                                         </div>
                                     </div>

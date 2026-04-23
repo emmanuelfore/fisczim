@@ -230,9 +230,8 @@ function registerIpcHandlers(mainWindow) {
     return printHtmlToWindow(testHtml, printerName);
   });
 
-  // print-raw — receive raw ESC/POS bytes from renderer and log/print
+  // print-raw — receive raw ESC/POS bytes from renderer and send to printer
   ipcMain.handle('print-raw', async (_event, data, printerName) => {
-    // Convert incoming ArrayBuffer to Buffer
     const bytes = Buffer.from(data);
     
     if (bytes.length === 0) {
@@ -241,83 +240,107 @@ function registerIpcHandlers(mainWindow) {
     
     log.info(`[Main] print-raw: Received ${bytes.length} bytes for printer: ${printerName || 'System Default'}`);
     
-    const tempFilePath = path.join(app.getPath('userData'), `receipt_${Date.now()}.bin`);
-    
-    try {
-        fs.writeFileSync(tempFilePath, bytes);
+    const ts = Date.now();
+    const binPath  = path.join(app.getPath('userData'), `receipt_${ts}.bin`);
+    const ps1Path  = path.join(app.getPath('userData'), `print_${ts}.ps1`);
 
-        // Robust Windows spooling command for Raw ESC/POS data
-        // We use P/Invoke to call Win32 Spooler APIs directly for bit-perfect raw data transfer
-        const printerTarget = printerName ? `"${printerName}"` : `(Get-WmiObject -Query "SELECT * FROM Win32_Printer WHERE Default = TRUE").Name`;
-        
-        const psCommand = `
-            $code = @'
-            using System;
-            using System.Runtime.InteropServices;
-            public class RawPrint {
-                [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
-                public class DOCINFOA {
-                    [MarshalAs(UnmanagedType.LPStr)] public string pDocName;
-                    [MarshalAs(UnmanagedType.LPStr)] public string pOutputFile;
-                    [MarshalAs(UnmanagedType.LPStr)] public string pDataType;
-                }
-                [DllImport("winspool.Drv", EntryPoint = "OpenPrinterA", SetLastError = true, CharSet = CharSet.Ansi)]
-                public static extern bool OpenPrinter([MarshalAs(UnmanagedType.LPStr)] string szPrinter, out IntPtr hPrinter, IntPtr pd);
-                [DllImport("winspool.Drv", EntryPoint = "ClosePrinter", SetLastError = true)]
-                public static extern bool ClosePrinter(IntPtr hPrinter);
-                [DllImport("winspool.Drv", EntryPoint = "StartDocPrinterA", SetLastError = true, CharSet = CharSet.Ansi)]
-                public static extern bool StartDocPrinter(IntPtr hPrinter, Int32 level, [In, MarshalAs(UnmanagedType.LPStruct)] DOCINFOA di);
-                [DllImport("winspool.Drv", EntryPoint = "EndDocPrinter", SetLastError = true)]
-                public static extern bool EndDocPrinter(IntPtr hPrinter);
-                [DllImport("winspool.Drv", EntryPoint = "StartPagePrinter", SetLastError = true)]
-                public static extern bool StartPagePrinter(IntPtr hPrinter);
-                [DllImport("winspool.Drv", EntryPoint = "EndPagePrinter", SetLastError = true)]
-                public static extern bool EndPagePrinter(IntPtr hPrinter);
-                [DllImport("winspool.Drv", EntryPoint = "WritePrinter", SetLastError = true)]
-                public static extern bool WritePrinter(IntPtr hPrinter, IntPtr pBytes, Int32 dwCount, out Int32 dwWritten);
-                public static void Send(string printer, byte[] bytes) {
-                    IntPtr h;
-                    var di = new DOCINFOA { pDocName = "RAW", pDataType = "RAW" };
-                    if (OpenPrinter(printer, out h, IntPtr.Zero)) {
-                        if (StartDocPrinter(h, 1, di)) {
-                            if (StartPagePrinter(h)) {
-                                IntPtr p = Marshal.AllocCoTaskMem(bytes.Length);
-                                Marshal.Copy(bytes, 0, p, bytes.Length);
-                                Int32 w;
-                                WritePrinter(h, p, bytes.Length, out w);
-                                EndPagePrinter(h);
-                                Marshal.FreeCoTaskMem(p);
-                            }
-                            EndDocPrinter(h);
-                        }
-                        ClosePrinter(h);
-                    }
-                }
-            }
-'@;
-            Add-Type -TypeDefinition $code;
-            [RawPrint]::Send(${printerTarget}, [System.IO.File]::ReadAllBytes('${tempFilePath.replace(/\\/g, '\\\\')}'));
-        `.replace(/\n/g, ' ');
+    try {
+        fs.writeFileSync(binPath, bytes);
+
+        // Determine the printer name — fall back to the system default via WMI
+        const resolvedPrinter = printerName
+            ? printerName
+            : '$(Get-WmiObject -Query \\"SELECT * FROM Win32_Printer WHERE Default = TRUE\\").Name';
+
+        // Write a proper multi-line .ps1 file — avoids all -Command quoting/newline issues
+        const psScript = `
+$code = @'
+using System;
+using System.Runtime.InteropServices;
+public class RawPrint {
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+    public class DOCINFOA {
+        [MarshalAs(UnmanagedType.LPStr)] public string pDocName;
+        [MarshalAs(UnmanagedType.LPStr)] public string pOutputFile;
+        [MarshalAs(UnmanagedType.LPStr)] public string pDataType;
+    }
+    [DllImport("winspool.Drv", EntryPoint = "OpenPrinterA", SetLastError = true, CharSet = CharSet.Ansi)]
+    public static extern bool OpenPrinter([MarshalAs(UnmanagedType.LPStr)] string szPrinter, out IntPtr hPrinter, IntPtr pd);
+    [DllImport("winspool.Drv", EntryPoint = "ClosePrinter", SetLastError = true)]
+    public static extern bool ClosePrinter(IntPtr hPrinter);
+    [DllImport("winspool.Drv", EntryPoint = "StartDocPrinterA", SetLastError = true, CharSet = CharSet.Ansi)]
+    public static extern bool StartDocPrinter(IntPtr hPrinter, Int32 level, [In, MarshalAs(UnmanagedType.LPStruct)] DOCINFOA di);
+    [DllImport("winspool.Drv", EntryPoint = "EndDocPrinter", SetLastError = true)]
+    public static extern bool EndDocPrinter(IntPtr hPrinter);
+    [DllImport("winspool.Drv", EntryPoint = "StartPagePrinter", SetLastError = true)]
+    public static extern bool StartPagePrinter(IntPtr hPrinter);
+    [DllImport("winspool.Drv", EntryPoint = "EndPagePrinter", SetLastError = true)]
+    public static extern bool EndPagePrinter(IntPtr hPrinter);
+    [DllImport("winspool.Drv", EntryPoint = "WritePrinter", SetLastError = true)]
+    public static extern bool WritePrinter(IntPtr hPrinter, IntPtr pBytes, Int32 dwCount, out Int32 dwWritten);
+    public static string Send(string printer, byte[] bytes) {
+        IntPtr h;
+        var di = new DOCINFOA { pDocName = "FiscalStack Receipt", pDataType = "RAW" };
+        if (!OpenPrinter(printer, out h, IntPtr.Zero))
+            return "FAIL: Could not open printer [" + printer + "]. Win32 Error: " + Marshal.GetLastWin32Error();
+        if (!StartDocPrinter(h, 1, di)) { ClosePrinter(h); return "FAIL: StartDocPrinter failed. Win32 Error: " + Marshal.GetLastWin32Error(); }
+        if (!StartPagePrinter(h)) { EndDocPrinter(h); ClosePrinter(h); return "FAIL: StartPagePrinter failed."; }
+        IntPtr p = Marshal.AllocCoTaskMem(bytes.Length);
+        Marshal.Copy(bytes, 0, p, bytes.Length);
+        Int32 w;
+        bool ok = WritePrinter(h, p, bytes.Length, out w);
+        Marshal.FreeCoTaskMem(p);
+        EndPagePrinter(h);
+        EndDocPrinter(h);
+        ClosePrinter(h);
+        if (!ok) return "FAIL: WritePrinter failed. Win32 Error: " + Marshal.GetLastWin32Error();
+        return "OK: " + w + " bytes written to [" + printer + "]";
+    }
+}
+'@
+Add-Type -TypeDefinition $code
+$printerName = "${resolvedPrinter}"
+$binFile = "${binPath.replace(/\\/g, '\\\\')}"
+$result = [RawPrint]::Send($printerName, [System.IO.File]::ReadAllBytes($binFile))
+Write-Output $result
+`.trimStart();
+
+        fs.writeFileSync(ps1Path, psScript, 'utf8');
+        log.info(`[print-raw] Script written to: ${ps1Path}`);
 
         return new Promise((resolve, reject) => {
-            require('child_process').exec(`powershell -Command "${psCommand}"`, (err) => {
-                if (fs.existsSync(tempFilePath)) {
-                    try { fs.unlinkSync(tempFilePath); } catch(e) {}
+            require('child_process').exec(
+                `powershell -ExecutionPolicy Bypass -NonInteractive -File "${ps1Path}"`,
+                (err, stdout, stderr) => {
+                    // Cleanup temp files
+                    for (const f of [binPath, ps1Path]) {
+                        if (fs.existsSync(f)) try { fs.unlinkSync(f); } catch(e) {}
+                    }
+                    const output = (stdout || '').trim();
+                    if (output) log.info(`[print-raw] Result: ${output}`);
+                    if (stderr && stderr.trim()) log.warn(`[print-raw] stderr: ${stderr.trim()}`);
+                    if (err) {
+                        log.error('[print-raw] Error:', err.message);
+                        return reject(err.message);
+                    }
+                    if (output.startsWith('FAIL:')) {
+                        log.error('[print-raw] Printer failure:', output);
+                        return reject(output);
+                    }
+                    log.info('[print-raw] Success:', output);
+                    resolve(true);
                 }
-                if (err) {
-                    log.error('[print-raw] Native Spool Error:', err.message);
-                    return reject(err.message);
-                }
-                log.info('[print-raw] Successfully sent to Windows spooler');
-                resolve(true);
-            });
+            );
         });
     } catch (err) {
-        if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+        for (const f of [binPath, ps1Path]) {
+            if (fs.existsSync(f)) try { fs.unlinkSync(f); } catch(e) {}
+        }
         log.error('[print-raw] Exception:', err.message);
         return Promise.reject(err.message);
     }
   });
+
 
 
   // Task 6.1: open-cash-drawer — send ESC/POS kick bytes [0x1B, 0x70, 0x00, 0x19, 0xFA] to the printer

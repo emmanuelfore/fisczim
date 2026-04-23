@@ -72,6 +72,10 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  const POS_VERBOSE_LOGS = process.env.POS_VERBOSE_LOGS === "1";
+  const vLog = (...args: any[]) => { if (POS_VERBOSE_LOGS) console.log(...args); };
+  const vWarn = (...args: any[]) => { if (POS_VERBOSE_LOGS) console.warn(...args); };
+
   setupAuth(app);
 
   const requireAuth = async (req: any, res: any, next: any) => {
@@ -4533,14 +4537,34 @@ export async function registerRoutes(
 
   app.post(api.invoices.create.path, requireAuth, async (req, res) => {
     try {
+      const perfStart = Date.now();
+      const perfMarks: Array<{ step: string; ms: number }> = [];
+      const markPerf = (step: string) => {
+        perfMarks.push({ step, ms: Date.now() - perfStart });
+      };
+      const flushPerf = (status: "ok" | "error", extra?: Record<string, any>) => {
+        const payload = {
+          status,
+          companyId: Number(req.params.companyId),
+          isPos: !!req.body?.isPos,
+          isFiscalized: req.body?.isFiscalized,
+          totalMs: Date.now() - perfStart,
+          marks: perfMarks,
+          ...(extra || {}),
+        };
+        console.log("[POS_PERF] createInvoice", JSON.stringify(payload));
+      };
+
       // Preprocess dates: convert ISO strings to Date objects
       const body = {
         ...req.body,
         issueDate: req.body.issueDate ? new Date(req.body.issueDate) : undefined,
         dueDate: req.body.dueDate ? new Date(req.body.dueDate) : undefined,
       };
+      markPerf("body_preprocessed");
 
       const input = api.invoices.create.input.parse(body);
+      markPerf("input_validated");
 
       const companyId = Number(req.params.companyId);
       const userId = (req.user as any)?.id;
@@ -4562,6 +4586,7 @@ export async function registerRoutes(
         companyPromise,
         customerPromise
       ]);
+      markPerf("prefetch_done");
 
       if (input.isPos && !activeShift) {
         return res.status(400).json({
@@ -4582,6 +4607,7 @@ export async function registerRoutes(
         shiftId: activeShift?.id || undefined,
         branchId: getBranchId(req)
       });
+      markPerf("invoice_created");
 
       // 2. POS Payment Recording
       if (input.isPos) {
@@ -4598,35 +4624,92 @@ export async function registerRoutes(
           });
           // Redundant updateInvoice(paid) Removed
           invoice.status = "paid";
+          markPerf("payment_recorded");
         } catch (payErr) {
           console.error("[POS] Auto-payment recording failed:", payErr);
+          markPerf("payment_failed");
         }
       }
 
       // 3. ZIMRA Fiscalization Trigger Logic
+      // Respect POS fiscal toggle from client payload. Default is true when omitted.
+      const fiscalRequested = input.isFiscalized !== false;
       let shouldFiscalize = false;
-      if (company?.vatRegistered !== false) {
+      if (fiscalRequested) {
         if (input.isPos) {
+          // POS fiscal toggle ON should always attempt fiscalization.
           shouldFiscalize = true;
-        } else if (input.customerId && customer?.vatNumber && customer.vatNumber.trim()) {
+        } else if (company?.vatRegistered !== false && input.customerId && customer?.vatNumber && customer.vatNumber.trim()) {
           shouldFiscalize = true;
         }
       }
 
       if (shouldFiscalize) {
         if (input.isPos) {
-          // 🚀 Snappy POS: Background the slow ZIMRA network call
-          console.log(`[Fiscal] Backgrounding POS fiscalization for invoice ${invoice.id}`);
-          processInvoiceFiscalization(
+          // Fast checkout path:
+          // Try fiscalization synchronously for a short budget, then continue in background
+          // so cashier can move on quickly even if FDMS is slow.
+          const POS_FISCAL_SYNC_BUDGET_MS = 2500;
+          vLog(`[Fiscal] Triggering POS fiscalization for invoice ${invoice.id} with ${POS_FISCAL_SYNC_BUDGET_MS}ms checkout budget`);
+
+          const fiscalPromise = processInvoiceFiscalization(
             invoice.id,
             invoice.companyId,
             req.user?.id,
             (req.user as any)?.isSuperAdmin,
-            undefined, 
-            true 
-          ).catch(err => {
-            console.error(`[Fiscal] Background POS Fiscalization Failed for invoice ${invoice.id}:`, err);
-          });
+            undefined,
+            true
+          );
+
+          const budgetResult = await Promise.race([
+            fiscalPromise
+              .then((updated) => ({ kind: "done" as const, updated }))
+              .catch((error) => ({ kind: "error" as const, error })),
+            new Promise<{ kind: "timeout" }>((resolve) =>
+              setTimeout(() => resolve({ kind: "timeout" }), POS_FISCAL_SYNC_BUDGET_MS)
+            ),
+          ]);
+
+          if (budgetResult.kind === "done") {
+            invoice = budgetResult.updated as any;
+            markPerf("fiscal_done_within_budget");
+          } else if (budgetResult.kind === "error") {
+            console.error("[Fiscal] POS fiscalization failed within checkout window:", budgetResult.error);
+            try {
+              const failedInvoice = await storage.updateInvoice(invoice.id, {
+                fdmsStatus: "Failed",
+                validationStatus: "invalid",
+                lastValidationAttempt: new Date(),
+              } as any);
+              if (failedInvoice) invoice = failedInvoice as any;
+            } catch (updateErr) {
+              console.error(`[Fiscal] Failed to persist POS failure status for invoice ${invoice.id}:`, updateErr);
+            }
+            markPerf("fiscal_failed_within_budget");
+          } else {
+            vWarn(`[Fiscal] POS fiscalization exceeded ${POS_FISCAL_SYNC_BUDGET_MS}ms for invoice ${invoice.id}; continuing in background.`);
+            storage.updateInvoice(invoice.id, {
+                fdmsStatus: "Pending",
+                lastValidationAttempt: new Date(),
+              } as any).catch((pendingErr) => {
+                console.error(`[Fiscal] Failed to mark invoice ${invoice.id} as pending fiscalization:`, pendingErr);
+              });
+            markPerf("fiscal_timed_out_to_background");
+
+            // Let in-flight fiscalization finish; if it fails, persist failure state.
+            fiscalPromise.catch(async (err) => {
+              console.error(`[Fiscal] Background POS fiscalization failed for invoice ${invoice.id}:`, err);
+              try {
+                await storage.updateInvoice(invoice.id, {
+                  fdmsStatus: "Failed",
+                  validationStatus: "invalid",
+                  lastValidationAttempt: new Date(),
+                } as any);
+              } catch (updateErr) {
+                console.error(`[Fiscal] Failed to persist background failure status for invoice ${invoice.id}:`, updateErr);
+              }
+            });
+          }
         } else {
           // Standard Invoice: Keep synchronous for now to ensure QR code for PDF downloads
           try {
@@ -4639,14 +4722,23 @@ export async function registerRoutes(
               undefined, 
               false 
             );
+            markPerf("non_pos_fiscal_done");
           } catch (fiscalError) {
             console.error("Automated Fiscalization Failed:", fiscalError);
+            markPerf("non_pos_fiscal_failed");
           }
         }
       }
+      else if (fiscalRequested && input.isPos) {
+        vWarn(`[Fiscal] POS fiscalization skipped for invoice ${invoice.id}. Flags: vatRegistered=${company?.vatRegistered}, isFiscalized=${input.isFiscalized}, isPos=${input.isPos}`);
+        markPerf("fiscal_skipped");
+      }
 
+      markPerf("response_ready");
+      flushPerf("ok", { invoiceId: invoice.id });
       res.status(201).json(invoice);
     } catch (err) {
+      console.error("[POS_PERF] createInvoice error", err);
       if (err instanceof z.ZodError) {
         console.error("[Invoices] Validation Error:", JSON.stringify(err.errors, null, 2));
         return res.status(400).json({ 
@@ -6956,4 +7048,3 @@ async function seedDatabase() {
     // Create seed logic here if needed
   }
 }
-

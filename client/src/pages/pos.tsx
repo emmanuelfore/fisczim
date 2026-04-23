@@ -7,7 +7,6 @@ import { useCompany } from "@/hooks/use-companies";
 import { useTaxConfig } from "@/hooks/use-tax-config";
 import { useToast } from "@/hooks/use-toast";
 import { useOffline } from "@/hooks/use-offline";
-import { DeviceStatusWidget } from "@/components/device-status-widget";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,7 +21,7 @@ import {
     setLastCacheTime,
     addPendingSale,
 } from "@/lib/offline-db";
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { Search, ShoppingCart, Trash2, Plus, Minus, CreditCard, Banknote, UserPlus, Loader2, Package, Tag, Pause, Play, History, Calculator, Printer, CheckCircle2, XCircle, ChevronRight, Fullscreen, HelpCircle, User, Settings as SettingsIcon, LogOut, FileText, Receipt, Clock, LayoutGrid, ShoppingBag, Filter, WifiOff, Wifi, CloudUpload, AlertTriangle, Pin, Download, Store } from "lucide-react";
 import { RefreshCw } from "lucide-react";
 import { POSReceipt } from "@/components/pos-receipt";
@@ -135,18 +134,26 @@ export default function POSPage() {
 
     // When we come back online (or first confirm online), refresh all POS data queries
     const prevIsOnlineRef = useRef<boolean | null>(null);
+    const runOnIdle = useCallback((fn: () => void, timeout = 1200) => {
+        if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+            (window as any).requestIdleCallback(() => fn(), { timeout });
+        } else {
+            window.setTimeout(fn, 0);
+        }
+    }, []);
+
     useEffect(() => {
         const prev = prevIsOnlineRef.current;
         prevIsOnlineRef.current = isOnline;
         if (prev === false && isOnline && companyId) {
             // Invalidate using partial key prefixes that match the actual query keys
-            queryClient.invalidateQueries({ queryKey: ['/api/companies'] });
-            queryClient.invalidateQueries({ queryKey: ['/api/companies/:companyId/products', companyId] });
-            queryClient.invalidateQueries({ queryKey: ['/api/companies/:companyId/customers', companyId] });
-            queryClient.invalidateQueries({ queryKey: ['/api/companies/:companyId/currencies', companyId] });
-            queryClient.invalidateQueries({ queryKey: ['/api/tax/types', companyId] });
+            runOnIdle(() => queryClient.invalidateQueries({ queryKey: ['/api/companies'] }));
+            runOnIdle(() => queryClient.invalidateQueries({ queryKey: ['/api/companies/:companyId/products', companyId] }));
+            runOnIdle(() => queryClient.invalidateQueries({ queryKey: ['/api/companies/:companyId/customers', companyId] }));
+            runOnIdle(() => queryClient.invalidateQueries({ queryKey: ['/api/companies/:companyId/currencies', companyId] }));
+            runOnIdle(() => queryClient.invalidateQueries({ queryKey: ['/api/tax/types', companyId] }));
         }
-    }, [isOnline, companyId, queryClient]);
+    }, [isOnline, companyId, queryClient, runOnIdle]);
 
     // Resolved data — hooks handle caching and fallback; direct IDB reads are emergency fallback
     const resolvedProducts = (products && products.length > 0) ? products : cachedProductsFallback;
@@ -201,6 +208,20 @@ export default function POSPage() {
     const [selectedCurrencyCode, setSelectedCurrencyCode] = useState<string>("USD");
     const [isFiscalized, setIsFiscalized] = useState(true);
     const [pendingPrintQueue, setPendingPrintQueue] = useState<number[]>([]);
+    const pendingPrintEnqueuedAtRef = useRef<Record<number, number>>({});
+    const BACKGROUND_PRINT_MAX_WAIT_MS = 45_000;
+    const isInvoiceReadyForPrint = useCallback((invoice: any) => {
+        const fdmsStatus = (invoice?.fdmsStatus || "").toString().toLowerCase();
+        return Boolean(
+            invoice?.qrCodeData ||
+            invoice?.receiptQRData ||
+            invoice?.fiscalCode ||
+            invoice?.verificationCode ||
+            invoice?.syncedWithFdms ||
+            fdmsStatus === "fiscalized" ||
+            fdmsStatus === "failed"
+        );
+    }, []);
 
     // UX: Pinned Products
     const [pinnedProducts, setPinnedProducts] = useState<number[]>(() => {
@@ -988,6 +1009,7 @@ export default function POSPage() {
 
         if (!finalCustomerId) return;
         setIsProcessing(true);
+        let invoiceData: any = null;
 
         const sumTendersValue = parseFloat(paidAmount || "0");
         const sumTenders = splitPayments.length > 0
@@ -1005,9 +1027,19 @@ export default function POSPage() {
             return;
         }
 
+        const prepareNextSaleImmediately = () => {
+            setCart([]);
+            setOrderDiscount(0);
+            resetToDefaultCustomer();
+            setPaidAmount("");
+            setSplitPayments([]);
+            setIsCheckoutOpen(false);
+            setActiveView("products");
+        };
+
         try {
             const currency = resolvedCurrencies?.find((c: any) => c.code === selectedCurrencyCode) || { code: "USD", exchangeRate: "1" };
-            const invoiceData = {
+            invoiceData = {
                 companyId,
                 branchId: selectedBranchId,
                 customerId: parseInt(finalCustomerId),
@@ -1055,28 +1087,29 @@ export default function POSPage() {
                     toast({ title: "📴 Saved Offline", description: "Sale queued — will sync when reconnected" });
                     setActiveView("products");
                 }
-                setCart([]);
-                setOrderDiscount(0);
-                resetToDefaultCustomer();
-                setPaidAmount("");
-                setSplitPayments([]);
-                setIsCheckoutOpen(false);
+                prepareNextSaleImmediately();
                 clearPersistedSession();
 
                 // Register Background Sync
                 if ('serviceWorker' in navigator && 'SyncManager' in window) {
-                    navigator.serviceWorker.ready.then(reg => {
-                        return (reg as any).sync.register('sync-sales');
-                    }).catch(err => console.error("[Sync] Registration failed:", err));
+                    runOnIdle(() => {
+                        navigator.serviceWorker.ready.then(reg => {
+                            return (reg as any).sync.register('sync-sales');
+                        }).catch(err => console.error("[Sync] Registration failed:", err));
+                    });
                 }
 
-                await refreshPendingCount();
+                runOnIdle(() => {
+                    refreshPendingCount().catch(err => console.error("[POS] refreshPendingCount failed:", err));
+                });
                 return;
             }
 
             const result = await createInvoice.mutateAsync(invoiceData as any);
             // Refresh products to reflect new stock levels
-            queryClient.invalidateQueries({ queryKey: ['/api/companies/:companyId/products', companyId] });
+            runOnIdle(() => {
+                queryClient.invalidateQueries({ queryKey: ['/api/companies/:companyId/products', companyId] });
+            });
 
             // Cash drawer: open after successful sale when running in Electron and enabled
             if (window.electronAPI && posSettings.cashDrawerEnabled) {
@@ -1094,27 +1127,21 @@ export default function POSPage() {
                 setActiveView("products");
             }
 
-            setCart([]);
-            setOrderDiscount(0);
-            resetToDefaultCustomer();
-            setPaidAmount("");
-            setSplitPayments([]);
-            setIsCheckoutOpen(false);
+            prepareNextSaleImmediately();
             clearPersistedSession();
         } catch (error: any) {
             // If the error looks like a network failure, queue offline
             if (!navigator.onLine || error.message === 'Failed to fetch') {
                 try {
-                    const currency = resolvedCurrencies?.find((c: any) => c.code === selectedCurrencyCode) || { code: "USD", exchangeRate: "1" };
-                    const invoiceData = {
+                    const payload = invoiceData || {
                         companyId,
                         branchId: selectedBranchId,
                         customerId: parseInt(finalCustomerId),
                         issueDate: new Date(),
                         dueDate: new Date(),
                         notes: "POS Transaction",
-                        currency: currency.code,
-                        exchangeRate: currency.exchangeRate,
+                        currency: selectedCurrencyCode,
+                        exchangeRate: "1",
                         paymentMethod: splitPayments.length > 0 ? "SPLIT" : paymentMethod,
                         splitPayments: splitPayments.length > 0 ? splitPayments : undefined,
                         status: "issued",
@@ -1138,10 +1165,10 @@ export default function POSPage() {
                             taxTypeId: item.taxTypeId
                         }))
                     };
-                    const offlineId = await addPendingSale(companyId, invoiceData);
+                    const offlineId = await addPendingSale(companyId, payload, selectedBranchId);
                     const offInvoice = {
                         id: offlineId,
-                        ...invoiceData,
+                        ...payload,
                         _offline: true,
                         invoiceNumber: `OFFLINE-${Date.now().toString().slice(-6)}`,
                     };
@@ -1151,30 +1178,29 @@ export default function POSPage() {
                         toast({ title: "📴 Saved Offline", description: "Connection lost — sale queued for sync" });
                         setActiveView("products");
                     }
-                    setCart([]);
-                    setOrderDiscount(0);
-                    resetToDefaultCustomer();
-                    setPaidAmount("");
-                    setSplitPayments([]);
-                    setIsCheckoutOpen(false);
+                    prepareNextSaleImmediately();
                     clearPersistedSession();
 
                     // Register Background Sync
                     if ('serviceWorker' in navigator && 'SyncManager' in window) {
-                        navigator.serviceWorker.ready.then(reg => {
-                            return (reg as any).sync.register('sync-sales');
-                        }).catch(err => console.error("[Sync] Registration failed:", err));
+                        runOnIdle(() => {
+                            navigator.serviceWorker.ready.then(reg => {
+                                return (reg as any).sync.register('sync-sales');
+                            }).catch(err => console.error("[Sync] Registration failed:", err));
+                        });
                     }
 
-                    await refreshPendingCount();
+                    runOnIdle(() => {
+                        refreshPendingCount().catch(err => console.error("[POS] refreshPendingCount failed:", err));
+                    });
                     return;
                 } catch (offlineError) {
                     toast({ title: "Error", description: "Failed to save sale offline", variant: "destructive" });
+                    return;
                 }
             }
             // Handle NO_ACTIVE_SHIFT error specifically
             if (error.message?.includes("No active shift") || error.code === "NO_ACTIVE_SHIFT") {
-                setIsCheckoutOpen(false);
                 toast({
                     title: "Shift Required",
                     description: "Please open a shift before processing sales",
@@ -1301,22 +1327,41 @@ export default function POSPage() {
     useEffect(() => {
         if (lastSuccessfulInvoice && posSettings.printingEnabled && posSettings.autoPrint) {
             // Check if we have fiscal data. If not, queue for background printing.
-            const hasFiscalData = lastSuccessfulInvoice.qrCodeData || !isFiscalized;
+            const hasFiscalData = !isFiscalized || isInvoiceReadyForPrint(lastSuccessfulInvoice);
 
             if (!hasFiscalData) {
-                console.log(`[POS] Background Printing: Invoice ${lastSuccessfulInvoice.id} added to queue (waiting for ZIMRA)`);
-                setPendingPrintQueue(prev => [...prev, lastSuccessfulInvoice.id]);
+                console.warn(`[POS] Fiscal data not ready on immediate response for invoice ${lastSuccessfulInvoice.id}; attempting one immediate refresh before printing.`);
+                (async () => {
+                    let invoiceToPrint = lastSuccessfulInvoice;
+                    try {
+                        const res = await apiFetch(`/api/invoices/${lastSuccessfulInvoice.id}`);
+                        if (res.ok) {
+                            const contentType = res.headers.get("content-type") || "";
+                            if (contentType.includes("application/json")) {
+                                invoiceToPrint = await res.json();
+                            }
+                        }
+                    } catch (err) {
+                        console.warn(`[POS] Immediate fiscal refresh failed for invoice ${lastSuccessfulInvoice.id}:`, err);
+                    }
+
+                    if (!isInvoiceReadyForPrint(invoiceToPrint)) {
+                        console.warn(`[POS] Printing invoice ${invoiceToPrint.invoiceNumber || invoiceToPrint.id} without fiscal fields.`);
+                    }
+
+                    handleSilentPrint(invoiceToPrint, { suppressNotifications: true }).catch(console.error);
+                })();
                 setLastSuccessfulInvoice(null);
                 setActiveView("products");
                 return;
             }
 
             // Always use native ESC/POS — no window.print() fallback
-            handleSilentPrint().catch(console.error);
+            handleSilentPrint(undefined, { suppressNotifications: true }).catch(console.error);
             setLastSuccessfulInvoice(null);
             setActiveView("products");
         }
-    }, [lastSuccessfulInvoice, posSettings.printingEnabled, posSettings.autoPrint, isFiscalized]);
+    }, [lastSuccessfulInvoice, posSettings.printingEnabled, posSettings.autoPrint, isFiscalized, isInvoiceReadyForPrint]);
 
     // 🚀 Background Print Queue Worker
     useEffect(() => {
@@ -1331,6 +1376,7 @@ export default function POSPage() {
                         if (res.status === 404 || res.status === 401 || res.status === 403) {
                             console.warn(`[POS] Background Printing: removing invoice ${invoiceId} from queue (status ${res.status})`);
                             setPendingPrintQueue(prev => prev.filter(id => id !== invoiceId));
+                            delete pendingPrintEnqueuedAtRef.current[invoiceId];
                         }
                         continue;
                     }
@@ -1345,21 +1391,28 @@ export default function POSPage() {
 
                     const invoice = await res.json();
 
-                    if (invoice.qrCodeData || invoice.fdmsStatus === 'failed') {
+                    if (isInvoiceReadyForPrint(invoice)) {
                         console.log(`[POS] Background Printing: Invoice ${invoiceId} ready! Printing now...`);
 
                         // Trigger print
-                        handleSilentPrint(invoice).catch(console.error);
+                        handleSilentPrint(invoice, { suppressNotifications: true }).catch(console.error);
 
                         // Remove from queue
                         setPendingPrintQueue(prev => prev.filter(id => id !== invoiceId));
+                        delete pendingPrintEnqueuedAtRef.current[invoiceId];
 
-                        if (invoice.fdmsStatus === 'failed') {
-                            toast({
-                                title: "Fiscalization Warning",
-                                description: `Receipt ${invoice.invoiceNumber} printed but fiscalization failed. It will be retried later.`,
-                                variant: "destructive"
-                            });
+                        if ((invoice.fdmsStatus || "").toString().toLowerCase() === 'failed') {
+                            console.warn(`[POS] Invoice ${invoice.invoiceNumber} printed but fiscalization failed.`);
+                        }
+                    } else {
+                        const enqueuedAt = pendingPrintEnqueuedAtRef.current[invoiceId] ?? Date.now();
+                        const waitedMs = Date.now() - enqueuedAt;
+                        if (waitedMs >= BACKGROUND_PRINT_MAX_WAIT_MS) {
+                            console.warn(`[POS] Background Printing: Invoice ${invoiceId} timed out waiting for ZIMRA after ${Math.round(waitedMs / 1000)}s. Printing fallback receipt.`);
+                            handleSilentPrint(invoice, { suppressNotifications: true }).catch(console.error);
+                            setPendingPrintQueue(prev => prev.filter(id => id !== invoiceId));
+                            delete pendingPrintEnqueuedAtRef.current[invoiceId];
+                            console.warn(`[POS] Printed invoice ${invoice.invoiceNumber || invoiceId} after timeout waiting for fiscal fields.`);
                         }
                     }
                 } catch (err) {
@@ -1369,7 +1422,7 @@ export default function POSPage() {
         }, 2000); // Poll every 2 seconds
 
         return () => clearInterval(pollInterval);
-    }, [pendingPrintQueue, companyId, posSettings]);
+    }, [pendingPrintQueue, companyId, posSettings, isInvoiceReadyForPrint]);
 
 
     // Fetch available printers when settings dialog opens
@@ -1428,7 +1481,9 @@ export default function POSPage() {
         localStorage.setItem("pos_quantity_decimals", posSettings.quantityDecimalPlaces.toString());
     }, [posSettings.autoPrint, posSettings.terminalId, posSettings.silentPrinting, posSettings.printServerUrl, posSettings.cashDrawerEnabled, posSettings.quantityDecimalPlaces]);
 
-    const handleSilentPrint = async (invOverride?: any) => {
+    const handleSilentPrint = async (invOverride?: any, options?: { suppressNotifications?: boolean }) => {
+        const suppressNotifications = options?.suppressNotifications ?? false;
+        const notify = (args: Parameters<typeof toast>[0]) => { if (!suppressNotifications) toast(args); };
         const inv = invOverride || lastSuccessfulInvoice;
         if (!inv) return;
 
@@ -1488,17 +1543,17 @@ export default function POSPage() {
                 if (success) {
                     console.log(`%c${logPrefix} ✓ Print job accepted by driver`, "color: #22c55e; font-weight: bold");
                     console.groupEnd();
-                    toast({ title: isTestPrint ? "Test Print Sent ✓" : "Printed", description: "Native ESC/POS print job successful" });
+                    notify({ title: isTestPrint ? "Test Print Sent ✓" : "Printed", description: "Native ESC/POS print job successful" });
                     return;
                 } else {
                     console.warn(`%c${logPrefix} ✗ Driver returned false — printer unreachable`, "color: #ef4444");
                     console.groupEnd();
-                    toast({ title: "Print Failed", description: "Could not reach USB printer, Electron API, or Print Agent. Check connections.", variant: "destructive" });
+                    notify({ title: "Print Failed", description: "Could not reach USB printer, Electron API, or Print Agent. Check connections.", variant: "destructive" });
                 }
             } catch (err: any) {
                 console.error(`%c${logPrefix} ✗ Exception thrown:`, "color: #ef4444; font-weight: bold", err);
                 console.groupEnd();
-                toast({ title: "Print Error", description: err.message, variant: "destructive" });
+                notify({ title: "Print Error", description: err.message, variant: "destructive" });
             }
             return;
         }
@@ -1519,7 +1574,7 @@ export default function POSPage() {
         }
 
         if (!receiptElement) {
-            toast({
+            notify({
                 title: "Print Error",
                 description: "Receipt element not found. Please try again.",
                 variant: "destructive"
@@ -1580,11 +1635,11 @@ export default function POSPage() {
 
             console.log(`%c${logPrefix} ✓ All printers dispatched`, "color: #22c55e; font-weight: bold");
             console.groupEnd();
-            toast({ title: "Sent to Printer(s)", description: `Print job sent to ${printersToPrint.filter(Boolean).length || 1} printer(s).` });
+            notify({ title: "Sent to Printer(s)", description: `Print job sent to ${printersToPrint.filter(Boolean).length || 1} printer(s).` });
         } catch (error: any) {
             console.error(`%c${logPrefix} ✗ Exception:`, "color: #ef4444; font-weight: bold", error);
             console.groupEnd();
-            toast({
+            notify({
                 title: "Print Failed",
                 description: "Print server not reachable or error occurred. Is the middleware running?",
                 variant: "destructive"
@@ -2119,9 +2174,6 @@ export default function POSPage() {
                                             )}>
                                                 {isOnline ? <><Wifi className="h-2.5 w-2.5" /> Online</> : <><WifiOff className="h-2.5 w-2.5" /> Offline</>}
                                             </div>
-
-                                            {/* Printer Status Widget */}
-                                            <DeviceStatusWidget />
 
                                             {/* 🚀 Background Print Queue Status */}
                                             {pendingPrintQueue.length > 0 && (
@@ -3943,3 +3995,4 @@ export default function POSPage() {
         </PosLayout>
     );
 }
+

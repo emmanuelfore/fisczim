@@ -244,7 +244,12 @@ export class ReceiptTemplate {
     encoder.line("Powered by FiscalStack").italic(false).align(TextAlignment.Left);
 
     // 9. End of receipt
-    if (feedLines > 0) encoder.feed(feedLines);
+    const configuredFeedLines = Number(feedLines);
+    const safeFeedLines = autoCut
+      ? Math.max(Number.isFinite(configuredFeedLines) ? configuredFeedLines : 1, 4)
+      : Math.max(Number.isFinite(configuredFeedLines) ? configuredFeedLines : 1, 0);
+
+    if (safeFeedLines > 0) encoder.feed(safeFeedLines);
     if (autoCut) encoder.cut();
     if (openDrawer) encoder.cashDrawer();
 

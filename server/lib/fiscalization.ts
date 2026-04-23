@@ -5,6 +5,11 @@ import fs from "fs";
 import path from "path";
 import { logAction } from "../audit.js";
 
+const POS_VERBOSE_LOGS = process.env.POS_VERBOSE_LOGS === "1";
+const vLog = (...args: any[]) => { if (POS_VERBOSE_LOGS) console.log(...args); };
+const vTime = (label: string) => { if (POS_VERBOSE_LOGS) console.time(label); };
+const vTimeEnd = (label: string) => { if (POS_VERBOSE_LOGS) console.timeEnd(label); };
+
 // In-memory cache for ZIMRA configuration to reduce redundant network calls
 const zimraConfigCache = new Map<number, { config: ZimraConfigResponse, expiresAt: number }>();
 const CONFIG_CACHE_TTL = 60 * 60 * 1000; // 1 hour
@@ -113,17 +118,17 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
         const needsStatusSync = !fiscalConfig.fiscalDayOpen || !fiscalConfig.currentFiscalDayNo;
 
         if (needsStatusSync) {
-            console.time(`[ZIMRA] getStatus-${companyId}`);
+            vTime(`[ZIMRA] getStatus-${companyId}`);
             status = await device.getStatus() as any;
-            console.timeEnd(`[ZIMRA] getStatus-${companyId}`);
-            console.log(`[ZIMRA] Check Status: ${status.fiscalDayStatus}, LastDay: ${status.lastFiscalDayNo}`);
+            vTimeEnd(`[ZIMRA] getStatus-${companyId}`);
+            vLog(`[ZIMRA] Check Status: ${status.fiscalDayStatus}, LastDay: ${status.lastFiscalDayNo}`);
 
             const now = new Date();
             const fiscalDayOpenedAt = fiscalConfig.fiscalDayOpenedAt ? new Date(fiscalConfig.fiscalDayOpenedAt) : null;
             const oneDayMs = 24 * 60 * 60 * 1000;
             const isStale = fiscalDayOpenedAt && (now.getTime() - fiscalDayOpenedAt.getTime() > oneDayMs);
 
-            if (isStale) console.log(`[ZIMRA] Day is Stale (>24h). OpenedAt: ${fiscalDayOpenedAt?.toISOString()}, but continuing to fiscalize on it.`);
+            if (isStale) vLog(`[ZIMRA] Day is Stale (>24h). OpenedAt: ${fiscalDayOpenedAt?.toISOString()}, but continuing to fiscalize on it.`);
 
             // ZIMRA Day Management:
             const statusStr = (status.fiscalDayStatus || "").toLowerCase();
@@ -132,7 +137,7 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
                 // Day is closed on ZIMRA's side — we must open a new day to fiscalize
                 try {
                     const nextDayNo = (status.lastFiscalDayNo || 0) + 1;
-                    console.log(`[ZIMRA] Day is Closed. Opening new fiscal day ${nextDayNo}...`);
+                    vLog(`[ZIMRA] Day is Closed. Opening new fiscal day ${nextDayNo}...`);
                     const openResult = await device.openDay(nextDayNo) as any;
 
                     const openedAt = new Date();
@@ -150,7 +155,7 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
                     } else {
                         await storage.updateCompany(company.id, updateData);
                     }
-                    console.log(`[ZIMRA] Fiscal Day Opened: ${openResult.fiscalDayNo} at ${openedAt.toISOString()}`);
+                    vLog(`[ZIMRA] Fiscal Day Opened: ${openResult.fiscalDayNo} at ${openedAt.toISOString()}`);
 
                     status.fiscalDayStatus = 'FiscalDayOpened';
                     status.lastFiscalDayNo = openResult.fiscalDayNo || nextDayNo;
@@ -160,7 +165,7 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
                 }
             } else if (statusStr === 'fiscaldayopened' || statusStr === 'fiscaldayclosefailed') {
                 // Day is open (or close failed) — continue fiscalizing on it. Do NOT close it proactively.
-                console.log(`[ZIMRA] Day status: ${status.fiscalDayStatus}. Continuing to fiscalize on current day.`);
+                vLog(`[ZIMRA] Day status: ${status.fiscalDayStatus}. Continuing to fiscalize on current day.`);
                 if (!fiscalConfig.fiscalDayOpen) {
                     const updateData = {
                         fiscalDayOpen: true,
@@ -185,7 +190,7 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
                 zimraDailyCount = status.fiscalDayDocumentQuantities.reduce((sum: number, dq: any) => sum + (dq.receiptQuantity || 0), 0);
             }
 
-            console.log(`[Fiscalize] ZIMRA Status Sync - GlobalNo: ${zimraGlobalNo}, DailyCount: ${zimraDailyCount}`);
+            vLog(`[Fiscalize] ZIMRA Status Sync - GlobalNo: ${zimraGlobalNo}, DailyCount: ${zimraDailyCount}`);
 
             if (status.lastReceiptGlobalNo !== undefined || status.lastReceiptCounter !== undefined) {
                 const updateData: any = {};
@@ -194,16 +199,16 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
 
                 if (status.lastReceiptGlobalNo !== undefined && status.lastReceiptGlobalNo > localGlobal) {
                     updateData.lastReceiptGlobalNo = status.lastReceiptGlobalNo;
-                    console.log(`[ZIMRA] Advancing globalNo from ${localGlobal} → ${status.lastReceiptGlobalNo} (ZIMRA is ahead)`);
+                    vLog(`[ZIMRA] Advancing globalNo from ${localGlobal} → ${status.lastReceiptGlobalNo} (ZIMRA is ahead)`);
                 } else if (status.lastReceiptGlobalNo !== undefined) {
-                    console.log(`[ZIMRA] Skipping globalNo sync: local ${localGlobal} >= ZIMRA ${status.lastReceiptGlobalNo} (keeping local)`);
+                    vLog(`[ZIMRA] Skipping globalNo sync: local ${localGlobal} >= ZIMRA ${status.lastReceiptGlobalNo} (keeping local)`);
                 }
 
                 if (status.lastReceiptCounter !== undefined && status.lastReceiptCounter > localDaily) {
                     updateData.dailyReceiptCount = status.lastReceiptCounter;
-                    console.log(`[ZIMRA] Advancing dailyCount from ${localDaily} → ${status.lastReceiptCounter} (ZIMRA is ahead)`);
+                    vLog(`[ZIMRA] Advancing dailyCount from ${localDaily} → ${status.lastReceiptCounter} (ZIMRA is ahead)`);
                 } else if (status.lastReceiptCounter !== undefined) {
-                    console.log(`[ZIMRA] Skipping dailyCount sync: local ${localDaily} >= ZIMRA ${status.lastReceiptCounter} (keeping local)`);
+                    vLog(`[ZIMRA] Skipping dailyCount sync: local ${localDaily} >= ZIMRA ${status.lastReceiptCounter} (keeping local)`);
                 }
 
                 if (Object.keys(updateData).length > 0) {
@@ -240,13 +245,13 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
             // Retry: reuse the numbers already locked to this invoice
             nextGlobalNo = invoice.receiptGlobalNo;
             nextReceiptCounter = invoice.receiptCounter;
-            console.log(`[Fiscalize] Retry — reusing locked numbers: GlobalNo=${nextGlobalNo}, Counter=${nextReceiptCounter}`);
+            vLog(`[Fiscalize] Retry — reusing locked numbers: GlobalNo=${nextGlobalNo}, Counter=${nextReceiptCounter}`);
         } else {
             // First attempt: atomically claim the next pair
             const claimed = await storage.claimNextReceiptNumbers(company.id, invoice.branchId || undefined);
             nextGlobalNo = claimed.receiptGlobalNo;
             nextReceiptCounter = claimed.receiptCounter;
-            console.log(`[Fiscalize] Atomically claimed: GlobalNo=${nextGlobalNo}, Counter=${nextReceiptCounter}`);
+            vLog(`[Fiscalize] Atomically claimed: GlobalNo=${nextGlobalNo}, Counter=${nextReceiptCounter}`);
         }
 
         // 1. Get ZIMRA Config for correct Tax IDs
@@ -260,11 +265,11 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
             
             if (cached && cached.expiresAt > now) {
                 zimraConfig = cached.config;
-                console.log(`[ZIMRA] Using cached config for company ${company.id}`);
+                vLog(`[ZIMRA] Using cached config for company ${company.id}`);
             } else {
-                console.time(`[ZIMRA] getConfig-${companyId}`);
+                vTime(`[ZIMRA] getConfig-${companyId}`);
                 zimraConfig = await device.getConfig();
-                console.timeEnd(`[ZIMRA] getConfig-${companyId}`);
+                vTimeEnd(`[ZIMRA] getConfig-${companyId}`);
                 
                 if (zimraConfig) {
                     zimraConfigCache.set(company.id, {
@@ -276,7 +281,7 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
             
             // Auto-update QR URL if missing or different/better
             if (zimraConfig && zimraConfig.qrUrl && (!company.qrUrl || company.qrUrl !== zimraConfig.qrUrl)) {
-                console.log(`[ZIMRA] Auto-updating Company QR URL to: ${zimraConfig.qrUrl}`);
+                vLog(`[ZIMRA] Auto-updating Company QR URL to: ${zimraConfig.qrUrl}`);
                 await storage.updateCompany(company.id, { qrUrl: zimraConfig.qrUrl });
                 company.qrUrl = zimraConfig.qrUrl; // Update local scope for usage this turn
             }
@@ -545,7 +550,7 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
 
         // Check against day opening — receipt must be after day was opened (RCPT014)
         if (dayOpenedAt && nowAtHarare.getTime() <= dayOpenedAt.getTime()) {
-            console.log(`[ZIMRA] Guard: now (${nowAtHarare.toISOString()}) <= dayOpened (${dayOpenedAt.toISOString()}). Bumping by 1s.`);
+            vLog(`[ZIMRA] Guard: now (${nowAtHarare.toISOString()}) <= dayOpened (${dayOpenedAt.toISOString()}). Bumping by 1s.`);
             nowAtHarare = new Date(dayOpenedAt.getTime() + 1000);
         }
 
@@ -555,10 +560,10 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
         const fiveMinutes = 5 * 60 * 1000;
         const realNow = new Date();
         if (lastRcptAt && lastRcptAt.getTime() > realNow.getTime() + fiveMinutes) {
-            console.log(`[ZIMRA] Guard: lastRcptAt (${lastRcptAt.toISOString()}) is far in the future — ignoring stale value, using real now.`);
+            vLog(`[ZIMRA] Guard: lastRcptAt (${lastRcptAt.toISOString()}) is far in the future — ignoring stale value, using real now.`);
             // Don't bump — lastRcptAt is stale/wrong, just use current time
         } else if (lastRcptAt && nowAtHarare.getTime() <= lastRcptAt.getTime()) {
-            console.log(`[ZIMRA] Guard: now (${nowAtHarare.toISOString()}) <= lastRcpt (${lastRcptAt.toISOString()}). Bumping by 1s.`);
+            vLog(`[ZIMRA] Guard: now (${nowAtHarare.toISOString()}) <= lastRcpt (${lastRcptAt.toISOString()}). Bumping by 1s.`);
             nowAtHarare = new Date(lastRcptAt.getTime() + 1000);
         }
 
@@ -582,7 +587,7 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
                 : (receiptType !== 'FiscalInvoice' ? `Correction of data entry error (Ref: ${originalInvoice?.invoiceNumber || 'Original'})` : undefined)
         };
 
-        console.log(`[Fiscalize] Prepared Receipt Data for Invoice ${invoiceId} (Date: ${receiptData.receiptDate}):`, JSON.stringify(receiptData, null, 2));
+        vLog(`[Fiscalize] Prepared Receipt Data for Invoice ${invoiceId} (Date: ${receiptData.receiptDate}):`, JSON.stringify(receiptData, null, 2));
 
         // Submit with previous hash for chaining (first receipt of day has no previous hash)
         let prevHash = (nextReceiptCounter === 1) ? null : (company.lastFiscalHash || null);
@@ -590,16 +595,16 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
 
         try {
             try {
-                console.time(`[ZIMRA] submitReceipt-${companyId}-${nextGlobalNo}`);
+                vTime(`[ZIMRA] submitReceipt-${companyId}-${nextGlobalNo}`);
                 result = await device.submitReceipt(receiptData, prevHash, true);
-                console.timeEnd(`[ZIMRA] submitReceipt-${companyId}-${nextGlobalNo}`);
+                vTimeEnd(`[ZIMRA] submitReceipt-${companyId}-${nextGlobalNo}`);
             } catch (submitErr: any) {
                 // Auto-Open Retry Logic: Only trigger on ZIMRA error code 310 (FiscalDayClosed).
                 const is310 = submitErr.statusCode === 310 || submitErr.toString().includes('310');
                 const isDayClosed = is310 || (submitErr instanceof ZimraApiError && (submitErr as any).details?.statusCode === 310);
                 
                 if (isDayClosed) {
-                    console.log("[ZIMRA] Auto-Open Retry: ZIMRA returned 310 (FiscalDayClosed). Opening new day...");
+                    vLog("[ZIMRA] Auto-Open Retry: ZIMRA returned 310 (FiscalDayClosed). Opening new day...");
 
                     try {
                         // 1. Open New Fiscal Day
@@ -622,11 +627,11 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
                         receiptData.receiptGlobalNo = newDayClaimed.receiptGlobalNo;
                         prevHash = null; // First receipt of new day has no previous hash
 
-                        console.log(`[ZIMRA] Retry: New day ${nextDay}, claimed Counter=${nextReceiptCounter}, GlobalNo=${newDayClaimed.receiptGlobalNo}`);
+                        vLog(`[ZIMRA] Retry: New day ${nextDay}, claimed Counter=${nextReceiptCounter}, GlobalNo=${newDayClaimed.receiptGlobalNo}`);
                         
-                        console.time(`[ZIMRA] submitReceipt-retry-${companyId}-${nextGlobalNo}`);
+                        vTime(`[ZIMRA] submitReceipt-retry-${companyId}-${nextGlobalNo}`);
                         result = await device.submitReceipt(receiptData, prevHash, true);
-                        console.timeEnd(`[ZIMRA] submitReceipt-retry-${companyId}-${nextGlobalNo}`);
+                        vTimeEnd(`[ZIMRA] submitReceipt-retry-${companyId}-${nextGlobalNo}`);
 
                     } catch (retryErr: any) {
                         console.error("[ZIMRA] Retry Failed:", retryErr);
@@ -640,7 +645,7 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
             // CRITICAL: Always lock the counters to this invoice on failure
             // This ensures resubmission uses the same number, and next invoice gets a new one.
             try {
-                console.log(`[Fiscalize] Exception Caught. Saving Lock: GlobalNo=${nextGlobalNo}, Counter=${nextReceiptCounter} to Invoice ${invoiceId}`);
+                vLog(`[Fiscalize] Exception Caught. Saving Lock: GlobalNo=${nextGlobalNo}, Counter=${nextReceiptCounter} to Invoice ${invoiceId}`);
                 await storage.updateInvoice(invoiceId, {
                     fdmsStatus: 'failed',
                     validationStatus: 'invalid', // Default to invalid on system error, specific errors overwritten below
@@ -692,7 +697,7 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
             throw err; // Re-throw to propagate error to caller
         }
 
-        console.log(`[Fiscalize] Result for Invoice ${invoiceId}:`, JSON.stringify(result, null, 2));
+        vLog(`[Fiscalize] Result for Invoice ${invoiceId}:`, JSON.stringify(result, null, 2));
 
         // Handle validation errors
         const validationResult = result.validationResult;
@@ -768,3 +773,4 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
         throw e;
     }
 };
+

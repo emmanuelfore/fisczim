@@ -125,6 +125,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         { icon: Briefcase, label: "Services", href: "/services" },
         { icon: LayoutDashboard, label: "Goods Received", href: "/inventory/account" },
         { icon: ArrowRightLeft, label: "Stock Adjustments", href: "/inventory/adjustments" },
+        { icon: Package, label: "Stock Counts", href: "/inventory/stock-counts" },
         { icon: History, label: "Stock Ledger", href: "/inventory" },
         { icon: Truck, label: "Suppliers", href: "/suppliers" },
       ]

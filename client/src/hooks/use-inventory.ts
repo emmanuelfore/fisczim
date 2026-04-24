@@ -41,6 +41,7 @@ export function useStockIn(companyId: number) {
             queryClient.invalidateQueries({ queryKey: [api.inventory.transactions.path, companyId] });
             // Also invalidate products to reflect new stock levels
             queryClient.invalidateQueries({ queryKey: [api.products.list.path, companyId] });
+            queryClient.invalidateQueries({ queryKey: ["grvs", companyId] });
         },
     });
 }
@@ -68,6 +69,7 @@ export function useBatchStockIn(companyId: number) {
             queryClient.invalidateQueries({ queryKey: [api.inventory.transactions.path, companyId] });
             queryClient.invalidateQueries({ queryKey: [api.products.list.path, companyId] });
             queryClient.invalidateQueries({ queryKey: [api.reports.stockValuation.path, companyId] });
+            queryClient.invalidateQueries({ queryKey: ["grvs", companyId] });
         },
     });
 }
@@ -96,6 +98,7 @@ export function useInventoryAdjust(companyId: number) {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: [api.inventory.transactions.path, companyId] });
             queryClient.invalidateQueries({ queryKey: [api.products.list.path, companyId] });
+            queryClient.invalidateQueries({ queryKey: ["grvs", companyId] });
         },
     });
 }

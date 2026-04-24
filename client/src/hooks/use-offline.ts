@@ -46,7 +46,6 @@ export function useOffline(companyId: number): UseOfflineReturn {
         if (!companyId) return;
         try {
             const time = await getLastCacheTime(companyId);
-            console.log(`[useOffline] company:${companyId} lastCacheTime:`, time ? new Date(time).toLocaleString() : 'null');
             if (time) setLastCacheTimeState(time);
         } catch (e) {
             console.error('Failed to get cache time:', e);

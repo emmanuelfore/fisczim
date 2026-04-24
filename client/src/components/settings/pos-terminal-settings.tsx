@@ -108,6 +108,7 @@ export function PosTerminalSettings({ formData, setFormData, isLoading, companyI
     silentPrinting: true,
     printServerUrl: "http://localhost:12312",
     printerName: "",
+    secondaryPrinterName: "",
     quantityDecimalPlaces: 2,
     variableWeightBarcodeRules: [
       {
@@ -416,6 +417,16 @@ export function PosTerminalSettings({ formData, setFormData, isLoading, companyI
                                <SelectContent>
                                   <SelectItem value="default">System Default</SelectItem>
                                   {availablePrinters.map(p => <SelectItem key={p.name} value={p.name}>{p.name}</SelectItem>)}
+                               </SelectContent>
+                            </Select>
+                         </div>
+                         <div className="space-y-1.5">
+                            <Label className="text-[10px] font-bold text-slate-500 uppercase font-display">Second Printer (Optional)</Label>
+                            <Select value={posSettings.secondaryPrinterName || "disabled"} onValueChange={(val) => updatePosSetting('secondaryPrinterName', val === "disabled" ? "" : val)}>
+                               <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+                               <SelectContent>
+                                  <SelectItem value="disabled">Disabled</SelectItem>
+                                  {availablePrinters.map(p => <SelectItem key={`secondary-${p.name}`} value={p.name}>{p.name}</SelectItem>)}
                                </SelectContent>
                             </Select>
                          </div>

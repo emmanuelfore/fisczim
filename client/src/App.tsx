@@ -19,7 +19,9 @@ import SuppliersPage from "@/pages/suppliers";
 import ExpensesPage from "@/pages/expenses";
 import InventoryTransactionsPage from "@/pages/inventory-transactions";
 import InventoryAdjustmentsPage from "@/pages/inventory-adjustments";
+import InventoryStockCountsPage from "@/pages/inventory-stock-counts";
 import InventoryAccountPage from "@/pages/inventory-account";
+import GrvDetailsPage from "@/pages/grv-details";
 import ProductsPage from "@/pages/products";
 import ServicesPage from "@/pages/services";
 import TaxConfigPage from "@/pages/tax-config";
@@ -197,9 +199,11 @@ function Router() {
       <Route path="/expenses">{() => <ProtectedRoute component={ExpensesPage} />}</Route>
       <Route path="/inventory">{() => <ProtectedRoute component={InventoryTransactionsPage} />}</Route>
       <Route path="/inventory/adjustments">{() => <ProtectedRoute component={InventoryAdjustmentsPage} />}</Route>
+      <Route path="/inventory/stock-counts">{() => <ProtectedRoute component={InventoryStockCountsPage} />}</Route>
       <Route path="/inventory/bulk-adjust">{() => <ProtectedRoute component={BulkAdjustmentPage} />}</Route>
       <Route path="/inventory/stock-take">{() => <ProtectedRoute component={StockTakePage} />}</Route>
       <Route path="/inventory/account">{() => <ProtectedRoute component={InventoryAccountPage} />}</Route>
+      <Route path="/inventory/grvs/:id">{() => <ProtectedRoute component={GrvDetailsPage} />}</Route>
       <Route path="/reports/inventory">{() => <ProtectedRoute component={InventoryReportsPage} />}</Route>
       <Route path="/reports/financial">{() => <ProtectedRoute component={FinancialReportsPage} />}</Route>
       <Route path="/reports/daily">{() => <ProtectedRoute component={DailySalesLedgerPage} />}</Route>

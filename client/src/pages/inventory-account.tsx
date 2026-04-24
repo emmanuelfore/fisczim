@@ -1,251 +1,171 @@
-
 import { Layout } from "@/components/layout";
-import { useStockValuation } from "@/hooks/use-reports";
-import { useInventoryTransactions } from "@/hooks/use-inventory";
-import { useProducts } from "@/hooks/use-products";
-import {
-    Card,
-    CardContent,
-    CardHeader,
-    CardTitle,
-    CardDescription
-} from "@/components/ui/card";
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from "@/components/ui/table";
-import {
-    Package,
-    TrendingUp,
-    DollarSign,
-    Activity,
-    ArrowUpRight,
-    ArrowDownLeft,
-    BarChart3,
-    Layers,
-    History
-} from "lucide-react";
-import {
-    PieChart,
-    Pie,
-    Cell,
-    ResponsiveContainer,
-    Tooltip as RechartsTooltip,
-    Legend,
-    BarChart,
-    Bar,
-    XAxis,
-    YAxis,
-    CartesianGrid
-} from "recharts";
-import { GrnForm } from "@/components/inventory/grn-form";
-import { Link } from "wouter";
+import { PageHeader } from "@/components/page-header";
+import { useActiveCompany } from "@/hooks/use-active-company";
+import { useGrvs } from "@/hooks/use-grvs";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { SummaryStatCard } from "@/components/ui/summary-stat-card";
+import { Badge } from "@/components/ui/badge";
+import { Search, ChevronLeft, ChevronRight, Truck, FileText, Download } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Link } from "wouter";
+import { format } from "date-fns";
+import { GrnForm } from "@/components/inventory/grn-form";
+
+const ITEMS_PER_PAGE = 15;
 
 export default function InventoryAccountPage() {
-    const companyId = parseInt(localStorage.getItem("selectedCompanyId") || "0");
-    const { data: valuation, isLoading: isLoadingValuation } = useStockValuation(companyId);
-    const { data: transactions, isLoading: isLoadingTransactions } = useInventoryTransactions(companyId);
-    const { data: products } = useProducts(companyId);
+  const { activeCompanyId } = useActiveCompany();
+  const companyId = activeCompanyId || 0;
+  const { data: grvs, isLoading } = useGrvs(companyId);
 
-    // Sum total valuation
-    const totalValue = valuation?.reduce((acc: number, p: any) => acc + p.totalValuation, 0) || 0;
+  const [searchTerm, setSearchTerm] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
 
-    // Group by category
-    const categoryData: Record<string, number> = {};
-    valuation?.forEach((p: any) => {
-        const cat = p.category || "Uncategorized";
-        categoryData[cat] = (categoryData[cat] || 0) + p.totalValuation;
-    });
-
-    const pieData = Object.entries(categoryData).map(([name, value]) => ({ name, value }));
-
-    // Top 5 products by value
-    const topAssets = [...(valuation || [])]
-        .sort((a: any, b: any) => b.totalValuation - a.totalValuation)
-        .slice(0, 5);
-
-    const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
-
-    return (
-        <Layout>
-            <div className="space-y-8">
-                <div className="flex items-center justify-between">
-                    <div>
-                        <h1 className="text-4xl font-black text-slate-900 font-display uppercase tracking-tight">Goods Received</h1>
-                        <p className="text-slate-500 mt-1 font-medium">Consolidated view of your stock holdings and movements</p>
-                    </div>
-                    <div className="flex gap-3">
-                        <Link href="/inventory">
-                            <Button variant="outline" className="rounded-2xl gap-2 font-bold border-slate-200">
-                                <History className="h-4 w-4" />
-                                View Ledger
-                            </Button>
-                        </Link>
-                        <GrnForm />
-                    </div>
-                </div>
-
-                {/* Performance Highlights */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <SummaryStatCard
-                        label="Total Net Stock Value"
-                        value={`$${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
-                        icon={DollarSign}
-                        tone="violet"
-                    />
-                    <SummaryStatCard
-                        label="Total SKU Varieties"
-                        value={valuation?.length || 0}
-                        icon={Layers}
-                        tone="emerald"
-                    />
-                    <SummaryStatCard
-                        label="Movements (30d)"
-                        value={transactions?.filter(t => {
-                            const d = new Date(t.createdAt!);
-                            const now = new Date();
-                            return d.getTime() > now.getTime() - 30 * 24 * 60 * 60 * 1000;
-                        }).length || 0}
-                        icon={Activity}
-                        tone="amber"
-                    />
-                </div>
-
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                    {/* Valuation Breakdown */}
-                    <Card className="border-none shadow-xl bg-white rounded-[2rem] overflow-hidden">
-                        <CardHeader className="p-8 pb-0">
-                            <CardTitle className="text-xl font-black text-slate-900 font-display uppercase tracking-tight flex items-center gap-2">
-                                <BarChart3 className="h-5 w-5 text-violet-500" />
-                                Value Distribution
-                            </CardTitle>
-                            <CardDescription className="text-slate-400 font-medium font-sans">Stock value contribution by category</CardDescription>
-                        </CardHeader>
-                        <CardContent className="h-[350px] p-8">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <PieChart>
-                                    <Pie
-                                        data={pieData}
-                                        cx="50%"
-                                        cy="50%"
-                                        innerRadius={70}
-                                        outerRadius={100}
-                                        paddingAngle={8}
-                                        dataKey="value"
-                                    >
-                                        {pieData.map((entry, index) => (
-                                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                        ))}
-                                    </Pie>
-                                    <RechartsTooltip
-                                        contentStyle={{ borderRadius: '20px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)' }}
-                                        formatter={(v: number) => [`$${v.toFixed(2)}`, 'Valuation']}
-                                    />
-                                    <Legend />
-                                </PieChart>
-                            </ResponsiveContainer>
-                        </CardContent>
-                    </Card>
-
-                    {/* Top Inventory Assets */}
-                    <Card className="border-none shadow-xl bg-white rounded-[2rem] overflow-hidden">
-                        <CardHeader className="p-8 border-b border-slate-50 bg-slate-50/30">
-                            <CardTitle className="text-xl font-black text-slate-900 font-display uppercase tracking-tight flex items-center gap-2">
-                                <TrendingUp className="h-5 w-5 text-emerald-500" />
-                                Top Stock Items
-                            </CardTitle>
-                            <CardDescription className="text-slate-400 font-medium">Highest value products by stock quantity</CardDescription>
-                        </CardHeader>
-                        <CardContent className="p-0">
-                            <Table>
-                                <TableHeader className="bg-slate-50/50">
-                                    <TableRow>
-                                        <TableHead className="p-6 text-[10px] font-black uppercase text-slate-400 tracking-widest">Product</TableHead>
-                                        <TableHead className="p-6 text-[10px] font-black uppercase text-slate-400 tracking-widest text-right">Qty</TableHead>
-                                        <TableHead className="p-6 text-[10px] font-black uppercase text-slate-400 tracking-widest text-right">Value</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {topAssets.map((asset: any) => (
-                                        <TableRow key={asset.productId} className="hover:bg-slate-50/50 transition-colors">
-                                            <TableCell className="p-6">
-                                                <div className="font-bold text-slate-800">{asset.name}</div>
-                                                <div className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">{asset.sku}</div>
-                                            </TableCell>
-                                            <TableCell className="p-6 text-right font-mono text-slate-600 font-bold">{asset.stockLevel}</TableCell>
-                                            <TableCell className="p-6 text-right font-black text-slate-900 font-display">
-                                                ${Number(asset.totalValuation).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                                            </TableCell>
-                                        </TableRow>
-                                    ))}
-                                </TableBody>
-                            </Table>
-                        </CardContent>
-                    </Card>
-                </div>
-
-                {/* Recent Activity */}
-                <Card className="border-none shadow-xl bg-white rounded-[2rem] overflow-hidden">
-                    <CardHeader className="p-8 border-b border-slate-50 flex flex-row items-center justify-between">
-                        <div>
-                            <CardTitle className="text-xl font-black text-slate-900 font-display uppercase tracking-tight flex items-center gap-2">
-                                <Activity className="h-5 w-5 text-blue-500" />
-                                Recent Movements
-                            </CardTitle>
-                            <CardDescription className="text-slate-400 font-medium">Last 5 stock adjustments</CardDescription>
-                        </div>
-                        <Link href="/inventory">
-                            <Button variant="ghost" className="text-xs font-black uppercase tracking-widest text-primary hover:bg-primary/5 rounded-xl">Full Ledger</Button>
-                        </Link>
-                    </CardHeader>
-                    <CardContent className="p-0">
-                        <Table>
-                            <TableHeader className="bg-slate-50/50">
-                                <TableRow>
-                                    <TableHead className="p-6 text-[10px] font-black uppercase text-slate-400 tracking-widest">Type & Product</TableHead>
-                                    <TableHead className="p-6 text-[10px] font-black uppercase text-slate-400 tracking-widest text-right">Change</TableHead>
-                                    <TableHead className="p-6 text-[10px] font-black uppercase text-slate-400 tracking-widest">Time</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {transactions?.slice(0, 5).map((t: any) => {
-                                    const product = products?.find(p => p.id === t.productId);
-                                    const isPositive = Number(t.quantity) > 0;
-                                    return (
-                                        <TableRow key={t.id} className="hover:bg-slate-50/50 transition-colors">
-                                            <TableCell className="p-6">
-                                                <div className="flex items-center gap-2">
-                                                    {isPositive ? (
-                                                        <ArrowDownLeft className="h-4 w-4 text-emerald-500" />
-                                                    ) : (
-                                                        <ArrowUpRight className="h-4 w-4 text-blue-500" />
-                                                    )}
-                                                    <div className="font-bold text-slate-700">
-                                                        {product?.name || "Product " + t.productId}
-                                                    </div>
-                                                </div>
-                                                <div className="text-[10px] text-slate-400 font-black uppercase tracking-widest ml-6">{t.type}</div>
-                                            </TableCell>
-                                            <TableCell className={`p-6 text-right font-black ${isPositive ? "text-emerald-600" : "text-blue-600"}`}>
-                                                {isPositive ? "+" : ""}{t.quantity}
-                                            </TableCell>
-                                            <TableCell className="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest font-mono">
-                                                {new Date(t.createdAt!).toLocaleString()}
-                                            </TableCell>
-                                        </TableRow>
-                                    );
-                                })}
-                            </TableBody>
-                        </Table>
-                    </CardContent>
-                </Card>
-            </div>
-        </Layout>
+  const filtered = useMemo(() => {
+    const q = searchTerm.toLowerCase().trim();
+    if (!q) return grvs || [];
+    return (grvs || []).filter(
+      (g) =>
+        g.grvNumber.toLowerCase().includes(q) ||
+        (g.supplierName || "").toLowerCase().includes(q) ||
+        (g.notes || "").toLowerCase().includes(q),
     );
+  }, [grvs, searchTerm]);
+
+  const totalPages = Math.ceil((filtered.length || 0) / ITEMS_PER_PAGE);
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+  const rows = filtered.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+
+  return (
+    <Layout>
+      <PageHeader
+        title="Goods Received"
+        subtitle="GRV register and received stock documents"
+        actions={<GrnForm />}
+      />
+
+      <div className="flex flex-col md:flex-row gap-4 mb-6">
+        <div className="relative flex-1 w-full sm:max-w-sm group">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400 group-hover:text-violet-500 transition-colors" />
+          <Input
+            placeholder="Search GRV number or supplier..."
+            className="pl-12 h-12 rounded-xl border-slate-200 bg-white shadow-sm focus:ring-violet-500/20 focus:border-violet-500 font-medium transition-all"
+            value={searchTerm}
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              setCurrentPage(1);
+            }}
+          />
+        </div>
+      </div>
+
+      <Card className="border-none shadow-xl shadow-slate-200/50 bg-white/80 backdrop-blur-sm rounded-[2rem] overflow-hidden ring-1 ring-slate-100">
+        <CardContent className="p-0 overflow-x-hidden">
+          <table className="w-full text-left">
+            <thead>
+              <tr className="bg-slate-50/80 border-b border-slate-100">
+                <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">GRV No</th>
+                <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">Date</th>
+                <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">Supplier</th>
+                <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">Lines</th>
+                <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">Total Cost</th>
+                <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px] text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading ? (
+                <tr>
+                  <td colSpan={6} className="p-12 text-center text-slate-500">
+                    <div className="flex flex-col items-center justify-center gap-3">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-violet-600"></div>
+                      Loading goods received...
+                    </div>
+                  </td>
+                </tr>
+              ) : rows.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="p-12 text-center text-slate-500">
+                    <p className="font-bold text-lg">No GRVs found</p>
+                    <p className="text-sm">Record goods received to create GRV documents.</p>
+                  </td>
+                </tr>
+              ) : (
+                rows.map((grv) => (
+                  <tr key={grv.id} className="group border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
+                    <td className="p-4">
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="font-mono text-[10px] border-slate-200 bg-white">
+                          {grv.grvNumber}
+                        </Badge>
+                      </div>
+                    </td>
+                    <td className="p-4 text-sm font-medium text-slate-700">
+                      {grv.createdAt ? format(new Date(grv.createdAt), "dd MMM yyyy HH:mm") : "-"}
+                    </td>
+                    <td className="p-4">
+                      <div className="flex items-center gap-2 text-slate-700">
+                        <Truck className="w-4 h-4 text-slate-400" />
+                        <span className="font-medium">{grv.supplierName || "N/A"}</span>
+                      </div>
+                    </td>
+                    <td className="p-4 text-sm font-semibold text-slate-700">{grv.lineCount}</td>
+                    <td className="p-4 text-sm font-black text-slate-800">${Number(grv.totalCost || 0).toFixed(2)}</td>
+                    <td className="p-4">
+                      <div className="flex items-center justify-end gap-2">
+                        <Link href={`/inventory/grvs/${encodeURIComponent(grv.id)}`}>
+                          <Button variant="outline" size="sm" className="rounded-xl h-8 text-[10px] font-bold border-slate-200">
+                            <FileText className="w-3.5 h-3.5 mr-1" />
+                            View
+                          </Button>
+                        </Link>
+                        <Link href={`/inventory/grvs/${encodeURIComponent(grv.id)}`}>
+                          <Button size="sm" className="rounded-xl h-8 text-[10px] font-bold">
+                            <Download className="w-3.5 h-3.5 mr-1" />
+                            Download
+                          </Button>
+                        </Link>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+
+          <div className="flex flex-col sm:flex-row items-center justify-between px-6 py-4 border-t border-slate-100 bg-slate-50/30 gap-4">
+            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+              {filtered.length ? `Showing ${startIndex + 1}-${Math.min(startIndex + ITEMS_PER_PAGE, filtered.length)} of ${filtered.length}` : "No entries"}
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mr-2">
+                Page {Math.min(currentPage, totalPages || 1)} of {totalPages || 1}
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="rounded-xl h-8 text-[10px] font-bold border-slate-200"
+              >
+                <ChevronLeft className="h-3 w-3 mr-1" />
+                Prev
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage((p) => Math.min(totalPages || 1, p + 1))}
+                disabled={currentPage >= totalPages || totalPages === 0}
+                className="rounded-xl h-8 text-[10px] font-bold border-slate-200"
+              >
+                Next
+                <ChevronRight className="h-3 w-3 ml-1" />
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </Layout>
+  );
 }
+

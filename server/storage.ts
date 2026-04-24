@@ -290,6 +290,7 @@ export interface IStorage {
   getLowStockItems(companyId: number): Promise<(Product & { categoryName?: string })[]>;
   getReportStockOnHand(companyId: number, ownerGroup?: string): Promise<{ productId: number; name: string; sku: string | null; category: string | null; stockLevel: string; unitCost: string; totalValue: string }[]>;
   getReportInventoryMovements(companyId: number, start: Date, end: Date, ownerGroup?: string): Promise<{ transactionId: number; date: string; productName: string; type: string; quantity: string; unitCost: string | null; reference: string | null; notes: string | null }[]>;
+  getReportStockAdjustments(companyId: number, start: Date, end: Date, ownerGroup?: string): Promise<{ transactionId: number; date: string; productName: string; sku: string | null; type: string; quantity: string; unitCost: string | null; totalCost: string | null; referenceType: string | null; reference: string | null; notes: string | null; userName: string | null }[]>;
   getReportPurchaseHistory(companyId: number, start: Date, end: Date, ownerGroup?: string): Promise<{ transactionId: number; date: string; productName: string; supplierName: string | null; quantity: string; unitCost: string; totalCost: string; reference: string | null }[]>;
 
   // Stock Takes
@@ -3234,6 +3235,7 @@ export class DatabaseStorage implements IStorage {
     const cashierMap = new Map();
     const itemMap = new Map();
     const taxMap = new Map();
+    const paymentMethodMap = new Map();
 
     let totalRevenue = 0;
     let totalTax = 0;
@@ -3268,6 +3270,27 @@ export class DatabaseStorage implements IStorage {
       csh.total += Number(inv.total);
       csh.count += 1;
       cashierMap.set(user?.id || 'system', csh);
+
+      const addPaymentMethod = (rawMethod: unknown, rawAmount: unknown) => {
+        const method = String(rawMethod || "UNKNOWN").trim().toUpperCase();
+        const amount = Number(rawAmount || 0);
+        if (!Number.isFinite(amount) || amount <= 0) return;
+        const current = paymentMethodMap.get(method) || {
+          method,
+          total: 0,
+          count: 0
+        };
+        current.total += amount;
+        current.count += 1;
+        paymentMethodMap.set(method, current);
+      };
+
+      const split = inv.splitPayments as any;
+      if (Array.isArray(split) && split.length > 0) {
+        split.forEach((entry: any) => addPaymentMethod(entry?.method, entry?.amount));
+      } else {
+        addPaymentMethod(inv.paymentMethod, inv.total);
+      }
     });
 
     allItems.forEach(item => {
@@ -3331,6 +3354,8 @@ export class DatabaseStorage implements IStorage {
         ...c,
         cashierId: c.id
       })),
+      paymentMethods: Array.from(paymentMethodMap.values())
+        .sort((a, b) => Number(b.total) - Number(a.total)),
       items: Array.from(itemMap.values()).map(i => ({
         ...i,
         productId: i.id
@@ -4420,6 +4445,54 @@ export class DatabaseStorage implements IStorage {
       date: r.date?.toISOString() || "",
       quantity: String(r.quantity),
       unitCost: r.unitCost ? String(r.unitCost) : null
+    }));
+  }
+
+  async getReportStockAdjustments(companyId: number, start: Date, end: Date, ownerGroup?: string): Promise<{ transactionId: number; date: string; productName: string; sku: string | null; type: string; quantity: string; unitCost: string | null; totalCost: string | null; referenceType: string | null; reference: string | null; notes: string | null; userName: string | null }[]> {
+    const filters: any[] = [
+      eq(inventoryTransactions.companyId, companyId),
+      gte(inventoryTransactions.createdAt, start),
+      lte(inventoryTransactions.createdAt, end),
+      inArray(inventoryTransactions.type, ["ADJUSTMENT", "SHRINKAGE", "CORRECTION", "DAMAGE", "EXPIRY"])
+    ];
+    const ownerGroupFilter = buildOwnerGroupSql(products.ownerGroup, ownerGroup);
+    if (ownerGroupFilter) {
+      filters.push(ownerGroupFilter);
+    }
+
+    const results = await db.select({
+      transactionId: inventoryTransactions.id,
+      date: inventoryTransactions.createdAt,
+      productName: products.name,
+      sku: products.sku,
+      type: inventoryTransactions.type,
+      quantity: inventoryTransactions.quantity,
+      unitCost: inventoryTransactions.unitCost,
+      totalCost: inventoryTransactions.totalCost,
+      referenceType: inventoryTransactions.referenceType,
+      reference: inventoryTransactions.referenceId,
+      notes: inventoryTransactions.notes,
+      userName: users.username
+    })
+      .from(inventoryTransactions)
+      .innerJoin(products, eq(inventoryTransactions.productId, products.id))
+      .leftJoin(users, eq(inventoryTransactions.createdBy, users.id))
+      .where(and(...filters))
+      .orderBy(desc(inventoryTransactions.createdAt));
+
+    return results.map(r => ({
+      transactionId: r.transactionId,
+      date: r.date?.toISOString() || "",
+      productName: r.productName,
+      sku: r.sku,
+      type: r.type,
+      quantity: String(r.quantity),
+      unitCost: r.unitCost ? String(r.unitCost) : null,
+      totalCost: r.totalCost ? String(r.totalCost) : null,
+      referenceType: r.referenceType,
+      reference: r.reference,
+      notes: r.notes,
+      userName: r.userName
     }));
   }
 

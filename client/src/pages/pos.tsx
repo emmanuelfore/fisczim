@@ -7,7 +7,7 @@ import { useCompany } from "@/hooks/use-companies";
 import { useTaxConfig } from "@/hooks/use-tax-config";
 import { useToast } from "@/hooks/use-toast";
 import { useOffline } from "@/hooks/use-offline";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -22,7 +22,7 @@ import {
     addPendingSale,
 } from "@/lib/offline-db";
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
-import { Search, ShoppingCart, Trash2, Plus, Minus, CreditCard, Banknote, UserPlus, Loader2, Package, Tag, Pause, Play, History, Calculator, Printer, CheckCircle2, XCircle, ChevronRight, Fullscreen, HelpCircle, User, Settings as SettingsIcon, LogOut, FileText, Receipt, Clock, LayoutGrid, ShoppingBag, Filter, WifiOff, Wifi, CloudUpload, AlertTriangle, Pin, Download, Store } from "lucide-react";
+import { Search, ShoppingCart, Trash2, Plus, Minus, CreditCard, Banknote, UserPlus, Loader2, Package, Tag, Pause, Play, History, Calculator, Printer, CheckCircle2, XCircle, ChevronRight, ChevronDown, ChevronUp, Fullscreen, HelpCircle, User, Settings as SettingsIcon, LogOut, FileText, Receipt, Clock, LayoutGrid, ShoppingBag, Filter, WifiOff, Wifi, CloudUpload, AlertTriangle, Pin, Download, Store } from "lucide-react";
 import { RefreshCw } from "lucide-react";
 import { POSReceipt } from "@/components/pos-receipt";
 import { Receipt48 } from "@/components/pos/receipt-48";
@@ -288,6 +288,7 @@ export default function POSPage() {
     const [reportData, setReportData] = useState<any>(null);
     const [reportLoading, setReportLoading] = useState(false);
     const [reportType, setReportType] = useState<"x" | "z">("x");
+    const [isItemizedExpanded, setIsItemizedExpanded] = useState(true);
 
     // Reprint receipts
     const [isReprintOpen, setIsReprintOpen] = useState(false);
@@ -329,6 +330,26 @@ export default function POSPage() {
     });
     // Printer simulation output
     const [simulationData, setSimulationData] = useState<Uint8Array | null>(null);
+    const addToCartAudioContextRef = useRef<AudioContext | null>(null);
+
+    const { data: zimraStatusData } = useQuery({
+        queryKey: ["zimraStatus", companyId],
+        queryFn: async () => {
+            const res = await apiFetch(`/api/companies/${companyId}/zimra/status`);
+            if (!res.ok) return null;
+            return await res.json();
+        },
+        enabled: Boolean(companyId) && Boolean(isOnline),
+        staleTime: 30_000,
+        retry: 1
+    });
+    const isFiscalDayOpen = useMemo(() => {
+        const status = zimraStatusData?.fiscalDayStatus;
+        if (status) return status === "FiscalDayOpened" || status === "FiscalDayCloseFailed";
+        if (typeof company?.fiscalDayOpen === "boolean") return company.fiscalDayOpen;
+        return false;
+    }, [zimraStatusData?.fiscalDayStatus, company?.fiscalDayOpen]);
+    const canViewZReport = !currentShift && !isFiscalDayOpen;
 
     // Sync ref every render — barcode scanner closure reads this instead of posSettings directly
     posSettingsRef.current = { variableWeightBarcodeRules: posSettings.variableWeightBarcodeRules, quantityDecimalPlaces: posSettings.quantityDecimalPlaces };
@@ -492,6 +513,41 @@ export default function POSPage() {
     }, [cart, taxInclusive]);
 
     const total = Math.max(0, subtotal + taxAmount - orderDiscount);
+    const playAddToCartSound = useCallback(() => {
+        try {
+            const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+            if (!AudioCtx) return;
+
+            if (!addToCartAudioContextRef.current) {
+                addToCartAudioContextRef.current = new AudioCtx();
+            }
+
+            const ctx = addToCartAudioContextRef.current;
+            if (!ctx) return;
+            if (ctx.state === "suspended") {
+                void ctx.resume().catch(() => { });
+            }
+
+            const now = ctx.currentTime;
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+
+            osc.type = "triangle";
+            osc.frequency.setValueAtTime(880, now);
+            osc.frequency.exponentialRampToValueAtTime(1320, now + 0.06);
+
+            gain.gain.setValueAtTime(0.0001, now);
+            gain.gain.exponentialRampToValueAtTime(0.08, now + 0.01);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.09);
+
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now);
+            osc.stop(now + 0.1);
+        } catch {
+            // Sound feedback is optional; never block POS flow on audio issues.
+        }
+    }, []);
 
     // Handlers
     const addToCart = (product: any) => {
@@ -536,6 +592,7 @@ export default function POSPage() {
                 hsCode: product.hsCode
             }];
         });
+        playAddToCartSound();
     };
 
     const addWeightedToCart = (product: any, quantity: number) => {
@@ -581,6 +638,7 @@ export default function POSPage() {
                 hsCode: product.hsCode
             }];
         });
+        playAddToCartSound();
     };
 
     const applyLineDiscount = (productId: number, amount: number) => {
@@ -1314,6 +1372,7 @@ export default function POSPage() {
                 silentPrinting: settings.silentPrinting ?? true,
                 printServerUrl: settings.printServerUrl || "http://localhost:12312",
                 printerName: prev.printerName || settings.printerName || "",
+                secondaryPrinterName: prev.secondaryPrinterName || settings.secondaryPrinterName || "",
                 nativeEscPos: prev.nativeEscPos || (settings.nativeEscPos ?? false),
                 printerWidth: settings.printerWidth ?? prev.printerWidth,
                 cashDrawerEnabled: settings.cashDrawerEnabled ?? false,
@@ -1466,7 +1525,7 @@ export default function POSPage() {
         } else {
             localStorage.removeItem("pos_paper_size");
         }
-    }, [posSettings.printerName, posSettings.paperSize]);
+    }, [posSettings.printerName, posSettings.secondaryPrinterName, posSettings.paperSize]);
 
     // Persist local toggles
     useEffect(() => {
@@ -1495,6 +1554,7 @@ export default function POSPage() {
         console.log("Settings:", {
             nativeEscPos: posSettings.nativeEscPos,
             printerName: posSettings.printerName || "(default)",
+            secondaryPrinterName: posSettings.secondaryPrinterName || "(disabled)",
             printerWidth: posSettings.printerWidth,
             autoCut: posSettings.autoCut,
             feedLines: posSettings.feedLines,
@@ -1503,6 +1563,10 @@ export default function POSPage() {
             printServerUrl: posSettings.printServerUrl,
             useElectron: !!(window as any).electronAPI,
         });
+        const printersToPrint = Array.from(new Set([
+            posSettings.printerName || "",
+            posSettings.secondaryPrinterName || "",
+        ]));
 
         // --- Native ESC/POS Printing ---
         // Test prints always use this path (they have their own data, no DOM element needed).
@@ -1539,11 +1603,35 @@ export default function POSPage() {
                     printServerUrl: posSettings.printServerUrl || (companyId ? `http://localhost:3001` : undefined),
                     printerName: posSettings.printerName || undefined
                 });
+                const secondaryPrinter = (posSettings.secondaryPrinterName || "").trim();
+                const primaryPrinter = (posSettings.printerName || "").trim();
 
                 if (success) {
+                    if (secondaryPrinter && secondaryPrinter !== primaryPrinter) {
+                        const encodedSecond = ReceiptTemplate.formatFiscalReceipt({
+                            company: resolvedCompany || { name: "TEST COMPANY", tin: "123456789", vatNumber: "VAT001" },
+                            branch: company?.branches?.find((b: any) => b.id === (inv.branchId || selectedBranchId)),
+                            invoice: inv,
+                            customer: resolvedCustomers?.find((c: any) => c.id === inv.customerId),
+                            items: invItems,
+                            user: user
+                        }, {
+                            width: posSettings.printerWidth,
+                            autoCut: posSettings.autoCut,
+                            feedLines: posSettings.feedLines,
+                            openDrawer: false,
+                            doubleHeightHeader: posSettings.doubleHeightHeader
+                        });
+                        await PrinterService.printRaw(encodedSecond, {
+                            useElectron: !!(window as any).electronAPI,
+                            printServerUrl: posSettings.printServerUrl || (companyId ? `http://localhost:3001` : undefined),
+                            printerName: secondaryPrinter
+                        });
+                    }
                     console.log(`%c${logPrefix} ✓ Print job accepted by driver`, "color: #22c55e; font-weight: bold");
                     console.groupEnd();
-                    notify({ title: isTestPrint ? "Test Print Sent ✓" : "Printed", description: "Native ESC/POS print job successful" });
+                    const printerCount = secondaryPrinter && secondaryPrinter !== primaryPrinter ? 2 : 1;
+                    notify({ title: isTestPrint ? "Test Print Sent" : "Printed", description: `Native ESC/POS print job successful (${printerCount} printer${printerCount > 1 ? "s" : ""})` });
                     return;
                 } else {
                     console.warn(`%c${logPrefix} ✗ Driver returned false — printer unreachable`, "color: #ef4444");
@@ -1596,12 +1684,9 @@ export default function POSPage() {
             const receiptHtml = receiptElement.outerHTML;
             const html = `<!DOCTYPE html><html><head><meta charset="utf-8">${styles}</head><body class="bg-white p-0 m-0" style="margin:0;padding:0;">${receiptHtml}</body></html>`;
 
-            const printersToPrint = [posSettings.printerName];
-            if (posSettings.secondaryPrinterName) {
-                printersToPrint.push(posSettings.secondaryPrinterName);
-            }
+            const htmlTargets = printersToPrint.length > 0 ? printersToPrint : [""];
 
-            for (const pName of printersToPrint) {
+            for (const pName of htmlTargets) {
                 const targetPrinter = pName || undefined;
 
                 if (window.electronAPI) {
@@ -1635,7 +1720,7 @@ export default function POSPage() {
 
             console.log(`%c${logPrefix} ✓ All printers dispatched`, "color: #22c55e; font-weight: bold");
             console.groupEnd();
-            notify({ title: "Sent to Printer(s)", description: `Print job sent to ${printersToPrint.filter(Boolean).length || 1} printer(s).` });
+            notify({ title: "Sent to Printer(s)", description: `Print job sent to ${htmlTargets.length} printer(s).` });
         } catch (error: any) {
             console.error(`%c${logPrefix} ✗ Exception:`, "color: #ef4444; font-weight: bold", error);
             console.groupEnd();
@@ -1807,9 +1892,54 @@ export default function POSPage() {
 
     // ── X / Z Report ─────────────────────────────────────────────────────────
     const handleLoadReport = async (type: "x" | "z") => {
+        if (type === "z" && !canViewZReport) {
+            const needsClose: string[] = [];
+            if (currentShift) needsClose.push("the open shift");
+            if (isFiscalDayOpen) needsClose.push("the fiscal day");
+            const confirmClose = window.confirm(
+                `Z-Report is only available after closing ${needsClose.join(" and ")}.\n\nDo you want to close now?`
+            );
+            if (!confirmClose) return;
+
+            if (currentShift) {
+                setShiftModalType("CLOSE");
+                setShiftBalance("");
+                setIsShiftModalOpen(true);
+                toast({
+                    title: "Close Shift Required",
+                    description: "Close the active shift first, then generate the Z-Report."
+                });
+                return;
+            }
+
+            if (isFiscalDayOpen) {
+                try {
+                    const closeRes = await apiFetch(`/api/companies/${companyId}/zimra/day/close`, {
+                        method: "POST"
+                    });
+                    if (!closeRes.ok) {
+                        const err = await closeRes.json().catch(() => null);
+                        throw new Error(err?.message || "Failed to close fiscal day");
+                    }
+                    toast({
+                        title: "Fiscal Day Closed",
+                        description: "Generating Z-Report now."
+                    });
+                } catch (closeErr: any) {
+                    toast({
+                        title: "Close Day Failed",
+                        description: closeErr?.message || "Could not close fiscal day",
+                        variant: "destructive"
+                    });
+                    return;
+                }
+            }
+        }
+
         setReportType(type);
         setReportLoading(true);
         setReportData(null);
+        setIsItemizedExpanded(true);
         setIsReportOpen(true);
         try {
             const today = new Date().toISOString().split('T')[0];
@@ -3444,6 +3574,22 @@ export default function POSPage() {
                                                 ))}
                                             </SelectContent>
                                         </Select>
+
+                                        <label className="text-[9px] font-black uppercase tracking-widest text-slate-500 mt-2 block">Second Printer (Optional)</label>
+                                        <Select
+                                            value={posSettings.secondaryPrinterName || "disabled"}
+                                            onValueChange={(val) => setPosSettings(prev => ({ ...prev, secondaryPrinterName: val === "disabled" ? "" : val }))}
+                                        >
+                                            <SelectTrigger className="h-10 text-[10px] font-black bg-white/5 border-white/10 text-white rounded-xl focus:ring-0 outline-none">
+                                                <SelectValue placeholder="Disabled" />
+                                            </SelectTrigger>
+                                            <SelectContent className="rounded-2xl border-slate-800 bg-slate-900 text-white">
+                                                <SelectItem value="disabled" className="text-[10px] font-black">Disabled</SelectItem>
+                                                {availablePrinters.map((p: any) => (
+                                                    <SelectItem key={`secondary-${p.name}`} value={p.name} className="text-[10px] font-black">{p.name}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
                                     </div>
                                 </div>
                             </div>
@@ -3742,7 +3888,7 @@ export default function POSPage() {
 
                     {/* X / Z Report Modal */}
                     <Dialog open={isReportOpen} onOpenChange={setIsReportOpen}>
-                        <DialogContent className="sm:max-w-[560px] rounded-3xl p-0 overflow-hidden border-none max-h-[90vh] flex flex-col">
+                        <DialogContent className="w-[96vw] max-w-[980px] rounded-3xl p-0 overflow-hidden border-none max-h-[94vh] flex flex-col">
                             <DialogHeader className="sr-only">
                                 <DialogTitle>Daily Reports</DialogTitle>
                                 <DialogDescription>Generate and view X-Reports and Z-Reports for daily reconciliation.</DialogDescription>
@@ -3754,7 +3900,7 @@ export default function POSPage() {
                                 <div className="flex items-end justify-between pr-10">
                                     <div>
                                         <h3 className="text-xl font-black">{reportType === "x" ? "X-Report" : "Z-Report"}</h3>
-                                        <p className="text-purple-200 text-xs mt-1">{reportType === "x" ? "Current day summary" : "Closed day summary"}</p>
+                                        <p className="text-purple-200 text-xs mt-1">{reportType === "x" ? "Current day summary" : (canViewZReport ? "Closed day summary" : "Available after close day/shift")}</p>
                                     </div>
                                     <div className="flex items-center gap-3">
                                         {reportData && !reportData.error && (
@@ -3780,7 +3926,8 @@ export default function POSPage() {
                                             {(["x", "z"] as const).map(t => (
                                                 <button key={t} onClick={() => handleLoadReport(t)}
                                                     className={cn("px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all",
-                                                        reportType === t ? "bg-white text-purple-600" : "text-purple-200")}>
+                                                        reportType === t ? "bg-white text-purple-600" : "text-purple-200",
+                                                        t === "z" && !canViewZReport && "text-amber-200")}>
                                                     {t.toUpperCase()}
                                                 </button>
                                             ))}
@@ -3851,27 +3998,54 @@ export default function POSPage() {
                                             </div>
                                         </div>
 
-                                        {/* Top Items Sold */}
+                                        {/* Payment Method Summary */}
                                         <div className="border border-slate-100 rounded-2xl overflow-hidden mt-4">
-                                            <div className="bg-slate-800 px-4 py-2">
-                                                <span className="text-xs font-black text-white uppercase tracking-widest">Itemized Sales (Top 5)</span>
+                                            <div className="bg-emerald-600 px-4 py-2 flex items-center justify-between">
+                                                <span className="text-xs font-black text-white uppercase tracking-widest">Summary by Payment Method</span>
+                                                <span className="text-xs font-black text-emerald-100">{reportData.paymentMethods?.length || 0} methods</span>
                                             </div>
                                             <div className="divide-y divide-slate-50">
-                                                {reportData.items.slice(0, 5).map((item: any) => (
+                                                {(reportData.paymentMethods || []).map((method: any) => (
+                                                    <div key={method.method} className="flex items-center justify-between px-4 py-3">
+                                                        <span className="text-sm font-bold text-slate-700">{method.method}</span>
+                                                        <div className="flex items-center gap-4">
+                                                            <span className="text-xs font-black text-slate-400">{method.count} payments</span>
+                                                            <span className="text-sm font-black text-emerald-700">${Number(method.total).toFixed(2)}</span>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                                {(!reportData.paymentMethods || reportData.paymentMethods.length === 0) && (
+                                                    <div className="px-4 py-3 text-xs font-bold text-slate-400">No payment method breakdown available for this day.</div>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {/* Itemized Sales (Collapsible) */}
+                                        <div className="border border-slate-100 rounded-2xl overflow-hidden mt-4">
+                                            <div className="bg-slate-800 px-4 py-2 flex items-center justify-between">
+                                                <span className="text-xs font-black text-white uppercase tracking-widest">Itemized Sales ({reportData.items.length})</span>
+                                                <button
+                                                    type="button"
+                                                    className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-slate-200 hover:text-white transition-colors"
+                                                    onClick={() => setIsItemizedExpanded((prev) => !prev)}
+                                                >
+                                                    {isItemizedExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                                                    {isItemizedExpanded ? "Collapse" : "Expand"}
+                                                </button>
+                                            </div>
+                                            {isItemizedExpanded && (
+                                                <div className="divide-y divide-slate-50 max-h-[320px] overflow-y-auto">
+                                                    {reportData.items.map((item: any) => (
                                                     <div key={item.productId} className="flex items-center justify-between px-4 py-3">
                                                         <div className="flex flex-col">
-                                                            <span className="text-sm font-bold text-slate-700 truncate max-w-[200px]">{item.name}</span>
+                                                            <span className="text-sm font-bold text-slate-700 truncate max-w-[340px]">{item.name}</span>
                                                             <span className="text-[10px] text-slate-400 font-bold">Qty: {item.quantity}</span>
                                                         </div>
                                                         <span className="text-sm font-black text-slate-900">${Number(item.total).toFixed(2)}</span>
                                                     </div>
                                                 ))}
-                                                {reportData.items.length > 5 && (
-                                                    <div className="px-4 py-2 bg-slate-50 text-center">
-                                                        <span className="text-[10px] font-bold text-slate-400 uppercase">+{reportData.items.length - 5} more items in PDF</span>
-                                                    </div>
-                                                )}
-                                            </div>
+                                                </div>
+                                            )}
                                         </div>
 
                                         {/* Tax Distributions */}

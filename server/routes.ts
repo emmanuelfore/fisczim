@@ -45,6 +45,7 @@ import {
   expenses,
   zimraLogs,
   auditLogs,
+  users,
   insertQuotationSchema,
   insertQuotationItemSchema,
   insertRecurringInvoiceSchema,
@@ -4143,6 +4144,160 @@ export async function registerRoutes(
     res.status(201).json({ message: "Batch stock recorded successfully" });
   });
 
+  app.get("/api/companies/:companyId/grvs", requireAuth, async (req, res) => {
+    const companyId = Number(req.params.companyId);
+
+    const rows = await db
+      .select({
+        id: inventoryTransactions.id,
+        productId: inventoryTransactions.productId,
+        productName: products.name,
+        productSku: products.sku,
+        supplierId: inventoryTransactions.supplierId,
+        supplierName: suppliers.name,
+        quantity: inventoryTransactions.quantity,
+        unitCost: inventoryTransactions.unitCost,
+        totalCost: inventoryTransactions.totalCost,
+        referenceId: inventoryTransactions.referenceId,
+        notes: inventoryTransactions.notes,
+        createdAt: inventoryTransactions.createdAt,
+        userName: users.username,
+      })
+      .from(inventoryTransactions)
+      .leftJoin(products, eq(products.id, inventoryTransactions.productId))
+      .leftJoin(suppliers, eq(suppliers.id, inventoryTransactions.supplierId))
+      .leftJoin(users, eq(users.id, inventoryTransactions.createdBy))
+      .where(and(
+        eq(inventoryTransactions.companyId, companyId),
+        eq(inventoryTransactions.type, "STOCK_IN")
+      ))
+      .orderBy(desc(inventoryTransactions.createdAt));
+
+    const grouped = new Map<string, any>();
+    for (const row of rows) {
+      const fallbackId = `HIST-${row.id}`;
+      const fallbackNumber = `GRV-HIST-${String(row.id).padStart(6, "0")}`;
+      const grvId = row.referenceId || fallbackId;
+      const qty = Number(row.quantity || 0);
+      const cost = Number(row.totalCost || (Number(row.unitCost || 0) * qty));
+
+      if (!grouped.has(grvId)) {
+        grouped.set(grvId, {
+          id: grvId,
+          grvNumber: row.referenceId || fallbackNumber,
+          supplierId: row.supplierId || null,
+          supplierName: row.supplierName || "N/A",
+          createdAt: row.createdAt,
+          createdBy: row.userName || "System",
+          notes: row.notes || "",
+          lineCount: 0,
+          totalQuantity: 0,
+          totalCost: 0,
+        });
+      }
+
+      const item = grouped.get(grvId);
+      item.lineCount += 1;
+      item.totalQuantity += qty;
+      item.totalCost += cost;
+
+      if (row.createdAt && item.createdAt && row.createdAt < item.createdAt) {
+        item.createdAt = row.createdAt;
+      }
+
+      if (!item.supplierName || item.supplierName === "N/A") {
+        item.supplierName = row.supplierName || "N/A";
+      }
+    }
+
+    res.json(Array.from(grouped.values()).sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)));
+  });
+
+  app.get("/api/companies/:companyId/grvs/:grvId", requireAuth, async (req, res) => {
+    const companyId = Number(req.params.companyId);
+    const { grvId } = req.params;
+    const legacyId = grvId.startsWith("LEGACY-")
+      ? Number(grvId.replace("LEGACY-", ""))
+      : grvId.startsWith("HIST-")
+        ? Number(grvId.replace("HIST-", ""))
+        : null;
+
+    if ((grvId.startsWith("LEGACY-") || grvId.startsWith("HIST-")) && (!legacyId || Number.isNaN(legacyId))) {
+      return res.status(404).json({ message: "GRV not found" });
+    }
+
+    const whereClause =
+      (grvId.startsWith("LEGACY-") || grvId.startsWith("HIST-"))
+        ? and(
+            eq(inventoryTransactions.companyId, companyId),
+            eq(inventoryTransactions.type, "STOCK_IN"),
+            eq(inventoryTransactions.id, legacyId!),
+          )
+        : and(
+            eq(inventoryTransactions.companyId, companyId),
+            eq(inventoryTransactions.type, "STOCK_IN"),
+            eq(inventoryTransactions.referenceId, grvId),
+          );
+
+    const rows = await db
+      .select({
+        id: inventoryTransactions.id,
+        productId: inventoryTransactions.productId,
+        productName: products.name,
+        productSku: products.sku,
+        supplierId: inventoryTransactions.supplierId,
+        supplierName: suppliers.name,
+        quantity: inventoryTransactions.quantity,
+        unitCost: inventoryTransactions.unitCost,
+        totalCost: inventoryTransactions.totalCost,
+        referenceId: inventoryTransactions.referenceId,
+        notes: inventoryTransactions.notes,
+        createdAt: inventoryTransactions.createdAt,
+        userName: users.username,
+      })
+      .from(inventoryTransactions)
+      .leftJoin(products, eq(products.id, inventoryTransactions.productId))
+      .leftJoin(suppliers, eq(suppliers.id, inventoryTransactions.supplierId))
+      .leftJoin(users, eq(users.id, inventoryTransactions.createdBy))
+      .where(whereClause)
+      .orderBy(asc(inventoryTransactions.id));
+
+    if (!rows.length) {
+      return res.status(404).json({ message: "GRV not found" });
+    }
+
+    const lines = rows.map((row) => {
+      const qty = Number(row.quantity || 0);
+      const unitCost = Number(row.unitCost || 0);
+      return {
+        id: row.id,
+        productId: row.productId,
+        productName: row.productName || `Product ${row.productId}`,
+        sku: row.productSku || "",
+        quantity: qty,
+        unitCost,
+        totalCost: Number(row.totalCost || qty * unitCost),
+      };
+    });
+
+    const totalQuantity = lines.reduce((sum, line) => sum + line.quantity, 0);
+    const totalCost = lines.reduce((sum, line) => sum + line.totalCost, 0);
+    const first = rows[0];
+
+    res.json({
+      id: grvId,
+      grvNumber: first.referenceId || `GRV-HIST-${String(legacyId || first.id).padStart(6, "0")}`,
+      createdAt: first.createdAt,
+      createdBy: first.userName || "System",
+      supplierId: first.supplierId || null,
+      supplierName: first.supplierName || "N/A",
+      notes: first.notes || "",
+      totalQuantity,
+      totalCost,
+      lines,
+    });
+  });
+
   // Expense Routes
   app.get("/api/companies/:companyId/expenses", requireAuth, async (req, res) => {
     const expenses = await storage.getExpenses(Number(req.params.companyId));
@@ -6249,6 +6404,23 @@ export async function registerRoutes(
       const ownerGroup = ownerGroupScope || (req.query.ownerGroup as string | undefined);
 
       const data = await storage.getReportInventoryMovements(companyId, startDate, endDate, ownerGroup);
+      res.json(data);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Stock Adjustments Report
+  app.get("/api/reports/inventory/adjustments/:id", requireAuth, async (req, res) => {
+    try {
+      const companyId = parseInt(req.params.id);
+      const startDate = req.query.startDate ? new Date(req.query.startDate as string) : new Date(0);
+      const endDate = req.query.endDate ? new Date(req.query.endDate as string) : new Date();
+      endDate.setHours(23, 59, 59, 999);
+      const ownerGroupScope = await getUserOwnerGroupScope((req.user as any)?.id);
+      const ownerGroup = ownerGroupScope || (req.query.ownerGroup as string | undefined);
+
+      const data = await storage.getReportStockAdjustments(companyId, startDate, endDate, ownerGroup);
       res.json(data);
     } catch (error: any) {
       res.status(500).json({ message: error.message });

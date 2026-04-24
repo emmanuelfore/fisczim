@@ -103,18 +103,31 @@ export function MySalesModal({ companyId, company, posSettings, user, trigger }:
                         return s.outerHTML;
                     }).join('');
                     const fullHtml = `<!DOCTYPE html><html><head><meta charset="utf-8">${styles}</head><body class="bg-white p-0 m-0" style="margin:0;padding:0;">${html}</body></html>`;
-                    await window.electronAPI.printReceipt(fullHtml, posSettings.printerName || undefined);
+                    const printers = Array.from(new Set([
+                        posSettings.printerName || "",
+                        posSettings.secondaryPrinterName || "",
+                    ]));
+                    const targets = printers.length > 0 ? printers : [""];
+                    for (const printer of targets) {
+                        await window.electronAPI.printReceipt(fullHtml, printer || undefined);
+                    }
                 } else {
-                    const response = await fetch(`${posSettings.printServerUrl}/print`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            html,
-                            printerName: posSettings.printerName || undefined
-                        })
-                    });
-
-                    if (!response.ok) throw new Error("Failed to send to print server");
+                    const printers = Array.from(new Set([
+                        posSettings.printerName || "",
+                        posSettings.secondaryPrinterName || "",
+                    ]));
+                    const targets = printers.length > 0 ? printers : [""];
+                    for (const printer of targets) {
+                        const response = await fetch(`${posSettings.printServerUrl}/print`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                                html,
+                                printerName: printer || undefined
+                            })
+                        });
+                        if (!response.ok) throw new Error("Failed to send to print server");
+                    }
                 }
                 
                 toast({

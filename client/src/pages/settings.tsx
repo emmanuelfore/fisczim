@@ -97,7 +97,8 @@ export default function SettingsPage() {
           defaultCustomerId: "",
           silentPrinting: true,
           printServerUrl: "http://localhost:12312",
-          printerName: ""
+          printerName: "",
+          secondaryPrinterName: ""
         },
         restaurantSettings: activeCompany.restaurantSettings || { enabled: false },
         pharmacySettings: activeCompany.pharmacySettings || { enabled: false },

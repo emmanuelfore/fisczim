@@ -44,10 +44,41 @@ export function log(message: string, source = "express") {
   console.log(`${formattedTime} [${source}] ${message}`);
 }
 
+function summarizeResponseForLog(payload: unknown): string | undefined {
+  if (payload === null || payload === undefined) return undefined;
+
+  if (Array.isArray(payload)) {
+    return JSON.stringify({ type: "array", length: payload.length });
+  }
+
+  if (typeof payload !== "object") {
+    return JSON.stringify(payload);
+  }
+
+  const obj = payload as Record<string, unknown>;
+  const keys = Object.keys(obj);
+
+  const summary: Record<string, unknown> = { type: "object" };
+  if (typeof obj.id !== "undefined") summary.id = obj.id;
+  if (typeof obj.invoiceId !== "undefined") summary.invoiceId = obj.invoiceId;
+  if (typeof obj.invoiceNumber !== "undefined") summary.invoiceNumber = obj.invoiceNumber;
+  if (typeof obj.message === "string") summary.message = obj.message;
+  if (typeof obj.status === "string" || typeof obj.status === "number") summary.status = obj.status;
+  if (typeof obj.count === "number") summary.count = obj.count;
+  if (typeof obj.total === "number") summary.total = obj.total;
+  if (Array.isArray(obj.items)) summary.itemsCount = obj.items.length;
+  if (Array.isArray(obj.results)) summary.resultsCount = obj.results.length;
+  summary.keys = keys.slice(0, 8);
+  if (keys.length > 8) summary.moreKeys = keys.length - 8;
+
+  return JSON.stringify(summary);
+}
+
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
+  let capturedJsonResponse: unknown = undefined;
+  const verboseResponseLogs = process.env.API_RESPONSE_LOGS === "1";
 
   const originalResJson = res.json;
   res.json = function (bodyJson, ...args) {
@@ -59,8 +90,17 @@ app.use((req, res, next) => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+      if (capturedJsonResponse !== undefined) {
+        if (verboseResponseLogs) {
+          const raw = JSON.stringify(capturedJsonResponse);
+          const maxLen = 600;
+          logLine += ` :: ${raw.length > maxLen ? `${raw.slice(0, maxLen)}...<truncated>` : raw}`;
+        } else {
+          const summary = summarizeResponseForLog(capturedJsonResponse);
+          if (summary) {
+            logLine += ` :: ${summary}`;
+          }
+        }
       }
 
       log(logLine);

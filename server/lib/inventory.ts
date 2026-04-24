@@ -2,6 +2,12 @@ import { db } from "../db";
 import { inventoryTransactions, products, companies, stockTakes, stockTakeItems, branchStocks } from "@shared/schema";
 import { eq, and, asc, desc, sql } from "drizzle-orm";
 
+function generateGrvReference() {
+    const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
+    const suffix = Math.random().toString(36).slice(2, 7).toUpperCase();
+    return `GRV-${stamp}-${suffix}`;
+}
+
 export async function calculateCOGS(
     productId: number,
     quantitySold: number,
@@ -145,6 +151,8 @@ export async function recordStockIn(
     supplierId?: number,
     notes?: string
 ) {
+    const grvReference = generateGrvReference();
+
     // Fetch current stock and cost for weighted average
     const [product] = await db
         .select({
@@ -175,6 +183,7 @@ export async function recordStockIn(
         unitCost: unitCost.toString(),
         totalCost: (quantity * unitCost).toString(),
         referenceType: "GRN",
+        referenceId: grvReference,
         remainingQuantity: quantity.toString(),
         notes,
     });
@@ -195,6 +204,8 @@ export async function recordBatchStockIn(
     supplierId?: number,
     notes?: string
 ) {
+    const grvReference = generateGrvReference();
+
     // Wrap in a transaction to ensure all or nothing
     await db.transaction(async (tx) => {
         for (const item of items) {
@@ -231,6 +242,7 @@ export async function recordBatchStockIn(
                 unitCost: unitCost.toString(),
                 totalCost: (quantity * unitCost).toString(),
                 referenceType: "GRN",
+                referenceId: grvReference,
                 remainingQuantity: quantity.toString(),
                 notes: notes || "Batch GRN",
             });

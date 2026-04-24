@@ -688,6 +688,26 @@ export const api = {
         }))
       }
     },
+    stockAdjustments: {
+      method: "GET" as const,
+      path: "/api/reports/inventory/adjustments/:companyId",
+      responses: {
+        200: z.array(z.object({
+          transactionId: z.number(),
+          date: z.string(),
+          productName: z.string(),
+          sku: z.string().nullable(),
+          type: z.string(),
+          quantity: z.string(),
+          unitCost: z.string().nullable(),
+          totalCost: z.string().nullable(),
+          referenceType: z.string().nullable(),
+          reference: z.string().nullable(),
+          notes: z.string().nullable(),
+          userName: z.string().nullable()
+        }))
+      }
+    },
     purchaseHistory: {
       method: "GET" as const,
       path: "/api/reports/inventory/purchases/:companyId",

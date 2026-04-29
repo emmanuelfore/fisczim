@@ -29,7 +29,10 @@ import {
   Utensils,
   X,
   ArrowRightLeft,
-  RefreshCw
+  RefreshCw,
+  Bell,
+  Search,
+  CalendarDays
 } from "lucide-react";
 import { useBranding } from "@/hooks/use-branding";
 import {
@@ -45,7 +48,7 @@ import {
 } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { BranchSwitcher } from "./branch-switcher";
 import { DeviceStatusWidget } from "./device-status-widget";
@@ -68,7 +71,17 @@ type NavItem = {
 
 import { useActiveCompany } from "@/hooks/use-active-company";
 
-export function Layout({ children }: { children: React.ReactNode }) {
+export function Layout({
+  children,
+  hideHeaderTitle = false,
+  headerTitle,
+  headerSubtitle,
+}: {
+  children: React.ReactNode;
+  hideHeaderTitle?: boolean;
+  headerTitle?: string;
+  headerSubtitle?: string;
+}) {
   const [location, setLocation] = useLocation();
   const { user, logout } = useAuth();
   const { data: companies } = useCompanies(!!user, user?.id ?? null);
@@ -195,23 +208,115 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   const immersiveRoutes = ["/pos", "/restaurant/kds", "/order-status"];
   const isImmersiveRoute = immersiveRoutes.some((route) => location.startsWith(route));
+  const pageMeta = useMemo(() => {
+    const search = typeof window !== "undefined" ? window.location.search : "";
+
+    if (location.startsWith("/dashboard")) return { title: "Dashboard", subtitle: "Monitor sales, compliance, inventory, and business performance." };
+    if (location.startsWith("/invoices/new")) return { title: "Create Invoice", subtitle: "Prepare and fiscalise a customer invoice." };
+    if (location.match(/^\/invoices\/\d+/)) return { title: "Invoice Details", subtitle: "Review, print, fiscalise, and manage invoice payments." };
+    if (location.startsWith("/invoices")) return { title: "Invoices", subtitle: "Manage, track, and fiscalise customer invoices." };
+    if (location.startsWith("/quotations/new")) return { title: "Create Quotation", subtitle: "Prepare a customer quotation before invoicing." };
+    if (location.startsWith("/quotations")) return { title: "Quotations", subtitle: "Create, manage, and convert customer quotations." };
+    if (location.startsWith("/recurring")) return { title: "Recurring Invoices", subtitle: "Manage scheduled billing and repeat invoices." };
+    if (location.startsWith("/payments-received")) return { title: "Payments Received", subtitle: "Track customer payments and invoice balances." };
+    if (location.startsWith("/customers/")) return { title: "Customer Details", subtitle: "Review customer history, invoices, and statements." };
+    if (location.startsWith("/customers")) return { title: "Customers", subtitle: "Manage your client base and customer records." };
+    if (location.startsWith("/suppliers")) return { title: "Suppliers", subtitle: "Manage supplier records and procurement contacts." };
+    if (location.startsWith("/products")) return { title: "Products", subtitle: "Manage inventory items, pricing, tax, and stock controls." };
+    if (location.startsWith("/services")) return { title: "Services", subtitle: "Manage service offerings for invoices and sales." };
+    if (location.startsWith("/inventory/adjustments")) return { title: "Stock Adjustments", subtitle: "Record corrections, shrinkage, damage, and stock movements." };
+    if (location.startsWith("/inventory/stock-counts")) return { title: "Stock Counts", subtitle: "Run and review physical inventory counts." };
+    if (location.startsWith("/inventory/bulk-adjust")) return { title: "Bulk Adjustment", subtitle: "Apply inventory changes across multiple products." };
+    if (location.startsWith("/inventory/stock-take")) return { title: "Stock Take", subtitle: "Count inventory and reconcile stock positions." };
+    if (location.startsWith("/inventory/account")) return { title: "Goods Received", subtitle: "Track received goods and inventory account movements." };
+    if (location.startsWith("/inventory/grvs")) return { title: "Goods Received Voucher", subtitle: "Review received goods and supplier delivery details." };
+    if (location.startsWith("/inventory")) return { title: "Stock Ledger", subtitle: "Review inventory transactions and stock movement history." };
+    if (location.startsWith("/expenses")) return { title: "Expenses", subtitle: "Track operating expenses and business costs." };
+    if (location.startsWith("/tax-config")) return { title: "Tax Configuration", subtitle: "Manage ZIMRA fiscalisation and tax categories." };
+    if (location.startsWith("/settings")) {
+      if (search.includes("tab=zimra")) return { title: "ZIMRA Device", subtitle: "Configure fiscal device credentials and FDMS connectivity." };
+      if (search.includes("tab=team")) return { title: "Team Management", subtitle: "Manage users, roles, and business access." };
+      if (search.includes("tab=pos")) return { title: "POS Configuration", subtitle: "Configure tills, printing, and point-of-sale preferences." };
+      if (search.includes("tab=currencies")) return { title: "Currencies", subtitle: "Manage currency settings and exchange rates." };
+      return { title: "Settings", subtitle: "Manage company profile, security, compliance, and system preferences." };
+    }
+    if (location.startsWith("/currencies")) return { title: "Currencies", subtitle: "Manage currency settings and exchange rates." };
+    if (location.startsWith("/team-settings")) return { title: "Team Management", subtitle: "Manage users, roles, and business access." };
+    if (location.startsWith("/subscription")) return { title: "Subscription & Licensing", subtitle: "Manage hardware bindings for ZIMRA production access." };
+    if (location.startsWith("/profile")) return { title: "User Profile", subtitle: "Manage your account, security, and preferences." };
+    if (location.startsWith("/zimra-logs")) return { title: "Transaction Logs", subtitle: "Review FDMS communication and fiscal submission history." };
+    if (location.startsWith("/zimra-settings")) return { title: "ZIMRA Settings", subtitle: "Manage fiscal device and ZIMRA configuration." };
+    if (location.startsWith("/fdms-test")) return { title: "FDMS Test", subtitle: "Test fiscal device connectivity and FDMS responses." };
+    if (location.startsWith("/reports/financial")) return { title: "Profit & Loss", subtitle: "Review revenue, expenses, and profitability." };
+    if (location.startsWith("/reports/daily")) return { title: "Daily Sales", subtitle: "Review daily sales and fiscal activity." };
+    if (location.startsWith("/reports/inventory")) return { title: "Stock Reports", subtitle: "Analyse inventory movement, valuation, and stock health." };
+    if (location.startsWith("/reports/tax")) return { title: "Tax & ZIMRA Reports", subtitle: "Review fiscal, tax, and compliance reporting." };
+    if (location.startsWith("/reports/customer-statements")) return { title: "Customer Statements", subtitle: "Generate and review customer account statements." };
+    if (location.startsWith("/reports/cash-collection")) return { title: "Cash Collection", subtitle: "Track cash collection and payment activity." };
+    if (location.startsWith("/reports/pos")) return { title: "POS Reports", subtitle: "Review point-of-sale performance and cashier activity." };
+    if (location.startsWith("/reports")) return { title: "Reports", subtitle: "Analyse sales, customers, taxes, inventory, and financial performance." };
+    if (location.startsWith("/restaurant/orders")) return { title: "Live Orders", subtitle: "Monitor restaurant orders and service flow." };
+    if (location.startsWith("/restaurant/kds")) return { title: "Kitchen Display", subtitle: "Manage kitchen order preparation and fulfilment." };
+    if (location.startsWith("/restaurant/layout")) return { title: "Floor Plan", subtitle: "Manage restaurant tables and layout." };
+    if (location.startsWith("/pos/my-sales")) return { title: "My Sales History", subtitle: "Review your recent POS sales and receipts." };
+    if (location.startsWith("/pos/all-sales")) return { title: "Recent Sales", subtitle: "Review recent POS transactions and receipt activity." };
+    if (location.startsWith("/pos")) return { title: "POS Terminal", subtitle: "Process sales, payments, and fiscal receipts." };
+    return { title: "Dashboard", subtitle: "Monitor sales, compliance, inventory, and business performance." };
+  }, [location]);
+  const pageTitle = headerTitle || pageMeta.title;
+  const pageSubtitle = headerSubtitle || pageMeta.subtitle;
+  const isDashboardPage = location.startsWith("/dashboard");
 
   if (!user) return null;
 
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800;900&family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&display=swap');
-        
-        .fz-admin { font-family: 'Outfit', sans-serif !important; }
-        .fz-admin .font-display { font-family: 'Bricolage Grotesque', sans-serif !important; }
-        .admin-shell {
-          background:
-            radial-gradient(980px 320px at 18% -120px, rgba(99,102,241,0.10), transparent 62%),
-            radial-gradient(820px 280px at 92% -130px, rgba(14,165,233,0.08), transparent 62%),
-            #f8fafc;
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+        .fz-admin,
+        .admin-blueprint {
+          font-family: 'Inter', sans-serif !important;
         }
-        
+        .fz-admin .font-display,
+        .admin-blueprint .font-display {
+          font-family: 'Inter', sans-serif !important;
+        }
+        .admin-shell {
+          background: #FBFCFE;
+        }
+
+        .admin-blueprint .admin-sidebar {
+          background: #fefefe !important;
+          color: #071437 !important;
+          border-right: 1px solid #E5E7EB !important;
+          box-shadow: none !important;
+        }
+        .admin-blueprint .admin-sidebar .text-slate-800 { color: #071437 !important; }
+        .admin-blueprint .admin-sidebar .text-slate-500 { color: #374151 !important; }
+        .admin-blueprint .admin-sidebar .bg-slate-100 { background: #F1F5F9 !important; }
+        .admin-blueprint .admin-sidebar .border-slate-50,
+        .admin-blueprint .admin-sidebar .border-slate-100,
+        .admin-blueprint .admin-sidebar .border-slate-200,
+        .admin-blueprint .admin-sidebar .border-slate-200\\/60 {
+          border-color: #E5E7EB !important;
+        }
+        .admin-blueprint .admin-sidebar .bg-slate-900 {
+          background: #EEF4FF !important;
+          color: #2563EB !important;
+          box-shadow: none !important;
+        }
+        .admin-blueprint .admin-sidebar .hover\\:bg-slate-50:hover {
+          background: #F3F4F6 !important;
+        }
+        .admin-blueprint .nav-item {
+          transform: translateX(0);
+          transition: transform 0.2s ease, background-color 0.2s ease, color 0.2s ease;
+        }
+        .admin-blueprint .nav-item:hover {
+          transform: translateX(2px);
+        }
+
         .sidebar-scroller::-webkit-scrollbar {
           width: 2px;
           opacity: 0;
@@ -225,17 +330,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
           border-radius: 999px;
           min-height: 24px;
         }
-        
-        .fz-sidebar { 
-          background: #020617 !important; 
-          color: white !important; 
-          border-right: 1px solid rgba(255,255,255,0.05) !important;
-        }
-        .fz-sidebar .sidebar-scroller::-webkit-scrollbar-thumb {
-          background: rgba(255,255,255,0.35) !important;
-        }
-        .fz-sidebar .text-slate-800 { color: #f8fafc !important; }
-        .fz-sidebar .text-slate-500 { color: #94a3b8 !important; }
         
         .nav-item-tooltip {
           position: absolute;
@@ -259,19 +353,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
           opacity: 1;
           transform: translateX(0);
         }
-        .admin-header::before {
-          content: "";
-          position: absolute;
-          left: -14px;
-          top: 0;
-          height: 100%;
-          width: 14px;
-          background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(255,255,255,0.84));
-          border-top-left-radius: 12px;
-          border-bottom-left-radius: 12px;
-          border-left: 1px solid rgba(148,163,184,0.18);
-          border-top: 1px solid rgba(148,163,184,0.12);
-          border-bottom: 1px solid rgba(148,163,184,0.12);
+        .admin-blueprint .admin-header {
+          background: #FBFCFE !important;
+          border-bottom: none !important;
+        }
+        .admin-blueprint .page-shell {
+          border-radius: 0 !important;
+          border: none !important;
+          background: transparent !important;
+          box-shadow: none !important;
         }
         .page-shell > div > h1 {
           letter-spacing: -0.02em;
@@ -280,23 +370,21 @@ export function Layout({ children }: { children: React.ReactNode }) {
       `}</style>
 
       <div className={cn(
-        "min-h-screen bg-slate-50 flex transition-all duration-300 admin-shell",
-        currentBrand === "fiscalzone" ? "fz-admin" : "font-sans selection:bg-violet-500/20"
+        "min-h-screen bg-slate-50 flex transition-all duration-300 admin-shell admin-blueprint",
+        currentBrand === "fiscalzone" ? "fz-admin" : "font-sans selection:bg-blue-500/20"
       )}>
 
       {/* Primary Navigation Sidebar */}
       <aside className={cn(
-        "bg-white border-r border-slate-200/60 shadow-[1px_0_10px_rgba(0,0,0,0.02)] flex flex-col fixed inset-y-0 left-0 z-50 transition-all duration-500 ease-in-out",
-        isSidebarCollapsed ? "w-20" : "w-64",
-        isMobileMenuOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
-        currentBrand === "fiscalzone" && "fz-sidebar border-none"
+        "admin-sidebar bg-white border-r border-slate-200/60 shadow-[1px_0_10px_rgba(0,0,0,0.02)] flex flex-col fixed inset-y-0 left-0 z-50 transition-all duration-500 ease-in-out",
+        isSidebarCollapsed ? "w-20" : "w-[240px]",
+        isMobileMenuOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
       )}>
         <div className={cn(
-          "flex flex-col border-b border-slate-50 relative",
-          currentBrand === "fiscalzone" ? "bg-slate-950/20" : "bg-white/50",
-          isSidebarCollapsed ? "p-3 items-center" : "p-4"
+          "relative h-[88px] flex items-center bg-white",
+          isSidebarCollapsed ? "px-3 justify-center" : "px-4"
         )}>
-          <div className={cn("flex items-center gap-2 mb-3 transition-all", isSidebarCollapsed ? "justify-center" : "px-1")}>
+          <div className={cn("flex items-center gap-2 transition-all w-full", isSidebarCollapsed ? "justify-center" : "px-1")}>
             {currentBrand === "fiscalzone" ? (
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-white shadow-lg shadow-primary/20">
@@ -309,72 +397,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 )}
               </div>
             ) : (
-              <img src={brand.logo} alt={brand.name} className={cn("transition-all", isSidebarCollapsed ? "h-6 w-6 object-contain" : "h-8")} />
+              <img src={brand.logo} alt={brand.name} className={cn("transition-all rounded-lg", isSidebarCollapsed ? "h-6 w-6 object-contain" : "h-8")} />
             )}
           </div>
 
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <div className={cn(
-                "rounded-xl transition-all cursor-pointer group active:scale-95 duration-200",
-                currentBrand === "fiscalzone" ? "bg-white/5 border-white/10 hover:bg-white/10" : "bg-slate-50 border border-slate-100 hover:bg-white",
-                isSidebarCollapsed ? "p-2" : "p-2.5"
-              )}>
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-slate-300 overflow-hidden shadow-sm shrink-0">
-                    {selectedCompany?.logoUrl ? (
-                      <img src={selectedCompany.logoUrl} alt="Logo" className="w-full h-full object-contain" />
-                    ) : (
-                      <Building2 className="w-5 h-5 text-slate-400" />
-                    )}
-                  </div>
-                  {!isSidebarCollapsed && (
-                    <div className="overflow-hidden flex-1 text-left">
-                      <p className="text-sm font-black text-slate-800 truncate leading-none mb-1 font-display group-hover:text-primary transition-colors">
-                        {selectedCompany ? selectedCompany.name : "Setup"}
-                      </p>
-                      {selectedCompany && (
-                        <div className="flex items-center gap-1.5">
-                          <div className={cn("w-1.5 h-1.5 rounded-full", selectedCompany.zimraEnvironment === 'production' ? "bg-emerald-500" : "bg-amber-500")} />
-                          <span className={cn("text-[8px] font-black uppercase tracking-widest", selectedCompany.zimraEnvironment === 'production' ? "text-emerald-500" : "text-amber-500")}>
-                            {selectedCompany.zimraEnvironment === 'production' ? 'Production' : 'Test Environment'}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-60 max-h-[400px] overflow-y-auto bg-white border-slate-200 rounded-xl shadow-2xl p-1 z-[60]">
-              <div className="px-1 py-1">
-                {companies?.map((company) => (
-                  <DropdownMenuItem
-                    key={company.id}
-                    onClick={() => handleCompanyChange(company.id)}
-                    className={cn(
-                      "flex items-center gap-2.5 p-2 rounded-lg cursor-pointer transition-all duration-200 mb-0.5",
-                      selectedCompanyId === company.id ? "bg-slate-900 text-white shadow-md" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-                    )}
-                  >
-                    <div className={`w-6 h-6 rounded flex items-center justify-center text-[8px] font-bold ${selectedCompanyId === company.id ? 'bg-white/10 text-white' : 'bg-slate-100 text-slate-400'}`}>
-                      {company.logoUrl ? <img src={company.logoUrl} className="w-full h-full object-contain rounded" /> : company.name.substring(0, 2).toUpperCase()}
-                    </div>
-                    <span className="truncate flex-1 font-bold font-display text-[12px]">{company.name}</span>
-                    {selectedCompanyId === company.id && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
-                  </DropdownMenuItem>
-                ))}
-                <DropdownMenuItem onClick={() => setLocation("/onboarding")} className="flex items-center justify-center gap-2 p-2.5 text-white bg-primary font-bold cursor-pointer hover:bg-primary/90 rounded-lg shadow-lg shadow-primary/10 active:scale-95 transition-all text-xs">
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Register Enterprise</span>
-                </DropdownMenuItem>
-              </div>
-            </DropdownMenuContent>
-          </DropdownMenu>
         </div>
 
         <nav className={cn("flex-1 py-4 overflow-y-auto sidebar-scroller custom-scrollbar", isSidebarCollapsed ? "px-2" : "px-3")}>
-          <div className="space-y-1">
+          <div className="space-y-2">
             {navItems.map((item) => {
 
               if (item.children) {
@@ -393,10 +423,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     <DropdownMenu key={item.label}>
                       <DropdownMenuTrigger asChild>
                         <div className={cn(
-                          "w-11 h-11 rounded-xl flex items-center justify-center cursor-pointer transition-all duration-300 relative group collapsed-item mx-auto mb-1",
-                          isActiveGroup ? "bg-slate-900 text-white shadow-lg" : "text-slate-400 hover:bg-slate-100"
+                          "w-11 h-11 rounded-[10px] flex items-center justify-center cursor-pointer transition-all duration-300 relative group collapsed-item mx-auto mb-1 nav-item",
+                        isActiveGroup ? "bg-[#EEF4FF] text-[#2563EB] shadow-none" : "text-[#1F2937] hover:bg-slate-100"
                         )}>
-                          <item.icon className="w-5 h-5" />
+                          <item.icon className="w-[18px] h-[18px]" />
                           <span className="nav-item-tooltip shadow-2xl">{item.label}</span>
                         </div>
                       </DropdownMenuTrigger>
@@ -407,10 +437,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
                           return (
                             <Link key={child.label} href={child.href}>
                               <div className={cn(
-                                "flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-all text-xs font-bold mb-0.5",
-                                isChildActive ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                                "flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-all text-[13px] font-medium mb-1 nav-sub-item",
+                                isChildActive ? "bg-[#EEF4FF] text-[#2563EB]" : "text-[#6B7280] hover:bg-slate-50 hover:text-[#111827]"
                               )}>
-                                <child.icon className="w-3.5 h-3.5" />
+                                <child.icon className="w-[18px] h-[18px]" />
                                 <span>{child.label}</span>
                               </div>
                             </Link>
@@ -426,35 +456,40 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     <Collapsible open={isOpen} onOpenChange={setIsOpen} className="space-y-1">
                       <CollapsibleTrigger asChild>
                         <div className={cn(
-                          "flex items-center w-full px-3 py-2 rounded-xl text-sm font-bold transition-all duration-200 cursor-pointer select-none group",
+                          "flex items-center w-full px-3 py-3 rounded-[10px] text-[14px] font-semibold transition-all duration-200 cursor-pointer select-none group nav-item",
                           isActiveGroup
-                            ? "bg-slate-900 text-white shadow-lg shadow-slate-900/10"
-                            : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
+                            ? "bg-[#EEF4FF] text-[#2563EB] shadow-none"
+                            : "text-[#1F2937] hover:bg-slate-50 hover:text-[#111827]"
                         )}>
-                          <div className="flex items-center gap-3">
-                            <div className={cn(
-                              "w-8 h-8 rounded-xl flex items-center justify-center transition-colors shrink-0",
-                              isActiveGroup ? "bg-white/10 text-white" : "bg-slate-100 text-slate-400 group-hover:bg-slate-200 group-hover:text-slate-600"
-                            )}>
-                              <item.icon className="w-4 h-4" />
-                            </div>
+                          <div className="flex items-center gap-3 min-w-0">
+                            <item.icon className={cn("w-[18px] h-[18px] shrink-0", isActiveGroup ? "text-[#2563EB]" : "text-[#6B7280] group-hover:text-[#111827]")} />
                             <span className="font-display tracking-tight text-[14px]">{item.label}</span>
                           </div>
+                          <span className="ml-auto pl-3">
+                            <svg
+                              className={cn("w-4 h-4 transition-transform", isOpen ? "rotate-180" : "rotate-0")}
+                              viewBox="0 0 20 20"
+                              fill="currentColor"
+                              aria-hidden="true"
+                            >
+                              <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.168l3.71-3.94a.75.75 0 1 1 1.08 1.04l-4.25 4.5a.75.75 0 0 1-1.08 0l-4.25-4.5a.75.75 0 0 1 .02-1.06Z" clipRule="evenodd" />
+                            </svg>
+                          </span>
                         </div>
                       </CollapsibleTrigger>
                       <CollapsibleContent className="pb-1 transition-all">
-                        <div className="ml-4 pl-4 border-l-2 border-slate-100 space-y-1 mt-1">
+                        <div className="ml-5 pl-3 border-l-2 border-slate-100 space-y-1 mt-1 nav-dropdown">
                           {item.children.map((child) => {
                             const isChildActive = location + window.location.search === child.href || (location === child.href && !child.href.includes("?"));
                             return (
                               <Link key={child.label} href={child.href}>
                                 <div className={cn(
-                                  "flex items-center gap-3 px-3 py-2 rounded-xl text-[13px] font-bold transition-all duration-150 cursor-pointer",
+                                  "flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13px] font-medium transition-all duration-150 cursor-pointer nav-sub-item",
                                   isChildActive
-                                    ? "bg-slate-100 text-slate-900"
-                                    : "text-slate-500 hover:text-slate-900 hover:bg-slate-50/50"
+                                    ? "bg-[#EEF4FF] text-[#2563EB]"
+                                    : "text-[#6B7280] hover:text-[#111827] hover:bg-slate-50/50"
                                 )}>
-                                  <child.icon className={cn("w-4 h-4 shrink-0", isChildActive ? "text-slate-400" : "text-slate-400")} />
+                                  <child.icon className={cn("w-[18px] h-[18px] shrink-0", isChildActive ? "text-[#2563EB]" : "text-[#9CA3AF]")} />
                                   <span className="truncate">{child.label}</span>
                                 </div>
                               </Link>
@@ -473,10 +508,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 return (
                   <Link key={item.label} href={item.href!}>
                     <div className={cn(
-                      "w-11 h-11 rounded-xl flex items-center justify-center cursor-pointer transition-all duration-300 relative group collapsed-item mx-auto mb-1",
-                      isActive ? "bg-slate-900 text-white shadow-lg" : "text-slate-400 hover:bg-slate-100"
+                      "w-11 h-11 rounded-[10px] flex items-center justify-center cursor-pointer transition-all duration-300 relative group collapsed-item mx-auto mb-1 nav-item",
+                      isActive ? "bg-[#EEF4FF] text-[#2563EB] shadow-none" : "text-[#1F2937] hover:bg-slate-100"
                     )}>
-                      <item.icon className="w-5 h-5" />
+                      <item.icon className="w-[18px] h-[18px]" />
                       <span className="nav-item-tooltip shadow-2xl">{item.label}</span>
                     </div>
                   </Link>
@@ -487,17 +522,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 <div key={item.label}>
                   <Link href={item.href!}>
                     <div className={cn(
-                      "flex items-center gap-3 px-3 py-2 rounded-xl text-[14px] font-bold transition-all duration-200 cursor-pointer select-none group",
+                      "flex items-center gap-3 px-3 py-3 rounded-[10px] text-[14px] font-semibold transition-all duration-200 cursor-pointer select-none group nav-item",
                       isActive
-                        ? "bg-slate-900 text-white shadow-xl shadow-slate-900/20"
-                        : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
+                        ? "bg-[#EEF4FF] text-[#2563EB] shadow-none"
+                        : "text-[#1F2937] hover:bg-slate-50 hover:text-[#111827]"
                     )}>
-                      <div className={cn(
-                        "w-8 h-8 rounded-xl flex items-center justify-center shrink-0 transition-colors",
-                        isActive ? "bg-white/10 text-white" : "bg-slate-100 text-slate-400 group-hover:bg-slate-200 group-hover:text-slate-600"
-                      )}>
-                        <item.icon className="w-4 h-4" />
-                      </div>
+                      <item.icon className={cn("w-[18px] h-[18px] shrink-0", isActive ? "text-[#2563EB]" : "text-[#6B7280] group-hover:text-[#111827]")} />
                       <span className="font-display tracking-tight">{item.label}</span>
                     </div>
                   </Link>
@@ -506,13 +536,71 @@ export function Layout({ children }: { children: React.ReactNode }) {
             })}
           </div>
         </nav>
+
+        {!isSidebarCollapsed && (
+          <div className="p-3 space-y-3">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <div className="rounded-xl transition-all cursor-pointer group active:scale-95 duration-200 p-2.5 bg-white border border-[#E5E7EB] hover:bg-white">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-300 overflow-hidden shadow-sm shrink-0">
+                      {selectedCompany?.logoUrl ? (
+                        <img src={selectedCompany.logoUrl} alt="Logo" className="w-full h-full object-contain" />
+                      ) : (
+                        <Building2 className="w-5 h-5 text-slate-400" />
+                      )}
+                    </div>
+                    <div className="overflow-hidden flex-1 text-left">
+                      <p className="text-sm font-black text-slate-800 truncate leading-none mb-1 font-display group-hover:text-primary transition-colors">
+                        {selectedCompany ? selectedCompany.name : "Setup"}
+                      </p>
+                      {selectedCompany && (
+                        <div className="flex items-center gap-1.5">
+                          <div className={cn("w-1.5 h-1.5 rounded-full", selectedCompany.zimraEnvironment === "production" ? "bg-emerald-500" : "bg-amber-500")} />
+                          <span className={cn("text-[8px] font-black uppercase tracking-widest", selectedCompany.zimraEnvironment === "production" ? "text-emerald-500" : "text-amber-500")}>
+                            {selectedCompany.zimraEnvironment === "production" ? "Production" : "Test Environment"}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-60 max-h-[400px] overflow-y-auto bg-white border-slate-200 rounded-xl shadow-2xl p-1 z-[60]">
+                <div className="px-1 py-1">
+                  {companies?.map((company) => (
+                    <DropdownMenuItem
+                      key={company.id}
+                      onClick={() => handleCompanyChange(company.id)}
+                      className={cn(
+                        "flex items-center gap-2.5 p-2 rounded-lg cursor-pointer transition-all duration-200 mb-0.5",
+                        selectedCompanyId === company.id ? "bg-[#EEF4FF] text-[#2563EB] shadow-none" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                      )}
+                    >
+                      <div className={`w-6 h-6 rounded flex items-center justify-center text-[8px] font-bold ${selectedCompanyId === company.id ? "bg-[#DBEAFE] text-[#1D4ED8]" : "bg-slate-100 text-slate-400"}`}>
+                        {company.logoUrl ? <img src={company.logoUrl} className="w-full h-full object-contain rounded" /> : company.name.substring(0, 2).toUpperCase()}
+                      </div>
+                      <span className="truncate flex-1 font-medium font-display text-[14px]">{company.name}</span>
+                      {selectedCompanyId === company.id && <div className="w-1.5 h-1.5 rounded-full bg-[#2563EB]" />}
+                    </DropdownMenuItem>
+                  ))}
+                  <DropdownMenuItem onClick={() => setLocation("/onboarding")} className="flex items-center justify-center gap-2 p-2.5 text-white bg-[#2563EB] font-bold cursor-pointer hover:bg-[#1D4ED8] rounded-[10px] shadow-sm active:scale-95 transition-all text-xs">
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Register Enterprise</span>
+                  </DropdownMenuItem>
+                </div>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+          </div>
+        )}
       </aside>
 
       {/* Main Administrative Workspace */}
-      <div className={cn("flex-1 flex flex-col min-h-screen transition-all duration-500 ease-in-out", isSidebarCollapsed ? "lg:ml-20" : "lg:ml-64")}>
+      <div className={cn("flex-1 flex flex-col min-h-screen transition-all duration-500 ease-in-out", isSidebarCollapsed ? "lg:ml-20" : "lg:ml-[240px]")}>
 
         {/* Top Header */}
-        <header className="admin-header h-16 bg-white/90 border-b border-slate-200/60 flex items-center justify-end gap-3 px-4 sm:px-6 z-40 sticky top-0 shadow-sm relative backdrop-blur-xl">
+        <header className="admin-header h-[88px] bg-[#FBFCFE] flex items-center justify-between gap-3 px-4 sm:px-6 z-40 sticky top-0 relative">
           {/* Mobile Menu Toggle */}
           <Button
             variant="ghost"
@@ -523,14 +611,37 @@ export function Layout({ children }: { children: React.ReactNode }) {
             {isMobileMenuOpen ? <X className="w-5 h-5 text-slate-600" /> : <Menu className="w-5 h-5 text-slate-600" />}
           </Button>
 
+          <div className="hidden min-w-0 flex-1 items-center gap-4 lg:flex">
+            <div className="min-w-0">
+              <h1 className="truncate text-[24px] font-semibold leading-tight tracking-tight text-[#111827]">{pageTitle}</h1>
+              {pageSubtitle ? (
+                <p className="mt-1 truncate text-[13px] font-medium text-[#64748B]">{pageSubtitle}</p>
+              ) : null}
+            </div>
+            {isDashboardPage ? (
+              <Button variant="outline" className="h-11 shrink-0 px-4 rounded-[10px] border border-[#EAEFF5] bg-white text-[#374151] text-[13px] font-medium shadow-none">
+                <CalendarDays className="w-4 h-4 mr-2 text-[#64748B]" />
+                May 20 - May 26, 2024
+              </Button>
+            ) : null}
+          </div>
+
           <div className="flex items-center gap-2">
+            <div className="hidden xl:flex items-center h-11 px-3 rounded-[10px] border border-[#EAEFF5] bg-white min-w-[280px]">
+              <Search className="w-4 h-4 text-[#64748B]" />
+              <input
+                aria-label="Search"
+                placeholder="Search anything..."
+                className="ml-2 flex-1 text-sm text-[#0f172a] placeholder:text-[#94a3b8] bg-transparent outline-none"
+              />
+              <span className="text-[11px] font-semibold text-[#64748B] bg-[#F8FAFC] border border-[#E5E7EB] rounded px-2 py-0.5">Ctrl + K</span>
+            </div>
+
+            <Button variant="ghost" size="icon" className="h-10 w-10 rounded-full border border-[#E5E7EB] text-[#64748B]">
+              <Bell className="w-4 h-4" />
+            </Button>
+
             <div className="hidden md:flex items-center gap-2">
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-slate-200 bg-slate-50">
-                <ShieldCheck className="w-3.5 h-3.5 text-slate-600" />
-                <span className="text-[10px] font-black uppercase tracking-wide text-slate-700">
-                  {roleLabel}
-                </span>
-              </div>
               {selectedCompany?.id && <DeviceStatusWidget companyId={selectedCompany.id} />}
             </div>
             <BranchSwitcher />
@@ -547,7 +658,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-64 bg-white rounded-2xl shadow-2xl border-slate-200 p-2 mt-2">
                 <div className="flex items-center justify-start gap-3 p-4 bg-slate-50 rounded-xl mb-2">
-                  <div className="h-10 w-10 rounded-full bg-slate-900 flex items-center justify-center text-white font-black text-sm">
+                  <div className="h-9 w-9 rounded-full bg-[#2563EB] flex items-center justify-center text-white font-semibold text-sm">
                     {user.name?.charAt(0).toUpperCase()}
                   </div>
                   <div className="flex flex-col space-y-0.5 leading-none">
@@ -588,11 +699,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
         )}
 
         {/* Page Content */}
-        <main className="flex-1 p-3 sm:p-5 pt-4 max-w-[1600px] w-full mx-auto">
+        <main className={cn(
+          "flex-1 max-w-[1600px] w-full mx-auto",
+          "px-4 pb-4 pt-2 sm:px-8 sm:pb-8 sm:pt-2"
+        )}>
           {isImmersiveRoute ? (
             children
           ) : (
-            <section className="page-shell rounded-[1.5rem] border border-slate-200/70 bg-white/88 backdrop-blur-sm shadow-[0_10px_30px_rgba(15,23,42,0.06)] p-4 sm:p-5 lg:p-6">
+            <section className="page-shell p-0">
               {children}
             </section>
           )}

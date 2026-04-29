@@ -14,7 +14,6 @@ import { ShieldCheck, Calculator, Smartphone, Pencil } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
 import { useActiveCompany } from "@/hooks/use-active-company";
-import { PageHeader } from "@/components/page-header";
 
 export default function TaxConfigPage() {
     const { activeCompany, activeCompanyId, isLoading: isLoadingActive } = useActiveCompany();
@@ -37,14 +36,8 @@ export default function TaxConfigPage() {
 
     return (
         <Layout>
-            <div className="mb-8">
-                <PageHeader
-                    title="Tax Configuration"
-                    subtitle="Manage ZIMRA Fiscalization and Tax Categories"
-                    className="mb-4"
-                />
-                {!currentCompany.vatRegistered && (
-                    <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3">
+            {!currentCompany.vatRegistered && (
+                <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3">
                         <Calculator className="w-5 h-5 text-amber-600 mt-0.5" />
                         <div>
                             <p className="font-bold text-amber-900">Non-VAT Registered Company</p>
@@ -54,8 +47,7 @@ export default function TaxConfigPage() {
                             </p>
                         </div>
                     </div>
-                )}
-            </div>
+            )}
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 {/* Left Column: ZIMRA Settings */}

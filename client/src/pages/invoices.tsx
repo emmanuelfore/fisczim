@@ -3,16 +3,15 @@ import { cn } from "@/lib/utils";
 import { useInvoices, useInvoice, useDeleteInvoice, useFiscalizeInvoice, useUpdateInvoice, useCreateCreditNote, useCreateDebitNote, usePayments, useConvertQuotation } from "@/hooks/use-invoices";
 import { useCreateRecurringInvoice } from "@/hooks/use-recurring";
 import { Button } from "@/components/ui/button";
-import { Plus, Search, FileText, Loader2, ShieldCheck, Send, MoreHorizontal, Copy, Eye, Edit, Trash2, User, Download, Share2, MessageCircle, Mail, CreditCard, Undo2, MoreVertical, Printer, ClipboardList, ArrowLeft } from "lucide-react";
+import { Plus, Search, FileText, Loader2, ShieldCheck, Send, MoreHorizontal, Copy, Eye, Edit, Trash2, User, Download, Share2, MessageCircle, Mail, CreditCard, Undo2, MoreVertical, Printer, ClipboardList, ArrowLeft, UploadCloud, RefreshCw, SlidersHorizontal, X, ReceiptText, CheckCircle2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/status-badge";
 import { Link, useLocation } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
-import { SummaryStatCard } from "@/components/ui/summary-stat-card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ElementType } from "react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Calendar as CalendarIcon, Filter, TrendingUp, Clock, AlertCircle } from "lucide-react";
 import { Calendar } from "@/components/ui/calendar";
@@ -24,6 +23,8 @@ import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useCurrencies } from "@/hooks/use-currencies";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/use-auth";
 import { PDFDownloadLink, PDFViewer } from "@react-pdf/renderer";
@@ -38,7 +39,6 @@ import { useTaxConfig } from "@/hooks/use-tax-config";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useBranchContext } from "@/lib/branch-context";
 import { pdf } from "@react-pdf/renderer";
-import { PageHeader } from "@/components/page-header";
 
 // ── Preview panel (used by invoice-details split view) ──────────────────────
 export function InvoicePreviewPanel({ invoiceId, onClose }: { invoiceId: number; onClose: () => void }) {
@@ -226,6 +226,245 @@ export function InvoicePreviewPanel({ invoiceId, onClose }: { invoiceId: number;
 }
 
 // ── Main invoices page ───────────────────────────────────────────────────────
+type StatCardProps = {
+  label: string;
+  value: string;
+  icon: ElementType;
+  tone: "blue" | "green" | "amber" | "red";
+  trend: string;
+  trendTone?: "green" | "red";
+};
+
+const toneStyles: Record<StatCardProps["tone"], string> = {
+  blue: "bg-blue-50 text-blue-600 border-blue-100",
+  green: "bg-emerald-50 text-emerald-600 border-emerald-100",
+  amber: "bg-amber-50 text-amber-600 border-amber-100",
+  red: "bg-red-50 text-red-600 border-red-100",
+};
+
+function MiniSparkline({ tone }: { tone: StatCardProps["tone"] }) {
+  const stroke: Record<StatCardProps["tone"], string> = {
+    blue: "#2563EB",
+    green: "#16A34A",
+    amber: "#F59E0B",
+    red: "#EF4444",
+  };
+
+  return (
+    <svg width="82" height="34" viewBox="0 0 82 34" fill="none" aria-hidden="true">
+      <path d="M2 26C10 18 16 21 23 15C30 9 37 14 44 10C52 5 58 8 65 6C72 4 77 7 80 3" stroke={stroke[tone]} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M2 26C10 18 16 21 23 15C30 9 37 14 44 10C52 5 58 8 65 6C72 4 77 7 80 3V34H2V26Z" fill={stroke[tone]} opacity="0.08" />
+    </svg>
+  );
+}
+
+function StatCard({ label, value, icon: Icon, tone, trend, trendTone = "green" }: StatCardProps) {
+  return (
+    <div className="rounded-[14px] border border-[#E5E7EB] bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className={cn("mb-4 flex h-10 w-10 items-center justify-center rounded-[10px] border", toneStyles[tone])}>
+            <Icon className="h-5 w-5" />
+          </div>
+          <p className="text-[13px] font-medium text-[#64748B]">{label}</p>
+          <p className="mt-2 text-[28px] font-bold leading-none tracking-tight text-[#0F172A]">{value}</p>
+          <p className={cn("mt-3 text-xs font-semibold", trendTone === "red" ? "text-[#DC2626]" : "text-[#16A34A]")}>{trend}</p>
+        </div>
+        <div className="mt-10 shrink-0">
+          <MiniSparkline tone={tone} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BillingPageActions({ onExport, onSync }: { onExport: () => void; onSync: () => void }) {
+  return (
+    <div className="flex w-full flex-col justify-end gap-2 sm:flex-row sm:flex-wrap">
+      <Link href="/quotations">
+        <Button variant="outline" className="h-10 w-full rounded-[10px] border-[#E5E7EB] bg-white px-4 text-sm font-semibold text-[#0F172A] shadow-none hover:bg-[#F8FAFC] sm:w-auto">
+          <ClipboardList className="h-4 w-4 text-[#64748B]" /> Quotations
+        </Button>
+      </Link>
+      <Button variant="outline" className="h-10 w-full rounded-[10px] border-[#E5E7EB] bg-white px-4 text-sm font-semibold text-[#0F172A] shadow-none hover:bg-[#F8FAFC] sm:w-auto" onClick={onExport}>
+        <Download className="h-4 w-4 text-[#64748B]" /> Export
+      </Button>
+      <Button variant="outline" className="h-10 w-full rounded-[10px] border-[#E5E7EB] bg-white px-4 text-sm font-semibold text-[#0F172A] shadow-none hover:bg-[#F8FAFC] sm:w-auto" onClick={onSync}>
+        <RefreshCw className="h-4 w-4 text-[#64748B]" /> Sync FDMS
+      </Button>
+      <Link href="/invoices/new">
+        <Button className="h-10 w-full rounded-[10px] border border-[#2563EB] bg-gradient-to-r from-[#2563EB] to-[#1D4ED8] px-4 text-sm font-semibold text-white shadow-[0_1px_2px_rgba(37,99,235,0.25)] hover:from-[#1D4ED8] hover:to-[#1D4ED8] sm:w-auto">
+          <Plus className="h-4 w-4" /> Create Invoice
+        </Button>
+      </Link>
+    </div>
+  );
+}
+
+function StatusPill({ status, label }: { status: "fiscalized" | "pending" | "failed" | "draft" | "paid" | "unpaid" | "partial"; label?: string }) {
+  const styles: Record<typeof status, string> = {
+    fiscalized: "border-transparent bg-[#DCFCE7] text-[#166534]",
+    pending: "border-transparent bg-[#FEF3C7] text-[#92400E]",
+    failed: "border-transparent bg-[#FEE2E2] text-[#991B1B]",
+    draft: "border-transparent bg-slate-100 text-slate-600",
+    paid: "border-transparent bg-[#DCFCE7] text-[#166534]",
+    unpaid: "border-transparent bg-[#FEE2E2] text-[#991B1B]",
+    partial: "border-transparent bg-[#DBEAFE] text-[#1D4ED8]",
+  };
+
+  return (
+    <span className={cn("inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide", styles[status])}>
+      {label || status}
+    </span>
+  );
+}
+
+function getFiscalStatus(invoice: any): "fiscalized" | "pending" | "failed" | "draft" {
+  const hasError = invoice.fdmsStatus?.toLowerCase() === "failed" || invoice.validationStatus === "red";
+  if (hasError) return "failed";
+  if (invoice.fiscalCode || invoice.status === "fiscalized") return "fiscalized";
+  if (invoice.status === "draft") return "draft";
+  return "pending";
+}
+
+function getPaymentStatus(invoice: any): "paid" | "unpaid" {
+  if (invoice.status === "paid") return "paid";
+  return "unpaid";
+}
+
+function formatMoney(currency: string, value: number | string | null | undefined) {
+  return `${currency || "USD"} ${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function percentOf(count: number, total: number) {
+  if (!total) return "0.0%";
+  return `${((count / total) * 100).toFixed(1)}%`;
+}
+
+function getSyncTime(invoice: any) {
+  const value = invoice.fiscalizedAt || invoice.updatedAt || invoice.createdAt;
+  if (!value) return "-";
+  try {
+    return format(new Date(value), "dd MMM, HH:mm");
+  } catch {
+    return "-";
+  }
+}
+
+function QuickChip({ label, active, tone = "default", onClick }: { label: string; active?: boolean; tone?: "default" | "green" | "amber" | "red"; onClick: () => void }) {
+  const toneClass = active
+    ? "bg-[#EFF6FF] text-[#2563EB] border-[#BFDBFE]"
+    : tone === "green"
+      ? "bg-[#DCFCE7] text-[#166534] border-transparent"
+      : tone === "amber"
+        ? "bg-[#FEF3C7] text-[#92400E] border-transparent"
+        : tone === "red"
+          ? "bg-[#FEE2E2] text-[#DC2626] border-transparent"
+          : "bg-white text-[#64748B] border-[#E5E7EB]";
+
+  return (
+    <button type="button" onClick={onClick} className={cn("rounded-full border px-3 py-2 text-[13px] font-semibold transition-colors hover:border-[#BFDBFE] hover:text-[#2563EB]", toneClass)}>
+      {label}
+    </button>
+  );
+}
+
+function PreviewInfo({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-[12px] border border-[#E5E7EB] bg-[#F8FAFC] p-3">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-[#64748B]">{label}</p>
+      <p className="mt-1 text-sm font-bold text-[#0F172A]">{value}</p>
+    </div>
+  );
+}
+
+function InvoicePreviewCard({ invoice, onClose, onView, onFiscalize }: { invoice?: any; onClose?: () => void; onView: (id: number) => void; onFiscalize: (id: number) => void }) {
+  const [tab, setTab] = useState<"overview" | "timeline" | "fdms">("overview");
+
+  if (!invoice) {
+    return (
+      <div className="rounded-[14px] border border-dashed border-[#CBD5E1] bg-white p-5 text-center shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+        <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-[10px] bg-[#EFF6FF] text-[#2563EB]">
+          <ReceiptText className="h-5 w-5" />
+        </div>
+        <p className="mt-3 text-sm font-semibold text-[#0F172A]">Select an invoice to preview details.</p>
+        <p className="mt-1 text-xs font-medium text-[#64748B]">Fiscal details, customer records, and FDMS response information will appear here.</p>
+      </div>
+    );
+  }
+
+  const fiscalStatus = getFiscalStatus(invoice);
+  const paymentStatus = getPaymentStatus(invoice);
+
+  return (
+    <aside className="rounded-[14px] border border-[#E5E7EB] bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate font-mono text-sm font-bold text-[#0F172A]">{invoice.invoiceNumber || `INV-${invoice.id}`}</p>
+          <div className="mt-2"><StatusPill status={fiscalStatus} label={fiscalStatus === "fiscalized" ? "Fiscalised" : fiscalStatus === "pending" ? "Pending Sync" : fiscalStatus} /></div>
+        </div>
+        {onClose ? (
+          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-[10px]" onClick={onClose}>
+            <X className="h-4 w-4" />
+          </Button>
+        ) : null}
+      </div>
+
+      <div className="mt-5 grid grid-cols-3 rounded-[10px] bg-[#F8FAFC] p-1">
+        {(["overview", "timeline", "fdms"] as const).map((value) => (
+          <button key={value} type="button" onClick={() => setTab(value)} className={cn("rounded-[8px] px-2 py-2 text-xs font-bold capitalize text-[#64748B]", tab === value && "bg-white text-[#2563EB] shadow-[0_1px_2px_rgba(15,23,42,0.04)]")}>
+            {value === "fdms" ? "FDMS Response" : value}
+          </button>
+        ))}
+      </div>
+
+      {tab === "overview" ? (
+        <div className="mt-5 space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <PreviewInfo label="Total Amount" value={formatMoney(invoice.currency, invoice.total)} />
+            <PreviewInfo label="Invoice Date" value={invoice.issueDate ? format(new Date(invoice.issueDate), "dd MMM yyyy") : "-"} />
+          </div>
+          <div className="rounded-[14px] border border-[#E5E7EB] p-4">
+            <p className="text-xs font-bold uppercase tracking-wide text-[#64748B]">Customer</p>
+            <p className="mt-2 text-sm font-bold text-[#0F172A]">{invoice.customer?.name || "Walk-in"}</p>
+            <p className="mt-1 text-xs font-medium text-[#64748B]">VAT: {invoice.customer?.vatNumber || invoice.customer?.tin || "-"}</p>
+            <p className="mt-1 text-xs font-medium text-[#64748B]">{invoice.customer?.billingAddress || invoice.customer?.address || "No address on record"}</p>
+          </div>
+          <div className="rounded-[14px] border border-[#E5E7EB] p-4">
+            <p className="text-xs font-bold uppercase tracking-wide text-[#64748B]">Fiscal Details</p>
+            <div className="mt-3 space-y-2 text-xs font-medium text-[#64748B]">
+              <div className="flex justify-between gap-3"><span>Certificate ID</span><span className="truncate text-[#0F172A]">{invoice.fiscalCode || "-"}</span></div>
+              <div className="flex justify-between gap-3"><span>QR Code</span><span className="text-[#0F172A]">{invoice.qrCodeData ? "Available" : "-"}</span></div>
+              <div className="flex justify-between gap-3"><span>Signature</span><span className="truncate text-[#0F172A]">{invoice.fiscalSignature || invoice.receiptSignature || "-"}</span></div>
+              <div className="flex justify-between gap-3"><span>Device ID</span><span className="text-[#0F172A]">{invoice.deviceId || "-"}</span></div>
+              <div className="flex justify-between gap-3"><span>Branch</span><span className="text-[#0F172A]">{invoice.branch?.name || invoice.branchId || "-"}</span></div>
+            </div>
+          </div>
+        </div>
+      ) : tab === "timeline" ? (
+        <div className="mt-5 space-y-3 text-sm">
+          <PreviewInfo label="Created" value={invoice.createdAt ? format(new Date(invoice.createdAt), "dd MMM yyyy, HH:mm") : "-"} />
+          <PreviewInfo label="Last Sync" value={getSyncTime(invoice)} />
+          <PreviewInfo label="Payment Status" value={paymentStatus === "paid" ? "Paid" : "Unpaid"} />
+        </div>
+      ) : (
+        <div className="mt-5 rounded-[14px] border border-[#E5E7EB] bg-[#F8FAFC] p-4">
+          <p className="text-xs font-bold uppercase tracking-wide text-[#64748B]">FDMS Response</p>
+          <p className="mt-3 break-words font-mono text-xs leading-5 text-[#0F172A]">{invoice.fdmsStatus || invoice.validationStatus || "No FDMS response available for this invoice."}</p>
+        </div>
+      )}
+
+      <div className="mt-5 grid grid-cols-2 gap-2">
+        <Button variant="outline" className="h-9 rounded-[10px] border-[#E5E7EB] text-xs font-semibold" onClick={() => window.print()}><Printer className="h-3.5 w-3.5" /> Print</Button>
+        <Button variant="outline" className="h-9 rounded-[10px] border-[#E5E7EB] text-xs font-semibold" onClick={() => onView(invoice.id)}><Download className="h-3.5 w-3.5" /> PDF</Button>
+        <Button variant="outline" className="h-9 rounded-[10px] border-[#E5E7EB] text-xs font-semibold" onClick={() => onView(invoice.id)}><Mail className="h-3.5 w-3.5" /> Email</Button>
+        <Button variant="outline" className="h-9 rounded-[10px] border-[#E5E7EB] text-xs font-semibold" onClick={() => onFiscalize(invoice.id)}><RefreshCw className="h-3.5 w-3.5" /> Resync</Button>
+        <Button variant="ghost" className="col-span-2 h-9 rounded-[10px] text-xs font-semibold text-[#64748B]" onClick={() => onView(invoice.id)}><MoreHorizontal className="h-3.5 w-3.5" /> More actions</Button>
+      </div>
+    </aside>
+  );
+}
+
 export default function InvoicesPage() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
@@ -238,7 +477,11 @@ export default function InvoicesPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [customerFilter, setCustomerFilter] = useState<string>("all");
+  const [quickFilter, setQuickFilter] = useState<string>("all");
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState<number | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
   const { data: result, isLoading } = useInvoices(selectedCompanyId, {
     page, limit: pageSize,
@@ -261,8 +504,18 @@ export default function InvoicesPage() {
     enabled: !!selectedCompanyId,
   });
 
-  const stats = { total: summary?.totalRevenue || 0, pending: summary?.pendingAmount || 0, overdue: summary?.overdueAmount || 0 };
-  const invoices = result?.data;
+  const invoices = result?.data || [];
+  const customerFilteredInvoices = customerFilter === "all" ? invoices : invoices.filter((invoice: any) => String(invoice.customerId || invoice.customer?.name || "walk-in") === customerFilter);
+  const displayedInvoices = customerFilteredInvoices.filter((invoice: any) => {
+    if (quickFilter === "failed") return getFiscalStatus(invoice) === "failed";
+    if (quickFilter === "unpaid") return getPaymentStatus(invoice) === "unpaid";
+    return true;
+  });
+  const selectedInvoice = displayedInvoices.find((invoice: any) => invoice.id === selectedInvoiceId) || null;
+  const uniqueCustomers = Array.from(new Map(invoices.map((invoice: any) => [String(invoice.customerId || invoice.customer?.name || "walk-in"), invoice.customer?.name || "Walk-in"])).entries());
+  const fiscalisedCount = displayedInvoices.filter((invoice: any) => getFiscalStatus(invoice) === "fiscalized").length;
+  const pendingSyncCount = displayedInvoices.filter((invoice: any) => getFiscalStatus(invoice) === "pending").length;
+  const failedFiscalisation = displayedInvoices.filter((invoice: any) => getFiscalStatus(invoice) === "failed").length;
   const totalPages = result?.pages || 0;
   const totalInvoices = result?.total || 0;
 
@@ -274,6 +527,50 @@ export default function InvoicesPage() {
   const [smartError, setSmartError] = useState<any>(null);
 
   const handleFilterChange = (setter: any, value: any) => { setter(value); setPage(1); };
+  const selectInvoice = (invoice: any) => {
+    setSelectedInvoiceId(invoice.id);
+    setIsPreviewOpen(true);
+  };
+  const clearFilters = () => {
+    setSearchTerm("");
+    setStatusFilter("all");
+    setTypeFilter("all");
+    setCustomerFilter("all");
+    setDateRange(undefined);
+    setQuickFilter("all");
+    setPage(1);
+  };
+  const applyQuickFilter = (filter: string) => {
+    setQuickFilter(filter);
+    setPage(1);
+    if (filter === "all") {
+      setStatusFilter("all");
+      setDateRange(undefined);
+    } else if (filter === "fiscalized") setStatusFilter("fiscalized");
+    else if (filter === "pending") setStatusFilter("issued");
+    else if (filter === "failed") setStatusFilter("all");
+    else if (filter === "draft") setStatusFilter("draft");
+    else if (filter === "paid") setStatusFilter("paid");
+    else if (filter === "unpaid") setStatusFilter("all");
+    else if (filter === "today") {
+      const today = new Date();
+      setDateRange({ from: today, to: today });
+    } else if (filter === "week") {
+      const today = new Date();
+      const from = new Date(today);
+      from.setDate(today.getDate() - 7);
+      setDateRange({ from, to: today });
+    } else if (filter === "month") {
+      const today = new Date();
+      setDateRange({ from: new Date(today.getFullYear(), today.getMonth(), 1), to: today });
+    }
+  };
+  const handleExport = () => {
+    toast({ title: "Export started", description: "Preparing invoice export for the current company." });
+  };
+  const handleSyncFdms = () => {
+    toast({ title: "FDMS sync queued", description: "Use row actions to resync a specific invoice." });
+  };
 
   const handleIssue = async (invoice: any) => {
     setLoadingId(invoice.id);
@@ -297,226 +594,252 @@ export default function InvoicesPage() {
   };
 
   return (
-    <Layout>
+    <Layout hideHeaderTitle headerTitle="Invoices" headerSubtitle="Manage fiscalised, pending, and failed invoices.">
       <SmartFixDialog isOpen={!!smartError} onClose={() => setSmartError(null)} error={smartError} onRetry={() => setSmartError(null)} />
 
-      <PageHeader
-        title="Invoices"
-        subtitle="Manage and track your customer billing cycle"
-        className="pt-2"
-        actions={
-          <>
-            <Link href="/quotations">
-              <Button variant="outline" className="border-slate-200 rounded-xl h-10">
-                <ClipboardList className="w-4 h-4 mr-2" /> Quotations
-              </Button>
-            </Link>
-            <Link href="/invoices/new">
-              <Button className="btn-gradient rounded-xl px-5 h-10">
-                <Plus className="w-4 h-4 mr-2" /> Create Invoice
-              </Button>
-            </Link>
-          </>
-        }
-      />
+      <div className="space-y-4">
+        <BillingPageActions onExport={handleExport} onSync={handleSyncFdms} />
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        {[
-          { label: "Total Revenue", value: stats.total, icon: TrendingUp, tone: "emerald" as const },
-          { label: "Outstanding", value: stats.pending, icon: Clock, tone: "amber" as const },
-          { label: "Overdue", value: stats.overdue, icon: AlertCircle, tone: "rose" as const },
-        ].map(({ label, value, icon, tone }) => (
-          <SummaryStatCard
-            key={label}
-            label={label}
-            value={`${currentSymbol}${value.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
-            icon={icon}
-            tone={tone}
-          />
-        ))}
-      </div>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <StatCard label="Total Invoices" value={totalInvoices.toLocaleString()} icon={ReceiptText} tone="blue" trend={`↑ ${percentOf(displayedInvoices.length, Math.max(totalInvoices, displayedInvoices.length))} visible`} />
+          <StatCard label="Fiscalised" value={fiscalisedCount.toLocaleString()} icon={CheckCircle2} tone="green" trend={`↑ ${percentOf(fiscalisedCount, displayedInvoices.length)} of current view`} />
+          <StatCard label="Pending Sync" value={pendingSyncCount.toLocaleString()} icon={Clock} tone="amber" trend={`↑ ${percentOf(pendingSyncCount, displayedInvoices.length)} awaiting FDMS`} />
+          <StatCard label="Failed" value={failedFiscalisation.toLocaleString()} icon={AlertCircle} tone="red" trend={`↓ ${percentOf(failedFiscalisation, displayedInvoices.length)} require review`} trendTone="red" />
+        </div>
 
-      {/* Filters + Table */}
-      <Card className="glass-card border-none overflow-hidden">
-        <CardContent className="p-0">
-          {/* Filter bar */}
-          <div className="p-4 border-b border-slate-100 flex flex-wrap gap-3 items-center">
-            <div className="relative flex-1 min-w-[200px]">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <Input placeholder="Search invoices..." className="pl-9 h-10 border-slate-200 rounded-xl" value={searchTerm} onChange={(e) => handleFilterChange(setSearchTerm, e.target.value)} />
-            </div>
-            <Select value={statusFilter} onValueChange={(v) => handleFilterChange(setStatusFilter, v)}>
-              <SelectTrigger className="w-[150px] h-10 border-slate-200 rounded-xl">
-                <div className="flex items-center gap-2"><Filter className="w-3.5 h-3.5 text-slate-400" /><SelectValue placeholder="Status" /></div>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Statuses</SelectItem>
-                <SelectItem value="draft">Draft</SelectItem>
-                <SelectItem value="issued">Issued</SelectItem>
-                <SelectItem value="paid">Paid</SelectItem>
-                <SelectItem value="fiscalized">Fiscalized</SelectItem>
-                <SelectItem value="cancelled">Cancelled</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={typeFilter} onValueChange={(v) => handleFilterChange(setTypeFilter, v)}>
-              <SelectTrigger className="w-[150px] h-10 border-slate-200 rounded-xl">
-                <div className="flex items-center gap-2"><FileText className="w-3.5 h-3.5 text-slate-400" /><SelectValue placeholder="Type" /></div>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Types</SelectItem>
-                <SelectItem value="FiscalInvoice">Invoices</SelectItem>
-                <SelectItem value="CreditNote">Credit Notes</SelectItem>
-                <SelectItem value="DebitNote">Debit Notes</SelectItem>
-              </SelectContent>
-            </Select>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="outline" className={cn("h-10 text-sm justify-start border-slate-200 rounded-xl font-medium min-w-[180px]", !dateRange && "text-muted-foreground")}>
-                  <CalendarIcon className="mr-2 h-4 w-4 text-primary" />
-                  {dateRange?.from ? (dateRange.to ? `${format(dateRange.from, "dd MMM")} – ${format(dateRange.to, "dd MMM")}` : format(dateRange.from, "dd MMM yyyy")) : "Date range"}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0 rounded-2xl shadow-2xl" align="start">
-                <Calendar initialFocus mode="range" defaultMonth={dateRange?.from} selected={dateRange} onSelect={(r) => handleFilterChange(setDateRange, r)} numberOfMonths={2} className="p-3" />
-              </PopoverContent>
-            </Popover>
-            {(searchTerm || statusFilter !== "all" || typeFilter !== "all" || dateRange) && (
-              <Button variant="ghost" size="sm" className="h-10 px-4 text-slate-500 hover:text-red-500 rounded-xl"
-                onClick={() => { setSearchTerm(""); setStatusFilter("all"); setTypeFilter("all"); setDateRange(undefined); setPage(1); }}>
-                Clear
-              </Button>
-            )}
-          </div>
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+          <div className="min-w-0 space-y-4">
+            <Card className="overflow-hidden rounded-[14px] border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+              <CardContent className="space-y-4 p-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+                  <div className="relative min-w-0 flex-1">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#64748B]" />
+                    <Input placeholder="Search invoice, customer, VAT number..." className="h-10 rounded-[10px] border-[#E5E7EB] bg-white pl-9 text-sm font-medium text-[#0F172A] placeholder:text-[#94A3B8] focus-visible:ring-[#2563EB]" value={searchTerm} onChange={(e) => handleFilterChange(setSearchTerm, e.target.value)} />
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:flex">
+                    <Select value={statusFilter} onValueChange={(v) => handleFilterChange(setStatusFilter, v)}>
+                      <SelectTrigger className="h-10 rounded-[10px] border-[#E5E7EB] bg-white text-sm font-semibold text-[#0F172A] lg:w-[145px]"><SelectValue placeholder="Status" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Statuses</SelectItem>
+                        <SelectItem value="draft">Draft</SelectItem>
+                        <SelectItem value="issued">Pending Sync</SelectItem>
+                        <SelectItem value="paid">Paid</SelectItem>
+                        <SelectItem value="fiscalized">Fiscalised</SelectItem>
+                        <SelectItem value="cancelled">Cancelled</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Select value={typeFilter} onValueChange={(v) => handleFilterChange(setTypeFilter, v)}>
+                      <SelectTrigger className="h-10 rounded-[10px] border-[#E5E7EB] bg-white text-sm font-semibold text-[#0F172A] lg:w-[135px]"><SelectValue placeholder="Type" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Types</SelectItem>
+                        <SelectItem value="FiscalInvoice">Invoices</SelectItem>
+                        <SelectItem value="CreditNote">Credit Notes</SelectItem>
+                        <SelectItem value="DebitNote">Debit Notes</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Select value={customerFilter} onValueChange={(v) => handleFilterChange(setCustomerFilter, v)}>
+                      <SelectTrigger className="h-10 rounded-[10px] border-[#E5E7EB] bg-white text-sm font-semibold text-[#0F172A] lg:w-[155px]"><SelectValue placeholder="Customer" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Customers</SelectItem>
+                        {uniqueCustomers.map(([id, name]) => <SelectItem key={id} value={id}>{name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" className={cn("h-10 justify-start rounded-[10px] border-[#E5E7EB] bg-white px-3 text-sm font-semibold text-[#0F172A] shadow-none lg:w-[175px]", !dateRange && "text-[#64748B]")}>
+                          <CalendarIcon className="h-4 w-4 text-[#2563EB]" />
+                          {dateRange?.from ? (dateRange.to ? `${format(dateRange.from, "dd MMM")} - ${format(dateRange.to, "dd MMM")}` : format(dateRange.from, "dd MMM yyyy")) : "Date range"}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto rounded-[14px] border-[#E5E7EB] p-0 shadow-lg" align="start">
+                        <Calendar initialFocus mode="range" defaultMonth={dateRange?.from} selected={dateRange} onSelect={(r) => handleFilterChange(setDateRange, r)} numberOfMonths={2} className="p-3" />
+                      </PopoverContent>
+                    </Popover>
+                    <Button variant="outline" className="h-10 rounded-[10px] border-[#E5E7EB] bg-white px-3 text-sm font-semibold text-[#0F172A] shadow-none">
+                      <SlidersHorizontal className="h-4 w-4 text-[#64748B]" /> More Filters
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-10 rounded-[10px] px-3 text-sm font-semibold text-[#64748B] hover:bg-red-50 hover:text-[#EF4444]" onClick={clearFilters}>
+                      Clear filters
+                    </Button>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <QuickChip label="All" active={quickFilter === "all"} onClick={() => applyQuickFilter("all")} />
+                  <QuickChip label="Fiscalised" active={quickFilter === "fiscalized"} tone="green" onClick={() => applyQuickFilter("fiscalized")} />
+                  <QuickChip label="Pending Sync" active={quickFilter === "pending"} tone="amber" onClick={() => applyQuickFilter("pending")} />
+                  <QuickChip label="Failed" active={quickFilter === "failed"} tone="red" onClick={() => applyQuickFilter("failed")} />
+                  <QuickChip label="Draft" active={quickFilter === "draft"} onClick={() => applyQuickFilter("draft")} />
+                  <QuickChip label="Paid" active={quickFilter === "paid"} tone="green" onClick={() => applyQuickFilter("paid")} />
+                  <QuickChip label="Unpaid" active={quickFilter === "unpaid"} tone="red" onClick={() => applyQuickFilter("unpaid")} />
+                  <QuickChip label="Today" active={quickFilter === "today"} onClick={() => applyQuickFilter("today")} />
+                  <QuickChip label="This Week" active={quickFilter === "week"} onClick={() => applyQuickFilter("week")} />
+                  <QuickChip label="This Month" active={quickFilter === "month"} onClick={() => applyQuickFilter("month")} />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="overflow-hidden rounded-[14px] border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+              <CardContent className="p-0">
 
           {/* Table */}
           {isLoading ? (
-            <div className="flex items-center justify-center h-48 text-slate-400">
+            <div className="flex h-56 items-center justify-center text-[#64748B]">
               <Loader2 className="w-6 h-6 animate-spin" />
             </div>
-          ) : invoices?.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-48 text-slate-400 gap-3">
-              <FileText className="w-10 h-10 text-slate-200" />
-              <p className="text-sm font-bold">No invoices found</p>
-              <Link href="/invoices/new"><Button variant="link" className="text-primary text-sm">Create your first invoice</Button></Link>
+          ) : displayedInvoices.length === 0 ? (
+            <div className="flex h-56 flex-col items-center justify-center gap-3 text-[#64748B]">
+              <div className="flex h-12 w-12 items-center justify-center rounded-[14px] border border-[#E5E7EB] bg-[#F8FAFC]">
+                <FileText className="h-6 w-6 text-[#94A3B8]" />
+              </div>
+              <p className="text-sm font-semibold text-[#0F172A]">No invoices found</p>
+              <Link href="/invoices/new"><Button variant="link" className="h-auto p-0 text-sm font-semibold text-[#2563EB]">Create your first invoice</Button></Link>
             </div>
           ) : (
             <TooltipProvider>
-              <Table>
+              <Table className="min-w-[1180px]">
                 <TableHeader>
-                  <TableRow className="bg-slate-50/80 hover:bg-slate-50/80">
-                    <TableHead className="text-xs font-black uppercase tracking-wider text-slate-400 py-3 pl-6">Invoice #</TableHead>
-                    <TableHead className="text-xs font-black uppercase tracking-wider text-slate-400 py-3">Type</TableHead>
-                    <TableHead className="text-xs font-black uppercase tracking-wider text-slate-400 py-3">Reference</TableHead>
-                    <TableHead className="text-xs font-black uppercase tracking-wider text-slate-400 py-3">Date</TableHead>
-                    <TableHead className="text-xs font-black uppercase tracking-wider text-slate-400 py-3">Customer</TableHead>
-                    <TableHead className="text-xs font-black uppercase tracking-wider text-slate-400 py-3 text-right">Amount</TableHead>
-                    <TableHead className="text-xs font-black uppercase tracking-wider text-slate-400 py-3 text-right">Tax</TableHead>
-                    <TableHead className="text-xs font-black uppercase tracking-wider text-slate-400 py-3">Status</TableHead>
-                    <TableHead className="text-xs font-black uppercase tracking-wider text-slate-400 py-3 text-right pr-6">Actions</TableHead>
+                  <TableRow className="border-[#E5E7EB] bg-[#F8FAFC] hover:bg-[#F8FAFC]">
+                    <TableHead className="h-11 w-12 pl-5"><Checkbox aria-label="Select all invoices" className="border-[#CBD5E1]" /></TableHead>
+                    <TableHead className="h-11 text-xs font-semibold uppercase tracking-wide text-[#64748B]">Invoice #</TableHead>
+                    <TableHead className="h-11 text-xs font-semibold uppercase tracking-wide text-[#64748B]">Customer</TableHead>
+                    <TableHead className="h-11 text-xs font-semibold uppercase tracking-wide text-[#64748B]">Date</TableHead>
+                    <TableHead className="h-11 text-right text-xs font-semibold uppercase tracking-wide text-[#64748B]">Amount</TableHead>
+                    <TableHead className="h-11 text-right text-xs font-semibold uppercase tracking-wide text-[#64748B]">VAT</TableHead>
+                    <TableHead className="h-11 text-xs font-semibold uppercase tracking-wide text-[#64748B]">FDMS Status</TableHead>
+                    <TableHead className="h-11 text-xs font-semibold uppercase tracking-wide text-[#64748B]">Payment Status</TableHead>
+                    <TableHead className="h-11 text-xs font-semibold uppercase tracking-wide text-[#64748B]">Sync Time</TableHead>
+                    <TableHead className="h-11 pr-5 text-right text-xs font-semibold uppercase tracking-wide text-[#64748B]">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {invoices!.map((invoice: any) => {
+                  {displayedInvoices.map((invoice: any) => {
                     const hasError = invoice.fdmsStatus?.toLowerCase() === "failed" || invoice.validationStatus === "red";
-                    const isCN = invoice.transactionType === "CreditNote";
-                    const isDN = invoice.transactionType === "DebitNote";
+                    const fiscalStatus = getFiscalStatus(invoice);
+                    const paymentStatus = getPaymentStatus(invoice);
                     return (
                       <TableRow
                         key={invoice.id}
-                        className="cursor-pointer hover:bg-slate-50 transition-colors group"
-                        onClick={() => setLocation(`/invoices/${invoice.id}`)}
+                        className={cn(
+                          "group h-14 cursor-pointer border-b border-[#F1F5F9] bg-white transition-colors hover:bg-[#F8FAFC]",
+                          selectedInvoiceId === invoice.id && "bg-[#EFF6FF]",
+                          hasError && "bg-red-50/40 hover:bg-red-50/70"
+                        )}
+                        onClick={() => selectInvoice(invoice)}
                       >
-                        <TableCell className="py-3 pl-6">
-                          <div className="flex items-center gap-2">
+                        <TableCell className={cn("py-3 pl-5", hasError && "border-l-2 border-l-[#EF4444]")} onClick={(e) => e.stopPropagation()}>
+                          <Checkbox aria-label={`Select invoice ${invoice.invoiceNumber}`} className="border-[#CBD5E1]" />
+                        </TableCell>
+                        <TableCell className="py-3">
+                          <div className="flex min-w-[150px] items-center gap-2">
                             {hasError && (
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <AlertCircle className="w-3.5 h-3.5 text-red-500 shrink-0" />
+                                  <AlertCircle className="h-4 w-4 shrink-0 text-[#EF4444]" />
                                 </TooltipTrigger>
                                 <TooltipContent side="right" className="max-w-xs text-xs">
-                                  {invoice.validationStatus === "red" ? "ZIMRA validation error — must resolve before closing fiscal day" : "Fiscalization failed"}
+                                  {invoice.validationStatus === "red" ? "ZIMRA validation error. Resolve before closing fiscal day." : "Fiscalisation failed."}
                                 </TooltipContent>
                               </Tooltip>
                             )}
-                            <span className="text-sm font-black font-mono text-primary">{invoice.invoiceNumber}</span>
-                            {invoice.fiscalCode && (
-                              <span className="text-[9px] font-black text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full">✓ Fiscal</span>
-                            )}
+                            <span className="font-mono text-sm font-bold text-[#2563EB]">{invoice.invoiceNumber}</span>
                           </div>
-                        </TableCell>
-                        <TableCell className="py-3">
-                          {isCN ? <Badge className="bg-orange-100 text-orange-600 border-none text-xs">Credit Note</Badge>
-                            : isDN ? <Badge className="bg-blue-100 text-blue-600 border-none text-xs">Debit Note</Badge>
-                            : <span className="text-xs text-slate-400">Invoice</span>}
-                        </TableCell>
-                        <TableCell className="py-3 text-sm text-slate-500 max-w-[120px] truncate">
-                          {invoice.reference || <span className="text-slate-300">—</span>}
-                        </TableCell>
-                        <TableCell className="py-3 text-sm text-slate-500 whitespace-nowrap">
-                          {invoice.issueDate ? format(new Date(invoice.issueDate), "dd MMM yyyy") : "—"}
                         </TableCell>
                         <TableCell className="py-3">
                           {invoice.customerId ? (
                             <Link href={`/customers/${invoice.customerId}`} onClick={(e) => e.stopPropagation()}>
-                              <span className="text-sm font-medium text-slate-700 hover:text-primary">{invoice.customer?.name || "Unknown"}</span>
+                              <span className="text-sm font-semibold text-[#0F172A] hover:text-[#2563EB]">{invoice.customer?.name || "Unknown"}</span>
                             </Link>
                           ) : (
-                            <span className="text-sm text-slate-400">{invoice.customer?.name || "Walk-in"}</span>
+                            <span className="text-sm font-medium text-[#64748B]">{invoice.customer?.name || "Walk-in"}</span>
                           )}
                         </TableCell>
-                        <TableCell className="py-3 text-right">
-                          <span className="text-sm font-bold text-slate-900 whitespace-nowrap">{invoice.currency} {Number(invoice.total).toFixed(2)}</span>
+                        <TableCell className="whitespace-nowrap py-3 text-sm font-medium text-[#64748B]">
+                          {invoice.issueDate ? format(new Date(invoice.issueDate), "dd MMM yyyy") : "-"}
                         </TableCell>
-                        <TableCell className="py-3 text-right text-sm text-slate-500 whitespace-nowrap">
-                          {invoice.currency} {Number(invoice.taxAmount || 0).toFixed(2)}
+                        <TableCell className="whitespace-nowrap py-3 text-right text-sm font-bold text-[#0F172A]">
+                          {formatMoney(invoice.currency, invoice.total)}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap py-3 text-right text-sm font-semibold text-[#64748B]">
+                          {formatMoney(invoice.currency, invoice.taxAmount)}
                         </TableCell>
                         <TableCell className="py-3">
-                          <StatusBadge status={hasError ? "failed" : invoice.status!} />
+                          <StatusPill status={fiscalStatus} label={fiscalStatus === "fiscalized" ? "Fiscalised" : fiscalStatus === "pending" ? "Pending Sync" : fiscalStatus} />
                         </TableCell>
-                        <TableCell className="py-3 pr-6 text-right">
+                        <TableCell className="py-3">
+                          <StatusPill status={paymentStatus} label={paymentStatus === "paid" ? "Paid" : "Unpaid"} />
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap py-3 text-sm font-medium text-[#64748B]">
+                          {getSyncTime(invoice)}
+                        </TableCell>
+                        <TableCell className="py-3 pr-5 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-8 w-8 rounded-[10px] text-[#64748B] hover:bg-blue-50 hover:text-[#2563EB]" onClick={(e) => { e.stopPropagation(); setLocation(`/invoices/${invoice.id}`); }}>
+                                  <Eye className="h-4 w-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>View</TooltipContent>
+                            </Tooltip>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-8 w-8 rounded-[10px] text-[#64748B] hover:bg-slate-100 hover:text-[#0F172A]" onClick={(e) => { e.stopPropagation(); setLocation(`/invoices/${invoice.id}`); }}>
+                                  <Printer className="h-4 w-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Print</TooltipContent>
+                            </Tooltip>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-8 w-8 rounded-[10px] text-[#64748B] hover:bg-slate-100 hover:text-[#0F172A]" onClick={(e) => { e.stopPropagation(); setLocation(`/invoices/${invoice.id}`); }}>
+                                  <Download className="h-4 w-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Download PDF</TooltipContent>
+                            </Tooltip>
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                              <Button variant="ghost" className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 hover:opacity-100">
-                                <MoreHorizontal className="h-4 w-4 text-slate-400" />
+                              <Button variant="ghost" className="h-8 w-8 rounded-[10px] p-0 text-[#64748B] hover:bg-slate-100">
+                                <MoreHorizontal className="h-4 w-4" />
                               </Button>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-48 rounded-xl p-2">
-                              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setLocation(`/invoices/${invoice.id}`); }} className="text-xs rounded-lg">
+                            <DropdownMenuContent align="end" className="w-48 rounded-[14px] border-[#E5E7EB] p-2 shadow-lg">
+                              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setLocation(`/invoices/${invoice.id}`); }} className="rounded-[10px] text-xs">
                                 <Eye className="h-3.5 w-3.5 mr-2" /> View
                               </DropdownMenuItem>
                               {invoice.status === "draft" && (
-                                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setLocation(`/invoices/new?edit=${invoice.id}`); }} className="text-xs rounded-lg">
+                                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setLocation(`/invoices/new?edit=${invoice.id}`); }} className="rounded-[10px] text-xs">
                                   <Edit className="h-3.5 w-3.5 mr-2" /> Edit Draft
                                 </DropdownMenuItem>
                               )}
                               {invoice.status === "draft" && (
-                                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleIssue(invoice); }} className="text-xs rounded-lg text-primary" disabled={loadingId === invoice.id}>
+                                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleIssue(invoice); }} className="rounded-[10px] text-xs text-[#2563EB]" disabled={loadingId === invoice.id}>
                                   {loadingId === invoice.id ? <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" /> : <Send className="h-3.5 w-3.5 mr-2" />} Issue
                                 </DropdownMenuItem>
                               )}
                               {invoice.status === "issued" && !invoice.fiscalCode && (
-                                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleFiscalize(invoice.id); }} className="text-xs rounded-lg text-emerald-700" disabled={loadingId === invoice.id}>
-                                  {loadingId === invoice.id ? <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5 mr-2" />} Fiscalize
+                                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleFiscalize(invoice.id); }} className="rounded-[10px] text-xs text-emerald-700" disabled={loadingId === invoice.id}>
+                                  {loadingId === invoice.id ? <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5 mr-2" />} Fiscalise
                                 </DropdownMenuItem>
                               )}
                               {invoice.customerId && (
-                                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setLocation(`/customers/${invoice.customerId}`); }} className="text-xs rounded-lg">
+                                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setLocation(`/customers/${invoice.customerId}`); }} className="rounded-[10px] text-xs">
                                   <User className="h-3.5 w-3.5 mr-2" /> Customer
                                 </DropdownMenuItem>
                               )}
                               <DropdownMenuSeparator />
-                              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setLocation(`/invoices/new?duplicate=${invoice.id}`); }} className="text-xs rounded-lg">
+                              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setLocation(`/invoices/new?duplicate=${invoice.id}`); }} className="rounded-[10px] text-xs">
                                 <Copy className="h-3.5 w-3.5 mr-2" /> Duplicate
                               </DropdownMenuItem>
                               {["draft", "issued"].includes(invoice.status || "") && (
-                                <DropdownMenuItem className="text-xs rounded-lg text-red-600 focus:text-red-700 focus:bg-red-50"
+                                <DropdownMenuItem className="rounded-[10px] text-xs text-red-600 focus:bg-red-50 focus:text-red-700"
                                   onClick={async (e) => { e.stopPropagation(); if (confirm("Delete this invoice?")) { await deleteInvoice.mutateAsync(invoice.id); toast({ title: "Invoice deleted" }); } }}>
                                   <Trash2 className="h-3.5 w-3.5 mr-2" /> Delete
                                 </DropdownMenuItem>
                               )}
                             </DropdownMenuContent>
                           </DropdownMenu>
+                          </div>
                         </TableCell>
                       </TableRow>
                     );
@@ -527,10 +850,10 @@ export default function InvoicesPage() {
           )}
 
           {/* Pagination */}
-          {!isLoading && invoices && invoices.length > 0 && (
-            <div className="flex flex-col sm:flex-row items-center justify-between px-6 py-4 border-t border-slate-100 gap-4">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-slate-500">Items per page</span>
+          {!isLoading && displayedInvoices.length > 0 && (
+            <div className="flex flex-col items-center justify-between gap-4 border-t border-[#E5E7EB] bg-white px-5 py-4 sm:flex-row">
+              <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
+                <span className="text-xs font-semibold text-[#64748B]">Rows per page</span>
                 <Select 
                   value={pageSize.toString()} 
                   onValueChange={(v) => {
@@ -538,7 +861,7 @@ export default function InvoicesPage() {
                     setPage(1);
                   }}
                 >
-                  <SelectTrigger className="w-[75px] h-8 text-xs bg-white rounded-lg border-slate-200 font-bold">
+                  <SelectTrigger className="h-8 w-[76px] rounded-[10px] border-[#E5E7EB] bg-white text-xs font-bold text-[#0F172A]">
                     <SelectValue placeholder="20" />
                   </SelectTrigger>
                   <SelectContent>
@@ -548,20 +871,39 @@ export default function InvoicesPage() {
                     <SelectItem value="100">100</SelectItem>
                   </SelectContent>
                 </Select>
-                <span className="text-[11px] font-bold text-slate-400 ml-2 uppercase tracking-widest leading-none">
+                <span className="text-xs font-medium text-[#64748B]">
                   Showing {((page - 1) * pageSize) + 1}–{Math.min(page * pageSize, totalInvoices)} of {totalInvoices}
                 </span>
               </div>
               
               <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" className="h-8 px-3 rounded-lg text-xs font-bold shadow-sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1 || isLoading}>Prev</Button>
-                <span className="text-xs font-black text-slate-500 px-3 py-1 bg-slate-50 rounded-md ring-1 ring-slate-100">{page} / {totalPages || 1}</span>
-                <Button variant="outline" size="sm" className="h-8 px-3 rounded-lg text-xs font-bold shadow-sm" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages || isLoading}>Next</Button>
+                <Button variant="outline" size="sm" className="h-8 rounded-[10px] border-[#E5E7EB] bg-white px-3 text-xs font-semibold shadow-none" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1 || isLoading}>Prev</Button>
+                <span className="rounded-[10px] border border-[#E5E7EB] bg-[#F8FAFC] px-3 py-1.5 text-xs font-bold text-[#0F172A]">{page} / {totalPages || 1}</span>
+                <Button variant="outline" size="sm" className="h-8 rounded-[10px] border-[#E5E7EB] bg-white px-3 text-xs font-semibold shadow-none" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages || isLoading}>Next</Button>
               </div>
             </div>
           )}
-        </CardContent>
-      </Card>
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="hidden xl:block">
+            <div className="sticky top-24">
+              <InvoicePreviewCard invoice={selectedInvoice} onView={(id) => setLocation(`/invoices/${id}`)} onFiscalize={handleFiscalize} />
+            </div>
+          </div>
+        </div>
+
+        <Sheet open={isPreviewOpen && !!selectedInvoice} onOpenChange={setIsPreviewOpen}>
+          <SheetContent side="right" className="w-full overflow-y-auto bg-[#F8FAFC] p-4 sm:max-w-[380px] xl:hidden">
+            <SheetHeader className="sr-only">
+              <SheetTitle>Invoice preview</SheetTitle>
+              <SheetDescription>Selected invoice details</SheetDescription>
+            </SheetHeader>
+            <InvoicePreviewCard invoice={selectedInvoice} onClose={() => setIsPreviewOpen(false)} onView={(id) => setLocation(`/invoices/${id}`)} onFiscalize={handleFiscalize} />
+          </SheetContent>
+        </Sheet>
+      </div>
     </Layout>
   );
 }

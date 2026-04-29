@@ -9,14 +9,17 @@ type PageHeaderProps = {
 };
 
 export function PageHeader({ title, subtitle, actions, className }: PageHeaderProps) {
+  if (!actions) return null;
+
   return (
-    <div className={cn("flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 mb-8", className)}>
-      <div>
-        <h1 className="text-3xl font-display font-black text-slate-900 tracking-tight">{title}</h1>
-        {subtitle ? <p className="text-slate-500 mt-1 font-medium">{subtitle}</p> : null}
-      </div>
-      {actions ? <div className="flex flex-wrap gap-2 w-full lg:w-auto">{actions}</div> : null}
+    <div
+      className={cn(
+        "mb-4 flex w-full flex-col items-stretch justify-end gap-2 sm:flex-row sm:items-center",
+        className
+      )}
+      aria-label={`${title}${subtitle ? ` - ${subtitle}` : ""} actions`}
+    >
+      {actions}
     </div>
   );
 }
-

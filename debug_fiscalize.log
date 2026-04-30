@@ -1244,3 +1244,10 @@
         Calculated NextGlobalNo: 442
         Calculated NextReceiptCounter: 14
         --------------------------------
+[2026-04-30T04:53:02.672Z] Invoice 1973
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 455
+        Calculated NextReceiptCounter: 3
+        --------------------------------

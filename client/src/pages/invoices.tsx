@@ -45,6 +45,9 @@ export function InvoicePreviewPanel({ invoiceId, onClose }: { invoiceId: number;
   const { data: company } = useCompany(invoice?.companyId || 0);
   const { taxTypes } = useTaxConfig(invoice?.companyId || 0);
   const fiscalize = useFiscalizeInvoice();
+  const deleteInvoice = useDeleteInvoice();
+  const { user } = useAuth();
+
   const { data: payments } = usePayments(invoiceId);
   const updateInvoice = useUpdateInvoice();
   const createCreditNote = useCreateCreditNote();
@@ -191,6 +194,12 @@ export function InvoicePreviewPanel({ invoiceId, onClose }: { invoiceId: number;
               )}
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => window.print()}><Printer className="w-4 h-4 mr-2" /> Print</DropdownMenuItem>
+              {(user?.isSuperAdmin || invoice.status === "draft") && (
+                <DropdownMenuItem className="text-red-600 focus:bg-red-50 focus:text-red-700"
+                  onClick={async () => { if (confirm("Delete this invoice?")) { await deleteInvoice.mutateAsync(invoiceId); onClose(); toast({ title: "Invoice deleted" }); } }}>
+                  <Trash2 className="w-4 h-4 mr-2" /> Delete Invoice
+                </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -724,7 +733,7 @@ export default function InvoicesPage() {
                               <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setLocation(`/invoices/new?duplicate=${invoice.id}`); }} className="rounded-[10px] text-xs">
                                 <Copy className="h-3.5 w-3.5 mr-2" /> Duplicate
                               </DropdownMenuItem>
-                              {["draft", "issued"].includes(invoice.status || "") && (
+                              {(user?.isSuperAdmin || ["draft", "issued"].includes(invoice.status || "")) && (
                                 <DropdownMenuItem className="rounded-[10px] text-xs text-red-600 focus:bg-red-50 focus:text-red-700"
                                   onClick={async (e) => { e.stopPropagation(); if (confirm("Delete this invoice?")) { await deleteInvoice.mutateAsync(invoice.id); toast({ title: "Invoice deleted" }); } }}>
                                   <Trash2 className="h-3.5 w-3.5 mr-2" /> Delete

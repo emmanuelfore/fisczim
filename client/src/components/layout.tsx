@@ -315,11 +315,16 @@ export function Layout({
         }
 
         .sidebar-scroller {
-          overflow: visible !important;
-          scrollbar-width: none;
+          overflow-y: auto !important;
+          scrollbar-width: thin;
+          scrollbar-color: #E2E8F0 transparent;
         }
         .sidebar-scroller::-webkit-scrollbar {
-          display: none;
+          width: 4px;
+        }
+        .sidebar-scroller::-webkit-scrollbar-thumb {
+          background-color: #E2E8F0;
+          border-radius: 20px;
         }
         
         .nav-item-tooltip {
@@ -377,7 +382,8 @@ export function Layout({
 
       {/* Primary Navigation Sidebar */}
       <aside className={cn(
-        "admin-sidebar bg-white border-r border-slate-200/60 shadow-[1px_0_10px_rgba(0,0,0,0.02)] flex min-h-screen shrink-0 flex-col fixed inset-y-0 left-0 z-50 transition-all duration-500 ease-in-out lg:relative lg:inset-auto lg:translate-x-0",
+        "admin-sidebar bg-white border-r border-slate-200/60 shadow-[1px_0_10px_rgba(0,0,0,0.02)] flex shrink-0 flex-col transition-all duration-500 ease-in-out",
+        "fixed inset-y-0 left-0 z-50 lg:relative lg:inset-y-auto lg:h-auto lg:min-h-screen",
         isSidebarCollapsed ? "w-20" : "w-[240px]",
         isMobileMenuOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
       )}>
@@ -605,7 +611,9 @@ export function Layout({
       </aside>
 
       {/* Main Administrative Workspace */}
-      <div className="flex-1 flex flex-col min-h-screen min-w-0 transition-all duration-500 ease-in-out">
+      <div className={cn(
+        "flex-1 flex flex-col min-h-screen min-w-0 transition-all duration-500 ease-in-out"
+      )}>
 
         {/* Top Header */}
         <header className="admin-header h-[80px] bg-[#F8FAFC] flex items-center justify-between gap-3 px-4 sm:px-6 z-40 sticky top-0 relative">

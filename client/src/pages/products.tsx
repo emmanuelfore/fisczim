@@ -227,12 +227,12 @@ export default function ProductsPage() {
         }
       />
 
-      <div className="flex flex-col md:flex-row gap-4 mb-6">
+      <div className="admin-panel mb-4 flex flex-col gap-3 p-4 md:flex-row md:items-center">
         <div className="relative flex-1 w-full sm:max-w-sm group">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400 group-hover:text-violet-500 transition-colors" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#64748B] transition-colors" />
           <Input
-            placeholder="Search products..."
-            className="pl-12 h-12 rounded-xl border-slate-200 bg-white shadow-sm focus:ring-violet-500/20 focus:border-violet-500 font-medium transition-all"
+            placeholder="Search products, SKU..."
+            className="pl-9"
             value={searchTerm}
             onChange={handleSearch}
           />
@@ -240,7 +240,7 @@ export default function ProductsPage() {
 
         <div className="flex gap-2 flex-wrap">
           <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setCurrentPage(1); }}>
-            <SelectTrigger className="w-[130px] h-12 rounded-xl bg-white border-slate-200 font-bold">
+            <SelectTrigger className="w-[130px]">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
@@ -251,7 +251,7 @@ export default function ProductsPage() {
           </Select>
 
           <Select value={stockFilter} onValueChange={(v) => { setStockFilter(v); setCurrentPage(1); }}>
-            <SelectTrigger className="w-[140px] h-12 rounded-xl bg-white border-slate-200 font-bold">
+            <SelectTrigger className="w-[140px]">
               <SelectValue placeholder="Stock Level" />
             </SelectTrigger>
             <SelectContent>
@@ -263,7 +263,7 @@ export default function ProductsPage() {
           </Select>
 
           <Select value={taxFilter} onValueChange={(v) => { setTaxFilter(v); setCurrentPage(1); }}>
-            <SelectTrigger className="w-[140px] h-12 rounded-xl bg-white border-slate-200 font-bold">
+            <SelectTrigger className="w-[140px]">
               <SelectValue placeholder="Tax Class" />
             </SelectTrigger>
             <SelectContent>
@@ -287,25 +287,25 @@ export default function ProductsPage() {
               setTaxFilter("all");
               setCurrentPage(1);
             }}
-            className="text-slate-500 font-medium hover:text-slate-900 h-12 px-4 rounded-xl"
+            className="text-[#64748B]"
           >
             Reset
           </Button>
         )}
       </div>
 
-      <Card className="border-none shadow-xl shadow-slate-200/50 bg-white/80 backdrop-blur-sm rounded-[2rem] overflow-hidden ring-1 ring-slate-100">
+      <Card className="overflow-hidden">
         <CardContent className="p-0 overflow-x-hidden">
           <table className="w-full text-left">
             <thead>
-              <tr className="bg-slate-50/80 border-b border-slate-100">
-                <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px] w-[40%] md:w-auto">Name</th>
-                <th className="hidden lg:table-cell p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">Code</th>
-                <th className="hidden xl:table-cell p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">Details</th>
-                <th className="hidden sm:table-cell p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">Category</th>
-                <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">Price</th>
-                <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">Stock</th>
-                <th className="hidden lg:table-cell p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">Tax</th>
+              <tr className="bg-[#F8FAFC] border-b border-[#E5E7EB]">
+                <th className="px-5 py-3 font-semibold text-[#64748B] uppercase tracking-wide text-[12px] w-[40%] md:w-auto">Name</th>
+                <th className="hidden lg:table-cell px-5 py-3 font-semibold text-[#64748B] uppercase tracking-wide text-[12px]">Code</th>
+                <th className="hidden xl:table-cell px-5 py-3 font-semibold text-[#64748B] uppercase tracking-wide text-[12px]">Details</th>
+                <th className="hidden sm:table-cell px-5 py-3 font-semibold text-[#64748B] uppercase tracking-wide text-[12px]">Category</th>
+                <th className="px-5 py-3 font-semibold text-[#64748B] uppercase tracking-wide text-[12px]">Price</th>
+                <th className="px-5 py-3 font-semibold text-[#64748B] uppercase tracking-wide text-[12px]">Stock</th>
+                <th className="hidden lg:table-cell px-5 py-3 font-semibold text-[#64748B] uppercase tracking-wide text-[12px]">Tax</th>
                 <th className="p-5 w-16 text-right"></th>
               </tr>
             </thead>
@@ -350,8 +350,8 @@ export default function ProductsPage() {
                 });
 
                 return (
-                  <tr key={p.id} className={`group border-b border-slate-50 hover:bg-slate-50/50 transition-colors cursor-default ${!p.isActive ? 'opacity-50 grayscale' : ''}`}>
-                    <td className="p-4 font-bold text-slate-900 w-[50%] md:w-auto">
+                  <tr key={p.id} className={`group border-b border-[#F1F5F9] hover:bg-[#F8FAFC] transition-colors cursor-default ${!p.isActive ? 'opacity-50 grayscale' : ''}`}>
+                    <td className="px-5 py-4 font-bold text-[#0F172A] w-[50%] md:w-auto">
                       <div className="flex items-center gap-3 overflow-hidden">
                         {p.imageUrl ? (
                           <img 
@@ -366,21 +366,21 @@ export default function ProductsPage() {
                           </div>
                         )}
                         <div className="flex flex-col min-w-0">
-                          <span className="font-display tracking-tight text-[13px] md:text-sm truncate">{p.name}</span>
+                          <span className="font-semibold tracking-tight text-[13px] md:text-sm truncate">{p.name}</span>
                           {!p.isActive && <span className="text-[9px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-md font-bold uppercase tracking-wider w-fit mt-0.5">Inactive</span>}
                           {p.description && <span className="text-[10px] text-slate-400 font-medium truncate max-w-full">{p.description}</span>}
                         </div>
                       </div>
                     </td>
-                    <td className="hidden lg:table-cell p-4 font-mono text-xs font-bold text-slate-500">
+                    <td className="hidden lg:table-cell px-5 py-4 font-mono text-xs font-bold text-slate-500">
                       {p.sku || "—"}
                     </td>
-                    <td className="hidden xl:table-cell p-4">
+                    <td className="hidden xl:table-cell px-5 py-4">
                       <div className="flex flex-col gap-1">
                         {p.hsCode && <div className="text-[10px] font-bold text-slate-400 font-mono uppercase">HS: {p.hsCode}</div>}
                       </div>
                     </td>
-                    <td className="hidden md:table-cell p-4">
+                    <td className="hidden md:table-cell px-5 py-4">
                       {p.category ? (
                         <Badge variant="secondary" className="bg-slate-100 text-slate-600 font-bold text-[10px] uppercase tracking-wider px-2 py-0.5 whitespace-nowrap">
                           {p.category}
@@ -389,8 +389,8 @@ export default function ProductsPage() {
                         <span className="text-slate-300 text-xs font-bold">—</span>
                       )}
                     </td>
-                    <td className="p-4 font-black text-slate-800 tracking-tight text-sm">${Number(p.price).toFixed(2)}</td>
-                    <td className="p-4">
+                    <td className="px-5 py-4 font-bold text-[#0F172A] tracking-tight text-sm">${Number(p.price).toFixed(2)}</td>
+                    <td className="px-5 py-4">
                       {p.isTracked ? (
                         <div className="flex items-center gap-2">
                           <span className={`${Number(p.branchStock || p.stockLevel) <= Number(p.lowStockThreshold || 0) ? "text-red-600 bg-red-50" : "text-slate-700 bg-slate-100"} px-2 py-0.5 rounded-md font-mono text-[11px] font-bold`}>
@@ -401,7 +401,7 @@ export default function ProductsPage() {
                         <span className="text-[10px] text-slate-400 font-bold uppercase">∞</span>
                       )}
                     </td>
-                    <td className="hidden lg:table-cell p-4">
+                    <td className="hidden lg:table-cell px-5 py-4">
                       {matchedType ? (
                         <Badge variant="outline" className="bg-white text-slate-600 border-slate-200 font-bold text-[10px] uppercase tracking-wider shadow-sm whitespace-nowrap">
                           {matchedType.name}
@@ -410,7 +410,7 @@ export default function ProductsPage() {
                         <span className="text-slate-400 text-[10px] font-bold">{p.taxRate}%</span>
                       )}
                     </td>
-                    <td className="p-4 text-right">
+                    <td className="px-5 py-4 text-right">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-900 transition-all active:scale-90">
@@ -491,7 +491,7 @@ export default function ProductsPage() {
           </table>
 
           {/* Pagination Controls */}
-          <div className="flex flex-col sm:flex-row items-center justify-between px-6 py-4 border-t border-slate-100 bg-slate-50/30 gap-4">
+          <div className="flex flex-col sm:flex-row items-center justify-between px-5 py-4 border-t border-[#E5E7EB] bg-white gap-4">
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Items per page</span>
               <Select 

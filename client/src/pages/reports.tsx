@@ -154,7 +154,7 @@ interface ReportSidebarProps {
 
 function ReportSidebar({ activeReport, onSelect, openCategories, onToggleCategory }: ReportSidebarProps) {
   return (
-    <div className="w-64 shrink-0 flex flex-col border-r border-slate-200 bg-white sticky top-0 h-screen overflow-hidden">
+    <div className="sticky top-[88px] flex h-[calc(100vh-96px)] w-64 shrink-0 flex-col overflow-hidden rounded-[14px] border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
       {/* Sidebar header */}
       <div className="px-4 py-3 border-b border-slate-100 shrink-0">
         <span className="text-sm font-black text-slate-800 uppercase tracking-tight">Reports</span>
@@ -525,7 +525,7 @@ export default function ReportsPage() {
 
   return (
     <Layout>
-      <div className="flex -mx-4 sm:-mx-8 -mt-6">
+      <div className="flex gap-4">
         {/* Left: Report Sidebar */}
         <ReportSidebar
           activeReport={activeReport}
@@ -535,7 +535,7 @@ export default function ReportsPage() {
         />
 
         {/* Right: Report Content */}
-        <div className="flex-1 min-w-0 flex flex-col bg-white">
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[14px] border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
           {!activeReport ? (
             <div className="flex items-center justify-center h-full min-h-[400px] text-slate-400">
               <div className="text-center">

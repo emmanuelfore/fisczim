@@ -100,12 +100,12 @@ export default function CustomersPage() {
         }
       />
 
-      <div className="flex flex-col md:flex-row gap-4 mb-8">
+      <div className="admin-panel mb-4 flex flex-col gap-3 p-4 md:flex-row md:items-center">
         <div className="relative flex-1 w-full sm:max-w-sm group">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 group-hover:text-primary transition-colors duration-200" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#64748B] transition-colors duration-200" />
           <Input
-            placeholder="Search customers..."
-            className="pl-9 bg-white border-slate-200/60 shadow-sm rounded-2xl focus-visible:ring-primary/20 transition-all duration-200"
+            placeholder="Search customers, email, phone..."
+            className="pl-9"
             value={searchTerm}
             onChange={handleSearch}
           />
@@ -113,7 +113,7 @@ export default function CustomersPage() {
 
         <div className="flex gap-2 flex-wrap">
           <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setCurrentPage(1); }}>
-            <SelectTrigger className="w-[130px] bg-white border-slate-200/60 shadow-sm rounded-xl hover:bg-slate-50 hover:border-slate-300 transition-all duration-200">
+            <SelectTrigger className="w-[130px]">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
@@ -124,7 +124,7 @@ export default function CustomersPage() {
           </Select>
 
           <Select value={typeFilter} onValueChange={(v) => { setTypeFilter(v); setCurrentPage(1); }}>
-            <SelectTrigger className="w-[140px] bg-white border-slate-200/60 shadow-sm rounded-xl hover:bg-slate-50 hover:border-slate-300 transition-all duration-200">
+            <SelectTrigger className="w-[140px]">
               <SelectValue placeholder="Customer Type" />
             </SelectTrigger>
             <SelectContent>
@@ -144,26 +144,26 @@ export default function CustomersPage() {
               setTypeFilter("all");
               setCurrentPage(1);
             }}
-            className="text-slate-500 hover:text-slate-700 hover:bg-slate-100/50 rounded-xl"
+            className="text-[#64748B]"
           >
             Reset
           </Button>
         )}
       </div>
 
-      <Card className="border-none shadow-xl bg-white/50 backdrop-blur-sm rounded-[2rem] overflow-hidden hover:shadow-2xl transition-all duration-500">
+      <Card className="overflow-hidden">
         <CardContent className="p-0 overflow-x-auto">
           <table className="w-full text-left border-collapse min-w-[600px] md:min-w-full">
             <thead>
-              <tr className="bg-slate-50/50 border-b border-slate-100 text-[10px] uppercase tracking-widest font-bold text-slate-500">
-                <th className="p-6 font-bold text-slate-400">Name</th>
-                <th className="hidden md:table-cell p-6 font-bold text-slate-400">Contact</th>
-                <th className="hidden lg:table-cell p-6 font-bold text-slate-400">Tax Details</th>
-                <th className="hidden sm:table-cell p-6 font-bold text-slate-400">Type</th>
-                <th className="p-6 font-bold text-slate-400 text-right">Actions</th>
+              <tr className="bg-[#F8FAFC] border-b border-[#E5E7EB] text-[12px] uppercase tracking-wide font-semibold text-[#64748B]">
+                <th className="px-5 py-3 font-semibold">Name</th>
+                <th className="hidden md:table-cell px-5 py-3 font-semibold">Contact</th>
+                <th className="hidden lg:table-cell px-5 py-3 font-semibold">Tax Details</th>
+                <th className="hidden sm:table-cell px-5 py-3 font-semibold">Type</th>
+                <th className="px-5 py-3 font-semibold text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-50">
+            <tbody className="divide-y divide-[#F1F5F9]">
               {isLoading ? (
                 <tr>
                   <td colSpan={5} className="p-8 text-center text-slate-500">
@@ -185,15 +185,15 @@ export default function CustomersPage() {
                   </td>
                 </tr>
               ) : paginatedCustomers?.map((c) => (
-                <tr key={c.id} className={`group hover:bg-slate-50/50 transition-colors duration-200 ${!c.isActive ? 'opacity-60 bg-slate-50/30' : ''}`}>
-                  <td className="p-6 align-middle">
+                <tr key={c.id} className={`group hover:bg-[#F8FAFC] transition-colors duration-150 ${!c.isActive ? 'opacity-60 bg-slate-50/30' : ''}`}>
+                  <td className="px-5 py-4 align-middle">
                     <div className="flex items-center gap-3">
-                      <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold shadow-sm ${c.isActive ? 'bg-gradient-to-br from-violet-100 to-indigo-50 text-violet-700' : 'bg-slate-100 text-slate-500'}`}>
+                      <div className={`w-9 h-9 rounded-[10px] flex items-center justify-center text-xs font-bold ${c.isActive ? 'bg-[#EFF6FF] text-[#2563EB]' : 'bg-slate-100 text-slate-500'}`}>
                         {c.name.substring(0, 2).toUpperCase()}
                       </div>
                       <div>
                         <Link href={`/customers/${c.id}`}>
-                          <span className="font-bold text-slate-700 group-hover:text-primary transition-colors cursor-pointer text-sm">
+                          <span className="font-semibold text-[#0F172A] group-hover:text-[#2563EB] transition-colors cursor-pointer text-sm">
                             {c.name}
                           </span>
                         </Link>
@@ -206,7 +206,7 @@ export default function CustomersPage() {
                       </div>
                     </div>
                   </td>
-                  <td className="hidden md:table-cell p-6 align-middle">
+                  <td className="hidden md:table-cell px-5 py-4 align-middle">
                     <div className="flex flex-col gap-1.5 text-sm">
                       {c.email && (
                         <div className="flex items-center gap-2 text-slate-600 group-hover:text-slate-900 transition-colors">
@@ -223,7 +223,7 @@ export default function CustomersPage() {
                       {!c.email && !c.phone && <span className="text-slate-400 text-xs italic">No contact info</span>}
                     </div>
                   </td>
-                  <td className="hidden lg:table-cell p-6 align-middle">
+                  <td className="hidden lg:table-cell px-5 py-4 align-middle">
                     <div className="text-sm text-slate-600 space-y-1">
                       {c.tin && (
                         <div className="flex items-center gap-2">
@@ -240,7 +240,7 @@ export default function CustomersPage() {
                       {!c.tin && !c.vatNumber && <span className="text-slate-400 italic text-xs">—</span>}
                     </div>
                   </td>
-                  <td className="hidden sm:table-cell p-6 align-middle">
+                  <td className="hidden sm:table-cell px-5 py-4 align-middle">
                     <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide border shadow-sm ${c.customerType === 'business'
                       ? 'bg-blue-50 text-blue-700 border-blue-100'
                       : 'bg-emerald-50 text-emerald-700 border-emerald-100'
@@ -249,7 +249,7 @@ export default function CustomersPage() {
                       {c.customerType}
                     </span>
                   </td>
-                  <td className="p-6 text-right align-middle">
+                  <td className="px-5 py-4 text-right align-middle">
                     <div className="flex justify-end items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                       <EditCustomerDialog customer={c} />
                       <DeleteButton
@@ -279,7 +279,7 @@ export default function CustomersPage() {
           </table>
 
           {/* Pagination Controls */}
-          <div className="flex flex-col sm:flex-row items-center justify-between px-6 py-4 border-t border-slate-50 bg-slate-50/30 gap-4">
+          <div className="flex flex-col sm:flex-row items-center justify-between px-5 py-4 border-t border-[#E5E7EB] bg-white gap-4">
             <div className="flex items-center gap-2">
               <span className="text-xs font-medium text-slate-400">Items per page</span>
               <Select 

@@ -3,17 +3,16 @@ import { cn } from "@/lib/utils";
 import { useInvoices, useInvoice, useDeleteInvoice, useFiscalizeInvoice, useUpdateInvoice, useCreateCreditNote, useCreateDebitNote, usePayments, useConvertQuotation } from "@/hooks/use-invoices";
 import { useCreateRecurringInvoice } from "@/hooks/use-recurring";
 import { Button } from "@/components/ui/button";
-import { Plus, Search, FileText, Loader2, ShieldCheck, Send, MoreHorizontal, Copy, Eye, Edit, Trash2, User, Download, Share2, MessageCircle, Mail, CreditCard, Undo2, MoreVertical, Printer, ClipboardList, ArrowLeft, UploadCloud, RefreshCw, SlidersHorizontal, X, ReceiptText, CheckCircle2 } from "lucide-react";
+import { Plus, Search, FileText, Loader2, ShieldCheck, Send, MoreHorizontal, Copy, Eye, Edit, Trash2, User, Download, Share2, MessageCircle, Mail, CreditCard, Undo2, MoreVertical, Printer, ClipboardList, ArrowLeft, RefreshCw, SlidersHorizontal, ReceiptText, CheckCircle2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/status-badge";
 import { Link, useLocation } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
 import { useState, useEffect, type ElementType } from "react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Calendar as CalendarIcon, Filter, TrendingUp, Clock, AlertCircle } from "lucide-react";
+import { Calendar as CalendarIcon, Clock, AlertCircle } from "lucide-react";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format } from "date-fns";
@@ -24,7 +23,6 @@ import { apiFetch } from "@/lib/api";
 import { useCurrencies } from "@/hooks/use-currencies";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/use-auth";
 import { PDFDownloadLink, PDFViewer } from "@react-pdf/renderer";
@@ -369,102 +367,6 @@ function QuickChip({ label, active, tone = "default", onClick }: { label: string
   );
 }
 
-function PreviewInfo({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-[12px] border border-[#E5E7EB] bg-[#F8FAFC] p-3">
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-[#64748B]">{label}</p>
-      <p className="mt-1 text-sm font-bold text-[#0F172A]">{value}</p>
-    </div>
-  );
-}
-
-function InvoicePreviewCard({ invoice, onClose, onView, onFiscalize }: { invoice?: any; onClose?: () => void; onView: (id: number) => void; onFiscalize: (id: number) => void }) {
-  const [tab, setTab] = useState<"overview" | "timeline" | "fdms">("overview");
-
-  if (!invoice) {
-    return (
-      <div className="rounded-[14px] border border-dashed border-[#CBD5E1] bg-white p-5 text-center shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-        <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-[10px] bg-[#EFF6FF] text-[#2563EB]">
-          <ReceiptText className="h-5 w-5" />
-        </div>
-        <p className="mt-3 text-sm font-semibold text-[#0F172A]">Select an invoice to preview details.</p>
-        <p className="mt-1 text-xs font-medium text-[#64748B]">Fiscal details, customer records, and FDMS response information will appear here.</p>
-      </div>
-    );
-  }
-
-  const fiscalStatus = getFiscalStatus(invoice);
-  const paymentStatus = getPaymentStatus(invoice);
-
-  return (
-    <aside className="rounded-[14px] border border-[#E5E7EB] bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate font-mono text-sm font-bold text-[#0F172A]">{invoice.invoiceNumber || `INV-${invoice.id}`}</p>
-          <div className="mt-2"><StatusPill status={fiscalStatus} label={fiscalStatus === "fiscalized" ? "Fiscalised" : fiscalStatus === "pending" ? "Pending Sync" : fiscalStatus} /></div>
-        </div>
-        {onClose ? (
-          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-[10px]" onClick={onClose}>
-            <X className="h-4 w-4" />
-          </Button>
-        ) : null}
-      </div>
-
-      <div className="mt-5 grid grid-cols-3 rounded-[10px] bg-[#F8FAFC] p-1">
-        {(["overview", "timeline", "fdms"] as const).map((value) => (
-          <button key={value} type="button" onClick={() => setTab(value)} className={cn("rounded-[8px] px-2 py-2 text-xs font-bold capitalize text-[#64748B]", tab === value && "bg-white text-[#2563EB] shadow-[0_1px_2px_rgba(15,23,42,0.04)]")}>
-            {value === "fdms" ? "FDMS Response" : value}
-          </button>
-        ))}
-      </div>
-
-      {tab === "overview" ? (
-        <div className="mt-5 space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <PreviewInfo label="Total Amount" value={formatMoney(invoice.currency, invoice.total)} />
-            <PreviewInfo label="Invoice Date" value={invoice.issueDate ? format(new Date(invoice.issueDate), "dd MMM yyyy") : "-"} />
-          </div>
-          <div className="rounded-[14px] border border-[#E5E7EB] p-4">
-            <p className="text-xs font-bold uppercase tracking-wide text-[#64748B]">Customer</p>
-            <p className="mt-2 text-sm font-bold text-[#0F172A]">{invoice.customer?.name || "Walk-in"}</p>
-            <p className="mt-1 text-xs font-medium text-[#64748B]">VAT: {invoice.customer?.vatNumber || invoice.customer?.tin || "-"}</p>
-            <p className="mt-1 text-xs font-medium text-[#64748B]">{invoice.customer?.billingAddress || invoice.customer?.address || "No address on record"}</p>
-          </div>
-          <div className="rounded-[14px] border border-[#E5E7EB] p-4">
-            <p className="text-xs font-bold uppercase tracking-wide text-[#64748B]">Fiscal Details</p>
-            <div className="mt-3 space-y-2 text-xs font-medium text-[#64748B]">
-              <div className="flex justify-between gap-3"><span>Certificate ID</span><span className="truncate text-[#0F172A]">{invoice.fiscalCode || "-"}</span></div>
-              <div className="flex justify-between gap-3"><span>QR Code</span><span className="text-[#0F172A]">{invoice.qrCodeData ? "Available" : "-"}</span></div>
-              <div className="flex justify-between gap-3"><span>Signature</span><span className="truncate text-[#0F172A]">{invoice.fiscalSignature || invoice.receiptSignature || "-"}</span></div>
-              <div className="flex justify-between gap-3"><span>Device ID</span><span className="text-[#0F172A]">{invoice.deviceId || "-"}</span></div>
-              <div className="flex justify-between gap-3"><span>Branch</span><span className="text-[#0F172A]">{invoice.branch?.name || invoice.branchId || "-"}</span></div>
-            </div>
-          </div>
-        </div>
-      ) : tab === "timeline" ? (
-        <div className="mt-5 space-y-3 text-sm">
-          <PreviewInfo label="Created" value={invoice.createdAt ? format(new Date(invoice.createdAt), "dd MMM yyyy, HH:mm") : "-"} />
-          <PreviewInfo label="Last Sync" value={getSyncTime(invoice)} />
-          <PreviewInfo label="Payment Status" value={paymentStatus === "paid" ? "Paid" : "Unpaid"} />
-        </div>
-      ) : (
-        <div className="mt-5 rounded-[14px] border border-[#E5E7EB] bg-[#F8FAFC] p-4">
-          <p className="text-xs font-bold uppercase tracking-wide text-[#64748B]">FDMS Response</p>
-          <p className="mt-3 break-words font-mono text-xs leading-5 text-[#0F172A]">{invoice.fdmsStatus || invoice.validationStatus || "No FDMS response available for this invoice."}</p>
-        </div>
-      )}
-
-      <div className="mt-5 grid grid-cols-2 gap-2">
-        <Button variant="outline" className="h-9 rounded-[10px] border-[#E5E7EB] text-xs font-semibold" onClick={() => window.print()}><Printer className="h-3.5 w-3.5" /> Print</Button>
-        <Button variant="outline" className="h-9 rounded-[10px] border-[#E5E7EB] text-xs font-semibold" onClick={() => onView(invoice.id)}><Download className="h-3.5 w-3.5" /> PDF</Button>
-        <Button variant="outline" className="h-9 rounded-[10px] border-[#E5E7EB] text-xs font-semibold" onClick={() => onView(invoice.id)}><Mail className="h-3.5 w-3.5" /> Email</Button>
-        <Button variant="outline" className="h-9 rounded-[10px] border-[#E5E7EB] text-xs font-semibold" onClick={() => onFiscalize(invoice.id)}><RefreshCw className="h-3.5 w-3.5" /> Resync</Button>
-        <Button variant="ghost" className="col-span-2 h-9 rounded-[10px] text-xs font-semibold text-[#64748B]" onClick={() => onView(invoice.id)}><MoreHorizontal className="h-3.5 w-3.5" /> More actions</Button>
-      </div>
-    </aside>
-  );
-}
-
 export default function InvoicesPage() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
@@ -480,8 +382,6 @@ export default function InvoicesPage() {
   const [customerFilter, setCustomerFilter] = useState<string>("all");
   const [quickFilter, setQuickFilter] = useState<string>("all");
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
-  const [selectedInvoiceId, setSelectedInvoiceId] = useState<number | null>(null);
-  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
   const { data: result, isLoading } = useInvoices(selectedCompanyId, {
     page, limit: pageSize,
@@ -511,7 +411,6 @@ export default function InvoicesPage() {
     if (quickFilter === "unpaid") return getPaymentStatus(invoice) === "unpaid";
     return true;
   });
-  const selectedInvoice = displayedInvoices.find((invoice: any) => invoice.id === selectedInvoiceId) || null;
   const uniqueCustomers = Array.from(new Map(invoices.map((invoice: any) => [String(invoice.customerId || invoice.customer?.name || "walk-in"), invoice.customer?.name || "Walk-in"])).entries());
   const fiscalisedCount = displayedInvoices.filter((invoice: any) => getFiscalStatus(invoice) === "fiscalized").length;
   const pendingSyncCount = displayedInvoices.filter((invoice: any) => getFiscalStatus(invoice) === "pending").length;
@@ -527,10 +426,6 @@ export default function InvoicesPage() {
   const [smartError, setSmartError] = useState<any>(null);
 
   const handleFilterChange = (setter: any, value: any) => { setter(value); setPage(1); };
-  const selectInvoice = (invoice: any) => {
-    setSelectedInvoiceId(invoice.id);
-    setIsPreviewOpen(true);
-  };
   const clearFilters = () => {
     setSearchTerm("");
     setStatusFilter("all");
@@ -607,8 +502,7 @@ export default function InvoicesPage() {
           <StatCard label="Failed" value={failedFiscalisation.toLocaleString()} icon={AlertCircle} tone="red" trend={`↓ ${percentOf(failedFiscalisation, displayedInvoices.length)} require review`} trendTone="red" />
         </div>
 
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
-          <div className="min-w-0 space-y-4">
+        <div className="space-y-4">
             <Card className="overflow-hidden rounded-[14px] border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
               <CardContent className="space-y-4 p-4">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
@@ -721,10 +615,9 @@ export default function InvoicesPage() {
                         key={invoice.id}
                         className={cn(
                           "group h-14 cursor-pointer border-b border-[#F1F5F9] bg-white transition-colors hover:bg-[#F8FAFC]",
-                          selectedInvoiceId === invoice.id && "bg-[#EFF6FF]",
                           hasError && "bg-red-50/40 hover:bg-red-50/70"
                         )}
-                        onClick={() => selectInvoice(invoice)}
+                        onClick={() => setLocation(`/invoices/${invoice.id}`)}
                       >
                         <TableCell className={cn("py-3 pl-5", hasError && "border-l-2 border-l-[#EF4444]")} onClick={(e) => e.stopPropagation()}>
                           <Checkbox aria-label={`Select invoice ${invoice.invoiceNumber}`} className="border-[#CBD5E1]" />
@@ -885,24 +778,7 @@ export default function InvoicesPage() {
           )}
               </CardContent>
             </Card>
-          </div>
-
-          <div className="hidden xl:block">
-            <div className="sticky top-24">
-              <InvoicePreviewCard invoice={selectedInvoice} onView={(id) => setLocation(`/invoices/${id}`)} onFiscalize={handleFiscalize} />
-            </div>
-          </div>
         </div>
-
-        <Sheet open={isPreviewOpen && !!selectedInvoice} onOpenChange={setIsPreviewOpen}>
-          <SheetContent side="right" className="w-full overflow-y-auto bg-[#F8FAFC] p-4 sm:max-w-[380px] xl:hidden">
-            <SheetHeader className="sr-only">
-              <SheetTitle>Invoice preview</SheetTitle>
-              <SheetDescription>Selected invoice details</SheetDescription>
-            </SheetHeader>
-            <InvoicePreviewCard invoice={selectedInvoice} onClose={() => setIsPreviewOpen(false)} onView={(id) => setLocation(`/invoices/${id}`)} onFiscalize={handleFiscalize} />
-          </SheetContent>
-        </Sheet>
       </div>
     </Layout>
   );

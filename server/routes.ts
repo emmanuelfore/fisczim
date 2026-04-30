@@ -4787,17 +4787,10 @@ export async function registerRoutes(
       }
 
       // 3. ZIMRA Fiscalization Trigger Logic
-      // Respect POS fiscal toggle from client payload. Default is true when omitted.
-      const fiscalRequested = input.isFiscalized !== false;
-      let shouldFiscalize = false;
-      if (fiscalRequested) {
-        if (input.isPos) {
-          // POS fiscal toggle ON should always attempt fiscalization.
-          shouldFiscalize = true;
-        } else if (company?.vatRegistered !== false && input.customerId && customer?.vatNumber && customer.vatNumber.trim()) {
-          shouldFiscalize = true;
-        }
-      }
+      // Normal invoices must only be fiscalized by an explicit user action after issue.
+      // POS keeps its fiscal toggle behavior because checkout receipts are a separate flow.
+      const fiscalRequested = input.isPos && input.isFiscalized !== false;
+      const shouldFiscalize = input.isPos && fiscalRequested;
 
       if (shouldFiscalize) {
         if (input.isPos) {
@@ -4864,23 +4857,6 @@ export async function registerRoutes(
                 console.error(`[Fiscal] Failed to persist background failure status for invoice ${invoice.id}:`, updateErr);
               }
             });
-          }
-        } else {
-          // Standard Invoice: Keep synchronous for now to ensure QR code for PDF downloads
-          try {
-            console.log(`[Fiscal] Triggering synchronous fiscalization for invoice ${invoice.id}`);
-            invoice = await processInvoiceFiscalization(
-              invoice.id,
-              invoice.companyId,
-              req.user?.id,
-              (req.user as any)?.isSuperAdmin,
-              undefined, 
-              false 
-            );
-            markPerf("non_pos_fiscal_done");
-          } catch (fiscalError) {
-            console.error("Automated Fiscalization Failed:", fiscalError);
-            markPerf("non_pos_fiscal_failed");
           }
         }
       }

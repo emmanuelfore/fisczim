@@ -159,61 +159,61 @@ export default function Dashboard() {
 
   return (
     <Layout>
-      <div className="space-y-6">
-        <div className="-mt-2 space-y-[5px]">
+      <div className="space-y-5">
+        <div className="-mt-1 space-y-4">
           <section className="mt-0 mb-0 flex justify-end">
             <Link href="/invoices/new">
-              <Button className="h-11 w-[148px] rounded-[10px] bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-medium text-sm">
+              <Button className="h-10 w-[148px] rounded-[10px] bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-semibold text-sm">
                 Create Invoice
               </Button>
             </Link>
           </section>
 
-          <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
-            <div className="rounded-xl border border-[#E5E7EB] bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)] hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)]">
+          <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+            <div className="rounded-[14px] border border-[#E5E7EB] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-shadow hover:shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
             <div className="flex items-start justify-between">
-              <p className="text-sm font-medium text-[#64748B]">Total Sales</p>
+              <p className="text-[13px] font-semibold text-[#64748B]">Total Sales</p>
               <div className="flex items-center gap-2">
                 <svg width="56" height="20" viewBox="0 0 56 20" fill="none" aria-hidden="true">
                   <path d="M1 14L10 10L19 12L28 7L37 9L46 4L55 6" stroke="#F59E0B" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
-                <div className="h-11 w-11 rounded-full bg-[#EFF6FF] border border-[#DBEAFE] flex items-center justify-center text-[#1D4ED8] text-base font-extrabold">$</div>
+                <div className="h-9 w-9 rounded-[10px] bg-[#EFF6FF] border border-[#DBEAFE] flex items-center justify-center text-[#1D4ED8] text-sm font-extrabold">$</div>
               </div>
             </div>
-            <p className="mt-3 text-[28px] leading-none font-semibold text-[#111827]">{currency(totalSales)}</p>
-            <p className="mt-3 text-sm text-[#16A34A] font-medium inline-flex items-center gap-1"><ArrowUp className="w-3 h-3" /> 18.7% vs last week</p>
+            <p className="mt-3 text-[26px] leading-none font-bold tracking-[-0.015em] text-[#0F172A]">{currency(totalSales)}</p>
+            <p className="mt-3 text-[13px] text-[#16A34A] font-semibold inline-flex items-center gap-1"><ArrowUp className="w-3 h-3" /> 18.7% vs last week</p>
           </div>
 
-            <div className="rounded-xl border border-[#E5E7EB] bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)] hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)]">
+            <div className="rounded-[14px] border border-[#E5E7EB] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-shadow hover:shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
             <div className="flex items-start justify-between">
-              <p className="text-sm font-medium text-[#64748B]">Invoices Issued</p>
+              <p className="text-[13px] font-semibold text-[#64748B]">Invoices Issued</p>
               <div className="flex items-center gap-2">
                 <svg width="56" height="20" viewBox="0 0 56 20" fill="none" aria-hidden="true">
                   <path d="M1 13L10 11L19 8L28 10L37 7L46 5L55 3" stroke="#F59E0B" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
-                <div className="h-11 w-11 rounded-full bg-[#EFF6FF] border border-[#DBEAFE] flex items-center justify-center text-[#1D4ED8] text-base font-extrabold">#</div>
+                <div className="h-9 w-9 rounded-[10px] bg-[#EFF6FF] border border-[#DBEAFE] flex items-center justify-center text-[#1D4ED8] text-sm font-extrabold">#</div>
               </div>
             </div>
-            <p className="mt-3 text-[28px] leading-none font-semibold text-[#111827]">{invoicesTotal.toLocaleString()}</p>
-            <p className="mt-3 text-sm text-[#16A34A] font-medium inline-flex items-center gap-1"><ArrowUp className="w-3 h-3" /> 15.3% vs last week</p>
+            <p className="mt-3 text-[26px] leading-none font-bold tracking-[-0.015em] text-[#0F172A]">{invoicesTotal.toLocaleString()}</p>
+            <p className="mt-3 text-[13px] text-[#16A34A] font-semibold inline-flex items-center gap-1"><ArrowUp className="w-3 h-3" /> 15.3% vs last week</p>
           </div>
 
-            <div className="rounded-xl border border-[#E5E7EB] bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)] hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)]">
+            <div className="rounded-[14px] border border-[#E5E7EB] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-shadow hover:shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
             <div className="flex items-start justify-between">
-              <p className="text-sm font-medium text-[#64748B]">VAT Collected</p>
-              <div className="h-11 w-11 rounded-full bg-[#EFF6FF] border border-[#DBEAFE] flex items-center justify-center text-[#1D4ED8] text-base font-extrabold">%</div>
+              <p className="text-[13px] font-semibold text-[#64748B]">VAT Collected</p>
+              <div className="h-9 w-9 rounded-[10px] bg-[#EFF6FF] border border-[#DBEAFE] flex items-center justify-center text-[#1D4ED8] text-sm font-extrabold">%</div>
             </div>
-            <p className="mt-3 text-[28px] leading-none font-semibold text-[#111827]">{currency(vatCollected)}</p>
-            <p className="mt-3 text-sm text-[#16A34A] font-medium inline-flex items-center gap-1"><ArrowUp className="w-3 h-3" /> 12.5% vs last week</p>
+            <p className="mt-3 text-[26px] leading-none font-bold tracking-[-0.015em] text-[#0F172A]">{currency(vatCollected)}</p>
+            <p className="mt-3 text-[13px] text-[#16A34A] font-semibold inline-flex items-center gap-1"><ArrowUp className="w-3 h-3" /> 12.5% vs last week</p>
           </div>
 
-            <div className="rounded-xl border border-[#E5E7EB] bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)] hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)]">
+            <div className="rounded-[14px] border border-[#E5E7EB] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-shadow hover:shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
             <div className="flex items-start justify-between">
-              <p className="text-sm font-medium text-[#64748B]">FDMS Status</p>
+              <p className="text-[13px] font-semibold text-[#64748B]">FDMS Status</p>
               <Cloud className="w-5 h-5 text-[#2563EB]" />
             </div>
-            <p className="mt-3 text-[28px] leading-none font-semibold text-[#111827]">{connected ? "Connected" : "Offline"}</p>
-            <p className={`mt-3 text-sm font-medium inline-flex items-center gap-1 ${connected ? "text-[#16A34A]" : "text-[#DC2626]"}`}>
+            <p className="mt-3 text-[26px] leading-none font-bold tracking-[-0.015em] text-[#0F172A]">{connected ? "Connected" : "Offline"}</p>
+            <p className={`mt-3 text-[13px] font-semibold inline-flex items-center gap-1 ${connected ? "text-[#16A34A]" : "text-[#DC2626]"}`}>
               <CheckCircle2 className="w-3 h-3" />
               Last sync: {deviceStatus?.lastSync ? "2 mins ago" : "Not available"}
             </p>
@@ -221,10 +221,10 @@ export default function Dashboard() {
           </section>
         </div>
 
-        <section className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-          <div className="xl:col-span-2 rounded-xl border border-[#E5E7EB] bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+        <section className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+          <div className="xl:col-span-2 rounded-[14px] border border-[#E5E7EB] bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
             <div className="flex items-center justify-between mb-5">
-              <h3 className="text-[20px] font-semibold text-[#071437]">Sales Overview</h3>
+              <h3 className="text-[16px] font-bold text-[#0F172A]">Sales Overview</h3>
               <Button variant="outline" className="h-9 rounded-[10px] border-[#E5E7EB] text-[#334155]">This Week</Button>
             </div>
             <div className="h-[280px]">
@@ -260,8 +260,8 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="rounded-xl border border-[#E5E7EB] bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
-            <h3 className="text-[20px] font-semibold text-[#071437] mb-4">Sales by Payment Method</h3>
+          <div className="rounded-[14px] border border-[#E5E7EB] bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+            <h3 className="text-[16px] font-bold text-[#0F172A] mb-4">Sales by Payment Method</h3>
             <div className="grid grid-cols-2 gap-4">
               <div className="h-[220px]">
                 <ResponsiveContainer width="100%" height="100%">
@@ -296,16 +296,16 @@ export default function Dashboard() {
           </div>
         </section>
 
-        <section className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-          <div className="rounded-2xl border border-[#E5E7EB] bg-white shadow-[0_8px_24px_rgba(15,23,42,0.04)] overflow-hidden">
+        <section className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          <div className="rounded-[14px] border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] overflow-hidden">
             <div className="px-5 py-4 border-b border-[#E5E7EB] flex items-center justify-between">
-              <h3 className="text-[20px] font-semibold text-[#071437]">Recent Invoices</h3>
-              <Link href="/invoices" className="text-sm font-medium text-[#155EEF]">View all</Link>
+              <h3 className="text-[16px] font-bold text-[#0F172A]">Recent Invoices</h3>
+              <Link href="/invoices" className="text-sm font-semibold text-[#2563EB]">View all</Link>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[620px]">
                 <thead>
-                  <tr className="text-left text-[12px] font-medium text-[#64748B]">
+                  <tr className="text-left text-[12px] font-semibold uppercase tracking-wide text-[#64748B] bg-[#F8FAFC]">
                     <th className="px-5 py-3">Invoice #</th>
                     <th className="px-5 py-3">Customer</th>
                     <th className="px-5 py-3">Date</th>
@@ -321,13 +321,13 @@ export default function Dashboard() {
                   ) : invoices.map((inv) => {
                     const status = formatStatus(inv);
                     return (
-                      <tr key={inv.id} className="border-t border-[#EEF2F7] text-sm">
-                        <td className="px-5 py-3"><Link href={`/invoices/${inv.id}`} className="text-[#155EEF] font-medium">{inv.invoiceNumber || `INV-${inv.id}`}</Link></td>
-                        <td className="px-5 py-3 text-[#334155]">{inv.customer?.name || "Walk In Customer"}</td>
+                      <tr key={inv.id} className="border-t border-[#F1F5F9] text-sm transition-colors hover:bg-[#F8FAFC]">
+                        <td className="px-5 py-3"><Link href={`/invoices/${inv.id}`} className="font-mono text-[#2563EB] font-semibold">{inv.invoiceNumber || `INV-${inv.id}`}</Link></td>
+                        <td className="px-5 py-3 font-medium text-[#334155]">{inv.customer?.name || "Walk In Customer"}</td>
                         <td className="px-5 py-3 text-[#64748B]">{inv.issueDate ? new Date(inv.issueDate).toLocaleDateString() : "-"}</td>
-                        <td className="px-5 py-3 font-medium text-[#071437]">{currency(Number(inv.total || 0))}</td>
+                        <td className="px-5 py-3 font-semibold text-[#0F172A]">{currency(Number(inv.total || 0))}</td>
                         <td className="px-5 py-3">
-                          <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${status === "FISCALIZED" ? "bg-[#DCFCE7] text-[#15803D]" : status === "PENDING" ? "bg-[#FFEDD5] text-[#C2410C]" : "bg-[#FEE2E2] text-[#B91C1C]"}`}>
+                          <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold ${status === "FISCALIZED" ? "bg-[#DCFCE7] text-[#166534] border-emerald-100" : status === "PENDING" ? "bg-[#FEF3C7] text-[#92400E] border-amber-100" : "bg-[#FEE2E2] text-[#991B1B] border-red-100"}`}>
                             {status}
                           </span>
                         </td>
@@ -339,15 +339,15 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-[#E5E7EB] bg-white shadow-[0_8px_24px_rgba(15,23,42,0.04)] overflow-hidden">
+          <div className="rounded-[14px] border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] overflow-hidden">
             <div className="px-5 py-4 border-b border-[#E5E7EB] flex items-center justify-between">
-              <h3 className="text-[20px] font-semibold text-[#071437]">Top Selling Products</h3>
-              <Link href="/products" className="text-sm font-medium text-[#155EEF]">View all</Link>
+              <h3 className="text-[16px] font-bold text-[#0F172A]">Top Selling Products</h3>
+              <Link href="/products" className="text-sm font-semibold text-[#2563EB]">View all</Link>
             </div>
             <div>
               <table className="w-full table-fixed">
                 <thead>
-                  <tr className="text-left text-[12px] font-medium text-[#64748B]">
+                  <tr className="text-left text-[12px] font-semibold uppercase tracking-wide text-[#64748B] bg-[#F8FAFC]">
                     <th className="px-5 py-3">Product</th>
                     <th className="px-5 py-3">Sold</th>
                     <th className="px-5 py-3">Revenue</th>
@@ -355,7 +355,7 @@ export default function Dashboard() {
                 </thead>
                 <tbody>
                   {abcAnalysis.slice(0, 6).map((product: any) => (
-                    <tr key={product.productId} className="border-t border-[#EEF2F7] text-sm">
+                    <tr key={product.productId} className="border-t border-[#F1F5F9] text-sm transition-colors hover:bg-[#F8FAFC]">
                       <td className="px-5 py-3 text-[#334155]">
                         <div className="flex items-center gap-2">
                           <span className="h-7 w-7 rounded-md bg-[#EEF4FF] text-[#1D4ED8] inline-flex items-center justify-center text-xs font-bold">P</span>
@@ -363,7 +363,7 @@ export default function Dashboard() {
                         </div>
                       </td>
                       <td className="px-5 py-3 text-[#334155]">{Math.round(Number(product.share || 0))}</td>
-                      <td className="px-5 py-3 font-medium text-[#071437]">{currency(Number(product.revenue || 0))}</td>
+                      <td className="px-5 py-3 font-semibold text-[#0F172A]">{currency(Number(product.revenue || 0))}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -372,37 +372,37 @@ export default function Dashboard() {
           </div>
         </section>
 
-        <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
-          <div className="rounded-2xl border border-[#E5E7EB] bg-white p-5 shadow-[0_8px_24px_rgba(15,23,42,0.04)]">
-            <div className="h-10 w-10 rounded-full bg-[#EEF4FF] text-[#1D4ED8] flex items-center justify-center"><Package className="w-5 h-5" /></div>
-            <p className="mt-4 text-sm text-[#64748B] font-medium">Inventory Summary</p>
-            <p className="mt-1 text-[36px] leading-none font-bold text-[#071437]">{products.length.toLocaleString()}</p>
+        <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+          <div className="rounded-[14px] border border-[#E5E7EB] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+            <div className="h-9 w-9 rounded-[10px] bg-[#EEF4FF] text-[#1D4ED8] flex items-center justify-center"><Package className="w-4 h-4" /></div>
+            <p className="mt-4 text-[13px] text-[#64748B] font-semibold">Inventory Summary</p>
+            <p className="mt-1 text-[30px] leading-none font-bold tracking-[-0.015em] text-[#0F172A]">{products.length.toLocaleString()}</p>
             <p className="mt-2 text-sm text-[#64748B]">Total items</p>
-            <Link href="/products" className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-[#155EEF]">View inventory <ArrowRight className="w-4 h-4" /></Link>
+            <Link href="/products" className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-[#2563EB]">View inventory <ArrowRight className="w-4 h-4" /></Link>
           </div>
 
-          <div className="rounded-2xl border border-[#E5E7EB] bg-white p-5 shadow-[0_8px_24px_rgba(15,23,42,0.04)]">
-            <div className="h-10 w-10 rounded-full bg-[#FFEDD5] text-[#F97316] flex items-center justify-center"><AlertTriangle className="w-5 h-5" /></div>
-            <p className="mt-4 text-sm text-[#64748B] font-medium">Low Stock Items</p>
-            <p className="mt-1 text-[36px] leading-none font-bold text-[#071437]">{lowStockCount}</p>
+          <div className="rounded-[14px] border border-[#E5E7EB] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+            <div className="h-9 w-9 rounded-[10px] bg-[#FFEDD5] text-[#F97316] flex items-center justify-center"><AlertTriangle className="w-4 h-4" /></div>
+            <p className="mt-4 text-[13px] text-[#64748B] font-semibold">Low Stock Items</p>
+            <p className="mt-1 text-[30px] leading-none font-bold tracking-[-0.015em] text-[#0F172A]">{lowStockCount}</p>
             <p className="mt-2 text-sm text-[#64748B]">Items running low</p>
-            <Link href="/reports/inventory" className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-[#155EEF]">View low stock <ArrowRight className="w-4 h-4" /></Link>
+            <Link href="/reports/inventory" className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-[#2563EB]">View low stock <ArrowRight className="w-4 h-4" /></Link>
           </div>
 
-          <div className="rounded-2xl border border-[#E5E7EB] bg-white p-5 shadow-[0_8px_24px_rgba(15,23,42,0.04)]">
-            <div className="h-10 w-10 rounded-full bg-[#FEE2E2] text-[#DC2626] flex items-center justify-center"><TriangleAlert className="w-5 h-5" /></div>
-            <p className="mt-4 text-sm text-[#64748B] font-medium">Out of Stock Items</p>
-            <p className="mt-1 text-[36px] leading-none font-bold text-[#071437]">{outOfStockCount}</p>
+          <div className="rounded-[14px] border border-[#E5E7EB] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+            <div className="h-9 w-9 rounded-[10px] bg-[#FEE2E2] text-[#DC2626] flex items-center justify-center"><TriangleAlert className="w-4 h-4" /></div>
+            <p className="mt-4 text-[13px] text-[#64748B] font-semibold">Out of Stock Items</p>
+            <p className="mt-1 text-[30px] leading-none font-bold tracking-[-0.015em] text-[#0F172A]">{outOfStockCount}</p>
             <p className="mt-2 text-sm text-[#64748B]">Items out of stock</p>
-            <Link href="/reports/inventory" className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-[#155EEF]">View out of stock <ArrowRight className="w-4 h-4" /></Link>
+            <Link href="/reports/inventory" className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-[#2563EB]">View out of stock <ArrowRight className="w-4 h-4" /></Link>
           </div>
 
-          <div className="rounded-2xl border border-[#E5E7EB] bg-white p-5 shadow-[0_8px_24px_rgba(15,23,42,0.04)]">
-            <div className="h-10 w-10 rounded-full bg-[#DCFCE7] text-[#16A34A] flex items-center justify-center"><Users className="w-5 h-5" /></div>
-            <p className="mt-4 text-sm text-[#64748B] font-medium">Active Customers</p>
-            <p className="mt-1 text-[36px] leading-none font-bold text-[#071437]">{customers.length.toLocaleString()}</p>
+          <div className="rounded-[14px] border border-[#E5E7EB] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+            <div className="h-9 w-9 rounded-[10px] bg-[#DCFCE7] text-[#16A34A] flex items-center justify-center"><Users className="w-4 h-4" /></div>
+            <p className="mt-4 text-[13px] text-[#64748B] font-semibold">Active Customers</p>
+            <p className="mt-1 text-[30px] leading-none font-bold tracking-[-0.015em] text-[#0F172A]">{customers.length.toLocaleString()}</p>
             <p className="mt-2 text-sm text-[#64748B]">Total customers</p>
-            <Link href="/customers" className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-[#155EEF]">View customers <ArrowRight className="w-4 h-4" /></Link>
+            <Link href="/customers" className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-[#2563EB]">View customers <ArrowRight className="w-4 h-4" /></Link>
           </div>
         </section>
       </div>

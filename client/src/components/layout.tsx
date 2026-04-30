@@ -31,8 +31,7 @@ import {
   ArrowRightLeft,
   RefreshCw,
   Bell,
-  Search,
-  CalendarDays
+  Search
 } from "lucide-react";
 import { useBranding } from "@/hooks/use-branding";
 import {
@@ -211,7 +210,7 @@ export function Layout({
   const pageMeta = useMemo(() => {
     const search = typeof window !== "undefined" ? window.location.search : "";
 
-    if (location.startsWith("/dashboard")) return { title: "Dashboard", subtitle: "Monitor sales, compliance, inventory, and business performance." };
+    if (location.startsWith("/dashboard")) return { title: "Dashboard", subtitle: "" };
     if (location.startsWith("/invoices/new")) return { title: "Create Invoice", subtitle: "Prepare and fiscalise a customer invoice." };
     if (location.match(/^\/invoices\/\d+/)) return { title: "Invoice Details", subtitle: "Review, print, fiscalise, and manage invoice payments." };
     if (location.startsWith("/invoices")) return { title: "Invoices", subtitle: "Manage, track, and fiscalise customer invoices." };
@@ -261,38 +260,36 @@ export function Layout({
     if (location.startsWith("/pos/my-sales")) return { title: "My Sales History", subtitle: "Review your recent POS sales and receipts." };
     if (location.startsWith("/pos/all-sales")) return { title: "Recent Sales", subtitle: "Review recent POS transactions and receipt activity." };
     if (location.startsWith("/pos")) return { title: "POS Terminal", subtitle: "Process sales, payments, and fiscal receipts." };
-    return { title: "Dashboard", subtitle: "Monitor sales, compliance, inventory, and business performance." };
+    return { title: "Dashboard", subtitle: "" };
   }, [location]);
   const pageTitle = headerTitle || pageMeta.title;
-  const pageSubtitle = headerSubtitle || pageMeta.subtitle;
-  const isDashboardPage = location.startsWith("/dashboard");
+  const pageSubtitle = headerSubtitle !== undefined ? headerSubtitle : pageMeta.subtitle;
 
   if (!user) return null;
 
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
-
         .fz-admin,
         .admin-blueprint {
-          font-family: 'Inter', sans-serif !important;
+          font-family: var(--font-sans) !important;
         }
         .fz-admin .font-display,
         .admin-blueprint .font-display {
-          font-family: 'Inter', sans-serif !important;
+          font-family: var(--font-display) !important;
         }
         .admin-shell {
-          background: #FBFCFE;
+          background: #F8FAFC;
+          color: #0F172A;
         }
 
         .admin-blueprint .admin-sidebar {
-          background: #fefefe !important;
-          color: #071437 !important;
+          background: #FFFFFF !important;
+          color: #0F172A !important;
           border-right: 1px solid #E5E7EB !important;
           box-shadow: none !important;
         }
-        .admin-blueprint .admin-sidebar .text-slate-800 { color: #071437 !important; }
+        .admin-blueprint .admin-sidebar .text-slate-800 { color: #0F172A !important; }
         .admin-blueprint .admin-sidebar .text-slate-500 { color: #374151 !important; }
         .admin-blueprint .admin-sidebar .bg-slate-100 { background: #F1F5F9 !important; }
         .admin-blueprint .admin-sidebar .border-slate-50,
@@ -314,21 +311,15 @@ export function Layout({
           transition: transform 0.2s ease, background-color 0.2s ease, color 0.2s ease;
         }
         .admin-blueprint .nav-item:hover {
-          transform: translateX(2px);
+          transform: translateX(1px);
         }
 
+        .sidebar-scroller {
+          overflow: visible !important;
+          scrollbar-width: none;
+        }
         .sidebar-scroller::-webkit-scrollbar {
-          width: 2px;
-          opacity: 0;
-          transition: opacity 0.2s;
-        }
-        .sidebar-scroller:hover::-webkit-scrollbar {
-          opacity: 1;
-        }
-        .sidebar-scroller::-webkit-scrollbar-thumb {
-          background: rgba(15,23,42,0.3);
-          border-radius: 999px;
-          min-height: 24px;
+          display: none;
         }
         
         .nav-item-tooltip {
@@ -354,8 +345,9 @@ export function Layout({
           transform: translateX(0);
         }
         .admin-blueprint .admin-header {
-          background: #FBFCFE !important;
+          background: rgba(248, 250, 252, 0.94) !important;
           border-bottom: none !important;
+          backdrop-filter: blur(16px);
         }
         .admin-blueprint .page-shell {
           border-radius: 0 !important;
@@ -363,9 +355,18 @@ export function Layout({
           background: transparent !important;
           box-shadow: none !important;
         }
+        .admin-blueprint .shadcn-card {
+          background: #FFFFFF;
+          border-color: #E5E7EB;
+          box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+        }
+        .admin-blueprint label {
+          color: #334155;
+          font-weight: 650;
+        }
         .page-shell > div > h1 {
           letter-spacing: -0.02em;
-          font-weight: 900;
+          font-weight: 750;
         }
       `}</style>
 
@@ -376,7 +377,7 @@ export function Layout({
 
       {/* Primary Navigation Sidebar */}
       <aside className={cn(
-        "admin-sidebar bg-white border-r border-slate-200/60 shadow-[1px_0_10px_rgba(0,0,0,0.02)] flex flex-col fixed inset-y-0 left-0 z-50 transition-all duration-500 ease-in-out",
+        "admin-sidebar bg-white border-r border-slate-200/60 shadow-[1px_0_10px_rgba(0,0,0,0.02)] flex min-h-screen shrink-0 flex-col fixed inset-y-0 left-0 z-50 transition-all duration-500 ease-in-out lg:relative lg:inset-auto lg:translate-x-0",
         isSidebarCollapsed ? "w-20" : "w-[240px]",
         isMobileMenuOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
       )}>
@@ -403,7 +404,7 @@ export function Layout({
 
         </div>
 
-        <nav className={cn("flex-1 py-4 overflow-y-auto sidebar-scroller custom-scrollbar", isSidebarCollapsed ? "px-2" : "px-3")}>
+        <nav className={cn("flex-1 py-4 sidebar-scroller", isSidebarCollapsed ? "px-2" : "px-3")}>
           <div className="space-y-2">
             {navItems.map((item) => {
 
@@ -456,14 +457,14 @@ export function Layout({
                     <Collapsible open={isOpen} onOpenChange={setIsOpen} className="space-y-1">
                       <CollapsibleTrigger asChild>
                         <div className={cn(
-                          "flex items-center w-full px-3 py-3 rounded-[10px] text-[14px] font-semibold transition-all duration-200 cursor-pointer select-none group nav-item",
+                          "flex items-center w-full px-3 py-2.5 rounded-[10px] text-[13px] font-semibold transition-all duration-200 cursor-pointer select-none group nav-item",
                           isActiveGroup
                             ? "bg-[#EEF4FF] text-[#2563EB] shadow-none"
                             : "text-[#1F2937] hover:bg-slate-50 hover:text-[#111827]"
                         )}>
                           <div className="flex items-center gap-3 min-w-0">
                             <item.icon className={cn("w-[18px] h-[18px] shrink-0", isActiveGroup ? "text-[#2563EB]" : "text-[#6B7280] group-hover:text-[#111827]")} />
-                            <span className="font-display tracking-tight text-[14px]">{item.label}</span>
+                            <span className="font-display tracking-tight text-[13px]">{item.label}</span>
                           </div>
                           <span className="ml-auto pl-3">
                             <svg
@@ -484,7 +485,7 @@ export function Layout({
                             return (
                               <Link key={child.label} href={child.href}>
                                 <div className={cn(
-                                  "flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13px] font-medium transition-all duration-150 cursor-pointer nav-sub-item",
+                                  "flex items-center gap-3 px-2.5 py-2 rounded-lg text-[12.5px] font-semibold transition-all duration-150 cursor-pointer nav-sub-item",
                                   isChildActive
                                     ? "bg-[#EEF4FF] text-[#2563EB]"
                                     : "text-[#6B7280] hover:text-[#111827] hover:bg-slate-50/50"
@@ -522,7 +523,7 @@ export function Layout({
                 <div key={item.label}>
                   <Link href={item.href!}>
                     <div className={cn(
-                      "flex items-center gap-3 px-3 py-3 rounded-[10px] text-[14px] font-semibold transition-all duration-200 cursor-pointer select-none group nav-item",
+                      "flex items-center gap-3 px-3 py-2.5 rounded-[10px] text-[13px] font-semibold transition-all duration-200 cursor-pointer select-none group nav-item",
                       isActive
                         ? "bg-[#EEF4FF] text-[#2563EB] shadow-none"
                         : "text-[#1F2937] hover:bg-slate-50 hover:text-[#111827]"
@@ -537,19 +538,27 @@ export function Layout({
           </div>
         </nav>
 
-        {!isSidebarCollapsed && (
-          <div className="p-3 space-y-3">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <div className="rounded-xl transition-all cursor-pointer group active:scale-95 duration-200 p-2.5 bg-white border border-[#E5E7EB] hover:bg-white">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-300 overflow-hidden shadow-sm shrink-0">
-                      {selectedCompany?.logoUrl ? (
-                        <img src={selectedCompany.logoUrl} alt="Logo" className="w-full h-full object-contain" />
-                      ) : (
-                        <Building2 className="w-5 h-5 text-slate-400" />
-                      )}
-                    </div>
+        <div className={cn("sticky bottom-0 z-20 mt-auto border-t border-[#E5E7EB] bg-white", isSidebarCollapsed ? "p-2" : "p-3 space-y-3")}>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <div className={cn(
+                "transition-all cursor-pointer group active:scale-95 duration-200 bg-white border border-[#E5E7EB] hover:bg-white",
+                isSidebarCollapsed
+                  ? "mx-auto flex h-11 w-11 items-center justify-center rounded-[10px]"
+                  : "rounded-xl p-2.5"
+              )}>
+                <div className={cn("flex items-center", isSidebarCollapsed ? "justify-center" : "gap-3")}>
+                  <div className={cn(
+                    "rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-300 overflow-hidden shadow-sm shrink-0",
+                    isSidebarCollapsed ? "h-8 w-8" : "w-10 h-10"
+                  )}>
+                    {selectedCompany?.logoUrl ? (
+                      <img src={selectedCompany.logoUrl} alt="Logo" className="w-full h-full object-contain" />
+                    ) : (
+                      <Building2 className={cn("text-slate-400", isSidebarCollapsed ? "w-4 h-4" : "w-5 h-5")} />
+                    )}
+                  </div>
+                  {!isSidebarCollapsed && (
                     <div className="overflow-hidden flex-1 text-left">
                       <p className="text-sm font-black text-slate-800 truncate leading-none mb-1 font-display group-hover:text-primary transition-colors">
                         {selectedCompany ? selectedCompany.name : "Setup"}
@@ -563,44 +572,43 @@ export function Layout({
                         </div>
                       )}
                     </div>
-                  </div>
+                  )}
                 </div>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-60 max-h-[400px] overflow-y-auto bg-white border-slate-200 rounded-xl shadow-2xl p-1 z-[60]">
-                <div className="px-1 py-1">
-                  {companies?.map((company) => (
-                    <DropdownMenuItem
-                      key={company.id}
-                      onClick={() => handleCompanyChange(company.id)}
-                      className={cn(
-                        "flex items-center gap-2.5 p-2 rounded-lg cursor-pointer transition-all duration-200 mb-0.5",
-                        selectedCompanyId === company.id ? "bg-[#EEF4FF] text-[#2563EB] shadow-none" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-                      )}
-                    >
-                      <div className={`w-6 h-6 rounded flex items-center justify-center text-[8px] font-bold ${selectedCompanyId === company.id ? "bg-[#DBEAFE] text-[#1D4ED8]" : "bg-slate-100 text-slate-400"}`}>
-                        {company.logoUrl ? <img src={company.logoUrl} className="w-full h-full object-contain rounded" /> : company.name.substring(0, 2).toUpperCase()}
-                      </div>
-                      <span className="truncate flex-1 font-medium font-display text-[14px]">{company.name}</span>
-                      {selectedCompanyId === company.id && <div className="w-1.5 h-1.5 rounded-full bg-[#2563EB]" />}
-                    </DropdownMenuItem>
-                  ))}
-                  <DropdownMenuItem onClick={() => setLocation("/onboarding")} className="flex items-center justify-center gap-2 p-2.5 text-white bg-[#2563EB] font-bold cursor-pointer hover:bg-[#1D4ED8] rounded-[10px] shadow-sm active:scale-95 transition-all text-xs">
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Register Enterprise</span>
+              </div>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" side={isSidebarCollapsed ? "right" : "top"} className="w-60 max-h-[400px] overflow-y-auto bg-white border-slate-200 rounded-xl shadow-2xl p-1 z-[60]">
+              <div className="px-1 py-1">
+                {companies?.map((company) => (
+                  <DropdownMenuItem
+                    key={company.id}
+                    onClick={() => handleCompanyChange(company.id)}
+                    className={cn(
+                      "flex items-center gap-2.5 p-2 rounded-lg cursor-pointer transition-all duration-200 mb-0.5",
+                      selectedCompanyId === company.id ? "bg-[#EEF4FF] text-[#2563EB] shadow-none" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                    )}
+                  >
+                    <div className={`w-6 h-6 rounded flex items-center justify-center text-[8px] font-bold ${selectedCompanyId === company.id ? "bg-[#DBEAFE] text-[#1D4ED8]" : "bg-slate-100 text-slate-400"}`}>
+                      {company.logoUrl ? <img src={company.logoUrl} className="w-full h-full object-contain rounded" /> : company.name.substring(0, 2).toUpperCase()}
+                    </div>
+                    <span className="truncate flex-1 font-medium font-display text-[14px]">{company.name}</span>
+                    {selectedCompanyId === company.id && <div className="w-1.5 h-1.5 rounded-full bg-[#2563EB]" />}
                   </DropdownMenuItem>
-                </div>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-          </div>
-        )}
+                ))}
+                <DropdownMenuItem onClick={() => setLocation("/onboarding")} className="flex items-center justify-center gap-2 p-2.5 text-white bg-[#2563EB] font-bold cursor-pointer hover:bg-[#1D4ED8] rounded-[10px] shadow-sm active:scale-95 transition-all text-xs">
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Register Enterprise</span>
+                </DropdownMenuItem>
+              </div>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </aside>
 
       {/* Main Administrative Workspace */}
-      <div className={cn("flex-1 flex flex-col min-h-screen transition-all duration-500 ease-in-out", isSidebarCollapsed ? "lg:ml-20" : "lg:ml-[240px]")}>
+      <div className="flex-1 flex flex-col min-h-screen min-w-0 transition-all duration-500 ease-in-out">
 
         {/* Top Header */}
-        <header className="admin-header h-[88px] bg-[#FBFCFE] flex items-center justify-between gap-3 px-4 sm:px-6 z-40 sticky top-0 relative">
+        <header className="admin-header h-[80px] bg-[#F8FAFC] flex items-center justify-between gap-3 px-4 sm:px-6 z-40 sticky top-0 relative">
           {/* Mobile Menu Toggle */}
           <Button
             variant="ghost"
@@ -613,21 +621,15 @@ export function Layout({
 
           <div className="hidden min-w-0 flex-1 items-center gap-4 lg:flex">
             <div className="min-w-0">
-              <h1 className="truncate text-[24px] font-semibold leading-tight tracking-tight text-[#111827]">{pageTitle}</h1>
+              <h1 className="truncate text-[22px] font-bold leading-tight tracking-[-0.015em] text-[#0F172A]">{pageTitle}</h1>
               {pageSubtitle ? (
                 <p className="mt-1 truncate text-[13px] font-medium text-[#64748B]">{pageSubtitle}</p>
               ) : null}
             </div>
-            {isDashboardPage ? (
-              <Button variant="outline" className="h-11 shrink-0 px-4 rounded-[10px] border border-[#EAEFF5] bg-white text-[#374151] text-[13px] font-medium shadow-none">
-                <CalendarDays className="w-4 h-4 mr-2 text-[#64748B]" />
-                May 20 - May 26, 2024
-              </Button>
-            ) : null}
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="hidden xl:flex items-center h-11 px-3 rounded-[10px] border border-[#EAEFF5] bg-white min-w-[280px]">
+            <div className="hidden xl:flex items-center h-10 px-3 rounded-[10px] border border-[#E5E7EB] bg-white min-w-[280px] shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
               <Search className="w-4 h-4 text-[#64748B]" />
               <input
                 aria-label="Search"
@@ -637,7 +639,7 @@ export function Layout({
               <span className="text-[11px] font-semibold text-[#64748B] bg-[#F8FAFC] border border-[#E5E7EB] rounded px-2 py-0.5">Ctrl + K</span>
             </div>
 
-            <Button variant="ghost" size="icon" className="h-10 w-10 rounded-full border border-[#E5E7EB] text-[#64748B]">
+            <Button variant="ghost" size="icon" className="h-10 w-10 rounded-full border border-[#E5E7EB] bg-white text-[#64748B] shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
               <Bell className="w-4 h-4" />
             </Button>
 
@@ -701,7 +703,7 @@ export function Layout({
         {/* Page Content */}
         <main className={cn(
           "flex-1 max-w-[1600px] w-full mx-auto",
-          "px-4 pb-4 pt-2 sm:px-8 sm:pb-8 sm:pt-2"
+          "px-4 pb-4 pt-1 sm:px-7 sm:pb-8 sm:pt-1"
         )}>
           {isImmersiveRoute ? (
             children

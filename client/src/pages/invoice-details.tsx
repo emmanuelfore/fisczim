@@ -170,10 +170,10 @@ export default function InvoiceDetailsPage() {
   return (
     <Layout>
       {/* Split panel */}
-      <div className="flex -mx-4 sm:-mx-8 -mt-6">
+      <div className="flex gap-4">
 
         {/* ── LEFT: invoice list ── */}
-        <div className="w-[380px] shrink-0 flex flex-col border-r border-slate-200 bg-white sticky top-0 h-screen overflow-hidden">
+        <div className="sticky top-[88px] flex h-[calc(100vh-96px)] w-[380px] shrink-0 flex-col overflow-hidden rounded-[14px] border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
           {/* List header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 shrink-0">
             <span className="text-sm font-black text-slate-800 uppercase tracking-tight">Invoices</span>
@@ -299,7 +299,7 @@ export default function InvoiceDetailsPage() {
         </div>
 
         {/* ── RIGHT: invoice preview ── */}
-        <div className="flex-1 min-w-0 flex flex-col bg-white">
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[14px] border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
           {isLoading ? (
             <div className="flex items-center justify-center h-full"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
           ) : !invoice ? (
@@ -307,8 +307,8 @@ export default function InvoiceDetailsPage() {
           ) : (
             <>
               {/* Toolbar */}
-              <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-slate-200 sticky top-0 bg-white z-10">
-                <div className="flex items-center gap-2 min-w-0">
+              <div className="z-10 flex shrink-0 flex-col gap-3 border-b border-slate-200 bg-white px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex min-w-0 items-center gap-2">
                   <Button variant="ghost" size="sm" className="h-8 px-2 shrink-0" onClick={() => setLocation("/invoices")}>
                     <ArrowLeft className="w-4 h-4" />
                   </Button>
@@ -317,7 +317,7 @@ export default function InvoiceDetailsPage() {
                   </span>
                   <StatusBadge status={(invoice.fdmsStatus === "failed" || invoice.validationStatus === "red") ? "failed" : invoice.status!} />
                 </div>
-                <div className="flex items-center gap-1.5 shrink-0">
+                <div className="flex flex-wrap items-center gap-1.5 lg:justify-end">
                   {["issued", "paid"].includes(invoice.status || "") && !invoice.fiscalCode && (
                     <Button size="sm" className={cn("h-8 px-3 text-xs gap-1.5 text-white", (invoice.fdmsStatus === "failed" || invoice.validationStatus === "red") ? "bg-red-600 hover:bg-red-700" : "bg-emerald-600 hover:bg-emerald-700")}
                       onClick={() => { if (isFiscalizing) return; setIsFiscalizing(true); fiscalize.mutate(invoiceId, { onSettled: () => setIsFiscalizing(false) }); }}

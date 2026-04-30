@@ -702,6 +702,7 @@ export default function CreateInvoicePage() {
       exchangeRate: exchangeRate,
       paymentMethod,
       status: "issued",
+      isFiscalized: false,
       subtotal: subtotal.toString(),
       taxAmount: taxAmount.toString(),
       total: total.toString(),

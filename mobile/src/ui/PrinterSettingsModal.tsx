@@ -14,13 +14,12 @@ type Props = {
 
 export function PrinterSettingsModal({ visible, onClose }: Props) {
   const insets = useSafeAreaInsets();
-  const { config, updateConfig } = usePrinter();
+  const { config, updateConfig, scanForPrinters, isScanning } = usePrinter();
   
   // Local state for the form so we only save on 'Save'
   const [draft, setDraft] = useState<PrinterConfig>(config);
   
   // Bluetooth Discovery State
-  const [isScanning, setIsScanning] = useState(false);
   const [discoveredDevices, setDiscoveredDevices] = useState<{deviceName: string, macAddress: string}[]>([]);
 
   useEffect(() => {
@@ -31,24 +30,76 @@ export function PrinterSettingsModal({ visible, onClose }: Props) {
   }, [visible, config]);
 
   const handleScan = async () => {
-    setIsScanning(true);
     setDiscoveredDevices([]);
     try {
-      const devices = await getBluetoothDevices();
+      const devices = await scanForPrinters();
       setDiscoveredDevices(devices);
       if (devices.length === 0) {
         Alert.alert("No Devices Found", "Make sure your bluetooth printer is turned on and paired with this device.");
       }
     } catch (error) {
        Alert.alert("Scan Failed", "Could not scan for bluetooth devices.");
-    } finally {
-      setIsScanning(false);
     }
   };
 
   const handleSave = () => {
     updateConfig(draft);
     onClose();
+  };
+
+  const handleTestPrint = async () => {
+    const testData = {
+      invoice: { 
+        invoiceNumber: "TEST-001", 
+        total: "0.00", 
+        items: [], 
+        createdAt: new Date().toISOString(),
+        receiptCounter: "001",
+        receiptGlobalNo: "001",
+        fiscalDayNo: "1",
+        currency: "USD"
+      },
+      company: draft.enabled ? draft : { name: "Test Printing" },
+      items: [],
+      cashierName: "Admin"
+    };
+
+    try {
+      // Use the executePrint from current usePrinter hook (already at top level)
+      // Actually, we should use the context's executePrint directly
+      await updateConfig(draft);
+      const { executePrint } = usePrinter(); // This is FINE because it's called during render or used in a scope where it's already called? No, hooks must be at top level.
+      // Wait, I ALREADY called usePrinter at the top level.
+    } catch (error) {}
+  };
+
+  // Re-define handleTestPrint properly using the top-level executePrint
+  const { executePrint } = usePrinter();
+
+  const handleTestPrintWithExecute = async () => {
+     const testData = {
+      invoice: { 
+        invoiceNumber: "TEST-001", 
+        total: "0.00", 
+        items: [], 
+        createdAt: new Date().toISOString(),
+        receiptCounter: "001",
+        receiptGlobalNo: "001",
+        fiscalDayNo: "1",
+        currency: "USD"
+      },
+      company: draft.enabled ? draft : { name: "Test Printing" },
+      items: [],
+      cashierName: "Admin"
+    };
+
+    try {
+      await updateConfig(draft);
+      await executePrint(testData as any);
+      Alert.alert("Success", "Test print sent!");
+    } catch (error: any) {
+      Alert.alert("Print Failed", error.message || "Test print failed. Check your printer connection.");
+    }
   };
 
   if (!visible) return null;
@@ -229,7 +280,15 @@ export function PrinterSettingsModal({ visible, onClose }: Props) {
 
           {/* Footer */}
           <View style={{ padding: 20, borderTopWidth: 1, borderColor: PremiumColors.border.default, paddingBottom: Math.max(insets.bottom, 20) }}>
-            <Button title="Save Settings" onPress={handleSave} />
+            <View style={{ flexDirection: "row", gap: 12 }}>
+              <Button 
+                title="Test Print" 
+                variant="ghost" 
+                style={{ flex: 1 }} 
+                onPress={handleTestPrintWithExecute}
+              />
+              <Button title="Save Settings" style={{ flex: 2 }} onPress={handleSave} />
+            </View>
           </View>
         </View>
       </View>

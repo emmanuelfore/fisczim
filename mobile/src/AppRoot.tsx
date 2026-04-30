@@ -139,15 +139,16 @@ export function AppRoot() {
       }
 
       // If network fetch failed, return cached data if available
-      return cachedData.length > 0 ? cachedData : [];
+      return cachedData.length > 0 ? cachedData : (isBoot ? [] : null);
     } catch (e: any) {
       console.error("[Boot] Parallel fetch failed:", e);
       if (cachedData.length > 0) return cachedData;
       
       if (isBoot) {
+        // During boot we throw so the boot screen shows the error
         throw new Error(`Initialization failed: ${e.message || "Connection error"}.`);
       }
-      return [];
+      return null;
     }
   };
 
@@ -224,14 +225,19 @@ export function AppRoot() {
             const companiesList = await fetchUser(true);
             if (cancelled) return;
 
+            // If companiesList is null, we are offline with no cache or had a network error.
+            // fetchUser already handled returning [] vs null based on isBoot.
+            // But just in case, we check for null/undefined.
+            const list = companiesList || [];
+
             const cachedId = await getSelectedCompanyId().catch(() => null);
-            const validCompany = companiesList.find(c => (c && c.id === cachedId));
+            const validCompany = list.find(c => (c && c.id === cachedId));
 
             if (validCompany) {
               if (validCompany.role) setUserRole(validCompany.role);
               setCompanyId(cachedId);
               setStage("main");
-            } else if (companiesList.length > 0) {
+            } else if (list.length > 0) {
               setStage("company");
             } else {
               // If we are offline and have no valid company match in cache, 
@@ -356,6 +362,12 @@ export function AppRoot() {
             setStage("boot");
             try {
               const companies = await fetchUser(true);
+              if (companies === null) {
+                 setBootError("Failed to load your organizations. Please check your connection.");
+                 setStage("boot");
+                 return;
+              }
+
               const cachedId = await getSelectedCompanyId();
               const validCompany = companies.find((c: any) => c.id === cachedId);
 

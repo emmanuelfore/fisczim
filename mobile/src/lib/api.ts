@@ -51,9 +51,9 @@ export async function apiFetch(path: string, init?: RequestInit & { timeout?: nu
     headers.set("Content-Type", "application/json");
   }
 
-  const controller = init?.signal ? null : new AbortController();
+  const controller = (init?.signal || typeof AbortController === 'undefined') ? null : new AbortController();
   const timeoutMs = init?.timeout ?? 15000;
-  const timeoutId = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  const timeoutId = (controller && typeof setTimeout !== 'undefined') ? setTimeout(() => controller.abort(), timeoutMs) : null;
 
   try {
     const url = joinUrl(ENV.apiBaseUrl, path);

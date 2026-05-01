@@ -27,7 +27,7 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { apiFetch } from "../lib/api";
 
-import { PremiumColors as C } from "./PremiumColors";
+import { useTheme, hexAlpha } from "./PremiumColors";
 
 type ScreenName = "pos" | "reports" | "profile" | "inventory" | "stockin" | "customers" | "suppliers" | "expenses" | "stocktake";
 
@@ -51,6 +51,7 @@ export function AppDrawer({
   userRole,
 }: AppDrawerProps) {
   const insets = useSafeAreaInsets();
+  const { theme: C, isDark } = useTheme();
   const [isOnline, setIsOnline] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -91,6 +92,8 @@ export function AppDrawer({
     return true; // Default to showing if unsure
   });
 
+  const styles = getStyles(C);
+
   return (
     <Modal visible={visible} transparent animationType="none">
       <View style={styles.overlay}>
@@ -107,9 +110,9 @@ export function AppDrawer({
             end={{ x: 1, y: 1 }}
           >
             <SafeAreaView style={{ flex: 1 }}>
-              <View style={styles.header}>
+              <View style={[styles.header, { borderBottomColor: C.border.default }]}>
                 <Text style={styles.brand}>FieldPOS</Text>
-                <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
+                <TouchableOpacity onPress={onClose} style={[styles.closeBtn, { backgroundColor: C.bg.hover }]}>
                   <X size={20} color={C.text.primary} />
                 </TouchableOpacity>
               </View>
@@ -127,7 +130,7 @@ export function AppDrawer({
                       }}
                       style={[
                         styles.menuItem,
-                        isActive && styles.menuItemActive,
+                        isActive && { backgroundColor: isDark ? C.amber.glow : hexAlpha(C.amber.primary, 0.1) },
                       ]}
                     >
                       <View style={styles.menuItemLeft}>
@@ -175,7 +178,7 @@ export function AppDrawer({
 
                 <TouchableOpacity
                   onPress={onLogout}
-                  style={styles.logoutBtn}
+                  style={[styles.logoutBtn, { backgroundColor: hexAlpha(C.status.error, 0.1) }]}
                 >
                   <LogOut size={18} color={C.status.error} />
                   <Text style={styles.logoutText}>Sign Out</Text>
@@ -189,7 +192,7 @@ export function AppDrawer({
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (C: any) => StyleSheet.create({
   overlay: {
     flex: 1,
     flexDirection: "row",
@@ -213,7 +216,6 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     borderBottomWidth: 1,
-    borderBottomColor: C.border.default,
   },
   brand: {
     color: C.amber.primary,
@@ -225,7 +227,6 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 8,
-    backgroundColor: C.bg.card,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -240,9 +241,6 @@ const styles = StyleSheet.create({
     padding: 14,
     borderRadius: 12,
     marginBottom: 8,
-  },
-  menuItemActive: {
-    backgroundColor: C.amber.glow,
   },
   menuItemLeft: {
     flexDirection: "row",
@@ -313,7 +311,6 @@ const styles = StyleSheet.create({
     gap: 10,
     padding: 12,
     borderRadius: 12,
-    backgroundColor: "rgba(255,71,87,0.1)",
   },
   logoutText: {
     color: C.status.error,

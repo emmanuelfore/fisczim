@@ -1,25 +1,24 @@
-import React, { useState, useMemo, useCallback, useEffect } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import {
   View, Text, FlatList, TouchableOpacity, TextInput,
-  StyleSheet, SafeAreaView, ActivityIndicator, Modal, Alert, ScrollView,
+  StyleSheet, ActivityIndicator, Modal, Alert, ScrollView,
   KeyboardAvoidingView, Platform,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Menu, Search, Plus, Truck, X, Phone, Mail, Edit2 } from "lucide-react-native";
+import { Menu, Search, Plus, Truck, X, Phone, Mail, Edit2, Check } from "lucide-react-native";
 import { StatusBar } from "expo-status-bar";
 import { useSuppliers } from "../hooks/usePosData";
 import { apiFetch } from "../lib/api";
-import { Check } from "lucide-react-native";
-
-import { PremiumColors as C } from "../ui/PremiumColors";
+import { useTheme, hexAlpha } from "../ui/PremiumColors";
 
 interface Props { onOpenDrawer: () => void; companyId: number; }
-
 
 const emptySupplier = { name: "", contactPerson: "", email: "", phone: "", address: "", tin: "", vatNumber: "", isActive: true };
 
 export function SuppliersScreen({ onOpenDrawer, companyId }: Props) {
   const insets = useSafeAreaInsets();
+  const { theme: C, isDark } = useTheme();
+  
   const { data: suppliers, isLoading, refresh: refreshSuppliers } = useSuppliers(companyId);
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
@@ -72,11 +71,12 @@ export function SuppliersScreen({ onOpenDrawer, companyId }: Props) {
       }
       setShowForm(false);
       refreshSuppliers();
-      // Success feedback via modal closure
     } catch (e: any) {
       Alert.alert("Error", e.message);
     } finally { setSaving(false); }
-  }, [form, companyId, editingId]);
+  }, [form, companyId, editingId, refreshSuppliers]);
+
+  const styles = makeStyles(C, isDark, insets);
 
   const renderItem = ({ item }: { item: any }) => (
     <TouchableOpacity style={[styles.card, !item.isActive && { opacity: 0.5 }]} onPress={() => openEdit(item)} activeOpacity={0.7}>
@@ -84,7 +84,7 @@ export function SuppliersScreen({ onOpenDrawer, companyId }: Props) {
       <View style={styles.cardInfo}>
         <Text style={styles.cardTitle} numberOfLines={1}>{item.name}</Text>
         {item.contactPerson && <Text style={styles.cardSub}>{item.contactPerson}</Text>}
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginTop: 4 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginTop: 6 }}>
           {item.phone && <View style={styles.metaRow}><Phone size={10} color={C.text.secondary} /><Text style={styles.metaText}>{item.phone}</Text></View>}
           {item.email && <View style={styles.metaRow}><Mail size={10} color={C.text.secondary} /><Text style={styles.metaText} numberOfLines={1}>{item.email}</Text></View>}
         </View>
@@ -97,7 +97,7 @@ export function SuppliersScreen({ onOpenDrawer, companyId }: Props) {
     <View style={styles.container}>
       <StatusBar style="light" />
       <View style={{ flex: 1 }}>
-        <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
+        <View style={styles.header}>
           <TouchableOpacity onPress={onOpenDrawer} style={styles.iconBtn}><Menu size={20} color={C.text.primary} /></TouchableOpacity>
           <Text style={styles.title}>Suppliers</Text>
           <TouchableOpacity onPress={openAdd} style={[styles.iconBtn, { backgroundColor: C.amber.primary }]}><Plus size={20} color="#000" /></TouchableOpacity>
@@ -106,19 +106,20 @@ export function SuppliersScreen({ onOpenDrawer, companyId }: Props) {
           <Search size={16} color={C.text.secondary} />
           <TextInput style={styles.searchInput} placeholder="Search suppliers..." placeholderTextColor={C.text.secondary} value={search} onChangeText={setSearch} />
         </View>
-        {isLoading ? (<ActivityIndicator color={C.amber.primary} style={{ marginTop: 40 }} />) : (
-          <FlatList data={filtered} keyExtractor={(item) => String(item.id)} renderItem={renderItem} contentContainerStyle={{ padding: 16, paddingBottom: 80 }} ListEmptyComponent={<Text style={styles.emptyText}>No suppliers found.</Text>} />
+        {isLoading ? (
+          <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+            <ActivityIndicator color={C.amber.primary} />
+          </View>
+        ) : (
+          <FlatList data={filtered} keyExtractor={(item) => String(item.id)} renderItem={renderItem} contentContainerStyle={{ padding: 16, paddingBottom: 100 }} ListEmptyComponent={<Text style={styles.emptyText}>No suppliers found.</Text>} />
         )}
 
         <Modal visible={showForm} transparent animationType="slide">
-          <KeyboardAvoidingView 
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
-            style={styles.modalOverlay}
-          >
-            <View style={[styles.modalContent, { paddingBottom: Math.max(insets.bottom, 24) }]}>
+          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>{editingId ? "Edit Supplier" : "Add Supplier"}</Text>
-                <TouchableOpacity onPress={() => setShowForm(false)}><X size={20} color={C.text.primary} /></TouchableOpacity>
+                <TouchableOpacity onPress={() => setShowForm(false)} style={styles.closeBtn}><X size={20} color={C.text.primary} /></TouchableOpacity>
               </View>
               <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
                 {[
@@ -136,7 +137,6 @@ export function SuppliersScreen({ onOpenDrawer, companyId }: Props) {
                   </View>
                 ))}
                 
-                {/* Active Status */}
                 <TouchableOpacity style={styles.toggleRow} onPress={() => setForm({ ...form, isActive: !form.isActive })}>
                   <View style={[styles.toggleBox, form.isActive && styles.toggleBoxActive]}>
                     {form.isActive && <Check size={14} color="#000" />}
@@ -145,12 +145,11 @@ export function SuppliersScreen({ onOpenDrawer, companyId }: Props) {
                 </TouchableOpacity>
               </ScrollView>
               
-              <View style={{ paddingTop: 16, borderTopWidth: 1, borderTopColor: C.border.default, marginTop: 10 }}>
-                <TouchableOpacity style={[styles.saveBtn, { marginTop: 0, marginBottom: 0 }]} onPress={handleSave} disabled={saving}>
+              <View style={styles.modalFooter}>
+                <TouchableOpacity style={styles.saveBtn} onPress={handleSave} disabled={saving}>
                   {saving ? <ActivityIndicator color="#000" /> : <Text style={styles.saveBtnText}>{editingId ? "Update Supplier" : "Save Supplier"}</Text>}
                 </TouchableOpacity>
               </View>
-
             </View>
           </KeyboardAvoidingView>
         </Modal>
@@ -159,32 +158,122 @@ export function SuppliersScreen({ onOpenDrawer, companyId }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (C: any, isDark: boolean, insets: any) => StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg.base },
-  header: { paddingHorizontal: 16, paddingVertical: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: C.border.default },
-  iconBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: C.bg.card, alignItems: "center", justifyContent: "center", shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 4 },
-  title: { color: C.text.primary, fontSize: 18, fontWeight: "800" },
-  searchRow: { flexDirection: "row", alignItems: "center", backgroundColor: C.bg.hover, margin: 16, marginBottom: 0, borderRadius: 12, paddingHorizontal: 12, borderWidth: 1, borderColor: C.border.default, gap: 8 },
-  searchInput: { flex: 1, color: C.text.primary, height: 44, fontSize: 14 },
-  card: { flexDirection: "row", alignItems: "center", backgroundColor: C.bg.hover, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: C.border.default, marginBottom: 10, gap: 10 },
-  cardIcon: { width: 38, height: 38, borderRadius: 10, backgroundColor: "rgba(240,165,0,0.1)", alignItems: "center", justifyContent: "center" },
+  header: { 
+    paddingHorizontal: 16, 
+    paddingTop: Math.max(insets.top, 12), 
+    paddingBottom: 16, 
+    flexDirection: "row", 
+    alignItems: "center", 
+    justifyContent: "space-between",
+    backgroundColor: C.bg.base,
+    borderBottomWidth: 1,
+    borderBottomColor: C.bg.glassBorder,
+  },
+  iconBtn: { 
+    width: 44, 
+    height: 44, 
+    borderRadius: 14, 
+    backgroundColor: C.bg.panel, 
+    alignItems: "center", 
+    justifyContent: "center", 
+    shadowColor: "#000", 
+    shadowOpacity: 0.1, 
+    shadowRadius: 8, 
+    shadowOffset: { width: 0, height: 4 }, 
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: C.bg.glassBorder,
+  },
+  title: { color: C.text.primary, fontSize: 18, fontWeight: "900", letterSpacing: -0.5 },
+  searchRow: { 
+    flexDirection: "row", 
+    alignItems: "center", 
+    backgroundColor: C.bg.panel, 
+    margin: 16, 
+    borderRadius: 16, 
+    paddingHorizontal: 14, 
+    borderWidth: 1.5, 
+    borderColor: C.bg.glassBorder, 
+    gap: 12 
+  },
+  searchInput: { flex: 1, color: C.text.primary, height: 50, fontSize: 15, fontWeight: "600" },
+  card: { 
+    flexDirection: "row", 
+    alignItems: "center", 
+    backgroundColor: C.bg.panel, 
+    padding: 16, 
+    borderRadius: 20, 
+    borderWidth: 1, 
+    borderColor: C.bg.glassBorder, 
+    marginBottom: 12, 
+    gap: 14,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 2,
+  },
+  cardIcon: { 
+    width: 48, 
+    height: 48, 
+    borderRadius: 14, 
+    backgroundColor: hexAlpha(C.amber.primary, 0.08), 
+    alignItems: "center", 
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: hexAlpha(C.amber.primary, 0.15),
+  },
   cardInfo: { flex: 1 },
-  cardTitle: { color: C.text.primary, fontSize: 13, fontWeight: "700" },
-  cardSub: { color: C.text.secondary, fontSize: 11, marginTop: 2 },
+  cardTitle: { color: C.text.primary, fontSize: 15, fontWeight: "800" },
+  cardSub: { color: C.text.secondary, fontSize: 13, marginTop: 2, fontWeight: "600" },
   metaRow: { flexDirection: "row", alignItems: "center", gap: 4 },
-  metaText: { color: C.text.secondary, fontSize: 10 },
-  emptyText: { color: C.text.secondary, textAlign: "center", marginTop: 40, fontSize: 14 },
-  modalOverlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.7)" },
-  modalContent: { backgroundColor: C.bg.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40, borderWidth: 1, borderColor: C.border.default, maxHeight: "90%" },
-  modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 },
-  modalTitle: { color: C.text.primary, fontSize: 18, fontWeight: "800" },
-  field: { marginBottom: 12 },
-  fieldLabel: { color: C.text.secondary, fontSize: 11, fontWeight: "600", marginBottom: 5 },
-  fieldInput: { backgroundColor: C.bg.hover, color: C.text.primary, borderRadius: 10, paddingHorizontal: 14, height: 42, borderWidth: 1, borderColor: C.border.default, fontSize: 14 },
-  saveBtn: { backgroundColor: C.amber.primary, borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 8, marginBottom: 20 , shadowColor: C.amber.primary, shadowOpacity: 0.35, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 8 },
-  saveBtnText: { color: "#000", fontWeight: "800", fontSize: 15 },
-  toggleRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12, marginTop: 4 },
-  toggleBox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: C.text.secondary, alignItems: "center", justifyContent: "center" },
+  metaText: { color: C.text.secondary, fontSize: 12, fontWeight: "500" },
+  emptyText: { color: C.text.secondary, textAlign: "center", marginTop: 60, fontSize: 14, fontWeight: "600" },
+  modalOverlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.8)" },
+  modalContent: { 
+    backgroundColor: C.bg.base, 
+    borderTopLeftRadius: 32, 
+    borderTopRightRadius: 32, 
+    paddingHorizontal: 24, 
+    paddingTop: 24,
+    paddingBottom: Math.max(insets.bottom, 24), 
+    borderTopWidth: 1, 
+    borderColor: C.bg.glassBorder, 
+    maxHeight: "90%" 
+  },
+  modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 24 },
+  modalTitle: { color: C.text.primary, fontSize: 22, fontWeight: "900", letterSpacing: -0.5 },
+  closeBtn: { width: 38, height: 38, borderRadius: 12, backgroundColor: C.bg.panel, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: C.bg.glassBorder },
+  field: { marginBottom: 20 },
+  fieldLabel: { color: C.text.primary, fontSize: 13, fontWeight: "700", marginBottom: 10, opacity: 0.6 },
+  fieldInput: { 
+    backgroundColor: C.bg.panel, 
+    color: C.text.primary, 
+    borderRadius: 14, 
+    paddingHorizontal: 16, 
+    height: 52, 
+    borderWidth: 1.5, 
+    borderColor: C.bg.glassBorder, 
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  saveBtn: { 
+    backgroundColor: C.amber.primary, 
+    borderRadius: 16, 
+    paddingVertical: 16, 
+    alignItems: "center", 
+    shadowColor: C.amber.primary, 
+    shadowOpacity: 0.35, 
+    shadowRadius: 15, 
+    shadowOffset: { width: 0, height: 8 }, 
+    elevation: 8 
+  },
+  saveBtnText: { color: "#000", fontWeight: "900", fontSize: 16, letterSpacing: 0.5 },
+  modalFooter: { paddingTop: 16, borderTopWidth: 1, borderTopColor: C.bg.glassBorder, marginTop: 8 },
+  toggleRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 12, marginTop: 4 },
+  toggleBox: { width: 24, height: 24, borderRadius: 8, borderWidth: 2, borderColor: C.text.secondary, alignItems: "center", justifyContent: "center" },
   toggleBoxActive: { backgroundColor: C.amber.primary, borderColor: C.amber.primary },
-  toggleLabel: { color: C.text.primary, fontSize: 13, fontWeight: "600" },
+  toggleLabel: { color: C.text.primary, fontSize: 14, fontWeight: "700" },
 });

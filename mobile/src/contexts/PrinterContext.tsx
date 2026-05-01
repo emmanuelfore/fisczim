@@ -14,6 +14,8 @@ export interface PrinterConfig {
   terminalId: string;
   targetPrinter: string;
   paperWidth: number;
+  isInternal?: boolean;
+  isZ100?: boolean;
 }
 
 const DEFAULT_CONFIG: PrinterConfig = {
@@ -139,7 +141,13 @@ export function PrinterProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      if (effectiveMac) {
+      if (activeConfig.isZ100) {
+        const { printToZ100 } = await import("../lib/printing");
+        await printToZ100(ticketData);
+      } else if (activeConfig.isInternal) {
+        const { INTERNAL_PRINTER_MAC: internalMac } = await import("../lib/printing");
+        await printToBluetooth(ticketData, internalMac);
+      } else if (effectiveMac) {
         await printToBluetooth(ticketData, effectiveMac);
       } else {
         await printStandard(ticketData, activeConfig.targetPrinter, activeConfig.silentPrint);

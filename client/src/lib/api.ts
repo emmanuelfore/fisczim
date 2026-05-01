@@ -27,8 +27,8 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
         headers.set("X-Branch-ID", branchId);
     }
 
-    const controller = init?.signal ? null : new AbortController();
-    const timeoutId = controller ? window.setTimeout(() => {
+    const controller = (init?.signal || typeof AbortController === 'undefined') ? null : new AbortController();
+    const timeoutId = (controller && typeof window !== 'undefined') ? window.setTimeout(() => {
         console.warn(`[apiFetch] Request to ${url} timed out after 120s - aborting.`);
         try {
             // @ts-ignore - abort with reason is supported in modern browsers

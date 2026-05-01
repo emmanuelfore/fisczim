@@ -74,9 +74,8 @@ export function ForgotPasswordScreen({ onBack }: Props) {
           </TouchableOpacity>
 
           <View style={styles.header}>
-            <View style={styles.logoGlow} />
             <Text style={styles.brandText}>
-              Reset<Text style={{ color: C.amber.primary }}>Auth</Text>
+              Reset Password
             </Text>
           </View>
 
@@ -195,16 +194,6 @@ const styles = StyleSheet.create({
   header: {
     alignItems: "center",
     marginBottom: 40,
-  },
-  logoGlow: {
-    position: "absolute",
-    top: -20,
-    width: 100,
-    height: 100,
-    backgroundColor: C.amber.primary,
-    borderRadius: 50,
-    opacity: 0.1,
-    transform: [{ scale: 2 }],
   },
   brandText: {
     color: "#fff",

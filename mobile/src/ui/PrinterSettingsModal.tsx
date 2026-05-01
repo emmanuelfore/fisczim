@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from "react";
-import { Modal, View, Text, TouchableOpacity, ScrollView, TextInput, ActivityIndicator, Alert } from "react-native";
+import { Modal, View, Text, TouchableOpacity, ScrollView, TextInput, ActivityIndicator, Alert, Platform, StyleSheet } from "react-native";
 import { X, Bluetooth, Printer as PrinterIcon } from "lucide-react-native";
-import { PremiumColors } from "./PremiumColors";
+import { useTheme, hexAlpha } from "./PremiumColors";
 import { Button } from "./Button";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { PrinterConfig, usePrinter } from "../hooks/usePrinter";
-import { getBluetoothDevices } from "../lib/printing";
 
 type Props = {
   visible: boolean;
@@ -13,14 +12,12 @@ type Props = {
 };
 
 export function PrinterSettingsModal({ visible, onClose }: Props) {
+  const { theme: C, isDark } = useTheme();
   const insets = useSafeAreaInsets();
-  const { config, updateConfig, scanForPrinters, isScanning } = usePrinter();
-  
-  // Local state for the form so we only save on 'Save'
+  const { config, updateConfig, scanForPrinters, isScanning, executePrint } = usePrinter();
+
   const [draft, setDraft] = useState<PrinterConfig>(config);
-  
-  // Bluetooth Discovery State
-  const [discoveredDevices, setDiscoveredDevices] = useState<{deviceName: string, macAddress: string}[]>([]);
+  const [discoveredDevices, setDiscoveredDevices] = useState<{ deviceName: string, macAddress: string }[]>([]);
 
   useEffect(() => {
     if (visible) {
@@ -38,7 +35,7 @@ export function PrinterSettingsModal({ visible, onClose }: Props) {
         Alert.alert("No Devices Found", "Make sure your bluetooth printer is turned on and paired with this device.");
       }
     } catch (error) {
-       Alert.alert("Scan Failed", "Could not scan for bluetooth devices.");
+      Alert.alert("Scan Failed", "Could not scan for bluetooth devices.");
     }
   };
 
@@ -47,41 +44,12 @@ export function PrinterSettingsModal({ visible, onClose }: Props) {
     onClose();
   };
 
-  const handleTestPrint = async () => {
-    const testData = {
-      invoice: { 
-        invoiceNumber: "TEST-001", 
-        total: "0.00", 
-        items: [], 
-        createdAt: new Date().toISOString(),
-        receiptCounter: "001",
-        receiptGlobalNo: "001",
-        fiscalDayNo: "1",
-        currency: "USD"
-      },
-      company: draft.enabled ? draft : { name: "Test Printing" },
-      items: [],
-      cashierName: "Admin"
-    };
-
-    try {
-      // Use the executePrint from current usePrinter hook (already at top level)
-      // Actually, we should use the context's executePrint directly
-      await updateConfig(draft);
-      const { executePrint } = usePrinter(); // This is FINE because it's called during render or used in a scope where it's already called? No, hooks must be at top level.
-      // Wait, I ALREADY called usePrinter at the top level.
-    } catch (error) {}
-  };
-
-  // Re-define handleTestPrint properly using the top-level executePrint
-  const { executePrint } = usePrinter();
-
   const handleTestPrintWithExecute = async () => {
-     const testData = {
-      invoice: { 
-        invoiceNumber: "TEST-001", 
-        total: "0.00", 
-        items: [], 
+    const testData = {
+      invoice: {
+        invoiceNumber: "TEST-001",
+        total: "0.00",
+        items: [],
         createdAt: new Date().toISOString(),
         receiptCounter: "001",
         receiptGlobalNo: "001",
@@ -104,194 +72,199 @@ export function PrinterSettingsModal({ visible, onClose }: Props) {
 
   if (!visible) return null;
 
+  const styles = makeStyles(C, isDark, insets);
+
   return (
     <Modal visible={visible} animationType="slide" transparent>
-      <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" }}>
-        <View style={{ 
-          backgroundColor: PremiumColors.bg.base, 
-          borderTopLeftRadius: 24, 
-          borderTopRightRadius: 24,
-          height: "90%",
-          paddingTop: 8
-        }}>
-          {/* Header */}
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 20, paddingBottom: 16, borderBottomWidth: 1, borderColor: PremiumColors.border.default }}>
-            <Text style={{ color: PremiumColors.text.primary, fontSize: 18, fontWeight: "900" }}>Printer Settings</Text>
-            <TouchableOpacity onPress={onClose} style={{ padding: 6 }}>
-              <X size={24} color={PremiumColors.text.secondary} />
+      <View style={styles.overlay}>
+        <View style={styles.content}>
+          <View style={styles.header}>
+            <Text style={styles.headerTitle}>Printer Settings</Text>
+            <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
+              <X size={24} color={C.text.secondary} />
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={{ flex: 1, padding: 20 }} contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 40) }}>
-            
-            {/* General Toggles */}
-            <View style={{ marginBottom: 24, padding: 16, backgroundColor: PremiumColors.bg.hover, borderRadius: 16, borderWidth: 1, borderColor: PremiumColors.border.default }}>
-              <Text style={{ color: PremiumColors.text.primary, fontWeight: "700", marginBottom: 12 }}>General Behavior</Text>
-
-              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                <Text style={{ color: PremiumColors.text.primary, fontWeight: "600" }}>Enable Printing</Text>
-                <TouchableOpacity 
-                   activeOpacity={0.8}
-                   onPress={() => setDraft(p => {
-                     const next = !p.enabled;
-                     return { 
-                       ...p, 
-                       enabled: next,
-                       autoPrint: next ? p.autoPrint : false,
-                       silentPrint: next ? p.silentPrint : false
-                     };
-                   })}
-                   style={{ width: 44, height: 24, borderRadius: 12, backgroundColor: draft.enabled ? PremiumColors.amber.primary : PremiumColors.border.default, justifyContent: "center", paddingHorizontal: 2 }}
-                >
-                  <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: "white", alignSelf: draft.enabled ? "flex-end" : "flex-start" }} />
-                </TouchableOpacity>
-              </View>
-              
-              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                <Text style={{ color: PremiumColors.text.primary }}>Auto Print Receipt</Text>
-                <TouchableOpacity 
-                   activeOpacity={0.8}
-                   disabled={!draft.enabled}
-                   onPress={() => setDraft(p => ({ ...p, autoPrint: !p.autoPrint }))}
-                   style={{ width: 44, height: 24, borderRadius: 12, backgroundColor: draft.autoPrint ? PremiumColors.amber.primary : PremiumColors.border.default, justifyContent: "center", paddingHorizontal: 2, opacity: draft.enabled ? 1 : 0.4 }}
-                >
-                  <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: "white", alignSelf: draft.autoPrint ? "flex-end" : "flex-start" }} />
-                </TouchableOpacity>
-              </View>
-              
-              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                <Text style={{ color: PremiumColors.text.primary }}>Show Success Modal</Text>
-                <TouchableOpacity 
-                   activeOpacity={0.8}
-                   onPress={() => setDraft(p => ({ ...p, autoShowModal: !p.autoShowModal }))}
-                   style={{ width: 44, height: 24, borderRadius: 12, backgroundColor: draft.autoShowModal ? PremiumColors.amber.primary : PremiumColors.border.default, justifyContent: "center", paddingHorizontal: 2 }}
-                >
-                  <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: "white", alignSelf: draft.autoShowModal ? "flex-end" : "flex-start" }} />
-                </TouchableOpacity>
-              </View>
-
-              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                <Text style={{ color: PremiumColors.text.primary }}>Silent AirPrint</Text>
-                <TouchableOpacity 
-                   activeOpacity={0.8}
-                   disabled={!draft.enabled}
-                   onPress={() => setDraft(p => ({ ...p, silentPrint: !p.silentPrint }))}
-                   style={{ width: 44, height: 24, borderRadius: 12, backgroundColor: draft.silentPrint ? PremiumColors.amber.primary : PremiumColors.border.default, justifyContent: "center", paddingHorizontal: 2, opacity: draft.enabled ? 1 : 0.4 }}
-                >
-                  <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: "white", alignSelf: draft.silentPrint ? "flex-end" : "flex-start" }} />
-                </TouchableOpacity>
-              </View>
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 20, paddingBottom: 40 }}>
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>General Behavior</Text>
+              <ToggleRow
+                label="Enable Printing"
+                value={draft.enabled}
+                onToggle={() => setDraft(p => {
+                  const next = !p.enabled;
+                  return { ...p, enabled: next, autoPrint: next ? p.autoPrint : false, silentPrint: next ? p.silentPrint : false };
+                })}
+                C={C}
+              />
+              <ToggleRow
+                label="Auto Print Receipt"
+                value={draft.autoPrint}
+                disabled={!draft.enabled}
+                onToggle={() => setDraft(p => ({ ...p, autoPrint: !p.autoPrint }))}
+                C={C}
+              />
+              <ToggleRow
+                label="Show Success Modal"
+                value={draft.autoShowModal}
+                onToggle={() => setDraft(p => ({ ...p, autoShowModal: !p.autoShowModal }))}
+                C={C}
+              />
+              <ToggleRow
+                label="Silent AirPrint"
+                value={draft.silentPrint}
+                disabled={!draft.enabled}
+                onToggle={() => setDraft(p => ({ ...p, silentPrint: !p.silentPrint }))}
+                C={C}
+              />
             </View>
 
-            {/* Bluetooth Discovery */}
-            <View style={{ marginBottom: 24, padding: 16, backgroundColor: PremiumColors.bg.hover, borderRadius: 16, borderWidth: 1, borderColor: PremiumColors.border.default }}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                <Bluetooth size={20} color={PremiumColors.amber.light} />
-                <Text style={{ color: PremiumColors.text.primary, fontWeight: "700" }}>Bluetooth Thermal Printer</Text>
+            <View style={[styles.section, { borderColor: C.amber.primary, borderWidth: 1.5 }]}>
+              <View style={styles.sectionHeader}>
+                <PrinterIcon size={20} color={C.amber.primary} />
+                <Text style={[styles.sectionTitle, { color: C.amber.primary, marginBottom: 0 }]}>Activate Terminal Mode</Text>
               </View>
-
-              <Text style={{ color: PremiumColors.text.secondary, fontSize: 13, marginBottom: 16 }}>
-                Select a paired printer from the list, or type its MAC address manually.
+              <Text style={styles.sectionDescription}>
+                Enable this if you are running on an Android POS terminal with a built-in thermal printer.
               </Text>
+              <ToggleRow
+                label="Use Generic Built-in Bluetooth Printer"
+                value={draft.isInternal}
+                disabled={!draft.enabled || draft.isZ100}
+                onToggle={() => setDraft(p => ({ ...p, isInternal: !p.isInternal, isZ100: false, paperWidth: !p.isInternal ? 58 : p.paperWidth }))}
+                C={C}
+              />
+              <ToggleRow
+                label="Use Z100 Native SDK Printer"
+                value={draft.isZ100}
+                disabled={!draft.enabled}
+                onToggle={() => setDraft(p => ({ ...p, isZ100: !p.isZ100, isInternal: false, paperWidth: !p.isZ100 ? 58 : p.paperWidth }))}
+                C={C}
+                highlight
+              />
+            </View>
 
-              <Button 
-                 title={isScanning ? "Scanning..." : "Scan for Bluetooth Printers"} 
-                 onPress={handleScan} 
-                 variant={isScanning ? "ghost" : "primary"}
-                 style={{ marginBottom: 16 }}
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Bluetooth size={20} color={C.amber.primary} />
+                <Text style={styles.sectionTitle}>Bluetooth Thermal Printer</Text>
+              </View>
+              <Text style={styles.sectionDescription}>Select a paired printer from the list, or type its MAC address manually.</Text>
+
+              <Button
+                title={isScanning ? "Scanning..." : "Scan for Bluetooth Printers"}
+                onPress={handleScan}
+                variant={isScanning ? "ghost" : "primary"}
+                style={{ marginBottom: 16 }}
               />
 
-              {isScanning && <ActivityIndicator color={PremiumColors.amber.primary} style={{ marginBottom: 16 }} />}
+              {isScanning && <ActivityIndicator color={C.amber.primary} style={{ marginBottom: 16 }} />}
 
               {discoveredDevices.length > 0 && (
-                <View style={{ marginBottom: 16, backgroundColor: PremiumColors.bg.base, borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: PremiumColors.border.default }}>
+                <View style={styles.deviceList}>
                   {discoveredDevices.map((dev, i) => (
                     <TouchableOpacity
                       key={i}
                       onPress={() => setDraft(p => ({ ...p, macAddress: dev.macAddress }))}
-                      style={{ 
-                        padding: 12, 
-                        borderBottomWidth: i < discoveredDevices.length - 1 ? 1 : 0, 
-                        borderColor: PremiumColors.border.default,
-                        backgroundColor: draft.macAddress === dev.macAddress ? PremiumColors.amber.glow : "transparent",
-                        flexDirection: "row",
-                        justifyContent: "space-between",
-                        alignItems: "center"
-                      }}
+                      style={[styles.deviceItem, draft.macAddress === dev.macAddress && styles.deviceItemActive]}
                     >
                       <View>
-                        <Text style={{ color: PremiumColors.text.primary, fontWeight: "600" }}>{dev.deviceName || "Unknown Device"}</Text>
-                        <Text style={{ color: PremiumColors.text.secondary, fontSize: 12 }}>{dev.macAddress}</Text>
+                        <Text style={[styles.deviceText, draft.macAddress === dev.macAddress && { color: C.amber.primary }]}>{dev.deviceName || "Unknown Device"}</Text>
+                        <Text style={styles.deviceMac}>{dev.macAddress}</Text>
                       </View>
-                      {draft.macAddress === dev.macAddress && (
-                        <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: PremiumColors.amber.light }} />
-                      )}
+                      {draft.macAddress === dev.macAddress && <View style={styles.deviceDot} />}
                     </TouchableOpacity>
                   ))}
                 </View>
               )}
 
-              <Text style={{ color: PremiumColors.text.primary, fontSize: 12, marginBottom: 6 }}>Manual MAC Address:</Text>
+              <Text style={styles.inputLabel}>Manual MAC Address:</Text>
               <TextInput
-                style={{ backgroundColor: PremiumColors.bg.base, color: PremiumColors.text.primary, borderRadius: 8, padding: 12, borderWidth: 1, borderColor: PremiumColors.border.default, fontSize: 16 }}
+                style={styles.input}
                 value={draft.macAddress}
                 onChangeText={(t) => setDraft(p => ({ ...p, macAddress: t }))}
                 placeholder="e.g. 00:11:22:33:44:55"
-                placeholderTextColor={PremiumColors.text.secondary}
+                placeholderTextColor={C.text.secondary}
                 autoCapitalize="characters"
               />
 
-              <Text style={{ color: PremiumColors.text.primary, fontSize: 12, marginTop: 16, marginBottom: 6 }}>Paper Width:</Text>
+              <Text style={styles.inputLabel}>Paper Width:</Text>
               <View style={{ flexDirection: "row", gap: 8 }}>
                 {[58, 80].map(w => (
                   <TouchableOpacity
                     key={w}
                     onPress={() => setDraft(p => ({ ...p, paperWidth: w }))}
-                    style={{ flex: 1, padding: 12, borderRadius: 8, borderWidth: 1, borderColor: draft.paperWidth === w ? PremiumColors.amber.light : PremiumColors.border.default, backgroundColor: draft.paperWidth === w ? PremiumColors.amber.glow : PremiumColors.bg.base, alignItems: "center" }}
+                    style={[styles.widthBtn, draft.paperWidth === w && styles.widthBtnActive]}
                   >
-                    <Text style={{ color: draft.paperWidth === w ? PremiumColors.amber.light : PremiumColors.text.primary, fontWeight: "bold" }}>{w}mm</Text>
+                    <Text style={[styles.widthBtnText, draft.paperWidth === w && { color: C.amber.primary }]}>{w}mm</Text>
                   </TouchableOpacity>
                 ))}
               </View>
             </View>
 
-            {/* Network / AirPrint */}
-            <View style={{ marginBottom: 24, padding: 16, backgroundColor: PremiumColors.bg.hover, borderRadius: 16, borderWidth: 1, borderColor: PremiumColors.border.default }}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                <PrinterIcon size={20} color={PremiumColors.text.primary} />
-                <Text style={{ color: PremiumColors.text.primary, fontWeight: "700" }}>System / Network Printer</Text>
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <PrinterIcon size={20} color={C.text.primary} />
+                <Text style={styles.sectionTitle}>System / Network Printer</Text>
               </View>
-
-              <Text style={{ color: PremiumColors.text.secondary, fontSize: 13, marginBottom: 16 }}>
-                If you are not using Bluetooth, enter the system printer exact URL (AirPrint/CUPS).
-              </Text>
-
+              <Text style={styles.sectionDescription}>If you are not using Bluetooth, enter the system printer exact URL (AirPrint/CUPS).</Text>
               <TextInput
-                style={{ backgroundColor: PremiumColors.bg.base, color: PremiumColors.text.primary, borderRadius: 8, padding: 12, borderWidth: 1, borderColor: PremiumColors.border.default, fontSize: 16 }}
+                style={styles.input}
                 value={draft.targetPrinter}
                 onChangeText={(t) => setDraft(p => ({ ...p, targetPrinter: t }))}
                 placeholder="e.g. ipp://printer.local..."
-                placeholderTextColor={PremiumColors.text.secondary}
+                placeholderTextColor={C.text.secondary}
                 autoCapitalize="none"
               />
             </View>
-
           </ScrollView>
 
-          {/* Footer */}
-          <View style={{ padding: 20, borderTopWidth: 1, borderColor: PremiumColors.border.default, paddingBottom: Math.max(insets.bottom, 20) }}>
-            <View style={{ flexDirection: "row", gap: 12 }}>
-              <Button 
-                title="Test Print" 
-                variant="ghost" 
-                style={{ flex: 1 }} 
-                onPress={handleTestPrintWithExecute}
-              />
-              <Button title="Save Settings" style={{ flex: 2 }} onPress={handleSave} />
-            </View>
+          <View style={styles.footer}>
+            <Button title="Test Print" variant="ghost" style={{ flex: 1 }} onPress={handleTestPrintWithExecute} />
+            <Button title="Save Settings" style={{ flex: 2 }} onPress={handleSave} />
           </View>
         </View>
       </View>
     </Modal>
   );
 }
+
+function ToggleRow({ label, value, onToggle, disabled, C, highlight }: any) {
+  return (
+    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+      <Text style={{ color: C.text.primary, fontWeight: highlight ? "800" : "600", fontSize: highlight ? 15 : 14 }}>{label}</Text>
+      <TouchableOpacity
+        activeOpacity={0.8}
+        disabled={disabled}
+        onPress={onToggle}
+        style={{ width: 44, height: 24, borderRadius: 12, backgroundColor: value ? C.amber.primary : (disabled ? hexAlpha(C.text.secondary, 0.1) : hexAlpha(C.text.secondary, 0.2)), justifyContent: "center", paddingHorizontal: 2, opacity: disabled ? 0.4 : 1 }}
+      >
+        <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: "white", alignSelf: value ? "flex-end" : "flex-start", shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 2, elevation: 1 }} />
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+const makeStyles = (C: any, isDark: boolean, insets: any) => StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.8)", justifyContent: "flex-end" },
+  content: { backgroundColor: C.bg.base, borderTopLeftRadius: 32, borderTopRightRadius: 32, height: "92%", paddingTop: 8, borderTopWidth: 1, borderColor: C.bg.glassBorder },
+  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 24, paddingVertical: 20, borderBottomWidth: 1, borderColor: C.bg.glassBorder },
+  headerTitle: { color: C.text.primary, fontSize: 22, fontWeight: "900", letterSpacing: -0.5 },
+  closeBtn: { width: 44, height: 44, borderRadius: 14, backgroundColor: C.bg.panel, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: C.bg.glassBorder },
+  section: { marginBottom: 24, padding: 20, backgroundColor: C.bg.panel, borderRadius: 24, borderWidth: 1, borderColor: C.bg.glassBorder },
+  sectionHeader: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 14 },
+  sectionTitle: { color: C.text.primary, fontWeight: "900", fontSize: 16, letterSpacing: -0.2 },
+  sectionDescription: { color: C.text.secondary, fontSize: 14, marginBottom: 20, lineHeight: 20, fontWeight: "500" },
+  inputLabel: { color: C.text.primary, fontSize: 13, fontWeight: "700", marginBottom: 8, marginTop: 16, opacity: 0.8 },
+  input: { backgroundColor: C.bg.base, color: C.text.primary, borderRadius: 14, paddingHorizontal: 16, height: 50, borderWidth: 1.5, borderColor: C.bg.glassBorder, fontSize: 16, fontWeight: "600" },
+  deviceList: { marginBottom: 16, backgroundColor: C.bg.base, borderRadius: 16, overflow: "hidden", borderWidth: 1, borderColor: C.bg.glassBorder },
+  deviceItem: { padding: 16, borderBottomWidth: 1, borderColor: C.bg.glassBorder, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  deviceItemActive: { backgroundColor: hexAlpha(C.amber.primary, 0.08) },
+  deviceText: { color: C.text.primary, fontWeight: "700", fontSize: 15 },
+  deviceMac: { color: C.text.secondary, fontSize: 12, fontWeight: "600", marginTop: 2 },
+  deviceDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: C.amber.primary },
+  widthBtn: { flex: 1, paddingVertical: 14, borderRadius: 12, borderWidth: 1.5, borderColor: C.bg.glassBorder, backgroundColor: C.bg.base, alignItems: "center" },
+  widthBtnActive: { borderColor: C.amber.primary, backgroundColor: hexAlpha(C.amber.primary, 0.08) },
+  widthBtnText: { color: C.text.primary, fontWeight: "800", fontSize: 14 },
+  footer: { padding: 24, borderTopWidth: 1, borderColor: C.bg.glassBorder, paddingBottom: Math.max(insets.bottom, 24), flexDirection: "row", gap: 12 },
+});

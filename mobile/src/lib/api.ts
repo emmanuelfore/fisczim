@@ -51,17 +51,23 @@ export async function apiFetch(path: string, init?: RequestInit & { timeout?: nu
     headers.set("Content-Type", "application/json");
   }
 
-  const controller = (init?.signal || typeof AbortController === 'undefined') ? null : new AbortController();
   const timeoutMs = init?.timeout ?? 15000;
-  const timeoutId = (controller && typeof setTimeout !== 'undefined') ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  
+  // AbortController is polyfilled globally in polyfills.ts for older devices
+  const controller = init?.signal ? null : new AbortController();
+  const timeoutId = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
 
   try {
     const url = joinUrl(ENV.apiBaseUrl, path);
+    // console.log(`[API] Fetching ${url}...`);
     return await fetch(url, {
       ...init,
       headers,
       signal: init?.signal ?? (controller ? controller.signal : undefined)
     });
+  } catch (e: any) {
+    console.error(`[API] Fetch error for ${path}:`, e.message || e);
+    throw e;
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
   }
@@ -72,6 +78,7 @@ export async function apiJson<T = Json>(path: string, init?: RequestInit & { tim
     const res = await apiFetch(path, init);
     if (!res.ok) {
       const text = await res.text().catch(() => "");
+      console.warn(`[API] Request to ${path} failed with ${res.status}:`, text);
       throw new Error(text || `Request failed (${res.status})`);
     }
     return (await res.json()) as T;
@@ -79,9 +86,10 @@ export async function apiJson<T = Json>(path: string, init?: RequestInit & { tim
     if (e.message === "Aborted" || e.name === "AbortError") {
       throw new Error("Request timed out. Please check your connection.");
     }
-    if (e.message.includes("Network request failed")) {
+    if (e.message?.includes("Network request failed")) {
       const url = joinUrl(ENV.apiBaseUrl, path);
-      throw new Error(`Network error: Unable to reach server at ${url}. Please ensure the server is running and reachable from your device.`);
+      console.error(`[API] Network failure while reaching ${url}. Check SSL, firewall, or device connection.`);
+      throw new Error(`Connection error: Unable to reach server. Please ensure you have an active internet connection.`);
     }
     throw e;
   }

@@ -17,17 +17,19 @@ import { printReceipt, printToBluetooth } from "../lib/printing";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import NetInfo from "@react-native-community/netinfo";
 import { NoteModal } from "../components/NoteModal";
+import { usePrinter } from "../hooks/usePrinter";
 
-import { PremiumColors as C } from "../ui/PremiumColors";
+import { useTheme, hexAlpha } from "../ui/PremiumColors";
 
-const styles = StyleSheet.create({
+/** Dynamic Styles Factory */
+const getStyles = (C: any) => StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg.base },
   header: { paddingHorizontal: 16, paddingVertical: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: C.border.default },
   iconBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: C.bg.card, alignItems: "center", justifyContent: "center", shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 4 },
   title: { color: C.text.primary, fontSize: 18, fontWeight: "800" },
   tabRow: { flexDirection: "row", paddingHorizontal: 16, paddingTop: 12, gap: 8 },
   tab: { flex: 1, paddingVertical: 10, borderRadius: 12, backgroundColor: C.bg.hover, alignItems: "center", shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 5, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
-  tabActive: { backgroundColor: `${C.amber.primary}15`, shadowColor: C.amber.primary, shadowOpacity: 0.2, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 4 },
+  tabActive: { backgroundColor: hexAlpha(C.amber.primary, 0.15), shadowColor: C.amber.primary, shadowOpacity: 0.2, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 4 },
   tabText: { color: C.text.secondary, fontSize: 13, fontWeight: "700" },
   tabTextActive: { color: C.amber.primary, fontWeight: "800" },
   filterRow: { flexDirection: "row", justifyContent: "space-between", gap: 8 },
@@ -37,7 +39,7 @@ const styles = StyleSheet.create({
   dateInput: { flex: 1, backgroundColor: C.bg.card, color: C.text.primary, borderRadius: 10, paddingHorizontal: 12, height: 40, shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 4, shadowOffset: { width: 0, height: 2 }, elevation: 1, fontSize: 13 },
   dropdown: { backgroundColor: C.bg.base, borderRadius: 12, marginTop: 8, overflow: "hidden", shadowColor: "#000", shadowOpacity: 0.15, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 5 },
   dropdownItem: { paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "rgba(0,0,0,0.03)" },
-  dropdownItemActive: { backgroundColor: `${C.amber.primary}10` },
+  dropdownItemActive: { backgroundColor: hexAlpha(C.amber.primary, 0.1) },
   dropdownText: { color: C.text.primary, fontSize: 13, fontWeight: "700" },
   statsGrid: { flexDirection: "row", gap: 10, marginVertical: 20 },
   statCard: { flex: 1, backgroundColor: C.bg.card, padding: 12, borderRadius: 16, shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 3 },
@@ -97,7 +99,7 @@ const styles = StyleSheet.create({
   drillAmount: { fontSize: 16, fontWeight: "900", flexShrink: 0 },
   subTabRow: { flexDirection: "row", gap: 10, marginVertical: 20 },
   subTab: { flex: 1, paddingVertical: 10, borderRadius: 12, backgroundColor: C.bg.hover, alignItems: "center", borderWidth: 1, borderColor: C.border.default },
-  subTabActive: { backgroundColor: `${C.amber.primary}20`, borderColor: C.amber.primary },
+  subTabActive: { backgroundColor: hexAlpha(C.amber.primary, 0.12), borderColor: C.amber.primary },
   subTabText: { color: C.text.secondary, fontSize: 13, fontWeight: "700" },
   subTabTextActive: { color: C.amber.primary },
   inventoryRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: C.border.default, gap: 12 },
@@ -148,14 +150,7 @@ function getDateRange(period: Period, customStart?: string, customEnd?: string):
   return { start, end };
 }
 
-interface ReportsScreenProps {
-  onOpenDrawer: () => void;
-  companyId: number;
-  userRole?: string;
-  userId?: string;
-  userName?: string;
-  onNavigate?: (screen: any) => void;
-}
+
 
 interface ExpandedSaleContentProps {
   sale: any;
@@ -168,8 +163,11 @@ interface ExpandedSaleContentProps {
 }
 
 function ExpandedSaleContent({ sale, currencySymbols, onReprint, isPrinting, onCreditNote, onDebitNote, isPrintingEnabled }: ExpandedSaleContentProps) {
+  const { theme: C } = useTheme();
+  const styles = getStyles(C);
   const { data: items, isLoading } = useInvoiceItems(sale.id);
   const canIssueNote = sale.status === "issued" || sale.status === "paid";
+  
   return (
     <View style={styles.saleDetails}>
       <View style={styles.detailsDivider} />
@@ -196,9 +194,9 @@ function ExpandedSaleContent({ sale, currencySymbols, onReprint, isPrinting, onC
               style={{
                 flexDirection: "row", alignItems: "center", gap: 4,
                 paddingHorizontal: 8, paddingVertical: 5, borderRadius: 8,
-                backgroundColor: "rgba(240,165,0,0.1)", borderWidth: 1, borderColor: "rgba(240,165,0,0.3)"
+                backgroundColor: hexAlpha(C.amber.primary, 0.1), borderWidth: 1, borderColor: hexAlpha(C.amber.primary, 0.3)
               }}>
-              <Text style={{ color: "#f0a500", fontSize: 10, fontWeight: "700" }}>CN</Text>
+              <Text style={{ color: C.amber.primary, fontSize: 10, fontWeight: "700" }}>CN</Text>
             </TouchableOpacity>
           )}
           {canIssueNote && onDebitNote && (
@@ -207,9 +205,9 @@ function ExpandedSaleContent({ sale, currencySymbols, onReprint, isPrinting, onC
               style={{
                 flexDirection: "row", alignItems: "center", gap: 4,
                 paddingHorizontal: 8, paddingVertical: 5, borderRadius: 8,
-                backgroundColor: "rgba(167,139,250,0.1)", borderWidth: 1, borderColor: "rgba(167,139,250,0.3)"
+                backgroundColor: hexAlpha(C.status.info, 0.1), borderWidth: 1, borderColor: hexAlpha(C.status.info, 0.3)
               }}>
-              <Text style={{ color: "#a78bfa", fontSize: 10, fontWeight: "700" }}>DN</Text>
+              <Text style={{ color: C.status.info, fontSize: 10, fontWeight: "700" }}>DN</Text>
             </TouchableOpacity>
           )}
           {isPrintingEnabled && (
@@ -219,10 +217,10 @@ function ExpandedSaleContent({ sale, currencySymbols, onReprint, isPrinting, onC
               style={{
                 flexDirection: "row", alignItems: "center", gap: 5,
                 paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8,
-                backgroundColor: "rgba(240,165,0,0.1)", borderWidth: 1, borderColor: "rgba(240,165,0,0.3)"
+                backgroundColor: hexAlpha(C.amber.primary, 0.1), borderWidth: 1, borderColor: hexAlpha(C.amber.primary, 0.3)
               }}>
-              <Printer size={13} color="#f0a500" />
-              <Text style={{ color: "#f0a500", fontSize: 11, fontWeight: "700" }}>Reprint</Text>
+              <Printer size={13} color={C.amber.primary} />
+              <Text style={{ color: C.amber.primary, fontSize: 11, fontWeight: "700" }}>Reprint</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -238,6 +236,8 @@ function InvoiceItemRow({ invoiceId, currencyCode, exchangeRate, symbols, items 
   symbols?: Record<string, string>;
   items: any[];
 }) {
+  const { theme: C } = useTheme();
+  const styles = getStyles(C);
   const rate = Number(exchangeRate || 1);
   const symbol = symbols?.[currencyCode || "USD"] || (currencyCode === "USD" ? "$" : currencyCode || "$");
 
@@ -252,7 +252,6 @@ function InvoiceItemRow({ invoiceId, currencyCode, exchangeRate, symbols, items 
         const qty = parseFloat(item.quantity || "0");
         return (
           <View key={idx} style={styles.itemRow}>
-            {/* Left: name + unit price */}
             <View style={styles.itemInfo}>
               <Package size={13} color={C.text.secondary} style={{ marginTop: 2 }} />
               <View style={{ flex: 1 }}>
@@ -260,9 +259,7 @@ function InvoiceItemRow({ invoiceId, currencyCode, exchangeRate, symbols, items 
                 <Text style={styles.itemUnitPrice}>{symbol}{unitPrice.toFixed(2)} / unit</Text>
               </View>
             </View>
-            {/* Middle: qty */}
             <Text style={styles.itemQty} numberOfLines={1}>x{qty}</Text>
-            {/* Right: line total + discount badge */}
             <View style={{ alignItems: "flex-end", flexShrink: 0 }}>
               <Text style={styles.itemPrice}>{symbol}{lineTotal.toFixed(2)}</Text>
               {discount > 0 && (
@@ -277,6 +274,8 @@ function InvoiceItemRow({ invoiceId, currencyCode, exchangeRate, symbols, items 
 }
 
 function InventoryContent({ tab, companyId, start, end, symbol, ownerGroup, onNavigate }: { tab: InventorySubTab; companyId: number; start: Date; end: Date; symbol: string; ownerGroup?: string; onNavigate?: (screen: any) => void }) {
+  const { theme: C } = useTheme();
+  const styles = getStyles(C);
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -308,8 +307,7 @@ function InventoryContent({ tab, companyId, start, end, symbol, ownerGroup, onNa
     const totalValuation = data.reduce((sum, item) => sum + Number(item.totalValue || 0), 0);
     return (
       <View style={{ marginTop: 10, paddingBottom: 20 }}>
-        {/* Total Valuation Card with Stock Take Button */}
-        <View style={[styles.netProfitCard, { backgroundColor: `${C.amber.primary}12`, borderColor: C.amber.primary, marginBottom: 20 }]}>
+        <View style={[styles.netProfitCard, { backgroundColor: hexAlpha(C.amber.primary, 0.08), borderColor: C.amber.primary, marginBottom: 20 }]}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
             <View>
               <Text style={{ color: C.text.secondary, fontSize: 12, fontWeight: "700", textTransform: "uppercase", marginBottom: 6 }}>Total Inventory Value</Text>
@@ -376,7 +374,7 @@ function InventoryContent({ tab, companyId, start, end, symbol, ownerGroup, onNa
               <Text style={styles.itemDate}>
                 {new Date(item.date).toLocaleDateString()} {new Date(item.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </Text>
-              <View style={[styles.typeBadge, { backgroundColor: item.type === "STOCK_IN" ? `${C.status.success}15` : item.type === "ADJUSTMENT" ? `${C.amber.primary}15` : `${C.status.error}15` }]}>
+              <View style={[styles.typeBadge, { backgroundColor: item.type === "STOCK_IN" ? hexAlpha(C.status.success, 0.12) : item.type === "ADJUSTMENT" ? hexAlpha(C.amber.primary, 0.12) : hexAlpha(C.status.error, 0.12) }]}>
                 <Text style={[styles.typeBadgeText, { color: item.type === "STOCK_IN" ? C.status.success : item.type === "ADJUSTMENT" ? C.amber.primary : C.status.error }]}>
                   {item.type === "STOCK_IN" ? "PURCHASE" : item.type === "STOCK_OUT" ? "SALE" : "ADJUST"}
                 </Text>
@@ -417,19 +415,24 @@ function InventoryContent({ tab, companyId, start, end, symbol, ownerGroup, onNa
   return null;
 }
 
+interface ReportsScreenProps {
+  onOpenDrawer: () => void;
+  companyId: number;
+  userRole: string;
+  userId?: string;
+  userName: string;
+  onNavigate: (screen: any) => void;
+}
+
 export function ReportsScreen({ onOpenDrawer, companyId, userRole = "member", userId, userName, onNavigate }: ReportsScreenProps) {
   const insets = useSafeAreaInsets();
+  const { theme: C, isDark } = useTheme();
+  const styles = getStyles(C);
+  
   const isCashier = userRole.toLowerCase() === "cashier" || userRole.toLowerCase() === "member";
   const { data: company } = useCompany(companyId);
+  const { config: printerConfig, print } = usePrinter();
   const [isPrinting, setIsPrinting] = useState(false);
-  const [printerConfig, setPrinterConfig] = useState<any>({
-    enabled: true,
-    macAddress: "",
-    targetPrinter: "",
-    paperWidth: 58,
-    terminalId: "POS-M01",
-    autoPrint: true,
-  });
   const [isOnline, setIsOnline] = useState(true);
   const [creditThreshold, setCreditThreshold] = useState(50);
   const [noteModal, setNoteModal] = useState<{
@@ -452,17 +455,6 @@ export function ReportsScreen({ onOpenDrawer, companyId, userRole = "member", us
     });
   }, [companyId]);
 
-  useEffect(() => {
-    AsyncStorage.getItem(`printer_config_${userId}`).then(val => {
-      if (val) {
-        try {
-          const parsed = JSON.parse(val);
-          setPrinterConfig((prev: any) => ({ ...prev, ...parsed }));
-        } catch (_) { }
-      }
-    });
-  }, [userId]);
-
   const handleReprint = async (sale: any, items: any[]) => {
     if (!company) return;
     setIsPrinting(true);
@@ -477,11 +469,7 @@ export function ReportsScreen({ onOpenDrawer, companyId, userRole = "member", us
       terminalId: printerConfig.terminalId,
     };
     try {
-      if (printerConfig.macAddress) {
-        await printToBluetooth(ticketData, printerConfig.macAddress);
-      } else {
-        await printReceipt(ticketData, printerConfig.targetPrinter || undefined);
-      }
+      await print(ticketData as any);
     } catch (e: any) {
       if (e.message !== "Print preview was cancelled.") {
         Alert.alert("Print Error", e.message || "Could not print receipt");
@@ -872,6 +860,7 @@ export function ReportsScreen({ onOpenDrawer, companyId, userRole = "member", us
             ))}
           </View>
         )}
+
         {showOwnerGroupPicker && showOwnerGroupFilter && (
           <View style={styles.dropdown}>
             <TouchableOpacity style={[styles.dropdownItem, ownerGroupFilter === "all" && styles.dropdownItemActive]} onPress={() => { setOwnerGroupFilter("all"); setShowOwnerGroupPicker(false); }}>

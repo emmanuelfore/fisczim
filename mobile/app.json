@@ -20,7 +20,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#2c1800"
       },
-      "package": "com.emmmanuelfore.fieldpos",
+      "package": "com.emmanuelff.fieldpos",
       "softwareKeyboardLayoutMode": "resize",
       "permissions": [
         "INTERNET",
@@ -45,11 +45,13 @@
     },
     "extra": {
       "eas": {
-        "projectId": "ad5206fe-d89f-4736-b568-660263b35892"
+        "projectId": "c714b64b-b0ed-4c32-a4d4-1cba6d9e37f6"
       }
     },
     "plugins": [
-      "expo-asset"
-    ]
+      "expo-asset",
+      "./scripts/withNetworkSecurityConfig"
+    ],
+    "owner": "emmanuelff"
   }
 }

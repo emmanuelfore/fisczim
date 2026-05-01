@@ -1,3 +1,4 @@
+import "./src/lib/polyfills";
 import React, { useEffect } from "react";
 import { Platform } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";

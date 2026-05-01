@@ -107,7 +107,6 @@ export function Layout({
     : activeRole
       ? String(activeRole).charAt(0).toUpperCase() + String(activeRole).slice(1)
       : "User";
-
   const allNavItems: NavItem[] = [
     { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
     { icon: MonitorCheck, label: "POS Terminal", href: "/pos" },
@@ -116,7 +115,6 @@ export function Layout({
       label: "Invoices & Billing",
       children: [
         { icon: FileText, label: "Invoices", href: "/invoices" },
-        { icon: ClipboardList, label: "Quotations", href: "/quotations" },
         { icon: RefreshCw, label: "Recurring Invoices", href: "/recurring" },
         { icon: CreditCard, label: "Payments Received", href: "/payments-received" },
       ]
@@ -211,11 +209,9 @@ export function Layout({
     const search = typeof window !== "undefined" ? window.location.search : "";
 
     if (location.startsWith("/dashboard")) return { title: "Dashboard", subtitle: "" };
-    if (location.startsWith("/invoices/new")) return { title: "Create Invoice", subtitle: "Prepare and fiscalise a customer invoice." };
-    if (location.match(/^\/invoices\/\d+/)) return { title: "Invoice Details", subtitle: "Review, print, fiscalise, and manage invoice payments." };
-    if (location.startsWith("/invoices")) return { title: "Invoices", subtitle: "Manage, track, and fiscalise customer invoices." };
-    if (location.startsWith("/quotations/new")) return { title: "Create Quotation", subtitle: "Prepare a customer quotation before invoicing." };
-    if (location.startsWith("/quotations")) return { title: "Quotations", subtitle: "Create, manage, and convert customer quotations." };
+    if (location.startsWith("/invoices/new")) return { title: "Create Document", subtitle: "Prepare and fiscalise a customer invoice or quotation." };
+    if (location.match(/^\/invoices\/\d+/)) return { title: "Document Details", subtitle: "Review, print, fiscalise, and manage payments." };
+    if (location.startsWith("/invoices")) return { title: "Documents", subtitle: "Manage, track, and fiscalise customer invoices and quotations." };
     if (location.startsWith("/recurring")) return { title: "Recurring Invoices", subtitle: "Manage scheduled billing and repeat invoices." };
     if (location.startsWith("/payments-received")) return { title: "Payments Received", subtitle: "Track customer payments and invoice balances." };
     if (location.startsWith("/customers/")) return { title: "Customer Details", subtitle: "Review customer history, invoices, and statements." };
@@ -627,14 +623,16 @@ export function Layout({
             {isMobileMenuOpen ? <X className="w-5 h-5 text-slate-600" /> : <Menu className="w-5 h-5 text-slate-600" />}
           </Button>
 
-          <div className="hidden min-w-0 flex-1 items-center gap-4 lg:flex">
-            <div className="min-w-0">
-              <h1 className="truncate text-[22px] font-bold leading-tight tracking-[-0.015em] text-[#0F172A]">{pageTitle}</h1>
-              {pageSubtitle ? (
-                <p className="mt-1 truncate text-[13px] font-medium text-[#64748B]">{pageSubtitle}</p>
-              ) : null}
+          {!hideHeaderTitle && (
+            <div className="hidden min-w-0 flex-1 items-center gap-4 lg:flex">
+              <div className="min-w-0">
+                <h1 className="truncate text-[22px] font-bold leading-tight tracking-[-0.015em] text-[#0F172A]">{pageTitle}</h1>
+                {pageSubtitle ? (
+                  <p className="mt-1 truncate text-[13px] font-medium text-[#64748B]">{pageSubtitle}</p>
+                ) : null}
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="flex items-center gap-2">
             <div className="hidden xl:flex items-center h-10 px-3 rounded-[10px] border border-[#E5E7EB] bg-white min-w-[280px] shadow-[0_1px_2px_rgba(15,23,42,0.04)]">

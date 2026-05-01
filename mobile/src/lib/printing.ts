@@ -1,4 +1,5 @@
 import * as Print from 'expo-print';
+import { Platform } from 'react-native';
 
 // Lazy-load native thermal printer to avoid crash on Expo Go / unsupported builds
 let ThermalPrinterModule: any = null;
@@ -10,6 +11,16 @@ try {
   console.warn("[Printing] Thermal printer module not available:", e);
   // Not available in this build (e.g. Expo Go) — Bluetooth printing will be disabled
 }
+
+let Z100Printer: any = null;
+try {
+  Z100Printer = require('../../modules/z100-printer').default;
+} catch (e) {
+  console.warn("[Printing] Z100 printer module not available", e);
+}
+
+// Well-known internal MAC for many Android POS terminals (Z100, Sunmi, etc.)
+export const INTERNAL_PRINTER_MAC = "00:11:22:33:44:55";
 
 export interface TicketData {
   invoice: any;
@@ -309,11 +320,76 @@ export const printToBluetooth = async (data: TicketData, address?: string) => {
   });
 };
 
+export const printToZ100 = async (data: TicketData) => {
+  if (!Z100Printer) {
+    throw new Error("Z100 Printer module is not included in this build.");
+  }
+
+  const { invoice, company, items, cashierName, paidAmount } = data;
+  
+  try {
+    await Z100Printer.printInit();
+    // Safety settings from SDK docs
+    await Z100Printer.printSetVoltage(85); 
+    await Z100Printer.printSetGray(3); // Moderate darkness
+
+    // Header
+    await Z100Printer.printString(`${company.name}\n`, 24, 1);
+    if(company.tin) {
+      await Z100Printer.printString(`TIN: ${company.tin}\n`, 24, 1);
+    }
+    if(company.vatNumber) {
+      await Z100Printer.printString(`VAT: ${company.vatNumber}\n`, 24, 1);
+    }
+    await Z100Printer.printString(`\n`, 24, 1);
+
+    // Invoice Details
+    await Z100Printer.printString(`Invoice: ${invoice.invoiceNumber || 'N/A'}\n`, 24, 0);
+    await Z100Printer.printString(`Date: ${new Date(invoice.issueDate || invoice.createdAt).toLocaleString()}\n`, 24, 0);
+    if(cashierName) {
+      await Z100Printer.printString(`Cashier: ${cashierName}\n`, 24, 0);
+    }
+    await Z100Printer.printString(`--------------------------------\n`, 24, 0);
+
+    // Items
+    const receiptItems = items || invoice.items || [];
+    for(const item of receiptItems) {
+       await Z100Printer.printString(`${item.description || item.name}\n`, 24, 0);
+       const lineTotal = Number(item.lineTotal || (item.price * item.quantity)).toFixed(2);
+       await Z100Printer.printString(`  ${item.quantity} x ${Number(item.price).toFixed(2)}    ${lineTotal}\n`, 24, 0);
+    }
+
+    // Totals
+    await Z100Printer.printString(`--------------------------------\n`, 24, 0);
+    await Z100Printer.printString(`TOTAL USD: ${Number(invoice.total || 0).toFixed(2)}\n`, 32, 2); // 2 could be right align
+    await Z100Printer.printString(`PAID:      ${Number(paidAmount || invoice.total || 0).toFixed(2)}\n`, 24, 2);
+    
+    await Z100Printer.printString(`\n\n\n\n`, 24, 0);
+    const status = await Z100Printer.printStart();
+    if(!status) throw new Error("Print failed on Z100 device.");
+  } finally {
+    // CRITICAL: Always close to release hardware locks and prevent crashes on next print
+    await Z100Printer.printClose().catch(() => {});
+  }
+};
+
 export const getBluetoothDevices = async (): Promise<{ deviceName: string; macAddress: string }[]> => {
   if (!ThermalPrinterModule) return [];
   try {
     const devices = await ThermalPrinterModule.getBluetoothDeviceList();
-    return devices || [];
+    // Some devices don't return the "Internal Printer" in the scan, so we inject a virtual one if on Android
+    const hasInternal = devices?.some((d: any) => 
+      d.deviceName?.toLowerCase().includes("inner") || 
+      d.deviceName?.toLowerCase().includes("internal") ||
+      d.macAddress === INTERNAL_PRINTER_MAC
+    );
+
+    const result = devices || [];
+    if (!hasInternal && Platform.OS === 'android') {
+      result.push({ deviceName: "Built-in POS Printer", macAddress: INTERNAL_PRINTER_MAC });
+    }
+
+    return result;
   } catch (error) {
     console.error("[Printing] Failed to scan bluetooth devices:", error);
     return [];

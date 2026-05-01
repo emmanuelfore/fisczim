@@ -238,7 +238,7 @@ export default function CreateInvoicePage() {
   const [customerSearch, setCustomerSearch] = useState("");
   const [productSearch, setProductSearch] = useState<Record<string, string>>({});
 
-  // Auto-Save: Persist to localStorage (MOVED DOWN)
+  // Auto-Save: Persist to localStorage
   useEffect(() => {
     if (isEditing || isDuplicating) return;
 
@@ -260,7 +260,7 @@ export default function CreateInvoicePage() {
     return () => clearTimeout(timer);
   }, [customerId, items, notes, currencyCode, exchangeRate, paymentMethod, taxInclusive, issueDate, dueDate, isEditing, isDuplicating, companyId]);
 
-  // Restore State on Mount (MOVED DOWN)
+  // Restore State on Mount
   useEffect(() => {
     if (isEditing || isDuplicating || isRestored) return;
 
@@ -302,11 +302,9 @@ export default function CreateInvoicePage() {
       setItems(prev => prev.map(item => {
         if (item.localId !== localId) return item;
 
-        // Determine tax rate: prefer taxCategoryId if linked, otherwise fallback to product override
         let taxRate = company?.vatRegistered ? Number(product.taxRate ?? 15) : 0;
 
         if (company?.vatRegistered && product.taxCategoryId && taxTypes.data) {
-          // Find the tax category, which should contain the rate or link to the type
           const category = taxTypes.data.find(t => t.id === product.taxCategoryId);
           if (category) {
             taxRate = Number(category.rate);
@@ -336,7 +334,6 @@ export default function CreateInvoicePage() {
     ));
   };
 
-  // Calculations
   const calculateTotals = () => {
     let subtotal = 0;
     let taxAmount = 0;
@@ -345,13 +342,11 @@ export default function CreateInvoicePage() {
       const lineTotal = item.quantity * item.unitPrice;
 
       if (taxInclusive) {
-        // Price includes tax: Tax = Total - (Total / (1 + Rate))
         const taxPortion = lineTotal - (lineTotal / (1 + (item.taxRate / 100)));
         const netPortion = lineTotal - taxPortion;
         subtotal += netPortion;
         taxAmount += taxPortion;
       } else {
-        // Price excludes tax: Tax = Total * Rate
         const taxPortion = lineTotal * (item.taxRate / 100);
         subtotal += lineTotal;
         taxAmount += taxPortion;
@@ -394,48 +389,31 @@ export default function CreateInvoicePage() {
 
   const taxBreakdown = calculateTaxBreakdown();
 
-
-
   const [loadingAction, setLoadingAction] = useState<'draft' | 'issue' | 'quote' | null>(null);
 
   const handleSaveDraft = async () => {
     setLoadingAction('draft');
     if (!customerId) {
-      toast({
-        title: "Validation Error",
-        description: "Please select a customer.",
-        variant: "destructive",
-      });
+      toast({ title: "Validation Error", description: "Please select a customer.", variant: "destructive" });
       setLoadingAction(null);
       return;
     }
 
     const hasInvalidItems = items.some(item => !item.productId);
     if (hasInvalidItems) {
-      toast({
-        title: "Validation Error",
-        description: "One or more invoice lines have no item selected. Please select a product for all lines or remove empty lines.",
-        variant: "destructive",
-      });
+      toast({ title: "Validation Error", description: "One or more invoice lines have no item selected.", variant: "destructive" });
       setLoadingAction(null);
       return;
     }
 
     if (!dueDate) {
-      toast({
-        title: "Validation Error",
-        description: "Please select a due date.",
-        variant: "destructive",
-      });
+      toast({ title: "Validation Error", description: "Please select a due date.", variant: "destructive" });
       setLoadingAction(null);
       return;
     }
 
-    const invoiceNumber = isEditing && existingInvoice
-      ? existingInvoice.invoiceNumber
-      : `DRAFT-${Date.now().toString().slice(-6)}`;
-
-    // Common data payload
+    const invoiceNumber = isEditing && existingInvoice ? existingInvoice.invoiceNumber : `DRAFT-${Date.now().toString().slice(-6)}`;
+    
     const invoiceData = {
       companyId,
       invoiceNumber,
@@ -451,56 +429,28 @@ export default function CreateInvoicePage() {
       taxAmount: taxAmount.toString(),
       total: total.toString(),
       taxInclusive: taxInclusive,
-      items: items.map(item => {
-        const rawLineTotal = item.quantity * item.unitPrice;
-        return {
-          productId: item.productId,
-          description: item.description,
-          quantity: item.quantity.toString(),
-          unitPrice: item.unitPrice.toString(),
-          taxRate: item.taxRate.toString(),
-          lineTotal: rawLineTotal.toString(),
-          taxTypeId: item.taxTypeId
-        };
-      })
+      items: items.map(item => ({
+        productId: item.productId,
+        description: item.description,
+        quantity: item.quantity.toString(),
+        unitPrice: item.unitPrice.toString(),
+        taxRate: item.taxRate.toString(),
+        lineTotal: (item.quantity * item.unitPrice).toString(),
+        taxTypeId: item.taxTypeId
+      }))
     };
-
-    // Credit Note / Debit Note: A reason is required by ZIMRA.
-    const isCnDn = existingInvoice?.transactionType === "CreditNote" || existingInvoice?.transactionType === "DebitNote";
-    if (isCnDn && !notes?.trim()) {
-      toast({
-        title: "Reason Required",
-        description: `Please provide a reason for this ${existingInvoice?.transactionType === "CreditNote" ? "Credit Note" : "Debit Note"}.`,
-        variant: "destructive",
-      });
-      setLoadingAction(null);
-      return;
-    }
 
     try {
       if (isEditing && editId) {
-        await updateInvoice.mutateAsync({
-          id: parseInt(editId),
-          data: invoiceData
-        });
-        toast({
-          title: "Draft Updated",
-          description: "Draft invoice updated successfully.",
-        });
+        await updateInvoice.mutateAsync({ id: parseInt(editId), data: invoiceData });
+        toast({ title: "Draft Updated", description: "Draft invoice updated successfully." });
       } else {
         await createInvoice.mutateAsync(invoiceData);
-        toast({
-          title: "Draft Saved",
-          description: "Invoice saved as draft successfully.",
-        });
+        toast({ title: "Draft Saved", description: "Invoice saved as draft successfully." });
       }
       setLocation("/invoices");
     } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to save draft",
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: error.message || "Failed to save draft", variant: "destructive" });
     } finally {
       setLoadingAction(null);
     }
@@ -509,36 +459,25 @@ export default function CreateInvoicePage() {
   const handleSaveQuotation = async () => {
     setLoadingAction('quote');
     if (!customerId) {
-      toast({
-        title: "Validation Error",
-        description: "Please select a customer.",
-        variant: "destructive",
-      });
+      toast({ title: "Validation Error", description: "Please select a customer.", variant: "destructive" });
       setLoadingAction(null);
       return;
     }
 
     const hasInvalidItems = items.some(item => !item.productId);
     if (hasInvalidItems) {
-      toast({
-        title: "Validation Error",
-        description: "One or more invoice lines have no item selected. Please select a product for all lines or remove empty lines.",
-        variant: "destructive",
-      });
+      toast({ title: "Validation Error", description: "One or more invoice lines have no item selected.", variant: "destructive" });
       setLoadingAction(null);
       return;
     }
 
-    const invoiceNumber = isEditing && existingInvoice
-      ? existingInvoice.invoiceNumber
-      : `QT-${Date.now().toString().slice(-6)}`;
-
+    const invoiceNumber = isEditing && existingInvoice ? existingInvoice.invoiceNumber : `QT-${Date.now().toString().slice(-6)}`;
     const invoiceData = {
       companyId,
       invoiceNumber,
       customerId: parseInt(customerId),
       issueDate: issueDate ? new Date(issueDate) : new Date(),
-      dueDate: dueDate ? new Date(dueDate) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // Default 30 days for quotes
+      dueDate: dueDate ? new Date(dueDate) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       notes,
       currency: currencyCode,
       exchangeRate: exchangeRate,
@@ -548,56 +487,28 @@ export default function CreateInvoicePage() {
       taxAmount: taxAmount.toString(),
       total: total.toString(),
       taxInclusive: taxInclusive,
-      items: items.map(item => {
-        const rawLineTotal = item.quantity * item.unitPrice;
-        return {
-          productId: item.productId,
-          description: item.description,
-          quantity: item.quantity.toString(),
-          unitPrice: item.unitPrice.toString(),
-          taxRate: item.taxRate.toString(),
-          lineTotal: rawLineTotal.toString(),
-          taxTypeId: item.taxTypeId
-        };
-      })
+      items: items.map(item => ({
+        productId: item.productId,
+        description: item.description,
+        quantity: item.quantity.toString(),
+        unitPrice: item.unitPrice.toString(),
+        taxRate: item.taxRate.toString(),
+        lineTotal: (item.quantity * item.unitPrice).toString(),
+        taxTypeId: item.taxTypeId
+      }))
     };
-
-    // Credit Note / Debit Note: A reason is required by ZIMRA.
-    const isCnDn = existingInvoice?.transactionType === "CreditNote" || existingInvoice?.transactionType === "DebitNote";
-    if (isCnDn && !notes?.trim()) {
-      toast({
-        title: "Reason Required",
-        description: `Please provide a reason for this ${existingInvoice?.transactionType === "CreditNote" ? "Credit Note" : "Debit Note"}.`,
-        variant: "destructive",
-      });
-      setLoadingAction(null);
-      return;
-    }
 
     try {
       if (isEditing && editId) {
-        await updateInvoice.mutateAsync({
-          id: parseInt(editId),
-          data: invoiceData
-        });
-        toast({
-          title: "Quotation Updated",
-          description: "Quotation updated successfully.",
-        });
+        await updateInvoice.mutateAsync({ id: parseInt(editId), data: invoiceData });
+        toast({ title: "Quotation Updated", description: "Quotation updated successfully." });
       } else {
         await createInvoice.mutateAsync(invoiceData);
-        toast({
-          title: "Quotation Saved",
-          description: "Quotation saved successfully.",
-        });
+        toast({ title: "Quotation Saved", description: "Quotation saved successfully." });
       }
-      setLocation("/quotations");
+      setLocation("/invoices");
     } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to save quotation",
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: error.message || "Failed to save quotation", variant: "destructive" });
     } finally {
       setLoadingAction(null);
     }
@@ -606,196 +517,80 @@ export default function CreateInvoicePage() {
   const handleIssue = async () => {
     setLoadingAction('issue');
     if (!customerId) {
-      toast({
-        title: "Validation Error",
-        description: "Please select a customer.",
-        variant: "destructive",
-      });
-      setLoadingAction(null);
-      return;
+        toast({ title: "Validation Error", description: "Please select a customer.", variant: "destructive" });
+        setLoadingAction(null);
+        return;
     }
 
-    const hasInvalidItems = items.some(item => !item.productId);
-    if (hasInvalidItems) {
-      toast({
-        title: "Validation Error",
-        description: "One or more invoice lines have no item selected. Please select a product for all lines or remove empty lines.",
-        variant: "destructive",
-      });
-      setLoadingAction(null);
-      return;
-    }
-
-    if (items.length === 0) {
-      toast({
-        title: "Validation Error",
-        description: "Please add at least one item to the invoice.",
-        variant: "destructive",
-      });
-      setLoadingAction(null);
-      return;
+    if (items.some(item => !item.productId)) {
+        toast({ title: "Validation Error", description: "All lines must have a product selected.", variant: "destructive" });
+        setLoadingAction(null);
+        return;
     }
 
     if (!dueDate) {
-      toast({
-        title: "Validation Error",
-        description: "Please select a due date.",
-        variant: "destructive",
-      });
-      setLoadingAction(null);
-      return;
-    }
-
-    // Validate Issue Date & Fix Time
-    let finalIssueDate = new Date();
-    if (!issueDate || isNaN(new Date(issueDate).getTime())) {
-      toast({
-        title: "Validation Error",
-        description: "Please select a valid issue date.",
-        variant: "destructive",
-      });
-      setLoadingAction(null);
-      return;
-    } else {
-      const selectedDate = new Date(issueDate);
-      const today = new Date();
-      if (selectedDate.toISOString().slice(0, 10) === today.toISOString().slice(0, 10)) {
-        finalIssueDate = new Date();
-      } else {
-        finalIssueDate = new Date(issueDate);
-      }
-    }
-
-    if (company?.fiscalDayOpenedAt) {
-      const fiscalDayOpen = new Date(company.fiscalDayOpenedAt);
-      if (finalIssueDate < fiscalDayOpen) {
-        toast({ title: "Validation Error", description: `Invoice Date cannot be earlier than Fiscal Day Opening Time (${fiscalDayOpen.toLocaleString()}).`, variant: "destructive" });
+        toast({ title: "Validation Error", description: "Please select a due date.", variant: "destructive" });
         setLoadingAction(null);
         return;
-      }
     }
-
-    // No Future Dates (RCPT031)
-    if (finalIssueDate > new Date()) {
-      toast({ title: "Validation Error", description: "Invoice Date cannot be in the future (RCPT031).", variant: "destructive" });
-      setLoadingAction(null);
-      return;
-    }
-
 
     const invoiceNumber = isEditing && existingInvoice && existingInvoice.status === 'issued'
       ? existingInvoice.invoiceNumber
       : `INV-${Date.now().toString().slice(-6)}`;
 
-    // Credit Note / Debit Note Check (Moved up for item mapping)
-    const isCnDn = existingInvoice?.transactionType === "CreditNote" || existingInvoice?.transactionType === "DebitNote";
-
-    // Common data payload
     const invoiceData = {
       companyId,
       invoiceNumber,
       customerId: parseInt(customerId),
-      issueDate: finalIssueDate,
+      issueDate: new Date(issueDate),
       dueDate: new Date(dueDate),
       notes,
       currency: currencyCode,
       exchangeRate: exchangeRate,
       paymentMethod,
       status: "issued",
-      isFiscalized: false,
       subtotal: subtotal.toString(),
       taxAmount: taxAmount.toString(),
       total: total.toString(),
       taxInclusive: taxInclusive,
-      items: items.map(item => {
-        const rawLineTotal = item.quantity * item.unitPrice;
-        return {
-          productId: item.productId,
-          description: (!isCnDn && item.unitPrice < 0 && !item.description.toLowerCase().startsWith('discount')) ? `Discount: ${item.description}` : item.description,
-          quantity: item.quantity.toString(),
-          unitPrice: item.unitPrice.toString(),
-          taxRate: item.taxRate.toString(),
-          lineTotal: rawLineTotal.toString(),
-          taxTypeId: item.taxTypeId
-        };
-      })
+      items: items.map(item => ({
+        productId: item.productId,
+        description: item.description,
+        quantity: item.quantity.toString(),
+        unitPrice: item.unitPrice.toString(),
+        taxRate: item.taxRate.toString(),
+        lineTotal: (item.quantity * item.unitPrice).toString(),
+        taxTypeId: item.taxTypeId
+      }))
     };
-
-    // Credit Note / Debit Note: A reason is required by ZIMRA.
-    if (isCnDn && !notes?.trim()) {
-      toast({
-        title: "Reason Required",
-        description: `Please provide a reason for this ${existingInvoice?.transactionType === "CreditNote" ? "Credit Note" : "Debit Note"}.`,
-        variant: "destructive",
-      });
-      setLoadingAction(null);
-      return;
-    }
 
     try {
       if (isEditing && editId) {
-        await updateInvoice.mutateAsync({
-          id: parseInt(editId),
-          data: invoiceData
-        });
-        toast({
-          title: "Invoice Updated & Issued",
-          description: "Invoice updated and issued successfully. You can now fiscalize it.",
-        });
+        await updateInvoice.mutateAsync({ id: parseInt(editId), data: invoiceData });
       } else {
         await createInvoice.mutateAsync(invoiceData);
-        toast({
-          title: "Invoice Issued",
-          description: "Invoice issued successfully. You can now fiscalize it.",
-        });
       }
+      toast({ title: "Invoice Issued", description: "Invoice issued successfully." });
       setLocation("/invoices");
     } catch (error: any) {
-      console.error(error);
-      toast({
-        title: "Error",
-        description: error.message || "Failed to create invoice",
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: error.message || "Failed to issue invoice", variant: "destructive" });
     } finally {
       setLoadingAction(null);
     }
   };
 
-  // Validation State
   const [validationWarnings, setValidationWarnings] = useState<string[]>([]);
   const [showValidationDialog, setShowValidationDialog] = useState(false);
   const [pendingAction, setPendingAction] = useState<'draft' | 'issue' | 'quote' | null>(null);
 
   const validateInvoice = (action: 'draft' | 'issue' | 'quote'): string[] => {
     const warnings: string[] = [];
-
-    // 1. HS Code Validation (Critical for ZIMRA)
-    const missingHsCodes = items.filter(item => !item.hsCode || item.hsCode.length < 4); // Minimal check
-    if (missingHsCodes.length > 0) {
-      warnings.push(`⚠️ ${missingHsCodes.length} item(s) are missing valid HS Codes. ZIMRA requires proper classification.`);
+    if (items.some(item => !item.hsCode || item.hsCode.length < 4)) {
+      warnings.push("⚠️ Some items are missing valid HS Codes. ZIMRA requires proper classification.");
     }
-
-    // 2. Zero Price Validation
-    const zeroPriceItems = items.filter(item => item.unitPrice === 0 && !item.description.toLowerCase().includes('discount'));
-    if (zeroPriceItems.length > 0) {
-      warnings.push(`⚠️ ${zeroPriceItems.length} item(s) have a price of 0.00. Ensure this is intentional (e.g., free sample).`);
+    if (items.some(item => item.unitPrice === 0)) {
+      warnings.push("⚠️ Some items have a price of 0.00. Ensure this is intentional.");
     }
-
-    // 3. Customer Details for High Value (B2B Requirement)
-    const totalValue = Number(total); // Assuming total is calculated
-    if (totalValue > 1000 && customerId) { // Threshold example
-      const selectedCustomer = customers?.find(c => c.id === parseInt(customerId));
-      if (selectedCustomer && !selectedCustomer.vatNumber && !selectedCustomer.tin) {
-        warnings.push(`⚠️ Large transaction (${currentSymbol}${totalValue.toFixed(2)}) for a customer without VAT/TIN. ZIMRA may require buyer details for high-value invoices.`);
-      }
-    }
-
-    // 4. Payment Method
-    if (action === 'issue' && !paymentMethod) {
-      warnings.push(`⚠️ No payment method selected.`);
-    }
-
     return warnings;
   };
 
@@ -817,977 +612,344 @@ export default function CreateInvoicePage() {
     setShowValidationDialog(false);
   };
 
-  const handleCreateCustomer = async () => {
-    if (!newCustomerName) return;
-    try {
-      await createCustomer.mutateAsync({
-        name: newCustomerName,
-        customerType: "individual"
-      });
-      setCustomerModalOpen(false);
-      setNewCustomerName("");
-    } catch (error) {
-      console.error(error);
-    }
-  };
-
   return (
     <Layout>
       <div className="bg-slate-50/50 min-h-screen pb-20">
         {isLockedByOther && (
-          <div className="bg-amber-50 border-l-4 border-amber-500 p-4 mb-4 rounded-r shadow-sm">
+          <div className="bg-amber-50 border-l-4 border-amber-500 p-4 mb-4 rounded-r shadow-sm max-w-7xl mx-auto mt-4 px-6">
             <div className="flex">
-              <div className="flex-shrink-0">
-                <Lock className="h-5 w-5 text-amber-500" aria-hidden="true" />
-              </div>
-              <div className="ml-3">
-                <p className="text-sm text-amber-700">
-                  {lockStatus}
-                  <span className="block mt-1 text-xs opacity-75">You can view this invoice but cannot make changes.</span>
-                </p>
-              </div>
+              <div className="flex-shrink-0"><Lock className="h-5 w-5 text-amber-500" /></div>
+              <div className="ml-3"><p className="text-sm text-amber-700">{lockStatus}</p></div>
             </div>
           </div>
         )}
 
-        <div className="mb-6 flex flex-col md:flex-row gap-4 items-center justify-between no-print">
+        <div className="mb-6 flex flex-col md:flex-row gap-4 items-center justify-between no-print scale-95 origin-top px-6 pt-4">
           <div className="flex items-center gap-4">
-            <Button variant="ghost" onClick={() => setLocation("/invoices")} className="pl-0 hover:pl-0 hover:bg-transparent text-slate-500 hover:text-slate-900">
-              <ArrowLeft className="w-4 h-4 mr-2" /> Back
+            <Button variant="ghost" onClick={() => setLocation("/invoices")} className="pl-0 text-slate-500 hover:text-slate-900 group">
+              <ArrowLeft className="w-4 h-4 mr-2 transition-transform group-hover:-translate-x-1" /> Documents
             </Button>
-            <h1 className="text-2xl font-bold text-slate-900">
-              {isEditing
-                ? (existingInvoice?.status === "quote" ? "Edit Quotation" : (existingInvoice?.transactionType === "CreditNote" ? "Edit Credit Note" : (existingInvoice?.transactionType === "DebitNote" ? "Edit Debit Note" : "Edit Invoice")))
-                : (searchParams.get('type') === 'quote' ? "New Quotation" : "New Invoice")
-              }
+            <h1 className="text-xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
+              <FileText className="w-5 h-5 text-primary" />
+              {isEditing ? "Edit Document" : "New Document"}
             </h1>
           </div>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              onClick={() => handleActionClick('draft')}
-              disabled={loadingAction !== null || isLockedByOther}
-            >
-              {loadingAction === 'draft' ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ShieldCheck className="w-4 h-4 mr-2" />}
-              Save Draft
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => handleActionClick('draft')} disabled={loadingAction !== null} className="h-9 text-xs px-4 border-slate-200 hover:bg-slate-50">
+              {loadingAction === 'draft' ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ShieldCheck className="w-4 h-4 mr-2 text-slate-400" />} Save Draft
             </Button>
-            <Button
-              variant="outline"
-              onClick={() => handleActionClick('quote')}
-              disabled={loadingAction !== null || isLockedByOther}
-              className="hover:bg-slate-50"
-            >
-              {loadingAction === 'quote' ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ClipboardList className="w-4 h-4 mr-2" />}
-              Save as Quotation
+            <Button variant="outline" size="sm" onClick={() => handleActionClick('quote')} disabled={loadingAction !== null} className="h-9 text-xs px-4 border-slate-200 hover:bg-slate-50">
+              {loadingAction === 'quote' ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ClipboardList className="w-4 h-4 mr-2 text-slate-400" />} Quotation
             </Button>
-            <Button
-              onClick={() => handleActionClick('issue')}
-              disabled={loadingAction !== null || isLockedByOther}
-              className="bg-primary hover:bg-primary/90 text-white"
-            >
-              {loadingAction === 'issue' ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}
-              Issue Invoice
+            <Button size="sm" onClick={() => handleActionClick('issue')} disabled={loadingAction !== null} className="bg-primary hover:bg-primary/90 text-white h-9 text-xs px-6 shadow-sm shadow-primary/20">
+              {loadingAction === 'issue' ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />} Issue Document
             </Button>
-            <Button variant="outline" className="gap-2" onClick={() => setIsPreviewOpen(true)}>
-              <Eye className="w-4 h-4" />
-              Preview PDF
+            <div className="w-px h-6 bg-slate-200 mx-1" />
+            <Button variant="ghost" size="sm" className="h-9 text-xs px-3 gap-2 text-slate-500 hover:bg-slate-100" onClick={() => setIsPreviewOpen(true)}>
+              <Eye className="w-4 h-4" /> Preview
             </Button>
-
-
           </div>
         </div>
 
-        <div className="max-w-7xl mx-auto px-6 py-8">
+        <div className="max-w-7xl mx-auto px-6 py-2">
           <div className="bg-white shadow-xl border border-slate-200 rounded-2xl overflow-hidden">
-            {/* Header Section */}
-            <div className="bg-gradient-to-r from-slate-50 to-white border-b border-slate-100 px-8 md:px-12 py-8">
-              <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-6">
-                <div className="space-y-2">
-                  <h1 className="text-4xl font-bold text-slate-900 tracking-tight">
-                    {searchParams.get('type') === 'quote' || existingInvoice?.status === 'quote'
-                      ? "OFFICIAL QUOTATION"
-                      : (existingInvoice?.fiscalCode
-                        ? (existingInvoice?.transactionType === "CreditNote" ? "FISCAL CREDIT NOTE" : (existingInvoice?.transactionType === "DebitNote" ? "FISCAL DEBIT NOTE" : (company?.vatRegistered ? "FISCAL TAX INVOICE" : "FISCAL INVOICE")))
-                        : (existingInvoice?.transactionType === "CreditNote" ? "CREDIT NOTE" : (existingInvoice?.transactionType === "DebitNote" ? "DEBIT NOTE" : "TAX INVOICE")))
-                    }
-                  </h1>
-                  <p className="text-slate-600 text-lg">Create and customize your document</p>
-                </div>
-
-                <div className="flex flex-col items-start lg:items-end gap-4">
-                  <div className="flex items-center gap-3 bg-white p-2 rounded-xl border border-slate-200 shadow-sm">
-                    <Button
-                      variant={taxInclusive ? "ghost" : "default"}
-                      size="sm"
-                      onClick={() => setTaxInclusive(false)}
-                      className="text-sm font-medium px-4 py-2"
-                    >
-                      Tax Exclusive
-                    </Button>
-                    <Button
-                      variant={taxInclusive ? "default" : "ghost"}
-                      size="sm"
-                      onClick={() => setTaxInclusive(true)}
-                      className="text-sm font-medium px-4 py-2"
-                    >
-                      Tax Inclusive
-                    </Button>
-                  </div>
-                  <p className="text-xs text-slate-500">Choose your tax calculation method</p>
+            <div className="bg-gradient-to-r from-slate-50 to-white border-b border-slate-100 px-6 py-3">
+              <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
+                <h1 className="text-xl font-bold text-slate-900">
+                  {searchParams.get('type') === 'quote' || existingInvoice?.status === 'quote' ? "OFFICIAL QUOTATION" : "TAX INVOICE"}
+                </h1>
+                <div className="flex items-center gap-3 bg-white p-1 rounded-lg border border-slate-200 shadow-sm">
+                  <Button variant={taxInclusive ? "ghost" : "default"} size="xs" onClick={() => setTaxInclusive(false)} className="text-[10px] h-6">Excl. Tax</Button>
+                  <Button variant={taxInclusive ? "default" : "ghost"} size="xs" onClick={() => setTaxInclusive(true)} className="text-[10px] h-6">Incl. Tax</Button>
                 </div>
               </div>
             </div>
 
-            {/* Main Content */}
-            <div className="px-8 md:px-12 py-10 space-y-12">
-
-              {/* Invoice Details Header */}
-              <div className="bg-slate-50/30 rounded-2xl p-8 border border-slate-200">
-                <h3 className="text-lg font-semibold text-slate-800 mb-6 uppercase tracking-wide">Document Details</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                  <div className="space-y-1.5">
-                    <Label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Invoice No</Label>
-                    <div className="font-mono font-bold text-slate-700 bg-white/50 px-2 py-1 rounded border border-slate-100">
-                      {isEditing && existingInvoice ? existingInvoice.invoiceNumber : "[Auto-Generated]"}
+            <div className="px-6 py-6 space-y-6">
+              <div className="bg-slate-50/50 rounded-xl p-3 border border-slate-200 shadow-inner">
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Document No</Label>
+                    <div className="font-mono text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded px-2 h-7 flex items-center">
+                      {isEditing && existingInvoice ? existingInvoice.invoiceNumber : "[Auto]"}
                     </div>
                   </div>
-
-                  <div className="space-y-1.5">
-                    <Label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Fiscal Day</Label>
-                    <div className="font-mono font-bold text-slate-700 bg-white/50 px-2 py-1 rounded border border-slate-100">
-                      {isEditing && existingInvoice ? (existingInvoice.fiscalDayNo || "-") : "[Auto-Generated]"}
-                    </div>
+                  <div className="space-y-1">
+                    <Label className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Issue Date</Label>
+                    <Input type="date" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} className="h-7 py-0 px-2 text-xs bg-white border-slate-200" />
                   </div>
-
-                  <div className="space-y-1.5">
-                    <Label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Date</Label>
-                    <Input
-                      type="date"
-                      value={issueDate}
-                      onChange={(e) => setIssueDate(e.target.value)}
-                      className="h-9 py-0 px-3 w-40 bg-white border-slate-200"
-                      required
-                    />
+                  <div className="space-y-1">
+                    <Label className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Due Date</Label>
+                    <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="h-7 py-0 px-2 text-xs bg-white border-slate-200" />
                   </div>
-
-                  <div className="space-y-1.5">
-                    <Label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Due Date</Label>
-                    <Input
-                      type="date"
-                      value={dueDate}
-                      onChange={(e) => setDueDate(e.target.value)}
-                      className="h-9 py-0 px-3 w-40 bg-white border-slate-200"
-                      required
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Currency</Label>
+                  <div className="space-y-1">
+                    <Label className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Currency</Label>
                     <Select value={currencyCode} onValueChange={handleCurrencyChange}>
-                      <SelectTrigger className="h-9 py-0 px-3 w-32 bg-white border-slate-200">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {currencies?.map(c => (
-                          <SelectItem key={c.id} value={c.code}>{c.code} ({c.symbol})</SelectItem>
-                        ))}
-                      </SelectContent>
+                      <SelectTrigger className="h-7 py-0 px-2 text-xs bg-white border-slate-200"><SelectValue /></SelectTrigger>
+                      <SelectContent>{currencies?.map(c => (<SelectItem key={c.id} value={c.code}>{c.code}</SelectItem>))}</SelectContent>
                     </Select>
                   </div>
-
-                  <div className="space-y-1.5">
-                    <Label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Payment Method</Label>
+                  <div className="space-y-1">
+                    <Label className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Payment</Label>
                     <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-                      <SelectTrigger className="h-9 py-0 px-3 w-44 bg-white border-slate-200">
-                        <SelectValue />
-                      </SelectTrigger>
+                      <SelectTrigger className="h-7 py-0 px-2 text-xs bg-white border-slate-200"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="CASH">Cash</SelectItem>
-                        <SelectItem value="CARD">Card / Swipe</SelectItem>
-                        <SelectItem value="TRANSFER">Bank Transfer</SelectItem>
-                        <SelectItem value="ECOCASH">Ecocash / Mobile</SelectItem>
+                        <SelectItem value="CARD">Swipe</SelectItem>
+                        <SelectItem value="TRANSFER">Bank</SelectItem>
+                        <SelectItem value="ECOCASH">Mobile</SelectItem>
                         <SelectItem value="OTHER">Other</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
-
-                  <div className="space-y-1.5">
-                    <Label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Fiscal Device ID</Label>
-                    <div className="text-slate-900 font-mono font-medium pt-1">
-                      {company?.fdmsDeviceId || "Not Registered"}
+                  <div className="space-y-1">
+                    <Label className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Device ID</Label>
+                    <div className="text-slate-400 font-mono text-[9px] pt-1.5 truncate">{company?.fdmsDeviceId || "N/A"}</div>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Fiscal Day</Label>
+                    <div className="font-mono text-xs font-bold text-slate-700 bg-slate-100/50 border border-slate-200 rounded px-2 h-7 flex items-center justify-center">
+                      {isEditing && existingInvoice ? (existingInvoice.fiscalDayNo || "-") : "[Auto]"}
                     </div>
-
                   </div>
                 </div>
               </div>
 
-              {/* Seller & Buyer Section */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-                {/* Seller Details */}
-                <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
-                  <div className="flex items-center gap-3 mb-6">
-                    <div className="p-2 bg-blue-100 rounded-lg">
-                      <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                      </svg>
-                    </div>
-                    <h3 className="text-lg font-semibold text-slate-800 uppercase tracking-wide">Seller</h3>
-                  </div>
-                  <div className="flex gap-6 items-start">
-                    {company?.logoUrl && (
-                      <div className="flex-shrink-0">
-                        <img
-                          src={company.logoUrl}
-                          alt="Company Logo"
-                          className="h-20 w-32 object-contain rounded-lg border border-slate-100"
-                          onError={(e) => {
-                            console.error("Logo load error:", e);
-                            e.currentTarget.style.display = 'none';
-                          }}
-                        />
-                      </div>
-                    )}
-                    <div className="flex-1 space-y-3">
-                      <h4 className="text-xl font-bold text-slate-900">{company?.tradingName || company?.name || "Company Name"}</h4>
-                      <div className="text-slate-600 space-y-2 text-sm">
-                        <div className="grid grid-cols-2 gap-4">
-                          <p><span className="font-medium text-slate-500">TIN:</span> <span className="font-mono text-slate-900">{company?.tin || "-"}</span></p>
-                          <p><span className="font-medium text-slate-500">VAT:</span> <span className="font-mono text-slate-900">{company?.vatNumber || "-"}</span></p>
-                        </div>
-                        <p><span className="font-medium text-slate-500">Address:</span> {company?.address || "Address Line 1"}, {company?.city}</p>
-                        <p><span className="font-medium text-slate-500">Contact:</span> {company?.email} {company?.phone && `| ${company?.phone}`}</p>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-sm">
+                  <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Seller Information</h3>
+                  <div className="flex gap-4 items-start">
+                    <div className="flex-1 min-w-0">
+                      <h4 className="text-base font-bold text-slate-900 truncate">{company?.tradingName || company?.name}</h4>
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2 text-[11px]">
+                        <p><span className="text-slate-400">TIN:</span> {company?.tin || "-"}</p>
+                        <p><span className="text-slate-400">VAT:</span> {company?.vatNumber || "-"}</p>
+                        <p className="col-span-2 text-slate-600">{company?.address}, {company?.city}</p>
                       </div>
                     </div>
                   </div>
                 </div>
 
-                {/* Buyer Details */}
-                <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
-                  <div className="flex items-center gap-3 mb-6">
-                    <div className="p-2 bg-green-100 rounded-lg">
-                      <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                      </svg>
-                    </div>
-                    <h3 className="text-lg font-semibold text-slate-800 uppercase tracking-wide">Buyer</h3>
-                  </div>
-                  <div className="space-y-4">
-                    <div className="space-y-3">
-                      <Label className="text-sm font-semibold text-slate-700 block">Select Customer</Label>
-                      <div className="flex gap-2">
-                        <Popover open={open} onOpenChange={setOpen}>
-                          <PopoverTrigger asChild>
-                            <Button
-                              variant="outline"
-                              role="combobox"
-                              aria-expanded={open}
-                              className="flex-1 justify-between bg-white border-slate-200 h-12 text-sm"
-                            >
-                              {customerId
-                                ? customers?.find((customer) => customer.id.toString() === customerId)?.name
-                                : "Select a client or search..."}
-                              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-[300px] p-0" align="start">
-                            <Command>
-                              <CommandInput
-                                placeholder="Search customer..."
-                                value={customerSearch}
-                                onValueChange={setCustomerSearch}
-                              />
-                              <CommandList>
-                                <CommandEmpty className="p-0">
-                                  <div className="p-4 text-sm text-center text-slate-500">
-                                    No customer found.
+                <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-sm relative">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Buyer Information</h3>
+                    <Popover open={open} onOpenChange={setOpen}>
+                      <PopoverTrigger asChild>
+                        <Button variant="ghost" size="xs" className="h-5 text-[9px] text-primary">
+                          {customerId ? "Change Client" : "Select Client"}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[350px] p-0" align="end">
+                        <Command>
+                          <CommandInput placeholder="Search client..." value={customerSearch} onValueChange={setCustomerSearch} />
+                          <CommandList>
+                            <CommandEmpty>No client found.</CommandEmpty>
+                            <CommandGroup>
+                              {customers?.map((customer) => (
+                                <CommandItem key={customer.id} value={customer.name} onSelect={() => { setCustomerId(customer.id.toString()); setOpen(false); }}>
+                                  <Check className={cn("mr-2 h-4 w-4", customerId === customer.id.toString() ? "opacity-100" : "opacity-0")} />
+                                  <div className="flex flex-col">
+                                    <span className="font-medium text-sm">{customer.name}</span>
+                                    <span className="text-[10px] text-slate-400">{customer.tin || customer.email}</span>
                                   </div>
-                                  {customerSearch.trim() && (
-                                    <div className="p-1 border-t">
-                                      <Button
-                                        variant="ghost"
-                                        className="w-full justify-start h-9 text-xs font-medium text-primary hover:text-primary hover:bg-primary/5"
-                                        onClick={async () => {
-                                          try {
-                                            const newC = await createCustomer.mutateAsync({
-                                              name: customerSearch,
-                                              customerType: "individual"
-                                            });
-                                            setCustomerId(newC.id.toString());
-                                            setCustomerSearch("");
-                                            setOpen(false);
-                                            toast({ title: "Customer Added", description: `${newC.name} has been created.` });
-                                          } catch (e) {
-                                            console.error(e);
-                                          }
-                                        }}
-                                      >
-                                        <Plus className="w-3 h-3 mr-2" /> Add "{customerSearch}" as new customer
-                                      </Button>
-                                    </div>
-                                  )}
-                                </CommandEmpty>
-                                <CommandGroup>
-                                  {customers?.map((customer) => (
-                                    <CommandItem
-                                      key={customer.id}
-                                      value={`${customer.name} ${customer.tin || ""} ${customer.email || ""}`}
-                                      onSelect={() => {
-                                        setCustomerId(customer.id.toString());
-                                        setOpen(false);
-                                      }}
-                                    >
-                                      <Check
-                                        className={cn(
-                                          "mr-2 h-4 w-4",
-                                          customerId === customer.id.toString() ? "opacity-100" : "opacity-0"
-                                        )}
-                                      />
-                                      <div className="flex flex-col">
-                                        <span className="font-medium">{customer.name}</span>
-                                        {(customer.tin || customer.email) && (
-                                          <span className="text-xs text-muted-foreground">
-                                            {[customer.tin, customer.email].filter(Boolean).join(" | ")}
-                                          </span>
-                                        )}
-                                      </div>
-                                    </CommandItem>
-                                  ))}
-                                </CommandGroup>
-                              </CommandList>
-                            </Command>
-                          </PopoverContent>
-                        </Popover>
-                      </div>
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                  
+                  {!customerId ? (
+                    <div className="h-20 flex flex-col items-center justify-center border-2 border-dashed border-slate-100 rounded-lg bg-slate-50/50 cursor-pointer" onClick={() => setOpen(true)}>
+                      <Plus className="w-5 h-5 text-slate-300 mb-1" />
+                      <span className="text-[10px] text-slate-400 font-bold uppercase">Click to Select Customer</span>
                     </div>
-
-                    {/* Selected Customer Details */}
-                    {customerId && (() => {
+                  ) : (
+                    (() => {
                       const c = customers?.find(cust => cust.id.toString() === customerId);
                       if (!c) return null;
                       return (
-                        <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
-                          <h4 className="text-lg font-bold text-slate-900 mb-3">{c.name}</h4>
-                          <div className="text-slate-600 space-y-2 text-sm">
-                            <div className="grid grid-cols-2 gap-4">
-                              <p><span className="font-medium text-slate-500">TIN:</span> <span className="font-mono text-slate-900">{c.tin || "-"}</span></p>
-                              <p><span className="font-medium text-slate-500">VAT:</span> <span className="font-mono text-slate-900">{c.vatNumber || "-"}</span></p>
+                        <div className="flex gap-4 items-start">
+                          <div className="h-10 w-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 font-bold text-sm">
+                            {c.name.charAt(0)}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h4 className="text-base font-bold text-slate-900 truncate">{c.name}</h4>
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2 text-[11px]">
+                              <p><span className="text-slate-400">TIN:</span> {c.tin || "-"}</p>
+                              <p><span className="text-slate-400">VAT:</span> {c.vatNumber || "-"}</p>
+                              <p className="col-span-2 text-slate-600">{c.email || c.phone || "No contact"}</p>
                             </div>
-                            <p><span className="font-medium text-slate-500">Address:</span> {c.address || "No Address"}, {c.city}</p>
-                            <p><span className="font-medium text-slate-500">Contact:</span> {c.email} {c.phone && `| ${c.phone}`}</p>
                           </div>
                         </div>
                       );
-                    })()}
-                  </div>
+                    })()
+                  )}
                 </div>
               </div>
 
-              {/* Invoice Items Section */}
-              <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="p-2 bg-purple-100 rounded-lg">
-                    <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                    </svg>
-                  </div>
-                  <h3 className="text-lg font-semibold text-slate-800 uppercase tracking-wide">Invoice Items</h3>
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="bg-slate-50/50 px-4 py-2 border-b border-slate-200 flex items-center justify-between">
+                  <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Line Items</h3>
+                  <Button variant="ghost" size="xs" onClick={handleAddItem} className="h-7 text-[10px] text-primary font-bold">
+                    <Plus className="w-3 h-3 mr-1" /> ADD ITEM
+                  </Button>
                 </div>
-                <div className="border border-slate-200 rounded-lg overflow-hidden bg-white">
+                <div className="overflow-x-auto">
                   <Table>
-                    <TableHeader className="bg-slate-50 border-b border-slate-100">
-                      <TableRow className="hover:bg-slate-50">
-                        <TableHead className="w-[240px] pl-4">Item (Search Name/Code)</TableHead>
-                        <TableHead className="min-w-[150px]">Description</TableHead>
-                        <TableHead className="w-[100px] text-center">Qty</TableHead>
-                        <TableHead className="w-[140px] text-right">
-                          <div>Unit Price {taxInclusive ? '(Incl)' : '(Excl)'}</div>
-                          <div className="text-[10px] lowercase font-normal text-slate-400 no-underline">(Neg. for discount)</div>
-                        </TableHead>
-                        <TableHead className="w-[120px] text-right">Total Amount (incl. tax)</TableHead>
-                        <TableHead className="w-[50px]"></TableHead>
+                    <TableHeader className="bg-slate-50/50">
+                      <TableRow className="hover:bg-transparent border-b border-slate-100">
+                        <TableHead className="w-[300px] h-9 text-[10px] uppercase font-bold text-slate-400">Product / Service</TableHead>
+                        <TableHead className="min-w-[150px] h-9 text-[10px] uppercase font-bold text-slate-400">Description</TableHead>
+                        <TableHead className="w-[80px] h-9 text-[10px] uppercase font-bold text-slate-400 text-center">Qty</TableHead>
+                        <TableHead className="w-[120px] h-9 text-[10px] uppercase font-bold text-slate-400 text-right">Price ({taxInclusive ? "Incl" : "Excl"})</TableHead>
+                        <TableHead className="w-[120px] h-9 text-[10px] uppercase font-bold text-slate-400 text-right">Total</TableHead>
+                        <TableHead className="w-[40px] h-9"></TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      <AnimatePresence mode="popLayout">
-                        {items.map((item, index) => {
-                          const lineVal = item.quantity * item.unitPrice;
-                          let vatAmt = 0;
-                          let totalAmt = 0;
-
-                          if (taxInclusive) {
-                            totalAmt = lineVal;
-                          } else {
-                            vatAmt = lineVal * (item.taxRate / 100);
-                            totalAmt = lineVal + vatAmt;
-                          }
-
-                          // Determine Tax Status
-                          const matchingType = taxTypes.data?.find((t: any) => t.id == item.taxTypeId);
-                          const isExempt = matchingType?.zimraTaxId == 1 || matchingType?.zimraTaxId == "1" || matchingType?.zimraCode === 'C' || matchingType?.zimraCode === 'E' || matchingType?.name?.toLowerCase().includes('exempt');
-                          const isZeroRated = matchingType?.zimraTaxId == 2 || matchingType?.zimraTaxId == "2" || matchingType?.zimraCode === 'D' || matchingType?.name?.toLowerCase().includes('zero rated') || (!isExempt && item.taxRate === 0);
-
-                          return (
-                            <motion.tr
-                              key={item.localId}
-                              initial={{ opacity: 0, y: -10 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              exit={{ opacity: 0, x: -20 }}
-                              transition={{ duration: 0.2 }}
-                              className="group hover:bg-slate-50/30 transition-colors border-b border-slate-50"
-                            >
-                              <TableCell className="align-middle pl-4 py-3 max-w-[240px]">
-                                <Popover
-                                  open={openRowIndex === index}
-                                  onOpenChange={(isOpen) => setOpenRowIndex(isOpen ? index : null)}
-                                >
-                                  <PopoverTrigger asChild>
-                                    <Button
-                                      variant="outline"
-                                      role="combobox"
-                                      className={cn(
-                                        "w-full justify-between bg-white h-9 px-3 font-normal overflow-hidden",
-                                        !item.productId && "text-muted-foreground"
-                                      )}
-                                    >
-                                      <div className="flex items-center gap-2 overflow-hidden">
-                                        {item.hsCode && (
-                                          <Badge variant="secondary" className="text-[9px] h-4 py-0 px-1 font-mono opacity-60">
-                                            {item.hsCode}
-                                          </Badge>
-                                        )}
-                                        <span className="truncate">
-                                          {item.productId
-                                            ? products?.find((p) => p.id === item.productId)?.name || "Select Item"
-                                            : "Select Item"}
-                                        </span>
-                                      </div>
-                                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        <AnimatePresence mode="popLayout">
+                          {items.map((item, index) => {
+                            const lineVal = item.quantity * item.unitPrice;
+                            return (
+                                <motion.tr key={item.localId} layout className="group hover:bg-slate-50/30 border-b border-slate-50">
+                                  <TableCell className="py-2">
+                                    <Popover open={openRowIndex === index} onOpenChange={(isOpen) => setOpenRowIndex(isOpen ? index : null)}>
+                                      <PopoverTrigger asChild>
+                                        <Button variant="outline" className="w-full justify-between h-8 text-xs font-normal truncate bg-white">
+                                          {item.productId ? products?.find(p => p.id === item.productId)?.name : "Select Item"}
+                                          <ChevronsUpDown className="ml-2 h-3 w-3 opacity-50 shrink-0" />
+                                        </Button>
+                                      </PopoverTrigger>
+                                      <PopoverContent className="w-[300px] p-0" align="start">
+                                        <Command>
+                                          <CommandInput placeholder="Search items..." value={productSearch[item.localId] || ""} onValueChange={(val) => setProductSearch(p => ({ ...p, [item.localId]: val }))} />
+                                          <CommandList>
+                                            <CommandEmpty>No item found.</CommandEmpty>
+                                            <CommandGroup heading="Products">
+                                              {products?.map(p => (
+                                                <CommandItem key={p.id} value={p.name} onSelect={() => { handleProductSelect(item.localId, p.id.toString()); setOpenRowIndex(null); }}>
+                                                  <Check className={cn("mr-2 h-4 w-4", item.productId === p.id ? "opacity-100" : "opacity-0")} />
+                                                  <span className="text-sm">{p.name}</span>
+                                                </CommandItem>
+                                              ))}
+                                            </CommandGroup>
+                                          </CommandList>
+                                        </Command>
+                                      </PopoverContent>
+                                    </Popover>
+                                  </TableCell>
+                                  <TableCell className="py-2">
+                                    <Input value={item.description} onChange={(e) => updateItem(item.localId, 'description', e.target.value)} className="h-8 text-xs bg-transparent border-transparent hover:border-slate-100" />
+                                  </TableCell>
+                                  <TableCell className="py-2">
+                                    <Input type="number" value={item.quantity} onChange={(e) => updateItem(item.localId, 'quantity', parseFloat(e.target.value) || 0)} className="h-8 text-xs text-center font-bold bg-transparent border-transparent" />
+                                  </TableCell>
+                                  <TableCell className="py-2">
+                                    <Input type="number" value={item.unitPrice} onChange={(e) => updateItem(item.localId, 'unitPrice', parseFloat(e.target.value) || 0)} className="h-8 text-xs text-right font-mono font-bold bg-transparent border-transparent" />
+                                  </TableCell>
+                                  <TableCell className="py-2 text-right font-mono font-bold text-xs">{lineVal.toFixed(2)}</TableCell>
+                                  <TableCell className="py-2">
+                                    <Button variant="ghost" size="icon" onClick={() => handleRemoveItem(item.localId)} className="h-7 w-7 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                                      <Trash2 className="w-3.5 h-3.5" />
                                     </Button>
-                                  </PopoverTrigger>
-                                  <PopoverContent className="w-[300px] p-0" align="start">
-                                    <Command>
-                                      <CommandInput
-                                        placeholder="Search items..."
-                                        value={productSearch[item.localId] || ""}
-                                        onValueChange={(val) => setProductSearch(prev => ({ ...prev, [item.localId]: val }))}
-                                      />
-                                      <CommandList>
-                                        <CommandEmpty className="p-0">
-                                          <div className="p-4 text-sm text-center text-slate-500">
-                                            No item found.
-                                          </div>
-                                          {productSearch[item.localId]?.trim() && (
-                                            <div className="p-1 border-t">
-                                              <Button
-                                                variant="ghost"
-                                                className="w-full justify-start h-9 text-xs font-medium text-primary hover:text-primary hover:bg-primary/5"
-                                                onClick={async () => {
-                                                  try {
-                                                    const newP = await createProduct.mutateAsync({
-                                                      name: productSearch[item.localId],
-                                                      price: "0",
-                                                      taxRate: "15",
-                                                      productType: "good",
-                                                      sku: `AUTO-${Date.now().toString().slice(-4)}`
-                                                    });
-                                                    handleProductSelect(item.localId, newP.id.toString());
-                                                    setProductSearch(prev => {
-                                                      const next = { ...prev };
-                                                      delete next[item.localId];
-                                                      return next;
-                                                    });
-                                                    setOpenRowIndex(null);
-                                                    toast({ title: "Product Added", description: `${newP.name} has been created.` });
-                                                  } catch (e) {
-                                                    console.error(e);
-                                                  }
-                                                }}
-                                              >
-                                                <Plus className="w-3 h-3 mr-2" /> Add "{productSearch[item.localId]}" as new product
-                                              </Button>
-                                            </div>
-                                          )}
-                                        </CommandEmpty>
-                                        <CommandGroup heading="Products">
-                                          {products?.filter(p => !p.productType || p.productType === 'good').map((product) => (
-                                            <CommandItem
-                                              key={product.id}
-                                              value={`product ${product.name} ${product.sku || ""}`}
-                                              onSelect={() => {
-                                                handleProductSelect(item.localId, product.id.toString());
-                                                setOpenRowIndex(null);
-                                              }}
-                                            >
-                                              <Check
-                                                className={cn(
-                                                  "mr-2 h-4 w-4",
-                                                  item.productId === product.id ? "opacity-100" : "opacity-0"
-                                                )}
-                                              />
-                                              <div className="flex flex-col flex-1">
-                                                <span className="font-medium text-sm">{product.name}</span>
-                                                <div className="flex justify-between w-full text-xs text-muted-foreground mt-0.5">
-                                                  <span>{product.sku}</span>
-                                                  <span className="font-mono">${Number(product.price).toFixed(2)}</span>
-                                                </div>
-                                              </div>
-                                            </CommandItem>
-                                          ))}
-                                        </CommandGroup>
-                                        <CommandGroup heading="Services">
-                                          {products?.filter(p => p.productType === 'service').map((service) => (
-                                            <CommandItem
-                                              key={service.id}
-                                              value={`service ${service.name} ${service.sku || ""}`}
-                                              onSelect={() => {
-                                                handleProductSelect(item.localId, service.id.toString());
-                                                setOpenRowIndex(null);
-                                              }}
-                                            >
-                                              <Check
-                                                className={cn(
-                                                  "mr-2 h-4 w-4",
-                                                  item.productId === service.id ? "opacity-100" : "opacity-0"
-                                                )}
-                                              />
-                                              <div className="flex flex-col flex-1">
-                                                <span className="font-medium text-sm">{service.name}</span>
-                                                <div className="flex justify-between w-full text-xs text-muted-foreground mt-0.5">
-                                                  <span>{service.sku || 'Service'}</span>
-                                                  <span className="font-mono">${Number(service.price).toFixed(2)}</span>
-                                                </div>
-                                              </div>
-                                            </CommandItem>
-                                          ))}
-                                        </CommandGroup>
-                                      </CommandList>
-                                    </Command>
-                                  </PopoverContent>
-                                </Popover>
-                              </TableCell>
-                              <TableCell className="align-middle py-3">
-                                <Input
-                                  placeholder="Description..."
-                                  value={item.description}
-                                  onChange={(e) => updateItem(item.localId, 'description', e.target.value)}
-                                  className="bg-transparent border-transparent hover:border-slate-200 focus:border-primary focus:bg-white h-9 px-2 text-sm transition-all"
-                                />
-                              </TableCell>
-                              <TableCell className="align-middle py-3">
-                                <Input
-                                  type="number"
-                                  min="1"
-                                  value={item.quantity}
-                                  onChange={(e) => updateItem(item.localId, 'quantity', parseFloat(e.target.value) || 0)}
-                                  className="bg-transparent border-transparent hover:border-slate-200 focus:border-primary focus:bg-white h-9 px-2 text-center text-sm font-medium w-full transition-all"
-                                />
-                              </TableCell>
-                              <TableCell className="align-middle py-3">
-                                <Input
-                                  type="number"
-                                  step="0.01"
-                                  value={Number(item.unitPrice)}
-                                  onChange={(e) => updateItem(item.localId, 'unitPrice', parseFloat(e.target.value) || 0)}
-                                  onBlur={(e) => {
-                                    // Allow negative values for discounts
-                                    const val = parseFloat(e.target.value) || 0;
-                                    updateItem(item.localId, 'unitPrice', parseFloat(val.toFixed(2)));
-                                  }}
-                                  className="bg-transparent border-transparent hover:border-slate-200 focus:border-primary focus:bg-white h-9 px-2 text-right text-sm font-mono w-full transition-all"
-                                />
-                              </TableCell>
-                              <TableCell className="text-right font-bold font-mono text-slate-900 align-middle py-3 pr-4">
-                                {totalAmt.toFixed(2)}
-                              </TableCell>
-                              <TableCell className="align-middle py-3">
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                                  onClick={() => handleRemoveItem(item.localId)}
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </Button>
-                              </TableCell>
-                            </motion.tr>
-                          );
-                        })}
-                      </AnimatePresence>
+                                  </TableCell>
+                                </motion.tr>
+                            );
+                          })}
+                        </AnimatePresence>
                     </TableBody>
                   </Table>
-                  <div className="p-2 border-t border-slate-100 bg-slate-50/30">
-                    <Button variant="ghost" size="sm" onClick={handleAddItem} className="text-primary hover:text-primary hover:bg-primary/5 w-full justify-start h-8">
-                      <Plus className="w-3.5 h-3.5 mr-2" /> Add Line Item
-                    </Button>
-                  </div>
                 </div>
               </div>
 
-              {/* Notes & Banking Section */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-                {/* Notes Section */}
-                <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
-                  <div className="flex items-center gap-3 mb-6">
-                    <div className="p-2 bg-amber-100 rounded-lg">
-                      <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                      </svg>
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="text-lg font-semibold text-slate-800 uppercase tracking-wide">
-                        {(existingInvoice?.transactionType === "CreditNote" || existingInvoice?.transactionType === "DebitNote") ? "REASON" : "Notes"}
-                        {(existingInvoice?.transactionType === "CreditNote" || existingInvoice?.transactionType === "DebitNote") && <span className="text-red-500 ml-1">*</span>}
-                      </h3>
-                      {(existingInvoice?.transactionType === "CreditNote" || existingInvoice?.transactionType === "DebitNote") && (
-                        <span className="text-[10px] font-black text-red-500 uppercase tracking-tighter">Legal Requirement</span>
-                      )}
-                    </div>
-                  </div>
-                  <Textarea
-                    placeholder={(existingInvoice?.transactionType === "CreditNote" || existingInvoice?.transactionType === "DebitNote") 
-                      ? "Explain why this credit/debit note is being issued (e.g., Return of damaged goods, Price adjustment)..."
-                      : "Invoice notes, terms and conditions, payment instructions, etc."}
-                    className={cn(
-                      "bg-slate-50 border-slate-200 min-h-[120px] resize-none text-sm rounded-lg transition-all",
-                      (existingInvoice?.transactionType === "CreditNote" || existingInvoice?.transactionType === "DebitNote") && !notes?.trim() && "border-red-200 focus:border-red-500"
-                    )}
-                    value={notes}
-                    onChange={e => setNotes(e.target.value)}
-                  />
-                  <p className="text-xs text-slate-500 mt-2">These notes will appear on the invoice</p>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="bg-white rounded-xl p-4 border border-slate-200">
+                  <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Notes & Terms</h3>
+                  <Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Terms, delivery instructions, banking details..." className="min-h-[100px] text-xs resize-none bg-slate-50 border-slate-100" />
                 </div>
 
-                {/* Banking Details Section */}
-                <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
-                  <div className="flex items-center gap-3 mb-6">
-                    <div className="p-2 bg-emerald-100 rounded-lg">
-                      <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-                      </svg>
-                    </div>
-                    <h3 className="text-lg font-semibold text-slate-800 uppercase tracking-wide">Banking Details</h3>
-                  </div>
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label className="text-xs font-semibold uppercase text-slate-400">Bank Name</Label>
-                        <Input
-                          placeholder="e.g. Stanbic, CBZ"
-                          value={bankName}
-                          onChange={e => setBankName(e.target.value)}
-                          className="bg-white border-slate-200 h-10"
-                        />
+                <div className="bg-indigo-50/30 rounded-xl p-4 border border-indigo-100">
+                   <h3 className="text-xs font-bold text-indigo-600 uppercase tracking-wider mb-4">Summary</h3>
+                   <div className="space-y-2">
+                      <div className="flex justify-between text-xs"><span className="text-slate-500">Subtotal</span><span className="font-mono font-bold">{currentSymbol}{subtotal.toFixed(2)}</span></div>
+                      <div className="flex justify-between text-xs"><span className="text-slate-500">VAT (15%)</span><span className="font-mono font-bold">{currentSymbol}{taxAmount.toFixed(2)}</span></div>
+                      <div className="pt-2 border-t border-indigo-100 flex justify-between items-center">
+                        <span className="text-sm font-bold text-slate-900 uppercase">Total amount</span>
+                        <span className="text-lg font-mono font-bold text-indigo-700">{currentSymbol}{total.toFixed(2)}</span>
                       </div>
-                      <div className="space-y-2">
-                        <Label className="text-xs font-semibold uppercase text-slate-400">Account Name</Label>
-                        <Input
-                          placeholder="Beneficiary Name"
-                          value={accountName}
-                          onChange={e => setAccountName(e.target.value)}
-                          className="bg-white border-slate-200 h-10"
-                        />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label className="text-xs font-semibold uppercase text-slate-400">Account Number</Label>
-                        <Input
-                          placeholder="Account Number"
-                          value={accountNumber}
-                          onChange={e => setAccountNumber(e.target.value)}
-                          className="bg-white border-slate-200 h-10 font-mono"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label className="text-xs font-semibold uppercase text-slate-400">Branch Code</Label>
-                        <Input
-                          placeholder="Sort Code"
-                          value={branchCode}
-                          onChange={e => setBranchCode(e.target.value)}
-                          className="bg-white border-slate-200 h-10"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Totals & Verification Section */}
-              <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="p-2 bg-indigo-100 rounded-lg">
-                    <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                    </svg>
-                  </div>
-                  <h3 className="text-lg font-semibold text-slate-800 uppercase tracking-wide">Invoice Summary</h3>
-                </div>
-
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center py-3 border-b border-slate-100">
-                    <span className="text-slate-600 font-medium">{!taxInclusive ? "Total (excl. tax)" : "Subtotal"}</span>
-                    <span className="font-mono font-bold text-slate-900">{currentSymbol}{subtotal.toFixed(2)}</span>
-                  </div>
-
-                  <div className="bg-slate-50 rounded-lg p-3 border border-slate-200 my-4">
-                    <h4 className="text-[10px] font-bold text-slate-700 uppercase mb-2 text-center">Tax Analysis</h4>
-                    <div className="grid grid-cols-4 gap-2 text-[9px] font-bold text-slate-500 uppercase mb-1 border-b border-slate-200 pb-1">
-                      <div className="text-left font-bold text-slate-500 uppercase">VAT %</div>
-                      <div className="text-right">Net.Amt</div>
-                      <div className="text-right">VAT</div>
-                      <div className="text-right">Amount</div>
-                    </div>
-                    <div className="space-y-1">
-                      {Object.entries(taxBreakdown).map(([key, vals]) => {
-                        const mTax = taxTypes.data?.find((t: any) => t.id == vals.taxTypeId);
-                        // Strict check for Exempt first
-                        const isExempt = mTax?.zimraTaxId == 1 || mTax?.zimraTaxId == "1" || mTax?.zimraCode === 'C' || mTax?.zimraCode === 'E' || mTax?.name?.toLowerCase().includes('exempt');
-                        // If not explicitly exempt, and rate is 0, default to Zero Rated (matches backend)
-                        const isZeroRated = mTax?.zimraTaxId == 2 || mTax?.zimraTaxId == "2" || mTax?.zimraCode === 'D' || mTax?.name?.toLowerCase().includes('zero rated') || (!isExempt && vals.rate === 0);
-
-                        return (
-                          <div key={key} className="grid grid-cols-4 gap-2 text-[10px] items-center py-1 border-b border-slate-100 last:border-0">
-                            <div className="text-slate-600 truncate">
-                              {isExempt ? (mTax?.name || "Exempt") : `${Number(vals.rate).toFixed(2)}%`}
-                            </div>
-                            <div className="text-right font-mono text-slate-700">
-                              {vals.net.toFixed(2)}
-                            </div>
-                            <div className="text-right font-mono text-slate-700">
-                              {isExempt ? "-" : vals.tax.toFixed(2)}
-                            </div>
-                            <div className="text-right font-mono font-bold text-slate-900">
-                              {(vals.net + vals.tax).toFixed(2)}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="flex justify-between items-center py-3 border-b border-slate-100">
-                    <span className="text-slate-600 font-medium">Total Tax</span>
-                    <span className="font-mono font-bold text-slate-900">{currentSymbol}{taxAmount.toFixed(2)}</span>
-                  </div>
-
-                  <div className="flex justify-between items-center py-4 bg-slate-50 rounded-lg px-4">
-                    <span className="text-xl font-bold text-slate-900">Total</span>
-                    <span className="text-xl font-mono font-bold text-slate-900">{currentSymbol}{total.toFixed(2)}</span>
-                  </div>
-                </div>
-
-                <div className="mt-6 pt-6 border-t border-slate-100">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="p-2 bg-blue-100 rounded-lg">
-                      <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-semibold text-slate-800">Verification</h4>
-                      <p className="text-xs text-slate-500">Will be generated on submission</p>
-                    </div>
-                  </div>
-
-                  <div className="bg-slate-50 rounded-lg p-4">
-                    <div className="flex items-start gap-3">
-                      <div className="bg-white border-2 border-slate-100 rounded-lg h-16 w-16 flex items-center justify-center text-[10px] text-slate-400 text-center p-1 flex-shrink-0">
-                        [QR]
-                      </div>
-                      <div className="text-xs text-slate-600 leading-relaxed">
-                        <p className="font-medium mb-1">Digital Verification</p>
-                        <p>QR code and fiscal signature will be automatically generated when you submit this invoice to ZIMRA for compliance verification.</p>
-                      </div>
-                    </div>
-                  </div>
+                   </div>
                 </div>
               </div>
             </div>
           </div>
         </div>
-
       </div>
 
-      {/* Validation Warning Dialog */}
       <Dialog open={showValidationDialog} onOpenChange={setShowValidationDialog}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-amber-600">
-              <AlertCircle className="h-5 w-5" />
-              Validation Warnings
-            </DialogTitle>
-            <div className="text-sm text-slate-500 mt-2">
-              Please review the following potential issues before proceeding:
-            </div>
+            <DialogTitle className="flex items-center gap-2 text-amber-600"><AlertCircle className="h-5 w-5" /> Validation Warnings</DialogTitle>
           </DialogHeader>
           <div className="py-4 space-y-3">
-            {validationWarnings.map((warning, index) => (
-              <div key={index} className="flex items-start gap-3 p-3 bg-amber-50 rounded-lg text-amber-800 text-sm border border-amber-100">
-                <span className="mt-0.5">•</span>
-                <span>{warning.replace('⚠️ ', '')}</span>
-              </div>
-            ))}
+            {validationWarnings.map((w, i) => (<div key={i} className="p-3 bg-amber-50 rounded-lg text-amber-800 text-sm border border-amber-100">• {w}</div>))}
           </div>
           <div className="flex justify-end gap-3 mt-4">
-            <Button variant="outline" onClick={() => setShowValidationDialog(false)}>
-              Back to Edit
-            </Button>
-            <Button
-              className="bg-amber-600 hover:bg-amber-700 text-white"
-              onClick={() => pendingAction && executeAction(pendingAction)}
-            >
-              Proceed Anyway
-            </Button>
+            <Button variant="outline" onClick={() => setShowValidationDialog(false)}>Cancel</Button>
+            <Button className="bg-amber-600 text-white" onClick={() => pendingAction && executeAction(pendingAction)}>Proceed Anyway</Button>
           </div>
         </DialogContent>
       </Dialog>
 
-      {/* PDF Preview Dialog */}
       <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
         <DialogContent className="max-w-4xl h-[90vh]">
-          <DialogHeader>
-            <DialogTitle>Invoice Preview - Debug Info</DialogTitle>
-            <div className="text-xs text-slate-500 mt-2">
-              Customer: {customerId ? 'âœ…' : 'âŒ'} |
-              Company: {company ? 'âœ…' : 'âŒ'} |
-              Items: {items.length} |
-              Subtotal: {subtotal} |
-              Tax: {taxAmount} |
-              Total: {total}
+          <DialogHeader><DialogTitle>Document Preview</DialogTitle></DialogHeader>
+          <div className="flex-1 bg-slate-100 rounded-md overflow-hidden flex items-center justify-center p-8">
+            <div className="text-center">
+                <ClipboardList className="w-16 h-16 mx-auto text-slate-300 mb-4" />
+                <h3 className="text-lg font-medium text-slate-900 mb-2">Live Preview Available Soon</h3>
+                <p className="text-sm text-slate-500 max-w-sm">Generating a PDF for {customers?.find(c => c.id.toString() === customerId)?.name || "selected customer"}.</p>
+                <div className="mt-6 flex flex-col gap-2">
+                    {customerId && company && items.length > 0 && (
+                        <PDFDownloadLink
+                            document={
+                                <InvoicePDF
+                                    invoice={{
+                                        invoiceNumber: "DRAFT",
+                                        issueDate: new Date(issueDate).toISOString(),
+                                        dueDate: new Date(dueDate).toISOString(),
+                                        status: "draft",
+                                        items: items.map(item => ({ ...item, lineTotal: (item.quantity * item.unitPrice).toString(), product: { hsCode: item.hsCode } })),
+                                        subtotal: subtotal.toString(),
+                                        taxAmount: taxAmount.toString(),
+                                        total: total.toString(),
+                                        currency: currencyCode,
+                                        taxInclusive,
+                                        notes,
+                                        currencySymbol: currentSymbol
+                                    }}
+                                    company={{ ...company, bankName, accountName, accountNumber, branchCode }}
+                                    customer={customers?.find(c => c.id.toString() === customerId)}
+                                    taxTypes={taxTypes.data}
+                                />
+                            }
+                            fileName={`Document-${Date.now()}.pdf`}
+                        >
+                            {({ loading }) => (
+                                <Button className="w-full gap-2" disabled={loading}>
+                                    <Download className="w-4 h-4" /> {loading ? "Generating..." : "Download PDF"}
+                                </Button>
+                            )}
+                        </PDFDownloadLink>
+                    )}
+                    <Button variant="outline" onClick={() => setIsPreviewOpen(false)}>Close Preview</Button>
+                </div>
             </div>
-          </DialogHeader>
-          <div className="flex-1 h-full min-h-[500px] w-full bg-slate-100 rounded-md overflow-hidden">
-            {customerId && company && items.length > 0 ? (
-              <div className="w-full h-full relative">
-                {/* PDF Preview Placeholder */}
-                <div className="w-full h-full bg-white flex items-center justify-center">
-                  <div className="text-center p-8 max-w-md">
-                    <div className="mb-6">
-                      <svg className="w-16 h-16 mx-auto text-slate-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                      </svg>
-                      <h3 className="text-lg font-medium text-slate-900 mb-2">PDF Preview</h3>
-                      <p className="text-sm text-slate-600">
-                        PDF preview is not available in development mode. Use the download button below to test PDF generation.
-                      </p>
-                    </div>
-                    <div className="bg-slate-50 rounded-lg p-4 text-left">
-                      <h4 className="text-sm font-medium text-slate-900 mb-2">Invoice Details:</h4>
-                      <div className="text-xs text-slate-600 space-y-1">
-                        <p><strong>Number:</strong> DRAFT</p>
-                        <p><strong>Customer:</strong> {customers?.find(c => c.id.toString() === customerId)?.name}</p>
-                        <p><strong>Items:</strong> {items.length}</p>
-                        <p><strong>Total:</strong> {currentSymbol}{total.toFixed(2)}</p>
-                        <p><strong>Currency:</strong> {currencyCode}</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-center justify-center h-full text-slate-400 text-center p-8">
-                <div>
-                  <p className="text-lg font-medium mb-2 text-slate-600">PDF Preview Unavailable</p>
-                  <p className="mb-4">Please ensure all requirements are met to preview PDF.</p>
-                  <div className="space-y-1 text-sm max-w-md">
-                    {!customerId && <p className="text-red-600">âŒ Customer not selected</p>}
-                    {customerId && !company && <p className="text-red-600">âŒ Company details not loaded</p>}
-                    {items.length === 0 && <p className="text-red-600">âŒ No invoice items added</p>}
-                    {customerId && company && items.length > 0 && <p className="text-green-600">âœ… All requirements met - PDF should work</p>}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-          <div className="flex justify-end gap-2 mt-4">
-            {customerId && company && items.length > 0 && (
-              <PDFDownloadLink
-                document={
-                  <InvoicePDF
-                    invoice={{
-                      invoiceNumber: "DRAFT",
-                      issueDate: issueDate ? new Date(issueDate).toISOString() : new Date().toISOString(),
-                      dueDate: dueDate ? new Date(dueDate).toISOString() : new Date().toISOString(),
-                      status: "draft",
-                      items: items.map(item => ({
-                        ...item,
-                        lineTotal: (item.quantity * item.unitPrice).toString(),
-                        product: { hsCode: item.hsCode }
-                      })),
-                      subtotal: subtotal.toString(),
-                      taxAmount: taxAmount.toString(),
-                      total: total.toString(),
-                      currency: currencyCode,
-                      taxInclusive,
-                      notes,
-                      currencySymbol: currentSymbol
-                    }}
-                    company={{
-                      ...company,
-                      bankName,
-                      accountName,
-                      accountNumber,
-                      branchCode
-                    }}
-                    customer={customers?.find(c => c.id.toString() === customerId)}
-                    taxTypes={taxTypes.data}
-                  />
-                }
-                fileName={`Invoice-Draft-${Date.now()}.pdf`}
-              >
-                {({ blob, url, loading, error }) => {
-                  if (error) {
-                    console.error('PDF Generation Error:', error);
-                    return (
-                      <div className="space-y-2">
-                        <Button disabled className="gap-2 bg-red-100 text-red-700 border-red-200 w-full">
-                          <Download className="w-4 h-4" />
-                          PDF Generation Failed
-                        </Button>
-                        <p className="text-xs text-red-600">Check browser console for details</p>
-                      </div>
-                    );
-                  }
-                  if (loading) {
-                    return (
-                      <Button disabled className="gap-2 w-full">
-                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                        Generating PDF...
-                      </Button>
-                    );
-                  }
-                  return (
-                    <Button className="gap-2 w-full">
-                      <Download className="w-4 h-4" />
-                      Download PDF ({(blob?.size || 0) > 0 ? `${Math.round((blob?.size || 0) / 1024)}KB` : 'Ready'})
-                    </Button>
-                  );
-                }}
-              </PDFDownloadLink>
-            )}
-
-            {/* Additional download button for testing */}
-            {customerId && company && items.length > 0 && (
-              <Button
-                variant="outline"
-                onClick={() => {
-                  console.log('Testing PDF generation with:', {
-                    customerId,
-                    company: !!company,
-                    itemsCount: items.length,
-                    hasSubtotal: !!subtotal,
-                    currency: currencyCode
-                  });
-                }}
-                className="gap-2"
-              >
-                Test PDF
-              </Button>
-            )}
-            <Button variant="outline" onClick={() => setIsPreviewOpen(false)}>Close</Button>
           </div>
         </DialogContent>
       </Dialog>
-    </Layout >
+    </Layout>
   );
 }

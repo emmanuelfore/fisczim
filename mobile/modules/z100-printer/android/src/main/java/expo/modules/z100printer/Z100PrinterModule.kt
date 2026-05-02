@@ -5,7 +5,6 @@ import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import vpos.apipackage.PosApiHelper
 import vpos.apipackage.PrintInitException
-import com.google.zxing.BarcodeFormat
 import java.io.File
 import java.io.PrintWriter
 import java.io.StringWriter
@@ -181,16 +180,10 @@ class Z100PrinterModule : Module() {
     }
 
     AsyncFunction("printClose") {
-      try {
-        val result = posApi?.PrintClose() ?: -1
-        posApi = null   // Safe: next printInit will re-fetch singleton
-        logMessage("printClose result: $result")
-        return@AsyncFunction result == 0
-      } catch (e: Throwable) {
-        logError("printClose", e)
-        posApi = null
-        return@AsyncFunction false
-      }
+      // PrintClose() does not exist in this SDK version — releasing the reference is sufficient
+      posApi = null
+      logMessage("printClose: released PosApiHelper reference")
+      return@AsyncFunction true
     }
 
     AsyncFunction("checkStatus") {
@@ -213,8 +206,7 @@ class Z100PrinterModule : Module() {
         return@AsyncFunction false
       }
       try {
-        posApi?.PrintSetAlign(align ?: 0)
-
+        // PrintSetAlign not available in this SDK version — alignment handled by default
         // SDK signature: PrintSetFont(width, height, type)
         val fontSize = size ?: 24
         val w: Byte = (fontSize / 4).toByte()
@@ -238,8 +230,8 @@ class Z100PrinterModule : Module() {
         return@AsyncFunction false
       }
       try {
-        // FIX #3: capture and check SDK return code
-        val result = posApi?.PrintQrCode_Cut(content, width, height, BarcodeFormat.QR_CODE) ?: -1
+        // Use PrintBarcode for QR (PrintQrCode_Cut not available in this SDK version)
+        val result = posApi?.PrintBarcode(content, width, height, 2) ?: -1
         logMessage("printQrCode result: $result")
         return@AsyncFunction result == 0
       } catch (e: Throwable) {

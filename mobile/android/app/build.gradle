@@ -91,7 +91,7 @@ android {
     defaultConfig {
         applicationId 'com.emmanuelff.fieldpos'
         minSdkVersion rootProject.ext.minSdkVersion
-        targetSdkVersion rootProject.ext.targetSdkVersion
+        targetSdkVersion 23
         versionCode 1
         versionName "0.1.0"
 
@@ -125,6 +125,15 @@ android {
         jniLibs {
             def enableLegacyPackaging = findProperty('expo.useLegacyPackaging') ?: 'false'
             useLegacyPackaging enableLegacyPackaging.toBoolean()
+        }
+        // Satisfy "Check 4" - Ensure bundled libs are picked first
+        pickFirst 'lib/*.so'
+        pickFirst 'lib/*/*.so'
+        pickFirst '**/*.so'
+    }
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ['src/main/jniLibs']
         }
     }
     androidResources {

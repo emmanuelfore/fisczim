@@ -333,38 +333,44 @@ export const printToZ100 = async (data: TicketData) => {
     await Z100Printer.printSetVoltage(85); 
     await Z100Printer.printSetGray(3); // Moderate darkness
 
-    // Header
-    await Z100Printer.printString(`${company.name}\n`, 24, 1);
+    // Header - Large with Zoom 33 (discovered in SDK repo as 'medium')
+    await Z100Printer.printString(company.name, 28, 1, 33); 
     if(company.tin) {
-      await Z100Printer.printString(`TIN: ${company.tin}\n`, 24, 1);
+      await Z100Printer.printString(`TIN: ${company.tin}`, 20, 1);
+    }
+    if (data.invoice.verificationUrl) {
+      await Z100Printer.printQrCode(data.invoice.verificationUrl, 200, 200);
     }
     if(company.vatNumber) {
-      await Z100Printer.printString(`VAT: ${company.vatNumber}\n`, 24, 1);
+      await Z100Printer.printString(`VAT: ${company.vatNumber}`, 20, 1);
     }
-    await Z100Printer.printString(`\n`, 24, 1);
+    await Z100Printer.printString("", 24, 1); // Spacing
 
     // Invoice Details
-    await Z100Printer.printString(`Invoice: ${invoice.invoiceNumber || 'N/A'}\n`, 24, 0);
-    await Z100Printer.printString(`Date: ${new Date(invoice.issueDate || invoice.createdAt).toLocaleString()}\n`, 24, 0);
+    await Z100Printer.printString(`Invoice: ${invoice.invoiceNumber || 'N/A'}`, 24, 0);
+    await Z100Printer.printString(`Date: ${new Date(invoice.issueDate || invoice.createdAt).toLocaleString()}`, 20, 0);
     if(cashierName) {
-      await Z100Printer.printString(`Cashier: ${cashierName}\n`, 24, 0);
+      await Z100Printer.printString(`Cashier: ${cashierName}`, 20, 0);
     }
-    await Z100Printer.printString(`--------------------------------\n`, 24, 0);
+    await Z100Printer.printString("--------------------------------", 24, 0);
 
     // Items
     const receiptItems = items || invoice.items || [];
     for(const item of receiptItems) {
-       await Z100Printer.printString(`${item.description || item.name}\n`, 24, 0);
+       await Z100Printer.printString(item.description || item.name, 24, 0);
        const lineTotal = Number(item.lineTotal || (item.price * item.quantity)).toFixed(2);
-       await Z100Printer.printString(`  ${item.quantity} x ${Number(item.price).toFixed(2)}    ${lineTotal}\n`, 24, 0);
+       await Z100Printer.printString(`  ${item.quantity} x ${Number(item.price).toFixed(2)}    ${lineTotal}`, 20, 0);
     }
 
     // Totals
-    await Z100Printer.printString(`--------------------------------\n`, 24, 0);
-    await Z100Printer.printString(`TOTAL USD: ${Number(invoice.total || 0).toFixed(2)}\n`, 32, 2); // 2 could be right align
-    await Z100Printer.printString(`PAID:      ${Number(paidAmount || invoice.total || 0).toFixed(2)}\n`, 24, 2);
+    await Z100Printer.printString("--------------------------------", 24, 0);
+    await Z100Printer.printString(`TOTAL USD: ${Number(invoice.total || 0).toFixed(2)}`, 28, 2, 33); 
+    await Z100Printer.printString(`PAID:      ${Number(paidAmount || invoice.total || 0).toFixed(2)}`, 24, 2);
     
-    await Z100Printer.printString(`\n\n\n\n`, 24, 0);
+    await Z100Printer.printString("", 24, 0);
+    await Z100Printer.printString("", 24, 0);
+    await Z100Printer.printString("", 24, 0);
+    await Z100Printer.printString("", 24, 0);
     const status = await Z100Printer.printStart();
     if(!status) throw new Error("Print failed on Z100 device.");
   } finally {

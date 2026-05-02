@@ -1,12 +1,12 @@
 import React, { useState, useMemo, useEffect } from "react";
 import {
   View, Text, FlatList, TouchableOpacity, TextInput,
-  StyleSheet, ActivityIndicator, Alert,
+  StyleSheet, ActivityIndicator, Alert, Platform,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   Menu, PieChart, TrendingUp, DollarSign, Calendar,
-  ChevronDown, ChevronUp, Receipt, Package, Clock,
+  ChevronDown, ChevronUp, Receipt, Package, Clock, Activity,
   User as UserIcon, Filter, Search, X, Printer, Download
 } from "lucide-react-native";
 import { StatusBar } from "expo-status-bar";
@@ -37,6 +37,20 @@ const getStyles = (C: any) => StyleSheet.create({
   periodText: { color: C.text.primary, fontSize: 12, fontWeight: "600", flex: 1 },
   customDateRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10 },
   dateInput: { flex: 1, backgroundColor: C.bg.card, color: C.text.primary, borderRadius: 10, paddingHorizontal: 12, height: 40, shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 4, shadowOffset: { width: 0, height: 2 }, elevation: 1, fontSize: 13 },
+  searchRow: {
+    marginTop: 8,
+    marginBottom: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: C.bg.card,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C.border.default,
+    paddingHorizontal: 12,
+    height: 42
+  },
+  searchInput: { flex: 1, color: C.text.primary, fontSize: 13, paddingVertical: 0 },
   dropdown: { backgroundColor: C.bg.base, borderRadius: 12, marginTop: 8, overflow: "hidden", shadowColor: "#000", shadowOpacity: 0.15, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 5 },
   dropdownItem: { paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "rgba(0,0,0,0.03)" },
   dropdownItemActive: { backgroundColor: hexAlpha(C.amber.primary, 0.1) },
@@ -129,6 +143,34 @@ const getStyles = (C: any) => StyleSheet.create({
   abcItemRevenue: { fontSize: 15, fontWeight: '800', color: C.text.primary },
   abcItemShare: { fontSize: 10, color: C.text.secondary, marginTop: 2 },
   abcEmptyText: { fontSize: 13, color: C.text.secondary, textAlign: 'center', paddingVertical: 15 },
+  miniTableCard: {
+    backgroundColor: C.bg.card,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: C.border.default,
+    marginBottom: 14,
+    overflow: "hidden"
+  },
+  miniTableHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    backgroundColor: C.bg.hover,
+    paddingHorizontal: 12,
+    paddingVertical: 10
+  },
+  miniTableHeaderText: { color: C.text.secondary, fontSize: 11, fontWeight: "800", textTransform: "uppercase" },
+  miniTableRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: C.border.default
+  },
+  miniTableCellMain: { color: C.text.primary, fontSize: 13, fontWeight: "700" },
+  miniTableCellSub: { color: C.text.secondary, fontSize: 11, marginTop: 2 },
+  miniTableValue: { color: C.text.primary, fontSize: 13, fontWeight: "800" },
 });
 
 type Period = "Today" | "This Week" | "This Month" | "All Time" | "Custom";
@@ -278,6 +320,7 @@ function InventoryContent({ tab, companyId, start, end, symbol, ownerGroup, onNa
   const styles = getStyles(C);
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     setLoading(true);
@@ -292,6 +335,28 @@ function InventoryContent({ tab, companyId, start, end, symbol, ownerGroup, onNa
       .catch(() => { setData([]); setLoading(false); });
   }, [tab, companyId, start, end, ownerGroup]);
 
+  useEffect(() => {
+    setSearchQuery("");
+  }, [tab]);
+
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const filteredData = useMemo(() => {
+    if (!normalizedQuery) return data;
+    if (tab === "valuation") {
+      return data.filter((item) =>
+        `${item.name || ""} ${item.sku || ""} ${item.category || ""}`.toLowerCase().includes(normalizedQuery)
+      );
+    }
+    if (tab === "movements") {
+      return data.filter((item) =>
+        `${item.productName || ""} ${item.reference || ""} ${item.notes || ""}`.toLowerCase().includes(normalizedQuery)
+      );
+    }
+    return data.filter((item) =>
+      `${item.productName || ""} ${item.supplierName || ""}`.toLowerCase().includes(normalizedQuery)
+    );
+  }, [data, normalizedQuery, tab]);
+
   if (loading) return <ActivityIndicator color={C.amber.primary} style={{ marginTop: 40 }} />;
 
   if (data.length === 0) {
@@ -304,9 +369,19 @@ function InventoryContent({ tab, companyId, start, end, symbol, ownerGroup, onNa
   }
 
   if (tab === "valuation") {
-    const totalValuation = data.reduce((sum, item) => sum + Number(item.totalValue || 0), 0);
+    const totalValuation = filteredData.reduce((sum, item) => sum + Number(item.totalValue || 0), 0);
     return (
       <View style={{ marginTop: 10, paddingBottom: 20 }}>
+        <View style={styles.searchRow}>
+          <Search size={14} color={C.text.secondary} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search product, SKU, category..."
+            placeholderTextColor={C.text.secondary}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+        </View>
         <View style={[styles.netProfitCard, { backgroundColor: hexAlpha(C.amber.primary, 0.08), borderColor: C.amber.primary, marginBottom: 20 }]}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
             <View>
@@ -333,7 +408,7 @@ function InventoryContent({ tab, companyId, start, end, symbol, ownerGroup, onNa
           </View>
         </View>
 
-        {data.map((item, idx) => {
+        {filteredData.map((item, idx) => {
           const isLowStock = Number(item.stockLevel) <= 10;
           const isOutOfStock = Number(item.stockLevel) <= 0;
           return (
@@ -360,6 +435,12 @@ function InventoryContent({ tab, companyId, start, end, symbol, ownerGroup, onNa
             </View>
           );
         })}
+        {filteredData.length === 0 && (
+          <View style={styles.emptyContainer}>
+            <Search size={40} color={C.text.secondary} strokeWidth={1} />
+            <Text style={styles.emptyText}>No products match your search.</Text>
+          </View>
+        )}
       </View>
     );
   }
@@ -367,7 +448,17 @@ function InventoryContent({ tab, companyId, start, end, symbol, ownerGroup, onNa
   if (tab === "movements") {
     return (
       <View style={{ marginTop: 10, paddingBottom: 20 }}>
-        {data.map((item, idx) => (
+        <View style={styles.searchRow}>
+          <Search size={14} color={C.text.secondary} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search product or reference..."
+            placeholderTextColor={C.text.secondary}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+        </View>
+        {filteredData.map((item, idx) => (
           <View key={idx} style={styles.inventoryRow}>
             <View style={{ flex: 1 }}>
               <Text style={styles.itemName}>{item.productName}</Text>
@@ -388,6 +479,12 @@ function InventoryContent({ tab, companyId, start, end, symbol, ownerGroup, onNa
             </View>
           </View>
         ))}
+        {filteredData.length === 0 && (
+          <View style={styles.emptyContainer}>
+            <Search size={40} color={C.text.secondary} strokeWidth={1} />
+            <Text style={styles.emptyText}>No stock movements match your search.</Text>
+          </View>
+        )}
       </View>
     );
   }
@@ -395,7 +492,17 @@ function InventoryContent({ tab, companyId, start, end, symbol, ownerGroup, onNa
   if (tab === "purchases") {
     return (
       <View style={{ marginTop: 10, paddingBottom: 20 }}>
-        {data.map((item, idx) => (
+        <View style={styles.searchRow}>
+          <Search size={14} color={C.text.secondary} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search supplier or product..."
+            placeholderTextColor={C.text.secondary}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+        </View>
+        {filteredData.map((item, idx) => (
           <View key={idx} style={styles.inventoryRow}>
             <View style={{ flex: 1 }}>
               <Text style={styles.itemName} numberOfLines={1}>{item.supplierName || "Direct Vendor"}</Text>
@@ -408,6 +515,12 @@ function InventoryContent({ tab, companyId, start, end, symbol, ownerGroup, onNa
             </View>
           </View>
         ))}
+        {filteredData.length === 0 && (
+          <View style={styles.emptyContainer}>
+            <Search size={40} color={C.text.secondary} strokeWidth={1} />
+            <Text style={styles.emptyText}>No purchases match your search.</Text>
+          </View>
+        )}
       </View>
     );
   }
@@ -431,8 +544,11 @@ export function ReportsScreen({ onOpenDrawer, companyId, userRole = "member", us
   
   const isCashier = userRole.toLowerCase() === "cashier" || userRole.toLowerCase() === "member";
   const { data: company } = useCompany(companyId);
-  const { config: printerConfig, print } = usePrinter();
+  const { config: printerConfig, print, getDebugLogs } = usePrinter();
   const [isPrinting, setIsPrinting] = useState(false);
+  const [showDebugModal, setShowDebugModal] = useState(false);
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
+  const [loadingLogs, setLoadingLogs] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
   const [creditThreshold, setCreditThreshold] = useState(50);
   const [noteModal, setNoteModal] = useState<{
@@ -479,12 +595,25 @@ export function ReportsScreen({ onOpenDrawer, companyId, userRole = "member", us
     }
   };
 
-  const [period, setPeriod] = useState<Period>("Today");
+  const [period, setPeriod] = useState<Period>("This Week");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
   const [showPeriodPicker, setShowPeriodPicker] = useState(false);
   const [expandedSaleId, setExpandedSaleId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveTab>("sales");
+
+  const handleOpenDebug = async () => {
+    setLoadingLogs(true);
+    setShowDebugModal(true);
+    try {
+      const logs = await getDebugLogs();
+      setDebugLogs(logs);
+    } catch (e) {
+      setDebugLogs([`Failed to fetch logs: ${e}`]);
+    } finally {
+      setLoadingLogs(false);
+    }
+  };
   const [activeInvTab, setActiveInvTab] = useState<InventorySubTab>("valuation");
   const [cashierFilter, setCashierFilter] = useState<string>(isCashier ? (userName || "me") : "all");
   const [showCashierPicker, setShowCashierPicker] = useState(false);
@@ -546,6 +675,8 @@ export function ReportsScreen({ onOpenDrawer, companyId, userRole = "member", us
 
   const [abcData, setAbcData] = useState<any[] | null>(null);
   const [loadingAbc, setLoadingAbc] = useState(false);
+  const [collections, setCollections] = useState<any[]>([]);
+  const [loadingCollections, setLoadingCollections] = useState(false);
 
   const cashierIdMap = useMemo(() => {
     const map: Record<string, string> = {};
@@ -583,6 +714,22 @@ export function ReportsScreen({ onOpenDrawer, companyId, userRole = "member", us
       .catch(() => { setAbcData(null); setLoadingAbc(false); });
   }, [companyId, activeTab, start, end]);
 
+  useEffect(() => {
+    if (activeTab !== "collections") return;
+    setLoadingCollections(true);
+    const startStr = start.toISOString();
+    const endStr = end.toISOString();
+    apiJson<any[]>(`/api/companies/${companyId}/reports/cash-collections?from=${startStr}&to=${endStr}`)
+      .then((data) => {
+        setCollections(Array.isArray(data) ? data : []);
+        setLoadingCollections(false);
+      })
+      .catch(() => {
+        setCollections([]);
+        setLoadingCollections(false);
+      });
+  }, [companyId, activeTab, start, end]);
+
   const cashiers = useMemo(() => {
     if (!sales) return [];
     const names = new Set(sales.map((s: any) => s.cashierName || "Unknown"));
@@ -601,6 +748,17 @@ export function ReportsScreen({ onOpenDrawer, companyId, userRole = "member", us
     const count = filteredSales.length;
     const avg = count > 0 ? total / count : 0;
     return { total, count, avg };
+  }, [filteredSales]);
+
+  const salesByPaymentMethod = useMemo(() => {
+    const breakdown: Record<string, { count: number; total: number }> = {};
+    filteredSales.forEach((sale: any) => {
+      const key = (sale.paymentMethod || "CASH").toUpperCase();
+      if (!breakdown[key]) breakdown[key] = { count: 0, total: 0 };
+      breakdown[key].count += 1;
+      breakdown[key].total += Number(sale.total || 0);
+    });
+    return Object.entries(breakdown).sort((a, b) => b[1].total - a[1].total);
   }, [filteredSales]);
 
   const dailyGroups = useMemo(() => {
@@ -711,19 +869,7 @@ export function ReportsScreen({ onOpenDrawer, companyId, userRole = "member", us
   };
 
   const renderCollectionsTab = () => {
-    const [collections, setCollections] = useState<any[]>([]);
-    const [loading, setLoading] = useState(false);
-
-    useEffect(() => {
-      setLoading(true);
-      const startStr = start.toISOString();
-      const endStr = end.toISOString();
-      apiJson<any[]>(`/api/companies/${companyId}/reports/cash-collections?from=${startStr}&to=${endStr}`)
-        .then(data => { setCollections(data); setLoading(false); })
-        .catch(() => { setCollections([]); setLoading(false); });
-    }, [companyId, start, end]);
-
-    if (loading) return <ActivityIndicator style={{ marginTop: 50 }} color={C.amber.primary} />;
+    if (loadingCollections) return <ActivityIndicator style={{ marginTop: 50 }} color={C.amber.primary} />;
 
     return (
       <View style={{ flex: 1, padding: 16 }}>
@@ -893,6 +1039,28 @@ export function ReportsScreen({ onOpenDrawer, companyId, userRole = "member", us
                   </View>
                 );
               })}
+            </View>
+            <View style={styles.miniTableCard}>
+              <View style={styles.miniTableHeader}>
+                <Text style={styles.miniTableHeaderText}>Payment Method</Text>
+                <Text style={styles.miniTableHeaderText}>Amount</Text>
+              </View>
+              {salesByPaymentMethod.length === 0 ? (
+                <View style={styles.miniTableRow}>
+                  <Text style={styles.miniTableCellMain}>No sales in this period.</Text>
+                  <Text style={styles.miniTableValue}>{baseSymbol}0.00</Text>
+                </View>
+              ) : (
+                salesByPaymentMethod.map(([method, info]) => (
+                  <View key={method} style={styles.miniTableRow}>
+                    <View>
+                      <Text style={styles.miniTableCellMain}>{method}</Text>
+                      <Text style={styles.miniTableCellSub}>{info.count} txns</Text>
+                    </View>
+                    <Text style={styles.miniTableValue}>{baseSymbol}{info.total.toFixed(2)}</Text>
+                  </View>
+                ))
+              )}
             </View>
             <Text style={styles.sectionTitle}>Daily Summary</Text>
             {loadingSales && <ActivityIndicator color={C.amber.primary} style={{ marginVertical: 20 }} />}
@@ -1088,7 +1256,16 @@ export function ReportsScreen({ onOpenDrawer, companyId, userRole = "member", us
       <StatusBar style="light" />
       <View style={{ flex: 1 }}>
         <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
-          <TouchableOpacity onPress={onOpenDrawer} style={styles.iconBtn}><Menu size={20} color={C.text.primary} /></TouchableOpacity>
+          <View style={{ flexDirection: "row", gap: 10 }}>
+            <TouchableOpacity style={styles.iconBtn} onPress={onOpenDrawer}>
+              <Menu size={20} color={C.text.primary} />
+            </TouchableOpacity>
+            {Platform.OS === 'android' && (
+              <TouchableOpacity style={styles.iconBtn} onPress={handleOpenDebug}>
+                <Activity size={18} color={C.amber.primary} />
+              </TouchableOpacity>
+            )}
+          </View>
           <Text style={styles.title}>Reports</Text>
           <View style={{ width: 34 }} />
         </View>
@@ -1199,6 +1376,59 @@ export function ReportsScreen({ onOpenDrawer, companyId, userRole = "member", us
           onSuccess={() => setNoteModal(null)}
         />
       )}
+
+      <Modal
+        visible={showDebugModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowDebugModal(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.8)", justifyContent: "flex-end" }}>
+          <View style={{
+            backgroundColor: C.bg.base,
+            height: "80%",
+            borderTopLeftRadius: 32,
+            borderTopRightRadius: 32,
+            padding: 24,
+          }}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <Text style={{ color: C.text.primary, fontSize: 18, fontWeight: "800" }}>Z100 Native Logs</Text>
+              <TouchableOpacity onPress={() => setShowDebugModal(false)} style={styles.iconBtn}>
+                <X size={20} color={C.text.primary} />
+              </TouchableOpacity>
+            </View>
+
+            {loadingLogs ? (
+              <ActivityIndicator color={C.amber.primary} size="large" style={{ marginTop: 40 }} />
+            ) : (
+              <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+                {debugLogs.length === 0 ? (
+                  <Text style={{ color: C.text.secondary, textAlign: "center", marginTop: 40 }}>No logs captured yet.</Text>
+                ) : (
+                  debugLogs.map((log, i) => (
+                    <View key={i} style={{
+                      backgroundColor: C.bg.card,
+                      borderRadius: 12,
+                      padding: 12,
+                      marginBottom: 10,
+                      borderWidth: 1,
+                      borderColor: log.includes("ERROR") ? hexAlpha(C.status.error, 0.3) : C.border.default
+                    }}>
+                      <Text style={{
+                        color: log.includes("ERROR") ? C.status.error : C.text.primary,
+                        fontSize: 12,
+                        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace'
+                      }}>
+                        {log}
+                      </Text>
+                    </View>
+                  ))
+                )}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }

@@ -15,9 +15,20 @@ android {
   lintOptions {
     abortOnError false
   }
+  packagingOptions {
+    // Handle the 100+ native libraries in the "Kitchen Sink" bundle
+    pickFirst 'lib/*.so'
+    pickFirst 'lib/*/*.so'
+    pickFirst '**/*.so'
+  }
+  sourceSets {
+    main {
+      jniLibs.srcDirs = ['src/main/jniLibs']
+    }
+  }
 }
 
 dependencies {
   implementation fileTree(dir: 'libs', include: ['*.jar'])
-  implementation 'com.google.zxing:core:3.5.1'
+  implementation 'com.google.zxing:core:3.5.2'
 }

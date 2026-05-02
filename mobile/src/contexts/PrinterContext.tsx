@@ -41,6 +41,8 @@ interface PrinterContextType {
   refreshQueue: () => Promise<void>;
   scanForPrinters: () => Promise<{deviceName: string, macAddress: string}[]>;
   autoConnect: () => Promise<string | null>;
+  getDebugLogs: () => Promise<string[]>;
+  clearDebugLogs: () => Promise<boolean>;
 }
 
 const PrinterContext = createContext<PrinterContextType | undefined>(undefined);
@@ -214,6 +216,24 @@ export function PrinterProvider({ children }: { children: ReactNode }) {
     refreshQueue: loadState,
     scanForPrinters,
     autoConnect,
+    getDebugLogs: async () => {
+      try {
+        const { getLogs } = await import("../../modules/z100-printer");
+        return await getLogs();
+      } catch (e) {
+        console.error("[PrinterContext] Failed to get debug logs:", e);
+        return [`JS_ERROR: ${e instanceof Error ? e.message : String(e)}`];
+      }
+    },
+    clearDebugLogs: async () => {
+      try {
+        const { clearLogs } = await import("../../modules/z100-printer");
+        return await clearLogs();
+      } catch (e) {
+        console.error("[PrinterContext] Failed to clear logs:", e);
+        return false;
+      }
+    }
   };
 
   return <PrinterContext.Provider value={value}>{children}</PrinterContext.Provider>;

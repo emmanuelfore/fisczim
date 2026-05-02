@@ -4,8 +4,20 @@ export async function printInit(): Promise<boolean> {
   return await Z100PrinterModule.printInit();
 }
 
-export async function printString(text: string, size?: number, align?: number): Promise<boolean> {
-  return await Z100PrinterModule.printString(text, size ?? 24, align ?? 0);
+export async function getLogs(): Promise<string[]> {
+  return await Z100PrinterModule.getLogs();
+}
+
+export async function clearLogs(): Promise<boolean> {
+  return await Z100PrinterModule.clearLogs();
+}
+
+export async function printQrCode(content: string, width: number, height: number): Promise<boolean> {
+  return await Z100PrinterModule.printQrCode(content, width, height);
+}
+
+export async function printString(text: string, size?: number, align?: number, zoom?: number): Promise<boolean> {
+  return await Z100PrinterModule.printString(text, size, align, zoom);
 }
 
 export async function printStart(): Promise<boolean> {

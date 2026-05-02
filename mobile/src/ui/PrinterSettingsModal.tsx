@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Modal, View, Text, TouchableOpacity, ScrollView, TextInput, ActivityIndicator, Alert, Platform, StyleSheet } from "react-native";
-import { X, Bluetooth, Printer as PrinterIcon } from "lucide-react-native";
+import { X, Bluetooth, Printer as PrinterIcon, Activity } from "lucide-react-native";
 import { useTheme, hexAlpha } from "./PremiumColors";
 import { Button } from "./Button";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -14,7 +14,7 @@ type Props = {
 export function PrinterSettingsModal({ visible, onClose }: Props) {
   const { theme: C, isDark } = useTheme();
   const insets = useSafeAreaInsets();
-  const { config, updateConfig, scanForPrinters, isScanning, executePrint } = usePrinter();
+  const { config, updateConfig, scanForPrinters, isScanning, executePrint, getDebugLogs, clearDebugLogs } = usePrinter();
 
   const [draft, setDraft] = useState<PrinterConfig>(config);
   const [discoveredDevices, setDiscoveredDevices] = useState<{ deviceName: string, macAddress: string }[]>([]);
@@ -60,13 +60,39 @@ export function PrinterSettingsModal({ visible, onClose }: Props) {
       items: [],
       cashierName: "Admin"
     };
+    
+    // Auto-save settings before test
+    await updateConfig(draft);
 
     try {
-      await updateConfig(draft);
       await executePrint(testData as any);
       Alert.alert("Success", "Test print sent!");
     } catch (error: any) {
       Alert.alert("Print Failed", error.message || "Test print failed. Check your printer connection.");
+    }
+  };
+
+  const [showDebug, setShowDebug] = useState(false);
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
+  const [loadingLogs, setLoadingLogs] = useState(false);
+
+  const handleOpenDebug = async () => {
+    setLoadingLogs(true);
+    setShowDebug(true);
+    try {
+      const logs = await getDebugLogs();
+      setDebugLogs(logs);
+    } catch (e) {
+      setDebugLogs([`Failed to fetch logs: ${e}`]);
+    } finally {
+      setLoadingLogs(false);
+    }
+  };
+
+  const handleClearLogs = async () => {
+    const success = await clearDebugLogs();
+    if (success) {
+      setDebugLogs(["Logs cleared"]);
     }
   };
 
@@ -79,7 +105,17 @@ export function PrinterSettingsModal({ visible, onClose }: Props) {
       <View style={styles.overlay}>
         <View style={styles.content}>
           <View style={styles.header}>
-            <Text style={styles.headerTitle}>Printer Settings</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+              <Text style={styles.headerTitle}>Printer Settings</Text>
+              {Platform.OS === 'android' && (
+                <TouchableOpacity 
+                   onPress={handleOpenDebug}
+                   style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: hexAlpha(C.amber.primary, 0.1), alignItems: "center", justifyContent: "center" }}
+                >
+                  <Activity size={18} color={C.amber.primary} />
+                </TouchableOpacity>
+              )}
+            </View>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
               <X size={24} color={C.text.secondary} />
             </TouchableOpacity>
@@ -225,6 +261,40 @@ export function PrinterSettingsModal({ visible, onClose }: Props) {
           </View>
         </View>
       </View>
+
+      <Modal visible={showDebug} transparent animationType="fade">
+        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.9)", padding: 24, justifyContent: "center" }}>
+          <View style={{ backgroundColor: C.bg.base, borderRadius: 24, padding: 20, maxHeight: "80%" }}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <Text style={{ color: C.text.primary, fontSize: 18, fontWeight: "800" }}>Z100 Native Logs</Text>
+                <TouchableOpacity onPress={handleClearLogs} style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, backgroundColor: hexAlpha(C.status.error, 0.1) }}>
+                  <Text style={{ color: C.status.error, fontSize: 10, fontWeight: "800" }}>CLEAR</Text>
+                </TouchableOpacity>
+              </View>
+              <TouchableOpacity onPress={() => setShowDebug(false)}>
+                <X size={24} color={C.text.secondary} />
+              </TouchableOpacity>
+            </View>
+            
+            {loadingLogs ? (
+               <ActivityIndicator color={C.amber.primary} />
+            ) : (
+              <ScrollView>
+                 {debugLogs.length === 0 ? (
+                   <Text style={{ color: C.text.secondary, textAlign: "center" }}>No logs captured.</Text>
+                 ) : (
+                   debugLogs.map((l, i) => (
+                     <Text key={i} style={{ color: l.includes("ERROR") ? C.status.error : C.text.primary, fontSize: 11, fontFamily: "monospace", marginBottom: 8, backgroundColor: C.bg.panel, padding: 8, borderRadius: 8 }}>
+                       {l}
+                     </Text>
+                   ))
+                 )}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
     </Modal>
   );
 }

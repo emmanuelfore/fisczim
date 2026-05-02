@@ -45,13 +45,13 @@
     },
     "extra": {
       "eas": {
-        "projectId": "c714b64b-b0ed-4c32-a4d4-1cba6d9e37f6"
+        "projectId": "ad5206fe-d89f-4736-b568-660263b35892"
       }
     },
     "plugins": [
       "expo-asset",
       "./scripts/withNetworkSecurityConfig"
     ],
-    "owner": "emmanuelff"
+    "owner": "emmmanuelfore"
   }
 }

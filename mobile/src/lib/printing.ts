@@ -328,7 +328,10 @@ export const printToZ100 = async (data: TicketData) => {
   const { invoice, company, items, cashierName, paidAmount } = data;
   
   try {
-    await Z100Printer.printInit();
+    const initOk = await Z100Printer.printInit();
+    if (!initOk) {
+      throw new Error("Z100 printer failed to initialize. libAndroid.so may not have loaded correctly.");
+    }
     // Safety settings from SDK docs
     await Z100Printer.printSetVoltage(85); 
     await Z100Printer.printSetGray(3); // Moderate darkness

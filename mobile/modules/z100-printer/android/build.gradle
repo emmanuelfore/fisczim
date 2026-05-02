@@ -29,7 +29,5 @@ android {
 }
 
 dependencies {
-  implementation fileTree(dir: 'libs', include: ['*.jar'])
   implementation files('libs/PosApiSdk.aar')
-  implementation 'com.google.zxing:core:3.5.2'
 }

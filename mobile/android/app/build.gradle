@@ -96,6 +96,13 @@ android {
         versionName "0.1.0"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
+
+        // Force 32-bit mode: The Z100 printer SDK (libAndroid.so) is only available
+        // as armeabi (32-bit). An arm64-v8a device can run 32-bit apps in compat mode,
+        // but only if the APK contains NO 64-bit .so files.
+        ndk {
+            abiFilters 'armeabi-v7a'
+        }
     }
     signingConfigs {
         debug {

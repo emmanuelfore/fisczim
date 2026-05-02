@@ -189,3 +189,7 @@ dependencies {
         implementation jscFlavor
     }
 }
+
+configurations.all {
+    exclude group: 'com.google.zxing', module: 'core'
+}

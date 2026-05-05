@@ -1056,14 +1056,12 @@ export default function CreateInvoicePage() {
                     <Table>
                       <TableHeader className="bg-slate-50 border-b border-slate-100">
                         <TableRow className="hover:bg-slate-50">
-                          <TableHead className="w-[220px] min-w-[220px] pl-4">Item</TableHead>
-                          <TableHead className="min-w-[180px]">Description</TableHead>
-                          <TableHead className="w-[92px] min-w-[92px] text-center">Quantity</TableHead>
-                          <TableHead className="w-[130px] min-w-[130px] text-right">Unit Price</TableHead>
-                          <TableHead className="w-[90px] min-w-[90px] text-center">VAT %</TableHead>
-                          <TableHead className="w-[110px] min-w-[110px] text-right">Discount</TableHead>
-                          <TableHead className="w-[130px] min-w-[130px] text-right">Amount</TableHead>
-                          <TableHead className="w-[56px] min-w-[56px]">Action</TableHead>
+                          <TableHead className="pl-4">Item & Description</TableHead>
+                          <TableHead className="w-[100px] text-center">Qty</TableHead>
+                          <TableHead className="w-[110px] text-right">Price</TableHead>
+                          <TableHead className="w-[110px] text-right">VAT Amt</TableHead>
+                          <TableHead className="w-[110px] text-right">Amount</TableHead>
+                          <TableHead className="w-[50px]"></TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -1072,9 +1070,10 @@ export default function CreateInvoicePage() {
                             const lineVal = item.quantity * item.unitPrice;
                             let vatAmt = 0;
                             let totalAmt = 0;
-                            const lineDiscount = lineVal < 0 ? Math.abs(lineVal) : 0;
 
                             if (taxInclusive) {
+                              const taxRateDecimal = item.taxRate / 100;
+                              vatAmt = lineVal - (lineVal / (1 + taxRateDecimal));
                               totalAmt = lineVal;
                             } else {
                               vatAmt = lineVal * (item.taxRate / 100);
@@ -1095,191 +1094,187 @@ export default function CreateInvoicePage() {
                                 transition={{ duration: 0.2 }}
                                 className="group h-14 border-b border-slate-100 transition-colors hover:bg-[#F8FAFC]"
                               >
-                                <TableCell className="align-middle pl-4 py-2 max-w-[220px]">
-                                  <Popover
-                                    open={openRowIndex === index}
-                                    onOpenChange={(isOpen) => setOpenRowIndex(isOpen ? index : null)}
-                                  >
-                                    <PopoverTrigger asChild>
-                                      <Button
-                                        variant="outline"
-                                        role="combobox"
-                                        className={cn(
-                                          "h-10 w-full justify-between overflow-hidden rounded-xl bg-white px-3 font-normal",
-                                          !item.productId && "text-muted-foreground"
-                                        )}
-                                      >
-                                        <div className="flex items-center gap-2 overflow-hidden">
-                                          {item.hsCode && (
-                                            <Badge variant="secondary" className="text-[9px] h-4 py-0 px-1 font-mono opacity-60">
-                                              {item.hsCode}
-                                            </Badge>
+                                <TableCell className="align-top py-3 pl-4">
+                                  <div className="flex flex-col gap-2">
+                                    <Popover
+                                      open={openRowIndex === index}
+                                      onOpenChange={(isOpen) => setOpenRowIndex(isOpen ? index : null)}
+                                    >
+                                      <PopoverTrigger asChild>
+                                        <Button
+                                          variant="outline"
+                                          role="combobox"
+                                          className={cn(
+                                            "h-9 w-full justify-between overflow-hidden rounded-xl bg-white px-3 font-semibold",
+                                            !item.productId && "text-muted-foreground"
                                           )}
-                                          <span className="truncate">
-                                            {item.productId
-                                              ? products?.find((p) => p.id === item.productId)?.name || "Select Item"
-                                              : "Select Item"}
-                                          </span>
-                                        </div>
-                                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                      </Button>
-                                    </PopoverTrigger>
-                                    <PopoverContent className="w-[300px] p-0" align="start">
-                                      <Command>
-                                        <CommandInput
-                                          placeholder="Search items..."
-                                          value={productSearch[item.localId] || ""}
-                                          onValueChange={(val) => setProductSearch(prev => ({ ...prev, [item.localId]: val }))}
-                                        />
-                                        <CommandList>
-                                          <CommandEmpty className="p-0">
-                                            <div className="p-4 text-sm text-center text-slate-500">
-                                              No item found.
-                                            </div>
-                                            {productSearch[item.localId]?.trim() && (
-                                              <div className="p-1 border-t">
-                                                <Button
-                                                  variant="ghost"
-                                                  className="w-full justify-start h-9 text-xs font-medium text-primary hover:text-primary hover:bg-primary/5"
-                                                  onClick={async () => {
-                                                    try {
-                                                      const newP = await createProduct.mutateAsync({
-                                                        name: productSearch[item.localId],
-                                                        price: "0",
-                                                        taxRate: "15",
-                                                        productType: "good",
-                                                        sku: `AUTO-${Date.now().toString().slice(-4)}`
-                                                      });
-                                                      handleProductSelect(item.localId, newP.id.toString());
-                                                      setProductSearch(prev => {
-                                                        const next = { ...prev };
-                                                        delete next[item.localId];
-                                                        return next;
-                                                      });
-                                                      setOpenRowIndex(null);
-                                                      toast({ title: "Product Added", description: `${newP.name} has been created.` });
-                                                    } catch (e) {
-                                                      console.error(e);
-                                                    }
+                                        >
+                                          <div className="flex items-center gap-2 overflow-hidden">
+                                            {item.hsCode && (
+                                              <Badge variant="secondary" className="text-[9px] h-4 py-0 px-1 font-mono opacity-60">
+                                                {item.hsCode}
+                                              </Badge>
+                                            )}
+                                            <span className="truncate">
+                                              {item.productId
+                                                ? products?.find((p) => p.id === item.productId)?.name || "Select Item"
+                                                : "Select Item"}
+                                            </span>
+                                          </div>
+                                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                        </Button>
+                                      </PopoverTrigger>
+                                      <PopoverContent className="w-[300px] p-0" align="start">
+                                        <Command>
+                                          <CommandInput
+                                            placeholder="Search items..."
+                                            value={productSearch[item.localId] || ""}
+                                            onValueChange={(val) => setProductSearch(prev => ({ ...prev, [item.localId]: val }))}
+                                          />
+                                          <CommandList>
+                                            <CommandEmpty className="p-0">
+                                              <div className="p-4 text-sm text-center text-slate-500">
+                                                No item found.
+                                              </div>
+                                              {productSearch[item.localId]?.trim() && (
+                                                <div className="p-1 border-t">
+                                                  <Button
+                                                    variant="ghost"
+                                                    className="w-full justify-start h-9 text-xs font-medium text-primary hover:text-primary hover:bg-primary/5"
+                                                    onClick={async () => {
+                                                      try {
+                                                        const newP = await createProduct.mutateAsync({
+                                                          name: productSearch[item.localId],
+                                                          price: "0",
+                                                          taxRate: "15",
+                                                          productType: "good",
+                                                          sku: `AUTO-${Date.now().toString().slice(-4)}`
+                                                        });
+                                                        handleProductSelect(item.localId, newP.id.toString());
+                                                        setProductSearch(prev => {
+                                                          const next = { ...prev };
+                                                          delete next[item.localId];
+                                                          return next;
+                                                        });
+                                                        setOpenRowIndex(null);
+                                                        toast({ title: "Product Added", description: `${newP.name} has been created.` });
+                                                      } catch (e) {
+                                                        console.error(e);
+                                                      }
+                                                    }}
+                                                  >
+                                                    <Plus className="w-3 h-3 mr-2" /> Add "{productSearch[item.localId]}" as new product
+                                                  </Button>
+                                                </div>
+                                              )}
+                                            </CommandEmpty>
+                                            <CommandGroup heading="Products">
+                                              {products?.filter(p => !p.productType || p.productType === 'good').map((product) => (
+                                                <CommandItem
+                                                  key={product.id}
+                                                  value={`product ${product.name} ${product.sku || ""}`}
+                                                  onSelect={() => {
+                                                    handleProductSelect(item.localId, product.id.toString());
+                                                    setOpenRowIndex(null);
                                                   }}
                                                 >
-                                                  <Plus className="w-3 h-3 mr-2" /> Add "{productSearch[item.localId]}" as new product
-                                                </Button>
-                                              </div>
-                                            )}
-                                          </CommandEmpty>
-                                          <CommandGroup heading="Products">
-                                            {products?.filter(p => !p.productType || p.productType === 'good').map((product) => (
-                                              <CommandItem
-                                                key={product.id}
-                                                value={`product ${product.name} ${product.sku || ""}`}
-                                                onSelect={() => {
-                                                  handleProductSelect(item.localId, product.id.toString());
-                                                  setOpenRowIndex(null);
-                                                }}
-                                              >
-                                                <Check
-                                                  className={cn(
-                                                    "mr-2 h-4 w-4",
-                                                    item.productId === product.id ? "opacity-100" : "opacity-0"
-                                                  )}
-                                                />
-                                                <div className="flex flex-col flex-1">
-                                                  <span className="font-medium text-sm">{product.name}</span>
-                                                  <div className="flex justify-between w-full text-xs text-muted-foreground mt-0.5">
-                                                    <span>{product.sku}</span>
-                                                    <span className="font-mono">${Number(product.price).toFixed(2)}</span>
+                                                  <Check
+                                                    className={cn(
+                                                      "mr-2 h-4 w-4",
+                                                      item.productId === product.id ? "opacity-100" : "opacity-0"
+                                                    )}
+                                                  />
+                                                  <div className="flex flex-col flex-1">
+                                                    <span className="font-medium text-sm">{product.name}</span>
+                                                    <div className="flex justify-between w-full text-xs text-muted-foreground mt-0.5">
+                                                      <span>{product.sku}</span>
+                                                      <span className="font-mono">${Number(product.price).toFixed(2)}</span>
+                                                    </div>
                                                   </div>
-                                                </div>
-                                              </CommandItem>
-                                            ))}
-                                          </CommandGroup>
-                                          <CommandGroup heading="Services">
-                                            {products?.filter(p => p.productType === 'service').map((service) => (
-                                              <CommandItem
-                                                key={service.id}
-                                                value={`service ${service.name} ${service.sku || ""}`}
-                                                onSelect={() => {
-                                                  handleProductSelect(item.localId, service.id.toString());
-                                                  setOpenRowIndex(null);
-                                                }}
-                                              >
-                                                <Check
-                                                  className={cn(
-                                                    "mr-2 h-4 w-4",
-                                                    item.productId === service.id ? "opacity-100" : "opacity-0"
-                                                  )}
-                                                />
-                                                <div className="flex flex-col flex-1">
-                                                  <span className="font-medium text-sm">{service.name}</span>
-                                                  <div className="flex justify-between w-full text-xs text-muted-foreground mt-0.5">
-                                                    <span>{service.sku || 'Service'}</span>
-                                                    <span className="font-mono">${Number(service.price).toFixed(2)}</span>
+                                                </CommandItem>
+                                              ))}
+                                            </CommandGroup>
+                                            <CommandGroup heading="Services">
+                                              {products?.filter(p => p.productType === 'service').map((service) => (
+                                                <CommandItem
+                                                  key={service.id}
+                                                  value={`service ${service.name} ${service.sku || ""}`}
+                                                  onSelect={() => {
+                                                    handleProductSelect(item.localId, service.id.toString());
+                                                    setOpenRowIndex(null);
+                                                  }}
+                                                >
+                                                  <Check
+                                                    className={cn(
+                                                      "mr-2 h-4 w-4",
+                                                      item.productId === service.id ? "opacity-100" : "opacity-0"
+                                                    )}
+                                                  />
+                                                  <div className="flex flex-col flex-1">
+                                                    <span className="font-medium text-sm">{service.name}</span>
+                                                    <div className="flex justify-between w-full text-xs text-muted-foreground mt-0.5">
+                                                      <span>{service.sku || 'Service'}</span>
+                                                      <span className="font-mono">${Number(service.price).toFixed(2)}</span>
+                                                    </div>
                                                   </div>
-                                                </div>
-                                              </CommandItem>
-                                            ))}
-                                          </CommandGroup>
-                                        </CommandList>
-                                      </Command>
-                                    </PopoverContent>
-                                  </Popover>
+                                                </CommandItem>
+                                              ))}
+                                            </CommandGroup>
+                                          </CommandList>
+                                        </Command>
+                                      </PopoverContent>
+                                    </Popover>
+                                    <Input
+                                      placeholder="Brand, model or description..."
+                                      value={item.description}
+                                      onChange={(e) => updateItem(item.localId, 'description', e.target.value)}
+                                      className="h-8 rounded-lg border-slate-100 bg-slate-50/50 px-2 text-[12px] transition-all hover:border-slate-200 focus:border-primary focus:bg-white"
+                                    />
+                                  </div>
                                 </TableCell>
-                                <TableCell className="align-middle py-2">
-                                  <Input
-                                    placeholder="Description..."
-                                    value={item.description}
-                                    onChange={(e) => updateItem(item.localId, 'description', e.target.value)}
-                                    className="h-10 rounded-xl border-transparent bg-transparent px-2 text-sm transition-all hover:border-slate-200 focus:border-primary focus:bg-white"
-                                  />
-                                </TableCell>
-                                <TableCell className="align-middle py-2">
+                                <TableCell className="align-top py-3">
                                   <Input
                                     type="number"
                                     min="1"
                                     value={item.quantity}
                                     onChange={(e) => updateItem(item.localId, 'quantity', parseFloat(e.target.value) || 0)}
-                                    className="h-10 w-full rounded-xl border-transparent bg-transparent px-2 text-center text-sm font-medium transition-all hover:border-slate-200 focus:border-primary focus:bg-white"
+                                    className="h-9 w-full rounded-xl border-slate-100 bg-slate-50/50 px-2 text-center text-sm font-semibold transition-all hover:border-slate-200 focus:border-primary focus:bg-white"
                                   />
                                 </TableCell>
-                                <TableCell className="align-middle py-2">
+                                <TableCell className="align-top py-3">
                                   <Input
                                     type="number"
                                     step="0.01"
                                     value={Number(item.unitPrice)}
                                     onChange={(e) => updateItem(item.localId, 'unitPrice', parseFloat(e.target.value) || 0)}
                                     onBlur={(e) => {
-                                      // Allow negative values for discounts
                                       const val = parseFloat(e.target.value) || 0;
                                       updateItem(item.localId, 'unitPrice', parseFloat(val.toFixed(2)));
                                     }}
-                                    className="h-10 w-full rounded-xl border-transparent bg-transparent px-2 text-right font-mono text-sm transition-all hover:border-slate-200 focus:border-primary focus:bg-white"
+                                    className="h-9 w-full rounded-xl border-slate-100 bg-slate-50/50 px-2 text-right font-mono text-sm font-semibold transition-all hover:border-slate-200 focus:border-primary focus:bg-white"
                                   />
                                 </TableCell>
-                                <TableCell className="align-middle py-2">
-                                  <Input
-                                    type="number"
-                                    step="0.01"
-                                    value={Number(item.taxRate)}
-                                    onChange={(e) => updateItem(item.localId, 'taxRate', parseFloat(e.target.value) || 0)}
-                                    className="h-10 w-full rounded-xl border-transparent bg-transparent px-2 text-center font-mono text-sm transition-all hover:border-slate-200 focus:border-primary focus:bg-white"
-                                  />
+                                <TableCell className="align-top py-3 text-right font-mono text-sm font-semibold text-slate-500">
+                                  <div className="h-9 flex items-center justify-end">
+                                    {vatAmt > 0 ? `${currentSymbol}${vatAmt.toFixed(2)}` : "-"}
+                                  </div>
                                 </TableCell>
-                                <TableCell className="align-middle py-2 text-right font-mono text-sm font-semibold text-slate-500">
-                                  {lineDiscount > 0 ? `${currentSymbol}${lineDiscount.toFixed(2)}` : "-"}
+                                <TableCell className="text-right font-bold font-mono text-slate-900 align-top py-3 pr-4">
+                                  <div className="h-9 flex items-center justify-end">
+                                    {totalAmt.toFixed(2)}
+                                  </div>
                                 </TableCell>
-                                <TableCell className="text-right font-bold font-mono text-slate-900 align-middle py-2 pr-4">
-                                  {totalAmt.toFixed(2)}
-                                </TableCell>
-                                <TableCell className="align-middle py-2">
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-8 w-8 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                                    onClick={() => handleRemoveItem(item.localId)}
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </Button>
+                                <TableCell className="align-top py-3">
+                                  <div className="h-9 flex items-center justify-center">
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-8 w-8 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                                      onClick={() => handleRemoveItem(item.localId)}
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </Button>
+                                  </div>
                                 </TableCell>
                               </motion.tr>
                             );
@@ -1627,8 +1622,8 @@ export default function CreateInvoicePage() {
                       <InvoicePDF
                         invoice={{
                           invoiceNumber: "DRAFT",
-                          issueDate: new Date(issueDate).toISOString(),
-                          dueDate: new Date(dueDate).toISOString(),
+                          issueDate: (() => { const d = new Date(issueDate); return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString(); })(),
+                          dueDate: (() => { const d = new Date(dueDate); return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString(); })(),
                           status: "draft",
                           items: items.map(item => ({ ...item, lineTotal: (item.quantity * item.unitPrice).toString(), product: { hsCode: item.hsCode } })),
                           subtotal: subtotal.toString(),

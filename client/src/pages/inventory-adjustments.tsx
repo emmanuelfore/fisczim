@@ -288,7 +288,7 @@ export default function InventoryAdjustmentsPage() {
                 <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">Product</th>
                 <th className="hidden md:table-cell p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">Current Stock</th>
                 <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">Type</th>
-                <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">New Stock Qty</th>
+                <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px] w-[140px]">New Stock Qty</th>
                 <th className="hidden lg:table-cell p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">Live Diff</th>
                 <th className="hidden xl:table-cell p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">Notes</th>
               </tr>

@@ -12,13 +12,8 @@ import { PageHeader } from "@/components/page-header";
 
 export default function QuotationsPage() {
     const selectedCompanyId = parseInt(localStorage.getItem("selectedCompanyId") || "0");
-    // For now, fetching a larger set or ideally we should filter by type=Quotation on server if API supported it
-    // But since Quotations are stored in 'invoices' table with 'draft' status usually, or separate logic
-    // Actually, checking previous code, 'quotations' usage seems to imply they are just invoices.
-    // However, looking at file content, it filters `inv.transactionType === 'Quotation'`.
-    // Let's just fetch a reasonable amount for now or update hook to filter.
     const { data: quotations, isLoading } = useQuotations(selectedCompanyId);
-    const deleteQuotation = useDeleteQuotation(); // Need to import this too
+    const deleteQuotation = useDeleteQuotation();
     const [searchTerm, setSearchTerm] = useState("");
 
     const filteredQuotations = quotations?.filter(quote =>
@@ -86,8 +81,13 @@ export default function QuotationsPage() {
                                     </tr>
                                 ) : filteredQuotations?.map((quote) => (
                                     <tr key={quote.id} className="data-table-row group">
-                                        <td className="data-table-cell font-medium font-mono text-slate-700">
-                                            {quote.quotationNumber}
+                                        <td className="data-table-cell">
+                                            <div className="flex flex-col gap-1">
+                                                <span className="font-mono text-sm font-bold text-slate-700">{quote.quotationNumber}</span>
+                                                <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase leading-none tracking-wide bg-blue-50 text-blue-700 border-blue-100 w-fit">
+                                                    Quotation
+                                                </span>
+                                            </div>
                                         </td>
                                         <td className="hidden sm:table-cell data-table-cell">
                                             {new Date(quote.issueDate!).toLocaleDateString()}

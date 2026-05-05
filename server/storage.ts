@@ -472,11 +472,21 @@ export class DatabaseStorage implements IStorage {
   // Companies
   async getCompanies(userId: string): Promise<(Company & { role: string })[]> {
     const user = await this.getUser(userId);
-    console.log(`[STORAGE] getCompanies for user: ${userId}, email: ${user?.email}, isSuper: ${user?.isSuperAdmin}`);
+    const isSystemAdmin = user?.email === 'admin@zimra.co.zw';
+    console.log(`[STORAGE] getCompanies for user: ${userId}, email: ${user?.email}, isSuper: ${user?.isSuperAdmin}, isSystemAdmin: ${isSystemAdmin}`);
 
     if (user?.isSuperAdmin) {
-      const allCompanies = await db.select().from(companies);
-      console.log(`[STORAGE] Superuser ${userId} found ${allCompanies.length} total companies`);
+      let allCompanies = await db.select().from(companies);
+      
+      // Hardcoded restriction: Hide "Goosehill Trading" from other Super Admins
+      if (!isSystemAdmin) {
+        allCompanies = allCompanies.filter(c => 
+          (c.name || "").toLowerCase() !== 'goosehill trading' && 
+          (c.tradingName || "").toLowerCase() !== 'goosehill trading'
+        );
+      }
+
+      console.log(`[STORAGE] Superuser ${userId} found ${allCompanies.length} accessible companies`);
       return allCompanies.map(c => ({ ...c, role: "owner" }));
     }
 

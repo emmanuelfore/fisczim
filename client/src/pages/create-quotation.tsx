@@ -394,12 +394,10 @@ export default function CreateQuotationPage() {
                             <TableHeader>
                                 <TableRow>
                                     <TableHead className="w-[40%]">Description</TableHead>
-                                    <TableHead>Qty</TableHead>
-                                    <TableHead>
-                                        <div>Price</div>
-                                        <div className="text-[10px] lowercase font-normal text-slate-400 no-underline">(Neg. for discount)</div>
-                                    </TableHead>
-                                    <TableHead className="text-right">Total</TableHead>
+                                    <TableHead className="w-[100px] text-center">Qty</TableHead>
+                                    <TableHead className="text-right">Price</TableHead>
+                                    <TableHead className="text-right w-[110px]">VAT Amt</TableHead>
+                                    <TableHead className="text-right w-[110px]">Amount</TableHead>
                                     <TableHead className="w-[50px]"></TableHead>
                                 </TableRow>
                             </TableHeader>
@@ -461,13 +459,28 @@ export default function CreateQuotationPage() {
                                             <Input value={item.description} onChange={e => updateItem(item.localId, "description", e.target.value)} placeholder="Item description..." />
                                         </TableCell>
                                         <TableCell>
-                                            <Input type="number" value={item.quantity} onChange={e => updateItem(item.localId, "quantity", parseFloat(e.target.value))} />
+                                            <Input type="number" value={item.quantity} onChange={e => updateItem(item.localId, "quantity", parseFloat(e.target.value))} className="w-full text-center" />
                                         </TableCell>
                                         <TableCell>
-                                            <Input type="number" value={item.unitPrice} onChange={e => updateItem(item.localId, "unitPrice", parseFloat(e.target.value))} />
+                                            <Input type="number" value={item.unitPrice} onChange={e => updateItem(item.localId, "unitPrice", parseFloat(e.target.value))} className="text-right" />
                                         </TableCell>
-                                        <TableCell className="text-right font-medium">
-                                            {(item.quantity * item.unitPrice).toFixed(2)}
+                                        <TableCell className="text-right font-mono text-sm text-slate-500">
+                                            {(() => {
+                                                const lineVal = item.quantity * item.unitPrice;
+                                                const rate = company?.vatRegistered ? Number(item.taxRate) : 0;
+                                                const vatAmt = taxInclusive 
+                                                    ? lineVal - (lineVal / (1 + (rate / 100)))
+                                                    : lineVal * (rate / 100);
+                                                return vatAmt > 0 ? vatAmt.toFixed(2) : "-";
+                                            })()}
+                                        </TableCell>
+                                        <TableCell className="text-right font-bold font-mono">
+                                            {(() => {
+                                                const lineVal = item.quantity * item.unitPrice;
+                                                const rate = company?.vatRegistered ? Number(item.taxRate) : 0;
+                                                const total = taxInclusive ? lineVal : lineVal + (lineVal * (rate / 100));
+                                                return total.toFixed(2);
+                                            })()}
                                         </TableCell>
                                         <TableCell>
                                             <Button variant="ghost" size="icon" onClick={() => items.length > 1 && setItems(items.filter(i => i.localId !== item.localId))}>

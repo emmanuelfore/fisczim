@@ -16,7 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
-import { Plus, Trash2, Loader2, ArrowLeft, Check, ChevronsUpDown, ShieldCheck, Send, Lock, ClipboardList, AlertCircle } from "lucide-react";
+import { Plus, Trash2, Loader2, ArrowLeft, Check, ChevronsUpDown, ShieldCheck, Send, Lock, ClipboardList, AlertCircle, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Command,
@@ -231,6 +231,11 @@ export default function CreateInvoicePage() {
   // New Customer Modal State
   const [isCustomerModalOpen, setCustomerModalOpen] = useState(false);
   const [newCustomerName, setNewCustomerName] = useState("");
+  const [newCustomerEmail, setNewCustomerEmail] = useState("");
+  const [newCustomerPhone, setNewCustomerPhone] = useState("");
+  const [newCustomerTin, setNewCustomerTin] = useState("");
+  const [newCustomerVatNumber, setNewCustomerVatNumber] = useState("");
+  const [newCustomerAddress, setNewCustomerAddress] = useState("");
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [open, setOpen] = useState(false);
   const [openRowIndex, setOpenRowIndex] = useState<number | null>(null);
@@ -393,6 +398,23 @@ export default function CreateInvoicePage() {
   };
 
   const taxBreakdown = calculateTaxBreakdown();
+  const discountAmount = Math.abs(
+    items.reduce((sum, item) => {
+      const lineTotal = item.quantity * item.unitPrice;
+      return lineTotal < 0 ? sum + lineTotal : sum;
+    }, 0)
+  );
+  const hasCustomer = Boolean(customerId);
+  const hasItems = items.length > 0 && items.some(item => item.productId);
+  const hasTaxMethod = typeof taxInclusive === "boolean";
+  const hasFiscalDevice = Boolean(company?.fdmsDeviceId);
+  const readinessChecks = [
+    { label: "Customer selected", complete: hasCustomer },
+    { label: "Items added", complete: hasItems },
+    { label: "Tax method selected", complete: hasTaxMethod },
+    { label: "Fiscal device connected", complete: hasFiscalDevice },
+  ];
+  const readyToIssue = readinessChecks.every(check => check.complete);
 
 
 
@@ -818,24 +840,40 @@ export default function CreateInvoicePage() {
   };
 
   const handleCreateCustomer = async () => {
-    if (!newCustomerName) return;
+    const name = newCustomerName.trim();
+    if (!name) return;
     try {
-      await createCustomer.mutateAsync({
-        name: newCustomerName,
-        customerType: "individual"
+      const newCustomer = await createCustomer.mutateAsync({
+        name,
+        email: newCustomerEmail.trim() || null,
+        phone: newCustomerPhone.trim() || null,
+        tin: newCustomerTin.trim() || null,
+        vatNumber: newCustomerVatNumber.trim() || null,
+        address: newCustomerAddress.trim() || null,
+        customerType: newCustomerTin.trim() || newCustomerVatNumber.trim() ? "business" : "individual"
       });
+      setCustomerId(newCustomer.id.toString());
       setCustomerModalOpen(false);
       setNewCustomerName("");
+      setNewCustomerEmail("");
+      setNewCustomerPhone("");
+      setNewCustomerTin("");
+      setNewCustomerVatNumber("");
+      setNewCustomerAddress("");
+      setCustomerSearch("");
+      setOpen(false);
+      toast({ title: "Customer Added", description: `${newCustomer.name} has been selected for this invoice.` });
     } catch (error) {
       console.error(error);
+      toast({ title: "Customer Not Created", description: error instanceof Error ? error.message : "Please check the customer details and try again.", variant: "destructive" });
     }
   };
 
   return (
     <Layout>
-      <div className="bg-slate-50/50 min-h-screen pb-20">
+      <div className="min-h-screen space-y-4 pb-8">
         {isLockedByOther && (
-          <div className="bg-amber-50 border-l-4 border-amber-500 p-4 mb-4 rounded-r shadow-sm">
+          <div className="rounded-[14px] border border-amber-200 bg-amber-50 p-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
             <div className="flex">
               <div className="flex-shrink-0">
                 <Lock className="h-5 w-5 text-amber-500" aria-hidden="true" />
@@ -850,141 +888,137 @@ export default function CreateInvoicePage() {
           </div>
         )}
 
-        <div className="mb-6 flex flex-col md:flex-row gap-4 items-center justify-between no-print">
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" onClick={() => setLocation("/invoices")} className="pl-0 hover:pl-0 hover:bg-transparent text-slate-500 hover:text-slate-900">
+        <div className="no-print flex flex-col gap-3 rounded-2xl border border-[#E5E7EB] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] md:flex-row md:items-center md:justify-between">
+          <div className="flex items-center">
+            <Button variant="ghost" onClick={() => setLocation("/invoices")} className="h-9 px-2 text-slate-500 hover:bg-slate-50 hover:text-slate-900">
               <ArrowLeft className="w-4 h-4 mr-2" /> Back
             </Button>
-            <h1 className="text-2xl font-bold text-slate-900">
-              {isEditing
-                ? (existingInvoice?.status === "quote" ? "Edit Quotation" : (existingInvoice?.transactionType === "CreditNote" ? "Edit Credit Note" : (existingInvoice?.transactionType === "DebitNote" ? "Edit Debit Note" : "Edit Invoice")))
-                : (searchParams.get('type') === 'quote' ? "New Quotation" : "New Invoice")
-              }
-            </h1>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2 md:justify-end">
             <Button
               variant="outline"
               onClick={() => handleActionClick('draft')}
               disabled={loadingAction !== null || isLockedByOther}
+              className="h-9 gap-2"
             >
-              {loadingAction === 'draft' ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ShieldCheck className="w-4 h-4 mr-2" />}
+              {loadingAction === 'draft' ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
               Save Draft
             </Button>
             <Button
               variant="outline"
               onClick={() => handleActionClick('quote')}
               disabled={loadingAction !== null || isLockedByOther}
-              className="hover:bg-slate-50"
+              className="h-9 gap-2 hover:bg-slate-50"
             >
-              {loadingAction === 'quote' ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ClipboardList className="w-4 h-4 mr-2" />}
+              {loadingAction === 'quote' ? <Loader2 className="w-4 h-4 animate-spin" /> : <ClipboardList className="w-4 h-4" />}
               Save as Quotation
+            </Button>
+            <Button
+              variant="outline"
+              className="h-9 gap-2"
+              onClick={() => setIsPreviewOpen(true)}
+            >
+              <Eye className="w-4 h-4" />
+              Preview PDF
             </Button>
             <Button
               onClick={() => handleActionClick('issue')}
               disabled={loadingAction !== null || isLockedByOther}
-              className="bg-primary hover:bg-primary/90 text-white"
+              className="h-9 gap-2 bg-[#2563EB] text-white shadow-sm hover:bg-[#1D4ED8]"
             >
-              {loadingAction === 'issue' ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}
+              {loadingAction === 'issue' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
               Issue Invoice
-            </Button>
-            <Button variant="outline" className="gap-2" onClick={() => setIsPreviewOpen(true)}>
-              <Eye className="w-4 h-4" />
-              Preview PDF
             </Button>
 
 
           </div>
         </div>
 
-        <div className="max-w-7xl mx-auto px-6 py-8">
-          <div className="bg-white shadow-xl border border-slate-200 rounded-2xl overflow-hidden">
-            {/* Header Section */}
-            <div className="bg-gradient-to-r from-slate-50 to-white border-b border-slate-100 px-8 md:px-12 py-8">
-              <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-6">
-                <div className="space-y-2">
-                  <h1 className="text-4xl font-bold text-slate-900 tracking-tight">
-                    {searchParams.get('type') === 'quote' || existingInvoice?.status === 'quote'
-                      ? "OFFICIAL QUOTATION"
-                      : (existingInvoice?.fiscalCode
-                        ? (existingInvoice?.transactionType === "CreditNote" ? "FISCAL CREDIT NOTE" : (existingInvoice?.transactionType === "DebitNote" ? "FISCAL DEBIT NOTE" : (company?.vatRegistered ? "FISCAL TAX INVOICE" : "FISCAL INVOICE")))
-                        : (existingInvoice?.transactionType === "CreditNote" ? "CREDIT NOTE" : (existingInvoice?.transactionType === "DebitNote" ? "DEBIT NOTE" : "TAX INVOICE")))
-                    }
-                  </h1>
-                  <p className="text-slate-600 text-lg">Create and customize your document</p>
-                </div>
-
-                <div className="flex flex-col items-start lg:items-end gap-4">
-                  <div className="flex items-center gap-3 bg-white p-2 rounded-xl border border-slate-200 shadow-sm">
-                    <Button
-                      variant={taxInclusive ? "ghost" : "default"}
-                      size="sm"
-                      onClick={() => setTaxInclusive(false)}
-                      className="text-sm font-medium px-4 py-2"
-                    >
-                      Tax Exclusive
-                    </Button>
-                    <Button
-                      variant={taxInclusive ? "default" : "ghost"}
-                      size="sm"
-                      onClick={() => setTaxInclusive(true)}
-                      className="text-sm font-medium px-4 py-2"
-                    >
-                      Tax Inclusive
-                    </Button>
-                  </div>
-                  <p className="text-xs text-slate-500">Choose your tax calculation method</p>
-                </div>
-              </div>
-            </div>
-
+        <div className="mx-auto max-w-[1600px]">
+          <div className="space-y-4">
             {/* Main Content */}
-            <div className="px-8 md:px-12 py-10 space-y-12">
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,7fr)_minmax(320px,3fr)]">
+            <div className="space-y-4">
 
               {/* Invoice Details Header */}
-              <div className="bg-slate-50/30 rounded-2xl p-8 border border-slate-200">
-                <h3 className="text-lg font-semibold text-slate-800 mb-6 uppercase tracking-wide">Document Details</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+              <div className="rounded-2xl border border-[#E5E7EB] bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <h3 className="text-base font-semibold text-[#0F172A]">Invoice Setup</h3>
+                    <p className="text-sm text-[#64748B]">Document identifiers, dates, currency, and fiscal device details.</p>
+                    <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-[#64748B]">
+                      {searchParams.get('type') === 'quote' || existingInvoice?.status === 'quote'
+                        ? "Official quotation"
+                        : (existingInvoice?.fiscalCode
+                          ? (existingInvoice?.transactionType === "CreditNote" ? "Fiscal credit note" : (existingInvoice?.transactionType === "DebitNote" ? "Fiscal debit note" : (company?.vatRegistered ? "Fiscal tax invoice" : "Fiscal invoice")))
+                          : (existingInvoice?.transactionType === "CreditNote" ? "Credit note" : (existingInvoice?.transactionType === "DebitNote" ? "Debit note" : "Tax invoice")))
+                      }
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col items-start gap-1 lg:items-end">
+                    <div className="flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1">
+                      <Button
+                        variant={taxInclusive ? "ghost" : "default"}
+                        size="sm"
+                        onClick={() => setTaxInclusive(false)}
+                        className="h-8 px-3 text-xs font-semibold"
+                      >
+                        Tax Exclusive
+                      </Button>
+                      <Button
+                        variant={taxInclusive ? "default" : "ghost"}
+                        size="sm"
+                        onClick={() => setTaxInclusive(true)}
+                        className="h-8 px-3 text-xs font-semibold"
+                      >
+                        Tax Inclusive
+                      </Button>
+                    </div>
+                    <p className="text-xs text-[#64748B]">Tax calculation method</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-4">
                   <div className="space-y-1.5">
-                    <Label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Invoice No</Label>
-                    <div className="font-mono font-bold text-slate-700 bg-white/50 px-2 py-1 rounded border border-slate-100">
+                    <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#64748B]">Invoice No</Label>
+                    <div className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 font-mono text-xs font-bold text-slate-700">
                       {isEditing && existingInvoice ? existingInvoice.invoiceNumber : "[Auto-Generated]"}
                     </div>
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Fiscal Day</Label>
-                    <div className="font-mono font-bold text-slate-700 bg-white/50 px-2 py-1 rounded border border-slate-100">
+                    <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#64748B]">Fiscal Day</Label>
+                    <div className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 font-mono text-xs font-bold text-slate-700">
                       {isEditing && existingInvoice ? (existingInvoice.fiscalDayNo || "-") : "[Auto-Generated]"}
                     </div>
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Date</Label>
+                    <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#64748B]">Date</Label>
                     <Input
                       type="date"
                       value={issueDate}
                       onChange={(e) => setIssueDate(e.target.value)}
-                      className="h-9 py-0 px-3 w-40 bg-white border-slate-200"
+                      className="h-11 rounded-xl bg-white px-3 py-0"
                       required
                     />
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Due Date</Label>
+                    <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#64748B]">Due Date</Label>
                     <Input
                       type="date"
                       value={dueDate}
                       onChange={(e) => setDueDate(e.target.value)}
-                      className="h-9 py-0 px-3 w-40 bg-white border-slate-200"
+                      className="h-11 rounded-xl bg-white px-3 py-0"
                       required
                     />
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Currency</Label>
+                    <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#64748B]">Currency</Label>
                     <Select value={currencyCode} onValueChange={handleCurrencyChange}>
-                      <SelectTrigger className="h-9 py-0 px-3 w-32 bg-white border-slate-200">
+                      <SelectTrigger className="h-11 rounded-xl bg-white px-3 py-0">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -996,9 +1030,9 @@ export default function CreateInvoicePage() {
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Payment Method</Label>
+                    <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#64748B]">Payment Method</Label>
                     <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-                      <SelectTrigger className="h-9 py-0 px-3 w-44 bg-white border-slate-200">
+                      <SelectTrigger className="h-11 rounded-xl bg-white px-3 py-0">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -1012,8 +1046,8 @@ export default function CreateInvoicePage() {
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Fiscal Device ID</Label>
-                    <div className="text-slate-900 font-mono font-medium pt-1">
+                    <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#64748B]">Fiscal Device ID</Label>
+                    <div className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 font-mono text-xs font-medium text-slate-900">
                       {company?.fdmsDeviceId || "Not Registered"}
                     </div>
 
@@ -1022,24 +1056,29 @@ export default function CreateInvoicePage() {
               </div>
 
               {/* Seller & Buyer Section */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
+              <div className="rounded-2xl border border-[#E5E7EB] bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                <div className="mb-4">
+                  <h3 className="text-base font-semibold text-[#0F172A]">Seller & Buyer</h3>
+                  <p className="text-sm text-[#64748B]">Confirm the issuing company and select the customer for this invoice.</p>
+                </div>
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-[0.9fr_1.1fr]">
                 {/* Seller Details */}
-                <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
-                  <div className="flex items-center gap-3 mb-6">
-                    <div className="p-2 bg-blue-100 rounded-lg">
-                      <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="rounded-2xl border border-[#E5E7EB] bg-slate-50/70 p-4">
+                  <div className="mb-3 flex items-center gap-2">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-[10px] bg-blue-50">
+                      <svg className="h-4 w-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                       </svg>
                     </div>
-                    <h3 className="text-lg font-semibold text-slate-800 uppercase tracking-wide">Seller</h3>
+                    <h4 className="text-sm font-semibold text-[#0F172A]">Seller</h4>
                   </div>
-                  <div className="flex gap-6 items-start">
+                  <div className="flex gap-4 items-start">
                     {company?.logoUrl && (
                       <div className="flex-shrink-0">
                         <img
                           src={company.logoUrl}
                           alt="Company Logo"
-                          className="h-20 w-32 object-contain rounded-lg border border-slate-100"
+                          className="h-14 w-24 rounded-[10px] border border-slate-100 object-contain"
                           onError={(e) => {
                             console.error("Logo load error:", e);
                             e.currentTarget.style.display = 'none';
@@ -1047,10 +1086,10 @@ export default function CreateInvoicePage() {
                         />
                       </div>
                     )}
-                    <div className="flex-1 space-y-3">
-                      <h4 className="text-xl font-bold text-slate-900">{company?.tradingName || company?.name || "Company Name"}</h4>
-                      <div className="text-slate-600 space-y-2 text-sm">
-                        <div className="grid grid-cols-2 gap-4">
+                    <div className="flex-1 space-y-2">
+                      <h4 className="text-base font-semibold text-[#0F172A]">{company?.tradingName || company?.name || "Company Name"}</h4>
+                      <div className="space-y-1.5 text-xs text-[#64748B]">
+                        <div className="grid grid-cols-2 gap-3">
                           <p><span className="font-medium text-slate-500">TIN:</span> <span className="font-mono text-slate-900">{company?.tin || "-"}</span></p>
                           <p><span className="font-medium text-slate-500">VAT:</span> <span className="font-mono text-slate-900">{company?.vatNumber || "-"}</span></p>
                         </div>
@@ -1062,18 +1101,18 @@ export default function CreateInvoicePage() {
                 </div>
 
                 {/* Buyer Details */}
-                <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
-                  <div className="flex items-center gap-3 mb-6">
-                    <div className="p-2 bg-green-100 rounded-lg">
-                      <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="rounded-2xl border border-blue-100 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                  <div className="mb-3 flex items-center gap-2">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-[10px] bg-green-50">
+                      <svg className="h-4 w-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                       </svg>
                     </div>
-                    <h3 className="text-lg font-semibold text-slate-800 uppercase tracking-wide">Buyer</h3>
+                    <h4 className="text-sm font-semibold text-[#0F172A]">Buyer</h4>
                   </div>
-                  <div className="space-y-4">
-                    <div className="space-y-3">
-                      <Label className="text-sm font-semibold text-slate-700 block">Select Customer</Label>
+                  <div className="space-y-3">
+                    <div className="space-y-2">
+                      <Label className="block text-[11px] font-semibold uppercase tracking-wide text-[#64748B]">Select Customer</Label>
                       <div className="flex gap-2">
                         <Popover open={open} onOpenChange={setOpen}>
                           <PopoverTrigger asChild>
@@ -1081,7 +1120,7 @@ export default function CreateInvoicePage() {
                               variant="outline"
                               role="combobox"
                               aria-expanded={open}
-                              className="flex-1 justify-between bg-white border-slate-200 h-12 text-sm"
+                              className="h-11 flex-1 justify-between rounded-xl border-slate-200 bg-white text-sm"
                             >
                               {customerId
                                 ? customers?.find((customer) => customer.id.toString() === customerId)?.name
@@ -1157,6 +1196,20 @@ export default function CreateInvoicePage() {
                             </Command>
                           </PopoverContent>
                         </Popover>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-11 shrink-0 gap-2 rounded-xl border-blue-200 bg-blue-50 px-3 text-blue-700 hover:bg-blue-100 hover:text-blue-800"
+                          disabled={isLockedByOther}
+                          onClick={() => {
+                            setNewCustomerName(customerSearch.trim());
+                            setCustomerModalOpen(true);
+                            setOpen(false);
+                          }}
+                        >
+                          <Plus className="h-4 w-4" />
+                          Add
+                        </Button>
                       </div>
                     </div>
 
@@ -1165,10 +1218,10 @@ export default function CreateInvoicePage() {
                       const c = customers?.find(cust => cust.id.toString() === customerId);
                       if (!c) return null;
                       return (
-                        <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
-                          <h4 className="text-lg font-bold text-slate-900 mb-3">{c.name}</h4>
-                          <div className="text-slate-600 space-y-2 text-sm">
-                            <div className="grid grid-cols-2 gap-4">
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                          <h4 className="mb-2 text-base font-semibold text-[#0F172A]">{c.name}</h4>
+                          <div className="space-y-1.5 text-xs text-[#64748B]">
+                            <div className="grid grid-cols-2 gap-3">
                               <p><span className="font-medium text-slate-500">TIN:</span> <span className="font-mono text-slate-900">{c.tin || "-"}</span></p>
                               <p><span className="font-medium text-slate-500">VAT:</span> <span className="font-mono text-slate-900">{c.vatNumber || "-"}</span></p>
                             </div>
@@ -1181,30 +1234,46 @@ export default function CreateInvoicePage() {
                   </div>
                 </div>
               </div>
+              </div>
 
               {/* Invoice Items Section */}
-              <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="p-2 bg-purple-100 rounded-lg">
-                    <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                    </svg>
+              <div className="rounded-2xl border border-[#E5E7EB] bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-[10px] bg-blue-50">
+                      <svg className="h-4 w-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h3 className="text-base font-semibold text-[#0F172A]">Items</h3>
+                      <p className="text-sm text-[#64748B]">Add products, services, tax, and discounts.</p>
+                    </div>
                   </div>
-                  <h3 className="text-lg font-semibold text-slate-800 uppercase tracking-wide">Invoice Items</h3>
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="outline" size="sm" onClick={handleAddItem} className="h-9 gap-2 rounded-xl">
+                      <Plus className="h-4 w-4" /> Add Item
+                    </Button>
+                    <Button variant="outline" size="sm" className="h-9 gap-2 rounded-xl" type="button">
+                      <Search className="h-4 w-4" /> Scan Barcode
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={handleAddItem} className="h-9 gap-2 rounded-xl" type="button">
+                      <Plus className="h-4 w-4" /> Add Discount
+                    </Button>
+                  </div>
                 </div>
-                <div className="border border-slate-200 rounded-lg overflow-hidden bg-white">
+                <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
                   <Table>
                     <TableHeader className="bg-slate-50 border-b border-slate-100">
                       <TableRow className="hover:bg-slate-50">
-                        <TableHead className="w-[240px] pl-4">Item (Search Name/Code)</TableHead>
-                        <TableHead className="min-w-[150px]">Description</TableHead>
-                        <TableHead className="w-[100px] text-center">Qty</TableHead>
-                        <TableHead className="w-[140px] text-right">
-                          <div>Unit Price {taxInclusive ? '(Incl)' : '(Excl)'}</div>
-                          <div className="text-[10px] lowercase font-normal text-slate-400 no-underline">(Neg. for discount)</div>
-                        </TableHead>
-                        <TableHead className="w-[120px] text-right">Total Amount (incl. tax)</TableHead>
-                        <TableHead className="w-[50px]"></TableHead>
+                        <TableHead className="w-[220px] min-w-[220px] pl-4">Item</TableHead>
+                        <TableHead className="min-w-[180px]">Description</TableHead>
+                        <TableHead className="w-[92px] min-w-[92px] text-center">Quantity</TableHead>
+                        <TableHead className="w-[130px] min-w-[130px] text-right">Unit Price</TableHead>
+                        <TableHead className="w-[90px] min-w-[90px] text-center">VAT %</TableHead>
+                        <TableHead className="w-[110px] min-w-[110px] text-right">Discount</TableHead>
+                        <TableHead className="w-[130px] min-w-[130px] text-right">Amount</TableHead>
+                        <TableHead className="w-[56px] min-w-[56px]">Action</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1213,6 +1282,7 @@ export default function CreateInvoicePage() {
                           const lineVal = item.quantity * item.unitPrice;
                           let vatAmt = 0;
                           let totalAmt = 0;
+                          const lineDiscount = lineVal < 0 ? Math.abs(lineVal) : 0;
 
                           if (taxInclusive) {
                             totalAmt = lineVal;
@@ -1233,9 +1303,9 @@ export default function CreateInvoicePage() {
                               animate={{ opacity: 1, y: 0 }}
                               exit={{ opacity: 0, x: -20 }}
                               transition={{ duration: 0.2 }}
-                              className="group hover:bg-slate-50/30 transition-colors border-b border-slate-50"
+                              className="group h-14 border-b border-slate-100 transition-colors hover:bg-[#F8FAFC]"
                             >
-                              <TableCell className="align-middle pl-4 py-3 max-w-[240px]">
+                              <TableCell className="align-middle pl-4 py-2 max-w-[220px]">
                                 <Popover
                                   open={openRowIndex === index}
                                   onOpenChange={(isOpen) => setOpenRowIndex(isOpen ? index : null)}
@@ -1245,7 +1315,7 @@ export default function CreateInvoicePage() {
                                       variant="outline"
                                       role="combobox"
                                       className={cn(
-                                        "w-full justify-between bg-white h-9 px-3 font-normal overflow-hidden",
+                                        "h-10 w-full justify-between overflow-hidden rounded-xl bg-white px-3 font-normal",
                                         !item.productId && "text-muted-foreground"
                                       )}
                                     >
@@ -1365,24 +1435,24 @@ export default function CreateInvoicePage() {
                                   </PopoverContent>
                                 </Popover>
                               </TableCell>
-                              <TableCell className="align-middle py-3">
+                              <TableCell className="align-middle py-2">
                                 <Input
                                   placeholder="Description..."
                                   value={item.description}
                                   onChange={(e) => updateItem(item.localId, 'description', e.target.value)}
-                                  className="bg-transparent border-transparent hover:border-slate-200 focus:border-primary focus:bg-white h-9 px-2 text-sm transition-all"
+                                  className="h-10 rounded-xl border-transparent bg-transparent px-2 text-sm transition-all hover:border-slate-200 focus:border-primary focus:bg-white"
                                 />
                               </TableCell>
-                              <TableCell className="align-middle py-3">
+                              <TableCell className="align-middle py-2">
                                 <Input
                                   type="number"
                                   min="1"
                                   value={item.quantity}
                                   onChange={(e) => updateItem(item.localId, 'quantity', parseFloat(e.target.value) || 0)}
-                                  className="bg-transparent border-transparent hover:border-slate-200 focus:border-primary focus:bg-white h-9 px-2 text-center text-sm font-medium w-full transition-all"
+                                  className="h-10 w-full rounded-xl border-transparent bg-transparent px-2 text-center text-sm font-medium transition-all hover:border-slate-200 focus:border-primary focus:bg-white"
                                 />
                               </TableCell>
-                              <TableCell className="align-middle py-3">
+                              <TableCell className="align-middle py-2">
                                 <Input
                                   type="number"
                                   step="0.01"
@@ -1393,13 +1463,25 @@ export default function CreateInvoicePage() {
                                     const val = parseFloat(e.target.value) || 0;
                                     updateItem(item.localId, 'unitPrice', parseFloat(val.toFixed(2)));
                                   }}
-                                  className="bg-transparent border-transparent hover:border-slate-200 focus:border-primary focus:bg-white h-9 px-2 text-right text-sm font-mono w-full transition-all"
+                                  className="h-10 w-full rounded-xl border-transparent bg-transparent px-2 text-right font-mono text-sm transition-all hover:border-slate-200 focus:border-primary focus:bg-white"
                                 />
                               </TableCell>
-                              <TableCell className="text-right font-bold font-mono text-slate-900 align-middle py-3 pr-4">
+                              <TableCell className="align-middle py-2">
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  value={Number(item.taxRate)}
+                                  onChange={(e) => updateItem(item.localId, 'taxRate', parseFloat(e.target.value) || 0)}
+                                  className="h-10 w-full rounded-xl border-transparent bg-transparent px-2 text-center font-mono text-sm transition-all hover:border-slate-200 focus:border-primary focus:bg-white"
+                                />
+                              </TableCell>
+                              <TableCell className="align-middle py-2 text-right font-mono text-sm font-semibold text-slate-500">
+                                {lineDiscount > 0 ? `${currentSymbol}${lineDiscount.toFixed(2)}` : "-"}
+                              </TableCell>
+                              <TableCell className="text-right font-bold font-mono text-slate-900 align-middle py-2 pr-4">
                                 {totalAmt.toFixed(2)}
                               </TableCell>
-                              <TableCell className="align-middle py-3">
+                              <TableCell className="align-middle py-2">
                                 <Button
                                   variant="ghost"
                                   size="icon"
@@ -1415,7 +1497,7 @@ export default function CreateInvoicePage() {
                       </AnimatePresence>
                     </TableBody>
                   </Table>
-                  <div className="p-2 border-t border-slate-100 bg-slate-50/30">
+                  <div className="border-t border-slate-100 bg-slate-50/60 p-2">
                     <Button variant="ghost" size="sm" onClick={handleAddItem} className="text-primary hover:text-primary hover:bg-primary/5 w-full justify-start h-8">
                       <Plus className="w-3.5 h-3.5 mr-2" /> Add Line Item
                     </Button>
@@ -1423,18 +1505,18 @@ export default function CreateInvoicePage() {
                 </div>
               </div>
 
-              {/* Notes & Banking Section */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
+              {/* Additional Notes Section */}
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                 {/* Notes Section */}
-                <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
-                  <div className="flex items-center gap-3 mb-6">
-                    <div className="p-2 bg-amber-100 rounded-lg">
-                      <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="rounded-2xl border border-[#E5E7EB] bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                  <div className="mb-3 flex items-center gap-2">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-[10px] bg-amber-50">
+                      <svg className="h-4 w-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                       </svg>
                     </div>
                     <div className="flex-1">
-                      <h3 className="text-lg font-semibold text-slate-800 uppercase tracking-wide">
+                      <h3 className="text-base font-semibold text-[#0F172A]">
                         {(existingInvoice?.transactionType === "CreditNote" || existingInvoice?.transactionType === "DebitNote") ? "REASON" : "Notes"}
                         {(existingInvoice?.transactionType === "CreditNote" || existingInvoice?.transactionType === "DebitNote") && <span className="text-red-500 ml-1">*</span>}
                       </h3>
@@ -1448,7 +1530,7 @@ export default function CreateInvoicePage() {
                       ? "Explain why this credit/debit note is being issued (e.g., Return of damaged goods, Price adjustment)..."
                       : "Invoice notes, terms and conditions, payment instructions, etc."}
                     className={cn(
-                      "bg-slate-50 border-slate-200 min-h-[120px] resize-none text-sm rounded-lg transition-all",
+                      "min-h-[88px] resize-none rounded-[10px] border-slate-200 bg-slate-50 text-sm transition-all",
                       (existingInvoice?.transactionType === "CreditNote" || existingInvoice?.transactionType === "DebitNote") && !notes?.trim() && "border-red-200 focus:border-red-500"
                     )}
                     value={notes}
@@ -1458,24 +1540,24 @@ export default function CreateInvoicePage() {
                 </div>
 
                 {/* Banking Details Section */}
-                <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
-                  <div className="flex items-center gap-3 mb-6">
-                    <div className="p-2 bg-emerald-100 rounded-lg">
-                      <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="rounded-2xl border border-[#E5E7EB] bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                  <div className="mb-3 flex items-center gap-2">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-[10px] bg-emerald-50">
+                      <svg className="h-4 w-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
                       </svg>
                     </div>
-                    <h3 className="text-lg font-semibold text-slate-800 uppercase tracking-wide">Banking Details</h3>
+                    <h3 className="text-base font-semibold text-[#0F172A]">Banking Details</h3>
                   </div>
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-2">
                         <Label className="text-xs font-semibold uppercase text-slate-400">Bank Name</Label>
                         <Input
                           placeholder="e.g. Stanbic, CBZ"
                           value={bankName}
                           onChange={e => setBankName(e.target.value)}
-                          className="bg-white border-slate-200 h-10"
+                          className="h-11 rounded-xl border-slate-200 bg-white"
                         />
                       </div>
                       <div className="space-y-2">
@@ -1484,18 +1566,18 @@ export default function CreateInvoicePage() {
                           placeholder="Beneficiary Name"
                           value={accountName}
                           onChange={e => setAccountName(e.target.value)}
-                          className="bg-white border-slate-200 h-10"
+                          className="h-11 rounded-xl border-slate-200 bg-white"
                         />
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-2">
                         <Label className="text-xs font-semibold uppercase text-slate-400">Account Number</Label>
                         <Input
                           placeholder="Account Number"
                           value={accountNumber}
                           onChange={e => setAccountNumber(e.target.value)}
-                          className="bg-white border-slate-200 h-10 font-mono"
+                          className="h-11 rounded-xl border-slate-200 bg-white font-mono"
                         />
                       </div>
                       <div className="space-y-2">
@@ -1504,7 +1586,7 @@ export default function CreateInvoicePage() {
                           placeholder="Sort Code"
                           value={branchCode}
                           onChange={e => setBranchCode(e.target.value)}
-                          className="bg-white border-slate-200 h-10"
+                          className="h-11 rounded-xl border-slate-200 bg-white"
                         />
                       </div>
                     </div>
@@ -1512,24 +1594,30 @@ export default function CreateInvoicePage() {
                 </div>
               </div>
 
-              {/* Totals & Verification Section */}
-              <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="p-2 bg-indigo-100 rounded-lg">
-                    <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              </div>
+
+              {/* Sticky Summary */}
+              <aside className="xl:sticky xl:top-[96px] xl:self-start">
+              <div className="rounded-2xl border border-[#E5E7EB] bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                <div className="mb-3 flex items-center gap-2">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-[10px] bg-indigo-50">
+                    <svg className="h-4 w-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                     </svg>
                   </div>
-                  <h3 className="text-lg font-semibold text-slate-800 uppercase tracking-wide">Invoice Summary</h3>
+                  <div>
+                    <h3 className="text-base font-semibold text-[#0F172A]">Invoice Summary</h3>
+                    <p className="text-xs text-[#64748B]">Live totals and fiscal readiness.</p>
+                  </div>
                 </div>
 
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center py-3 border-b border-slate-100">
-                    <span className="text-slate-600 font-medium">{!taxInclusive ? "Total (excl. tax)" : "Subtotal"}</span>
-                    <span className="font-mono font-bold text-slate-900">{currentSymbol}{subtotal.toFixed(2)}</span>
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center border-b border-slate-100 py-2">
+                    <span className="text-sm font-medium text-[#64748B]">{!taxInclusive ? "Total (excl. tax)" : "Subtotal"}</span>
+                    <span className="font-mono text-sm font-bold text-slate-900">{currentSymbol}{subtotal.toFixed(2)}</span>
                   </div>
 
-                  <div className="bg-slate-50 rounded-lg p-3 border border-slate-200 my-4">
+                  <div className="my-3 rounded-[10px] border border-slate-200 bg-slate-50 p-3">
                     <h4 className="text-[10px] font-bold text-slate-700 uppercase mb-2 text-center">Tax Analysis</h4>
                     <div className="grid grid-cols-4 gap-2 text-[9px] font-bold text-slate-500 uppercase mb-1 border-b border-slate-200 pb-1">
                       <div className="text-left font-bold text-slate-500 uppercase">VAT %</div>
@@ -1565,48 +1653,158 @@ export default function CreateInvoicePage() {
                     </div>
                   </div>
 
-                  <div className="flex justify-between items-center py-3 border-b border-slate-100">
-                    <span className="text-slate-600 font-medium">Total Tax</span>
-                    <span className="font-mono font-bold text-slate-900">{currentSymbol}{taxAmount.toFixed(2)}</span>
+                  <div className="flex justify-between items-center border-b border-slate-100 py-2">
+                    <span className="text-sm font-medium text-[#64748B]">Total Tax</span>
+                    <span className="font-mono text-sm font-bold text-slate-900">{currentSymbol}{taxAmount.toFixed(2)}</span>
                   </div>
 
-                  <div className="flex justify-between items-center py-4 bg-slate-50 rounded-lg px-4">
-                    <span className="text-xl font-bold text-slate-900">Total</span>
-                    <span className="text-xl font-mono font-bold text-slate-900">{currentSymbol}{total.toFixed(2)}</span>
+                  <div className="flex justify-between items-center border-b border-slate-100 py-2">
+                    <span className="text-sm font-medium text-[#64748B]">Discount</span>
+                    <span className="font-mono text-sm font-bold text-slate-900">{currentSymbol}{discountAmount.toFixed(2)}</span>
+                  </div>
+
+                  <div className="flex items-center justify-between rounded-xl bg-blue-50 px-4 py-3">
+                    <span className="text-base font-bold text-[#0F172A]">Total Amount</span>
+                    <span className="font-mono text-2xl font-bold text-[#0F172A]">{currentSymbol}{total.toFixed(2)}</span>
                   </div>
                 </div>
 
-                <div className="mt-6 pt-6 border-t border-slate-100">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="p-2 bg-blue-100 rounded-lg">
-                      <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="mt-5 border-t border-slate-100 pt-4">
+                  <div className="mb-3 flex items-center gap-2">
+                    <div className="flex h-7 w-7 items-center justify-center rounded-[10px] bg-blue-50">
+                      <svg className="h-4 w-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
                     </div>
                     <div>
-                      <h4 className="text-sm font-semibold text-slate-800">Verification</h4>
-                      <p className="text-xs text-slate-500">Will be generated on submission</p>
+                      <h4 className="text-sm font-semibold text-slate-800">Fiscal Readiness</h4>
+                      <p className="text-xs text-slate-500">{readyToIssue ? "Ready to issue" : "Complete the checklist before issuing"}</p>
                     </div>
                   </div>
 
-                  <div className="bg-slate-50 rounded-lg p-4">
-                    <div className="flex items-start gap-3">
-                      <div className="bg-white border-2 border-slate-100 rounded-lg h-16 w-16 flex items-center justify-center text-[10px] text-slate-400 text-center p-1 flex-shrink-0">
-                        [QR]
+                  <div className="space-y-2">
+                    {readinessChecks.map(check => (
+                      <div key={check.label} className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+                        <span className="text-sm font-medium text-[#64748B]">{check.label}</span>
+                        <span className={cn(
+                          "flex h-6 w-6 items-center justify-center rounded-full",
+                          check.complete ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"
+                        )}>
+                          {check.complete ? <Check className="h-3.5 w-3.5" /> : <AlertCircle className="h-3.5 w-3.5" />}
+                        </span>
                       </div>
-                      <div className="text-xs text-slate-600 leading-relaxed">
-                        <p className="font-medium mb-1">Digital Verification</p>
-                        <p>QR code and fiscal signature will be automatically generated when you submit this invoice to ZIMRA for compliance verification.</p>
-                      </div>
-                    </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-4 rounded-xl bg-slate-50 p-3">
+                    <p className="text-xs leading-relaxed text-slate-600">
+                      QR code and fiscal signature will be generated after fiscal submission.
+                    </p>
                   </div>
                 </div>
+
+                <div className="mt-5 grid gap-2">
+                  <Button variant="outline" className="h-11 rounded-xl gap-2" onClick={() => setIsPreviewOpen(true)}>
+                    <Eye className="h-4 w-4" /> Preview PDF
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="h-11 rounded-xl gap-2 border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 hover:text-blue-800"
+                    onClick={() => handleActionClick('issue')}
+                    disabled={loadingAction !== null || isLockedByOther}
+                  >
+                    {loadingAction === 'issue' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                    Review & Issue Invoice
+                  </Button>
+                </div>
               </div>
+              </aside>
             </div>
           </div>
         </div>
 
       </div>
+
+      {/* Create Customer Dialog */}
+      <Dialog open={isCustomerModalOpen} onOpenChange={setCustomerModalOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Create customer</DialogTitle>
+            <div className="text-sm text-slate-500">
+              Add a customer without leaving this invoice.
+            </div>
+          </DialogHeader>
+          <div className="grid gap-3 py-2">
+            <div className="space-y-1.5">
+              <Label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Customer Name</Label>
+              <Input
+                autoFocus
+                value={newCustomerName}
+                onChange={(e) => setNewCustomerName(e.target.value)}
+                placeholder="e.g. Acme Trading"
+              />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Email</Label>
+                <Input
+                  type="email"
+                  value={newCustomerEmail}
+                  onChange={(e) => setNewCustomerEmail(e.target.value)}
+                  placeholder="accounts@example.com"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Phone</Label>
+                <Input
+                  value={newCustomerPhone}
+                  onChange={(e) => setNewCustomerPhone(e.target.value)}
+                  placeholder="+263..."
+                />
+              </div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">TIN</Label>
+                <Input
+                  value={newCustomerTin}
+                  onChange={(e) => setNewCustomerTin(e.target.value)}
+                  placeholder="10 digits"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">VAT Number</Label>
+                <Input
+                  value={newCustomerVatNumber}
+                  onChange={(e) => setNewCustomerVatNumber(e.target.value)}
+                  placeholder="9 or 10 digits"
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Address</Label>
+              <Input
+                value={newCustomerAddress}
+                onChange={(e) => setNewCustomerAddress(e.target.value)}
+                placeholder="Billing address"
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setCustomerModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              className="gap-2 bg-primary text-white hover:bg-primary/90"
+              onClick={handleCreateCustomer}
+              disabled={!newCustomerName.trim() || createCustomer.isPending}
+            >
+              {createCustomer.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+              Create and select
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Validation Warning Dialog */}
       <Dialog open={showValidationDialog} onOpenChange={setShowValidationDialog}>

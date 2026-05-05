@@ -291,7 +291,6 @@ export function TeamManagement({ companyId }: TeamManagementProps) {
                             <Input
                               value={draftScope}
                               onChange={(e) => setScopeDrafts((prev) => ({ ...prev, [user.id]: e.target.value }))}
-                              placeholder="Blank = All, or Beauty,Mother"
                               className="h-8 text-xs"
                             />
                             <Button

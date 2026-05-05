@@ -249,7 +249,7 @@ function MiniSparkline({ tone }: { tone: StatCardProps["tone"] }) {
   };
 
   return (
-    <svg width="82" height="34" viewBox="0 0 82 34" fill="none" aria-hidden="true">
+    <svg width="62" height="24" viewBox="0 0 82 34" fill="none" aria-hidden="true">
       <path d="M2 26C10 18 16 21 23 15C30 9 37 14 44 10C52 5 58 8 65 6C72 4 77 7 80 3" stroke={stroke[tone]} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M2 26C10 18 16 21 23 15C30 9 37 14 44 10C52 5 58 8 65 6C72 4 77 7 80 3V34H2V26Z" fill={stroke[tone]} opacity="0.08" />
     </svg>
@@ -258,17 +258,17 @@ function MiniSparkline({ tone }: { tone: StatCardProps["tone"] }) {
 
 function StatCard({ label, value, icon: Icon, tone, trend, trendTone = "green" }: StatCardProps) {
   return (
-    <div className="rounded-[14px] border border-[#E5E7EB] bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-      <div className="flex items-start justify-between gap-4">
+    <div className="rounded-[14px] border border-[#E5E7EB] bg-white px-3.5 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+      <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <div className={cn("mb-4 flex h-10 w-10 items-center justify-center rounded-[10px] border", toneStyles[tone])}>
-            <Icon className="h-5 w-5" />
+          <div className={cn("mb-2 flex h-7 w-7 items-center justify-center rounded-[9px] border", toneStyles[tone])}>
+            <Icon className="h-3.5 w-3.5" />
           </div>
-          <p className="text-[13px] font-medium text-[#64748B]">{label}</p>
-          <p className="mt-2 text-[28px] font-bold leading-none tracking-tight text-[#0F172A]">{value}</p>
-          <p className={cn("mt-3 text-xs font-semibold", trendTone === "red" ? "text-[#DC2626]" : "text-[#16A34A]")}>{trend}</p>
+          <p className="text-xs font-medium text-[#64748B]">{label}</p>
+          <p className="mt-1 text-[22px] font-bold leading-none tracking-tight text-[#0F172A]">{value}</p>
+          <p className={cn("mt-1.5 truncate text-[11px] font-semibold", trendTone === "red" ? "text-[#DC2626]" : "text-[#16A34A]")}>{trend}</p>
         </div>
-        <div className="mt-10 shrink-0">
+        <div className="shrink-0 self-end">
           <MiniSparkline tone={tone} />
         </div>
       </div>
@@ -311,8 +311,29 @@ function StatusPill({ status, label }: { status: "fiscalized" | "pending" | "fai
   };
 
   return (
-    <span className={cn("inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide", styles[status])}>
+    <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide", styles[status])}>
       {label || status}
+    </span>
+  );
+}
+
+function DocumentTypePill({ invoice }: { invoice: any }) {
+  const rawType = String(invoice.transactionType || invoice.documentType || invoice.type || invoice.status || "").toLowerCase();
+  const isCredit = rawType.includes("credit");
+  const isDebit = rawType.includes("debit");
+  const isQuote = rawType.includes("quote") || rawType.includes("quotation");
+  const label = isCredit ? "Credit note" : isDebit ? "Debit note" : isQuote ? "Quotation" : "Invoice";
+  const className = isCredit
+    ? "bg-red-50 text-red-700 border-red-100"
+    : isDebit
+      ? "bg-amber-50 text-amber-700 border-amber-100"
+      : isQuote
+        ? "bg-blue-50 text-blue-700 border-blue-100"
+        : "bg-slate-100 text-slate-600 border-slate-200";
+
+  return (
+    <span className={cn("inline-flex max-w-full items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide", className)}>
+      {label}
     </span>
   );
 }
@@ -495,10 +516,10 @@ export default function InvoicesPage() {
       <div className="space-y-4">
         <BillingPageActions onExport={handleExport} onSync={handleSyncFdms} />
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
           <StatCard label="Total Invoices" value={totalInvoices.toLocaleString()} icon={ReceiptText} tone="blue" trend={`↑ ${percentOf(displayedInvoices.length, Math.max(totalInvoices, displayedInvoices.length))} visible`} />
           <StatCard label="Fiscalised" value={fiscalisedCount.toLocaleString()} icon={CheckCircle2} tone="green" trend={`↑ ${percentOf(fiscalisedCount, displayedInvoices.length)} of current view`} />
-          <StatCard label="Pending Sync" value={pendingSyncCount.toLocaleString()} icon={Clock} tone="amber" trend={`↑ ${percentOf(pendingSyncCount, displayedInvoices.length)} awaiting FDMS`} />
+          <StatCard label="Pending" value={pendingSyncCount.toLocaleString()} icon={Clock} tone="amber" trend={`↑ ${percentOf(pendingSyncCount, displayedInvoices.length)} awaiting FDMS`} />
           <StatCard label="Failed" value={failedFiscalisation.toLocaleString()} icon={AlertCircle} tone="red" trend={`↓ ${percentOf(failedFiscalisation, displayedInvoices.length)} require review`} trendTone="red" />
         </div>
 
@@ -516,7 +537,7 @@ export default function InvoicesPage() {
                       <SelectContent>
                         <SelectItem value="all">All Statuses</SelectItem>
                         <SelectItem value="draft">Draft</SelectItem>
-                        <SelectItem value="issued">Pending Sync</SelectItem>
+                        <SelectItem value="issued">Pending</SelectItem>
                         <SelectItem value="paid">Paid</SelectItem>
                         <SelectItem value="fiscalized">Fiscalised</SelectItem>
                         <SelectItem value="cancelled">Cancelled</SelectItem>
@@ -560,7 +581,7 @@ export default function InvoicesPage() {
                 <div className="flex flex-wrap gap-2">
                   <QuickChip label="All" active={quickFilter === "all"} onClick={() => applyQuickFilter("all")} />
                   <QuickChip label="Fiscalised" active={quickFilter === "fiscalized"} tone="green" onClick={() => applyQuickFilter("fiscalized")} />
-                  <QuickChip label="Pending Sync" active={quickFilter === "pending"} tone="amber" onClick={() => applyQuickFilter("pending")} />
+                  <QuickChip label="Pending" active={quickFilter === "pending"} tone="amber" onClick={() => applyQuickFilter("pending")} />
                   <QuickChip label="Failed" active={quickFilter === "failed"} tone="red" onClick={() => applyQuickFilter("failed")} />
                   <QuickChip label="Draft" active={quickFilter === "draft"} onClick={() => applyQuickFilter("draft")} />
                   <QuickChip label="Paid" active={quickFilter === "paid"} tone="green" onClick={() => applyQuickFilter("paid")} />
@@ -590,19 +611,29 @@ export default function InvoicesPage() {
             </div>
           ) : (
             <TooltipProvider>
-              <Table className="min-w-[1180px]">
+              <Table className="w-full table-fixed">
+                <colgroup>
+                  <col className="w-[3.5%]" />
+                  <col className="w-[18%]" />
+                  <col className="w-[20%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[12%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[6.5%]" />
+                </colgroup>
                 <TableHeader>
                   <TableRow className="border-[#E5E7EB] bg-[#F8FAFC] hover:bg-[#F8FAFC]">
-                    <TableHead className="h-11 w-12 pl-5"><Checkbox aria-label="Select all invoices" className="border-[#CBD5E1]" /></TableHead>
-                    <TableHead className="h-11 text-xs font-semibold uppercase tracking-wide text-[#64748B]">Invoice #</TableHead>
-                    <TableHead className="h-11 text-xs font-semibold uppercase tracking-wide text-[#64748B]">Customer</TableHead>
-                    <TableHead className="h-11 text-xs font-semibold uppercase tracking-wide text-[#64748B]">Date</TableHead>
-                    <TableHead className="h-11 text-right text-xs font-semibold uppercase tracking-wide text-[#64748B]">Amount</TableHead>
-                    <TableHead className="h-11 text-right text-xs font-semibold uppercase tracking-wide text-[#64748B]">VAT</TableHead>
-                    <TableHead className="h-11 text-xs font-semibold uppercase tracking-wide text-[#64748B]">FDMS Status</TableHead>
-                    <TableHead className="h-11 text-xs font-semibold uppercase tracking-wide text-[#64748B]">Payment Status</TableHead>
-                    <TableHead className="h-11 text-xs font-semibold uppercase tracking-wide text-[#64748B]">Sync Time</TableHead>
-                    <TableHead className="h-11 pr-5 text-right text-xs font-semibold uppercase tracking-wide text-[#64748B]">Actions</TableHead>
+                    <TableHead className="h-10 pl-3"><Checkbox aria-label="Select all invoices" className="border-[#CBD5E1]" /></TableHead>
+                    <TableHead className="h-10 text-[11px] font-semibold uppercase tracking-wide text-[#64748B]">Invoice #</TableHead>
+                    <TableHead className="h-10 text-[11px] font-semibold uppercase tracking-wide text-[#64748B]">Customer</TableHead>
+                    <TableHead className="h-10 text-[11px] font-semibold uppercase tracking-wide text-[#64748B]">Date</TableHead>
+                    <TableHead className="h-10 text-right text-[11px] font-semibold uppercase tracking-wide text-[#64748B]">Amount</TableHead>
+                    <TableHead className="h-10 text-right text-[11px] font-semibold uppercase tracking-wide text-[#64748B]">VAT</TableHead>
+                    <TableHead className="h-10 text-[11px] font-semibold uppercase tracking-wide text-[#64748B]">FDMS</TableHead>
+                    <TableHead className="h-10 text-[11px] font-semibold uppercase tracking-wide text-[#64748B]">Payment</TableHead>
+                    <TableHead className="h-10 pr-3 text-right text-[11px] font-semibold uppercase tracking-wide text-[#64748B]">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -614,86 +645,86 @@ export default function InvoicesPage() {
                       <TableRow
                         key={invoice.id}
                         className={cn(
-                          "group h-14 cursor-pointer border-b border-[#F1F5F9] bg-white transition-colors hover:bg-[#F8FAFC]",
+                          "group h-12 cursor-pointer border-b border-[#F1F5F9] bg-white transition-colors hover:bg-[#F8FAFC]",
                           hasError && "bg-red-50/40 hover:bg-red-50/70"
                         )}
                         onClick={() => setLocation(`/invoices/${invoice.id}`)}
                       >
-                        <TableCell className={cn("py-3 pl-5", hasError && "border-l-2 border-l-[#EF4444]")} onClick={(e) => e.stopPropagation()}>
+                        <TableCell className={cn("py-2 pl-3", hasError && "border-l-2 border-l-[#EF4444]")} onClick={(e) => e.stopPropagation()}>
                           <Checkbox aria-label={`Select invoice ${invoice.invoiceNumber}`} className="border-[#CBD5E1]" />
                         </TableCell>
-                        <TableCell className="py-3">
-                          <div className="flex min-w-[150px] items-center gap-2">
-                            {hasError && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <AlertCircle className="h-4 w-4 shrink-0 text-[#EF4444]" />
-                                </TooltipTrigger>
-                                <TooltipContent side="right" className="max-w-xs text-xs">
-                                  {invoice.validationStatus === "red" ? "ZIMRA validation error. Resolve before closing fiscal day." : "Fiscalisation failed."}
-                                </TooltipContent>
-                              </Tooltip>
-                            )}
-                            <span className="font-mono text-sm font-bold text-[#2563EB]">{invoice.invoiceNumber}</span>
+                        <TableCell className="py-2 pr-2">
+                          <div className="min-w-0 space-y-1">
+                            <div className="flex min-w-0 items-center gap-1.5">
+                              {hasError && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <AlertCircle className="h-3.5 w-3.5 shrink-0 text-[#EF4444]" />
+                                  </TooltipTrigger>
+                                  <TooltipContent side="right" className="max-w-xs text-xs">
+                                    {invoice.validationStatus === "red" ? "ZIMRA validation error. Resolve before closing fiscal day." : "Fiscalisation failed."}
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
+                              <span className="truncate font-mono text-xs font-bold text-[#2563EB]">{invoice.invoiceNumber}</span>
+                            </div>
+                            <DocumentTypePill invoice={invoice} />
                           </div>
                         </TableCell>
-                        <TableCell className="py-3">
+                        <TableCell className="py-2 pr-2">
                           {invoice.customerId ? (
                             <Link href={`/customers/${invoice.customerId}`} onClick={(e) => e.stopPropagation()}>
-                              <span className="text-sm font-semibold text-[#0F172A] hover:text-[#2563EB]">{invoice.customer?.name || "Unknown"}</span>
+                              <span className="block truncate text-xs font-semibold text-[#0F172A] hover:text-[#2563EB]">{invoice.customer?.name || "Unknown"}</span>
                             </Link>
                           ) : (
-                            <span className="text-sm font-medium text-[#64748B]">{invoice.customer?.name || "Walk-in"}</span>
+                            <span className="block truncate text-xs font-medium text-[#64748B]">{invoice.customer?.name || "Walk-in"}</span>
                           )}
                         </TableCell>
-                        <TableCell className="whitespace-nowrap py-3 text-sm font-medium text-[#64748B]">
-                          {invoice.issueDate ? format(new Date(invoice.issueDate), "dd MMM yyyy") : "-"}
+                        <TableCell className="whitespace-nowrap py-2 text-xs font-medium text-[#64748B]">
+                          {invoice.issueDate ? format(new Date(invoice.issueDate), "dd MMM yy") : "-"}
                         </TableCell>
-                        <TableCell className="whitespace-nowrap py-3 text-right text-sm font-bold text-[#0F172A]">
+                        <TableCell className="truncate whitespace-nowrap py-2 text-right text-xs font-bold text-[#0F172A]">
                           {formatMoney(invoice.currency, invoice.total)}
                         </TableCell>
-                        <TableCell className="whitespace-nowrap py-3 text-right text-sm font-semibold text-[#64748B]">
+                        <TableCell className="truncate whitespace-nowrap py-2 text-right text-xs font-semibold text-[#64748B]">
                           {formatMoney(invoice.currency, invoice.taxAmount)}
                         </TableCell>
-                        <TableCell className="py-3">
-                          <StatusPill status={fiscalStatus} label={fiscalStatus === "fiscalized" ? "Fiscalised" : fiscalStatus === "pending" ? "Pending Sync" : fiscalStatus} />
+                        <TableCell className="py-2">
+                          <StatusPill status={fiscalStatus} label={fiscalStatus === "fiscalized" ? "Fiscalised" : fiscalStatus === "pending" ? "Pending" : fiscalStatus} />
                         </TableCell>
-                        <TableCell className="py-3">
+                        <TableCell className="py-2">
                           <StatusPill status={paymentStatus} label={paymentStatus === "paid" ? "Paid" : "Unpaid"} />
                         </TableCell>
-                        <TableCell className="whitespace-nowrap py-3 text-sm font-medium text-[#64748B]">
-                          {getSyncTime(invoice)}
-                        </TableCell>
-                        <TableCell className="py-3 pr-5 text-right">
+                        <TableCell className="py-2 pr-3 text-right">
                           <div className="flex items-center justify-end gap-1">
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-8 w-8 rounded-[10px] text-[#64748B] hover:bg-blue-50 hover:text-[#2563EB]" onClick={(e) => { e.stopPropagation(); setLocation(`/invoices/${invoice.id}`); }}>
-                                  <Eye className="h-4 w-4" />
+                                <Button variant="ghost" size="icon" className="h-7 w-7 rounded-[9px] text-[#64748B] hover:bg-blue-50 hover:text-[#2563EB]" onClick={(e) => { e.stopPropagation(); setLocation(`/invoices/${invoice.id}`); }}>
+                                  <Eye className="h-3.5 w-3.5" />
                                 </Button>
                               </TooltipTrigger>
                               <TooltipContent>View</TooltipContent>
                             </Tooltip>
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-8 w-8 rounded-[10px] text-[#64748B] hover:bg-slate-100 hover:text-[#0F172A]" onClick={(e) => { e.stopPropagation(); setLocation(`/invoices/${invoice.id}`); }}>
-                                  <Printer className="h-4 w-4" />
+                                <Button variant="ghost" size="icon" className="h-7 w-7 rounded-[9px] text-[#64748B] hover:bg-slate-100 hover:text-[#0F172A]" onClick={(e) => { e.stopPropagation(); setLocation(`/invoices/${invoice.id}`); }}>
+                                  <Printer className="h-3.5 w-3.5" />
                                 </Button>
                               </TooltipTrigger>
                               <TooltipContent>Print</TooltipContent>
                             </Tooltip>
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-8 w-8 rounded-[10px] text-[#64748B] hover:bg-slate-100 hover:text-[#0F172A]" onClick={(e) => { e.stopPropagation(); setLocation(`/invoices/${invoice.id}`); }}>
-                                  <Download className="h-4 w-4" />
+                                <Button variant="ghost" size="icon" className="h-7 w-7 rounded-[9px] text-[#64748B] hover:bg-slate-100 hover:text-[#0F172A]" onClick={(e) => { e.stopPropagation(); setLocation(`/invoices/${invoice.id}`); }}>
+                                  <Download className="h-3.5 w-3.5" />
                                 </Button>
                               </TooltipTrigger>
                               <TooltipContent>Download PDF</TooltipContent>
                             </Tooltip>
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                              <Button variant="ghost" className="h-8 w-8 rounded-[10px] p-0 text-[#64748B] hover:bg-slate-100">
-                                <MoreHorizontal className="h-4 w-4" />
+                              <Button variant="ghost" className="h-7 w-7 rounded-[9px] p-0 text-[#64748B] hover:bg-slate-100">
+                                <MoreHorizontal className="h-3.5 w-3.5" />
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="w-48 rounded-[14px] border-[#E5E7EB] p-2 shadow-lg">

@@ -116,7 +116,6 @@ export function Layout({
       label: "Invoices & Billing",
       children: [
         { icon: FileText, label: "Invoices", href: "/invoices" },
-        { icon: ClipboardList, label: "Quotations", href: "/quotations" },
         { icon: RefreshCw, label: "Recurring Invoices", href: "/recurring" },
         { icon: CreditCard, label: "Payments Received", href: "/payments-received" },
       ]
@@ -177,14 +176,8 @@ export function Layout({
     },
     {
       icon: Settings,
-      label: "Administration",
-      children: [
-        { icon: UserCog, label: "Team Management", href: "/settings?tab=team" },
-        { icon: Settings, label: "General Settings", href: "/settings?tab=profile" },
-        { icon: MonitorCheck, label: "POS Configuration", href: "/settings?tab=pos" },
-        { icon: Coins, label: "Currencies", href: "/settings?tab=currencies" },
-        { icon: CreditCard, label: "Subscription", href: "/subscription" },
-      ]
+      label: "Settings",
+      href: "/settings"
     },
   ];
 
@@ -211,7 +204,7 @@ export function Layout({
     const search = typeof window !== "undefined" ? window.location.search : "";
 
     if (location.startsWith("/dashboard")) return { title: "Dashboard", subtitle: "" };
-    if (location.startsWith("/invoices/new")) return { title: "Create Invoice", subtitle: "Prepare and fiscalise a customer invoice." };
+    if (location.startsWith("/invoices/new")) return { title: "Create Invoice", subtitle: "Prepare, validate, and fiscalise a customer invoice." };
     if (location.match(/^\/invoices\/\d+/)) return { title: "Invoice Details", subtitle: "Review, print, fiscalise, and manage invoice payments." };
     if (location.startsWith("/invoices")) return { title: "Invoices", subtitle: "Manage, track, and fiscalise customer invoices." };
     if (location.startsWith("/quotations/new")) return { title: "Create Quotation", subtitle: "Prepare a customer quotation before invoicing." };
@@ -232,6 +225,7 @@ export function Layout({
     if (location.startsWith("/inventory")) return { title: "Stock Ledger", subtitle: "Review inventory transactions and stock movement history." };
     if (location.startsWith("/expenses")) return { title: "Expenses", subtitle: "Track operating expenses and business costs." };
     if (location.startsWith("/tax-config")) return { title: "Tax Configuration", subtitle: "Manage ZIMRA fiscalisation and tax categories." };
+    if (location.startsWith("/pos-settings")) return { title: "POS Configuration", subtitle: "Configure tills, printing, receipts, and sales controls." };
     if (location.startsWith("/settings")) {
       if (search.includes("tab=zimra")) return { title: "ZIMRA Device", subtitle: "Configure fiscal device credentials and FDMS connectivity." };
       if (search.includes("tab=team")) return { title: "Team Management", subtitle: "Manage users, roles, and business access." };

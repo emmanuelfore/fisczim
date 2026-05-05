@@ -1,0 +1,30 @@
+# Ignore everything by default if EAS checks parent directories
+../client
+../server
+../scripts
+../api
+../desktop
+../landing
+../dist
+../shared
+
+# Ignore local heavyweights
+node_modules
+.expo
+.git
+
+# Ignore build artifacts
+android/build
+ios/build
+
+# Ignore the large PDF and leftover binaries in mobile/ root
+FiscalStack — ZIMRA Compliant Invoicing.pdf
+libaed.so
+classes.jar
+libcustom_nvram.so
+libcustom_jni.so
+libPosApi.so
+
+# Ensure the actual module's native libs ARE included
+!modules/z100-printer/android/libs/*.aar
+!modules/z100-printer/android/src/main/jniLibs/**/*.so

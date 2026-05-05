@@ -20,7 +20,6 @@ import { cn } from "@/lib/utils";
 import { Link, useRoute, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { pdf, PDFDownloadLink } from "@react-pdf/renderer";
-import { DataTable } from "@/components/ui/data-table";
 import { api } from "@shared/routes";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
@@ -205,6 +204,38 @@ function PaymentDetailsDialog({ p, company }: { p: any; company: any }) {
   );
 }
 
+function PaymentStatCard({ label, value, detail, tone = "blue" }: { label: string; value: string; detail: string; tone?: "blue" | "green" | "amber" | "slate" }) {
+  const toneClass = {
+    blue: "bg-blue-50 text-blue-600 border-blue-100",
+    green: "bg-emerald-50 text-emerald-600 border-emerald-100",
+    amber: "bg-amber-50 text-amber-600 border-amber-100",
+    slate: "bg-slate-100 text-slate-600 border-slate-200",
+  }[tone];
+
+  return (
+    <Card className="rounded-[14px] border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+      <CardContent className="flex items-center justify-between gap-3 p-3.5">
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-[#64748B]">{label}</p>
+          <p className="mt-1 truncate text-[22px] font-bold leading-none tracking-tight text-[#0F172A]">{value}</p>
+          <p className="mt-1.5 truncate text-[11px] font-semibold text-[#64748B]">{detail}</p>
+        </div>
+        <div className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] border", toneClass)}>
+          <CreditCard className="h-4 w-4" />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function PaymentMethodPill({ method }: { method?: string }) {
+  return (
+    <span className={cn("inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide", METHOD_COLORS[method || "OTHER"] || METHOD_COLORS.OTHER)}>
+      {METHOD_LABELS[method || "OTHER"] || method || "Other"}
+    </span>
+  );
+}
+
 export default function PaymentsReceivedPage() {
   const [match, params] = useRoute("/payments-received/:id?");
   const [, setLocation] = useLocation();
@@ -244,103 +275,164 @@ export default function PaymentsReceivedPage() {
     );
   }) ?? [];
 
-  const columns = [
-    {
-      accessorKey: "paymentDate",
-      header: "Date",
-      cell: ({ row }: any) => {
-        const d = new Date(row.original.paymentDate);
-        return isValid(d) ? format(d, "dd MMM yyyy") : "—";
-      }
-    },
-    {
-      accessorKey: "invoiceNumber",
-      header: "Invoice",
-      cell: ({ row }: any) => (
-        <span className="font-mono text-xs font-bold">{row.original.invoiceNumber || "—"}</span>
-      )
-    },
-    {
-      accessorKey: "customerName",
-      header: "Customer",
-      cell: ({ row }: any) => (
-        <span className="font-bold text-xs">{row.original.customerName || "Walk-in"}</span>
-      )
-    },
-    {
-      accessorKey: "amount",
-      header: "Amount",
-      cell: ({ row }: any) => (
-        <span className="font-black text-xs">
-          {row.original.currency} {Number(row.original.amount).toFixed(2)}
-        </span>
-      )
-    }
-  ];
+  const totalReceived = filtered.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+  const linkedPayments = filtered.filter(payment => payment.invoiceId).length;
+  const averagePayment = filtered.length ? totalReceived / filtered.length : 0;
+  const selectedRangeLabel = `${format(dateRange.from, "dd MMM")} - ${format(dateRange.to, "dd MMM yyyy")}`;
+  const currency = company?.currency || filtered[0]?.currency || "USD";
+  const clearFilters = () => {
+    setSearch("");
+    setDateRange({
+      from: subMonths(startOfMonth(new Date()), 2),
+      to: endOfMonth(new Date()),
+    });
+  };
+
+  if (selectedId) {
+    return (
+      <Layout>
+        <div className="space-y-4">
+          <Button variant="outline" className="h-9 rounded-[10px] border-[#E5E7EB] bg-white text-sm font-semibold text-[#0F172A] shadow-none hover:bg-[#F8FAFC]" onClick={() => setLocation("/payments-received")}>
+            <ArrowLeft className="mr-2 h-4 w-4" /> Back to payments
+          </Button>
+          <PaymentDetailView paymentId={selectedId} company={company} setLocation={setLocation} />
+        </div>
+      </Layout>
+    );
+  }
 
   return (
-    <Layout>
-      <div className="flex -m-6 min-h-screen bg-slate-50/30">
-        {/* Left Panel: Payments List */}
-        <div className={cn(
-          "flex-1 border-r border-slate-200 bg-white min-h-screen shadow-sm transition-all duration-300",
-          selectedId ? "hidden lg:block lg:max-w-md" : "block w-full"
-        )}>
-          <div className="p-6">
-            <div className="flex justify-between items-center mb-6">
-              <h1 className="text-2xl font-bold text-slate-900 uppercase tracking-tight">Payments Received</h1>
-              {selectedId && (
-                <Button variant="outline" size="icon" onClick={() => setLocation("/payments-received")} title="Back to list" className="lg:hidden h-8 w-8 rounded-lg">
-                  <ArrowLeft className="w-4 h-4" />
-                </Button>
-              )}
-            </div>
-            
-            <div className="mb-4 relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <Input
-                placeholder="Search payments..."
-                className="pl-9 h-10 rounded-xl border-slate-200 focus:border-primary/50 transition-colors"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-              />
-            </div>
-            
-            <div className="rounded-xl overflow-hidden border border-slate-100 shadow-sm">
-              <DataTable
-                columns={columns}
-                data={filtered}
-                isLoading={paymentsLoading}
-                onRowClick={(row) => setLocation(`/payments-received/${row.id}`)}
-                selectedId={selectedId}
-              />
-            </div>
-          </div>
+    <Layout hideHeaderTitle headerTitle="Payments Received" headerSubtitle="Track customer payments and receipt activity.">
+      <div className="space-y-4">
+        <div className="flex justify-end">
+          <Button variant="outline" className="h-10 rounded-[10px] border-[#E5E7EB] bg-white px-4 text-sm font-semibold text-[#0F172A] shadow-none hover:bg-[#F8FAFC]">
+            <Download className="mr-2 h-4 w-4 text-[#64748B]" /> Export
+          </Button>
         </div>
 
-        {/* Right Panel: Preview */}
-        <div className={cn(
-          "flex-[2] bg-slate-50/50 min-h-screen transition-all duration-300",
-          selectedId ? "block w-full" : "hidden lg:flex items-center justify-center p-12 text-center"
-        )}>
-          {selectedId ? (
-            <PaymentDetailView paymentId={selectedId} company={company} setLocation={setLocation} />
-          ) : (
-            <div className="flex flex-col items-center gap-4 text-slate-400 max-w-sm mx-auto">
-              <div className="w-20 h-20 rounded-full bg-white flex items-center justify-center shadow-inner border border-slate-100">
-                <Eye className="w-10 h-10 opacity-20" />
-              </div>
-              <div>
-                <p className="font-black uppercase tracking-tight text-slate-600">No Payment Selected</p>
-                <p className="text-xs font-bold uppercase tracking-widest mt-1 opacity-60">Choose a payment from the list to preview the official receipt.</p>
-              </div>
-            </div>
-          )}
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <PaymentStatCard label="Total Received" value={`${currency} ${totalReceived.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} detail={`${filtered.length} payment${filtered.length === 1 ? "" : "s"} in view`} tone="green" />
+          <PaymentStatCard label="Linked Invoices" value={linkedPayments.toLocaleString()} detail="Payments tied to invoices" tone="blue" />
+          <PaymentStatCard label="Average Payment" value={`${currency} ${averagePayment.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} detail="Across current results" tone="amber" />
+          <PaymentStatCard label="Date Range" value={selectedRangeLabel} detail="Current reporting window" tone="slate" />
         </div>
+
+        <Card className="overflow-hidden rounded-[14px] border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+          <CardContent className="space-y-4 p-4">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+              <div className="relative min-w-0 flex-1">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#64748B]" />
+                <Input
+                  placeholder="Search invoice, customer, reference, method..."
+                  className="h-10 rounded-[10px] border-[#E5E7EB] bg-white pl-9 text-sm font-medium text-[#0F172A] placeholder:text-[#94A3B8] focus-visible:ring-[#2563EB]"
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                />
+              </div>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="h-10 justify-start rounded-[10px] border-[#E5E7EB] bg-white px-3 text-sm font-semibold text-[#0F172A] shadow-none lg:w-[235px]">
+                    <CalendarIcon className="mr-2 h-4 w-4 text-[#2563EB]" />
+                    {selectedRangeLabel}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto rounded-[14px] border-[#E5E7EB] p-0 shadow-lg" align="end">
+                  <Calendar
+                    initialFocus
+                    mode="range"
+                    defaultMonth={dateRange.from}
+                    selected={dateRange}
+                    onSelect={(range: any) => range?.from && range?.to && setDateRange({ from: range.from, to: range.to })}
+                    numberOfMonths={2}
+                    className="p-3"
+                  />
+                </PopoverContent>
+              </Popover>
+              <Button variant="ghost" className="h-10 rounded-[10px] px-3 text-sm font-semibold text-[#64748B] hover:bg-red-50 hover:text-[#EF4444]" onClick={clearFilters}>
+                Clear filters
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="overflow-hidden rounded-[14px] border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+          <CardContent className="p-0">
+            {paymentsLoading ? (
+              <div className="flex h-56 items-center justify-center text-[#64748B]">
+                <Loader2 className="h-6 w-6 animate-spin" />
+              </div>
+            ) : filtered.length === 0 ? (
+              <div className="flex h-56 flex-col items-center justify-center gap-3 text-[#64748B]">
+                <div className="flex h-12 w-12 items-center justify-center rounded-[14px] border border-[#E5E7EB] bg-[#F8FAFC]">
+                  <CreditCard className="h-6 w-6 text-[#94A3B8]" />
+                </div>
+                <p className="text-sm font-semibold text-[#0F172A]">No payments found</p>
+              </div>
+            ) : (
+              <Table className="w-full table-fixed">
+                <colgroup>
+                  <col className="w-[13%]" />
+                  <col className="w-[16%]" />
+                  <col className="w-[22%]" />
+                  <col className="w-[13%]" />
+                  <col className="w-[13%]" />
+                  <col className="w-[13%]" />
+                  <col className="w-[10%]" />
+                </colgroup>
+                <TableHeader>
+                  <TableRow className="border-[#E5E7EB] bg-[#F8FAFC] hover:bg-[#F8FAFC]">
+                    <TableHead className="h-10 pl-4 text-[11px] font-semibold uppercase tracking-wide text-[#64748B]">Date</TableHead>
+                    <TableHead className="h-10 text-[11px] font-semibold uppercase tracking-wide text-[#64748B]">Invoice</TableHead>
+                    <TableHead className="h-10 text-[11px] font-semibold uppercase tracking-wide text-[#64748B]">Customer</TableHead>
+                    <TableHead className="h-10 text-[11px] font-semibold uppercase tracking-wide text-[#64748B]">Method</TableHead>
+                    <TableHead className="h-10 text-[11px] font-semibold uppercase tracking-wide text-[#64748B]">Reference</TableHead>
+                    <TableHead className="h-10 text-right text-[11px] font-semibold uppercase tracking-wide text-[#64748B]">Amount</TableHead>
+                    <TableHead className="h-10 pr-4 text-right text-[11px] font-semibold uppercase tracking-wide text-[#64748B]">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filtered.map((payment) => {
+                    const date = new Date(payment.paymentDate);
+                    return (
+                      <TableRow key={payment.id} className="h-12 cursor-pointer border-b border-[#F1F5F9] bg-white transition-colors hover:bg-[#F8FAFC]" onClick={() => setLocation(`/payments-received/${payment.id}`)}>
+                        <TableCell className="whitespace-nowrap py-2 pl-4 text-xs font-medium text-[#64748B]">{isValid(date) ? format(date, "dd MMM yy") : "-"}</TableCell>
+                        <TableCell className="py-2 pr-2">
+                          {payment.invoiceId ? (
+                            <Link href={`/invoices/${payment.invoiceId}`} onClick={(event) => event.stopPropagation()}>
+                              <span className="block truncate font-mono text-xs font-bold text-[#2563EB] hover:underline">{payment.invoiceNumber || `#${payment.invoiceId}`}</span>
+                            </Link>
+                          ) : (
+                            <span className="text-xs font-medium text-[#94A3B8]">Unlinked</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="py-2 pr-2">
+                          <span className="block truncate text-xs font-semibold text-[#0F172A]">{payment.customerName || "Walk-in"}</span>
+                          {payment.customerEmail && <span className="block truncate text-[11px] font-medium text-[#94A3B8]">{payment.customerEmail}</span>}
+                        </TableCell>
+                        <TableCell className="py-2"><PaymentMethodPill method={payment.paymentMethod} /></TableCell>
+                        <TableCell className="py-2 pr-2"><span className="block truncate text-xs font-medium text-[#64748B]">{payment.reference || `REC-${payment.id}`}</span></TableCell>
+                        <TableCell className="whitespace-nowrap py-2 text-right text-xs font-bold text-[#0F172A]">{payment.currency} {Number(payment.amount || 0).toFixed(2)}</TableCell>
+                        <TableCell className="py-2 pr-4 text-right">
+                          <div className="flex items-center justify-end gap-1" onClick={(event) => event.stopPropagation()}>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 rounded-[9px] text-[#64748B] hover:bg-blue-50 hover:text-[#2563EB]" onClick={() => setLocation(`/payments-received/${payment.id}`)}>
+                              <Eye className="h-3.5 w-3.5" />
+                            </Button>
+                            {payment.invoiceId && <ReceiptDownloader p={payment} company={company} />}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </Layout>
   );
 }
+
 
 function PaymentDetailView({ paymentId, company, setLocation }: { paymentId: number, company: any, setLocation: any }) {
   const { data: payment, isLoading: isLoadingPayment } = useQuery<any>({

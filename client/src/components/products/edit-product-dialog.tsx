@@ -42,6 +42,7 @@ import { RecipeManager } from "./recipe-manager";
 import { BatchVariationManager } from "./batch-variation-manager";
 import { ChefHat, Pill, FlaskConical, Boxes } from "lucide-react";
 import { ImageUpload } from "@/components/ui/image-upload";
+import { HsCodeAssistant } from "@/components/products/hs-code-assistant";
 
 interface Props {
     product: any;
@@ -295,7 +296,7 @@ export function EditProductDialog({ product, trigger }: Props) {
 
                         {/* Status Flags Section */}
                         {!isService && (
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                                 <FormField
                                     control={form.control}
                                     name="isPrescriptionOnly"
@@ -509,13 +510,26 @@ export function EditProductDialog({ product, trigger }: Props) {
                                     control={form.control}
                                     name="hsCode"
                                     render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel className="text-xs uppercase tracking-wide text-blue-700 font-semibold">HS Code</FormLabel>
-                                            <FormControl>
-                                                <Input placeholder="Fiscal Code" className="rounded-xl bg-white border-blue-200 focus-visible:ring-blue-500/20 font-mono text-sm" value={field.value || ""} onChange={field.onChange} />
-                                            </FormControl>
-                                            <FormMessage />
-                                        </FormItem>
+                                        <div className="space-y-3">
+                                            <FormItem>
+                                                <FormLabel className="text-xs uppercase tracking-wide text-blue-700 font-semibold">HS Code</FormLabel>
+                                                <FormControl>
+                                                    <Input
+                                                        placeholder="8-digit HS code"
+                                                        inputMode="numeric"
+                                                        maxLength={8}
+                                                        className="rounded-xl bg-white border-blue-200 focus-visible:ring-blue-500/20 font-mono text-sm"
+                                                        value={(field.value || "").replace(/\D/g, "").slice(0, 8)}
+                                                        onChange={(event) => field.onChange(event.target.value.replace(/\D/g, "").slice(0, 8))}
+                                                    />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                            <HsCodeAssistant
+                                                initialQuery={[form.watch("name"), form.watch("category"), form.watch("description")].filter(Boolean).join(" ")}
+                                                onSelect={(code) => form.setValue("hsCode", code, { shouldDirty: true, shouldValidate: true })}
+                                            />
+                                        </div>
                                     )}
                                 />
                             </div>

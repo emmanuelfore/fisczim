@@ -260,13 +260,13 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="rounded-[14px] border border-[#E5E7EB] bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-            <h3 className="text-[16px] font-bold text-[#0F172A] mb-4">Sales by Payment Method</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="h-[220px]">
+          <div className="rounded-[14px] border border-[#E5E7EB] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+            <h3 className="mb-3 text-[15px] font-bold text-[#0F172A]">Sales by Payment Method</h3>
+            <div className="grid grid-cols-[minmax(128px,0.9fr)_minmax(0,1.1fr)] items-center gap-3">
+              <div className="h-[190px] min-w-0">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie data={paymentData} dataKey="value" nameKey="name" innerRadius={48} outerRadius={82} paddingAngle={2}>
+                    <Pie data={paymentData} dataKey="value" nameKey="name" innerRadius={42} outerRadius={70} paddingAngle={2}>
                       {paymentData.map((entry, idx) => (
                         <Cell key={`${entry.name}-${idx}`} fill={PAYMENT_COLORS[entry.name] || "#94A3B8"} />
                       ))}
@@ -274,22 +274,22 @@ export default function Dashboard() {
                   </PieChart>
                 </ResponsiveContainer>
               </div>
-              <div className="space-y-2">
+              <div className="min-w-0 space-y-1.5">
                 {paymentData.map((p) => (
-                  <div key={p.name} className="flex items-center justify-between text-sm">
-                    <div className="flex items-center gap-2 text-[#334155]">
-                      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: PAYMENT_COLORS[p.name] || "#94A3B8" }} />
-                      <span>{p.label}</span>
+                  <div key={p.name} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 text-xs">
+                    <div className="flex min-w-0 items-center gap-1.5 text-[#334155]">
+                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: PAYMENT_COLORS[p.name] || "#94A3B8" }} />
+                      <span className="truncate font-medium">{p.label}</span>
                     </div>
-                    <div className="text-right">
-                      <p className="font-semibold text-[#071437]">{currency(p.value)}</p>
-                      <p className="text-xs text-[#64748B]">{paymentTotal > 0 ? `${((p.value / paymentTotal) * 100).toFixed(1)}%` : "0.0%"}</p>
+                    <div className="text-right leading-tight">
+                      <p className="whitespace-nowrap text-[11px] font-semibold text-[#071437]">{currency(p.value)}</p>
+                      <p className="text-[10px] text-[#64748B]">{paymentTotal > 0 ? `${((p.value / paymentTotal) * 100).toFixed(1)}%` : "0.0%"}</p>
                     </div>
                   </div>
                 ))}
-                <div className="pt-3 mt-3 border-t border-[#E5E7EB] flex items-center justify-between">
-                  <span className="font-semibold text-[#111827]">Total</span>
-                  <span className="text-xl font-semibold text-[#111827]">{currency(paymentTotal)}</span>
+                <div className="mt-2 flex items-center justify-between border-t border-[#E5E7EB] pt-2">
+                  <span className="text-xs font-semibold text-[#111827]">Total</span>
+                  <span className="text-sm font-semibold text-[#111827]">{currency(paymentTotal)}</span>
                 </div>
               </div>
             </div>
@@ -302,32 +302,39 @@ export default function Dashboard() {
               <h3 className="text-[16px] font-bold text-[#0F172A]">Recent Invoices</h3>
               <Link href="/invoices" className="text-sm font-semibold text-[#2563EB]">View all</Link>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[620px]">
+            <div>
+              <table className="w-full table-fixed">
+                <colgroup>
+                  <col className="w-[19%]" />
+                  <col className="w-[27%]" />
+                  <col className="w-[11%]" />
+                  <col className="w-[17%]" />
+                  <col className="w-[26%]" />
+                </colgroup>
                 <thead>
-                  <tr className="text-left text-[12px] font-semibold uppercase tracking-wide text-[#64748B] bg-[#F8FAFC]">
-                    <th className="px-5 py-3">Invoice #</th>
-                    <th className="px-5 py-3">Customer</th>
-                    <th className="px-5 py-3">Date</th>
-                    <th className="px-5 py-3">Amount</th>
-                    <th className="px-5 py-3">Status</th>
+                  <tr className="bg-[#F8FAFC] text-left text-[11px] font-semibold uppercase tracking-wide text-[#64748B]">
+                    <th className="px-3 py-2.5">Invoice #</th>
+                    <th className="px-3 py-2.5">Customer</th>
+                    <th className="px-2 py-2.5">Date</th>
+                    <th className="px-3 py-2.5 text-right">Amount</th>
+                    <th className="px-3 py-2.5 pr-5">Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {invoices.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="px-5 py-8 text-sm text-[#64748B]">No invoices yet. Create your first fiscalized invoice to get started.</td>
+                      <td colSpan={5} className="px-3 py-8 text-sm text-[#64748B]">No invoices yet. Create your first fiscalized invoice to get started.</td>
                     </tr>
                   ) : invoices.map((inv) => {
                     const status = formatStatus(inv);
                     return (
-                      <tr key={inv.id} className="border-t border-[#F1F5F9] text-sm transition-colors hover:bg-[#F8FAFC]">
-                        <td className="px-5 py-3"><Link href={`/invoices/${inv.id}`} className="font-mono text-[#2563EB] font-semibold">{inv.invoiceNumber || `INV-${inv.id}`}</Link></td>
-                        <td className="px-5 py-3 font-medium text-[#334155]">{inv.customer?.name || "Walk In Customer"}</td>
-                        <td className="px-5 py-3 text-[#64748B]">{inv.issueDate ? new Date(inv.issueDate).toLocaleDateString() : "-"}</td>
-                        <td className="px-5 py-3 font-semibold text-[#0F172A]">{currency(Number(inv.total || 0))}</td>
-                        <td className="px-5 py-3">
-                          <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold ${status === "FISCALIZED" ? "bg-[#DCFCE7] text-[#166534] border-emerald-100" : status === "PENDING" ? "bg-[#FEF3C7] text-[#92400E] border-amber-100" : "bg-[#FEE2E2] text-[#991B1B] border-red-100"}`}>
+                      <tr key={inv.id} className="border-t border-[#F1F5F9] text-xs transition-colors hover:bg-[#F8FAFC]">
+                        <td className="px-3 py-2.5"><Link href={`/invoices/${inv.id}`} className="block truncate font-mono font-semibold text-[#2563EB]">{inv.invoiceNumber || `INV-${inv.id}`}</Link></td>
+                        <td className="truncate px-3 py-2.5 font-medium text-[#334155]">{inv.customer?.name || "Walk In Customer"}</td>
+                        <td className="whitespace-nowrap px-2 py-2.5 text-[#64748B]">{inv.issueDate ? new Date(inv.issueDate).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "-"}</td>
+                        <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold text-[#0F172A]">{currency(Number(inv.total || 0))}</td>
+                        <td className="px-3 py-2.5 pr-5">
+                          <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold ${status === "FISCALIZED" ? "bg-[#DCFCE7] text-[#166534] border-emerald-100" : status === "PENDING" ? "bg-[#FEF3C7] text-[#92400E] border-amber-100" : "bg-[#FEE2E2] text-[#991B1B] border-red-100"}`}>
                             {status}
                           </span>
                         </td>

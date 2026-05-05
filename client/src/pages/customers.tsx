@@ -5,7 +5,7 @@ import { useState } from "react";
 
 import { useCustomers, useUpdateCustomer } from "@/hooks/use-customers";
 import { Card, CardContent } from "@/components/ui/card";
-import { Users, Building2, Phone, Mail, Search, ChevronLeft, ChevronRight, Eye, FileDown } from "lucide-react";
+import { Users, Building2, Phone, Mail, Search, ChevronLeft, ChevronRight, Eye, FileDown, Pencil } from "lucide-react";
 import { CreateCustomerDialog } from "@/components/customers/create-customer-dialog";
 import { EditCustomerDialog } from "@/components/customers/edit-customer-dialog";
 import { DeleteButton } from "@/components/delete-button";
@@ -207,24 +207,24 @@ export default function CustomersPage() {
                     </div>
                   </td>
                   <td className="hidden md:table-cell px-5 py-4 align-middle">
-                    <div className="flex flex-col gap-1.5 text-sm">
+                    <div className="flex flex-col gap-1 text-xs">
                       {c.email && (
                         <div className="flex items-center gap-2 text-slate-600 group-hover:text-slate-900 transition-colors">
                           <Mail className="w-3.5 h-3.5 text-slate-400" />
-                          {c.email}
+                          <span className="truncate">{c.email}</span>
                         </div>
                       )}
                       {c.phone && (
                         <div className="flex items-center gap-2 text-slate-600 group-hover:text-slate-900 transition-colors">
                           <Phone className="w-3.5 h-3.5 text-slate-400" />
-                          {c.phone}
+                          <span className="truncate">{c.phone}</span>
                         </div>
                       )}
                       {!c.email && !c.phone && <span className="text-slate-400 text-xs italic">No contact info</span>}
                     </div>
                   </td>
                   <td className="hidden lg:table-cell px-5 py-4 align-middle">
-                    <div className="text-sm text-slate-600 space-y-1">
+                    <div className="text-xs text-slate-600 space-y-1">
                       {c.tin && (
                         <div className="flex items-center gap-2">
                           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider w-8">TIN</span>
@@ -250,8 +250,15 @@ export default function CustomersPage() {
                     </span>
                   </td>
                   <td className="px-5 py-4 text-right align-middle">
-                    <div className="flex justify-end items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                      <EditCustomerDialog customer={c} />
+                    <div className="flex justify-end items-center gap-1">
+                      <EditCustomerDialog
+                        customer={c}
+                        trigger={
+                          <Button variant="ghost" size="icon" className="h-7 w-7 rounded-[9px] text-slate-500 hover:bg-blue-50 hover:text-[#2563EB]">
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                        }
+                      />
                       <DeleteButton
                         title="Delete Customer"
                         description={`Are you sure you want to delete ${c.name}? This will mark them as inactive.`}
@@ -262,16 +269,23 @@ export default function CustomersPage() {
                           });
                         }}
                         isDeleting={updateCustomer.isPending}
+                        trigger={
+                          <Button variant="ghost" size="icon" className="h-7 w-7 rounded-[9px] text-red-500 hover:bg-red-50 hover:text-red-600">
+                            <span className="sr-only">Delete customer</span>
+                            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M3 6h18" />
+                              <path d="M8 6V4h8v2" />
+                              <path d="M19 6l-1 14H6L5 6" />
+                            </svg>
+                          </Button>
+                        }
                       />
                       <Link href={`/customers/${c.id}`}>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-primary hover:bg-violet-50 rounded-full transition-all">
-                          <Eye className="h-4 w-4" />
+                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-[9px] text-slate-500 hover:text-[#2563EB] hover:bg-blue-50 transition-all">
+                          <Eye className="h-3.5 w-3.5" />
                         </Button>
                       </Link>
                     </div>
-                    {/* Placeholder to keep row height when actions are hidden, or simply let it flow? 
-                        Typically better to have opacity 0 but still take space to avoid layout shift. 
-                        The flex container handles spacing. */}
                   </td>
                 </tr>
               ))}

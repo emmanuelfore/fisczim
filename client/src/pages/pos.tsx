@@ -349,7 +349,7 @@ export default function POSPage() {
         if (typeof company?.fiscalDayOpen === "boolean") return company.fiscalDayOpen;
         return false;
     }, [zimraStatusData?.fiscalDayStatus, company?.fiscalDayOpen]);
-    const canViewZReport = !currentShift && !isFiscalDayOpen;
+    const canViewZReport = !currentShift;
 
     // Sync ref every render — barcode scanner closure reads this instead of posSettings directly
     posSettingsRef.current = { variableWeightBarcodeRules: posSettings.variableWeightBarcodeRules, quantityDecimalPlaces: posSettings.quantityDecimalPlaces };
@@ -998,7 +998,7 @@ export default function POSPage() {
                     body: JSON.stringify({ closingBalance: shiftBalance || "0" })
                 });
                 if (res.ok) {
-                    toast({ title: "Session Closed", description: "Z-Report generated successfully" });
+                    toast({ title: "Session Closed", description: "Shift closed successfully" });
                     const shiftId = currentShift.id;
                     setCurrentShift(null);
                     await cacheShift(companyId, null);
@@ -1006,8 +1006,8 @@ export default function POSPage() {
                     setShiftBalance("");
                     fetchShift();
 
-                    // Automatically show the Z-report
-                    handleLoadReport('z');
+                    // Automatically show the X-report
+                    handleLoadReport('x');
                     return;
                 }
             } else {
@@ -1540,8 +1540,9 @@ export default function POSPage() {
         localStorage.setItem("pos_quantity_decimals", posSettings.quantityDecimalPlaces.toString());
     }, [posSettings.autoPrint, posSettings.terminalId, posSettings.silentPrinting, posSettings.printServerUrl, posSettings.cashDrawerEnabled, posSettings.quantityDecimalPlaces]);
 
-    const handleSilentPrint = async (invOverride?: any, options?: { suppressNotifications?: boolean }) => {
+    const handleSilentPrint = async (invOverride?: any, options?: { suppressNotifications?: boolean; elementId?: string }) => {
         const suppressNotifications = options?.suppressNotifications ?? false;
+        const targetElementId = options?.elementId || 'silent-receipt-48';
         const notify = (args: Parameters<typeof toast>[0]) => { if (!suppressNotifications) toast(args); };
         const inv = invOverride || lastSuccessfulInvoice;
         if (!inv) return;
@@ -1648,15 +1649,15 @@ export default function POSPage() {
 
         console.log(`%c${logPrefix} → Path: HTML / Print Agent`, "color: #f59e0b");
 
-        let receiptElement = document.getElementById('silent-receipt-48');
-        console.log(`%c${logPrefix} → Looking for DOM receipt element #silent-receipt-48`, "color: #94a3b8");
+        let receiptElement = document.getElementById(targetElementId);
+        console.log(`%c${logPrefix} → Looking for DOM receipt element #${targetElementId}`, "color: #94a3b8");
 
         // Retry logic if element is not yet in DOM
         if (!receiptElement) {
             console.warn(`%c${logPrefix} → Element not found yet, retrying up to 5 times...`, "color: #f59e0b");
             for (let i = 0; i < 5; i++) {
                 await new Promise(resolve => setTimeout(resolve, 200));
-                receiptElement = document.getElementById('silent-receipt-48');
+                receiptElement = document.getElementById(targetElementId);
                 if (receiptElement) break;
             }
         }
@@ -3702,7 +3703,7 @@ export default function POSPage() {
                                 </div>
                                 <Button className="w-full h-12 rounded-xl bg-slate-900 hover:bg-black text-white font-black uppercase tracking-widest"
                                     onClick={() => {
-                                        handleSilentPrint(reprintInvoice);
+                                        handleSilentPrint(reprintInvoice, { elementId: "reprint-receipt-48" });
                                     }}>
                                     <Printer className="h-4 w-4 mr-2" /> Print
                                 </Button>
@@ -4068,9 +4069,7 @@ export default function POSPage() {
                                     </>
                                 )}
                             </div>
-                            <div className="p-4 border-t border-slate-100 bg-slate-50 shrink-0">
-                                <Button variant="ghost" className="w-full h-10 rounded-xl font-black text-xs text-slate-400" onClick={() => setIsReportOpen(false)}>Close</Button>
-                            </div>
+
                         </DialogContent>
                     </Dialog>
 

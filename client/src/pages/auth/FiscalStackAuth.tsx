@@ -158,14 +158,15 @@ export default function AuthPage() {
   return (
     <div className="min-h-screen grid lg:grid-cols-2">
       {/* Left Panel - Hero */}
-      <div className="hidden lg:flex flex-col justify-center p-12 bg-slate-900 relative overflow-hidden">
+      <div className="hidden lg:flex flex-col justify-center p-12 bg-slate-950 relative overflow-hidden">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(59,130,246,0.3),transparent_45%),radial-gradient(circle_at_bottom_left,rgba(99,102,241,0.25),transparent_40%)]" />
         <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20" />
         <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-primary/30 rounded-full blur-[100px] -translate-y-1/2 translate-x-1/2" />
         <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-indigo-600/30 rounded-full blur-[100px] translate-y-1/2 -translate-x-1/2" />
 
         <div className="relative z-10 max-w-lg">
-          <div className="w-12 h-12 bg-white/10 backdrop-blur-md border border-white/20 rounded-xl mb-8 flex items-center justify-center text-white font-bold text-2xl shadow-xl">
-            Z
+          <div className="h-16 px-6 bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl mb-8 inline-flex items-center justify-center shadow-xl w-fit">
+            <img src="/fiscalstack-full-logo.png" alt="FiscalStack logo" className="h-10 w-auto object-contain" />
           </div>
           <h1 className="text-4xl font-display font-bold mb-6 leading-tight text-white">
             Seamless ZIMRA Compliant Invoicing.
@@ -188,7 +189,7 @@ export default function AuthPage() {
       {/* Right Panel - Form */}
       <div className="flex items-center justify-center p-6 bg-slate-50 relative">
         <div className="absolute top-0 left-0 w-full h-full bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.03] pointer-events-none" />
-        <Card className="w-full max-w-md card-depth border-none relative z-10">
+        <Card className="w-full max-w-md card-depth border border-slate-200/70 relative z-10 shadow-[0_24px_60px_-24px_rgba(2,6,23,0.35)]">
           <CardHeader className="text-center pb-2">
             <CardTitle className="font-display text-2xl">
               {mode === "login" ? "Welcome Back" : "Create Account"}

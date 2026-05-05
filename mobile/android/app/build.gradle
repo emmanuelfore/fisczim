@@ -91,7 +91,11 @@ android {
     defaultConfig {
         applicationId 'com.emmanuelff.fieldpos'
         minSdkVersion rootProject.ext.minSdkVersion
-        targetSdkVersion rootProject.ext.targetSdkVersion
+        // PosApiSdk's libAndroid.so uses ELF text relocations (DT_TEXTREL). Bionic
+        // refuses those for targetSdkVersion >= 23. Staying at 22 keeps legacy linker
+        // behavior for this rule so the vendor .so can load. Not acceptable for Google
+        // Play (target API policy); use sideload/enterprise POS or get a PIC rebuild.
+        targetSdkVersion 22
         versionCode 1
         versionName "0.1.0"
 

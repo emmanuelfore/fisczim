@@ -155,7 +155,8 @@ export default function AuthPage() {
 
         .auth-card { width:100%; max-width:400px; position:relative; z-index:1; }
         .auth-logo-wrap { display:flex; align-items:center; gap:10px; margin-bottom:36px; text-decoration:none; }
-        .auth-logo-icon { width:38px; height:38px; border-radius:9px; background:linear-gradient(135deg,var(--blue),var(--cyan)); display:flex; align-items:center; justify-content:center; font-size:18px; }
+        .auth-logo-icon { height:44px; padding:0 12px; border-radius:10px; background:linear-gradient(135deg,rgba(21,101,255,0.2),rgba(0,212,255,0.2)); border:1px solid rgba(91,155,255,0.3); display:flex; align-items:center; justify-content:center; }
+        .auth-logo-icon img { height:30px; width:auto; object-fit:contain; }
         .auth-logo-txt { font-family:'Bricolage Grotesque',sans-serif; font-size:19px; font-weight:800; color:var(--text); }
         .auth-logo-txt span { background:linear-gradient(135deg,#5B9BFF,#00D4FF); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
 
@@ -240,8 +241,9 @@ export default function AuthPage() {
           <div className="auth-right-glow"></div>
           <div className="auth-card">
             <a href="/" className="auth-logo-wrap">
-              <div className="auth-logo-icon">📊</div>
-              <div className="auth-logo-txt">Fiscal<span>Zone</span></div>
+              <div className="auth-logo-icon">
+                <img src="/fiscalstack-full-logo.png" alt="FiscalStack logo" />
+              </div>
             </a>
 
             <h1 className="auth-h">{mode === "login" ? "Welcome back." : "Create account."}</h1>

@@ -314,6 +314,7 @@ export function Layout({
         }
         .sidebar-scroller::-webkit-scrollbar {
           width: 4px;
+          height: 4px;
         }
         .sidebar-scroller::-webkit-scrollbar-thumb {
           background-color: #E2E8F0;

@@ -55,7 +55,7 @@ import {
 import { usePrinter } from "../hooks/usePrinter";
 import { PrinterSettingsModal } from "../ui/PrinterSettingsModal";
 import { StatusBar } from "expo-status-bar";
-import { useTheme } from "../ui/PremiumColors";
+import { useTheme, hexAlpha } from "../ui/PremiumColors";
 import * as Haptics from "expo-haptics";
 import { playCheckoutSound } from "../lib/checkoutSound";
 import { resolveMediaUrl } from "../lib/media";
@@ -89,6 +89,9 @@ const CAT_PALETTE = [
 
 const PROD_EMOJIS = ["📦", "💼", "🏷️", "📋", "🗂️", "🔑", "⚙️", "🛠️", "🧩", "💡", "🎯", "🖥️", "📱", "🔧", "🗃️", "💎"];
 
+/** Convert hex color + 2-digit hex alpha to rgba() — Android 7 doesn't support 8-char hex */
+// hexAlpha moved to PremiumColors.tsx for global availability
+
 interface CartItem {
   productId: number;
   name: string;
@@ -119,7 +122,7 @@ type Props = {
   onOpenDrawer: () => void;
 };
 
-const FlyingParticle = ({ startX, startY, endX, endY, onComplete, color, emoji }) => {
+const FlyingParticle = ({ startX, startY, endX, endY, onComplete, color, emoji }: { startX: number, startY: number, endX: number, endY: number, onComplete: () => void, color?: string, emoji?: string }) => {
   const anim = React.useRef(new Animated.Value(0)).current;
 
   React.useEffect(() => {
@@ -156,7 +159,7 @@ const ProductImage = ({ url, fallbackColor, color }: { url: string; fallbackColo
 
   if (hasError) {
     return (
-      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: `${color}05` }}>
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: hexAlpha(color, 0.02) }}>
         <Package size={32} color={fallbackColor} opacity={0.3} />
       </View>
     );
@@ -172,8 +175,17 @@ const ProductImage = ({ url, fallbackColor, color }: { url: string; fallbackColo
   );
 };
 export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
-  const { theme: C, isDark } = useTheme();
   const insets = useSafeAreaInsets();
+  const { theme: C, isDark } = useTheme();
+
+  // Unified Brand Core
+  const POS_SURFACE = C.bg.base; 
+  const POS_SURFACE_SOFT = C.bg.primary;
+  const POS_SURFACE_RAISED = C.bg.card;
+  const POS_BORDER = C.bg.glassBorder;
+  const POS_BORDER_STRONG = hexAlpha(C.amber.primary, isDark ? 0.25 : 0.4);
+  const POS_OVERLAY = hexAlpha(C.bg.base, isDark ? 0.92 : 0.96);
+
   const [isOnline, setIsOnline] = useState(true);
   const isOnlineRef = React.useRef(true);
   const [queueCount, setQueueCount] = useState(0);
@@ -284,6 +296,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
   const [userRole, setUserRole] = useState<string>("member");
   const [isSupervisorAuthVisible, setIsSupervisorAuthVisible] = useState(false);
   const [supervisorAction, setSupervisorAction] = useState<"DROP" | "CLOSE" | null>(null);
+  const [showQuickMenu, setShowQuickMenu] = useState(false);
 
   // Admin Collection States
   const [activeShifts, setActiveShifts] = useState<any[]>([]);
@@ -867,7 +880,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
   const processOrder = async () => {
     if (!selectedCustomerId) return;
     // paid is in local currency, total is in base — compare in same unit
-    const paid = parseFloat(paidAmount || "0");
+    const paid = paymentMethod === "CARD" ? total * currencyInfo.rate : parseFloat(paidAmount || "0");
     if (paid < total * currencyInfo.rate - 0.001) return;
     const currencyObj = resolvedCurrencies.find((c: any) => c.code === selectedCurrency) || { code: "USD", exchangeRate: "1" };
     const invoiceData = {
@@ -979,569 +992,403 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
     <View style={{ flex: 1, backgroundColor: C.bg.base }}>
       <StatusBar style={isDark ? "light" : "dark"} />
 
-      {/* -- HEADER ----------------------------------------------------------- */}
-      <View style={{
-        paddingHorizontal: 16,
-        paddingTop: Math.max(insets.top, 8),
-        paddingBottom: 0,
-        borderBottomWidth: 1,
-        borderBottomColor: C.border.default
-      }}>
-
-        {/* Row 1: brand + online pill + customer */}
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
-            <TouchableOpacity onPress={onOpenDrawer}
+      {/* Premium POS surface */}
+      <LinearGradient
+        colors={isDark ? ["#080604", "#120F0C", "#14100B"] : [C.bg.base, C.bg.primary]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={{ flex: 1 }}
+      >
+        {/* Header */}
+        <View style={{
+          paddingHorizontal: 16,
+          paddingTop: Math.max(insets.top, 10),
+          paddingBottom: 12,
+          backgroundColor: POS_OVERLAY,
+          borderBottomWidth: 1,
+          borderBottomColor: POS_BORDER,
+          zIndex: 10,
+        }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 14 }}>
+            <TouchableOpacity
+              activeOpacity={0.82}
+              onPress={onOpenDrawer}
               style={{
-                width: 36, height: 36, borderRadius: 10, backgroundColor: C.bg.hover,
-                borderWidth: 1, borderColor: C.border.default, alignItems: "center", justifyContent: "center",
-                marginRight: 4
+                width: 44,
+                height: 44,
+                borderRadius: 14,
+                backgroundColor: POS_SURFACE_RAISED,
+                alignItems: "center",
+                justifyContent: "center",
+                shadowColor: "#000",
+                shadowOpacity: 0.1,
+                shadowRadius: 6,
+                shadowOffset: { width: 0, height: 3 },
+                elevation: 3,
               }}>
-              <Menu size={20} color={C.amber.primary} />
+              <Menu size={22} color={C.amber.primary} strokeWidth={2.4} />
             </TouchableOpacity>
-            <Text style={{ color: C.amber.primary, fontSize: 20, fontWeight: "800", letterSpacing: -0.5 }}>
-              POS
-            </Text>
-            <View style={{
-              flexDirection: "row", alignItems: "center", gap: 5,
-              paddingHorizontal: 9, paddingVertical: 4, borderRadius: 20,
-              backgroundColor: isOnline ? "rgba(0,208,132,0.1)" : "rgba(255,71,87,0.1)",
-              borderWidth: 1, borderColor: isOnline ? "rgba(0,208,132,0.25)" : "rgba(255,71,87,0.25)",
-            }}>
-              <View style={{
-                width: 6, height: 6, borderRadius: 3, backgroundColor: isOnline ? C.status.success : C.status.error,
-                shadowColor: isOnline ? C.status.success : C.status.error, shadowOpacity: 0.8, shadowRadius: 4, shadowOffset: { width: 0, height: 0 }
-              }} />
-              {isOnline ? <Wifi size={10} color={C.status.success} /> : <WifiOff size={10} color={C.status.error} />}
-              <Text style={{ fontSize: 9, fontWeight: "700", color: isOnline ? C.status.success : C.status.error, textTransform: "uppercase" }}>
-                {isOnline ? "Online" : "Offline"}
-              </Text>
-            </View>
-
-            {/* Fiscal Status Badge - Mobile */}
-            {/* <View style={{
-              flexDirection: "row", alignItems: "center", gap: 5,
-              paddingHorizontal: 8, paddingVertical: 4, borderRadius: 20,
-              backgroundColor: fiscalStatus === 'FiscalDayOpened' ? "rgba(0,208,132,0.1)" : 
-                               fiscalStatus === 'FiscalDayCloseFailed' ? "rgba(255,71,87,0.15)" :
-                               "rgba(240,165,0,0.1)",
-              borderWidth: 1, borderColor: fiscalStatus === 'FiscalDayOpened' ? "rgba(0,208,132,0.25)" : 
-                                         fiscalStatus === 'FiscalDayCloseFailed' ? "rgba(255,71,87,0.3)" :
-                                         "rgba(240,165,0,0.25)",
-            }}>
-              <View style={{
-                width: 6, height: 6, borderRadius: 3, 
-                backgroundColor: fiscalStatus === 'FiscalDayOpened' ? C.status.success : 
-                                fiscalStatus === 'FiscalDayCloseFailed' ? C.status.error :
-                                "#fbbf24"
-              }} />
-              <Text style={{ fontSize: 8, fontWeight: "900", color: fiscalStatus === 'FiscalDayOpened' ? C.status.success : 
-                                                                    fiscalStatus === 'FiscalDayCloseFailed' ? C.status.error :
-                                                                    "#fbbf24", textTransform: "uppercase" }}>
-                {fiscalStatus === 'FiscalDayCloseFailed' ? 'CLOSE FAIL' : (fiscalStatus === 'FiscalDayOpened' ? 'Day Open' : 'Day Closed')}
-              </Text>
-            </View> */}
-          </View>
-
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            {/* Currency quick-selector pill */}
-            {(currencies && currencies.filter((c: any) => c.code !== "USD").length > 0) && (
-              <TouchableOpacity
-                onPress={() => {
-                  const allCurrencies = ["USD", ...(currencies || []).filter((c: any) => c.code !== "USD").map((c: any) => c.code)];
-                  const currentIdx = allCurrencies.indexOf(selectedCurrency);
-                  const nextIdx = (currentIdx + 1) % allCurrencies.length;
-                  setSelectedCurrency(allCurrencies[nextIdx]);
-                }}
-                style={{
-                  height: 34, borderRadius: 10, backgroundColor: C.bg.hover,
-                  borderWidth: 1.5, borderColor: selectedCurrency !== "USD" ? C.amber.primary : C.border.default,
-                  paddingHorizontal: 10, alignItems: "center", justifyContent: "center"
-                }}>
-                <Text style={{ color: selectedCurrency !== "USD" ? C.amber.primary : C.text.secondary, fontSize: 11, fontWeight: "800" }}>
-                  {selectedCurrency}
-                </Text>
-              </TouchableOpacity>
-            )}
-
-            {/* <TouchableOpacity activeOpacity={0.7} onPress={() => setShowBranchPicker(true)}
-              style={{
-                width: 34, height: 34, borderRadius: 10, backgroundColor: C.bg.hover,
-                borderWidth: 1, borderColor: selectedBranchId ? C.status.success : C.border.default,
-                alignItems: "center", justifyContent: "center"
-              }}>
-              <MonitorSmartphone size={16} color={selectedBranchId ? C.status.success : C.text.secondary} />
-            </TouchableOpacity> */}
-
-            <TouchableOpacity activeOpacity={0.7} onPress={() => setShowPrinterSettings(true)}
-              style={{
-                width: 34, height: 34, borderRadius: 10, backgroundColor: C.bg.hover,
-                borderWidth: 1, borderColor: C.border.default, alignItems: "center", justifyContent: "center"
-              }}>
-              <Printer size={16} color={printerConfig.macAddress || printerConfig.targetPrinter ? C.status.success : C.text.secondary} />
-              {(!!printerConfig.macAddress || !!printerConfig.targetPrinter) && (
-                <View style={{
-                  position: "absolute", top: -2, right: -2,
-                  width: 8, height: 8, borderRadius: 4, backgroundColor: C.status.success,
-                  borderWidth: 1.5, borderColor: C.bg.hover
-                }} />
-              )}
-            </TouchableOpacity>
-
-            <TouchableOpacity activeOpacity={0.7} onPress={() => setShowCustomerPicker(true)}
-              style={{
-                width: 34, height: 34, borderRadius: 10,
-                backgroundColor: isDefaultCustomerSelected ? "rgba(240,165,0,0.08)" : C.bg.hover,
-                borderWidth: 1, borderColor: isDefaultCustomerSelected ? "rgba(240,165,0,0.3)" : C.border.default,
-                alignItems: "center", justifyContent: "center"
-              }}>
-              <User size={16} color={C.amber.primary} />
-              {!isDefaultCustomerSelected && (
-                <View style={{
-                  position: "absolute", top: -2, right: -2,
-                  width: 8, height: 8, borderRadius: 4, backgroundColor: C.status.success,
-                  borderWidth: 1.5, borderColor: C.bg.hover
-                }} />
-              )}
-            </TouchableOpacity>
-
-            <TouchableOpacity activeOpacity={0.7} onPress={() => setShowHoldsModal(true)}
-              style={{
-                width: 34, height: 34, borderRadius: 10, backgroundColor: C.bg.hover,
-                borderWidth: 1, borderColor: heldSales.length > 0 ? C.amber.primary : C.border.default,
-                alignItems: "center", justifyContent: "center",
-                position: "relative"
-              }}>
-              <History size={16} color={heldSales.length > 0 ? C.amber.primary : C.text.secondary} />
-              {heldSales.length > 0 && (
-                <View style={{
-                  position: "absolute", top: -2, right: -2,
-                  width: 8, height: 8, borderRadius: 4, backgroundColor: C.amber.primary,
-                  borderWidth: 1.5, borderColor: C.bg.hover
-                }} />
-              )}
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Row 2: shift status + VAT label + queue badge */}
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-            <TouchableOpacity activeOpacity={0.7}
-              onPress={() => {
-                const type = currentShift ? "CLOSE" : "OPEN";
-                setShiftModalType(type);
-                if (type === "CLOSE") {
-                  fetchShiftSummary();
-                } else {
-                  setShiftSummary(null);
-                }
-                setShowShiftModal(true);
-              }}
-              style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-              <View style={{
-                width: 7, height: 7, borderRadius: 4,
-                backgroundColor: currentShift ? C.status.success : "#fbbf24",
-                shadowColor: currentShift ? C.status.success : "#fbbf24", shadowOpacity: 0.7,
-                shadowRadius: 4, shadowOffset: { width: 0, height: 0 }
-              }} />
-              <Text style={{ color: C.text.secondary, fontSize: 11, fontWeight: "600" }}>
-                {currentShift ? "Shift active" : "Shift closed"}
-              </Text>
-            </TouchableOpacity>
-
-            {/* If user is admin/owner, they see Collection even without their own shift */}
-            {(currentShift || userRole === "admin" || userRole === "owner") && (
-              <>
-                <View style={{ width: 1, height: 12, backgroundColor: C.border.default }} />
-
-
-                <TouchableOpacity
-                  onPress={() => { setTransactionType("DROP"); setShowPayoutModal(true); }}
-                  style={{ flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 4 }}>
-                  <Download size={14} color={C.amber.primary} />
-                  <Text style={{ color: C.text.primary, fontSize: 11, fontWeight: "700" }}>Collection</Text>
-                </TouchableOpacity>
-
-                {currentShift && (
-                  <>
-                    <View style={{ width: 1, height: 12, backgroundColor: C.border.default }} />
-                    <TouchableOpacity
-                      onPress={fetchShiftSummary}
-                      style={{ flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 4 }}>
-                      <ActivityIndicator size="small" color={C.amber.primary} animating={isFetchingSummary} style={{ display: isFetchingSummary ? 'flex' : 'none' }} />
-                      {!isFetchingSummary && <History size={14} color={C.amber.primary} />}
-                      <Text style={{ color: C.text.primary, fontSize: 11, fontWeight: "700" }}>X/Z Report</Text>
-                    </TouchableOpacity>
-                  </>
-                )}
-              </>
-            )}
-          </View>
-
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
 
             <View style={{
-              flexDirection: "row", alignItems: "center", gap: 5,
-              backgroundColor: isSyncing ? C.amber.primary : C.bg.hover, borderRadius: 20, paddingHorizontal: 8, paddingVertical: 4,
-              borderWidth: 1, borderColor: isSyncing ? C.amber.primary : C.border.default
+              flex: 1,
+              height: 44,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 8,
+              backgroundColor: POS_SURFACE_RAISED,
+              borderRadius: 14,
+              paddingHorizontal: 12,
+              shadowColor: "#000",
+              shadowOpacity: 0.12,
+              shadowRadius: 8,
+              shadowOffset: { width: 0, height: 4 },
+              elevation: 4,
             }}>
-              {isSyncing ? <ActivityIndicator size="small" color="#000" style={{ transform: [{ scale: 0.6 }] }} /> : <CloudUpload size={9} color={C.amber.primary} />}
-              <Text style={{ color: isSyncing ? "#000" : C.text.secondary, fontSize: 9, fontWeight: "700" }}>
-                {isSyncing ? "Syncing..." : (queueCount ? `${queueCount} queued` : "Synced")}
-              </Text>
+              <Search size={18} color={C.text.secondary} strokeWidth={2.2} />
+              <TextInput
+                style={{ flex: 1, color: C.text.primary, fontSize: 15, fontWeight: "700", paddingVertical: 0 }}
+                placeholder="Search items..."
+                placeholderTextColor={C.text.secondary}
+                value={search}
+                onChangeText={setSearch}
+              />
             </View>
-          </View>
-        </View>
 
-        {/* Search + scan */}
-        <View style={{ flexDirection: "row", gap: 8, marginBottom: 10 }}>
-          <View style={{
-            flex: 1, height: 44, flexDirection: "row", alignItems: "center", gap: 8,
-            backgroundColor: C.bg.hover, borderWidth: 1, borderColor: C.border.default,
-            borderRadius: 12, paddingHorizontal: 8, paddingVertical: 2
-          }}>
-            <Search size={12} color={C.text.secondary} />
-            <TextInput
-              style={{ flex: 1, color: C.text.primary, fontSize: 14 }}
-              placeholder="Search products"
-              placeholderTextColor={C.text.secondary}
-              value={search}
-              onChangeText={setSearch}
-            />
-          </View>
-          <View style={{
-            width: 44, height: 44, borderRadius: 12, backgroundColor: C.bg.hover,
-            borderWidth: 1, borderColor: C.border.default, alignItems: "center", justifyContent: "center"
-          }}>
-            <ScanLine size={18} color={C.amber.primary} />
-          </View>
-        </View>
-
-        {/* Category pills */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}
-          style={{ marginBottom: 6 }} contentContainerStyle={{ gap: 5 }}>
-          {categories.map((cat: string) => (
-            <TouchableOpacity key={cat} onPress={() => setSelectedCategory(cat)}
+            <TouchableOpacity
+              activeOpacity={0.82}
+              onPress={() => setShowCustomerPicker(true)}
               style={{
-                paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20,
-                backgroundColor: selectedCategory === cat ? C.amber.primary : C.bg.hover,
-                borderWidth: 1, borderColor: selectedCategory === cat ? C.amber.primary : C.border.default
+                width: 44,
+                height: 44,
+                borderRadius: 14,
+                backgroundColor: isDefaultCustomerSelected ? hexAlpha(C.amber.primary, 0.1) : POS_SURFACE_RAISED,
+                alignItems: "center",
+                justifyContent: "center",
+                shadowColor: isDefaultCustomerSelected ? C.amber.primary : "#000",
+                shadowOpacity: isDefaultCustomerSelected ? 0.25 : 0.1,
+                shadowRadius: 6,
+                shadowOffset: { width: 0, height: 3 },
+                elevation: 3,
               }}>
-              <Text style={{
-                fontSize: 9, fontWeight: "700",
-                color: selectedCategory === cat ? "#000" : C.text.secondary
-              }}>
-                {cat === "All" ? "All" : cat}
-              </Text>
+              <User size={20} color={isDefaultCustomerSelected ? C.amber.primary : C.text.secondary} strokeWidth={2.2} />
             </TouchableOpacity>
-          ))}
-        </ScrollView>
 
-        {/* Info row */}
-        <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 6 }}>
-          <Text style={{ color: C.text.secondary, fontSize: 9, fontWeight: "600" }}>
-            {filteredProducts.length} item{filteredProducts.length !== 1 ? "s" : ""}
-          </Text>
-          <Text style={{ color: C.text.secondary, fontSize: 9, fontWeight: "600" }}>
-            {cashierName}
-          </Text>
-        </View>
-      </View>
-
-      {/* ── PRODUCT GRID ───────────────────────────────────────────────────── */}
-      <View style={{ flex: 1, paddingHorizontal: 12 }}>
-        {loadingProducts ? (
-          <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-            <ActivityIndicator color={C.amber.primary} />
+            <TouchableOpacity
+              activeOpacity={0.82}
+              onPress={() => setShowQuickMenu(true)}
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 14,
+                backgroundColor: POS_SURFACE_RAISED,
+                alignItems: "center",
+                justifyContent: "center",
+                shadowColor: "#000",
+                shadowOpacity: 0.1,
+                shadowRadius: 6,
+                shadowOffset: { width: 0, height: 3 },
+                elevation: 3,
+              }}>
+              <View style={{ gap: 2 }}>
+                {[1, 2, 3].map(i => <View key={i} style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: C.amber.primary }} />)}
+              </View>
+            </TouchableOpacity>
           </View>
-        ) : filteredProducts.length === 0 ? (
-          <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-            <View style={{
-              width: 64, height: 64, borderRadius: 20, backgroundColor: C.bg.hover,
-              alignItems: "center", justifyContent: "center", marginBottom: 12,
-              borderWidth: 1, borderColor: C.border.default
-            }}>
-              <Tag size={28} color={C.text.secondary} />
-            </View>
-            <Text style={{ color: C.text.secondary, fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: 2 }}>
-              No products found
-            </Text>
-          </View>
-        ) : (
-          <FlatList
-            key="pos-product-list-1"
-            data={filteredProducts}
-            numColumns={1}
-            showsVerticalScrollIndicator={false}
-            keyExtractor={(item: any) => item.id.toString()}
-            contentContainerStyle={{ paddingBottom: 100, paddingTop: 8 }}
-            // ListHeaderComponent={frequent.length > 0 && !search ? (
-            //   <View style={{ marginBottom: 12 }}>
-            //     <Text style={{
-            //       color: C.text.secondary, fontSize: 9, fontWeight: "700",
-            //       textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 8
-            //     }}>Quick Add</Text>
-            //     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -4 }}>
-            //       {(frequent as any[]).map((item: any) => (
-            //         <TouchableOpacity
-            //           key={item.productId}
-            //           activeOpacity={0.82}
-            //           onPress={() => addToCart({ id: item.productId, name: item.name, price: item.price, category: item.category, isTracked: false })}
-            //           style={{
-            //             marginHorizontal: 4, paddingHorizontal: 12, paddingVertical: 8,
-            //             borderRadius: 14, borderWidth: 1,
-            //             borderColor: C.border.default,
-            //             backgroundColor: C.bg.hover,
-            //             alignItems: "center", minWidth: 72,
-            //           }}>
-            //           <Text style={{ fontSize: 16, marginBottom: 3 }}>⚡</Text>
-            //           <Text style={{ color: C.text.primary, fontSize: 10, fontWeight: "700", textAlign: "center" }} numberOfLines={1}>
-            //             {item.name.length > 10 ? item.name.slice(0, 10) + "…" : item.name}
-            //           </Text>
-            //           <Text style={{ color: C.amber.primary, fontSize: 9, fontWeight: "800" }}>
-            //             {fmt(item.price)}
-            //           </Text>
-            //         </TouchableOpacity>
-            //       ))}
-            //     </ScrollView>
-            //   </View>
-            // ) : null}
-            renderItem={({ item, index }: { item: any; index: number }) => {
-              const inCartItem = cart.find((c: CartItem) => c.productId === item.id);
-              const inCart = !!inCartItem;
-              const stockLow = item.isTracked && Number(item.stockLevel || 0) <= 3;
-              const outOfStock = item.isTracked && Number(item.stockLevel || 0) === 0;
-              const { color } = getProductMeta(item, index);
-              const imageRaw = item.imageUrl ?? item.image_url ?? item.image ?? item.photoUrl ?? null;
-              const imageUrl = resolveMediaUrl(imageRaw);
 
-              const toTitleCase = (str: string) =>
-                str.replace(/\w\S*/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
-
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ gap: 10, paddingRight: 16 }}
+          >
+            {categories.map((cat: string) => {
+              const active = selectedCategory === cat;
               return (
-                <View style={{
-                  paddingHorizontal: 4, // More space for deep shadows
-                  paddingVertical: 2,
-                  marginBottom: 8,
-                }}>
+                <TouchableOpacity
+                  key={cat}
+                  activeOpacity={0.82}
+                  onPress={() => setSelectedCategory(cat)}
+                  style={{
+                    height: 34,
+                    paddingHorizontal: active ? 18 : 16,
+                    borderRadius: 18,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: active ? C.amber.primary : POS_SURFACE_RAISED,
+                    shadowColor: active ? C.amber.primary : "#000",
+                    shadowOpacity: active ? 0.35 : 0.1,
+                    shadowRadius: active ? 12 : 6,
+                    shadowOffset: { width: 0, height: 4 },
+                    elevation: active ? 7 : 3,
+                  }}>
+                  <Text style={{
+                    fontSize: 13,
+                    fontWeight: "900",
+                    letterSpacing: -0.2,
+                    color: active ? "#1A1100" : C.text.secondary,
+                  }} numberOfLines={1}>
+                    {cat === "All" ? "All" : cat}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+
+        {/* Product list */}
+        <View style={{ flex: 1, paddingHorizontal: 14 }}>
+          {loadingProducts ? (
+            <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+              <ActivityIndicator color={C.amber.primary} />
+            </View>
+          ) : filteredProducts.length === 0 ? (
+            <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+              <View style={{
+                width: 72,
+                height: 72,
+                borderRadius: 24,
+                backgroundColor: POS_SURFACE_RAISED,
+                alignItems: "center",
+                justifyContent: "center",
+                marginBottom: 14,
+              }}>
+                <Tag size={30} color={C.text.secondary} />
+              </View>
+              <Text style={{ color: C.text.secondary, fontSize: 12, fontWeight: "800", textTransform: "uppercase", letterSpacing: 2 }}>
+                No products found
+              </Text>
+            </View>
+          ) : (
+            <FlatList
+              key="pos-product-list-premium"
+              data={filteredProducts}
+              numColumns={1}
+              showsVerticalScrollIndicator={false}
+              keyExtractor={(item: any) => item.id.toString()}
+              contentContainerStyle={{ paddingBottom: 118, paddingTop: 14 }}
+              renderItem={({ item, index }: { item: any; index: number }) => {
+                const inCartItem = cart.find((c: CartItem) => c.productId === item.id);
+                const inCart = !!inCartItem;
+                const stockLow = item.isTracked && Number(item.stockLevel || 0) <= 3;
+                const outOfStock = item.isTracked && Number(item.stockLevel || 0) === 0;
+                const imageRaw = item.imageUrl ?? item.image_url ?? item.image ?? item.photoUrl ?? null;
+                const imageUrl = resolveMediaUrl(imageRaw);
+                const toTitleCase = (str: string) =>
+                  str.replace(/\w\S*/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+
+                return (
                   <TouchableOpacity
-                    activeOpacity={0.88}
+                    activeOpacity={0.9}
                     onPress={(e) => !outOfStock && addToCart(item, e)}
                     style={{
-                      width: "100%",
-                      height: 100,
-                      opacity: outOfStock ? 0.35 : 1,
-                    }}
-                  >
-                    <View style={{
-                      flex: 1,
-                      flexDirection: "row",
+                      minHeight: 96,
+                      marginBottom: 11,
+                      paddingVertical: 12,
+                      paddingHorizontal: 14,
                       borderRadius: 24,
-                      backgroundColor: inCart ? `${color}10` : C.bg.card,
-
-                      // DEEP MODERN SHADOWS (NO BORDERS)
+                      flexDirection: "row",
+                      alignItems: "center",
+                      backgroundColor: C.bg.panel,
+                      opacity: outOfStock ? 0.42 : 1,
                       shadowColor: "#000",
-                      shadowOpacity: inCart ? 0.22 : 0.12,
-                      shadowRadius: inCart ? 15 : 8,
-                      shadowOffset: { width: 0, height: inCart ? 6 : 4 },
-                      elevation: inCart ? 10 : 5,
-
-                      overflow: "hidden",
+                      shadowOpacity: inCart ? 0.35 : 0.18,
+                      shadowRadius: inCart ? 24 : 12,
+                      shadowOffset: { width: 0, height: inCart ? 12 : 6 },
+                      elevation: inCart ? 10 : 4,
                     }}>
-                      {/* Visual Section: Consistent Placeholder (Left) */}
-                      <View style={{
-                        width: 100, height: "100%",
-                        backgroundColor: imageUrl ? `${color}05` : C.bg.hover,
-                        position: "relative",
-                        borderRightWidth: 1,
-                        borderRightColor: "rgba(0,0,0,0.03)"
-                      }}>
-                        {imageUrl ? (
-                          <Image
-                            source={{ uri: imageUrl }}
-                            style={{ width: "100%", height: "100%" }}
-                            resizeMode="cover"
-                          />
-                        ) : (
-                          <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-                            {/* Generic high-end placeholder icon */}
-                            <Package size={32} color={C.text.secondary} opacity={0.3} />
-                          </View>
-                        )}
+                    <View style={{
+                      width: 62,
+                      height: 62,
+                      borderRadius: 18,
+                      overflow: "hidden",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      backgroundColor: C.bg.base,
+                      marginRight: 14,
+                    }}>
+                      {imageUrl ? (
+                        <ProductImage url={imageUrl} fallbackColor={C.amber.primary} color={C.amber.primary} />
+                      ) : (
+                        <Package size={32} color={C.amber.primary} strokeWidth={1.7} opacity={0.92} />
+                      )}
+                    </View>
 
-                        {/* High Contrast Qty Badge */}
-                        {inCart && (
-                          <View style={{
-                            position: "absolute", top: 10, left: 10,
-                            minWidth: 24, height: 24, borderRadius: 12,
-                            backgroundColor: "#000", alignItems: "center", justifyContent: "center",
-                            shadowColor: "#000", shadowOpacity: 0.3, shadowRadius: 4,
-                          }}>
-                            <Text style={{ color: "#fff", fontSize: 11, fontWeight: "900" }}>
-                              {inCartItem!.quantity}
-                            </Text>
-                          </View>
-                        )}
-                      </View>
-
-                      {/* Content Section (Center) */}
-                      <View style={{ flex: 1, paddingHorizontal: 16, justifyContent: "center" }}>
-                        <Text style={{
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text
+                        style={{
                           color: C.text.primary,
-                          fontSize: 16, fontWeight: "800", marginBottom: 4,
-                          letterSpacing: -0.2
-                        }} numberOfLines={1}>
-                          {toTitleCase(item.name)}
+                          fontSize: 17,
+                          lineHeight: 22,
+                          fontWeight: "900",
+                          letterSpacing: -0.35,
+                          marginBottom: 5,
+                        }}
+                        numberOfLines={1}
+                      >
+                        {toTitleCase(item.name)}
+                      </Text>
+
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                        <Text style={{
+                          color: C.amber.primary,
+                          fontSize: 16,
+                          fontWeight: "900",
+                          letterSpacing: -0.2,
+                        }}>
+                          {fmt(Number(item.price))}
                         </Text>
-
-                        <View style={{ flexDirection: "row", alignItems: "center" }}>
+                        {item.isTracked && (
                           <Text style={{
-                            color: inCart ? color : C.text.primary,
-                            fontSize: 20, fontWeight: "900", marginRight: 12,
-                            letterSpacing: -0.5
+                            color: outOfStock ? C.status.error : stockLow ? C.amber.primary : C.text.secondary,
+                            fontSize: 13,
+                            fontWeight: "800",
                           }}>
-                            {fmt(Number(item.price))}
+                            • {Number(item.stockLevel || 0)}
                           </Text>
-
-                          {item.isTracked && (
-                            <View style={{
-                              paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6,
-                              backgroundColor: outOfStock ? C.status.error : stockLow ? "#fbbf24" : "rgba(0,0,0,0.05)"
-                            }}>
-                              <Text style={{
-                                fontSize: 9, fontWeight: "900",
-                                color: stockLow ? "#000" : "#fff",
-                                letterSpacing: 0.5
-                              }}>
-                                {outOfStock ? "OUT" : `${Number(item.stockLevel || 0)} UNITS`}
-                              </Text>
-                            </View>
-                          )}
-                        </View>
-                      </View>
-
-                      {/* Actions Section (Right) */}
-                      <View style={{ paddingRight: 12, flexDirection: "row", alignItems: "center", gap: 12 }}>
-                        {inCart ? (
-                          <>
-                            <TouchableOpacity
-                              onPress={(e) => { e.stopPropagation?.(); inCartItem!.quantity > 1 ? updateQuantity(item.id, -1) : removeFromCart(item.id); }}
-                              activeOpacity={0.7}
-                              style={{
-                                width: 44, height: 44, borderRadius: 16,
-                                backgroundColor: C.bg.hover, alignItems: "center", justifyContent: "center",
-                                borderWidth: 1, borderColor: "rgba(0,0,0,0.04)"
-                              }}>
-                              <Minus size={20} color={C.text.primary} />
-                            </TouchableOpacity>
-
-                            <TouchableOpacity
-                              onPress={(e) => { e.stopPropagation?.(); updateQuantity(item.id, 1, e); }}
-                              activeOpacity={0.7}
-                              style={{
-                                width: 44, height: 44, borderRadius: 16,
-                                backgroundColor: color, alignItems: "center", justifyContent: "center",
-                                shadowColor: color, shadowOpacity: 0.3, shadowRadius: 10,
-                                elevation: 6
-                              }}>
-                              <Plus size={22} color="#000" />
-                            </TouchableOpacity>
-                          </>
-                        ) : (
-                          <TouchableOpacity
-                            onPress={(e) => { e.stopPropagation?.(); addToCart(item, e); }}
-                            activeOpacity={0.7}
-                            style={{
-                              width: 44, height: 44, borderRadius: 16,
-                              backgroundColor: `${color}15`, alignItems: "center", justifyContent: "center",
-                              borderWidth: 1, borderColor: "rgba(0,0,0,0.03)"
-                            }}>
-                            <Plus size={24} color={color} />
-                          </TouchableOpacity>
                         )}
                       </View>
                     </View>
-                  </TouchableOpacity>
-                </View>
-              );
-            }}
-          />
-        )}
-      </View>
 
-      {/* ── FLOATING CART BAR ──────────────────────────────────────────────── */}
-      <View style={{ paddingHorizontal: 16, paddingBottom: 16, paddingTop: 6 }}>
-
-        {/* Holds pill removed as requested */}
-
-        <Animated.View style={{ transform: [{ scale: cartBounceAnim }] }}>
-          <TouchableOpacity activeOpacity={0.9} disabled={cart.length === 0} onPress={() => setShowCart(true)}>
-            <LinearGradient
-              colors={cart.length === 0 ? [C.bg.hover, C.bg.card] : [C.amber.primary, C.amber.light]}
-              start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-              style={{
-                borderRadius: 20, paddingVertical: 14, paddingHorizontal: 16,
-                shadowColor: cart.length === 0 ? "#000" : C.amber.primary,
-                shadowOpacity: cart.length === 0 ? 0.15 : 0.35, shadowRadius: 14,
-                shadowOffset: { width: 0, height: 6 },
-                elevation: cart.length === 0 ? 5 : 8
-              }}>
-
-              {/* Single row: icon + label + total — no item list */}
-              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                  <View
-                    ref={cartIconRef}
-                    onLayout={measureCart}
-                    style={{
-                      width: 36, height: 36, borderRadius: 10,
-                      backgroundColor: "rgba(0,0,0,0.2)", alignItems: "center", justifyContent: "center",
-                      position: "relative"
-                    }}>
-                    <ShoppingCart size={16} color={cart.length === 0 ? C.text.secondary : "#000"} />
-                    {cart.length > 0 && (
+                    {inCart ? (
                       <View style={{
-                        position: "absolute", top: -5, right: -5,
-                        backgroundColor: "#000", borderRadius: 8, minWidth: 16, height: 16,
-                        alignItems: "center", justifyContent: "center", paddingHorizontal: 3
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 7,
+                        paddingLeft: 10,
                       }}>
-                        <Text style={{ color: C.amber.primary, fontSize: 8, fontWeight: "900" }}>
-                          {cartItemCount}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                  <View>
-                    <Text style={{ color: cart.length === 0 ? C.text.secondary : "#000", fontSize: 13, fontWeight: "800" }}>
-                      {cart.length === 0 ? "Cart is empty" : `${cartItemCount} item${cartItemCount !== 1 ? "s" : ""} · Tap to checkout`}
-                    </Text>
-                    {cart.length === 0 && (
-                      <Text style={{ color: C.text.secondary, fontSize: 10, marginTop: 1 }}>Tap products to add</Text>
-                    )}
-                    {cart.length > 0 && orderDiscount > 0 && (
-                      <Text style={{ color: "rgba(0,0,0,0.55)", fontSize: 10, marginTop: 1 }}>
-                        🏷️ −{fmt(orderDiscount)} discount applied
-                      </Text>
-                    )}
-                  </View>
-                </View>
+                        <TouchableOpacity
+                          activeOpacity={0.78}
+                          onPress={(e) => { e.stopPropagation?.(); inCartItem!.quantity > 1 ? updateQuantity(item.id, -1) : removeFromCart(item.id); }}
+                          style={{
+                            width: 34,
+                            height: 34,
+                            borderRadius: 12,
+                            backgroundColor: POS_SURFACE_RAISED,
+                            alignItems: "center",
+                            justifyContent: "center",
+                          }}>
+                          <Minus size={17} color={C.text.primary} strokeWidth={2.6} />
+                        </TouchableOpacity>
 
-                <View style={{ alignItems: "flex-end" }}>
-                  <Text style={{ color: cart.length === 0 ? C.text.secondary : "#000", fontSize: 19, fontWeight: "900", letterSpacing: -0.5 }}>
-                    {fmt(total)}
-                  </Text>
-                  {cart.length > 0 && taxAmount > 0 && (
-                    <Text style={{ color: "rgba(0,0,0,0.5)", fontSize: 9, marginTop: 1 }}>
-                      sub {fmt(subtotal)} · tax {fmt(taxAmount)}
-                    </Text>
-                  )}
+                        <Text style={{ color: C.text.primary, fontSize: 15, fontWeight: "900", minWidth: 22, textAlign: "center" }}>
+                          {inCartItem!.quantity}
+                        </Text>
+
+                        <TouchableOpacity
+                          activeOpacity={0.78}
+                          onPress={(e) => { e.stopPropagation?.(); updateQuantity(item.id, 1, e); }}
+                          style={{
+                            width: 34,
+                            height: 34,
+                            borderRadius: 12,
+                            backgroundColor: C.amber.primary,
+                            alignItems: "center",
+                            justifyContent: "center",
+                          }}>
+                          <Plus size={20} color="#1A1100" strokeWidth={3} />
+                        </TouchableOpacity>
+                      </View>
+                    ) : (
+                      <TouchableOpacity
+                        activeOpacity={0.78}
+                        onPress={(e) => { e.stopPropagation?.(); addToCart(item, e); }}
+                        style={{
+                          width: 52,
+                          height: 52,
+                          borderRadius: 18,
+                          backgroundColor: hexAlpha(C.amber.primary, 0.12),
+                          alignItems: "center",
+                          justifyContent: "center",
+                          shadowColor: C.amber.primary,
+                          shadowOpacity: 0.22,
+                          shadowRadius: 12,
+                          shadowOffset: { width: 0, height: 6 },
+                          elevation: 6,
+                        }}>
+                        <Plus size={28} color={C.amber.primary} strokeWidth={2.6} />
+                      </TouchableOpacity>
+                    )}
+                  </TouchableOpacity>
+                );
+              }}
+            />
+          )}
+        </View>
+
+        {/*  */}
+        <View style={{
+          position: "absolute",
+          left: 16,
+          right: 16,
+          bottom: Math.max(insets.bottom, 10) + 6,
+        }}>
+          <Animated.View style={{ transform: [{ scale: cartBounceAnim }] }}>
+            <TouchableOpacity activeOpacity={0.9} disabled={cart.length === 0} onPress={() => setShowCart(true)}>
+              <View
+                style={{
+                  minHeight: 70,
+                  borderRadius: 22,
+                  paddingVertical: 12,
+                  paddingHorizontal: 14,
+                  backgroundColor: "#FF9100", // Reverted to Amber
+                  shadowColor: "#000",
+                  shadowOpacity: 0.32,
+                  shadowRadius: 20,
+                  shadowOffset: { width: 0, height: 10 },
+                  elevation: 12,
+                }}>
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 13, flex: 1 }}>
+                    <View
+                      ref={cartIconRef}
+                      onLayout={measureCart}
+                      style={{
+                        width: 48,
+                        height: 48,
+                        borderRadius: 17,
+                        backgroundColor: "rgba(0,0,0,0.2)",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        position: "relative",
+                      }}>
+                      <ShoppingCart size={24} color={C.amber.primary} strokeWidth={2.4} />
+                      {cart.length > 0 ? (
+                        <View style={{
+                          position: "absolute",
+                          top: -7,
+                          right: -7,
+                          backgroundColor: "#000", // Orange badge background
+                          borderRadius: 12,
+                          minWidth: 24,
+                          height: 24,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          paddingHorizontal: 6,
+                          borderWidth: 2,
+                          borderColor: "#000", // Dark border to pop against the badge
+                        }}>
+                          <Text style={{ color: "#fff", fontSize: 11, fontWeight: "900" }}>{cartItemCount}</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: "#633900", fontSize: 13, fontWeight: "700", opacity: 0.85 }}>Basket Items</Text>
+                      <Text style={{ color: "#1A1100", fontSize: 18, fontWeight: "900", letterSpacing: -0.5 }}>{fmt(total)}</Text>
+                    </View>
+                  </View>
+                  <View style={{
+                    backgroundColor: "#1A1A10",
+                    paddingHorizontal: 18,
+                    paddingVertical: 10,
+                    borderRadius: 14,
+                  }}>
+                    <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 14 }}>PAY</Text>
+                  </View>
                 </View>
               </View>
-            </LinearGradient>
-          </TouchableOpacity>
-        </Animated.View>
-      </View>
+            </TouchableOpacity>
+          </Animated.View>
+        </View>
+      </LinearGradient>
 
       {/* ── FLYING PARTICLES OVERLAY ──────────────────────────── */}
       {flyingItems.map((particle) => (
@@ -1560,7 +1407,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
       {/* ── CART MODAL ─────────────────────────────────────────────────────── */}
       <Modal visible={showCart} transparent animationType="slide" onRequestClose={() => setShowCart(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"}
-          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.8)", justifyContent: "flex-end" }}>
+          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.86)", justifyContent: "flex-end" }}>
           <View style={{
             backgroundColor: C.bg.card, borderTopLeftRadius: 32, borderTopRightRadius: 32,
             borderTopWidth: 1, borderColor: C.border.default, padding: 16, paddingBottom: Math.max(insets.bottom, 16), maxHeight: "88%", flex: 1
@@ -1618,7 +1465,8 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
                   <Swipeable key={item.productId} renderRightActions={renderRightActions}>
                     <View style={{
                       marginBottom: 8, backgroundColor: C.bg.hover,
-                      padding: 10, borderRadius: 14, borderWidth: 1, borderColor: C.border.default
+                      padding: 10, borderRadius: 14,
+                      shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 5, shadowOffset: { width: 0, height: 2 }, elevation: 2
                     }}>
                       <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" }}>
                         <View style={{ flex: 1, marginRight: 12 }}>
@@ -1630,8 +1478,8 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
                           </Text>
                         </View>
                         <TouchableOpacity onPress={() => removeFromCart(item.productId)} style={{
-                          width: 32, height: 32, borderRadius: 10, backgroundColor: "rgba(255,71,87,0.1)",
-                          alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,71,87,0.15)"
+                          width: 32, height: 32, borderRadius: 10, backgroundColor: "rgba(255,71,87,0.12)",
+                          alignItems: "center", justifyContent: "center"
                         }}>
                           <Trash2 size={14} color={C.status.error} />
                         </TouchableOpacity>
@@ -1639,8 +1487,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
                       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
                         <View style={{
                           flexDirection: "row", alignItems: "center",
-                          backgroundColor: `${color}18`, borderRadius: 10, overflow: "hidden",
-                          borderWidth: 1, borderColor: `${color}30`
+                          backgroundColor: hexAlpha(color, 0.1), borderRadius: 10, overflow: "hidden"
                         }}>
                           <TouchableOpacity
                             onPress={() => item.quantity > 1 ? updateQuantity(item.productId, -1) : removeFromCart(item.productId)}
@@ -1670,9 +1517,10 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
               {/* Discount row */}
               <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 10, gap: 8 }}>
                 <View style={{
-                  flex: 1, backgroundColor: C.bg.hover, borderWidth: 1, borderColor: C.border.default,
+                  flex: 1, backgroundColor: C.bg.hover,
                   borderRadius: 12, paddingHorizontal: 14, paddingVertical: 2,
-                  flexDirection: "row", alignItems: "center", gap: 8
+                  flexDirection: "row", alignItems: "center", gap: 8,
+                  shadowColor: "#000", shadowOpacity: 0.04, shadowRadius: 3, elevation: 1
                 }}>
                   <Tag size={13} color={C.text.secondary} />
                   <TextInput
@@ -1690,7 +1538,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
                 <TouchableOpacity onPress={handleClearCart} disabled={cart.length === 0}
                   style={{
                     width: 46, height: 46, borderRadius: 12, alignItems: "center", justifyContent: "center",
-                    backgroundColor: C.bg.hover, borderWidth: 1, borderColor: C.border.default
+                    backgroundColor: C.bg.hover, shadowColor: "#000", shadowOpacity: 0.04, shadowRadius: 3, elevation: 1
                   }}>
                   <Trash2 size={17} color={cart.length === 0 ? C.text.secondary : C.status.error} />
                 </TouchableOpacity>
@@ -1699,7 +1547,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
               {/* Totals */}
               <View style={{
                 backgroundColor: C.bg.hover, borderRadius: 16, padding: 14,
-                marginBottom: 14, borderWidth: 1, borderColor: C.border.default
+                marginBottom: 14, shadowColor: "#000", shadowOpacity: 0.06, shadowRadius: 8, elevation: 2
               }}>
                 {[
                   { label: "Subtotal", value: fmt(subtotal), color: C.text.primary },
@@ -1728,7 +1576,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
                   style={{
                     flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
                     paddingVertical: 10, borderRadius: 14,
-                    backgroundColor: cart.length === 0 || isParking ? C.bg.card : `${C.amber.primary}12`,
+                    backgroundColor: cart.length === 0 || isParking ? C.bg.card : hexAlpha(C.amber.primary, 0.07),
                     shadowColor: "#000", shadowOpacity: cart.length === 0 || isParking ? 0.1 : 0.2,
                     shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 5
                   }}>
@@ -1845,9 +1693,9 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
                     <View style={{ flexDirection: "row", alignItems: "center", flex: 1, marginRight: 12 }}>
                       <View style={{
                         width: 42, height: 42, borderRadius: 14,
-                        backgroundColor: `${C.amber.primary}18`, alignItems: "center",
+                        backgroundColor: hexAlpha(C.amber.primary, 0.09), alignItems: "center",
                         justifyContent: "center", marginRight: 12,
-                        borderWidth: 1, borderColor: `${C.amber.primary}30`
+                        borderWidth: 1, borderColor: hexAlpha(C.amber.primary, 0.19)
                       }}>
                         <ShoppingCart size={17} color={C.amber.primary} />
                       </View>
@@ -1880,8 +1728,9 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"}
           style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.8)", justifyContent: "flex-end" }}>
           <View style={{
-            backgroundColor: C.bg.card, borderTopLeftRadius: 32, borderTopRightRadius: 32,
-            borderTopWidth: 1, borderColor: C.border.default, maxHeight: "92%", paddingBottom: Math.max(insets.bottom, 36), flex: 1
+            backgroundColor: C.bg.base, borderTopLeftRadius: 32, borderTopRightRadius: 32,
+            borderTopWidth: 1, borderColor: C.border.default, maxHeight: "92%", paddingBottom: Math.max(insets.bottom, 36), flex: 1,
+            shadowColor: "#000", shadowOpacity: 0.45, shadowRadius: 24, shadowOffset: { width: 0, height: -8 }, elevation: 20
           }}>
             <View style={{
               flexDirection: "row", justifyContent: "space-between", alignItems: "center",
@@ -1908,8 +1757,9 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
                 Order Summary
               </Text>
               <View style={{
-                backgroundColor: C.bg.hover, borderRadius: 16, borderWidth: 1,
-                borderColor: C.border.default, overflow: "hidden", marginBottom: 16
+                backgroundColor: C.bg.card, borderRadius: 20, borderWidth: 1,
+                borderColor: C.border.default, overflow: "hidden", marginBottom: 18,
+                shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 4
               }}>
                 {cart.map((item: CartItem, idx: number) => {
                   const lineTotal = item.price * item.quantity - item.discountAmount;
@@ -1969,24 +1819,54 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
               </Text>
               <View style={{ flexDirection: "row", gap: 8, marginBottom: 14 }}>
                 {[
-                  { key: "CASH", label: "Cash", sub: "Collect & give change", Icon: Banknote },
-                  { key: "CARD", label: "Card", sub: "POS / mobile money", Icon: CreditCard },
-                ].map(({ key, label, sub, Icon }) => (
-                  <TouchableOpacity key={key} onPress={() => setPaymentMethod(key)}
-                    style={{
-                      flex: 1, height: 56, borderRadius: 14, flexDirection: "row",
-                      alignItems: "center", paddingHorizontal: 14, gap: 10,
-                      backgroundColor: paymentMethod === key ? `${C.amber.primary}12` : C.bg.card,
-                      shadowColor: "#000", shadowOpacity: paymentMethod === key ? 0.2 : 0.1,
-                      shadowRadius: paymentMethod === key ? 12 : 8, shadowOffset: { width: 0, height: 4 }, elevation: 5
-                    }}>
-                    <Icon size={20} color={paymentMethod === key ? C.amber.primary : C.text.secondary} />
-                    <View>
-                      <Text style={{ color: paymentMethod === key ? C.amber.primary : C.text.primary, fontSize: 13, fontWeight: "700" }}>{label}</Text>
-                      <Text style={{ color: C.text.secondary, fontSize: 9, marginTop: 1 }}>{sub}</Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
+                  { key: "CASH", label: "Cash", sub: "Cash drawer payment", Icon: Banknote },
+                  { key: "CARD", label: "Card", sub: "Swipe, POS or mobile", Icon: CreditCard },
+                ].map(({ key, label, sub, Icon }) => {
+                  const isActive = paymentMethod === key;
+                  return (
+                    <TouchableOpacity
+                      key={key}
+                      activeOpacity={0.86}
+                      onPress={() => {
+                        setPaymentMethod(key);
+                        if (key === "CARD") setPaidAmount((total * currencyInfo.rate).toFixed(2));
+                      }}
+                      style={{
+                        flex: 1,
+                        minHeight: 66,
+                        borderRadius: 18,
+                        flexDirection: "row",
+                        alignItems: "center",
+                        paddingHorizontal: 14,
+                        gap: 12,
+                        backgroundColor: isActive ? hexAlpha(C.amber.primary, 0.10) : C.bg.hover,
+                        borderWidth: 1,
+                        borderColor: isActive ? C.amber.primary : C.border.default,
+                        shadowColor: isActive ? C.amber.primary : "#000",
+                        shadowOpacity: isActive ? 0.22 : 0.12,
+                        shadowRadius: isActive ? 12 : 8,
+                        shadowOffset: { width: 0, height: 5 },
+                        elevation: isActive ? 7 : 3,
+                      }}>
+                      <View style={{
+                        width: 38,
+                        height: 38,
+                        borderRadius: 12,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        backgroundColor: isActive ? hexAlpha(C.amber.primary, 0.16) : C.bg.card,
+                        borderWidth: 1,
+                        borderColor: isActive ? hexAlpha(C.amber.primary, 0.45) : C.border.default,
+                      }}>
+                        <Icon size={19} color={isActive ? C.amber.primary : C.text.secondary} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: isActive ? C.amber.primary : C.text.primary, fontSize: 14, fontWeight: "800" }}>{label}</Text>
+                        <Text style={{ color: C.text.secondary, fontSize: 10, marginTop: 2 }}>{sub}</Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
 
               {/* Currency Selector */}
@@ -2002,12 +1882,20 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
                   return (
                     <TouchableOpacity key={cur.code} onPress={() => setSelectedCurrency(cur.code)}
                       style={{
-                        paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12,
-                        backgroundColor: isActive ? `${C.amber.primary}14` : C.bg.card,
-                        shadowColor: "#000", shadowOpacity: isActive ? 0.2 : 0.1,
-                        shadowRadius: isActive ? 10 : 8, shadowOffset: { width: 0, height: 4 }, elevation: 5
+                        minWidth: 76,
+                        paddingHorizontal: 15,
+                        paddingVertical: 11,
+                        borderRadius: 15,
+                        backgroundColor: isActive ? hexAlpha(C.amber.primary, 0.10) : C.bg.hover,
+                        borderWidth: 1,
+                        borderColor: isActive ? C.amber.primary : C.border.default,
+                        shadowColor: isActive ? C.amber.primary : "#000",
+                        shadowOpacity: isActive ? 0.18 : 0.08,
+                        shadowRadius: isActive ? 10 : 6,
+                        shadowOffset: { width: 0, height: 4 },
+                        elevation: isActive ? 6 : 2
                       }}>
-                      <Text style={{ color: isActive ? C.amber.primary : C.text.primary, fontWeight: "700", fontSize: 13 }}>
+                      <Text style={{ color: isActive ? C.amber.primary : C.text.primary, fontWeight: "800", fontSize: 13 }}>
                         {cur.code}
                       </Text>
                       {cur.code !== "USD" && (
@@ -2023,8 +1911,8 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
                 return (
                   <View style={{
                     flexDirection: "row", justifyContent: "space-between", alignItems: "center",
-                    backgroundColor: `${C.amber.primary}10`, borderRadius: 12, padding: 12, borderWidth: 1,
-                    borderColor: `${C.amber.primary}30`, marginBottom: 14
+                    backgroundColor: hexAlpha(C.amber.primary, 0.06), borderRadius: 12, padding: 12, borderWidth: 1,
+                    borderColor: hexAlpha(C.amber.primary, 0.19), marginBottom: 14
                   }}>
                     <Text style={{ color: C.text.secondary, fontSize: 12 }}>Total in {selectedCurrency}</Text>
                     <Text style={{ color: C.amber.primary, fontSize: 18, fontWeight: "900" }}>
@@ -2033,6 +1921,40 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
                   </View>
                 );
               })()}
+
+              {paymentMethod === "CARD" && (
+                <View style={{
+                  marginBottom: 12,
+                  borderRadius: 18,
+                  padding: 14,
+                  backgroundColor: hexAlpha(C.amber.primary, 0.08),
+                  borderWidth: 1,
+                  borderColor: hexAlpha(C.amber.primary, 0.30),
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                    <View style={{
+                      width: 38,
+                      height: 38,
+                      borderRadius: 12,
+                      backgroundColor: hexAlpha(C.amber.primary, 0.14),
+                      borderWidth: 1,
+                      borderColor: hexAlpha(C.amber.primary, 0.35),
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}>
+                      <CreditCard size={18} color={C.amber.primary} />
+                    </View>
+                    <View>
+                      <Text style={{ color: C.text.primary, fontSize: 13, fontWeight: "800" }}>Card amount locked</Text>
+                      <Text style={{ color: C.text.secondary, fontSize: 10, marginTop: 2 }}>No cash change needed</Text>
+                    </View>
+                  </View>
+                  <Text style={{ color: C.amber.primary, fontSize: 18, fontWeight: "900" }}>{fmt(total)}</Text>
+                </View>
+              )}
 
               {paymentMethod === "CASH" && (
                 <View style={{ marginBottom: 12 }}>
@@ -2043,9 +1965,9 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
                     flexDirection: "row", alignItems: "center",
                     backgroundColor: C.bg.hover,
                     borderWidth: 1,
-                    borderColor: isAmountFocused ? C.status.info : C.border.default,
+                    borderColor: isAmountFocused ? C.amber.primary : C.border.default,
                     borderRadius: 16, paddingHorizontal: 16, paddingVertical: 6,
-                    shadowColor: isAmountFocused ? C.status.info : "transparent",
+                    shadowColor: isAmountFocused ? C.amber.primary : "transparent",
                     shadowOffset: { width: 0, height: 0 },
                     shadowOpacity: 0.2,
                     shadowRadius: 4,
@@ -2146,7 +2068,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
                       padding: 14, borderRadius: 16, marginBottom: 8,
                       flexDirection: "row", alignItems: "center", borderWidth: 1,
                       borderColor: isSelected ? C.amber.primary : C.border.default,
-                      backgroundColor: isSelected ? `${C.amber.primary}0f` : C.bg.hover
+                      backgroundColor: isSelected ? hexAlpha(C.amber.primary, 0.06) : C.bg.hover
                     }}>
                     <View style={{
                       width: 42, height: 42, borderRadius: 14, backgroundColor: C.bg.hover,
@@ -2161,7 +2083,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
                         {isDefault && (
                           <View style={{
                             paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5,
-                            backgroundColor: `${C.amber.primary}18`, borderWidth: 1, borderColor: `${C.amber.primary}35`
+                            backgroundColor: hexAlpha(C.amber.primary, 0.09), borderWidth: 1, borderColor: hexAlpha(C.amber.primary, 0.21)
                           }}>
                             <Text style={{ color: C.amber.primary, fontSize: 8, fontWeight: "800", textTransform: "uppercase" }}>Default</Text>
                           </View>
@@ -2194,10 +2116,10 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
             backgroundColor: C.bg.card, borderRadius: 32, borderWidth: 1,
             borderColor: C.border.default, width: "100%", maxWidth: 380, overflow: "hidden"
           }}>
-            <LinearGradient colors={[`${C.amber.primary}18`, "transparent"]} style={{ padding: 32, alignItems: "center" }}>
+            <LinearGradient colors={[hexAlpha(C.amber.primary, 0.09), "transparent"]} style={{ padding: 32, alignItems: "center" }}>
               <View style={{
                 width: 80, height: 80, borderRadius: 40,
-                backgroundColor: `${C.status.success}18`, borderWidth: 1.5, borderColor: `${C.status.success}40`,
+                backgroundColor: hexAlpha(C.status.success, 0.09), borderWidth: 1.5, borderColor: hexAlpha(C.status.success, 0.25),
                 alignItems: "center", justifyContent: "center", marginBottom: 16
               }}>
                 <CheckCircle2 size={42} color={C.status.success} />
@@ -2275,7 +2197,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
             </Text>
 
             {shiftModalType === "CLOSE" && shiftSummary && (
-              <View style={{ marginBottom: 16, padding: 14, borderRadius: 16, backgroundColor: C.bg.hover, borderWidth: 1, borderColor: C.border.default }}>
+              <View style={{ marginBottom: 16, padding: 14, borderRadius: 16, backgroundColor: C.bg.hover, shadowColor: "#000", shadowOpacity: 0.04, shadowRadius: 5, elevation: 2 }}>
                 <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                   <Text style={{ color: C.text.secondary, fontSize: 10, fontWeight: "800", textTransform: "uppercase" }}>Expected in Till</Text>
                   <Text style={{ color: C.text.primary, fontSize: 16, fontWeight: "900" }}>{shiftSummary.currency} {shiftSummary.expectedCash}</Text>
@@ -2301,9 +2223,10 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
             )}
             <TextInput
               style={{
-                backgroundColor: C.bg.hover, borderWidth: 1, borderColor: C.border.default,
+                backgroundColor: C.bg.hover,
                 borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14,
-                color: C.text.primary, fontSize: 18, fontWeight: "800"
+                color: C.text.primary, fontSize: 18, fontWeight: "800",
+                shadowColor: "#000", shadowOpacity: 0.04, shadowRadius: 3, elevation: 1
               }}
               placeholder="0.00"
               placeholderTextColor={C.text.secondary}
@@ -2441,7 +2364,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
                       style={{
                         flex: 1, height: 48, borderRadius: 12, flexDirection: "row",
                         alignItems: "center", justifyContent: "center", gap: 10,
-                        backgroundColor: transactionType === t.type ? (t.type === "PAYOUT" ? `${C.status.error}10` : `${C.amber.primary}10`) : C.bg.card,
+                        backgroundColor: transactionType === t.type ? (t.type === "PAYOUT" ? hexAlpha(C.status.error, 0.06) : hexAlpha(C.amber.primary, 0.06)) : C.bg.card,
                         shadowColor: "#000", shadowOpacity: transactionType === t.type ? 0.2 : 0.1,
                         shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 5
                       }}>
@@ -2481,7 +2404,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
                             onPress={() => setSelectedShift(s)}
                             style={{
                               paddingHorizontal: 12, paddingVertical: 12, borderRadius: 12,
-                              backgroundColor: selectedShift?.id === s.id ? `${C.amber.primary}20` : C.bg.card,
+                              backgroundColor: selectedShift?.id === s.id ? hexAlpha(C.amber.primary, 0.13) : C.bg.card,
                               borderWidth: 1.5, borderColor: selectedShift?.id === s.id ? C.amber.primary : C.border.default,
                               minWidth: "47%"
                             }}
@@ -2497,7 +2420,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
 
                 {/* Show expected cash if a shift is selected */}
                 {selectedShift && (
-                  <View style={{ backgroundColor: `${C.amber.primary}10`, padding: 12, borderRadius: 12, marginBottom: 16, borderWidth: 1, borderColor: `${C.amber.primary}30` }}>
+                  <View style={{ backgroundColor: hexAlpha(C.amber.primary, 0.06), padding: 12, borderRadius: 12, marginBottom: 16, borderWidth: 1, borderColor: hexAlpha(C.amber.primary, 0.19) }}>
                     <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
                       <Text style={{ color: C.text.secondary, fontSize: 12 }}>Expected Cash since last collection:</Text>
                       <Text style={{ color: C.amber.primary, fontWeight: "800", fontSize: 16 }}>${selectedShift.availableCash}</Text>
@@ -2510,9 +2433,10 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
                 </Text>
                 <TextInput
                   style={{
-                    backgroundColor: C.bg.hover, borderWidth: 1, borderColor: C.border.default,
+                    backgroundColor: C.bg.hover,
                     borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14,
-                    color: C.text.primary, fontSize: 18, fontWeight: "800", marginBottom: 16
+                    color: C.text.primary, fontSize: 18, fontWeight: "800", marginBottom: 16,
+                    shadowColor: "#000", shadowOpacity: 0.04, shadowRadius: 3, elevation: 1
                   }}
                   placeholder="0.00"
                   placeholderTextColor={C.text.secondary}
@@ -2526,9 +2450,10 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
                 <Text style={{ color: C.text.secondary, fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Reason / Notes</Text>
                 <TextInput
                   style={{
-                    backgroundColor: C.bg.hover, borderWidth: 1, borderColor: C.border.default,
+                    backgroundColor: C.bg.hover,
                     borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14,
-                    color: C.text.primary, fontSize: 16, marginBottom: 24
+                    color: C.text.primary, fontSize: 16, marginBottom: 24,
+                    shadowColor: "#000", shadowOpacity: 0.04, shadowRadius: 3, elevation: 1
                   }}
                   placeholder={transactionType === "PAYOUT" ? "What was this for?" : "Reference (optional)"}
                   placeholderTextColor={C.text.secondary}
@@ -2562,10 +2487,10 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
 
       {/* ── SUMMARY MODAL ────────────────────────────────────────────────── */}
       <Modal visible={showSummaryModal} transparent animationType="slide" onRequestClose={() => setShowSummaryModal(false)}>
-        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.8)", justifyContent: "center", padding: 24 }}>
+        <View style={{ flex: 1, backgroundColor: hexAlpha(C.bg.base, 0.8), justifyContent: "center", padding: 24 }}>
           <View style={{
-            backgroundColor: C.bg.card, borderRadius: 24,
-            borderWidth: 1, borderColor: C.border.default, padding: 24
+            backgroundColor: C.bg.card, borderRadius: 24, padding: 24,
+            shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 15, elevation: 10
           }}>
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
               <Text style={{ color: C.text.primary, fontSize: 22, fontWeight: "800" }}>Session Z-Report</Text>
@@ -2577,20 +2502,20 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
             {shiftSummary && (
               <ScrollView style={{ maxHeight: 400 }} showsVerticalScrollIndicator={false}>
                 <View style={{ gap: 12 }}>
-                  <View style={{ padding: 14, borderRadius: 16, backgroundColor: C.bg.hover, borderWidth: 1, borderColor: C.border.default }}>
+                  <View style={{ padding: 14, borderRadius: 16, backgroundColor: C.bg.panel, borderWidth: 1, borderColor: POS_BORDER }}>
                     <Text style={{ color: C.text.secondary, fontSize: 10, fontWeight: "700", textTransform: "uppercase", marginBottom: 6 }}>Total Sales</Text>
                     <Text style={{ color: C.status.success, fontSize: 20, fontWeight: "900" }}>{shiftSummary.currency} {shiftSummary.totalSales}</Text>
                   </View>
 
                   {shiftSummary.totalPayouts && shiftSummary.totalPayouts !== "0.00" && (
-                    <View style={{ padding: 14, borderRadius: 16, backgroundColor: `${C.status.error}08`, borderWidth: 1, borderColor: `${C.status.error}25` }}>
+                    <View style={{ padding: 14, borderRadius: 16, backgroundColor: hexAlpha(C.status.error, 0.03), borderWidth: 1, borderColor: hexAlpha(C.status.error, 0.15) }}>
                       <Text style={{ color: C.text.secondary, fontSize: 9, fontWeight: "700", textTransform: "uppercase", marginBottom: 4 }}>Petty Cash Paid Out</Text>
                       <Text style={{ color: C.status.error, fontSize: 18, fontWeight: "800" }}>− {shiftSummary.currency} {shiftSummary.totalPayouts}</Text>
                       <Text style={{ color: C.text.secondary, fontSize: 9, marginTop: 3 }}>Till expenses deducted from expected drawer balance</Text>
                     </View>
                   )}
 
-                  <View style={{ padding: 16, borderRadius: 16, backgroundColor: C.bg.hover, borderWidth: 1, borderColor: C.border.default }}>
+                  <View style={{ padding: 16, borderRadius: 16, backgroundColor: C.bg.panel, borderWidth: 1, borderColor: POS_BORDER }}>
                     <Text style={{ color: C.text.secondary, fontSize: 10, fontWeight: "800", textTransform: "uppercase", marginBottom: 6 }}>Total Float in Till</Text>
                     <Text style={{ color: C.text.primary, fontSize: 22, fontWeight: "900" }}>{shiftSummary.currency} {shiftSummary.expectedCash}</Text>
                     <Text style={{ color: C.text.secondary, fontSize: 9, marginTop: 4 }}>Expected cash in drawer incl. opening float of {shiftSummary.openingBalance}</Text>
@@ -2607,17 +2532,18 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
         </View>
       </Modal>
       <Modal visible={showBranchPicker} transparent animationType="slide" onRequestClose={() => setShowBranchPicker(false)}>
-        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.8)", justifyContent: "flex-end" }}>
+        <View style={{ flex: 1, backgroundColor: hexAlpha(C.bg.base, 0.8), justifyContent: "flex-end" }}>
           <View style={{
             backgroundColor: C.bg.card, borderTopLeftRadius: 32, borderTopRightRadius: 32,
-            borderTopWidth: 1, borderColor: C.border.default, padding: 24, paddingBottom: Math.max(insets.bottom, 36)
+            borderTopWidth: 1, borderColor: POS_BORDER, padding: 24, paddingBottom: Math.max(insets.bottom, 36)
           }}>
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
               <Text style={{ color: C.text.primary, fontSize: 22, fontWeight: "800" }}>Select Branch</Text>
               <TouchableOpacity onPress={() => setShowBranchPicker(false)}
                 style={{
-                  width: 38, height: 38, borderRadius: 12, backgroundColor: C.bg.hover,
-                  borderWidth: 1, borderColor: C.border.default, alignItems: "center", justifyContent: "center"
+                  width: 38, height: 38, borderRadius: 12, backgroundColor: C.bg.panel,
+                  alignItems: "center", justifyContent: "center",
+                  shadowColor: "#000", shadowOpacity: 0.04, shadowRadius: 3, elevation: 1
                 }}>
                 <X size={16} color={C.text.primary} />
               </TouchableOpacity>
@@ -2641,7 +2567,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
                     }}
                     style={{
                       flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-                      paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: C.border.default
+                      paddingVertical: 16
                     }}
                   >
                     <View>
@@ -2664,6 +2590,218 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
           </View>
         </View>
       </Modal>
+
+      {/* ── QUICK MENU MODAL ──────────────────────────────────────────────── */}
+      <Modal visible={showQuickMenu} transparent animationType="fade" onRequestClose={() => setShowQuickMenu(false)}>
+        <TouchableWithoutFeedback onPress={() => setShowQuickMenu(false)}>
+          <View style={{ flex: 1, backgroundColor: hexAlpha(C.bg.base, 0.75), justifyContent: "flex-end" }}>
+            <TouchableWithoutFeedback>
+              <View style={{
+                backgroundColor: C.bg.base, borderTopLeftRadius: 28, borderTopRightRadius: 28,
+                paddingHorizontal: 20, paddingTop: 16, paddingBottom: Math.max(insets.bottom, 20),
+                borderTopWidth: 1, borderColor: POS_BORDER
+              }}>
+                {/* Drag handle */}
+                <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: POS_BORDER, alignSelf: "center", marginBottom: 16 }} />
+
+                <Text style={{ color: C.text.secondary, fontSize: 10, fontWeight: "800", textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 12 }}>
+                  Quick Actions
+                </Text>
+
+                {/* Shift status */}
+                <TouchableOpacity
+                  onPress={() => {
+                    setShowQuickMenu(false);
+                    const type = currentShift ? "CLOSE" : "OPEN";
+                    setShiftModalType(type);
+                    if (type === "CLOSE") fetchShiftSummary();
+                    else setShiftSummary(null);
+                    setShowShiftModal(true);
+                  }}
+                  style={{
+                    flexDirection: "row", alignItems: "center", padding: 14, borderRadius: 14,
+                    backgroundColor: C.bg.panel, marginBottom: 8,
+                    shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 6, elevation: 2
+                  }}>
+                  <View style={{
+                    width: 36, height: 36, borderRadius: 10,
+                    backgroundColor: currentShift ? "rgba(0,208,132,0.12)" : "rgba(251,191,36,0.12)",
+                    alignItems: "center", justifyContent: "center", marginRight: 14
+                  }}>
+                    {currentShift ? <Play size={18} color={C.status.success} /> : <Pause size={18} color="#fbbf24" />}
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: C.text.primary, fontSize: 14, fontWeight: "700" }}>
+                      {currentShift ? "End Shift" : "Start Shift"}
+                    </Text>
+                    <Text style={{ color: C.text.secondary, fontSize: 11 }}>
+                      {currentShift ? "Shift is currently active" : "No active shift"}
+                    </Text>
+                  </View>
+                  <View style={{
+                    width: 8, height: 8, borderRadius: 4,
+                    backgroundColor: currentShift ? C.status.success : "#fbbf24"
+                  }} />
+                </TouchableOpacity>
+
+                {/* Held Sales */}
+                <TouchableOpacity
+                  onPress={() => { setShowQuickMenu(false); setShowHoldsModal(true); }}
+                  style={{
+                    flexDirection: "row", alignItems: "center", padding: 14, borderRadius: 14,
+                    backgroundColor: C.bg.hover, marginBottom: 8
+                  }}>
+                  <View style={{
+                    width: 36, height: 36, borderRadius: 10, backgroundColor: hexAlpha(C.amber.primary, 0.1),
+                    alignItems: "center", justifyContent: "center", marginRight: 14
+                  }}>
+                    <History size={18} color={C.amber.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: C.text.primary, fontSize: 14, fontWeight: "700" }}>Held Sales</Text>
+                    <Text style={{ color: C.text.secondary, fontSize: 11 }}>
+                      {heldSales.length > 0 ? `${heldSales.length} parked` : "No held sales"}
+                    </Text>
+                  </View>
+                  {heldSales.length > 0 && (
+                    <View style={{
+                      backgroundColor: C.amber.primary, borderRadius: 10, minWidth: 20, height: 20,
+                      alignItems: "center", justifyContent: "center", paddingHorizontal: 6
+                    }}>
+                      <Text style={{ color: "#000", fontSize: 11, fontWeight: "900" }}>{heldSales.length}</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+
+                {/* Collection (Drop) */}
+                {(currentShift || userRole === "admin" || userRole === "owner") && (
+                  <TouchableOpacity
+                    onPress={() => { setShowQuickMenu(false); setTransactionType("DROP"); setShowPayoutModal(true); }}
+                    style={{
+                      flexDirection: "row", alignItems: "center", padding: 14, borderRadius: 14,
+                      backgroundColor: C.bg.hover, marginBottom: 8
+                    }}>
+                    <View style={{
+                      width: 36, height: 36, borderRadius: 10, backgroundColor: hexAlpha(C.amber.primary, 0.1),
+                      alignItems: "center", justifyContent: "center", marginRight: 14
+                    }}>
+                      <Download size={18} color={C.amber.primary} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: C.text.primary, fontSize: 14, fontWeight: "700" }}>Collection</Text>
+                      <Text style={{ color: C.text.secondary, fontSize: 11 }}>Cash drop / payout</Text>
+                    </View>
+                  </TouchableOpacity>
+                )}
+
+                {/* X/Z Report */}
+                {currentShift && (
+                  <TouchableOpacity
+                    onPress={() => { setShowQuickMenu(false); fetchShiftSummary(); }}
+                    style={{
+                      flexDirection: "row", alignItems: "center", padding: 14, borderRadius: 14,
+                      backgroundColor: C.bg.hover, marginBottom: 8
+                    }}>
+                    <View style={{
+                      width: 36, height: 36, borderRadius: 10, backgroundColor: hexAlpha(C.amber.primary, 0.1),
+                      alignItems: "center", justifyContent: "center", marginRight: 14
+                    }}>
+                      <Clock size={18} color={C.amber.primary} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: C.text.primary, fontSize: 14, fontWeight: "700" }}>X/Z Report</Text>
+                      <Text style={{ color: C.text.secondary, fontSize: 11 }}>Shift sales summary</Text>
+                    </View>
+                  </TouchableOpacity>
+                )}
+
+                {/* Printer Settings */}
+                <TouchableOpacity
+                  onPress={() => { setShowQuickMenu(false); setShowPrinterSettings(true); }}
+                  style={{
+                    flexDirection: "row", alignItems: "center", padding: 14, borderRadius: 14,
+                    backgroundColor: C.bg.hover, marginBottom: 8
+                  }}>
+                  <View style={{
+                    width: 36, height: 36, borderRadius: 10, backgroundColor: hexAlpha(C.amber.primary, 0.1),
+                    alignItems: "center", justifyContent: "center", marginRight: 14
+                  }}>
+                    <Printer size={18} color={printerConfig.macAddress || printerConfig.targetPrinter ? C.status.success : C.text.secondary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: C.text.primary, fontSize: 14, fontWeight: "700" }}>Printer</Text>
+                    <Text style={{ color: C.text.secondary, fontSize: 11 }}>
+                      {printerConfig.macAddress || printerConfig.targetPrinter ? "Connected" : "Not connected"}
+                    </Text>
+                  </View>
+                  {(!!printerConfig.macAddress || !!printerConfig.targetPrinter) && (
+                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.status.success }} />
+                  )}
+                </TouchableOpacity>
+
+                {/* Currency toggle */}
+                {(currencies && currencies.filter((c: any) => c.code !== "USD").length > 0) && (
+                  <TouchableOpacity
+                    onPress={() => {
+                      const allCurrencies = ["USD", ...(currencies || []).filter((c: any) => c.code !== "USD").map((c: any) => c.code)];
+                      const currentIdx = allCurrencies.indexOf(selectedCurrency);
+                      const nextIdx = (currentIdx + 1) % allCurrencies.length;
+                      setSelectedCurrency(allCurrencies[nextIdx]);
+                    }}
+                    style={{
+                      flexDirection: "row", alignItems: "center", padding: 14, borderRadius: 14,
+                      backgroundColor: C.bg.hover, marginBottom: 8
+                    }}>
+                    <View style={{
+                      width: 36, height: 36, borderRadius: 10,
+                      backgroundColor: selectedCurrency !== "USD" ? hexAlpha(C.amber.primary, 0.1) : "rgba(255,255,255,0.05)",
+                      alignItems: "center", justifyContent: "center", marginRight: 14
+                    }}>
+                      <CreditCard size={18} color={selectedCurrency !== "USD" ? C.amber.primary : C.text.secondary} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: C.text.primary, fontSize: 14, fontWeight: "700" }}>Currency: {selectedCurrency}</Text>
+                      <Text style={{ color: C.text.secondary, fontSize: 11 }}>Tap to switch</Text>
+                    </View>
+                  </TouchableOpacity>
+                )}
+
+                {/* Sync status */}
+                <TouchableOpacity
+                  onPress={() => { setShowQuickMenu(false); syncQueued(true); }}
+                  style={{
+                    flexDirection: "row", alignItems: "center", padding: 14, borderRadius: 14,
+                    backgroundColor: C.bg.hover, marginBottom: 4
+                  }}>
+                  <View style={{
+                    width: 36, height: 36, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.05)",
+                    alignItems: "center", justifyContent: "center", marginRight: 14
+                  }}>
+                    <CloudUpload size={18} color={isSyncing ? C.amber.primary : C.text.secondary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: C.text.primary, fontSize: 14, fontWeight: "700" }}>
+                      {isSyncing ? "Syncing..." : "Sync Now"}
+                    </Text>
+                    <Text style={{ color: C.text.secondary, fontSize: 11 }}>
+                      {queueCount ? `${queueCount} queued items` : "Everything synced"}
+                    </Text>
+                  </View>
+                  {queueCount > 0 && (
+                    <View style={{
+                      backgroundColor: C.amber.primary, borderRadius: 10, minWidth: 20, height: 20,
+                      alignItems: "center", justifyContent: "center", paddingHorizontal: 6
+                    }}>
+                      <Text style={{ color: "#000", fontSize: 11, fontWeight: "900" }}>{queueCount}</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
       <PrinterSettingsModal
         visible={showPrinterSettings}
         onClose={() => setShowPrinterSettings(false)}
@@ -2671,4 +2809,3 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
     </View>
   );
 }
-

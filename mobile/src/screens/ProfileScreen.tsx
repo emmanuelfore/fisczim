@@ -22,7 +22,7 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
 import { supabase } from "../lib/supabase";
-import { useTheme, ThemeMode } from "../ui/PremiumColors";
+import { useTheme, ThemeMode, hexAlpha } from "../ui/PremiumColors";
 
 interface ProfileScreenProps {
   onOpenDrawer: () => void;
@@ -89,8 +89,8 @@ export function ProfileScreen({ onOpenDrawer, userName, onLogout }: ProfileScree
             <View style={{ position: "relative", marginBottom: 16 }}>
               <View style={{
                 width: 90, height: 90, borderRadius: 45,
-                backgroundColor: `${C.amber.primary}12`,
-                borderWidth: 1, borderColor: `${C.amber.primary}30`,
+                backgroundColor: hexAlpha(C.amber.primary, 0.08),
+                borderWidth: 1, borderColor: hexAlpha(C.amber.primary, 0.2),
                 alignItems: "center", justifyContent: "center",
               }}>
                 <User size={40} color={C.amber.primary} />

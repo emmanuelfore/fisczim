@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, AppState, AppStateStatus, Text, View } from "react-native";
+import { ActivityIndicator, AppState, AppStateStatus, Platform, ScrollView, Text, View } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import NetInfo from "@react-native-community/netinfo";
-import { assertEnv } from "./lib/env";
+import { assertEnv, ENV } from "./lib/env";
 import { supabase } from "./lib/supabase";
 import { apiJson } from "./lib/api";
 import { PremiumColors } from "./ui/PremiumColors";
@@ -47,6 +47,69 @@ export function AppRoot() {
   const [bootStartTime] = useState(Date.now());
   const [showSlowMessage, setShowSlowMessage] = useState(false);
   const [isOnline, setIsOnline] = useState<boolean | null>(true);
+  const [diagResults, setDiagResults] = useState<string[] | null>(null);
+  const [diagRunning, setDiagRunning] = useState(false);
+
+  const runDiagnostics = async () => {
+    setDiagRunning(true);
+    const results: string[] = [];
+    results.push(`📱 Platform: Android ${Platform.Version}`);
+    results.push(`🌐 NetInfo online: ${isOnline}`);
+    results.push(`🔗 API URL: ${ENV.apiBaseUrl}`);
+    results.push(`🔗 Supabase URL: ${ENV.supabaseUrl}`);
+
+    // Test 1: Can we reach Google (basic internet)?
+    try {
+      const r = await fetch('https://www.google.com', { method: 'HEAD' });
+      results.push(`✅ Google: reachable (${r.status})`);
+    } catch (e: any) {
+      results.push(`❌ Google: ${e.message}`);
+    }
+
+    // Test 2: Can we reach Supabase?
+    try {
+      const r = await fetch(`${ENV.supabaseUrl}/rest/v1/`, { method: 'HEAD', headers: { apikey: ENV.supabaseAnonKey } });
+      results.push(`✅ Supabase: reachable (${r.status})`);
+    } catch (e: any) {
+      results.push(`❌ Supabase: ${e.message}`);
+    }
+
+    // Test 3: Can we reach the API server health endpoint?
+    try {
+      const r = await fetch(`${ENV.apiBaseUrl}/api/health`, { method: 'GET' });
+      const body = await r.text().catch(() => '');
+      results.push(`✅ API Health: ${r.status} ${body.slice(0, 50)}`);
+    } catch (e: any) {
+      results.push(`❌ API Health: ${e.message}`);
+    }
+
+    // Test 4: Can we reach the API companies endpoint (authenticated)?
+    try {
+      const session = await supabase.auth.getSession();
+      const token = session?.data?.session?.access_token;
+      results.push(`🔑 Auth token: ${token ? 'present' : 'MISSING'}`);
+      if (token) {
+        const r = await fetch(`${ENV.apiBaseUrl}/api/companies`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const body = await r.text().catch(() => '');
+        results.push(`✅ API Companies: ${r.status} (${body.length} bytes)`);
+      }
+    } catch (e: any) {
+      results.push(`❌ API Companies: ${e.message}`);
+    }
+
+    // Test 5: TLS version check via httpbin
+    try {
+      const r = await fetch('https://httpbin.org/get');
+      results.push(`✅ httpbin (TLS test): ${r.status}`);
+    } catch (e: any) {
+      results.push(`❌ httpbin (TLS test): ${e.message}`);
+    }
+
+    setDiagResults(results);
+    setDiagRunning(false);
+  };
   
   const lastOnlineState = useRef<boolean | null | undefined>(undefined);
 
@@ -138,16 +201,19 @@ export function AppRoot() {
         return freshCompanies;
       }
 
-      // If network fetch failed, return cached data if available
-      return cachedData.length > 0 ? cachedData : [];
+      // If network fetch failed, return cached data if available.
+      // We return null if there's no cache, so the caller can distinguish between 
+      // "No companies" ([]) and "Network error" (null).
+      return cachedData.length > 0 ? cachedData : null;
     } catch (e: any) {
       console.error("[Boot] Parallel fetch failed:", e);
       if (cachedData.length > 0) return cachedData;
       
       if (isBoot) {
+        // During boot we throw so the boot screen shows the error
         throw new Error(`Initialization failed: ${e.message || "Connection error"}.`);
       }
-      return [];
+      return null;
     }
   };
 
@@ -224,25 +290,33 @@ export function AppRoot() {
             const companiesList = await fetchUser(true);
             if (cancelled) return;
 
+            // If companiesList is null, the fetch failed and we have no cache.
+            if (companiesList === null) {
+               if (isOnline === false) {
+                 // If offline with no cache, we should still allow them to go to main if they have a company ID.
+                 const cachedId = await getSelectedCompanyId().catch(() => null);
+                 if (cachedId) {
+                   setCompanyId(cachedId);
+                   setStage("main");
+                   return;
+                 }
+               }
+               // Otherwise, we cannot proceed effectively.
+               throw new Error("Unable to load organization data. Please check your network connection.");
+            }
+
+            const list = companiesList;
             const cachedId = await getSelectedCompanyId().catch(() => null);
-            const validCompany = companiesList.find(c => (c && c.id === cachedId));
+            const validCompany = list.find(c => (c && c.id === cachedId));
 
             if (validCompany) {
               if (validCompany.role) setUserRole(validCompany.role);
               setCompanyId(cachedId);
               setStage("main");
-            } else if (companiesList.length > 0) {
+            } else if (list.length > 0) {
               setStage("company");
             } else {
-              // If we are offline and have no valid company match in cache, 
-              // but we think we are authed, let's at least try the main screen 
-              // with the cached company ID if it exists.
-              if (cachedId) {
-                setCompanyId(cachedId);
-                setStage("main");
-              } else {
-                setStage("company");
-              }
+              setStage("onboarding");
             }
           } catch (e: any) {
              console.warn("[Auth] Initialization fetch failed, but proceeding as authed:", e.message);
@@ -300,8 +374,8 @@ export function AppRoot() {
   const content = useMemo(() => {
     if (bootError) {
       return (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24, backgroundColor: PremiumColors.bg.primary }}>
-          <Text style={{ color: "#ff4757", fontWeight: "900", fontSize: 20, marginBottom: 12 }}>
+        <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "center", padding: 24, backgroundColor: PremiumColors.bg.primary }}>
+          <Text style={{ color: "#ff4757", fontWeight: "900", fontSize: 20, marginBottom: 12, textAlign: "center" }}>
             Connection Error
           </Text>
           <Text style={{ color: PremiumColors.text.primary, textAlign: "center", marginBottom: 24, fontSize: 14, lineHeight: 20 }}>
@@ -311,10 +385,29 @@ export function AppRoot() {
           <Button 
             title="Try Again" 
             onPress={() => {
+              setDiagResults(null);
               setRetryCount(prev => prev + 1);
             }} 
             style={{ width: "100%", marginBottom: 12 }}
           />
+
+          <Button 
+            title={diagRunning ? "Running Diagnostics..." : "Run Diagnostics"} 
+            variant="ghost" 
+            onPress={runDiagnostics} 
+            style={{ width: "100%", marginBottom: 12 }}
+          />
+
+          {diagResults && (
+            <View style={{ backgroundColor: "rgba(0,0,0,0.5)", borderRadius: 12, padding: 12, marginBottom: 16 }}>
+              <Text style={{ color: PremiumColors.amber.primary, fontWeight: "800", fontSize: 12, marginBottom: 8 }}>DIAGNOSTICS</Text>
+              {diagResults.map((line, i) => (
+                <Text key={i} style={{ color: PremiumColors.text.primary, fontSize: 11, lineHeight: 18, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>
+                  {line}
+                </Text>
+              ))}
+            </View>
+          )}
 
           <Button 
             title="Sign Out" 
@@ -322,7 +415,7 @@ export function AppRoot() {
             onPress={handleLogout} 
             style={{ width: "100%" }}
           />
-        </View>
+        </ScrollView>
       );
     }
 
@@ -356,6 +449,12 @@ export function AppRoot() {
             setStage("boot");
             try {
               const companies = await fetchUser(true);
+              if (companies === null) {
+                 setBootError("Failed to load your organizations. Please check your connection.");
+                 setStage("boot");
+                 return;
+              }
+
               const cachedId = await getSelectedCompanyId();
               const validCompany = companies.find((c: any) => c.id === cachedId);
 
@@ -505,7 +604,7 @@ export function AppRoot() {
         />
       </View>
     );
-  }, [bootError, stage, companyId, currentScreen, showDrawer, userName, userRole, companies]);
+  }, [bootError, stage, companyId, currentScreen, showDrawer, userName, userRole, companies, diagResults, diagRunning]);
 
   return (
     <PrinterProvider>

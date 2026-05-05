@@ -14,6 +14,8 @@ export interface PrinterConfig {
   terminalId: string;
   targetPrinter: string;
   paperWidth: number;
+  isInternal?: boolean;
+  isZ100?: boolean;
 }
 
 const DEFAULT_CONFIG: PrinterConfig = {
@@ -33,9 +35,12 @@ interface PrinterContextType {
   print: (ticketData: TicketData) => Promise<void>;
   executePrint: (ticketData: TicketData, forceConfig?: PrinterConfig) => Promise<void>;
   isPrinting: boolean;
+  isScanning: boolean;
   failedPrints: QueuedPrint[];
   retryFailedPrints: () => Promise<void>;
   refreshQueue: () => Promise<void>;
+  scanForPrinters: () => Promise<{deviceName: string, macAddress: string}[]>;
+  autoConnect: () => Promise<string | null>;
 }
 
 const PrinterContext = createContext<PrinterContextType | undefined>(undefined);
@@ -43,6 +48,7 @@ const PrinterContext = createContext<PrinterContextType | undefined>(undefined);
 export function PrinterProvider({ children }: { children: ReactNode }) {
   const [config, setConfig] = useState<PrinterConfig>(DEFAULT_CONFIG);
   const [isPrinting, setIsPrinting] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
   const [failedPrints, setFailedPrints] = useState<QueuedPrint[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
 
@@ -85,15 +91,64 @@ export function PrinterProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const scanForPrinters = async (): Promise<{deviceName: string, macAddress: string}[]> => {
+    setIsScanning(true);
+    try {
+      const { getBluetoothDevices } = await import("../lib/printing");
+      const devices = await getBluetoothDevices();
+      return devices;
+    } catch (e) {
+      console.error("[PrinterContext] Scan failed:", e);
+      return [];
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
+  const autoConnect = async (): Promise<string | null> => {
+    if (isScanning) return null;
+    
+    // Use the scanning logic to find a likely printer
+    const devices = await scanForPrinters();
+    if (devices.length > 0) {
+      // Look for devices with "Printer", "POS", "Thermal", "MTP" in the name
+      const likelyPrinter = devices.find(d => {
+        const name = d.deviceName?.toLowerCase() || "";
+        return name.includes("printer") || name.includes("pos") || name.includes("thermal") || name.includes("mtp");
+      }) || devices[0]; // Fallback to first device
+
+      if (likelyPrinter) {
+        await updateConfig({ ...config, macAddress: likelyPrinter.macAddress });
+        return likelyPrinter.macAddress;
+      }
+    }
+    return null;
+  };
+
   const executePrint = async (ticketData: TicketData, forceConfig?: PrinterConfig) => {
-    const activeConfig = forceConfig || config;
+    let activeConfig = forceConfig || config;
     
     // Don't proceed if disabled unless it's a forced print
     if (!activeConfig.enabled && !forceConfig) return;
 
+    // Auto-connect if Bluetooth requested but no MAC address set
+    let effectiveMac = activeConfig.macAddress;
+    if (activeConfig.enabled && !effectiveMac && !activeConfig.targetPrinter) {
+      const autoMac = await autoConnect();
+      if (autoMac) {
+        effectiveMac = autoMac;
+      }
+    }
+
     try {
-      if (activeConfig.macAddress) {
-        await printToBluetooth(ticketData, activeConfig.macAddress);
+      if (activeConfig.isZ100) {
+        const { printToZ100 } = await import("../lib/printing");
+        await printToZ100(ticketData);
+      } else if (activeConfig.isInternal) {
+        const { INTERNAL_PRINTER_MAC: internalMac } = await import("../lib/printing");
+        await printToBluetooth(ticketData, internalMac);
+      } else if (effectiveMac) {
+        await printToBluetooth(ticketData, effectiveMac);
       } else {
         await printStandard(ticketData, activeConfig.targetPrinter, activeConfig.silentPrint);
       }
@@ -153,9 +208,12 @@ export function PrinterProvider({ children }: { children: ReactNode }) {
     print,
     executePrint,
     isPrinting,
+    isScanning,
     failedPrints,
     retryFailedPrints,
     refreshQueue: loadState,
+    scanForPrinters,
+    autoConnect,
   };
 
   return <PrinterContext.Provider value={value}>{children}</PrinterContext.Provider>;

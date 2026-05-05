@@ -187,7 +187,11 @@ async function hashPassword(password: string, salt: string): Promise<string> {
 
 export async function saveOfflineCredentials(email: string, password: string, user: any): Promise<void> {
     const db = await getDb();
-    const salt = crypto.randomUUID();
+    // Fallback for crypto.randomUUID() which is not available in older WebViews (Android < 7 and some Android 7)
+    const salt = (typeof crypto.randomUUID === 'function') 
+        ? crypto.randomUUID() 
+        : Math.random().toString(36).substring(2) + Date.now().toString(36);
+    
     const hash = await hashPassword(password, salt);
     
     await db.put('offline_credentials', {

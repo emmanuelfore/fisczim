@@ -14,7 +14,7 @@ import { useProducts, useTaxTypes } from "../hooks/usePosData";
 import { apiFetch } from "../lib/api";
 import { resolveMediaUrl } from "../lib/media";
 
-import { PremiumColors as C } from "../ui/PremiumColors";
+import { useTheme, hexAlpha, Theme } from "../ui/PremiumColors";
 
 const PRODUCT_TYPES = [
   { value: "good", label: "Good" },
@@ -32,6 +32,8 @@ const emptyProduct = {
 
 export function InventoryScreen({ onOpenDrawer, companyId }: Props) {
   const insets = useSafeAreaInsets();
+  const { theme: C, isDark } = useTheme();
+  const styles = getStyles(C);
   const { data: products, isLoading, error, refresh: refreshProducts } = useProducts(companyId);
   const { data: taxTypes } = useTaxTypes(companyId);
   const [search, setSearch] = useState("");
@@ -136,7 +138,7 @@ export function InventoryScreen({ onOpenDrawer, companyId }: Props) {
     } catch (e: any) {
       Alert.alert("Error", e.message);
     } finally { setSaving(false); }
-  }, [form, companyId, editingId]);
+  }, [form, companyId, editingId, refreshProducts]);
 
   const renderItem = ({ item }: { item: any }) => {
     const stock = Number(item.stockLevel || 0);
@@ -343,7 +345,7 @@ export function InventoryScreen({ onOpenDrawer, companyId }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (C: Theme) => StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg.base },
   header: { paddingHorizontal: 16, paddingVertical: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: C.border.default },
   iconBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: C.bg.card, alignItems: "center", justifyContent: "center", shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 4 },
@@ -355,7 +357,7 @@ const styles = StyleSheet.create({
   filterBtnText: { color: C.text.primary, fontSize: 13, fontWeight: "700", flexShrink: 1 },
   dropdown: { marginTop: 6, backgroundColor: C.bg.card, borderRadius: 12, borderWidth: 1, borderColor: C.border.default, overflow: "hidden", shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 5 },
   dropdownItem: { paddingHorizontal: 12, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: C.border.default },
-  dropdownItemActive: { backgroundColor: `${C.amber.primary}14` },
+  dropdownItemActive: { backgroundColor: hexAlpha(C.amber.primary, 0.08) },
   dropdownText: { color: C.text.primary, fontSize: 13, fontWeight: "600" },
   dropdownTextActive: { color: C.amber.primary, fontWeight: "800" },
   searchInput: { flex: 1, color: C.text.primary, height: 48, fontSize: 15 },
@@ -380,13 +382,15 @@ const styles = StyleSheet.create({
   fieldInput: { backgroundColor: C.bg.hover, color: C.text.primary, borderRadius: 10, paddingHorizontal: 14, height: 42, borderWidth: 1, borderColor: C.border.default, fontSize: 14 },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6 },
   chip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: C.bg.card, shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
-  chipActive: { backgroundColor: `${C.amber.primary}20`, shadowColor: C.amber.primary, shadowOpacity: 0.2, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 5 },
+  chipActive: { backgroundColor: hexAlpha(C.amber.primary, 0.12), shadowColor: C.amber.primary, shadowOpacity: 0.1, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 5 },
   chipText: { color: C.text.secondary, fontSize: 11, fontWeight: "600" },
   chipTextActive: { color: C.amber.primary },
+  chipTextActiveVibrant: { color: C.amber.primary, fontWeight: "900" },
+  chipVibrant: { backgroundColor: hexAlpha(C.amber.primary, 0.15), borderColor: C.amber.primary, borderWidth: 1 },
   toggleRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12, marginTop: 4 },
   toggleBox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, borderColor: C.text.secondary, alignItems: "center", justifyContent: "center" },
   toggleBoxActive: { backgroundColor: C.amber.primary, borderColor: C.amber.primary },
   toggleLabel: { color: C.text.primary, fontSize: 13, fontWeight: "600" },
-  saveBtn: { backgroundColor: C.amber.primary, borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 8, marginBottom: 20, shadowColor: C.amber.primary, shadowOpacity: 0.35, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 8 },
+  saveBtn: { backgroundColor: C.amber.primary, borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 8, marginBottom: 20, shadowColor: C.amber.primary, shadowOpacity: 0.3, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 8 },
   saveBtnText: { color: "#000", fontWeight: "800", fontSize: 15 },
 });

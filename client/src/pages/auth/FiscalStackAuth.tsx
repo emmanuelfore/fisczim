@@ -1,3 +1,4 @@
+import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { useCompanies } from "@/hooks/use-companies";
 import { Button } from "@/components/ui/button";
@@ -15,6 +16,7 @@ import { isStorageBroken } from "@/lib/offline-db";
 
 export default function AuthPage() {
   const { user, isLoading, loginWithPassword, registerWithPassword } = useAuth();
+  const { toast } = useToast();
   const { brand } = useBranding();
   // Gate on !!user so this never fires when unauthenticated
   const {
@@ -103,14 +105,34 @@ export default function AuthPage() {
   }, [isLoading, user]);
 
   useEffect(() => {
-    if (user && !isLoading && !isLoadingCompanies && Array.isArray(companies)) {
-      if (companies && companies.length > 0) {
-        setLocation("/dashboard");
-      } else {
-        setLocation("/onboarding");
+    if (user && !isLoading && !isLoadingCompanies) {
+      console.log("[Auth] Redirect check:", { 
+        hasUser: !!user, 
+        isError: isCompaniesError, 
+        companiesCount: companies?.length,
+        isArray: Array.isArray(companies)
+      });
+      
+      if (isCompaniesError) {
+        toast({
+          title: "Connection Issue",
+          description: "Failed to load your organizations. Going to POS mode.",
+          variant: "destructive"
+        });
+        setLocation("/pos");
+        return;
+      }
+
+      if (Array.isArray(companies)) {
+        if (companies.length > 0) {
+          setLocation("/dashboard");
+        } else {
+          console.log("[Auth] No companies found, redirecting to onboarding");
+          setLocation("/onboarding");
+        }
       }
     }
-  }, [user, companies, isLoading, isLoadingCompanies, setLocation]);
+  }, [user, companies, isLoading, isLoadingCompanies, isCompaniesError, setLocation, toast]);
 
   if (isLoading) {
     return (
@@ -121,18 +143,16 @@ export default function AuthPage() {
   }
 
   if (user && (isLoadingCompanies || !Array.isArray(companies))) {
-    if (isCompaniesError) {
-      return <Redirect to="/pos" />;
-    }
     return (
-      <div className="flex items-center justify-center min-h-screen bg-slate-50">
+      <div className="flex items-center justify-center min-h-screen bg-slate-50 flex-col gap-4">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        <p className="text-slate-400 text-sm animate-pulse">Syncing organization profile...</p>
       </div>
     );
   }
 
   if (user) {
-    return <Redirect to={Array.isArray(companies) && companies.length > 0 ? "/dashboard" : "/onboarding"} />;
+    return null;
   }
 
   return (

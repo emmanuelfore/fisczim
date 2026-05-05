@@ -15,7 +15,7 @@ import {
   Menu,
 } from "lucide-react-native";
 
-import { PremiumColors as C } from "./PremiumColors";
+import { useTheme, hexAlpha } from "./PremiumColors";
 
 type ScreenName = "pos" | "reports" | "profile" | "inventory" | "stockin" | "customers" | "suppliers" | "expenses" | "stocktake";
 
@@ -35,6 +35,9 @@ export function BottomTabs({
   userName = "",
 }: BottomTabsProps) {
   const insets = useSafeAreaInsets();
+  const { theme: C, isDark } = useTheme();
+  const styles = getStyles(C);
+  
   const allTabs: { icon: any; label: string; id: ScreenName | "menu" }[] = [
     { icon: LayoutDashboard, label: "POS", id: "pos" },
     { icon: Package, label: "Inventory", id: "inventory" },
@@ -84,7 +87,7 @@ export function BottomTabs({
             }}
             activeOpacity={0.7}
           >
-            <View style={[styles.iconContainer, isActive && styles.activeIconContainer]}>
+            <View style={[styles.iconContainer, isActive && { backgroundColor: hexAlpha(C.amber.primary, 0.15) }]}>
               <Icon
                 size={22}
                 color={isActive ? C.amber.primary : C.text.secondary}
@@ -101,13 +104,13 @@ export function BottomTabs({
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (C: any) => StyleSheet.create({
   container: {
     flexDirection: "row",
     backgroundColor: C.bg.card,
     height: Platform.OS === "ios" ? 88 : 68,
-    paddingBottom: Platform.OS === "ios" ? 28 : 8,
-    borderTopWidth: 0,
+    borderTopWidth: 1,
+    borderTopColor: C.border.default,
     shadowColor: "#000",
     shadowOpacity: 0.1,
     shadowRadius: 15,
@@ -129,14 +132,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 14,
-  },
-  activeIconContainer: {
-    backgroundColor: `${C.amber.primary}20`,
-    shadowColor: C.amber.primary,
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 4,
   },
   label: {
     fontSize: 10,

@@ -15,7 +15,7 @@ import { PremiumColors as C } from "../ui/PremiumColors";
 import { ManagerPinModal } from "../ui/ManagerPinModal";
 import { apiFetch } from "../lib/api";
 import { addPendingNote } from "../lib/offlineQueue";
-import { printReceipt, printToBluetooth } from "../lib/printing";
+import { usePrinter } from "../hooks/usePrinter";
 
 interface AdjustedItem {
   originalItem: any;
@@ -69,6 +69,7 @@ export function NoteModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPinModal, setShowPinModal] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { executePrint } = usePrinter();
 
   // Reset state when modal opens with new invoice
   useEffect(() => {
@@ -251,11 +252,7 @@ export function NoteModal({
             originalInvoiceNumber: originalInvoice.invoiceNumber,
           };
           try {
-            if (printerConfig.macAddress) {
-              await printToBluetooth(ticketData, printerConfig.macAddress);
-            } else {
-              await printReceipt(ticketData, printerConfig.targetPrinter || undefined);
-            }
+            await executePrint(ticketData as any);
           } catch (e: any) {
             if (e.message !== "Print preview was cancelled.") {
               Alert.alert("Print Error", e.message || "Could not print receipt");

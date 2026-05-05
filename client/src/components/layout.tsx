@@ -107,7 +107,6 @@ export function Layout({
     : activeRole
       ? String(activeRole).charAt(0).toUpperCase() + String(activeRole).slice(1)
       : "User";
-
   const allNavItems: NavItem[] = [
     { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
     { icon: MonitorCheck, label: "POS Terminal", href: "/pos" },
@@ -309,11 +308,16 @@ export function Layout({
         }
 
         .sidebar-scroller {
-          overflow: visible !important;
-          scrollbar-width: none;
+          overflow-y: auto !important;
+          scrollbar-width: thin;
+          scrollbar-color: #E2E8F0 transparent;
         }
         .sidebar-scroller::-webkit-scrollbar {
-          display: none;
+          width: 4px;
+        }
+        .sidebar-scroller::-webkit-scrollbar-thumb {
+          background-color: #E2E8F0;
+          border-radius: 20px;
         }
         
         .nav-item-tooltip {
@@ -369,346 +373,351 @@ export function Layout({
         currentBrand === "fiscalzone" ? "fz-admin" : "font-sans selection:bg-blue-500/20"
       )}>
 
-      {/* Primary Navigation Sidebar */}
-      <aside className={cn(
-        "admin-sidebar bg-white border-r border-slate-200/60 shadow-[1px_0_10px_rgba(0,0,0,0.02)] flex min-h-screen shrink-0 flex-col fixed inset-y-0 left-0 z-50 transition-all duration-500 ease-in-out lg:relative lg:inset-auto lg:translate-x-0",
-        isSidebarCollapsed ? "w-20" : "w-[240px]",
-        isMobileMenuOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
-      )}>
-        <div className={cn(
-          "relative h-[88px] flex items-center bg-white",
-          isSidebarCollapsed ? "px-3 justify-center" : "px-4"
+        {/* Primary Navigation Sidebar */}
+        <aside className={cn(
+          "admin-sidebar bg-white border-r border-slate-200/60 shadow-[1px_0_10px_rgba(0,0,0,0.02)] flex shrink-0 flex-col transition-all duration-500 ease-in-out",
+          "fixed inset-y-0 left-0 z-50 lg:relative lg:inset-y-auto lg:h-auto lg:min-h-screen",
+          isSidebarCollapsed ? "w-20" : "w-[240px]",
+          isMobileMenuOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         )}>
-          <div className={cn("flex items-center gap-2 transition-all w-full", isSidebarCollapsed ? "justify-center" : "px-1")}>
-            {currentBrand === "fiscalzone" ? (
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-white shadow-lg shadow-primary/20">
-                  <MonitorCheck className="w-4 h-4" />
+          <div className={cn(
+            "relative h-[88px] flex items-center bg-white",
+            isSidebarCollapsed ? "px-3 justify-center" : "px-4"
+          )}>
+            <div className={cn("flex items-center gap-2 transition-all w-full", isSidebarCollapsed ? "justify-center" : "px-1")}>
+              {currentBrand === "fiscalzone" ? (
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-white shadow-lg shadow-primary/20">
+                    <MonitorCheck className="w-4 h-4" />
+                  </div>
+                  {!isSidebarCollapsed && (
+                    <span className="text-xl font-black text-slate-800 tracking-tight font-display">
+                      Fiscal<span className="text-primary">Zone</span>
+                    </span>
+                  )}
                 </div>
-                {!isSidebarCollapsed && (
-                  <span className="text-xl font-black text-slate-800 tracking-tight font-display">
-                    Fiscal<span className="text-primary">Zone</span>
-                  </span>
-                )}
-              </div>
-            ) : (
-              <img src={brand.logo} alt={brand.name} className={cn("transition-all rounded-lg", isSidebarCollapsed ? "h-6 w-6 object-contain" : "h-8")} />
-            )}
+              ) : (
+                <img src={brand.logo} alt={brand.name} className={cn("transition-all rounded-lg", isSidebarCollapsed ? "h-6 w-6 object-contain" : "h-8")} />
+              )}
+            </div>
+
           </div>
 
-        </div>
+          <nav className={cn("flex-1 py-4 sidebar-scroller", isSidebarCollapsed ? "px-2" : "px-3")}>
+            <div className="space-y-2">
+              {navItems.map((item) => {
 
-        <nav className={cn("flex-1 py-4 sidebar-scroller", isSidebarCollapsed ? "px-2" : "px-3")}>
-          <div className="space-y-2">
-            {navItems.map((item) => {
-
-              if (item.children) {
-                const isActiveGroup = item.children.some(child =>
-                  location + window.location.search === child.href || (location === child.href && !child.href.includes("?"))
-                );
-
-                const [isOpen, setIsOpen] = useState(isActiveGroup);
-
-                useEffect(() => {
-                  if (isActiveGroup) setIsOpen(true);
-                }, [isActiveGroup]);
-
-                if (isSidebarCollapsed) {
-                  return (
-                    <DropdownMenu key={item.label}>
-                      <DropdownMenuTrigger asChild>
-                        <div className={cn(
-                          "w-11 h-11 rounded-[10px] flex items-center justify-center cursor-pointer transition-all duration-300 relative group collapsed-item mx-auto mb-1 nav-item",
-                        isActiveGroup ? "bg-[#EEF4FF] text-[#2563EB] shadow-none" : "text-[#1F2937] hover:bg-slate-100"
-                        )}>
-                          <item.icon className="w-[18px] h-[18px]" />
-                          <span className="nav-item-tooltip shadow-2xl">{item.label}</span>
-                        </div>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent side="right" align="start" className="w-56 bg-white border-slate-200 rounded-xl shadow-2xl p-1 ml-4 animate-in fade-in slide-in-from-left-2 duration-200">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-3 py-2 border-b border-slate-50 mb-1">{item.label}</p>
-                        {item.children.map((child) => {
-                          const isChildActive = location + window.location.search === child.href || (location === child.href && !child.href.includes("?"));
-                          return (
-                            <Link key={child.label} href={child.href}>
-                              <div className={cn(
-                                "flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-all text-[13px] font-medium mb-1 nav-sub-item",
-                                isChildActive ? "bg-[#EEF4FF] text-[#2563EB]" : "text-[#6B7280] hover:bg-slate-50 hover:text-[#111827]"
-                              )}>
-                                <child.icon className="w-[18px] h-[18px]" />
-                                <span>{child.label}</span>
-                              </div>
-                            </Link>
-                          );
-                        })}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                if (item.children) {
+                  const isActiveGroup = item.children.some(child =>
+                    location + window.location.search === child.href || (location === child.href && !child.href.includes("?"))
                   );
-                }
 
-                return (
-                  <div key={item.label}>
-                    <Collapsible open={isOpen} onOpenChange={setIsOpen} className="space-y-1">
-                      <CollapsibleTrigger asChild>
-                        <div className={cn(
-                          "flex items-center w-full px-3 py-2.5 rounded-[10px] text-[13px] font-semibold transition-all duration-200 cursor-pointer select-none group nav-item",
-                          isActiveGroup
-                            ? "bg-[#EEF4FF] text-[#2563EB] shadow-none"
-                            : "text-[#1F2937] hover:bg-slate-50 hover:text-[#111827]"
-                        )}>
-                          <div className="flex items-center gap-3 min-w-0">
-                            <item.icon className={cn("w-[18px] h-[18px] shrink-0", isActiveGroup ? "text-[#2563EB]" : "text-[#6B7280] group-hover:text-[#111827]")} />
-                            <span className="font-display tracking-tight text-[13px]">{item.label}</span>
+                  const [isOpen, setIsOpen] = useState(isActiveGroup);
+
+                  useEffect(() => {
+                    if (isActiveGroup) setIsOpen(true);
+                  }, [isActiveGroup]);
+
+                  if (isSidebarCollapsed) {
+                    return (
+                      <DropdownMenu key={item.label}>
+                        <DropdownMenuTrigger asChild>
+                          <div className={cn(
+                            "w-11 h-11 rounded-[10px] flex items-center justify-center cursor-pointer transition-all duration-300 relative group collapsed-item mx-auto mb-1 nav-item",
+                            isActiveGroup ? "bg-[#EEF4FF] text-[#2563EB] shadow-none" : "text-[#1F2937] hover:bg-slate-100"
+                          )}>
+                            <item.icon className="w-[18px] h-[18px]" />
+                            <span className="nav-item-tooltip shadow-2xl">{item.label}</span>
                           </div>
-                          <span className="ml-auto pl-3">
-                            <svg
-                              className={cn("w-4 h-4 transition-transform", isOpen ? "rotate-180" : "rotate-0")}
-                              viewBox="0 0 20 20"
-                              fill="currentColor"
-                              aria-hidden="true"
-                            >
-                              <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.168l3.71-3.94a.75.75 0 1 1 1.08 1.04l-4.25 4.5a.75.75 0 0 1-1.08 0l-4.25-4.5a.75.75 0 0 1 .02-1.06Z" clipRule="evenodd" />
-                            </svg>
-                          </span>
-                        </div>
-                      </CollapsibleTrigger>
-                      <CollapsibleContent className="pb-1 transition-all">
-                        <div className="ml-5 pl-3 border-l-2 border-slate-100 space-y-1 mt-1 nav-dropdown">
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent side="right" align="start" className="w-56 bg-white border-slate-200 rounded-xl shadow-2xl p-1 ml-4 animate-in fade-in slide-in-from-left-2 duration-200">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-3 py-2 border-b border-slate-50 mb-1">{item.label}</p>
                           {item.children.map((child) => {
                             const isChildActive = location + window.location.search === child.href || (location === child.href && !child.href.includes("?"));
                             return (
                               <Link key={child.label} href={child.href}>
                                 <div className={cn(
-                                  "flex items-center gap-3 px-2.5 py-2 rounded-lg text-[12.5px] font-semibold transition-all duration-150 cursor-pointer nav-sub-item",
-                                  isChildActive
-                                    ? "bg-[#EEF4FF] text-[#2563EB]"
-                                    : "text-[#6B7280] hover:text-[#111827] hover:bg-slate-50/50"
+                                  "flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-all text-[13px] font-medium mb-1 nav-sub-item",
+                                  isChildActive ? "bg-[#EEF4FF] text-[#2563EB]" : "text-[#6B7280] hover:bg-slate-50 hover:text-[#111827]"
                                 )}>
-                                  <child.icon className={cn("w-[18px] h-[18px] shrink-0", isChildActive ? "text-[#2563EB]" : "text-[#9CA3AF]")} />
-                                  <span className="truncate">{child.label}</span>
+                                  <child.icon className="w-[18px] h-[18px]" />
+                                  <span>{child.label}</span>
                                 </div>
                               </Link>
                             );
                           })}
-                        </div>
-                      </CollapsibleContent>
-                    </Collapsible>
-                  </div>
-                );
-              }
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    );
+                  }
 
-              const isActive = location === item.href;
-              
-              if (isSidebarCollapsed) {
+                  return (
+                    <div key={item.label}>
+                      <Collapsible open={isOpen} onOpenChange={setIsOpen} className="space-y-1">
+                        <CollapsibleTrigger asChild>
+                          <div className={cn(
+                            "flex items-center w-full px-3 py-2.5 rounded-[10px] text-[13px] font-semibold transition-all duration-200 cursor-pointer select-none group nav-item",
+                            isActiveGroup
+                              ? "bg-[#EEF4FF] text-[#2563EB] shadow-none"
+                              : "text-[#1F2937] hover:bg-slate-50 hover:text-[#111827]"
+                          )}>
+                            <div className="flex items-center gap-3 min-w-0">
+                              <item.icon className={cn("w-[18px] h-[18px] shrink-0", isActiveGroup ? "text-[#2563EB]" : "text-[#6B7280] group-hover:text-[#111827]")} />
+                              <span className="font-display tracking-tight text-[13px]">{item.label}</span>
+                            </div>
+                            <span className="ml-auto pl-3">
+                              <svg
+                                className={cn("w-4 h-4 transition-transform", isOpen ? "rotate-180" : "rotate-0")}
+                                viewBox="0 0 20 20"
+                                fill="currentColor"
+                                aria-hidden="true"
+                              >
+                                <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.168l3.71-3.94a.75.75 0 1 1 1.08 1.04l-4.25 4.5a.75.75 0 0 1-1.08 0l-4.25-4.5a.75.75 0 0 1 .02-1.06Z" clipRule="evenodd" />
+                              </svg>
+                            </span>
+                          </div>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent className="pb-1 transition-all">
+                          <div className="ml-5 pl-3 border-l-2 border-slate-100 space-y-1 mt-1 nav-dropdown">
+                            {item.children.map((child) => {
+                              const isChildActive = location + window.location.search === child.href || (location === child.href && !child.href.includes("?"));
+                              return (
+                                <Link key={child.label} href={child.href}>
+                                  <div className={cn(
+                                    "flex items-center gap-3 px-2.5 py-2 rounded-lg text-[12.5px] font-semibold transition-all duration-150 cursor-pointer nav-sub-item",
+                                    isChildActive
+                                      ? "bg-[#EEF4FF] text-[#2563EB]"
+                                      : "text-[#6B7280] hover:text-[#111827] hover:bg-slate-50/50"
+                                  )}>
+                                    <child.icon className={cn("w-[18px] h-[18px] shrink-0", isChildActive ? "text-[#2563EB]" : "text-[#9CA3AF]")} />
+                                    <span className="truncate">{child.label}</span>
+                                  </div>
+                                </Link>
+                              );
+                            })}
+                          </div>
+                        </CollapsibleContent>
+                      </Collapsible>
+                    </div>
+                  );
+                }
+
+                const isActive = location === item.href;
+
+                if (isSidebarCollapsed) {
+                  return (
+                    <Link key={item.label} href={item.href!}>
+                      <div className={cn(
+                        "w-11 h-11 rounded-[10px] flex items-center justify-center cursor-pointer transition-all duration-300 relative group collapsed-item mx-auto mb-1 nav-item",
+                        isActive ? "bg-[#EEF4FF] text-[#2563EB] shadow-none" : "text-[#1F2937] hover:bg-slate-100"
+                      )}>
+                        <item.icon className="w-[18px] h-[18px]" />
+                        <span className="nav-item-tooltip shadow-2xl">{item.label}</span>
+                      </div>
+                    </Link>
+                  );
+                }
+
                 return (
-                  <Link key={item.label} href={item.href!}>
-                    <div className={cn(
-                      "w-11 h-11 rounded-[10px] flex items-center justify-center cursor-pointer transition-all duration-300 relative group collapsed-item mx-auto mb-1 nav-item",
-                      isActive ? "bg-[#EEF4FF] text-[#2563EB] shadow-none" : "text-[#1F2937] hover:bg-slate-100"
-                    )}>
-                      <item.icon className="w-[18px] h-[18px]" />
-                      <span className="nav-item-tooltip shadow-2xl">{item.label}</span>
-                    </div>
-                  </Link>
-                );
-              }
-
-              return (
-                <div key={item.label}>
-                  <Link href={item.href!}>
-                    <div className={cn(
-                      "flex items-center gap-3 px-3 py-2.5 rounded-[10px] text-[13px] font-semibold transition-all duration-200 cursor-pointer select-none group nav-item",
-                      isActive
-                        ? "bg-[#EEF4FF] text-[#2563EB] shadow-none"
-                        : "text-[#1F2937] hover:bg-slate-50 hover:text-[#111827]"
-                    )}>
-                      <item.icon className={cn("w-[18px] h-[18px] shrink-0", isActive ? "text-[#2563EB]" : "text-[#6B7280] group-hover:text-[#111827]")} />
-                      <span className="font-display tracking-tight">{item.label}</span>
-                    </div>
-                  </Link>
-                </div>
-              );
-            })}
-          </div>
-        </nav>
-
-        <div className={cn("sticky bottom-0 z-20 mt-auto border-t border-[#E5E7EB] bg-white", isSidebarCollapsed ? "p-2" : "p-3 space-y-3")}>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <div className={cn(
-                "transition-all cursor-pointer group active:scale-95 duration-200 bg-white border border-[#E5E7EB] hover:bg-white",
-                isSidebarCollapsed
-                  ? "mx-auto flex h-11 w-11 items-center justify-center rounded-[10px]"
-                  : "rounded-xl p-2.5"
-              )}>
-                <div className={cn("flex items-center", isSidebarCollapsed ? "justify-center" : "gap-3")}>
-                  <div className={cn(
-                    "rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-300 overflow-hidden shadow-sm shrink-0",
-                    isSidebarCollapsed ? "h-8 w-8" : "w-10 h-10"
-                  )}>
-                    {selectedCompany?.logoUrl ? (
-                      <img src={selectedCompany.logoUrl} alt="Logo" className="w-full h-full object-contain" />
-                    ) : (
-                      <Building2 className={cn("text-slate-400", isSidebarCollapsed ? "w-4 h-4" : "w-5 h-5")} />
-                    )}
+                  <div key={item.label}>
+                    <Link href={item.href!}>
+                      <div className={cn(
+                        "flex items-center gap-3 px-3 py-2.5 rounded-[10px] text-[13px] font-semibold transition-all duration-200 cursor-pointer select-none group nav-item",
+                        isActive
+                          ? "bg-[#EEF4FF] text-[#2563EB] shadow-none"
+                          : "text-[#1F2937] hover:bg-slate-50 hover:text-[#111827]"
+                      )}>
+                        <item.icon className={cn("w-[18px] h-[18px] shrink-0", isActive ? "text-[#2563EB]" : "text-[#6B7280] group-hover:text-[#111827]")} />
+                        <span className="font-display tracking-tight">{item.label}</span>
+                      </div>
+                    </Link>
                   </div>
-                  {!isSidebarCollapsed && (
-                    <div className="overflow-hidden flex-1 text-left">
-                      <p className="text-sm font-black text-slate-800 truncate leading-none mb-1 font-display group-hover:text-primary transition-colors">
-                        {selectedCompany ? selectedCompany.name : "Setup"}
-                      </p>
-                      {selectedCompany && (
-                        <div className="flex items-center gap-1.5">
-                          <div className={cn("w-1.5 h-1.5 rounded-full", selectedCompany.zimraEnvironment === "production" ? "bg-emerald-500" : "bg-amber-500")} />
-                          <span className={cn("text-[8px] font-black uppercase tracking-widest", selectedCompany.zimraEnvironment === "production" ? "text-emerald-500" : "text-amber-500")}>
-                            {selectedCompany.zimraEnvironment === "production" ? "Production" : "Test Environment"}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" side={isSidebarCollapsed ? "right" : "top"} className="w-60 max-h-[400px] overflow-y-auto bg-white border-slate-200 rounded-xl shadow-2xl p-1 z-[60]">
-              <div className="px-1 py-1">
-                {companies?.map((company) => (
-                  <DropdownMenuItem
-                    key={company.id}
-                    onClick={() => handleCompanyChange(company.id)}
-                    className={cn(
-                      "flex items-center gap-2.5 p-2 rounded-lg cursor-pointer transition-all duration-200 mb-0.5",
-                      selectedCompanyId === company.id ? "bg-[#EEF4FF] text-[#2563EB] shadow-none" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-                    )}
-                  >
-                    <div className={`w-6 h-6 rounded flex items-center justify-center text-[8px] font-bold ${selectedCompanyId === company.id ? "bg-[#DBEAFE] text-[#1D4ED8]" : "bg-slate-100 text-slate-400"}`}>
-                      {company.logoUrl ? <img src={company.logoUrl} className="w-full h-full object-contain rounded" /> : company.name.substring(0, 2).toUpperCase()}
-                    </div>
-                    <span className="truncate flex-1 font-medium font-display text-[14px]">{company.name}</span>
-                    {selectedCompanyId === company.id && <div className="w-1.5 h-1.5 rounded-full bg-[#2563EB]" />}
-                  </DropdownMenuItem>
-                ))}
-                <DropdownMenuItem onClick={() => setLocation("/onboarding")} className="flex items-center justify-center gap-2 p-2.5 text-white bg-[#2563EB] font-bold cursor-pointer hover:bg-[#1D4ED8] rounded-[10px] shadow-sm active:scale-95 transition-all text-xs">
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Register Enterprise</span>
-                </DropdownMenuItem>
-              </div>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </aside>
-
-      {/* Main Administrative Workspace */}
-      <div className="flex-1 flex flex-col min-h-screen min-w-0 transition-all duration-500 ease-in-out">
-
-        {/* Top Header */}
-        <header className="admin-header h-[80px] bg-[#F8FAFC] flex items-center justify-between gap-3 px-4 sm:px-6 z-40 sticky top-0 relative">
-          {/* Mobile Menu Toggle */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="mr-auto lg:hidden bg-slate-100 border border-slate-200 rounded-xl"
-            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-          >
-            {isMobileMenuOpen ? <X className="w-5 h-5 text-slate-600" /> : <Menu className="w-5 h-5 text-slate-600" />}
-          </Button>
-
-          <div className="hidden min-w-0 flex-1 items-center gap-4 lg:flex">
-            <div className="min-w-0">
-              <h1 className="truncate text-[22px] font-bold leading-tight tracking-[-0.015em] text-[#0F172A]">{pageTitle}</h1>
-              {pageSubtitle ? (
-                <p className="mt-1 truncate text-[13px] font-medium text-[#64748B]">{pageSubtitle}</p>
-              ) : null}
+                );
+              })}
             </div>
-          </div>
+          </nav>
 
-          <div className="flex items-center gap-2">
-            <div className="hidden xl:flex items-center h-10 px-3 rounded-[10px] border border-[#E5E7EB] bg-white min-w-[280px] shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-              <Search className="w-4 h-4 text-[#64748B]" />
-              <input
-                aria-label="Search"
-                placeholder="Search anything..."
-                className="ml-2 flex-1 text-sm text-[#0f172a] placeholder:text-[#94a3b8] bg-transparent outline-none"
-              />
-              <span className="text-[11px] font-semibold text-[#64748B] bg-[#F8FAFC] border border-[#E5E7EB] rounded px-2 py-0.5">Ctrl + K</span>
-            </div>
-
-            <Button variant="ghost" size="icon" className="h-10 w-10 rounded-full border border-[#E5E7EB] bg-white text-[#64748B] shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-              <Bell className="w-4 h-4" />
-            </Button>
-
-            <div className="hidden md:flex items-center gap-2">
-              {selectedCompany?.id && <DeviceStatusWidget companyId={selectedCompany.id} />}
-            </div>
-            <BranchSwitcher />
-
+          <div className={cn("sticky bottom-0 z-20 mt-auto border-t border-[#E5E7EB] bg-white", isSidebarCollapsed ? "p-2" : "p-3 space-y-3")}>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="h-10 w-10 rounded-full p-0 border-2 border-white hover:border-violet-200 transition-all hover:scale-105 active:scale-95 shadow-sm">
-                  <Avatar className="h-9 w-9">
-                    <AvatarFallback className="bg-slate-900 text-white text-xs font-black">
-                      {user.name?.substring(0, 2).toUpperCase() || "US"}
-                    </AvatarFallback>
-                  </Avatar>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-64 bg-white rounded-2xl shadow-2xl border-slate-200 p-2 mt-2">
-                <div className="flex items-center justify-start gap-3 p-4 bg-slate-50 rounded-xl mb-2">
-                  <div className="h-9 w-9 rounded-full bg-[#2563EB] flex items-center justify-center text-white font-semibold text-sm">
-                    {user.name?.charAt(0).toUpperCase()}
-                  </div>
-                  <div className="flex flex-col space-y-0.5 leading-none">
-                    <p className="font-bold text-slate-900 font-display">{user.name || "User"}</p>
-                    <p className="w-[140px] truncate text-[10px] font-bold text-slate-400 uppercase tracking-wider">{user.email || "No Email"}</p>
+                <div className={cn(
+                  "transition-all cursor-pointer group active:scale-95 duration-200 bg-white border border-[#E5E7EB] hover:bg-white",
+                  isSidebarCollapsed
+                    ? "mx-auto flex h-11 w-11 items-center justify-center rounded-[10px]"
+                    : "rounded-xl p-2.5"
+                )}>
+                  <div className={cn("flex items-center", isSidebarCollapsed ? "justify-center" : "gap-3")}>
+                    <div className={cn(
+                      "rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-300 overflow-hidden shadow-sm shrink-0",
+                      isSidebarCollapsed ? "h-8 w-8" : "w-10 h-10"
+                    )}>
+                      {selectedCompany?.logoUrl ? (
+                        <img src={selectedCompany.logoUrl} alt="Logo" className="w-full h-full object-contain" />
+                      ) : (
+                        <Building2 className={cn("text-slate-400", isSidebarCollapsed ? "w-4 h-4" : "w-5 h-5")} />
+                      )}
+                    </div>
+                    {!isSidebarCollapsed && (
+                      <div className="overflow-hidden flex-1 text-left">
+                        <p className="text-sm font-black text-slate-800 truncate leading-none mb-1 font-display group-hover:text-primary transition-colors">
+                          {selectedCompany ? selectedCompany.name : "Setup"}
+                        </p>
+                        {selectedCompany && (
+                          <div className="flex items-center gap-1.5">
+                            <div className={cn("w-1.5 h-1.5 rounded-full", selectedCompany.zimraEnvironment === "production" ? "bg-emerald-500" : "bg-amber-500")} />
+                            <span className={cn("text-[8px] font-black uppercase tracking-widest", selectedCompany.zimraEnvironment === "production" ? "text-emerald-500" : "text-amber-500")}>
+                              {selectedCompany.zimraEnvironment === "production" ? "Production" : "Test Environment"}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
-                <DropdownMenuItem onClick={() => setLocation("/dashboard")} className="p-3 rounded-xl font-bold text-slate-600 cursor-pointer hover:bg-slate-50 hover:text-slate-900 transition-all">
-                  <LayoutDashboard className="mr-3 h-4 w-4" />
-                  <span>Dashboard Overview</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setLocation("/settings")} className="p-3 rounded-xl font-bold text-slate-600 cursor-pointer hover:bg-slate-50 hover:text-slate-900 transition-all">
-                  <Settings className="mr-3 h-4 w-4" />
-                  <span>Security & Config</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem className="p-3 rounded-xl font-bold text-red-600 focus:text-red-700 focus:bg-red-50 hover:bg-red-50 cursor-pointer active:scale-95 transition-all" onClick={() => logout()}>
-                  <LogOut className="mr-3 h-4 w-4" />
-                  <span>Sign Out Session</span>
-                </DropdownMenuItem>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" side={isSidebarCollapsed ? "right" : "top"} className="w-60 max-h-[400px] overflow-y-auto bg-white border-slate-200 rounded-xl shadow-2xl p-1 z-[60]">
+                <div className="px-1 py-1">
+                  {companies?.map((company) => (
+                    <DropdownMenuItem
+                      key={company.id}
+                      onClick={() => handleCompanyChange(company.id)}
+                      className={cn(
+                        "flex items-center gap-2.5 p-2 rounded-lg cursor-pointer transition-all duration-200 mb-0.5",
+                        selectedCompanyId === company.id ? "bg-[#EEF4FF] text-[#2563EB] shadow-none" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                      )}
+                    >
+                      <div className={`w-6 h-6 rounded flex items-center justify-center text-[8px] font-bold ${selectedCompanyId === company.id ? "bg-[#DBEAFE] text-[#1D4ED8]" : "bg-slate-100 text-slate-400"}`}>
+                        {company.logoUrl ? <img src={company.logoUrl} className="w-full h-full object-contain rounded" /> : company.name.substring(0, 2).toUpperCase()}
+                      </div>
+                      <span className="truncate flex-1 font-medium font-display text-[14px]">{company.name}</span>
+                      {selectedCompanyId === company.id && <div className="w-1.5 h-1.5 rounded-full bg-[#2563EB]" />}
+                    </DropdownMenuItem>
+                  ))}
+                  <DropdownMenuItem onClick={() => setLocation("/onboarding")} className="flex items-center justify-center gap-2 p-2.5 text-white bg-[#2563EB] font-bold cursor-pointer hover:bg-[#1D4ED8] rounded-[10px] shadow-sm active:scale-95 transition-all text-xs">
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Register Enterprise</span>
+                  </DropdownMenuItem>
+                </div>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
-        </header>
+        </aside>
 
-        {/* Password Warning Banner */}
-        {user && user.passwordChanged === false && (
-          <div className="mx-4 sm:mx-6 mt-3 rounded-xl bg-amber-50 border border-amber-200/60 p-3.5 flex items-center justify-between shadow-sm">
-            <div className="flex items-center gap-3 text-amber-800 text-sm font-medium">
-              <div className="p-2 bg-amber-100 rounded-lg text-amber-600">
-                <ShieldCheck className="w-5 h-5" />
-              </div>
-              <span><strong>Security Alert:</strong> You are using a temporary password. Please update it immediately.</span>
-            </div>
-            <Button size="sm" className="h-9 px-4 text-xs font-bold bg-white text-amber-700 border border-amber-200 shadow-sm hover:bg-amber-100 hover:border-amber-300 rounded-lg" onClick={() => setLocation("/profile")}>
-              Update Password
-            </Button>
-          </div>
-        )}
-
-        {/* Page Content */}
-        <main className={cn(
-          "flex-1 max-w-[1600px] w-full mx-auto",
-          "px-4 pb-4 pt-1 sm:px-7 sm:pb-8 sm:pt-1"
+        {/* Main Administrative Workspace */}
+        <div className={cn(
+          "flex-1 flex flex-col min-h-screen min-w-0 transition-all duration-500 ease-in-out"
         )}>
-          {isImmersiveRoute ? (
-            children
-          ) : (
-            <section className="page-shell p-0">
-              {children}
-            </section>
+
+          {/* Top Header */}
+          <header className="admin-header h-[80px] bg-[#F8FAFC] flex items-center justify-between gap-3 px-4 sm:px-6 z-40 sticky top-0 relative">
+            {/* Mobile Menu Toggle */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="mr-auto lg:hidden bg-slate-100 border border-slate-200 rounded-xl"
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            >
+              {isMobileMenuOpen ? <X className="w-5 h-5 text-slate-600" /> : <Menu className="w-5 h-5 text-slate-600" />}
+            </Button>
+
+            {!hideHeaderTitle && (
+              <div className="hidden min-w-0 flex-1 items-center gap-4 lg:flex">
+                <div className="min-w-0">
+                  <h1 className="truncate text-[22px] font-bold leading-tight tracking-[-0.015em] text-[#0F172A]">{pageTitle}</h1>
+                  {pageSubtitle ? (
+                    <p className="mt-1 truncate text-[13px] font-medium text-[#64748B]">{pageSubtitle}</p>
+                  ) : null}
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center gap-2">
+              <div className="hidden xl:flex items-center h-10 px-3 rounded-[10px] border border-[#E5E7EB] bg-white min-w-[280px] shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                <Search className="w-4 h-4 text-[#64748B]" />
+                <input
+                  aria-label="Search"
+                  placeholder="Search anything..."
+                  className="ml-2 flex-1 text-sm text-[#0f172a] placeholder:text-[#94a3b8] bg-transparent outline-none"
+                />
+                <span className="text-[11px] font-semibold text-[#64748B] bg-[#F8FAFC] border border-[#E5E7EB] rounded px-2 py-0.5">Ctrl + K</span>
+              </div>
+
+              <Button variant="ghost" size="icon" className="h-10 w-10 rounded-full border border-[#E5E7EB] bg-white text-[#64748B] shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                <Bell className="w-4 h-4" />
+              </Button>
+
+              <div className="hidden md:flex items-center gap-2">
+                {selectedCompany?.id && <DeviceStatusWidget companyId={selectedCompany.id} />}
+              </div>
+              <BranchSwitcher />
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" className="h-10 w-10 rounded-full p-0 border-2 border-white hover:border-violet-200 transition-all hover:scale-105 active:scale-95 shadow-sm">
+                    <Avatar className="h-9 w-9">
+                      <AvatarFallback className="bg-slate-900 text-white text-xs font-black">
+                        {user.name?.substring(0, 2).toUpperCase() || "US"}
+                      </AvatarFallback>
+                    </Avatar>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-64 bg-white rounded-2xl shadow-2xl border-slate-200 p-2 mt-2">
+                  <div className="flex items-center justify-start gap-3 p-4 bg-slate-50 rounded-xl mb-2">
+                    <div className="h-9 w-9 rounded-full bg-[#2563EB] flex items-center justify-center text-white font-semibold text-sm">
+                      {user.name?.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="flex flex-col space-y-0.5 leading-none">
+                      <p className="font-bold text-slate-900 font-display">{user.name || "User"}</p>
+                      <p className="w-[140px] truncate text-[10px] font-bold text-slate-400 uppercase tracking-wider">{user.email || "No Email"}</p>
+                    </div>
+                  </div>
+                  <DropdownMenuItem onClick={() => setLocation("/dashboard")} className="p-3 rounded-xl font-bold text-slate-600 cursor-pointer hover:bg-slate-50 hover:text-slate-900 transition-all">
+                    <LayoutDashboard className="mr-3 h-4 w-4" />
+                    <span>Dashboard Overview</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setLocation("/settings")} className="p-3 rounded-xl font-bold text-slate-600 cursor-pointer hover:bg-slate-50 hover:text-slate-900 transition-all">
+                    <Settings className="mr-3 h-4 w-4" />
+                    <span>Security & Config</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem className="p-3 rounded-xl font-bold text-red-600 focus:text-red-700 focus:bg-red-50 hover:bg-red-50 cursor-pointer active:scale-95 transition-all" onClick={() => logout()}>
+                    <LogOut className="mr-3 h-4 w-4" />
+                    <span>Sign Out Session</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </header>
+
+          {/* Password Warning Banner */}
+          {user && user.passwordChanged === false && (
+            <div className="mx-4 sm:mx-6 mt-3 rounded-xl bg-amber-50 border border-amber-200/60 p-3.5 flex items-center justify-between shadow-sm">
+              <div className="flex items-center gap-3 text-amber-800 text-sm font-medium">
+                <div className="p-2 bg-amber-100 rounded-lg text-amber-600">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <span><strong>Security Alert:</strong> You are using a temporary password. Please update it immediately.</span>
+              </div>
+              <Button size="sm" className="h-9 px-4 text-xs font-bold bg-white text-amber-700 border border-amber-200 shadow-sm hover:bg-amber-100 hover:border-amber-300 rounded-lg" onClick={() => setLocation("/profile")}>
+                Update Password
+              </Button>
+            </div>
           )}
-        </main>
+
+          {/* Page Content */}
+          <main className={cn(
+            "flex-1 max-w-[1600px] w-full mx-auto",
+            "px-4 pb-4 pt-1 sm:px-7 sm:pb-8 sm:pt-1"
+          )}>
+            {isImmersiveRoute ? (
+              children
+            ) : (
+              <section className="page-shell p-0">
+                {children}
+              </section>
+            )}
+          </main>
+        </div>
       </div>
-    </div>
     </>
   );
 }

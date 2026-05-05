@@ -1,15 +1,14 @@
 import React, { useState, useMemo, useCallback, useEffect } from "react";
 import {
   View, Text, FlatList, TouchableOpacity, TextInput,
-  StyleSheet, SafeAreaView, ActivityIndicator, Alert, ScrollView, Modal,
+  StyleSheet, ActivityIndicator, Alert, ScrollView, Modal,
   KeyboardAvoidingView, Platform,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Menu, Search, Plus, Receipt, X, Calendar, DollarSign, Edit2, ChevronDown } from "lucide-react-native";
+import { Menu, Search, Plus, Receipt, X, Calendar, DollarSign, Edit2 } from "lucide-react-native";
 import { StatusBar } from "expo-status-bar";
 import { apiJson, apiFetch } from "../lib/api";
-
-import { PremiumColors as C } from "../ui/PremiumColors";
+import { useTheme, hexAlpha } from "../ui/PremiumColors";
 
 interface Props { onOpenDrawer: () => void; companyId: number; }
 
@@ -18,30 +17,29 @@ function useExpenses(companyId: number) {
   const [isLoading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const fetchExpenses = useCallback(() => {
     let cancelled = false;
     setLoading(true);
     apiJson<any[]>(`/api/companies/${companyId}/expenses`)
       .then((res) => { if (!cancelled) { setData(res); setLoading(false); } })
       .catch((e: any) => { if (!cancelled) { setError(e?.message); setLoading(false); } });
-
     return () => { cancelled = true; };
   }, [companyId]);
 
-  return { data, isLoading, error, refresh: () => {
-    setLoading(true);
-    apiJson<any[]>(`/api/companies/${companyId}/expenses`)
-      .then((res) => { setData(res); setLoading(false); })
-      .catch((e: any) => { setError(e?.message); setLoading(false); });
-  }};
+  useEffect(() => {
+    return fetchExpenses();
+  }, [fetchExpenses]);
+
+  return { data, isLoading, error, refresh: fetchExpenses };
 }
 
 const CATEGORIES = ["Rent", "Utilities", "Salary", "Supplies", "Marketing", "Transport", "Office", "Taxes", "Maintenance", "Other"];
-
 const emptyExpense = { description: "", amount: "", category: "Other", supplierId: null, expenseDate: new Date().toISOString() };
 
 export function ExpensesScreen({ onOpenDrawer, companyId }: Props) {
   const insets = useSafeAreaInsets();
+  const { theme: C, isDark } = useTheme();
+  
   const { data: expenses, isLoading, refresh } = useExpenses(companyId);
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
@@ -97,17 +95,11 @@ export function ExpensesScreen({ onOpenDrawer, companyId }: Props) {
       };
       
       const url = editingId 
-        ? `/api/expenses/${editingId}` // Assuming PATCH /api/expenses/:id exists or similar
+        ? `/api/expenses/${editingId}`
         : `/api/companies/${companyId}/expenses`;
       
       const method = editingId ? "PATCH" : "POST";
-      
-      // If PATCH /api/expenses/:id doesn't exist, we might need a different route.
-      // But usually, standard REST patterns apply.
-      const res = await apiFetch(url, {
-        method,
-        body: JSON.stringify(body),
-      });
+      const res = await apiFetch(url, { method, body: JSON.stringify(body) });
 
       if (!res.ok) {
         const errText = await res.text().catch(() => "");
@@ -116,12 +108,12 @@ export function ExpensesScreen({ onOpenDrawer, companyId }: Props) {
 
       setShowForm(false);
       refresh();
-      // Subtle feedback could be handled by a toast, but for now we just close the modal
-      // as that's already better than a blocking alert.
     } catch (e: any) {
       Alert.alert("Error", e.message);
     } finally { setSaving(false); }
   }, [form, companyId, editingId, refresh]);
+
+  const styles = makeStyles(C, isDark, insets);
 
   const renderItem = ({ item }: { item: any }) => {
     const dateStr = item.expenseDate ? new Date(item.expenseDate).toLocaleDateString() : "";
@@ -147,15 +139,17 @@ export function ExpensesScreen({ onOpenDrawer, companyId }: Props) {
     <View style={styles.container}>
       <StatusBar style="light" />
       <View style={{ flex: 1 }}>
-        <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
+        <View style={styles.header}>
           <TouchableOpacity onPress={onOpenDrawer} style={styles.iconBtn}><Menu size={20} color={C.text.primary} /></TouchableOpacity>
           <Text style={styles.title}>Expenses</Text>
           <TouchableOpacity onPress={openAdd} style={[styles.iconBtn, { backgroundColor: C.amber.primary }]}><Plus size={20} color="#000" /></TouchableOpacity>
         </View>
 
         <View style={styles.totalBar}>
-          <DollarSign size={16} color={C.status.error} />
-          <Text style={styles.totalLabel}>Total Expenses:</Text>
+          <View style={styles.totalBadge}>
+             <DollarSign size={14} color={C.status.error} />
+             <Text style={styles.totalLabel}>Total Outflow</Text>
+          </View>
           <Text style={[styles.totalValue, { color: C.status.error }]}>${totalExpenses.toFixed(2)}</Text>
         </View>
 
@@ -163,40 +157,37 @@ export function ExpensesScreen({ onOpenDrawer, companyId }: Props) {
           <Search size={16} color={C.text.secondary} />
           <TextInput style={styles.searchInput} placeholder="Search expenses..." placeholderTextColor={C.text.secondary} value={search} onChangeText={setSearch} />
         </View>
+
         {isLoading && !expenses ? (
-          <ActivityIndicator color={C.amber.primary} style={{ marginTop: 40 }} />
+          <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+             <ActivityIndicator color={C.amber.primary} />
+          </View>
         ) : (
           <FlatList
             data={filtered}
             keyExtractor={(item) => String(item.id)}
             renderItem={renderItem}
-            contentContainerStyle={{ padding: 16, paddingBottom: 80 }}
+            contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
             ListEmptyComponent={<Text style={styles.emptyText}>No expenses recorded.</Text>}
           />
         )}
 
         <Modal visible={showForm} transparent animationType="slide">
-          <KeyboardAvoidingView 
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
-            style={styles.modalOverlay}
-          >
-            <View style={[styles.modalContent, { paddingBottom: Math.max(insets.bottom, 24) }]}>
+          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>{editingId ? "Edit Expense" : "Add Expense"}</Text>
-                <TouchableOpacity onPress={() => setShowForm(false)}><X size={20} color={C.text.primary} /></TouchableOpacity>
+                <TouchableOpacity onPress={() => setShowForm(false)} style={styles.closeBtn}><X size={20} color={C.text.primary} /></TouchableOpacity>
               </View>
               <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
-
                 <View style={styles.field}>
                   <Text style={styles.fieldLabel}>Description *</Text>
                   <TextInput style={styles.fieldInput} placeholder="e.g. Office Supplies" placeholderTextColor={C.text.secondary} value={form.description} onChangeText={(v) => setForm({ ...form, description: v })} />
                 </View>
-
                 <View style={styles.field}>
                   <Text style={styles.fieldLabel}>Amount *</Text>
                   <TextInput style={styles.fieldInput} placeholder="0.00" placeholderTextColor={C.text.secondary} keyboardType="numeric" value={form.amount} onChangeText={(v) => setForm({ ...form, amount: v })} />
                 </View>
-
                 <View style={styles.field}>
                   <Text style={styles.fieldLabel}>Category</Text>
                   <View style={styles.catGrid}>
@@ -212,9 +203,8 @@ export function ExpensesScreen({ onOpenDrawer, companyId }: Props) {
                   </View>
                 </View>
               </ScrollView>
-              
-              <View style={{ paddingTop: 16, borderTopWidth: 1, borderTopColor: C.border.default, marginTop: 10 }}>
-                <TouchableOpacity style={[styles.saveBtn, { marginTop: 0, marginBottom: 0 }]} onPress={handleSave} disabled={saving}>
+              <View style={styles.modalFooter}>
+                <TouchableOpacity style={styles.saveBtn} onPress={handleSave} disabled={saving}>
                   {saving ? <ActivityIndicator color="#000" /> : <Text style={styles.saveBtnText}>{editingId ? "Update Expense" : "Save Expense"}</Text>}
                 </TouchableOpacity>
               </View>
@@ -226,37 +216,166 @@ export function ExpensesScreen({ onOpenDrawer, companyId }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (C: any, isDark: boolean, insets: any) => StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg.base },
-  header: { paddingHorizontal: 16, paddingVertical: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: C.border.default },
-  iconBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: C.bg.card, alignItems: "center", justifyContent: "center", shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 4 },
-  title: { color: C.text.primary, fontSize: 18, fontWeight: "800" },
-  totalBar: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, paddingVertical: 12, backgroundColor: C.bg.card, borderBottomWidth: 1, borderBottomColor: C.border.default },
-  totalLabel: { color: C.text.secondary, fontSize: 13, fontWeight: "600" },
-  totalValue: { fontSize: 16, fontWeight: "800", marginLeft: "auto" },
-  searchRow: { flexDirection: "row", alignItems: "center", backgroundColor: C.bg.hover, margin: 16, marginBottom: 0, borderRadius: 12, paddingHorizontal: 12, borderWidth: 1, borderColor: C.border.default, gap: 8 },
-  searchInput: { flex: 1, color: C.text.primary, height: 44, fontSize: 14 },
-  card: { flexDirection: "row", alignItems: "center", backgroundColor: C.bg.hover, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: C.border.default, marginBottom: 10, gap: 12 },
-  cardIcon: { width: 40, height: 40, borderRadius: 10, backgroundColor: "rgba(255,71,87,0.1)", alignItems: "center", justifyContent: "center" },
+  header: { 
+    paddingHorizontal: 16, 
+    paddingTop: Math.max(insets.top, 12), 
+    paddingBottom: 16, 
+    flexDirection: "row", 
+    alignItems: "center", 
+    justifyContent: "space-between",
+    backgroundColor: C.bg.base,
+    borderBottomWidth: 1,
+    borderBottomColor: C.bg.glassBorder,
+  },
+  iconBtn: { 
+    width: 44, 
+    height: 44, 
+    borderRadius: 14, 
+    backgroundColor: C.bg.panel, 
+    alignItems: "center", 
+    justifyContent: "center", 
+    shadowColor: "#000", 
+    shadowOpacity: 0.1, 
+    shadowRadius: 8, 
+    shadowOffset: { width: 0, height: 4 }, 
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: C.bg.glassBorder,
+  },
+  title: { color: C.text.primary, fontSize: 18, fontWeight: "900", letterSpacing: -0.5 },
+  totalBar: { 
+    flexDirection: "row", 
+    alignItems: "center", 
+    justifyContent: "space-between",
+    paddingHorizontal: 16, 
+    paddingVertical: 18, 
+    backgroundColor: C.bg.panel, 
+    borderBottomWidth: 1, 
+    borderBottomColor: C.bg.glassBorder 
+  },
+  totalBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: hexAlpha(C.status.error, 0.08),
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+  totalLabel: { color: C.status.error, fontSize: 12, fontWeight: "800", textTransform: "uppercase" },
+  totalValue: { fontSize: 22, fontWeight: "900", letterSpacing: -1 },
+  searchRow: { 
+    flexDirection: "row", 
+    alignItems: "center", 
+    backgroundColor: C.bg.panel, 
+    margin: 16, 
+    borderRadius: 16, 
+    paddingHorizontal: 14, 
+    borderWidth: 1.5, 
+    borderColor: C.bg.glassBorder, 
+    gap: 12 
+  },
+  searchInput: { flex: 1, color: C.text.primary, height: 50, fontSize: 15, fontWeight: "600" },
+  card: { 
+    flexDirection: "row", 
+    alignItems: "center", 
+    backgroundColor: C.bg.panel, 
+    padding: 16, 
+    borderRadius: 20, 
+    borderWidth: 1, 
+    borderColor: C.bg.glassBorder, 
+    marginBottom: 12, 
+    gap: 14,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 2,
+  },
+  cardIcon: { 
+    width: 48, 
+    height: 48, 
+    borderRadius: 14, 
+    backgroundColor: hexAlpha(C.status.error, 0.08), 
+    alignItems: "center", 
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: hexAlpha(C.status.error, 0.15),
+  },
   cardInfo: { flex: 1 },
-  cardTitle: { color: C.text.primary, fontSize: 14, fontWeight: "700" },
+  cardTitle: { color: C.text.primary, fontSize: 15, fontWeight: "800" },
   metaRow: { flexDirection: "row", alignItems: "center", gap: 4 },
-  metaText: { color: C.text.secondary, fontSize: 11 },
+  metaText: { color: C.text.secondary, fontSize: 12, fontWeight: "600" },
   cardRight: { alignItems: "flex-end" },
-  cardPrice: { fontSize: 14, fontWeight: "800" },
-  emptyText: { color: C.text.secondary, textAlign: "center", marginTop: 40, fontSize: 14 },
-  modalOverlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.7)" },
-  modalContent: { backgroundColor: C.bg.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40, borderWidth: 1, borderColor: C.border.default, maxHeight: "80%" },
-  modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20 },
-  modalTitle: { color: C.text.primary, fontSize: 18, fontWeight: "800" },
-  field: { marginBottom: 16 },
-  fieldLabel: { color: C.text.secondary, fontSize: 12, fontWeight: "600", marginBottom: 6 },
-  fieldInput: { backgroundColor: C.bg.hover, color: C.text.primary, borderRadius: 10, paddingHorizontal: 14, height: 44, borderWidth: 1, borderColor: C.border.default, fontSize: 14 },
+  cardPrice: { fontSize: 17, fontWeight: "900", letterSpacing: -0.5 },
+  emptyText: { color: C.text.secondary, textAlign: "center", marginTop: 60, fontSize: 14, fontWeight: "600" },
+  modalOverlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.8)" },
+  modalContent: { 
+    backgroundColor: C.bg.base, 
+    borderTopLeftRadius: 32, 
+    borderTopRightRadius: 32, 
+    paddingHorizontal: 24, 
+    paddingTop: 24,
+    paddingBottom: Math.max(insets.bottom, 24), 
+    borderTopWidth: 1, 
+    borderColor: C.bg.glassBorder, 
+    maxHeight: "85%" 
+  },
+  modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 24 },
+  modalTitle: { color: C.text.primary, fontSize: 22, fontWeight: "900", letterSpacing: -0.5 },
+  closeBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: C.bg.panel,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: C.bg.glassBorder,
+  },
+  field: { marginBottom: 20 },
+  fieldLabel: { color: C.text.primary, fontSize: 13, fontWeight: "700", marginBottom: 10, opacity: 0.6 },
+  fieldInput: { 
+    backgroundColor: C.bg.panel, 
+    color: C.text.primary, 
+    borderRadius: 14, 
+    paddingHorizontal: 16, 
+    height: 52, 
+    borderWidth: 1.5, 
+    borderColor: C.bg.glassBorder, 
+    fontSize: 15,
+    fontWeight: "600",
+  },
   catGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  catChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, backgroundColor: C.bg.hover, borderWidth: 1, borderColor: C.border.default },
-  catChipActive: { backgroundColor: `${C.amber.primary}20`, borderColor: C.amber.primary },
-  catChipText: { color: C.text.secondary, fontSize: 12, fontWeight: "600" },
+  catChip: { 
+    paddingHorizontal: 16, 
+    paddingVertical: 10, 
+    borderRadius: 12, 
+    backgroundColor: C.bg.panel, 
+    borderWidth: 1, 
+    borderColor: C.bg.glassBorder 
+  },
+  catChipActive: { backgroundColor: hexAlpha(C.amber.primary, 0.1), borderColor: C.amber.primary },
+  catChipText: { color: C.text.secondary, fontSize: 13, fontWeight: "700" },
   catChipTextActive: { color: C.amber.primary },
-  saveBtn: { backgroundColor: C.amber.primary, borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 8 , shadowColor: C.amber.primary, shadowOpacity: 0.35, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 8 },
-  saveBtnText: { color: "#000", fontWeight: "800", fontSize: 15 },
+  modalFooter: { 
+    paddingTop: 16, 
+    borderTopWidth: 1, 
+    borderTopColor: C.bg.glassBorder,
+    marginTop: 8
+  },
+  saveBtn: { 
+    backgroundColor: C.amber.primary, 
+    borderRadius: 16, 
+    paddingVertical: 16, 
+    alignItems: "center", 
+    shadowColor: C.amber.primary, 
+    shadowOpacity: 0.35, 
+    shadowRadius: 15, 
+    shadowOffset: { width: 0, height: 8 }, 
+    elevation: 8 
+  },
+  saveBtnText: { color: "#000", fontWeight: "900", fontSize: 16, letterSpacing: 0.5 },
 });

@@ -17,8 +17,11 @@ import {
     Loader2,
     ArrowLeft,
     TrendingUp,
-    DownloadCloud
+    DownloadCloud,
+    Trash2
 } from "lucide-react";
+import { useDeleteInvoice } from "@/hooks/use-invoices";
+import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -47,6 +50,8 @@ import { Link } from "wouter";
 export default function RecentSalesPage() {
     const { activeCompany } = useActiveCompany();
     const { user } = useAuth();
+    const { toast } = useToast();
+    const deleteInvoice = useDeleteInvoice();
     const companyId = activeCompany?.id;
     const activeRole = (activeCompany as any)?.role;
     const isCashier = activeRole === 'cashier' && !user?.isSuperAdmin;
@@ -298,7 +303,8 @@ export default function RecentSalesPage() {
                                 <TableHead className="h-14 font-black text-[10px] uppercase tracking-widest text-slate-400">Customer Name</TableHead>
                                 <TableHead className="h-14 font-black text-[10px] uppercase tracking-widest text-slate-400">Handled By</TableHead>
                                 <TableHead className="h-14 font-black text-[10px] uppercase tracking-widest text-slate-400">Compliance Status</TableHead>
-                                <TableHead className="h-14 font-black text-[10px] uppercase tracking-widest text-slate-400 text-right pr-8">Final Amount</TableHead>
+                                <TableHead className="h-14 font-black text-[10px] uppercase tracking-widest text-slate-400 text-right">Final Amount</TableHead>
+                                {user?.isSuperAdmin && <TableHead className="h-14 font-black text-[10px] uppercase tracking-widest text-slate-400 text-right pr-8">Actions</TableHead>}
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -371,7 +377,7 @@ export default function RecentSalesPage() {
                                                 </Badge>
                                             )}
                                         </TableCell>
-                                        <TableCell className="text-right pr-8">
+                                        <TableCell className={cn("text-right", user?.isSuperAdmin ? "" : "pr-8")}>
                                             <div className="flex flex-col items-end">
                                                 <span className="text-base font-black text-slate-900 leading-none">
                                                     ${Number(s.total).toLocaleString(undefined, { minimumFractionDigits: 2 })}
@@ -381,6 +387,27 @@ export default function RecentSalesPage() {
                                                 </span>
                                             </div>
                                         </TableCell>
+                                        {user?.isSuperAdmin && (
+                                            <TableCell className="text-right pr-8">
+                                                <Button 
+                                                    variant="ghost" 
+                                                    size="icon" 
+                                                    className="h-8 w-8 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                                    onClick={async () => {
+                                                        if (confirm(`Are you sure you want to delete invoice ${s.invoiceNumber}? This action cannot be undone.`)) {
+                                                            try {
+                                                                await deleteInvoice.mutateAsync(s.id);
+                                                                toast({ title: "Success", description: "Sale deleted successfully" });
+                                                            } catch (err: any) {
+                                                                toast({ title: "Error", description: err.message, variant: "destructive" });
+                                                            }
+                                                        }
+                                                    }}
+                                                >
+                                                    <Trash2 className="w-4 h-4" />
+                                                </Button>
+                                            </TableCell>
+                                        )}
                                     </TableRow>
                                 ))
                             )}

@@ -21,6 +21,12 @@ import { useToast } from "@/hooks/use-toast";
 import { DayManagementControls } from "@/components/zimra/day-management-controls";
 
 import { useActiveCompany } from "@/hooks/use-active-company";
+import { useBranchContext } from "@/lib/branch-context";
+
+function cleanDeviceId(value: unknown) {
+  const text = String(value || "").trim();
+  return text && !text.includes("@") ? text : "";
+}
 
 export default function ZimraSettingsPage() {
   const { activeCompany, isLoading: isLoadingActive } = useActiveCompany();
@@ -32,11 +38,7 @@ export default function ZimraSettingsPage() {
 
   return (
     <Layout>
-      <div className="mb-8 flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-display font-bold text-slate-900">ZIMRA Device</h1>
-          <p className="text-slate-500 mt-1">Manage your fiscal device configuration</p>
-        </div>
+      <div className="mb-4 flex items-center justify-end">
         <Link href="/zimra-logs">
           <Button variant="outline">
             <RefreshCw className="w-4 h-4 mr-2" />
@@ -68,15 +70,28 @@ import { getZimraErrorMessage } from "@/lib/zimra-errors";
 function ZimraDeviceConfig({ company }: { company: any }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [deviceId, setDeviceId] = useState(company.fdmsDeviceId || "");
-  const [activationKey, setActivationKey] = useState(company.fdmsApiKey || "");
-  const [deviceSerialNo, setDeviceSerialNo] = useState("");
+  const { selectedBranch } = useBranchContext();
+  const activeDeviceId = cleanDeviceId(selectedBranch?.fdmsDeviceId) || cleanDeviceId(company.fdmsDeviceId);
+  const activeActivationKey = selectedBranch?.fdmsApiKey || company.fdmsApiKey || "";
+  const activeSerialNo = selectedBranch?.fdmsDeviceSerialNo || company.fdmsDeviceSerialNo || "";
+  const [deviceId, setDeviceId] = useState(activeDeviceId);
+  const [activationKey, setActivationKey] = useState(activeActivationKey);
+  const [deviceSerialNo, setDeviceSerialNo] = useState(activeSerialNo);
   const [verificationResult, setVerificationResult] = useState<any>(null);
   const [connectivityResult, setConnectivityResult] = useState<any>(null);
   const [showConnectivityDialog, setShowConnectivityDialog] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
 
-  const isRegistered = !!company.fdmsDeviceId && !!company.zimraCertificate;
+  const isRegistered = !!activeDeviceId && !!(selectedBranch?.zimraCertificate || company.zimraCertificate);
+  const savedSerial = activeSerialNo;
+
+  useEffect(() => {
+    if (!isEditing) {
+      setDeviceId(activeDeviceId);
+      setActivationKey(activeActivationKey);
+      setDeviceSerialNo(activeSerialNo);
+    }
+  }, [activeDeviceId, activeActivationKey, activeSerialNo, isEditing]);
 
   // Verify Taxpayer
   const verifyTaxpayerMutation = useMutation({
@@ -321,8 +336,17 @@ function ZimraDeviceConfig({ company }: { company: any }) {
           <Label>Device ID</Label>
           <Input
             value={deviceId}
-            onChange={(e) => setDeviceId(e.target.value)}
-            placeholder="1234567890"
+            name="zimra-device-id"
+            autoComplete="off"
+            onChange={(e) => setDeviceId(cleanDeviceId(e.target.value))}
+            onInput={(e) => {
+              const value = cleanDeviceId((e.currentTarget as HTMLInputElement).value);
+              if (value !== (e.currentTarget as HTMLInputElement).value) {
+                (e.currentTarget as HTMLInputElement).value = value;
+                setDeviceId(value);
+              }
+            }}
+            placeholder="Device ID"
             disabled={isRegistered && !isEditing}
           />
         </div>
@@ -330,9 +354,11 @@ function ZimraDeviceConfig({ company }: { company: any }) {
           <Label>Activation Key</Label>
           <Input
             value={activationKey}
+            name="zimra-activation-key"
+            autoComplete="off"
             onChange={(e) => setActivationKey(e.target.value)}
-            type="password"
-            placeholder="xxxxxxxx"
+            type="text"
+            placeholder="Activation Key"
             disabled={isRegistered && !isEditing}
           />
         </div>
@@ -340,8 +366,10 @@ function ZimraDeviceConfig({ company }: { company: any }) {
           <Label>Device Serial Number (For Verification)</Label>
           <Input
             value={deviceSerialNo}
+            name="zimra-device-serial-number"
+            autoComplete="off"
             onChange={(e) => setDeviceSerialNo(e.target.value)}
-            placeholder="SN-12345"
+            placeholder={savedSerial || "Device serial number"}
           />
         </div>
       </div>
@@ -375,8 +403,9 @@ function ZimraDeviceConfig({ company }: { company: any }) {
                 variant="ghost"
                 onClick={() => {
                   setIsEditing(false);
-                  setDeviceId(company.fdmsDeviceId || "");
-                  setActivationKey(company.fdmsApiKey || "");
+                  setDeviceId(activeDeviceId);
+                  setActivationKey(activeActivationKey);
+                  setDeviceSerialNo(activeSerialNo);
                 }}
               >
                 Cancel

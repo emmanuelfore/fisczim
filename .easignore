@@ -1,0 +1,28 @@
+# EAS archives this Expo app from the repository root. Allow only the mobile
+# app tree, then exclude local caches and generated output inside it.
+*
+!mobile
+!mobile/**
+!.easignore
+
+# Mobile-local caches and generated output.
+/mobile/node_modules
+/mobile/.expo
+/mobile/.eas-inspect
+/mobile/.gradle
+/mobile/android/.gradle
+/mobile/android/build
+/mobile/android/app/build
+/mobile/ios/build
+
+# Leftover root binaries in mobile/ that are not needed for the app build.
+/mobile/FiscalStack * ZIMRA Compliant Invoicing.pdf
+/mobile/libaed.so
+/mobile/classes.jar
+/mobile/libcustom_nvram.so
+/mobile/libcustom_jni.so
+/mobile/libPosApi.so
+
+# Ensure the actual module's native libraries remain available to Gradle.
+!/mobile/modules/z100-printer/android/libs/*.aar
+!/mobile/modules/z100-printer/android/src/main/jniLibs/**/*.so

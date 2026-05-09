@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 import { useInvoices, useInvoice, useDeleteInvoice, useFiscalizeInvoice, useUpdateInvoice, useCreateCreditNote, useCreateDebitNote, usePayments, useConvertQuotation } from "@/hooks/use-invoices";
 import { useCreateRecurringInvoice } from "@/hooks/use-recurring";
 import { Button } from "@/components/ui/button";
-import { Plus, Search, FileText, Loader2, ShieldCheck, Send, MoreHorizontal, Copy, Eye, Edit, Trash2, User, Download, Share2, MessageCircle, Mail, CreditCard, Undo2, MoreVertical, Printer, ClipboardList, ArrowLeft, UploadCloud, RefreshCw, SlidersHorizontal, X, ReceiptText, CheckCircle2 } from "lucide-react";
+import { Plus, Search, FileText, Loader2, ShieldCheck, Send, MoreHorizontal, Copy, Eye, Edit, Trash2, User, Download, Share2, MessageCircle, Mail, CreditCard, Undo2, MoreVertical, Printer, ClipboardList, ArrowLeft, UploadCloud, RefreshCw, SlidersHorizontal, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/status-badge";
@@ -11,9 +11,9 @@ import { Link, useLocation } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { useState, useEffect, type ElementType } from "react";
+import { useState, useEffect } from "react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Calendar as CalendarIcon, Filter, TrendingUp, Clock, AlertCircle } from "lucide-react";
+import { Calendar as CalendarIcon, Filter, AlertCircle } from "lucide-react";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format } from "date-fns";
@@ -108,7 +108,7 @@ export function InvoicePreviewPanel({ invoiceId, onClose }: { invoiceId: number;
       reader.onloadend = async () => {
         const res = await apiFetch(`/api/invoices/${invoiceId}/email`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, pdfBase64: reader.result }) });
         if (!res.ok) throw new Error((await res.json()).message || "Failed");
-        toast({ title: "Email Sent", description: `Sent to ${email}`, className: "bg-emerald-600 text-white" });
+        toast({ title: "Email Sent", description: `Sent to ${email}`, className: "bg-slate-900 text-white" });
         setShowEmailDialog(false);
         setIsSendingEmail(false);
       };
@@ -137,14 +137,14 @@ export function InvoicePreviewPanel({ invoiceId, onClose }: { invoiceId: number;
             <Eye className="w-3 h-3" /> Full View
           </Button>
           {["issued", "paid"].includes(invoice.status || "") && !invoice.fiscalCode && (
-            <Button size="sm" className={cn("h-7 px-2 text-[11px] gap-1 text-white", invoice.fdmsStatus === "failed" ? "bg-red-600 hover:bg-red-700" : "bg-emerald-600 hover:bg-emerald-700")}
+            <Button size="sm" className={cn("h-7 px-2 text-[11px] gap-1 text-white", invoice.fdmsStatus === "failed" ? "bg-red-600 hover:bg-red-700" : "bg-slate-900 hover:bg-slate-800")}
               onClick={() => { if (isFiscalizing) return; setIsFiscalizing(true); fiscalize.mutate(invoiceId, { onSettled: () => setIsFiscalizing(false) }); }}
               disabled={fiscalize.isPending || isFiscalizing}>
               {isFiscalizing ? <Loader2 className="w-3 h-3 animate-spin" /> : <ShieldCheck className="w-3 h-3" />} Fiscalize
             </Button>
           )}
           {!isPaid && ["issued", "fiscalized"].includes(invoice.status || "") && (
-            <Button variant="outline" size="sm" className="h-7 px-2 text-[11px] gap-1 bg-blue-50 text-blue-700 border-blue-200" onClick={() => setShowPaymentModal(true)}>
+            <Button variant="outline" size="sm" className="h-7 px-2 text-[11px] gap-1 border-slate-200 bg-white text-slate-700" onClick={() => setShowPaymentModal(true)}>
               <CreditCard className="w-3 h-3" /> Pay
             </Button>
           )}
@@ -229,51 +229,16 @@ export function InvoicePreviewPanel({ invoiceId, onClose }: { invoiceId: number;
 type StatCardProps = {
   label: string;
   value: string;
-  icon: ElementType;
-  tone: "blue" | "green" | "amber" | "red";
   trend: string;
   trendTone?: "green" | "red";
 };
 
-const toneStyles: Record<StatCardProps["tone"], string> = {
-  blue: "bg-blue-50 text-blue-600 border-blue-100",
-  green: "bg-emerald-50 text-emerald-600 border-emerald-100",
-  amber: "bg-amber-50 text-amber-600 border-amber-100",
-  red: "bg-red-50 text-red-600 border-red-100",
-};
-
-function MiniSparkline({ tone }: { tone: StatCardProps["tone"] }) {
-  const stroke: Record<StatCardProps["tone"], string> = {
-    blue: "#2563EB",
-    green: "#16A34A",
-    amber: "#F59E0B",
-    red: "#EF4444",
-  };
-
+function StatCard({ label, value, trend, trendTone = "green" }: StatCardProps) {
   return (
-    <svg width="62" height="24" viewBox="0 0 82 34" fill="none" aria-hidden="true">
-      <path d="M2 26C10 18 16 21 23 15C30 9 37 14 44 10C52 5 58 8 65 6C72 4 77 7 80 3" stroke={stroke[tone]} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M2 26C10 18 16 21 23 15C30 9 37 14 44 10C52 5 58 8 65 6C72 4 77 7 80 3V34H2V26Z" fill={stroke[tone]} opacity="0.08" />
-    </svg>
-  );
-}
-
-function StatCard({ label, value, icon: Icon, tone, trend, trendTone = "green" }: StatCardProps) {
-  return (
-    <div className="rounded-[14px] border border-[#E5E7EB] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className={cn("mb-2 flex h-8 w-8 items-center justify-center rounded-[8px] border", toneStyles[tone])}>
-            <Icon className="h-4 w-4" />
-          </div>
-          <p className="text-[12px] font-medium text-[#64748B]">{label}</p>
-          <p className="mt-1 text-[24px] font-bold leading-none tracking-tight text-[#0F172A]">{value}</p>
-          <p className={cn("mt-2 text-[11px] font-semibold", trendTone === "red" ? "text-[#DC2626]" : "text-[#16A34A]")}>{trend}</p>
-        </div>
-        <div className="mt-6 shrink-0">
-          <MiniSparkline tone={tone} />
-        </div>
-      </div>
+    <div className="min-h-[86px] rounded-[14px] border border-[#E5E7EB] bg-white px-4 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+      <p className="text-xs font-medium text-[#64748B]">{label}</p>
+      <p className="mt-2 text-[22px] font-bold leading-none tracking-tight text-[#0F172A]">{value}</p>
+      <p className={cn("mt-2 truncate text-xs font-medium", trendTone === "red" ? "text-[#991B1B]" : "text-[#64748B]")}>{trend}</p>
     </div>
   );
 }
@@ -288,7 +253,7 @@ function BillingPageActions({ onExport, onSync }: { onExport: () => void; onSync
         <RefreshCw className="h-4 w-4 text-[#64748B]" /> Sync FDMS
       </Button>
       <Link href="/invoices/new">
-        <Button className="h-10 w-full rounded-[10px] border border-[#2563EB] bg-gradient-to-r from-[#2563EB] to-[#1D4ED8] px-4 text-sm font-semibold text-white shadow-[0_1px_2px_rgba(37,99,235,0.25)] hover:from-[#1D4ED8] hover:to-[#1D4ED8] sm:w-auto">
+        <Button className="h-10 w-full rounded-[10px] border border-[#0F172A] bg-[#0F172A] px-4 text-sm font-semibold text-white shadow-[0_1px_2px_rgba(15,23,42,0.18)] hover:bg-[#1E293B] sm:w-auto">
           <Plus className="h-4 w-4" /> Create Invoice
         </Button>
       </Link>
@@ -298,13 +263,13 @@ function BillingPageActions({ onExport, onSync }: { onExport: () => void; onSync
 
 function StatusPill({ status, label }: { status: "fiscalized" | "pending" | "failed" | "draft" | "paid" | "unpaid" | "partial"; label?: string }) {
   const styles: Record<typeof status, string> = {
-    fiscalized: "border-transparent bg-[#DCFCE7] text-[#166534]",
-    pending: "border-transparent bg-[#FEF3C7] text-[#92400E]",
-    failed: "border-transparent bg-[#FEE2E2] text-[#991B1B]",
-    draft: "border-transparent bg-slate-100 text-slate-600",
-    paid: "border-transparent bg-[#DCFCE7] text-[#166534]",
-    unpaid: "border-transparent bg-[#FEE2E2] text-[#991B1B]",
-    partial: "border-transparent bg-[#DBEAFE] text-[#1D4ED8]",
+    fiscalized: "border-[#D1D5DB] bg-white text-[#374151]",
+    pending: "border-[#D1D5DB] bg-white text-[#4B5563]",
+    failed: "border-[#FCA5A5] bg-[#FEF2F2] text-[#991B1B]",
+    draft: "border-[#D1D5DB] bg-[#F8FAFC] text-[#64748B]",
+    paid: "border-[#D1D5DB] bg-white text-[#374151]",
+    unpaid: "border-[#FCA5A5] bg-[#FEF2F2] text-[#991B1B]",
+    partial: "border-[#D1D5DB] bg-white text-[#475569]",
   };
 
   return (
@@ -320,13 +285,7 @@ function DocumentTypePill({ invoice }: { invoice: any }) {
   const isDebit = rawType.includes("debit");
   const isQuote = rawType.includes("quote") || rawType.includes("quotation");
   const label = isCredit ? "Credit note" : isDebit ? "Debit note" : isQuote ? "Quotation" : "Invoice";
-  const className = isCredit
-    ? "bg-red-50 text-red-700 border-red-100"
-    : isDebit
-      ? "bg-amber-50 text-amber-700 border-amber-100"
-      : isQuote
-        ? "bg-blue-50 text-blue-700 border-blue-100"
-        : "bg-slate-100 text-slate-600 border-slate-200";
+  const className = "bg-white text-slate-600 border-slate-200";
 
   return (
     <span className={cn("inline-flex max-w-full items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide", className)}>
@@ -369,17 +328,11 @@ function getSyncTime(invoice: any) {
 
 function QuickChip({ label, active, tone = "default", onClick }: { label: string; active?: boolean; tone?: "default" | "green" | "amber" | "red"; onClick: () => void }) {
   const toneClass = active
-    ? "bg-[#EFF6FF] text-[#2563EB] border-[#BFDBFE]"
-    : tone === "green"
-      ? "bg-[#DCFCE7] text-[#166534] border-transparent"
-      : tone === "amber"
-        ? "bg-[#FEF3C7] text-[#92400E] border-transparent"
-        : tone === "red"
-          ? "bg-[#FEE2E2] text-[#DC2626] border-transparent"
-          : "bg-white text-[#64748B] border-[#E5E7EB]";
+    ? "bg-[#F8FAFC] text-[#0F172A] border-[#CBD5E1]"
+    : "bg-white text-[#64748B] border-[#E5E7EB]";
 
   return (
-    <button type="button" onClick={onClick} className={cn("rounded-full border px-3 py-2 text-[13px] font-semibold transition-colors hover:border-[#BFDBFE] hover:text-[#2563EB]", toneClass)}>
+    <button type="button" onClick={onClick} className={cn("rounded-full border px-3 py-2 text-sm font-semibold transition-colors hover:border-[#CBD5E1] hover:text-[#0F172A]", toneClass)}>
       {label}
     </button>
   );
@@ -525,17 +478,17 @@ export default function InvoicesPage() {
 
         <div className="space-y-4">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <StatCard label="Total Invoices" value={totalInvoices.toLocaleString()} icon={ReceiptText} tone="blue" trend={`↑ ${percentOf(displayedInvoices.length, Math.max(totalInvoices, displayedInvoices.length))} visible`} />
-              <StatCard label="Fiscalised" value={fiscalisedCount.toLocaleString()} icon={CheckCircle2} tone="green" trend={`↑ ${percentOf(fiscalisedCount, displayedInvoices.length)} of current view`} />
-              <StatCard label="Pending Sync" value={pendingSyncCount.toLocaleString()} icon={Clock} tone="amber" trend={`↑ ${percentOf(pendingSyncCount, displayedInvoices.length)} awaiting FDMS`} />
-              <StatCard label="Failed" value={failedFiscalisation.toLocaleString()} icon={AlertCircle} tone="red" trend={`↓ ${percentOf(failedFiscalisation, displayedInvoices.length)} require review`} trendTone="red" />
+              <StatCard label="Total Invoices" value={totalInvoices.toLocaleString()} trend={`${percentOf(displayedInvoices.length, Math.max(totalInvoices, displayedInvoices.length))} visible`} />
+              <StatCard label="Fiscalised" value={fiscalisedCount.toLocaleString()} trend={`${percentOf(fiscalisedCount, displayedInvoices.length)} of current view`} />
+              <StatCard label="Pending" value={pendingSyncCount.toLocaleString()} trend={`${percentOf(pendingSyncCount, displayedInvoices.length)} awaiting FDMS`} />
+              <StatCard label="Failed" value={failedFiscalisation.toLocaleString()} trend={`${percentOf(failedFiscalisation, displayedInvoices.length)} require review`} trendTone="red" />
             </div>
             <Card className="overflow-hidden rounded-[14px] border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
               <CardContent className="space-y-4 p-4">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
                   <div className="relative min-w-0 flex-1">
                     <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#64748B]" />
-                    <Input placeholder="Search invoice, customer, VAT number..." className="h-10 rounded-[10px] border-[#E5E7EB] bg-white pl-9 text-sm font-medium text-[#0F172A] placeholder:text-[#94A3B8] focus-visible:ring-[#2563EB]" value={searchTerm} onChange={(e) => handleFilterChange(setSearchTerm, e.target.value)} />
+                    <Input placeholder="Search invoice, customer, VAT number..." className="h-10 rounded-[10px] border-[#E5E7EB] bg-white pl-9 text-sm font-medium text-[#0F172A] placeholder:text-[#94A3B8] focus-visible:ring-[#94A3B8]" value={searchTerm} onChange={(e) => handleFilterChange(setSearchTerm, e.target.value)} />
                   </div>
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:flex">
                     <Select value={statusFilter} onValueChange={(v) => handleFilterChange(setStatusFilter, v)}>
@@ -568,7 +521,7 @@ export default function InvoicesPage() {
                     <Popover>
                       <PopoverTrigger asChild>
                         <Button variant="outline" className={cn("h-10 justify-start rounded-[10px] border-[#E5E7EB] bg-white px-3 text-sm font-semibold text-[#0F172A] shadow-none lg:w-[175px]", !dateRange && "text-[#64748B]")}>
-                          <CalendarIcon className="h-4 w-4 text-[#2563EB]" />
+                          <CalendarIcon className="h-4 w-4 text-[#64748B]" />
                           {dateRange?.from ? (dateRange.to ? `${format(dateRange.from, "dd MMM")} - ${format(dateRange.to, "dd MMM")}` : format(dateRange.from, "dd MMM yyyy")) : "Date range"}
                         </Button>
                       </PopoverTrigger>
@@ -579,7 +532,7 @@ export default function InvoicesPage() {
                     <Button variant="outline" className="h-10 rounded-[10px] border-[#E5E7EB] bg-white px-3 text-sm font-semibold text-[#0F172A] shadow-none">
                       <SlidersHorizontal className="h-4 w-4 text-[#64748B]" /> More Filters
                     </Button>
-                    <Button variant="ghost" size="sm" className="h-10 rounded-[10px] px-3 text-sm font-semibold text-[#64748B] hover:bg-red-50 hover:text-[#EF4444]" onClick={clearFilters}>
+                    <Button variant="ghost" size="sm" className="h-10 rounded-[10px] px-3 text-sm font-semibold text-[#64748B] hover:bg-[#F8FAFC] hover:text-[#0F172A]" onClick={clearFilters}>
                       Clear filters
                     </Button>
                   </div>
@@ -613,7 +566,7 @@ export default function InvoicesPage() {
                       <FileText className="h-6 w-6 text-[#94A3B8]" />
                     </div>
                     <p className="text-sm font-semibold text-[#0F172A]">No invoices found</p>
-                    <Link href="/invoices/new"><Button variant="link" className="h-auto p-0 text-sm font-semibold text-[#2563EB]">Create your first invoice</Button></Link>
+              <Link href="/invoices/new"><Button variant="link" className="h-auto p-0 text-sm font-semibold text-[#0F172A]">Create your first invoice</Button></Link>
                   </div>
                 ) : (
                   <TooltipProvider>
@@ -660,7 +613,7 @@ export default function InvoicesPage() {
                                     </Tooltip>
                                   )}
                                   <div className="flex flex-col gap-1">
-                                    <span className="font-mono text-sm font-bold text-[#2563EB]">{invoice.invoiceNumber}</span>
+                              <span className="font-mono text-sm font-bold text-[#0F172A]">{invoice.invoiceNumber}</span>
                                     <DocumentTypePill invoice={invoice} />
                                   </div>
                                 </div>
@@ -668,7 +621,7 @@ export default function InvoicesPage() {
                               <TableCell className="py-3">
                                 {invoice.customerId ? (
                                   <Link href={`/customers/${invoice.customerId}`} onClick={(e) => e.stopPropagation()}>
-                                    <span className="text-sm font-semibold text-[#0F172A] hover:text-[#2563EB]">{formatCustomerName(invoice.customer?.name)}</span>
+                                  <span className="text-sm font-semibold text-[#0F172A] hover:text-[#475569]">{formatCustomerName(invoice.customer?.name)}</span>
                                   </Link>
                                 ) : (
                                   <span className="text-sm font-medium text-[#64748B]">{formatCustomerName(invoice.customer?.name)}</span>
@@ -690,7 +643,7 @@ export default function InvoicesPage() {
                                 <div className="flex items-center justify-end gap-1">
                                   <Tooltip>
                                     <TooltipTrigger asChild>
-                                      <Button variant="ghost" size="icon" className="h-8 w-8 rounded-[10px] text-[#64748B] hover:bg-blue-50 hover:text-[#2563EB]" onClick={(e) => { e.stopPropagation(); setLocation(`/invoices/${invoice.id}`); }}>
+                                      <Button variant="ghost" size="icon" className="h-8 w-8 rounded-[10px] text-[#64748B] hover:bg-[#F8FAFC] hover:text-[#0F172A]" onClick={(e) => { e.stopPropagation(); setLocation(`/invoices/${invoice.id}`); }}>
                                         <Eye className="h-4 w-4" />
                                       </Button>
                                     </TooltipTrigger>
@@ -728,12 +681,12 @@ export default function InvoicesPage() {
                                         </DropdownMenuItem>
                                       )}
                                       {invoice.status === "draft" && (
-                                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleIssue(invoice); }} className="rounded-[10px] text-xs text-[#2563EB]" disabled={loadingId === invoice.id}>
+                                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleIssue(invoice); }} className="rounded-[10px] text-xs text-[#0F172A]" disabled={loadingId === invoice.id}>
                                           {loadingId === invoice.id ? <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" /> : <Send className="h-3.5 w-3.5 mr-2" />} Issue
                                         </DropdownMenuItem>
                                       )}
                                       {invoice.status === "issued" && !invoice.fiscalCode && (
-                                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleFiscalize(invoice.id); }} className="rounded-[10px] text-xs text-emerald-700" disabled={loadingId === invoice.id}>
+                                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleFiscalize(invoice.id); }} className="rounded-[10px] text-xs text-[#0F172A]" disabled={loadingId === invoice.id}>
                                           {loadingId === invoice.id ? <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5 mr-2" />} Fiscalise
                                         </DropdownMenuItem>
                                       )}

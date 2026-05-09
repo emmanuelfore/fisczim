@@ -34,7 +34,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Pencil, Loader2 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { type ReactNode, useState, useEffect } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
@@ -46,10 +46,11 @@ import { HsCodeAssistant } from "@/components/products/hs-code-assistant";
 
 interface Props {
     product: any;
-    trigger?: React.ReactNode;
+    trigger?: ReactNode;
+    children?: ReactNode;
 }
 
-export function EditProductDialog({ product, trigger }: Props) {
+export function EditProductDialog({ product, trigger, children }: Props) {
     const [open, setOpen] = useState(false);
     const updateProduct = useUpdateProduct();
     const { taxCategories, taxTypes } = useTaxConfig(product.companyId);
@@ -175,7 +176,7 @@ export function EditProductDialog({ product, trigger }: Props) {
             if (!val) setSelectedTaxTypeId(undefined); // Reset on close
         }}>
             <DialogTrigger asChild>
-                {trigger ? trigger : (
+                {trigger || children ? (trigger || children) : (
                     <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-full hover:bg-violet-50 hover:text-primary transition-all">
                         <Pencil className="w-4 h-4 text-slate-400" />
                     </Button>

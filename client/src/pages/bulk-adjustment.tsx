@@ -154,10 +154,6 @@ export default function BulkAdjustmentPage() {
                             <ChevronLeft className="w-5 h-5" />
                         </Button>
                     </Link>
-                    <div>
-                        <h1 className="text-3xl font-display font-bold text-slate-900 tracking-tight">Bulk Adjustment</h1>
-                        <p className="text-slate-500 mt-1">Manual inventory corrections for multiple products</p>
-                    </div>
                 </div>
 
                 <Popover open={searchOpen} onOpenChange={setSearchOpen}>
@@ -251,7 +247,7 @@ export default function BulkAdjustmentPage() {
                                                             </td>
                                                             <td className="px-4 py-1 align-middle">
                                                                 <div className="flex flex-col overflow-hidden">
-                                                                    <span className="font-black text-slate-800 text-[13px] truncate leading-tight">{product?.name}</span>
+                                                                    <span className="font-black text-slate-800 text-sm truncate leading-tight">{product?.name}</span>
                                                                     <span className="text-[9px] font-black text-slate-400 uppercase tracking-tighter font-mono truncate">{product?.sku || 'NO-SKU'}</span>
                                                                 </div>
                                                             </td>
@@ -295,7 +291,7 @@ export default function BulkAdjustmentPage() {
                                                                                     type="number" 
                                                                                     step="0.01" 
                                                                                     {...field} 
-                                                                                    className="rounded-xl h-8 bg-white border-slate-100 focus:ring-primary/5 font-mono font-black text-[13px] text-center text-slate-800 shadow-none" 
+                                                                                    className="rounded-xl h-8 bg-white border-slate-100 focus:ring-primary/5 font-mono font-black text-sm text-center text-slate-800 shadow-none" 
                                                                                 />
                                                                             </FormControl>
                                                                         </FormItem>
@@ -394,4 +390,3 @@ export default function BulkAdjustmentPage() {
         </Layout>
     );
 }
-

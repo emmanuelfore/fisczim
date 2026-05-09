@@ -44,7 +44,8 @@ export function StockTakeScreen({ companyId, onClose }: StockTakeScreenProps) {
       p.isActive !== false && 
       p.isTracked && (
         p.name.toLowerCase().includes(s) || 
-        (p.sku && p.sku.toLowerCase().includes(s))
+        (p.sku && p.sku.toLowerCase().includes(s)) ||
+        (p.barcode && p.barcode.toLowerCase().includes(s))
       )
     ).slice(0, 10);
   }, [products, search]);
@@ -58,8 +59,8 @@ export function StockTakeScreen({ companyId, onClose }: StockTakeScreenProps) {
       productId: product.id,
       name: product.name,
       sku: product.sku,
-      systemCount: parseFloat(product.stockLevel || "0"),
-      physicalCount: parseFloat(product.stockLevel || "0"),
+      systemCount: parseFloat(product.branchStock ?? product.stockLevel ?? "0"),
+      physicalCount: parseFloat(product.branchStock ?? product.stockLevel ?? "0"),
       unitCost: parseFloat(product.costPrice || "0"),
     };
     setItems([newItem, ...items]);
@@ -111,6 +112,7 @@ export function StockTakeScreen({ companyId, onClose }: StockTakeScreenProps) {
               // 2. Process/Complete the session
               await apiJson(`/api/stock-takes/${session.id}/complete`, {
                 method: "POST",
+                headers: { "Idempotency-Key": `stock-take-complete-${session.id}` },
                 body: JSON.stringify({ companyId })
               });
 
@@ -158,7 +160,7 @@ export function StockTakeScreen({ companyId, onClose }: StockTakeScreenProps) {
             <Search size={18} color={C.text.secondary} />
             <Text style={styles.searchPlaceholder}>Search products to count...</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.scanBtn}>
+          <TouchableOpacity style={styles.scanBtn} onPress={() => setShowProductSearch(true)}>
             <Scan size={20} color={C.amber.primary} />
           </TouchableOpacity>
         </View>
@@ -272,7 +274,7 @@ export function StockTakeScreen({ companyId, onClose }: StockTakeScreenProps) {
               <TextInput
                 autoFocus
                 style={styles.modalSearchInput}
-                placeholder="Search by name or SKU..."
+                placeholder="Scan barcode, name, or SKU..."
                 placeholderTextColor={C.text.secondary}
                 value={search}
                 onChangeText={setSearch}
@@ -292,7 +294,7 @@ export function StockTakeScreen({ companyId, onClose }: StockTakeScreenProps) {
                       <Text style={styles.productSku}>{item.sku || "No SKU"}</Text>
                     </View>
                     <View style={{ alignItems: "flex-end" }}>
-                      <Text style={styles.productStock}>{item.stockLevel} in stock</Text>
+                      <Text style={styles.productStock}>{item.branchStock ?? item.stockLevel} in this branch</Text>
                       <Plus size={20} color={C.amber.primary} />
                     </View>
                   </TouchableOpacity>

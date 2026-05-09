@@ -158,7 +158,7 @@ export default function InventoryStockCountsPage() {
                             <Package className="w-4 h-4 md:w-5 md:h-5 text-slate-300" />
                           </div>
                           <div className="flex flex-col min-w-0">
-                            <span className="font-display tracking-tight text-[13px] md:text-sm truncate">{product?.name || "Unknown Product"}</span>
+                            <span className="font-display tracking-tight text-sm truncate">{product?.name || "Unknown Product"}</span>
                             <span className="text-[10px] text-slate-400 font-medium truncate">{product?.sku || "NO SKU"}</span>
                           </div>
                         </div>

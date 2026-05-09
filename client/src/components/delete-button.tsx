@@ -19,6 +19,7 @@ interface DeleteButtonProps {
     title?: string;
     description?: string;
     trigger?: React.ReactNode;
+    children?: React.ReactNode;
     isDeleting?: boolean;
 }
 
@@ -27,6 +28,7 @@ export function DeleteButton({
     title = "Are you sure?",
     description = "This action cannot be undone.",
     trigger,
+    children,
     isDeleting = false,
 }: DeleteButtonProps) {
     const [open, setOpen] = useState(false);
@@ -41,6 +43,8 @@ export function DeleteButton({
             <AlertDialogTrigger asChild>
                 {trigger ? (
                     trigger
+                ) : children ? (
+                    children
                 ) : (
                     <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-red-500 hover:text-red-600 hover:bg-red-50">
                         <Trash2 className="w-4 h-4" />

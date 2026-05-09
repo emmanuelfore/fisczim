@@ -735,7 +735,7 @@ export default function CreateInvoicePage() {
                   <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div>
                       <h3 className="text-base font-semibold text-[#0F172A]">Invoice Setup</h3>
-                      <p className="text-sm text-[#64748B]">Document identifiers, dates, currency, and fiscal device details.</p>
+                      <p className="text-sm text-muted-foreground">Document identifiers, dates, currency, and fiscal device details.</p>
                       <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-[#64748B]">
                         {searchParams.get('type') === 'quote' || existingInvoice?.status === 'quote'
                           ? "Official quotation"
@@ -849,7 +849,7 @@ export default function CreateInvoicePage() {
                 <div className="rounded-2xl border border-[#E5E7EB] bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
                   <div className="mb-4">
                     <h3 className="text-base font-semibold text-[#0F172A]">Seller & Buyer</h3>
-                    <p className="text-sm text-[#64748B]">Confirm the issuing company and select the customer for this invoice.</p>
+                    <p className="text-sm text-muted-foreground">Confirm the issuing company and select the customer for this invoice.</p>
                   </div>
                   <div className="grid grid-cols-1 gap-4 lg:grid-cols-[0.9fr_1.1fr]">
                     {/* Seller Details */}
@@ -1037,7 +1037,7 @@ export default function CreateInvoicePage() {
                       </div>
                       <div>
                         <h3 className="text-base font-semibold text-[#0F172A]">Items</h3>
-                        <p className="text-sm text-[#64748B]">Add products, services, tax, and discounts.</p>
+                        <p className="text-sm text-muted-foreground">Add products, services, tax, and discounts.</p>
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -1392,7 +1392,7 @@ export default function CreateInvoicePage() {
                     </div>
                     <div>
                       <h3 className="text-base font-semibold text-[#0F172A]">Invoice Summary</h3>
-                      <p className="text-xs text-[#64748B]">Live totals and fiscal readiness.</p>
+                      <p className="text-sm text-muted-foreground">Live totals and fiscal readiness.</p>
                     </div>
                   </div>
 

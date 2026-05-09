@@ -205,9 +205,9 @@ export function PauseScreen({ companyId, onChangeCompany, onSignOut }: Props) {
                 width: 62,
                 height: 62,
                 borderRadius: 22,
-                backgroundColor: pausedState.paused ? C.amber.glow : C.bg.hover,
+                backgroundColor: pausedState.paused ? C.amber.glowLg : C.bg.hover,
                 borderWidth: 1,
-                borderColor: pausedState.paused ? C.amber.glowMd : C.border.default,
+                borderColor: pausedState.paused ? C.amber.primarySoft : C.border.default,
                 alignItems: "center",
                 justifyContent: "center"
               }}

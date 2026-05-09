@@ -142,10 +142,6 @@ export default function TaxReportsPage() {
                         <Button variant="ghost" size="icon" onClick={() => window.history.back()}>
                             <ArrowLeft className="h-5 w-5" />
                         </Button>
-                        <div>
-                            <h1 className="text-2xl font-black text-slate-900 tracking-tight">Tax & ZIMRA Reports</h1>
-                            <p className="text-sm text-slate-500 font-medium">Compliance tracking and VAT analysis</p>
-                        </div>
                     </div>
                     <Button onClick={handleExportCsv} variant="outline" className="gap-2">
                         <Download className="h-4 w-4" />

@@ -42,10 +42,6 @@ export default function LiveOrdersPage() {
   return (
     <Layout>
       <div className="flex flex-col gap-6">
-        <div>
-          <h1 className="text-3xl font-display font-black text-slate-900 tracking-tight uppercase">Live Restaurant Orders</h1>
-          <p className="text-slate-500 mt-0.5 text-sm font-medium italic">Track and manage active kitchen orders in real-time</p>
-        </div>
 
         <div className="flex flex-col md:flex-row gap-4 items-center justify-between bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
           <div className="relative w-full md:w-96">

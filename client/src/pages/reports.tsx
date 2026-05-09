@@ -1,11 +1,11 @@
 import { Layout } from "@/components/layout";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useAuth } from "@/hooks/use-auth";
-import { SalesReport, SalesByCustomerReport, SalesByItemReport, SalesBySalespersonReport } from "@/components/reports/sales-reports";
-import { OperationalMetricsReport, HourlySalesAnalysisReport, InventoryHealthReport, StockOnHandReport, InventoryMovementsReport, PurchaseHistoryReport } from "@/components/reports/retail-reports";
-import { ArAgingSummaryReport, ArAgingDetailsReport, InvoiceDetailsReport, QuoteDetailsReport, CustomerBalanceSummaryReport, ReceivableSummaryReport, ReceivableDetailsReport, BadDebtsReport, BankChargesReport } from "@/components/reports/receivables-reports";
-import { TimeToGetPaidReport, RefundHistoryReport, WithholdingTaxReport, CashCollectionReport, PaymentsReceivedReport } from "@/components/reports/payments-reports";
-import { ExpenseDetailsReport, ExpensesByCategoryReport, ExpensesByCustomerReport, ExpensesByProjectReport, BillableExpenseDetailsReport } from "@/components/reports/expenses-reports";
+import { SalesReport, SalesByCustomerReport, SalesByItemReport } from "@/components/reports/sales-reports";
+import { InventoryHealthReport, StockOnHandReport, InventoryMovementsReport } from "@/components/reports/retail-reports";
+import { ArAgingSummaryReport, InvoiceDetailsReport, CustomerBalanceSummaryReport, ReceivableDetailsReport } from "@/components/reports/receivables-reports";
+import { CashCollectionReport, PaymentsReceivedReport } from "@/components/reports/payments-reports";
+import { ExpenseDetailsReport, ExpensesByCategoryReport } from "@/components/reports/expenses-reports";
 import { TaxSummaryReport } from "@/components/reports/tax-reports";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -48,7 +48,6 @@ const REPORT_CATEGORIES: {
       { key: "sales", label: "Sales", category: "sales", endpoint: "sales-summary" },
       { key: "sales-by-customer", label: "Sales by Customer", category: "sales", endpoint: "sales-by-customer" },
       { key: "sales-by-item", label: "Sales by Item", category: "sales", endpoint: "sales-by-item" },
-      { key: "sales-by-salesperson", label: "Sales by Sales Person", category: "sales", endpoint: "sales-by-salesperson" },
     ],
   },
   {
@@ -57,13 +56,8 @@ const REPORT_CATEGORIES: {
     icon: FileText,
     reports: [
       { key: "ar-aging-summary", label: "AR Aging Summary", category: "receivables", endpoint: "ar-aging-summary" },
-      { key: "ar-aging-details", label: "AR Aging Details", category: "receivables", endpoint: "ar-aging-details" },
       { key: "invoice-details", label: "Invoice Details", category: "receivables", endpoint: "invoice-details" },
-      { key: "quote-details", label: "Quote Details", category: "receivables", endpoint: "quote-details" },
-      { key: "bad-debts", label: "Bad Debts", category: "receivables", endpoint: "bad-debts" },
-      { key: "bank-charges", label: "Bank Charges", category: "receivables", endpoint: "bank-charges" },
       { key: "customer-balance-summary", label: "Customer Balance Summary", category: "receivables", endpoint: "customer-balance-summary" },
-      { key: "receivable-summary", label: "Receivable Summary", category: "receivables", endpoint: "receivable-summary" },
       { key: "receivable-details", label: "Receivable Details", category: "receivables", endpoint: "receivable-details" },
     ],
   },
@@ -73,9 +67,6 @@ const REPORT_CATEGORIES: {
     icon: CreditCard,
     reports: [
       { key: "payments-received", label: "Payments Received", category: "payments-received", endpoint: "payments-received" },
-      { key: "time-to-get-paid", label: "Time to Get Paid", category: "payments-received", endpoint: "time-to-get-paid" },
-      { key: "refund-history", label: "Refund History", category: "payments-received", endpoint: "refund-history" },
-      { key: "withholding-tax", label: "Withholding Tax", category: "payments-received", endpoint: "withholding-tax" },
       { key: "cash-collection", label: "Cash Collection Report", category: "payments-received", externalHref: "/reports/cash-collection" },
     ],
   },
@@ -86,9 +77,6 @@ const REPORT_CATEGORIES: {
     reports: [
       { key: "expense-details", label: "Expense Details", category: "purchases-expenses", endpoint: "expense-details" },
       { key: "expenses-by-category", label: "Expenses by Category", category: "purchases-expenses", endpoint: "expenses-by-category" },
-      { key: "expenses-by-customer", label: "Expenses by Customer", category: "purchases-expenses", endpoint: "expenses-by-customer" },
-      { key: "expenses-by-project", label: "Expenses by Project", category: "purchases-expenses", endpoint: "expenses-by-project" },
-      { key: "billable-expense-details", label: "Billable Expense Details", category: "purchases-expenses", endpoint: "billable-expense-details" },
     ],
   },
   {
@@ -104,12 +92,9 @@ const REPORT_CATEGORIES: {
     label: "Retail & Operations",
     icon: ShoppingBag,
     reports: [
-      { key: "operational-metrics", label: "Operational Metrics (ATV/Margin)", category: "retail", endpoint: "operational-metrics" },
-      { key: "hourly-sales", label: "Hourly Sales Analysis", category: "retail", endpoint: "hourly-sales" },
       { key: "stock-alerts", label: "Inventory Health (Low Stock)", category: "retail", endpoint: "stock-alerts" },
       { key: "stock-on-hand", label: "Stock on Hand (Valuation)", category: "retail", endpoint: "stock-on-hand" },
       { key: "inventory-movements", label: "Inventory Movement Logs", category: "retail", endpoint: "inventory-movements" },
-      { key: "purchase-history", label: "Purchase History (GRN)", category: "retail", endpoint: "purchase-history" },
     ],
   },
 ];
@@ -154,7 +139,7 @@ interface ReportSidebarProps {
 
 function ReportSidebar({ activeReport, onSelect, openCategories, onToggleCategory }: ReportSidebarProps) {
   return (
-    <div className="sticky top-[88px] flex h-[calc(100vh-96px)] w-64 shrink-0 flex-col overflow-hidden rounded-[14px] border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+    <div className="sticky top-[88px] flex h-[calc(100vh-96px)] w-72 shrink-0 flex-col overflow-hidden rounded-[14px] border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
       {/* Sidebar header */}
       <div className="px-4 py-3 border-b border-slate-100 shrink-0">
         <span className="text-sm font-black text-slate-800 uppercase tracking-tight">Reports</span>
@@ -189,7 +174,7 @@ function ReportSidebar({ activeReport, onSelect, openCategories, onToggleCategor
                     )}>
                       <CategoryIcon className="w-3.5 h-3.5" />
                     </div>
-                    <span className="text-[13px] tracking-tight">{category.label}</span>
+                    <span className="text-sm tracking-tight">{category.label}</span>
                   </div>
                   <ChevronDown className={cn(
                     "w-3.5 h-3.5 transition-transform duration-200 shrink-0",
@@ -207,7 +192,7 @@ function ReportSidebar({ activeReport, onSelect, openCategories, onToggleCategor
                       return (
                         <Link key={report.key} href={report.externalHref}>
                           <div className={cn(
-                            "flex items-center gap-2 px-3 py-2 rounded-lg text-[12px] font-semibold transition-all duration-150 cursor-pointer",
+                            "flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-semibold transition-all duration-150 cursor-pointer",
                             isActive
                               ? "bg-violet-600 text-white shadow-sm shadow-violet-500/20"
                               : "text-slate-500 hover:text-slate-800 hover:bg-slate-50"
@@ -222,7 +207,7 @@ function ReportSidebar({ activeReport, onSelect, openCategories, onToggleCategor
                       <div
                         key={report.key}
                         className={cn(
-                          "flex items-center gap-2 px-3 py-2 rounded-lg text-[12px] font-semibold transition-all duration-150 cursor-pointer",
+                          "flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-semibold transition-all duration-150 cursor-pointer",
                           isActive
                             ? "bg-violet-600 text-white shadow-sm shadow-violet-500/20"
                             : "text-slate-500 hover:text-slate-800 hover:bg-slate-50"
@@ -304,7 +289,7 @@ function ReportContent({
               variant="outline"
               size="sm"
               className={cn(
-                "h-8 px-3 text-xs gap-1.5 border-slate-200 rounded-lg font-medium",
+                "h-9 px-3 text-sm gap-1.5 border-slate-200 rounded-lg font-medium",
                 calendarOpen && "border-violet-300 bg-violet-50 text-violet-700"
               )}
             >
@@ -341,7 +326,7 @@ function ReportContent({
               key={preset}
               variant="ghost"
               size="sm"
-              className="h-8 px-2.5 text-[11px] font-semibold text-slate-500 hover:text-violet-700 hover:bg-violet-50 rounded-lg capitalize"
+              className="h-9 px-3 text-sm font-semibold text-slate-500 hover:text-violet-700 hover:bg-violet-50 rounded-lg capitalize"
               onClick={() => handleQuickSelect(preset)}
             >
               {preset === "this-month" ? "This Month" : preset === "last-month" ? "Last Month" : preset === "this-quarter" ? "This Quarter" : "All Time"}
@@ -356,7 +341,7 @@ function ReportContent({
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
           <Input
             placeholder="Search..."
-            className="pl-8 h-8 text-xs border-slate-200 rounded-lg w-48"
+            className="pl-8 h-9 text-sm border-slate-200 rounded-lg w-56"
             value={search}
             onChange={(e) => onSearchChange(e.target.value)}
           />
@@ -366,7 +351,7 @@ function ReportContent({
         <Button
           variant="outline"
           size="sm"
-          className="h-8 px-3 text-xs gap-1.5 border-slate-200 rounded-lg"
+          className="h-9 px-3 text-sm gap-1.5 border-slate-200 rounded-lg"
           disabled={!csvData || csvData.length === 0}
           onClick={handleExport}
         >
@@ -380,14 +365,14 @@ function ReportContent({
         <div className="flex items-center gap-6 px-6 py-2.5 bg-slate-50 border-b border-slate-100 shrink-0">
           {totalAmount !== undefined && (
             <div className="flex items-center gap-2">
-              <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">{totalLabel}</span>
-              <span className="text-sm font-black text-slate-800">{totalAmount.toFixed(2)}</span>
+              <span className="text-xs font-bold uppercase tracking-widest text-slate-400">{totalLabel}</span>
+              <span className="text-base font-black text-slate-800">{totalAmount.toFixed(2)}</span>
             </div>
           )}
           {recordCount !== undefined && (
             <div className="flex items-center gap-2">
-              <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Records</span>
-              <span className="text-sm font-black text-slate-800">{recordCount}</span>
+              <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Records</span>
+              <span className="text-base font-black text-slate-800">{recordCount}</span>
             </div>
           )}
         </div>
@@ -431,33 +416,18 @@ function ActiveReportComponent({ reportKey, companyId, dateRange, search }: {
     case "sales": return <SalesReport {...props} />;
     case "sales-by-customer": return <SalesByCustomerReport {...props} />;
     case "sales-by-item": return <SalesByItemReport {...props} />;
-    case "sales-by-salesperson": return <SalesBySalespersonReport {...props} />;
     case "ar-aging-summary": return <ArAgingSummaryReport {...props} />;
-    case "ar-aging-details": return <ArAgingDetailsReport {...props} />;
     case "invoice-details": return <InvoiceDetailsReport {...props} />;
-    case "quote-details": return <QuoteDetailsReport {...props} />;
     case "customer-balance-summary": return <CustomerBalanceSummaryReport {...props} />;
-    case "receivable-summary": return <ReceivableSummaryReport companyId={companyId} dateRange={dateRange} />;
     case "receivable-details": return <ReceivableDetailsReport {...props} />;
-    case "bad-debts": return <BadDebtsReport {...props} />;
-    case "bank-charges": return <BankChargesReport {...props} />;
-    case "time-to-get-paid": return <TimeToGetPaidReport {...props} />;
-    case "refund-history": return <RefundHistoryReport {...props} />;
-    case "withholding-tax": return <WithholdingTaxReport {...props} />;
     case "cash-collection": return <CashCollectionReport {...props} />;
     case "payments-received": return <PaymentsReceivedReport {...props} />;
     case "expense-details": return <ExpenseDetailsReport {...props} />;
     case "expenses-by-category": return <ExpensesByCategoryReport {...props} />;
-    case "expenses-by-customer": return <ExpensesByCustomerReport {...props} />;
-    case "expenses-by-project": return <ExpensesByProjectReport {...props} />;
-    case "billable-expense-details": return <BillableExpenseDetailsReport {...props} />;
     case "tax-summary": return <TaxSummaryReport {...props} />;
-    case "operational-metrics": return <OperationalMetricsReport {...props} />;
-    case "hourly-sales": return <HourlySalesAnalysisReport {...props} />;
     case "stock-alerts": return <InventoryHealthReport {...props} />;
     case "stock-on-hand": return <StockOnHandReport {...props} />;
     case "inventory-movements": return <InventoryMovementsReport {...props} />;
-    case "purchase-history": return <PurchaseHistoryReport {...props} />;
     default: return (
       <div className="flex items-center justify-center h-64 text-slate-400">
         <p className="text-sm">Select a report from the sidebar</p>
@@ -472,9 +442,9 @@ export default function ReportsPage() {
   const { user } = useAuth();
   const { activeCompanyId, isLoading } = useActiveCompany(!!user);
 
-  const [activeReport, setActiveReport] = useState<string>("");
+  const [activeReport, setActiveReport] = useState<string>("sales");
   const [openCategories, setOpenCategories] = useState<Set<string>>(
-    new Set(["sales", "receivables", "retail"])
+    new Set(["sales", "receivables", "payments-received", "retail"])
   );
   const [dateRange, setDateRange] = useState<DateRangeState>({
     from: startOfMonth(new Date()),
@@ -525,7 +495,28 @@ export default function ReportsPage() {
 
   return (
     <Layout>
-      <div className="flex gap-4">
+      <style>{`
+        .reports-workspace table {
+          font-size: 0.875rem;
+        }
+        .reports-workspace th {
+          font-size: 0.75rem !important;
+        }
+        .reports-workspace td {
+          font-size: 0.875rem !important;
+        }
+        .reports-workspace .text-xs,
+        .reports-workspace .text-\\[11px\\],
+        .reports-workspace .text-\\[12px\\] {
+          font-size: 0.875rem !important;
+          line-height: 1.35rem !important;
+        }
+        .reports-workspace .text-\\[10px\\] {
+          font-size: 0.75rem !important;
+          line-height: 1rem !important;
+        }
+      `}</style>
+      <div className="reports-workspace flex gap-4">
         {/* Left: Report Sidebar */}
         <ReportSidebar
           activeReport={activeReport}

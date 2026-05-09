@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="accent">#ff5177</color>
+    <color name="accent1">#f48fb1</color>
+    <color name="black">#ff000000</color>
+    <color name="buttonColor">#00eeeeee</color>
+    <color name="buttonColorIn">#1e90ff</color>
+    <color name="buttonStroke">#cceeeeee</color>
+    <color name="colorAccent">#ff4081</color>
+    <color name="colorAccent1">#88ff4081</color>
+    <color name="colorPrimary">#3f51be</color>
+    <color name="colorPrimary1">#2a388d</color>
+    <color name="colorPrimary2">#a03051be</color>
+    <color name="colorPrimaryDark">#303f9f</color>
+    <color name="color_333333">#333333</color>
+    <color name="color_777572">#777572</color>
+    <color name="color_e6e6e6">#e6e6e6</color>
+    <color name="gap_line">#e2e2e2</color>
+    <color name="item_bg">#e5e5e5</color>
+    <color name="mItemColor">#3f5dbe</color>
+    <color name="mItemColor1">#fff8dc</color>
+    <color name="myellow">#ff4800</color>
+    <color name="primary">#0288d1</color>
+    <color name="primary_dark">#03a9f4</color>
+    <color name="rbColor1">#80cbc4</color>
+    <color name="rbColor2">#4db6ac</color>
+    <color name="rbColor3">#26a69a</color>
+    <color name="rbColor4">#009688</color>
+    <color name="rbColor5">#e0f2f1</color>
+    <color name="transparent">#00000000</color>
+    <color name="transparent_half">#58000000</color>
+    <color name="white">#ffffffff</color>
+</resources>

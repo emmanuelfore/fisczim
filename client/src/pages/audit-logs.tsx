@@ -31,12 +31,6 @@ export default function AuditLogsPage() {
     return (
         <Layout>
             <div className="space-y-6">
-                <div>
-                    <h1 className="text-3xl font-display font-bold text-slate-900">Audit Logs</h1>
-                    <p className="text-slate-500 mt-1">
-                        Track security events and user actions within your organization.
-                    </p>
-                </div>
 
                 <Card>
                     <CardHeader>

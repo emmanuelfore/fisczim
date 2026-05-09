@@ -215,7 +215,7 @@ function Router() {
       <Route path="/team-settings">{() => <ProtectedRoute component={TeamSettingsPage} />}</Route>
       <Route path="/reports/pos">{() => <ProtectedRoute component={PosReportsPage} />}</Route>
       <Route path="/reports/tax">{() => <ProtectedRoute component={TaxReportsPage} />}</Route>
-      <Route path="/reports-module">{() => <ProtectedRoute component={ReportsPage} />}</Route>
+      <Route path="/reports-module">{() => <Redirect to="/reports" />}</Route>
       <Route path="/reports">{() => <ProtectedRoute component={ReportsPage} />}</Route>
       <Route path="/payments-received/:id?">{() => <ProtectedRoute component={PaymentsReceivedPage} />}</Route>
       <Route path="/payments/:id/preview">{() => <ProtectedRoute component={PaymentPreviewPage} />}</Route>

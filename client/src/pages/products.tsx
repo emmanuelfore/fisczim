@@ -366,7 +366,7 @@ export default function ProductsPage() {
                           </div>
                         )}
                         <div className="flex flex-col min-w-0">
-                          <span className="font-semibold tracking-tight text-[13px] md:text-sm truncate">{p.name}</span>
+                          <span className="font-semibold tracking-tight text-sm truncate">{p.name}</span>
                           {!p.isActive && <span className="text-[9px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-md font-bold uppercase tracking-wider w-fit mt-0.5">Inactive</span>}
                           {p.description && <span className="text-[10px] text-slate-400 font-medium truncate max-w-full">{p.description}</span>}
                         </div>
@@ -458,7 +458,7 @@ export default function ProductsPage() {
                             <EditProductDialog product={p}>
                               <div className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-slate-700 hover:bg-slate-50 cursor-pointer font-bold transition-all text-xs">
                                 <Edit2 className="w-4 h-4" />
-                                <span>Edit Product</span>
+                                <span>Edit</span>
                               </div>
                             </EditProductDialog>
                           </DropdownMenuItem>
@@ -477,7 +477,7 @@ export default function ProductsPage() {
                             >
                               <div className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-red-600 hover:bg-red-50 cursor-pointer font-bold transition-all text-xs">
                                 <Trash2 className="w-4 h-4" />
-                                <span>Delete Item</span>
+                                <span>Delete</span>
                               </div>
                             </DeleteButton>
                           </DropdownMenuItem>

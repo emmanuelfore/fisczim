@@ -126,9 +126,9 @@ export function CompanySelectScreen({ onSelected, onSignOut }: Props) {
                     width: 44,
                     height: 44,
                     borderRadius: 16,
-                    backgroundColor: PremiumColors.amber.glow,
+                    backgroundColor: PremiumColors.amber.glowLg,
                     borderWidth: 1,
-                    borderColor: PremiumColors.amber.glowMd,
+                    borderColor: PremiumColors.amber.primarySoft,
                     alignItems: "center",
                     justifyContent: "center"
                   }}

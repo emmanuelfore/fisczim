@@ -22,9 +22,10 @@ import { StatusBar } from "expo-status-bar";
 type Props = {
   onLoggedIn: () => void;
   onForgotPassword?: () => void;
+  onSignUp?: () => void;
 };
 
-export function LoginScreen({ onLoggedIn, onForgotPassword }: Props) {
+export function LoginScreen({ onLoggedIn, onForgotPassword, onSignUp }: Props) {
   const insets = useSafeAreaInsets();
   const { theme: C, isDark, toggleTheme } = useTheme();
 
@@ -201,9 +202,11 @@ export function LoginScreen({ onLoggedIn, onForgotPassword }: Props) {
               )}
             </TouchableOpacity>
 
-            <View style={styles.footer}>
-              <Text style={styles.footerText}>Need an account? <Text style={styles.footerLink}>Contact Admin</Text></Text>
-            </View>
+            {onSignUp && (
+              <TouchableOpacity style={styles.footer} onPress={onSignUp} activeOpacity={0.8}>
+                <Text style={styles.footerText}>Need an account? <Text style={styles.footerLink}>Sign up</Text></Text>
+              </TouchableOpacity>
+            )}
           </View>
         </ScrollView>
       </KeyboardAvoidingView>

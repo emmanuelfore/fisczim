@@ -81,9 +81,6 @@ export default function PaymentPreviewPage() {
             <Button variant="ghost" size="sm" onClick={() => setLocation("/payments-received")}>
               <ArrowLeft className="w-4 h-4 mr-2" /> Back
             </Button>
-            <h1 className="text-lg font-bold text-slate-900 uppercase tracking-tight">
-              Payment Receipt Preview
-            </h1>
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => window.print()}>

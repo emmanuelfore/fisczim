@@ -135,7 +135,7 @@ export function RestaurantSettings({ company, onUpdate }: Props) {
                             </div>
                             <div className="space-y-1">
                                 <h2 className="text-2xl font-black text-slate-900">Restaurant Mode</h2>
-                                <p className="text-sm font-medium text-slate-500">Enable table management, floor plans, and BOM recipes.</p>
+                                <p className="text-sm text-muted-foreground">Enable table management, floor plans, and BOM recipes.</p>
                             </div>
                         </div>
                         <div className="flex items-center gap-4 bg-slate-50 p-4 rounded-[1.25rem] border border-slate-100">

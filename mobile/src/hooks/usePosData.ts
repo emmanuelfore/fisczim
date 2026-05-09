@@ -364,6 +364,9 @@ export function useCreateInvoice(companyId: number | null) {
     }
     const res = await apiFetch(`/api/companies/${companyId}/invoices`, {
       method: "POST",
+      headers: {
+        "Idempotency-Key": payload.idempotencyKey || `invoice-${companyId}-${payload.invoiceNumber || payload.issueDate || Date.now()}`
+      },
       body: JSON.stringify(payload)
     });
     if (!res.ok) {

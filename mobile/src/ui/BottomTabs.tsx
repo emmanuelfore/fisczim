@@ -17,7 +17,7 @@ import {
 
 import { useTheme, hexAlpha } from "./PremiumColors";
 
-type ScreenName = "pos" | "reports" | "profile" | "inventory" | "stockin" | "customers" | "suppliers" | "expenses" | "stocktake";
+type ScreenName = "dashboard" | "pos" | "reports" | "profile" | "inventory" | "stockin" | "stockops" | "customers" | "suppliers" | "expenses" | "cashiers" | "stocktake";
 
 interface BottomTabsProps {
   currentScreen: ScreenName;
@@ -39,8 +39,9 @@ export function BottomTabs({
   const styles = getStyles(C);
   
   const allTabs: { icon: any; label: string; id: ScreenName | "menu" }[] = [
-    { icon: LayoutDashboard, label: "POS", id: "pos" },
-    { icon: Package, label: "Inventory", id: "inventory" },
+    { icon: LayoutDashboard, label: "Home", id: "dashboard" },
+    { icon: Receipt, label: "Sales", id: "pos" },
+    { icon: Package, label: "Products", id: "inventory" },
     { icon: Receipt, label: "Expenses", id: "expenses" },
     { icon: PieChart, label: "Reports", id: "reports" },
     { icon: Menu, label: "Menu", id: "menu" },
@@ -52,11 +53,11 @@ export function BottomTabs({
     if (role === "owner" || role === "admin" || role === "superadmin" || userName === "Super Admin") return true;
     
     if (role === "cashier" || role === "member") {
-      return ["pos", "customers", "reports"].includes(tab.id);
+      return ["dashboard", "pos", "customers", "reports"].includes(tab.id);
     }
     
     if (role === "accountant") {
-      return ["reports", "inventory", "expenses"].includes(tab.id);
+      return ["dashboard", "reports", "inventory", "expenses"].includes(tab.id);
     }
     
     return true;

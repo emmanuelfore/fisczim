@@ -18,18 +18,20 @@ import {
   ChevronRight,
   Package,
   ArrowDownToLine,
+  ArrowRightLeft,
   Users,
   Truck,
   Receipt,
   Activity,
   AlertTriangle,
+  UserCog,
 } from "lucide-react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { apiFetch } from "../lib/api";
 
 import { useTheme, hexAlpha } from "./PremiumColors";
 
-type ScreenName = "pos" | "reports" | "profile" | "inventory" | "stockin" | "customers" | "suppliers" | "expenses" | "stocktake";
+type ScreenName = "dashboard" | "pos" | "reports" | "profile" | "inventory" | "stockin" | "stockops" | "customers" | "suppliers" | "expenses" | "cashiers" | "stocktake";
 
 interface AppDrawerProps {
   visible: boolean;
@@ -62,13 +64,17 @@ export function AppDrawer({
   }, [visible]);
 
   const allMenuItems: { icon: any; label: string; id: ScreenName }[] = [
-    { icon: LayoutDashboard, label: "POS", id: "pos" },
+    { icon: LayoutDashboard, label: "Dashboard", id: "dashboard" },
+    { icon: Receipt, label: "Sales", id: "pos" },
     { icon: PieChart, label: "Reports", id: "reports" },
-    { icon: Package, label: "Inventory", id: "inventory" },
-    { icon: ArrowDownToLine, label: "Stock In", id: "stockin" },
-    { icon: Users, label: "Customers", id: "customers" },
+    { icon: Package, label: "Products", id: "inventory" },
+    { icon: ArrowDownToLine, label: "Stock / GRVs", id: "stockin" },
+    { icon: ArrowRightLeft, label: "Adjust / Transfer", id: "stockops" },
+    { icon: Activity, label: "Physical Counts", id: "stocktake" },
     { icon: Truck, label: "Suppliers", id: "suppliers" },
+    { icon: UserCog, label: "Cashiers", id: "cashiers" },
     { icon: Receipt, label: "Expenses", id: "expenses" },
+    { icon: Users, label: "Customers", id: "customers" },
     { icon: User, label: "Profile", id: "profile" },
   ];
 
@@ -79,13 +85,13 @@ export function AppDrawer({
 
     // Cashiers/Members are restricted
     if (role === "cashier" || role === "member") {
-      const allowed = ["pos", "customers", "profile", "reports"];
+      const allowed = ["dashboard", "pos", "customers", "profile", "reports"];
       return allowed.includes(item.id);
     }
 
     // Accountants see reports and expenses but maybe not POS?
     if (role === "accountant") {
-      const allowed = ["reports", "inventory", "stockin", "suppliers", "expenses", "profile"];
+      const allowed = ["dashboard", "reports", "inventory", "stockin", "stockops", "suppliers", "expenses", "profile"];
       return allowed.includes(item.id);
     }
 
@@ -130,7 +136,7 @@ export function AppDrawer({
                       }}
                       style={[
                         styles.menuItem,
-                        isActive && { backgroundColor: isDark ? C.amber.glow : hexAlpha(C.amber.primary, 0.1) },
+                        isActive && { backgroundColor: isDark ? C.amber.glowLg : hexAlpha(C.amber.primary, 0.1) },
                       ]}
                     >
                       <View style={styles.menuItemLeft}>

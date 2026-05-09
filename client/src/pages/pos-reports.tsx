@@ -321,10 +321,6 @@ export default function PosReportsPage() {
                         <Button variant="ghost" size="icon" onClick={() => window.history.back()} className="rounded-full">
                             <ArrowLeft className="h-5 w-5" />
                         </Button>
-                        <div>
-                            <h1 className="text-2xl font-black text-slate-900 tracking-tight">POS Sales Report</h1>
-                            <p className="text-sm text-slate-500 font-medium">Detailed transaction history and analytics</p>
-                        </div>
                     </div>
                 </div>
 

@@ -150,6 +150,12 @@ android {
     androidResources {
         ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:!CVS:!thumbs.db:!picasa.ini:!*~'
     }
+    lint {
+        // This APK targets legacy POS devices that load PosApiSdk's non-PIC
+        // libAndroid.so. targetSdkVersion must stay below 23 or the Android
+        // linker rejects the vendor library at runtime.
+        disable 'ExpiredTargetSdkVersion'
+    }
 }
 
 // Apply static values from `gradle.properties` to the `android.packagingOptions`

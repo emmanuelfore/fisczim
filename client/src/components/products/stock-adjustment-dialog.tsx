@@ -31,7 +31,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Settings2, Loader2, Info } from "lucide-react";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 
 const stockAdjustmentSchema = z.object({
@@ -43,7 +43,7 @@ const stockAdjustmentSchema = z.object({
 
 type StockAdjustmentFormValues = z.infer<typeof stockAdjustmentSchema>;
 
-export function StockAdjustmentDialog({ product, companyId, branchId }: { product: Product, companyId: number, branchId?: number }) {
+export function StockAdjustmentDialog({ product, companyId, branchId, children }: { product: Product, companyId: number, branchId?: number, children?: ReactNode }) {
     const [open, setOpen] = useState(false);
     const { toast } = useToast();
     const adjustMutation = useInventoryAdjust(companyId);
@@ -83,10 +83,12 @@ export function StockAdjustmentDialog({ product, companyId, branchId }: { produc
     return (
         <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
-                <Button variant="outline" size="sm" className="gap-2 border-amber-200 text-amber-700 hover:bg-amber-50 hover:border-amber-300">
-                    <Settings2 className="w-4 h-4" />
-                    Adjust Stock
-                </Button>
+                {children || (
+                    <Button variant="outline" size="sm" className="gap-2 border-amber-200 text-amber-700 hover:bg-amber-50 hover:border-amber-300">
+                        <Settings2 className="w-4 h-4" />
+                        Adjust Stock
+                    </Button>
+                )}
             </DialogTrigger>
             <DialogContent className="max-w-md rounded-3xl">
                 <DialogHeader>

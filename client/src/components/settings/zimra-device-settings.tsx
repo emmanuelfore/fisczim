@@ -34,23 +34,41 @@ import {
 } from "@/components/ui/accordion";
 import { DayManagementControls } from "@/components/zimra/day-management-controls";
 import { getZimraErrorMessage } from "@/lib/zimra-errors";
+import { useBranchContext } from "@/lib/branch-context";
 
 interface ZimraDeviceSettingsProps {
   company: any;
 }
 
+function cleanDeviceId(value: unknown) {
+  const text = String(value || "").trim();
+  return text && !text.includes("@") ? text : "";
+}
+
 export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [deviceId, setDeviceId] = useState(company.fdmsDeviceId || "");
-  const [activationKey, setActivationKey] = useState(company.fdmsApiKey || "");
-  const [deviceSerialNo, setDeviceSerialNo] = useState("");
+  const { selectedBranch } = useBranchContext();
+  const activeDeviceId = cleanDeviceId(selectedBranch?.fdmsDeviceId) || cleanDeviceId(company.fdmsDeviceId);
+  const activeActivationKey = selectedBranch?.fdmsApiKey || company.fdmsApiKey || "";
+  const activeSerialNo = selectedBranch?.fdmsDeviceSerialNo || company.fdmsDeviceSerialNo || "";
+  const [deviceId, setDeviceId] = useState(activeDeviceId);
+  const [activationKey, setActivationKey] = useState(activeActivationKey);
+  const [deviceSerialNo, setDeviceSerialNo] = useState(activeSerialNo);
   const [verificationResult, setVerificationResult] = useState<any>(null);
   const [connectivityResult, setConnectivityResult] = useState<any>(null);
   const [showConnectivityDialog, setShowConnectivityDialog] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
 
-  const isRegistered = !!company.fdmsDeviceId && !!company.zimraCertificate;
+  const isRegistered = !!activeDeviceId && !!(selectedBranch?.zimraCertificate || company.zimraCertificate);
+
+  useEffect(() => {
+    if (!isEditing) {
+      setDeviceId(activeDeviceId);
+      setActivationKey(activeActivationKey);
+      setDeviceSerialNo(activeSerialNo);
+    }
+  }, [activeDeviceId, activeActivationKey, activeSerialNo, isEditing]);
 
   // Verify Taxpayer
   const verifyTaxpayerMutation = useMutation({
@@ -178,7 +196,7 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-xl font-bold text-slate-900">ZIMRA Fiscal Device</h2>
-          <p className="text-sm text-slate-500">Manage your connection to the ZIMRA fiscal gateway</p>
+          <p className="text-sm text-muted-foreground">Manage your connection to the ZIMRA fiscal gateway</p>
         </div>
         <div className="bg-slate-100 p-1 rounded-xl flex items-center shadow-inner border border-slate-200/50">
           <Button
@@ -254,8 +272,17 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
               <Label className="text-slate-700 font-bold text-xs uppercase tracking-wider">Device ID</Label>
               <Input
                 value={deviceId}
-                onChange={(e) => setDeviceId(e.target.value)}
-                placeholder="1234567890"
+                name="zimra-device-id"
+                autoComplete="off"
+                onChange={(e) => setDeviceId(cleanDeviceId(e.target.value))}
+                onInput={(e) => {
+                  const value = cleanDeviceId((e.currentTarget as HTMLInputElement).value);
+                  if (value !== (e.currentTarget as HTMLInputElement).value) {
+                    (e.currentTarget as HTMLInputElement).value = value;
+                    setDeviceId(value);
+                  }
+                }}
+                placeholder="Device ID"
                 disabled={isRegistered && !isEditing}
                 className="bg-white"
               />
@@ -264,9 +291,11 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
               <Label className="text-slate-700 font-bold text-xs uppercase tracking-wider">Activation Key</Label>
               <Input
                 value={activationKey}
+                name="zimra-activation-key"
+                autoComplete="off"
                 onChange={(e) => setActivationKey(e.target.value)}
-                type="password"
-                placeholder="xxxxxxxx"
+                type="text"
+                placeholder="Activation Key"
                 disabled={isRegistered && !isEditing}
                 className="bg-white"
               />
@@ -275,8 +304,10 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
               <Label className="text-slate-700 font-bold text-xs uppercase tracking-wider">Device Serial Number (SN)</Label>
               <Input
                 value={deviceSerialNo}
+                name="zimra-device-serial-number"
+                autoComplete="off"
                 onChange={(e) => setDeviceSerialNo(e.target.value)}
-                placeholder="SN-12345"
+                placeholder="Device serial number"
                 className="bg-white"
               />
             </div>
@@ -314,7 +345,7 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
                     {isPinging ? "Syncing..." : (isOnline ? "Device Online" : "Connection Failed")}
                   </h4>
                   <div className="flex items-center gap-2 text-[11px] font-bold text-slate-500 uppercase tracking-tighter">
-                    <span>SN: <span className="text-blue-600 font-mono">{company.fdmsDeviceSerialNo}</span></span>
+                    <span>SN: <span className="text-blue-600 font-mono">{activeSerialNo || "Pending"}</span></span>
                     <span className="opacity-30">|</span>
                     <span className="text-indigo-600">{company.fiscalDayOpen ? `Day ${company.currentFiscalDayNo} Open` : 'Day Closed'}</span>
                   </div>

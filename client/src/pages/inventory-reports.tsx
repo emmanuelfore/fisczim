@@ -153,10 +153,6 @@ export default function InventoryReportsPage() {
                         <Button variant="ghost" size="icon" onClick={() => window.history.back()}>
                             <ArrowLeft className="h-5 w-5" />
                         </Button>
-                        <div>
-                            <h1 className="text-2xl font-black text-slate-900 tracking-tight font-display text-[2.5rem] mt-2 mb-2 leading-none uppercase">Inventory Reports</h1>
-                            <p className="text-sm text-slate-500 font-medium">Cost-based stock valuation and analysis</p>
-                        </div>
                     </div>
                     <Button onClick={handleExportCsv} variant="outline" className="gap-2 rounded-2xl border-slate-200 shadow-sm hover:bg-slate-50">
                         <Download className="h-4 w-4" />

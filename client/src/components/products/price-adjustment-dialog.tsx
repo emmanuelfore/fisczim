@@ -24,12 +24,11 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Tag, Loader2, History, TrendingUp, AlertCircle, Calendar, X } from "lucide-react";
-import { useState } from "react";
+import { Tag, Loader2, History, AlertCircle, Calendar, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
+import { type ReactNode, useState } from "react";
 
 const priceAdjustmentSchema = z.object({
     productId: z.number(),
@@ -40,7 +39,7 @@ const priceAdjustmentSchema = z.object({
 
 type PriceAdjustmentFormValues = z.infer<typeof priceAdjustmentSchema>;
 
-export function PriceAdjustmentDialog({ product, companyId }: { product: Product, companyId: number }) {
+export function PriceAdjustmentDialog({ product, companyId, children }: { product: Product, companyId: number, children?: ReactNode }) {
     const [open, setOpen] = useState(false);
     const { toast } = useToast();
     const adjustMutation = useAdjustPrice(companyId);
@@ -83,96 +82,100 @@ export function PriceAdjustmentDialog({ product, companyId }: { product: Product
     return (
         <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
-                <Button variant="outline" size="sm" className="gap-2 border-indigo-200 text-indigo-700 hover:bg-indigo-50 hover:border-indigo-300">
-                    <Tag className="w-4 h-4" />
-                    Manage Price
-                </Button>
+                {children || (
+                    <Button variant="outline" size="sm" className="gap-2 border-indigo-200 text-indigo-700 hover:bg-indigo-50 hover:border-indigo-300">
+                        <Tag className="w-4 h-4" />
+                        Manage Price
+                    </Button>
+                )}
             </DialogTrigger>
-            <DialogContent className="max-w-2xl w-[95vw] h-[90vh] md:h-[600px] rounded-[2rem] md:rounded-3xl overflow-hidden p-0">
-                <div className="flex flex-col md:flex-row h-full relative">
+            <DialogContent className="max-w-xl w-[95vw] h-[90dvh] md:h-[560px] max-h-[90dvh] rounded-2xl md:rounded-3xl overflow-hidden p-0">
+                <div className="flex flex-col md:flex-row h-full min-h-0 relative">
                     {/* Left Side: Form */}
-                    <div className="flex-1 p-8 bg-white overflow-y-auto">
+                    <div className="flex-1 min-h-0 bg-white flex flex-col">
                         <DialogClose asChild>
                             <Button variant="ghost" size="icon" className="absolute left-4 top-4 rounded-full text-slate-300 hover:text-slate-600 hover:bg-slate-100 z-50">
                                 <X className="w-5 h-5" />
                             </Button>
                         </DialogClose>
-                        <DialogHeader className="mb-8">
-                            <div className="w-12 h-12 rounded-2xl bg-indigo-100 flex items-center justify-center text-indigo-600 mb-4">
-                                <TrendingUp className="w-6 h-6" />
-                            </div>
-                            <DialogTitle className="text-2xl font-display font-bold text-slate-900">Adjust Selling Price</DialogTitle>
-                            <DialogDescription>
-                                Set a new price for <span className="font-bold text-slate-900">{product.name}</span>.
-                            </DialogDescription>
-                        </DialogHeader>
-
-                        <div className="grid grid-cols-2 gap-4 mb-8">
-                            <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4">
-                                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Current Price</span>
-                                <span className="text-xl font-bold text-slate-900">${currentPriceNum.toFixed(2)}</span>
-                            </div>
-                            <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4">
-                                <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider block mb-1">Cost Price</span>
-                                <span className="text-xl font-bold text-emerald-900">${parseFloat(product.costPrice?.toString() || "0").toFixed(2)}</span>
-                            </div>
-                        </div>
 
                         <Form {...form}>
-                            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
-                                <FormField
-                                    control={form.control}
-                                    name="newPrice"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel className="text-slate-700 font-semibold text-sm">New Selling Price</FormLabel>
-                                            <FormControl>
-                                                <div className="relative">
-                                                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
-                                                    <Input type="number" step="0.01" placeholder="0.00" {...field} className="pl-8 h-12 rounded-xl bg-white border-slate-200 focus:ring-indigo-500/20 text-lg font-bold" />
-                                                </div>
-                                            </FormControl>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
+                            <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-1 min-h-0 flex-col">
+                                <div className="flex-1 overflow-y-auto px-4 pb-4 pt-5 md:p-6 md:pb-4">
+                                    <DialogHeader className="mb-4">
+                                        <DialogTitle className="text-lg md:text-xl font-display font-bold text-slate-900">Adjust Selling Price</DialogTitle>
+                                        <DialogDescription>
+                                            Set a new price for <span className="font-bold text-slate-900">{product.name}</span>.
+                                        </DialogDescription>
+                                    </DialogHeader>
 
-                                <FormField
-                                    control={form.control}
-                                    name="effectiveFrom"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel className="text-slate-700 font-semibold text-sm">Effective From (Optional)</FormLabel>
-                                            <FormControl>
-                                                <div className="relative">
-                                                    <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
-                                                    <Input type="date" {...field} className="pl-10 rounded-xl bg-slate-50 border-slate-200 focus:ring-indigo-500/20" />
-                                                </div>
-                                            </FormControl>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
+                                    <div className="grid grid-cols-2 gap-2 mb-4">
+                                        <div className="min-w-0 bg-slate-50 border border-slate-100 rounded-xl px-3 py-2">
+                                            <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider block leading-none mb-1">Current</span>
+                                            <span className="block text-sm font-black text-slate-900 truncate">${currentPriceNum.toFixed(2)}</span>
+                                        </div>
+                                        <div className="min-w-0 bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2">
+                                            <span className="text-[9px] font-bold text-emerald-600 uppercase tracking-wider block leading-none mb-1">Cost</span>
+                                            <span className="block text-sm font-black text-emerald-900 truncate">${parseFloat(product.costPrice?.toString() || "0").toFixed(2)}</span>
+                                        </div>
+                                    </div>
 
-                                <FormField
-                                    control={form.control}
-                                    name="reason"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel className="text-slate-700 font-semibold text-sm">Reason for Change</FormLabel>
-                                            <FormControl>
-                                                <Textarea placeholder="Promotion, Cost Increase, etc..." className="resize-none h-24 rounded-xl bg-white border-slate-200 focus-visible:ring-indigo-500/20" {...field} />
-                                            </FormControl>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
+                                    <div className="space-y-3">
+                                        <FormField
+                                            control={form.control}
+                                            name="newPrice"
+                                            render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel className="text-slate-700 font-semibold text-sm">New Selling Price</FormLabel>
+                                                    <FormControl>
+                                                        <div className="relative">
+                                                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
+                                                            <Input type="number" step="0.01" placeholder="0.00" {...field} className="pl-8 h-10 md:h-11 rounded-xl bg-white border-slate-200 focus:ring-indigo-500/20 text-base font-bold" />
+                                                        </div>
+                                                    </FormControl>
+                                                    <FormMessage />
+                                                </FormItem>
+                                            )}
+                                        />
 
-                                <div className="flex justify-end gap-3 pt-6">
+                                        <FormField
+                                            control={form.control}
+                                            name="effectiveFrom"
+                                            render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel className="text-slate-700 font-semibold text-sm">Effective From (Optional)</FormLabel>
+                                                    <FormControl>
+                                                        <div className="relative">
+                                                            <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+                                                            <Input type="date" {...field} className="pl-10 rounded-xl bg-slate-50 border-slate-200 focus:ring-indigo-500/20" />
+                                                        </div>
+                                                    </FormControl>
+                                                    <FormMessage />
+                                                </FormItem>
+                                            )}
+                                        />
+
+                                        <FormField
+                                            control={form.control}
+                                            name="reason"
+                                            render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel className="text-slate-700 font-semibold text-sm">Reason for Change</FormLabel>
+                                                    <FormControl>
+                                                        <Textarea placeholder="Promotion, Cost Increase, etc..." className="resize-none h-16 md:h-20 rounded-xl bg-white border-slate-200 focus-visible:ring-indigo-500/20" {...field} />
+                                                    </FormControl>
+                                                    <FormMessage />
+                                                </FormItem>
+                                            )}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="flex shrink-0 justify-end gap-3 border-t border-slate-100 bg-white px-4 py-3 md:px-6">
                                     <Button type="button" variant="ghost" onClick={() => setOpen(false)} className="rounded-xl text-slate-500 font-bold">
                                         Discard
                                     </Button>
-                                    <Button type="submit" disabled={adjustMutation.isPending} className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-500/20 px-8 font-bold h-12">
+                                    <Button type="submit" disabled={adjustMutation.isPending} className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-500/20 px-5 md:px-6 font-bold h-10 md:h-11">
                                         {adjustMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                                         Update Price
                                     </Button>
@@ -182,8 +185,8 @@ export function PriceAdjustmentDialog({ product, companyId }: { product: Product
                     </div>
 
                     {/* Right Side: History */}
-                    <div className="w-[280px] bg-slate-50 border-l border-slate-100 flex flex-col">
-                        <div className="p-6 border-b border-slate-200 bg-white/50 backdrop-blur-sm sticky top-0 z-10">
+                    <div className="w-full md:w-[240px] min-h-0 bg-slate-50 border-t md:border-t-0 md:border-l border-slate-100 flex flex-col">
+                        <div className="p-4 border-b border-slate-200 bg-white/50 backdrop-blur-sm sticky top-0 z-10">
                             <div className="flex items-center gap-2 text-indigo-700 mb-1">
                                 <History className="w-4 h-4" />
                                 <span className="text-xs font-black uppercase tracking-widest leading-none mt-0.5">Price Audit Log</span>

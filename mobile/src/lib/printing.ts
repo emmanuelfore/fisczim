@@ -325,59 +325,267 @@ export const printToZ100 = async (data: TicketData) => {
     throw new Error("Z100 Printer module is not included in this build.");
   }
 
-  const { invoice, company, items, cashierName, paidAmount } = data;
+  const { invoice, company, customer, items, cashierName, paidAmount } = data;
+  const zlog = async (message: string) => {
+    console.log(`[Printing][Z100] ${message}`);
+    try {
+      if (typeof Z100Printer.recordLog === "function") {
+        await Z100Printer.recordLog(message);
+      }
+    } catch {
+      // Keep printing even if diagnostic logging is unavailable in an older build.
+    }
+  };
   
   try {
+    await zlog(`printToZ100 start invoice=${invoice?.invoiceNumber || "N/A"} company=${company?.name || "N/A"} items=${(items || invoice?.items || []).length}`);
     const initOk = await Z100Printer.printInit();
+    await zlog(`printInit ok=${initOk}`);
     if (!initOk) {
       throw new Error("Z100 printer failed to initialize. libAndroid.so may not have loaded correctly.");
     }
-    // Safety settings from SDK docs
-    await Z100Printer.printSetVoltage(85); 
-    await Z100Printer.printSetGray(3); // Moderate darkness
 
-    // Header - Large with Zoom 33 (discovered in SDK repo as 'medium')
-    await Z100Printer.printString(company.name, 28, 1, 33); 
-    if(company.tin) {
-      await Z100Printer.printString(`TIN: ${company.tin}`, 20, 1);
-    }
-    if (data.invoice.verificationUrl) {
-      await Z100Printer.printQrCode(data.invoice.verificationUrl, 200, 200);
-    }
-    if(company.vatNumber) {
-      await Z100Printer.printString(`VAT: ${company.vatNumber}`, 20, 1);
-    }
-    await Z100Printer.printString("", 24, 1); // Spacing
+    const queueText = async (text: string, size?: number, align?: number, zoom?: number) => {
+      const safeText = String(text ?? "");
+      const line = safeText.endsWith("\n") ? safeText : `${safeText}\n`;
+      await zlog(`queueText align=${align ?? 0} size=${size ?? 24} zoom=${zoom ?? 0} chars=${safeText.length} preview="${safeText.slice(0, 80)}"`);
+      const ok = await Z100Printer.printString(line, size, align, zoom);
+      if (!ok) {
+        throw new Error(`Z100 printer rejected text line: ${safeText.slice(0, 40)}`);
+      }
+    };
 
-    // Invoice Details
-    await Z100Printer.printString(`Invoice: ${invoice.invoiceNumber || 'N/A'}`, 24, 0);
-    await Z100Printer.printString(`Date: ${new Date(invoice.issueDate || invoice.createdAt).toLocaleString()}`, 20, 0);
-    if(cashierName) {
-      await Z100Printer.printString(`Cashier: ${cashierName}`, 20, 0);
-    }
-    await Z100Printer.printString("--------------------------------", 24, 0);
+    const queueQrCode = async (content: string, width: number, height: number) => {
+      await zlog(`queueQrCode width=${width} height=${height} chars=${content?.length || 0}`);
+      const ok = await Z100Printer.printQrCode(content, width, height);
+      if (!ok) {
+        await zlog("queueQrCode skipped/rejected by native SDK; continuing text receipt");
+      }
+    };
 
-    // Items
-    const receiptItems = items || invoice.items || [];
-    for(const item of receiptItems) {
-       await Z100Printer.printString(item.description || item.name, 24, 0);
-       const lineTotal = Number(item.lineTotal || (item.price * item.quantity)).toFixed(2);
-       await Z100Printer.printString(`  ${item.quantity} x ${Number(item.price).toFixed(2)}    ${lineTotal}`, 20, 0);
+    const width = 48;
+    const branch = (data as any).branch;
+    const activeCompany = branch || company;
+    const isVatPayer = !!company?.vatNumber;
+    const separator = "-".repeat(width);
+    const clean = (value: unknown) => String(value ?? "").replace(/\s+/g, " ").trim();
+    const money = (value: unknown) => Number(value || 0).toFixed(2);
+    const centerText = (value: unknown) => {
+      const text = clean(value);
+      if (!text) return "";
+      if (text.length >= width) return text.slice(0, width);
+      return `${" ".repeat(Math.floor((width - text.length) / 2))}${text}`;
+    };
+    const wrap = (value: unknown, max = width) => {
+      const text = clean(value);
+      if (!text) return [""];
+      const lines: string[] = [];
+      let rest = text;
+      while (rest.length > max) {
+        const slice = rest.slice(0, max);
+        const breakAt = slice.lastIndexOf(" ");
+        const cut = breakAt > 8 ? breakAt : max;
+        lines.push(rest.slice(0, cut).trimEnd());
+        rest = rest.slice(cut).trimStart();
+      }
+      lines.push(rest);
+      return lines;
+    };
+    const centerWrapped = async (value: unknown) => {
+      for (const line of wrap(value)) {
+        await queueText(centerText(line), 16, 0, 0);
+      }
+    };
+    const tableRow = (label: string, value: unknown) => {
+      const left = clean(label);
+      const right = clean(value);
+      if (!right) return left.slice(0, width);
+      const maxLeft = width - right.length - 1;
+      if (maxLeft < 8) return `${left}\n${right}`;
+      const safeLeft = left.slice(0, maxLeft);
+      return `${safeLeft}${" ".repeat(Math.max(1, width - safeLeft.length - right.length))}${right}`;
+    };
+    const formatDateTime = (dateValue: unknown) => {
+      const date = new Date((dateValue as any) || Date.now());
+      const pad = (n: number) => n.toString().padStart(2, "0");
+      return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+    };
+    const formatVerificationCode = (code: string) => {
+      if (!code) return "";
+      return code.replace(/-/g, "").match(/.{1,4}/g)?.join("-") || code;
+    };
+    const line = async (value: unknown) => {
+      await queueText(String(value ?? ""), 16, 0, 0);
+    };
+    const lines = async (value: unknown) => {
+      for (const wrapped of wrap(value)) {
+        await line(wrapped);
+      }
+    };
+    const row = async (label: string, value: unknown) => {
+      const composed = tableRow(label, value);
+      for (const part of composed.split("\n")) {
+        await line(part);
+      }
+    };
+    const receiptItems = Array.isArray(items) && items.length > 0
+      ? items
+      : Array.isArray(invoice.items) && invoice.items.length > 0
+        ? invoice.items
+        : Array.isArray(invoice.lineItems)
+          ? invoice.lineItems
+          : [];
+    const totalQty = receiptItems.reduce((sum: number, item: any) => sum + Number(item.quantity || 0), 0);
+    const taxGroups = receiptItems.reduce((acc: any, item: any) => {
+      const taxRate = parseFloat(item.taxRate || 0);
+      const unitPrice = Number(item.unitPrice ?? item.price ?? item.sellingPrice ?? 0);
+      const qty = Number(item.quantity || 0);
+      const total = parseFloat(item.lineTotal || (unitPrice * qty));
+      const rate = taxRate / 100;
+      const taxAmount = rate > 0 ? (total * rate) / (1 + rate) : 0;
+      const netAmount = total - taxAmount;
+      const key = taxRate.toFixed(2);
+      if (!acc[key]) {
+        acc[key] = { rate: taxRate, net: 0, tax: 0, gross: 0, name: item.taxCode || (taxRate === 0 ? "Exempt" : `${taxRate}%`) };
+      }
+      acc[key].net += netAmount;
+      acc[key].tax += taxAmount;
+      acc[key].gross += total;
+      return acc;
+    }, {});
+
+    let documentTitle = "INVOICE";
+    if (invoice.transactionType === "CreditNote" || invoice.type === "credit_note" || data.noteType === "credit") documentTitle = "CREDIT NOTE";
+    else if (invoice.transactionType === "DebitNote" || invoice.type === "debit_note" || data.noteType === "debit") documentTitle = "DEBIT NOTE";
+    if (invoice._offline || invoice._simulation || invoice.fiscalCode) {
+      documentTitle = isVatPayer ? `FISCAL ${documentTitle === "INVOICE" ? "TAX INVOICE" : documentTitle}` : `FISCAL ${documentTitle}`;
     }
 
-    // Totals
-    await Z100Printer.printString("--------------------------------", 24, 0);
-    await Z100Printer.printString(`TOTAL USD: ${Number(invoice.total || 0).toFixed(2)}`, 28, 2, 33); 
-    await Z100Printer.printString(`PAID:      ${Number(paidAmount || invoice.total || 0).toFixed(2)}`, 24, 2);
+    await zlog(`printer font set to 16x24 plain; copied fiscal receipt template for ${width} columns; receiptItems=${receiptItems.length}`);
+
+    await centerWrapped(clean(company?.name || "FieldPOS").toUpperCase());
+    if (branch && branch.name !== company.name) await centerWrapped(branch.name);
+
+    const addressParts = [activeCompany?.address, activeCompany?.city, activeCompany?.province].filter(Boolean);
+    for (const part of addressParts) await centerWrapped(part);
+    if (activeCompany?.phone) await centerWrapped(`TEL: ${activeCompany.phone}`);
+    if (activeCompany?.email) await centerWrapped(`EMAIL: ${activeCompany.email}`);
+
+    await line(separator);
+    if (company?.tin) await centerWrapped(`TIN: ${company.tin}`);
+    if (isVatPayer) await centerWrapped(`VAT No: ${company.vatNumber}`);
+    await line(separator);
+    await centerWrapped(documentTitle);
+    await line(separator);
+
+    const counterStr = invoice.receiptCounter ? invoice.receiptCounter.toString() : "---";
+    const globalStr = invoice.receiptGlobalNo ? invoice.receiptGlobalNo.toString() : "---";
+    await row("INVOICE NO:", `${counterStr}/${globalStr}`);
+    if (invoice.receiptGlobalNo || invoice._offline || invoice._simulation || invoice.fiscalCode) {
+      await row("FISCAL DAY NO:", (invoice.fiscalDayNo || "---").toString());
+      await row("DEVICE SERIAL NO:", activeCompany?.fdmsDeviceSerialNo || activeCompany?.deviceSerialNo || "stack1");
+      await row("DEVICE ID:", activeCompany?.fdmsDeviceId || activeCompany?.deviceId || "33697");
+    }
+    await row("CUST REF NO:", invoice.invoiceNo || invoice.invoiceNumber || `INV-${invoice.id || "---"}`);
+    await row("DATE & TIME:", formatDateTime(invoice.issueDate || invoice.createdAt));
+    if (cashierName) await row("CASHIER:", cashierName);
+
+    const customerName = customer?.name;
+    const isWalkIn = !customer || ["walk-in", "walk in", "guest"].some((s) => customerName?.toLowerCase().includes(s));
+    if (!isWalkIn) {
+      await line(separator);
+      await line("BUYER:");
+      await lines(customer.name);
+      if (customer.tin) await line(`TIN: ${customer.tin}`);
+      if (customer.vatNumber) await line(`VAT No: ${customer.vatNumber}`);
+    }
+
+    await line(separator);
+    await line("ITEMS");
+    await line("QTY        VAT       TOTAL");
+    await line(separator);
+
+    if (receiptItems.length === 0) {
+      await line("NO ITEMS");
+    }
+
+    for (const item of receiptItems) {
+      const qty = Number(item.quantity || 0);
+      const price = Number(item.unitPrice ?? item.price ?? item.sellingPrice ?? 0);
+      const computedTotal = price * qty;
+      const total = Number.isFinite(Number(item.lineTotal)) ? Number(item.lineTotal) : computedTotal;
+      const taxRate = parseFloat(item.taxRate || 0);
+      const vatAmount = taxRate > 0 ? (total * (taxRate / 100)) / (1 + (taxRate / 100)) : 0;
+      const desc = item.description || item.product?.name || item.name || "Item";
+      await zlog(`itemLine desc="${clean(desc).slice(0, 40)}" qty=${qty} price=${price} vat=${vatAmount.toFixed(2)} total=${total.toFixed(2)}`);
+      await lines(desc);
+      await line(`${qty.toFixed(2).padEnd(10)}${vatAmount.toFixed(2).padEnd(10)}${total.toFixed(2)}`.slice(0, width));
+      await line(".".repeat(width));
+    }
+
+    await line(separator);
+    await row("GRAND TOTAL (Incl. VAT):", `${invoice.currency || "USD"} ${money(invoice.total || invoice.receiptTotal)}`);
+    await row("AMT TENDERED:", `${invoice.currency || "USD"} ${money(invoice.paymentAmount || paidAmount || invoice.total)}`);
+    await row("CHANGE:", `${invoice.currency || "USD"} ${money(invoice.change || 0)}`);
+    await line(separator);
+    await row("NUMBER OF ITEMS:", totalQty.toFixed(3));
+    await line(separator);
+
+    if (isVatPayer) {
+      await centerWrapped("TAX SUMMARY");
+      for (const group of Object.values(taxGroups) as any[]) {
+        await line(`TAX CODE ${group.name} (${group.rate}%)`);
+        await row("  NET AMT:", group.net.toFixed(2));
+        await row("  VAT AMT:", group.tax.toFixed(2));
+        await row("  TOTAL AMT:", group.gross.toFixed(2));
+        await line(".".repeat(width));
+      }
+    }
+
+    let verificationCode = invoice.verificationCode || "";
+    if (!verificationCode && (invoice._simulation || invoice._offline || invoice.status === "draft")) {
+      verificationCode = "9A2B-C48D-80FE-12A5-99BF";
+    }
+    if (verificationCode) {
+      await centerWrapped("VERIFICATION CODE:");
+      await centerWrapped(formatVerificationCode(verificationCode));
+    }
+
+    const qrData = invoice.qrCodeData || invoice.receiptQRData || invoice.verificationUrl || (invoice._simulation ? "https://fdms.zimra.co.zw/verify/SIMULATION-ONLY" : "");
+    if (qrData) {
+      await line("");
+      await queueQrCode(qrData, 200, 200);
+      await centerWrapped("Verify at:");
+      await centerWrapped("https://fdms.zimra.co.zw/verify");
+    }
+
+    await line("");
+    await centerWrapped(invoice.notes || invoice.receiptNotes || "Thank you for your business!");
+    await centerWrapped("Powered by FiscalStack");
     
-    await Z100Printer.printString("", 24, 0);
-    await Z100Printer.printString("", 24, 0);
-    await Z100Printer.printString("", 24, 0);
-    await Z100Printer.printString("", 24, 0);
+    await zlog("queued trailing blank lines=12");
+    for (let i = 0; i < 12; i++) {
+      await queueText("", 16, 0, 0);
+    }
+    const beforeStartStatus = await Z100Printer.checkStatus().catch((error: unknown) => {
+      console.warn("[Printing] Z100 status check before start failed:", error);
+      return null;
+    });
+    console.log("[Printing] Z100 status before printStart:", beforeStartStatus);
+    await zlog(`status before printStart=${beforeStartStatus}`);
     const status = await Z100Printer.printStart();
+    await zlog(`printStart ok=${status}`);
     if(!status) throw new Error("Print failed on Z100 device.");
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    const afterStartStatus = await Z100Printer.checkStatus().catch((error: unknown) => {
+      console.warn("[Printing] Z100 status check after start failed:", error);
+      return null;
+    });
+    console.log("[Printing] Z100 status after printStart:", afterStartStatus);
+    await zlog(`status after printStart=${afterStartStatus}`);
   } finally {
     // CRITICAL: Always close to release hardware locks and prevent crashes on next print
+    await zlog("printClose requested");
     await Z100Printer.printClose().catch(() => {});
   }
 };

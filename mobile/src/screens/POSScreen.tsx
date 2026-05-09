@@ -502,11 +502,12 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
       setTimeout(triggerCartBounce, 530);
     }
 
+    const availableStock = Number(product.branchStock ?? product.stockLevel ?? 0);
     if (product.isTracked) {
       const inCart = cart.find((item: CartItem) => item.productId === product.id)?.quantity || 0;
-      if (inCart >= Number(product.stockLevel || 0)) {
-        if (Number(product.stockLevel || 0) === 0) {
-          Alert.alert("Out of Stock", `${product.name} is currently out of stock.`);
+      if (inCart >= availableStock) {
+        if (availableStock === 0) {
+          Alert.alert("Out of Stock", `${product.name} is out of stock in this branch.`);
         }
         return;
       }
@@ -535,7 +536,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
         productId: product.id, name: product.name, price: Number(product.price),
         quantity: 1, discountAmount: 0, taxRate,
         taxTypeId: product.taxTypeId, hsCode: product.hsCode, category: product.category,
-        stockLevel: Number(product.stockLevel || 0), isTracked: product.isTracked
+        stockLevel: availableStock, isTracked: product.isTracked
       }];
     });
     // Record this product as frequently sold (fire-and-forget)
@@ -632,7 +633,11 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
     const openingBalance = shiftBalance || "0";
     try {
       if (isOnline) {
-        const res = await apiFetch("/api/pos/shifts/open", { method: "POST", body: JSON.stringify({ companyId, openingBalance }) });
+        const res = await apiFetch("/api/pos/shifts/open", {
+          method: "POST",
+          headers: { "Idempotency-Key": `shift-open-${companyId}-${openingBalance}` },
+          body: JSON.stringify({ companyId, openingBalance })
+        });
         if (res.ok) { setShowShiftModal(false); setShiftBalance(""); await fetchShift(); return; }
         else Alert.alert("Shift Error", await res.text().catch(() => "Unknown error"));
       }
@@ -653,12 +658,24 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
       if (isOnline && !currentShift._provisional) {
         const res = await apiFetch(`/api/pos/shifts/${currentShift.id}/close`, {
           method: "POST",
+          headers: { "Idempotency-Key": `shift-close-${currentShift.id}-${closingBalance}` },
           body: JSON.stringify({
             closingBalance,
             reconciledBy: supervisorId
           })
         });
-        if (res.ok) { setCurrentShift(null); await setProvisionalShift(companyId, null); setShowShiftModal(false); setShiftBalance(""); return; }
+        if (res.ok) {
+          const payload = await res.json().catch(() => null);
+          setCurrentShift(null);
+          await setProvisionalShift(companyId, null);
+          setShowShiftModal(false);
+          setShiftBalance("");
+          if (payload?.summary) {
+            setShiftSummary(payload.summary);
+            setShowSummaryModal(true);
+          }
+          return;
+        }
         else Alert.alert("Session Error", await res.text().catch(() => "Unknown error"));
       }
       await addPendingShiftAction({ companyId, branchId: selectedBranchId, type: "close", payload: { shiftId: Number(currentShift.id), closingBalance, reconciledBy: supervisorId } });
@@ -749,10 +766,18 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
       for (const action of shiftActions) {
         try {
           if (action.type === "open") {
-            const res = await apiFetch("/api/pos/shifts/open", { method: "POST", body: JSON.stringify({ companyId, openingBalance: action.payload.openingBalance }) });
+            const res = await apiFetch("/api/pos/shifts/open", {
+              method: "POST",
+              headers: { "Idempotency-Key": `queued-shift-open-${action.id}` },
+              body: JSON.stringify({ companyId, openingBalance: action.payload.openingBalance })
+            });
             if (res.ok) { await removePendingShiftAction(action.id); successCount++; }
           } else {
-            const res = await apiFetch(`/api/pos/shifts/${action.payload.shiftId}/close`, { method: "POST", body: JSON.stringify({ closingBalance: action.payload.closingBalance }) });
+            const res = await apiFetch(`/api/pos/shifts/${action.payload.shiftId}/close`, {
+              method: "POST",
+              headers: { "Idempotency-Key": `queued-shift-close-${action.payload.shiftId}-${action.createdAt || action.payload.closingBalance}` },
+              body: JSON.stringify({ closingBalance: action.payload.closingBalance })
+            });
             if (res.ok) { await removePendingShiftAction(action.id); successCount++; }
           }
         } catch (err) {
@@ -918,6 +943,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
         // fire-and-forget — don't block the sale
         apiFetch("/api/pos/shifts/open", {
           method: "POST",
+          headers: { "Idempotency-Key": `auto-shift-open-${companyId}-${openingBalance}` },
           body: JSON.stringify({ companyId, openingBalance })
         }).then(async (res) => {
           if (res.ok) fetchShift(); // quietly refresh in background
@@ -928,8 +954,11 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
       }
     }
 
+    const optimisticInvoice = { ...invoiceData, id: `optimistic_${Date.now()}`, _pending: true };
+    const printItems = Array.isArray(invoiceData.items) ? invoiceData.items : [];
+
     // ── OPTIMISTIC UI: clear state and show success immediately ─────────────
-    setLastInvoice({ ...invoiceData, id: `optimistic_${Date.now()}`, _pending: true });
+    setLastInvoice(optimisticInvoice);
     setCart([]); setOrderDiscount(0); setOrderDiscountInput("");
     setShowCheckout(false); setShowCart(false); setPaidAmount("");
     resetToDefaultCustomer();
@@ -942,26 +971,36 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
     // Trigger auto-print with a short delay now that state is already cleared
     if (printerConfig.autoPrint) {
       setTimeout(() => {
-        handlePrint();
+        print({
+          invoice: optimisticInvoice,
+          company,
+          customer: optimisticInvoice.customerId ? resolvedCustomers?.find((c: any) => c.id === optimisticInvoice.customerId) : null,
+          items: printItems,
+          terminalId: printerConfig.terminalId,
+          currencySymbol: currencyInfo.symbol,
+          cashierName: userName,
+          paidAmount: parseFloat(paidAmount || "0"),
+          paperWidth: printerConfig.paperWidth
+        });
       }, 200);
     }
 
     // ── BACKGROUND: post the invoice to the server ───────────────────────────
     if (!isOnline) {
       addPendingSale(companyId, invoiceData, selectedBranchId).then((offlineId) => {
-        setLastInvoice((prev: any) => ({ ...prev, id: offlineId, _offline: true }));
+        setLastInvoice((prev: any) => ({ ...prev, id: offlineId, _offline: true, items: prev?.items || printItems }));
         refreshProducts();
       });
     } else {
       createInvoice(invoiceData)
         .then((created: any) => {
-          setLastInvoice(created); // update so receipt printing uses the real invoice
+          setLastInvoice({ ...created, items: created?.items || created?.lineItems || printItems }); // update so receipt printing uses the real invoice
           refreshProducts();
         })
         .catch(async () => {
           // Network failed after optimistic update — queue it offline silently
           const offlineId = await addPendingSale(companyId, invoiceData, selectedBranchId);
-          setLastInvoice((prev: any) => ({ ...prev, id: offlineId, _offline: true }));
+          setLastInvoice((prev: any) => ({ ...prev, id: offlineId, _offline: true, items: prev?.items || printItems }));
         });
     }
   };
@@ -975,6 +1014,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
       invoice: lastInvoice,
       company,
       customer: lastInvoice.customerId ? resolvedCustomers?.find((c: any) => c.id === lastInvoice.customerId) : null,
+      items: lastInvoice.items || lastInvoice.lineItems || lastInvoice.invoiceItems || [],
       terminalId: printerConfig.terminalId,
       currencySymbol: currencyInfo.symbol,
       cashierName: userName,
@@ -1168,8 +1208,9 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
               renderItem={({ item, index }: { item: any; index: number }) => {
                 const inCartItem = cart.find((c: CartItem) => c.productId === item.id);
                 const inCart = !!inCartItem;
-                const stockLow = item.isTracked && Number(item.stockLevel || 0) <= 3;
-                const outOfStock = item.isTracked && Number(item.stockLevel || 0) === 0;
+                const visibleStock = Number(item.branchStock ?? item.stockLevel ?? 0);
+                const stockLow = item.isTracked && visibleStock <= 3;
+                const outOfStock = item.isTracked && visibleStock === 0;
                 const imageRaw = item.imageUrl ?? item.image_url ?? item.image ?? item.photoUrl ?? null;
                 const imageUrl = resolveMediaUrl(imageRaw);
                 const toTitleCase = (str: string) =>
@@ -1242,7 +1283,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
                             fontSize: 13,
                             fontWeight: "800",
                           }}>
-                            • {Number(item.stockLevel || 0)}
+                            Branch {visibleStock}
                           </Text>
                         )}
                       </View>
@@ -2809,3 +2850,4 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
     </View>
   );
 }
+

@@ -32,7 +32,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { PlusCircle, Loader2, Package, Plus } from "lucide-react";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { CreateSupplierDialog } from "@/components/suppliers/create-supplier-dialog";
 
 const stockInSchema = z.object({
@@ -45,7 +45,7 @@ const stockInSchema = z.object({
 
 type StockInFormValues = z.infer<typeof stockInSchema>;
 
-export function StockInDialog({ product, companyId }: { product: Product, companyId: number }) {
+export function StockInDialog({ product, companyId, children }: { product: Product, companyId: number, children?: ReactNode }) {
     const [open, setOpen] = useState(false);
     const { data: suppliers } = useSuppliers(companyId);
     const stockInMutation = useStockIn(companyId);
@@ -75,10 +75,12 @@ export function StockInDialog({ product, companyId }: { product: Product, compan
     return (
         <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
-                <Button variant="outline" size="sm" className="gap-2 border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:border-emerald-300">
-                    <PlusCircle className="w-4 h-4" />
-                    Stock In
-                </Button>
+                {children || (
+                    <Button variant="outline" size="sm" className="gap-2 border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:border-emerald-300">
+                        <PlusCircle className="w-4 h-4" />
+                        Stock In
+                    </Button>
+                )}
             </DialogTrigger>
             <DialogContent className="max-w-md rounded-3xl">
                 <DialogHeader>

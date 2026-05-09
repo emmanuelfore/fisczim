@@ -172,7 +172,7 @@ export default function Dashboard() {
           <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
             <div className="rounded-[14px] border border-[#E5E7EB] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-shadow hover:shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
             <div className="flex items-start justify-between">
-              <p className="text-[13px] font-semibold text-[#64748B]">Total Sales</p>
+              <p className="text-sm font-semibold text-[#64748B]">Total Sales</p>
               <div className="flex items-center gap-2">
                 <svg width="56" height="20" viewBox="0 0 56 20" fill="none" aria-hidden="true">
                   <path d="M1 14L10 10L19 12L28 7L37 9L46 4L55 6" stroke="#F59E0B" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
@@ -181,12 +181,12 @@ export default function Dashboard() {
               </div>
             </div>
             <p className="mt-3 text-[26px] leading-none font-bold tracking-[-0.015em] text-[#0F172A]">{currency(totalSales)}</p>
-            <p className="mt-3 text-[13px] text-[#16A34A] font-semibold inline-flex items-center gap-1"><ArrowUp className="w-3 h-3" /> 18.7% vs last week</p>
+            <p className="mt-3 text-sm text-[#16A34A] font-semibold inline-flex items-center gap-1"><ArrowUp className="w-3 h-3" /> 18.7% vs last week</p>
           </div>
 
             <div className="rounded-[14px] border border-[#E5E7EB] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-shadow hover:shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
             <div className="flex items-start justify-between">
-              <p className="text-[13px] font-semibold text-[#64748B]">Invoices Issued</p>
+              <p className="text-sm font-semibold text-[#64748B]">Invoices Issued</p>
               <div className="flex items-center gap-2">
                 <svg width="56" height="20" viewBox="0 0 56 20" fill="none" aria-hidden="true">
                   <path d="M1 13L10 11L19 8L28 10L37 7L46 5L55 3" stroke="#F59E0B" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
@@ -195,25 +195,25 @@ export default function Dashboard() {
               </div>
             </div>
             <p className="mt-3 text-[26px] leading-none font-bold tracking-[-0.015em] text-[#0F172A]">{invoicesTotal.toLocaleString()}</p>
-            <p className="mt-3 text-[13px] text-[#16A34A] font-semibold inline-flex items-center gap-1"><ArrowUp className="w-3 h-3" /> 15.3% vs last week</p>
+            <p className="mt-3 text-sm text-[#16A34A] font-semibold inline-flex items-center gap-1"><ArrowUp className="w-3 h-3" /> 15.3% vs last week</p>
           </div>
 
             <div className="rounded-[14px] border border-[#E5E7EB] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-shadow hover:shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
             <div className="flex items-start justify-between">
-              <p className="text-[13px] font-semibold text-[#64748B]">VAT Collected</p>
+              <p className="text-sm font-semibold text-[#64748B]">VAT Collected</p>
               <div className="h-9 w-9 rounded-[10px] bg-[#EFF6FF] border border-[#DBEAFE] flex items-center justify-center text-[#1D4ED8] text-sm font-extrabold">%</div>
             </div>
             <p className="mt-3 text-[26px] leading-none font-bold tracking-[-0.015em] text-[#0F172A]">{currency(vatCollected)}</p>
-            <p className="mt-3 text-[13px] text-[#16A34A] font-semibold inline-flex items-center gap-1"><ArrowUp className="w-3 h-3" /> 12.5% vs last week</p>
+            <p className="mt-3 text-sm text-[#16A34A] font-semibold inline-flex items-center gap-1"><ArrowUp className="w-3 h-3" /> 12.5% vs last week</p>
           </div>
 
             <div className="rounded-[14px] border border-[#E5E7EB] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-shadow hover:shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
             <div className="flex items-start justify-between">
-              <p className="text-[13px] font-semibold text-[#64748B]">FDMS Status</p>
+              <p className="text-sm font-semibold text-[#64748B]">FDMS Status</p>
               <Cloud className="w-5 h-5 text-[#2563EB]" />
             </div>
             <p className="mt-3 text-[26px] leading-none font-bold tracking-[-0.015em] text-[#0F172A]">{connected ? "Connected" : "Offline"}</p>
-            <p className={`mt-3 text-[13px] font-semibold inline-flex items-center gap-1 ${connected ? "text-[#16A34A]" : "text-[#DC2626]"}`}>
+            <p className={`mt-3 text-sm font-semibold inline-flex items-center gap-1 ${connected ? "text-[#16A34A]" : "text-[#DC2626]"}`}>
               <CheckCircle2 className="w-3 h-3" />
               Last sync: {deviceStatus?.lastSync ? "2 mins ago" : "Not available"}
             </p>
@@ -382,7 +382,7 @@ export default function Dashboard() {
         <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
           <div className="rounded-[14px] border border-[#E5E7EB] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
             <div className="h-9 w-9 rounded-[10px] bg-[#EEF4FF] text-[#1D4ED8] flex items-center justify-center"><Package className="w-4 h-4" /></div>
-            <p className="mt-4 text-[13px] text-[#64748B] font-semibold">Inventory Summary</p>
+            <p className="mt-4 text-sm text-[#64748B] font-semibold">Inventory Summary</p>
             <p className="mt-1 text-[30px] leading-none font-bold tracking-[-0.015em] text-[#0F172A]">{products.length.toLocaleString()}</p>
             <p className="mt-2 text-sm text-[#64748B]">Total items</p>
             <Link href="/products" className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-[#2563EB]">View inventory <ArrowRight className="w-4 h-4" /></Link>
@@ -390,7 +390,7 @@ export default function Dashboard() {
 
           <div className="rounded-[14px] border border-[#E5E7EB] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
             <div className="h-9 w-9 rounded-[10px] bg-[#FFEDD5] text-[#F97316] flex items-center justify-center"><AlertTriangle className="w-4 h-4" /></div>
-            <p className="mt-4 text-[13px] text-[#64748B] font-semibold">Low Stock Items</p>
+            <p className="mt-4 text-sm text-[#64748B] font-semibold">Low Stock Items</p>
             <p className="mt-1 text-[30px] leading-none font-bold tracking-[-0.015em] text-[#0F172A]">{lowStockCount}</p>
             <p className="mt-2 text-sm text-[#64748B]">Items running low</p>
             <Link href="/reports/inventory" className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-[#2563EB]">View low stock <ArrowRight className="w-4 h-4" /></Link>
@@ -398,7 +398,7 @@ export default function Dashboard() {
 
           <div className="rounded-[14px] border border-[#E5E7EB] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
             <div className="h-9 w-9 rounded-[10px] bg-[#FEE2E2] text-[#DC2626] flex items-center justify-center"><TriangleAlert className="w-4 h-4" /></div>
-            <p className="mt-4 text-[13px] text-[#64748B] font-semibold">Out of Stock Items</p>
+            <p className="mt-4 text-sm text-[#64748B] font-semibold">Out of Stock Items</p>
             <p className="mt-1 text-[30px] leading-none font-bold tracking-[-0.015em] text-[#0F172A]">{outOfStockCount}</p>
             <p className="mt-2 text-sm text-[#64748B]">Items out of stock</p>
             <Link href="/reports/inventory" className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-[#2563EB]">View out of stock <ArrowRight className="w-4 h-4" /></Link>
@@ -406,7 +406,7 @@ export default function Dashboard() {
 
           <div className="rounded-[14px] border border-[#E5E7EB] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
             <div className="h-9 w-9 rounded-[10px] bg-[#DCFCE7] text-[#16A34A] flex items-center justify-center"><Users className="w-4 h-4" /></div>
-            <p className="mt-4 text-[13px] text-[#64748B] font-semibold">Active Customers</p>
+            <p className="mt-4 text-sm text-[#64748B] font-semibold">Active Customers</p>
             <p className="mt-1 text-[30px] leading-none font-bold tracking-[-0.015em] text-[#0F172A]">{customers.length.toLocaleString()}</p>
             <p className="mt-2 text-sm text-[#64748B]">Total customers</p>
             <Link href="/customers" className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-[#2563EB]">View customers <ArrowRight className="w-4 h-4" /></Link>

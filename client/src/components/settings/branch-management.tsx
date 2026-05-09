@@ -125,7 +125,7 @@ export function BranchManagement({ companyId }: BranchManagementProps) {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h2 className="text-2xl font-black text-slate-900 tracking-tight">Branch Management</h2>
-          <p className="text-sm font-medium text-slate-500">Manage your physical locations and fiscal endpoints</p>
+          <p className="text-sm text-muted-foreground">Manage your physical locations and fiscal endpoints</p>
         </div>
         <Button 
           onClick={() => handleOpenDialog()}

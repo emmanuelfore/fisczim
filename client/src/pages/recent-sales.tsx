@@ -142,12 +142,6 @@ export default function RecentSalesPage() {
                                 <ArrowLeft className="h-5 w-5 text-slate-600" />
                             </Button>
                         </Link>
-                        <div>
-                            <h1 className="text-4xl font-black text-slate-900 tracking-tight">Recent Sales Ledger</h1>
-                            <p className="text-slate-400 font-medium mt-1 uppercase tracking-widest text-[10px]">
-                                {isCashier ? "Your transaction records & personal performance" : "Detailed transaction records & compliance audit"}
-                            </p>
-                        </div>
                     </div>
                     <div className="flex items-center gap-3">
                         <Button

@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { Modal, View, Text, TouchableOpacity, ScrollView, TextInput, ActivityIndicator, Alert, Platform, StyleSheet } from "react-native";
-import { X, Bluetooth, Printer as PrinterIcon, Activity } from "lucide-react-native";
+import { Modal, View, Text, TouchableOpacity, ScrollView, TextInput, ActivityIndicator, Alert, Platform, StyleSheet, Share } from "react-native";
+import { X, Bluetooth, Printer as PrinterIcon, Activity, RefreshCw, Trash2, Share2, Download } from "lucide-react-native";
+import * as FileSystem from "expo-file-system/legacy";
+import * as Sharing from "expo-sharing";
 import { useTheme, hexAlpha } from "./PremiumColors";
 import { Button } from "./Button";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -14,7 +16,7 @@ type Props = {
 export function PrinterSettingsModal({ visible, onClose }: Props) {
   const { theme: C, isDark } = useTheme();
   const insets = useSafeAreaInsets();
-  const { config, updateConfig, scanForPrinters, isScanning, executePrint, getDebugLogs, clearDebugLogs } = usePrinter();
+  const { config, updateConfig, scanForPrinters, isScanning, executePrint, getDebugLogs, getPrinterDiagnostics, clearDebugLogs } = usePrinter();
 
   const [draft, setDraft] = useState<PrinterConfig>(config);
   const [discoveredDevices, setDiscoveredDevices] = useState<{ deviceName: string, macAddress: string }[]>([]);
@@ -48,16 +50,37 @@ export function PrinterSettingsModal({ visible, onClose }: Props) {
     const testData = {
       invoice: {
         invoiceNumber: "TEST-001",
-        total: "0.00",
-        items: [],
+        total: "1.00",
+        items: [
+          {
+            name: "Z100 PRINT TEST",
+            description: "Z100 PRINT TEST",
+            quantity: 1,
+            price: 1,
+            lineTotal: 1
+          }
+        ],
         createdAt: new Date().toISOString(),
         receiptCounter: "001",
         receiptGlobalNo: "001",
         fiscalDayNo: "1",
         currency: "USD"
       },
-      company: draft.enabled ? draft : { name: "Test Printing" },
-      items: [],
+      company: {
+        name: "FieldPOS Z100 Test",
+        tin: "TEST-TIN",
+        vatNumber: "TEST-VAT",
+        posSettings: { receiptFooter: "Printer diagnostics test" }
+      },
+      items: [
+        {
+          name: "Z100 PRINT TEST",
+          description: "Z100 PRINT TEST",
+          quantity: 1,
+          price: 1,
+          lineTotal: 1
+        }
+      ],
       cashierName: "Admin"
     };
     
@@ -74,25 +97,115 @@ export function PrinterSettingsModal({ visible, onClose }: Props) {
 
   const [showDebug, setShowDebug] = useState(false);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
+  const [debugReport, setDebugReport] = useState("");
   const [loadingLogs, setLoadingLogs] = useState(false);
 
-  const handleOpenDebug = async () => {
+  const buildReport = async () => {
     setLoadingLogs(true);
-    setShowDebug(true);
     try {
+      const diagnostics = await getPrinterDiagnostics();
       const logs = await getDebugLogs();
+      const report = diagnostics.join("\n") + "\n\n=== RAW APP LOG VIEW ===\n" + logs.join("\n");
       setDebugLogs(logs);
+      setDebugReport(report);
     } catch (e) {
-      setDebugLogs([`Failed to fetch logs: ${e}`]);
+      const fallback = `Failed to fetch diagnostics: ${e}`;
+      setDebugLogs([fallback]);
+      setDebugReport(fallback);
     } finally {
       setLoadingLogs(false);
     }
+  };
+
+  const handleOpenDebug = async () => {
+    setShowDebug(true);
+    await buildReport();
   };
 
   const handleClearLogs = async () => {
     const success = await clearDebugLogs();
     if (success) {
       setDebugLogs(["Logs cleared"]);
+      setDebugReport("Logs cleared");
+    }
+  };
+
+  const handleShareReport = async () => {
+    if (!debugReport.trim()) {
+      await buildReport();
+    }
+    const message = debugReport.trim() || "No printer diagnostics captured.";
+    await Share.share({ message, title: "Z100 Printer Diagnostics" });
+  };
+
+  const handleExportLogFile = async () => {
+    try {
+      let report = debugReport.trim();
+      if (!report) {
+        setLoadingLogs(true);
+        const diagnostics = await getPrinterDiagnostics();
+        const logs = await getDebugLogs();
+        report = diagnostics.join("\n") + "\n\n=== RAW APP LOG VIEW ===\n" + logs.join("\n");
+        setDebugLogs(logs);
+        setDebugReport(report);
+      }
+
+      const safeTimestamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const fileUri = `${FileSystem.cacheDirectory}z100-printer-log-${safeTimestamp}.txt`;
+      await FileSystem.writeAsStringAsync(fileUri, report || "No printer diagnostics captured.", {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(fileUri, {
+          mimeType: "text/plain",
+          dialogTitle: "Export Z100 Printer Log",
+          UTI: "public.plain-text",
+        });
+      } else {
+        await Share.share({ message: report || "No printer diagnostics captured.", title: "Z100 Printer Diagnostics" });
+      }
+    } catch (e: any) {
+      Alert.alert("Export Failed", e?.message || "Could not export the printer log file.");
+    } finally {
+      setLoadingLogs(false);
+    }
+  };
+
+  const handleSaveLogToDevice = async () => {
+    try {
+      const mod = require("../../modules/z100-printer").default;
+      if (typeof mod.saveLogsToDevice !== "function") {
+        Alert.alert("Not Available", "This APK does not include direct log saving yet.");
+        return;
+      }
+      const path = await mod.saveLogsToDevice();
+      if (String(path).startsWith("ERROR:")) {
+        Alert.alert("Save Failed", path);
+        return;
+      }
+      Alert.alert("Log Saved", `${path}\n\nADB:\nadb pull /sdcard/Android/data/com.emmanuelff.fieldpos/files/Documents/z100-printer-log.txt`);
+    } catch (e: any) {
+      Alert.alert("Save Failed", e?.message || "Could not save the printer log to device storage.");
+    }
+  };
+
+  const handleSdkSamplePrint = async () => {
+    setLoadingLogs(true);
+    try {
+      const mod = require("../../modules/z100-printer").default;
+      if (typeof mod.printSdkSample !== "function") {
+        Alert.alert("Not Available", "This APK does not include the SDK sample print yet.");
+        return;
+      }
+      const ok = await mod.printSdkSample();
+      await buildReport();
+      Alert.alert(ok ? "SDK Sample Sent" : "SDK Sample Failed", ok ? "The vendor SDK sample returned success." : "The vendor SDK sample failed. Save/export the log.");
+    } catch (e: any) {
+      Alert.alert("SDK Sample Failed", e?.message || "Could not run the SDK sample print.");
+    } finally {
+      setLoadingLogs(false);
     }
   };
 
@@ -129,7 +242,13 @@ export function PrinterSettingsModal({ visible, onClose }: Props) {
                 value={draft.enabled}
                 onToggle={() => setDraft(p => {
                   const next = !p.enabled;
-                  return { ...p, enabled: next, autoPrint: next ? p.autoPrint : false, silentPrint: next ? p.silentPrint : false };
+                  return {
+                    ...p,
+                    enabled: next,
+                    autoPrint: next ? (p.isZ100 ? true : p.autoPrint) : false,
+                    silentPrint: next ? (p.isZ100 ? true : p.silentPrint) : false,
+                    autoShowModal: p.isZ100 ? false : p.autoShowModal,
+                  };
                 })}
                 C={C}
               />
@@ -173,8 +292,21 @@ export function PrinterSettingsModal({ visible, onClose }: Props) {
               <ToggleRow
                 label="Use Z100 Native SDK Printer"
                 value={draft.isZ100}
-                disabled={!draft.enabled}
-                onToggle={() => setDraft(p => ({ ...p, isZ100: !p.isZ100, isInternal: false, paperWidth: !p.isZ100 ? 58 : p.paperWidth }))}
+                disabled={false}
+                onToggle={() => setDraft(p => {
+                  const next = !p.isZ100;
+                  return {
+                    ...p,
+                    enabled: next ? true : p.enabled,
+                    isZ100: next,
+                    isInternal: false,
+                    autoPrint: next ? true : p.autoPrint,
+                    silentPrint: next ? true : p.silentPrint,
+                    autoShowModal: next ? false : p.autoShowModal,
+                    paperWidth: next ? 58 : p.paperWidth,
+                    z100DefaultsApplied: next ? true : p.z100DefaultsApplied,
+                  };
+                })}
                 C={C}
                 highlight
               />
@@ -265,32 +397,57 @@ export function PrinterSettingsModal({ visible, onClose }: Props) {
       <Modal visible={showDebug} transparent animationType="fade">
         <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.9)", padding: 24, justifyContent: "center" }}>
           <View style={{ backgroundColor: C.bg.base, borderRadius: 24, padding: 20, maxHeight: "80%" }}>
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                <Text style={{ color: C.text.primary, fontSize: 18, fontWeight: "800" }}>Z100 Native Logs</Text>
-                <TouchableOpacity onPress={handleClearLogs} style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, backgroundColor: hexAlpha(C.status.error, 0.1) }}>
-                  <Text style={{ color: C.status.error, fontSize: 10, fontWeight: "800" }}>CLEAR</Text>
-                </TouchableOpacity>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16, gap: 12 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: C.text.primary, fontSize: 18, fontWeight: "800" }}>Z100 Diagnostics</Text>
+                <Text style={{ color: C.text.secondary, fontSize: 12, fontWeight: "600", marginTop: 4 }}>
+                  Long-press the report text to select/copy, or use Share.
+                </Text>
               </View>
               <TouchableOpacity onPress={() => setShowDebug(false)}>
                 <X size={24} color={C.text.secondary} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+              <TouchableOpacity onPress={buildReport} disabled={loadingLogs} style={[styles.debugAction, { backgroundColor: hexAlpha(C.amber.primary, 0.12) }]}>
+                <RefreshCw size={14} color={C.amber.primary} />
+                <Text style={[styles.debugActionText, { color: C.amber.primary }]}>Refresh</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={handleShareReport} disabled={loadingLogs} style={[styles.debugAction, { backgroundColor: hexAlpha(C.text.primary, 0.08) }]}>
+                <Share2 size={14} color={C.text.primary} />
+                <Text style={[styles.debugActionText, { color: C.text.primary }]}>Share</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={handleExportLogFile} disabled={loadingLogs} style={[styles.debugAction, { backgroundColor: hexAlpha(C.status.success, 0.12) }]}>
+                <Download size={14} color={C.status.success} />
+                <Text style={[styles.debugActionText, { color: C.status.success }]}>Export</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={handleSaveLogToDevice} disabled={loadingLogs} style={[styles.debugAction, { backgroundColor: hexAlpha(C.status.info, 0.12) }]}>
+                <Download size={14} color={C.status.info} />
+                <Text style={[styles.debugActionText, { color: C.status.info }]}>Save</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={handleSdkSamplePrint} disabled={loadingLogs} style={[styles.debugAction, { backgroundColor: hexAlpha(C.amber.primary, 0.16) }]}>
+                <PrinterIcon size={14} color={C.amber.primary} />
+                <Text style={[styles.debugActionText, { color: C.amber.primary }]}>SDK Sample</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={handleClearLogs} disabled={loadingLogs} style={[styles.debugAction, { backgroundColor: hexAlpha(C.status.error, 0.1) }]}>
+                <Trash2 size={14} color={C.status.error} />
+                <Text style={[styles.debugActionText, { color: C.status.error }]}>Clear</Text>
               </TouchableOpacity>
             </View>
             
             {loadingLogs ? (
                <ActivityIndicator color={C.amber.primary} />
             ) : (
-              <ScrollView>
-                 {debugLogs.length === 0 ? (
-                   <Text style={{ color: C.text.secondary, textAlign: "center" }}>No logs captured.</Text>
-                 ) : (
-                   debugLogs.map((l, i) => (
-                     <Text key={i} style={{ color: l.includes("ERROR") ? C.status.error : C.text.primary, fontSize: 11, fontFamily: "monospace", marginBottom: 8, backgroundColor: C.bg.panel, padding: 8, borderRadius: 8 }}>
-                       {l}
-                     </Text>
-                   ))
-                 )}
-              </ScrollView>
+              <TextInput
+                value={debugReport || (debugLogs.length ? debugLogs.join("\n") : "No diagnostics captured. Tap Refresh.")}
+                editable={false}
+                multiline
+                scrollEnabled
+                selectTextOnFocus
+                style={styles.debugReport}
+                textAlignVertical="top"
+              />
             )}
           </View>
         </View>
@@ -337,4 +494,7 @@ const makeStyles = (C: any, isDark: boolean, insets: any) => StyleSheet.create({
   widthBtnActive: { borderColor: C.amber.primary, backgroundColor: hexAlpha(C.amber.primary, 0.08) },
   widthBtnText: { color: C.text.primary, fontWeight: "800", fontSize: 14 },
   footer: { padding: 24, borderTopWidth: 1, borderColor: C.bg.glassBorder, paddingBottom: Math.max(insets.bottom, 24), flexDirection: "row", gap: 12 },
+  debugAction: { flex: 1, minHeight: 38, borderRadius: 12, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 6 },
+  debugActionText: { fontSize: 11, fontWeight: "900" },
+  debugReport: { minHeight: 360, maxHeight: 460, backgroundColor: C.bg.panel, color: C.text.primary, borderRadius: 14, padding: 12, borderWidth: 1, borderColor: C.bg.glassBorder, fontSize: 11, fontFamily: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }), lineHeight: 16 },
 });

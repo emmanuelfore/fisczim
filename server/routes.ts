@@ -36,10 +36,12 @@ import {
   posShifts,
   posShiftTransactions,
   posHolds,
+  idempotencyKeys,
   companies,
   customers,
   currencies,
   products,
+  branchStocks,
   inventoryTransactions,
   suppliers,
   expenses,
@@ -76,6 +78,122 @@ export async function registerRoutes(
   const POS_VERBOSE_LOGS = process.env.POS_VERBOSE_LOGS === "1";
   const vLog = (...args: any[]) => { if (POS_VERBOSE_LOGS) console.log(...args); };
   const vWarn = (...args: any[]) => { if (POS_VERBOSE_LOGS) console.warn(...args); };
+  const IDEMPOTENCY_TTL_MS = 10 * 60 * 1000;
+  const idempotencyCache = new Map<string, { status: number; payload: any; expiresAt: number }>();
+
+  const getIdempotencyKey = (req: any) => {
+    const key = req.header?.("Idempotency-Key") || req.header?.("X-Idempotency-Key");
+    if (!key) return null;
+    return `${req.user?.id || "anonymous"}:${req.method}:${req.originalUrl}:${key}`;
+  };
+
+  const sendIdempotentHit = async (req: any, res: any) => {
+    const key = getIdempotencyKey(req);
+    if (!key) return null;
+    const cached = idempotencyCache.get(key);
+    if (cached) {
+      if (cached.expiresAt < Date.now()) {
+        idempotencyCache.delete(key);
+        return key;
+      }
+      res.status(cached.status).json({ ...cached.payload, idempotentReplay: true });
+      return false;
+    }
+
+    const [stored] = await db
+      .select()
+      .from(idempotencyKeys)
+      .where(eq(idempotencyKeys.key, key))
+      .limit(1);
+    if (!stored) return key;
+    if (stored.expiresAt < new Date()) {
+      await db.delete(idempotencyKeys).where(eq(idempotencyKeys.key, key));
+      return key;
+    }
+    const payload = stored.responseBody as any;
+    idempotencyCache.set(key, { status: stored.statusCode, payload, expiresAt: stored.expiresAt.getTime() });
+    res.status(stored.statusCode).json({ ...payload, idempotentReplay: true });
+    return false;
+  };
+
+  const sendIdempotent = (req: any, res: any, key: string | null | false, status: number, payload: any) => {
+    if (key) {
+      const expiresAt = new Date(Date.now() + IDEMPOTENCY_TTL_MS);
+      idempotencyCache.set(key, { status, payload, expiresAt: expiresAt.getTime() });
+      db.insert(idempotencyKeys)
+        .values({
+          key,
+          userId: req.user?.id || null,
+          method: req.method,
+          path: req.originalUrl,
+          statusCode: status,
+          responseBody: payload,
+          expiresAt,
+        })
+        .onConflictDoUpdate({
+          target: idempotencyKeys.key,
+          set: { statusCode: status, responseBody: payload, expiresAt },
+        })
+        .catch((err) => console.error("[Idempotency] Failed to persist key:", err));
+    }
+    return res.status(status).json(payload);
+  };
+
+  const buildShiftSummary = async (shiftId: number) => {
+    const shift = await db.query.posShifts.findFirst({ where: eq(posShifts.id, shiftId) });
+    if (!shift) return null;
+
+    const shiftInvoices = await db.select().from(invoices).where(eq(invoices.shiftId, shiftId));
+    const transactions = await getShiftTransactions(shiftId);
+    const companyBaseCurrency = await db.query.currencies.findFirst({
+      where: and(eq(currencies.companyId, shift.companyId), eq(currencies.isBase, true))
+    });
+
+    const invoiceSign = (inv: any) => inv.transactionType === "CreditNote" ? -1 : 1;
+    const totalSales = shiftInvoices.reduce((sum, inv: any) => sum + invoiceSign(inv) * Number(inv.total || 0), 0);
+    const refundTotal = shiftInvoices
+      .filter((inv: any) => inv.transactionType === "CreditNote")
+      .reduce((sum, inv: any) => sum + Number(inv.total || 0), 0);
+    const totalPayouts = transactions.filter((t: any) => t.type === "PAYOUT").reduce((sum: number, t: any) => sum + Number(t.amount || 0), 0);
+    const totalDrops = transactions.filter((t: any) => t.type === "DROP").reduce((sum: number, t: any) => sum + Number(t.amount || 0), 0);
+    const cashSales = shiftInvoices
+      .filter((inv: any) => String(inv.paymentMethod || "CASH").toUpperCase() === "CASH")
+      .reduce((sum, inv: any) => sum + invoiceSign(inv) * Number(inv.total || 0), 0);
+    const expectedCash = Number(shift.openingBalance || 0) + cashSales - totalPayouts - totalDrops;
+    const actualCash = shift.actualCash == null ? null : Number(shift.actualCash);
+    const variance = actualCash == null ? null : actualCash - expectedCash;
+    const salesByPaymentMethod = shiftInvoices.reduce((acc: Record<string, number>, inv: any) => {
+      const method = String(inv.paymentMethod || "CASH").toUpperCase();
+      acc[method] = (acc[method] || 0) + invoiceSign(inv) * Number(inv.total || 0);
+      return acc;
+    }, {});
+    const lastTx = transactions[0];
+    const lastTxTime = lastTx ? new Date(lastTx.createdAt!) : new Date(shift.startTime!);
+    const cashSinceLastTx = shiftInvoices
+      .filter((inv: any) => String(inv.paymentMethod || "CASH").toUpperCase() === "CASH" && new Date(inv.issueDate) > lastTxTime)
+      .reduce((sum, inv: any) => sum + invoiceSign(inv) * Number(inv.total || 0), 0);
+
+    return {
+      shiftId,
+      status: shift.status,
+      openedAt: shift.startTime,
+      closedAt: shift.endTime,
+      openingBalance: Number(shift.openingBalance || 0).toFixed(2),
+      actualCash: actualCash == null ? null : actualCash.toFixed(2),
+      totalSales: totalSales.toFixed(2),
+      refundTotal: refundTotal.toFixed(2),
+      transactionCount: shiftInvoices.length,
+      totalPayouts: totalPayouts.toFixed(2),
+      totalDrops: totalDrops.toFixed(2),
+      cashSales: cashSales.toFixed(2),
+      expectedCash: expectedCash.toFixed(2),
+      variance: variance == null ? null : variance.toFixed(2),
+      cashSinceLastTx: cashSinceLastTx.toFixed(2),
+      lastTxTime: lastTx ? lastTx.createdAt : null,
+      salesByPaymentMethod,
+      currency: shiftInvoices[0]?.currency || companyBaseCurrency?.code || "USD",
+    };
+  };
 
   setupAuth(app);
 
@@ -1788,6 +1906,12 @@ export async function registerRoutes(
     try {
       const companyId = parseInt(req.params.companyId);
       const { productId, variationId, branchId, quantity, type, notes } = api.inventory.adjust.input.parse(req.body);
+      if (!notes || notes.trim().length < 5) {
+        return res.status(400).json({ message: "Stock adjustments require a clear reason or reference." });
+      }
+      if (!Number.isFinite(Number(quantity)) || Number(quantity) === 0) {
+        return res.status(400).json({ message: "Adjustment quantity must be a non-zero number." });
+      }
       
       await storage.adjustInventory(companyId, {
         productId,
@@ -1818,13 +1942,22 @@ export async function registerRoutes(
 
   app.post("/api/pos/shifts/open", requireAuth, async (req, res) => {
     try {
+      const idempotencyKey = await sendIdempotentHit(req, res);
+      if (idempotencyKey === false) return;
+      const companyId = Number(req.body.companyId);
+      const branchId = getBranchId(req);
+      const existing = await storage.getActivePosShift(companyId, (req.user as any).id, branchId);
+      if (existing) {
+        return sendIdempotent(req, res, idempotencyKey, 200, existing);
+      }
       const data = insertPosShiftSchema.parse({
         ...req.body,
+        branchId,
         userId: (req.user as any).id,
         status: "open"
       });
       const shift = await storage.createPosShift(data);
-      res.status(201).json(shift);
+      sendIdempotent(req, res, idempotencyKey, 201, shift);
     } catch (error: any) {
       res.status(400).json({ message: error.message });
     }
@@ -1832,6 +1965,8 @@ export async function registerRoutes(
 
   app.post("/api/pos/shifts/:id/close", requireAuth, async (req, res) => {
     try {
+      const idempotencyKey = await sendIdempotentHit(req, res);
+      if (idempotencyKey === false) return;
       const shiftId = parseInt(req.params.id);
       const { actualCash, closingBalance, notes, reconciledBy } = req.body;
 
@@ -1840,7 +1975,8 @@ export async function registerRoutes(
 
       const parsedCash = cashAmount === undefined || cashAmount === null ? Number.NaN : Number(cashAmount);
       const shift = await endPosShift(shiftId, parsedCash, notes, reconciledBy);
-      res.json(shift);
+      const summary = await buildShiftSummary(shiftId);
+      sendIdempotent(req, res, idempotencyKey, 200, { shift, summary });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -1862,44 +1998,9 @@ export async function registerRoutes(
   app.get("/api/pos/shifts/:id/summary", requireAuth, async (req, res) => {
     try {
       const shiftId = parseInt(req.params.id);
-      const shift = await db.query.posShifts.findFirst({
-        where: eq(posShifts.id, shiftId)
-      });
-
-      if (!shift) return res.status(404).json({ message: "Shift not found" });
-
-      // Calculate totals
-      const shiftInvoices = await db.select().from(invoices).where(eq(invoices.shiftId, shiftId));
-      const transactions = await getShiftTransactions(shiftId);
-
-      const totalSales = shiftInvoices.reduce((sum, inv) => sum + Number(inv.total), 0);
-      const totalPayouts = transactions.filter(t => t.type === 'PAYOUT').reduce((sum, t) => sum + Number(t.amount), 0);
-      const totalDrops = transactions.filter(t => t.type === 'DROP').reduce((sum, t) => sum + Number(t.amount), 0);
-      
-      const expectedCash = Number(shift.openingBalance) + totalSales - totalPayouts - totalDrops;
-
-      // Find cash since last transaction (Collection or Payout)
-      const lastTx = transactions[0];
-      const lastTxTime = lastTx ? new Date(lastTx.createdAt!) : new Date(shift.startTime!);
-      const cashSinceLastTx = shiftInvoices
-        .filter(inv => new Date(inv.issueDate) > lastTxTime)
-        .reduce((sum, inv) => sum + Number(inv.total), 0);
-
-      const company = await storage.getCompany(shift.companyId);
-      const companyBaseCurrency = await db.query.currencies.findFirst({
-        where: and(eq(currencies.companyId, shift.companyId), eq(currencies.isBase, true))
-      });
-
-      res.json({
-        totalSales: totalSales.toFixed(2),
-        totalPayouts: totalPayouts.toFixed(2),
-        totalDrops: totalDrops.toFixed(2),
-        expectedCash: expectedCash.toFixed(2),
-        cashSinceLastTx: cashSinceLastTx.toFixed(2),
-        lastTxTime: lastTx ? lastTx.createdAt : null,
-        openingBalance: Number(shift.openingBalance).toFixed(2),
-        currency: shiftInvoices[0]?.currency || companyBaseCurrency?.code || "USD" 
-      });
+      const summary = await buildShiftSummary(shiftId);
+      if (!summary) return res.status(404).json({ message: "Shift not found" });
+      res.json(summary);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -1931,18 +2032,65 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/companies/:companyId/export/:kind", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const kind = String(req.params.kind || "").toLowerCase();
+      const rows =
+        kind === "sales"
+          ? await db.select().from(invoices).where(eq(invoices.companyId, companyId)).orderBy(desc(invoices.createdAt))
+          : kind === "inventory"
+            ? await db.select().from(inventoryTransactions).where(eq(inventoryTransactions.companyId, companyId)).orderBy(desc(inventoryTransactions.createdAt))
+            : kind === "expenses"
+              ? await db.select().from(expenses).where(eq(expenses.companyId, companyId)).orderBy(desc(expenses.expenseDate))
+              : null;
+
+      if (!rows) {
+        return res.status(400).json({ message: "Unsupported export. Use sales, inventory, or expenses." });
+      }
+
+      const csv = rows.length === 0
+        ? ""
+        : [
+            Object.keys(rows[0] as any).join(","),
+            ...rows.map((row: any) => Object.values(row).map((value) => {
+              const text = value == null ? "" : value instanceof Date ? value.toISOString() : String(value);
+              return `"${text.replace(/"/g, '""')}"`;
+            }).join(","))
+          ].join("\n");
+
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="${kind}-export-${companyId}.csv"`);
+      res.send(csv);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to export data" });
+    }
+  });
+
   app.post("/api/pos/inventory/adjust", requireAuth, async (req, res) => {
     try {
+      const idempotencyKey = await sendIdempotentHit(req, res);
+      if (idempotencyKey === false) return;
       const { productId, variationId, companyId, type = "ADJUSTMENT", quantityChange, unitCost, referenceId, notes } = req.body;
       const amount = Number(quantityChange);
       
       if (isNaN(amount)) {
         return res.status(400).json({ message: "Invalid quantity change" });
       }
+      if (amount === 0) {
+        return res.status(400).json({ message: "Quantity change must not be zero" });
+      }
+      if (!notes || String(notes).trim().length < 5) {
+        return res.status(400).json({ message: "Stock adjustments require a clear reason or reference." });
+      }
+      const allowedTypes = new Set(["ADJUSTMENT", "DAMAGE", "LOSS", "FOUND", "COUNT_CORRECTION"]);
+      if (!allowedTypes.has(String(type))) {
+        return res.status(400).json({ message: "Invalid stock adjustment type" });
+      }
 
       // Fetch the product directly to get current stock
-      const products = await storage.getProductsForCompany ? await storage.getProductsForCompany(companyId) : await storage.getProducts(companyId);
-      const product = products.find(p => p.id === productId);
+      const productList = await storage.getProducts(companyId);
+      const product = productList.find((p: any) => p.id === productId);
       if (!product) return res.status(404).json({ message: "Product not found" });
 
       const currentStock = Number(product.stockLevel || 0);
@@ -1967,7 +2115,7 @@ export async function registerRoutes(
         notes: notes || "Manual stock adjustment"
       });
 
-      res.json(updatedProduct);
+      sendIdempotent(req, res, idempotencyKey, 200, updatedProduct);
     } catch (error: any) {
       console.error("[Inventory Adjust]", error);
       res.status(500).json({ message: "Failed to adjust stock", details: error.message });
@@ -4115,7 +4263,7 @@ export async function registerRoutes(
   });
 
   app.post("/api/companies/:companyId/inventory/stock-in", requireAuth, async (req, res) => {
-    const { productId, quantity, unitCost, supplierId, notes } = req.body;
+    const { productId, quantity, unitCost, supplierId, notes, landedCost } = req.body;
     const { recordStockIn } = await import("./lib/inventory.js");
 
     await recordStockIn(
@@ -4124,24 +4272,128 @@ export async function registerRoutes(
       parseFloat(unitCost),
       Number(req.params.companyId),
       supplierId ? Number(supplierId) : undefined,
-      notes
+      notes,
+      landedCost ? Number(landedCost) : 0
     );
 
     res.status(201).json({ message: "Stock recorded successfully" });
   });
 
   app.post("/api/companies/:companyId/inventory/batch-stock-in", requireAuth, async (req, res) => {
-    const { items, supplierId, notes } = req.body;
+    const idempotencyKey = await sendIdempotentHit(req, res);
+    if (idempotencyKey === false) return;
+    const { items, supplierId, notes, landedCosts, allocationMethod } = req.body;
     const { recordBatchStockIn } = await import("./lib/inventory.js");
 
     await recordBatchStockIn(
       Number(req.params.companyId),
       items,
       supplierId ? Number(supplierId) : undefined,
-      notes
+      notes,
+      landedCosts ? Number(landedCosts) : 0,
+      allocationMethod || "value"
     );
 
-    res.status(201).json({ message: "Batch stock recorded successfully" });
+    sendIdempotent(req, res, idempotencyKey, 201, { message: "Batch stock recorded successfully" });
+  });
+
+  app.post("/api/companies/:companyId/inventory/transfers", requireAuth, async (req, res) => {
+    try {
+      const idempotencyKey = await sendIdempotentHit(req, res);
+      if (idempotencyKey === false) return;
+      const companyId = Number(req.params.companyId);
+      const { fromBranchId, toBranchId, items, notes } = req.body || {};
+
+      if (!fromBranchId || !toBranchId || Number(fromBranchId) === Number(toBranchId)) {
+        return res.status(400).json({ message: "Select different source and destination branches." });
+      }
+      if (!Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ message: "Add at least one product to transfer." });
+      }
+
+      const referenceId = `TRF-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+
+      await db.transaction(async (tx) => {
+        for (const raw of items) {
+          const productId = Number(raw.productId);
+          const quantity = Number(raw.quantity);
+          if (!productId || !Number.isFinite(quantity) || quantity <= 0) {
+            throw new Error("Each transfer line needs a product and positive quantity.");
+          }
+
+          const [source] = await tx
+            .select()
+            .from(branchStocks)
+            .where(and(eq(branchStocks.branchId, Number(fromBranchId)), eq(branchStocks.productId, productId)))
+            .limit(1);
+          const sourceStock = Number(source?.stockLevel || 0);
+          if (sourceStock < quantity) {
+            throw new Error(`Insufficient branch stock for product ${productId}. Available ${sourceStock}, requested ${quantity}.`);
+          }
+
+          await tx
+            .update(branchStocks)
+            .set({ stockLevel: (sourceStock - quantity).toString() })
+            .where(eq(branchStocks.id, source.id));
+
+          const [destination] = await tx
+            .select()
+            .from(branchStocks)
+            .where(and(eq(branchStocks.branchId, Number(toBranchId)), eq(branchStocks.productId, productId)))
+            .limit(1);
+
+          if (destination) {
+            await tx
+              .update(branchStocks)
+              .set({ stockLevel: (Number(destination.stockLevel || 0) + quantity).toString() })
+              .where(eq(branchStocks.id, destination.id));
+          } else {
+            await tx.insert(branchStocks).values({
+              branchId: Number(toBranchId),
+              productId,
+              stockLevel: quantity.toString(),
+            });
+          }
+
+          const [product] = await tx.select({ costPrice: products.costPrice }).from(products).where(eq(products.id, productId)).limit(1);
+          const unitCost = Number(raw.unitCost ?? product?.costPrice ?? 0);
+          const baseNotes = `${notes || "Branch stock transfer"}; from branch ${fromBranchId} to branch ${toBranchId}`;
+
+          await tx.insert(inventoryTransactions).values({
+            companyId,
+            branchId: Number(fromBranchId),
+            productId,
+            type: "TRANSFER_OUT",
+            quantity: (-quantity).toString(),
+            unitCost: unitCost.toString(),
+            totalCost: (quantity * unitCost).toString(),
+            referenceType: "TRANSFER",
+            referenceId,
+            notes: baseNotes,
+            createdBy: (req.user as any)?.id,
+            remainingQuantity: "0",
+          });
+          await tx.insert(inventoryTransactions).values({
+            companyId,
+            branchId: Number(toBranchId),
+            productId,
+            type: "TRANSFER_IN",
+            quantity: quantity.toString(),
+            unitCost: unitCost.toString(),
+            totalCost: (quantity * unitCost).toString(),
+            referenceType: "TRANSFER",
+            referenceId,
+            notes: baseNotes,
+            createdBy: (req.user as any)?.id,
+            remainingQuantity: quantity.toString(),
+          });
+        }
+      });
+
+      sendIdempotent(req, res, idempotencyKey, 201, { message: "Stock transfer completed", referenceId });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message || "Failed to transfer stock" });
+    }
   });
 
   app.get("/api/companies/:companyId/grvs", requireAuth, async (req, res) => {
@@ -4692,6 +4944,8 @@ export async function registerRoutes(
 
   app.post(api.invoices.create.path, requireAuth, async (req, res) => {
     try {
+      const idempotencyKey = await sendIdempotentHit(req, res);
+      if (idempotencyKey === false) return;
       const perfStart = Date.now();
       const perfMarks: Array<{ step: string; ms: number }> = [];
       const markPerf = (step: string) => {
@@ -4867,7 +5121,7 @@ export async function registerRoutes(
 
       markPerf("response_ready");
       flushPerf("ok", { invoiceId: invoice.id });
-      res.status(201).json(invoice);
+      sendIdempotent(req, res, idempotencyKey, 201, invoice);
     } catch (err) {
       console.error("[POS_PERF] createInvoice error", err);
       if (err instanceof z.ZodError) {
@@ -5149,6 +5403,8 @@ export async function registerRoutes(
   // Create Credit Note
   app.post("/api/invoices/:id/credit-note", requireAuth, async (req, res) => {
     try {
+      const idempotencyKey = await sendIdempotentHit(req, res);
+      if (idempotencyKey === false) return;
       const id = Number(req.params.id);
       const originalInvoice = await storage.getInvoice(id);
 
@@ -5191,13 +5447,72 @@ export async function registerRoutes(
         notes: reason || undefined,
         items: noteItems,
         isPos: !!isPos,
-        createdBy: (req.user as any)?.id // Tie to the current user's shift if POS
+        createdBy: (req.user as any)?.id,
+        shiftId: isPos ? (await storage.getActivePosShift(originalInvoice.companyId, (req.user as any)?.id, getBranchId(req)))?.id : undefined
       });
 
-      res.status(201).json(cn);
+      sendIdempotent(req, res, idempotencyKey, 201, cn);
     } catch (err: any) {
       console.error("Create Credit Note Error:", err);
       res.status(500).json({ message: "Failed to create credit note" });
+    }
+  });
+
+  app.post("/api/invoices/:id/void", requireAuth, async (req, res) => {
+    try {
+      const idempotencyKey = await sendIdempotentHit(req, res);
+      if (idempotencyKey === false) return;
+      const id = Number(req.params.id);
+      const originalInvoice = await storage.getInvoice(id);
+      if (!originalInvoice) return res.status(404).json({ message: "Invoice not found" });
+
+      const reason = req.body?.reason || "Void transaction";
+      if (originalInvoice.status === "draft" || originalInvoice.status === "quote") {
+        const cancelled = await storage.updateInvoice(id, { status: "cancelled", notes: reason } as any);
+        return sendIdempotent(req, res, idempotencyKey, 200, { invoice: cancelled, action: "cancelled" });
+      }
+
+      if (originalInvoice.status !== "issued" && originalInvoice.status !== "paid") {
+        return res.status(400).json({ message: "Only draft, issued, or paid transactions can be voided." });
+      }
+
+      const activeShift = originalInvoice.isPos
+        ? await storage.getActivePosShift(originalInvoice.companyId, (req.user as any)?.id, getBranchId(req))
+        : null;
+      const noteItems = originalInvoice.items.map((item: any) => ({
+        productId: item.productId,
+        description: item.description,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        taxRate: item.taxRate,
+        taxTypeId: item.taxTypeId,
+        lineTotal: item.lineTotal
+      }));
+
+      const creditNote = await storage.createInvoice({
+        companyId: originalInvoice.companyId,
+        customerId: originalInvoice.customerId,
+        issueDate: new Date(),
+        dueDate: new Date(),
+        subtotal: originalInvoice.subtotal,
+        taxAmount: originalInvoice.taxAmount,
+        total: originalInvoice.total,
+        status: "draft",
+        taxInclusive: originalInvoice.taxInclusive,
+        currency: originalInvoice.currency,
+        transactionType: "CreditNote",
+        relatedInvoiceId: originalInvoice.id,
+        notes: reason,
+        items: noteItems,
+        isPos: !!originalInvoice.isPos,
+        createdBy: (req.user as any)?.id,
+        shiftId: activeShift?.id || undefined,
+      });
+
+      sendIdempotent(req, res, idempotencyKey, 201, { creditNote, action: "credit_note_required" });
+    } catch (err: any) {
+      console.error("Void Transaction Error:", err);
+      res.status(500).json({ message: "Failed to void transaction" });
     }
   });
 
@@ -5593,8 +5908,8 @@ export async function registerRoutes(
         .from(expensesTable)
         .where(and(
           eq(expensesTable.companyId, companyId),
-          gte(expensesTable.date, startDate),
-          lte(expensesTable.date, endDate),
+          gte(expensesTable.expenseDate, startDate),
+          lte(expensesTable.expenseDate, endDate),
         ))
         .groupBy(expensesTable.category);
 
@@ -5604,10 +5919,57 @@ export async function registerRoutes(
         amount: Number(r.total)
       }));
 
+      const stockInRows = await db
+        .select({ total: sql<number>`coalesce(sum(${inventoryTransactions.totalCost}), 0)` })
+        .from(inventoryTransactions)
+        .where(and(
+          eq(inventoryTransactions.companyId, companyId),
+          eq(inventoryTransactions.type, 'STOCK_IN'),
+          gte(inventoryTransactions.createdAt, startDate),
+          lte(inventoryTransactions.createdAt, endDate),
+        ));
+      const purchases = Number(stockInRows[0]?.total || 0);
+
+      const stockValueRows = await db
+        .select({ total: sql<number>`coalesce(sum(${products.stockLevel} * coalesce(${products.costPrice}, 0)), 0)` })
+        .from(products)
+        .where(and(
+          eq(products.companyId, companyId),
+          ne(products.isActive, false)
+        ));
+      const closingStock = Number(stockValueRows[0]?.total || 0);
+
       const grossProfit = revenue - cogs;
       const netProfit = grossProfit - totalExpenses;
 
-      res.json({ revenue, cogs, grossProfit, expenses: totalExpenses, netProfit, expenseBreakdown });
+      res.json({
+        revenue,
+        cogs,
+        grossProfit,
+        expenses: totalExpenses,
+        netProfit,
+        expenseBreakdown,
+        grossMarginPercent: revenue > 0 ? (grossProfit / revenue) * 100 : 0,
+        netProfitPercent: revenue > 0 ? (netProfit / revenue) * 100 : 0,
+        pnl: {
+          revenue: {
+            grossSales: revenue,
+            discounts: 0,
+            returns: 0,
+            netSales: revenue,
+          },
+          costOfGoodsSold: {
+            openingStock: 0,
+            purchases,
+            landedCosts: 0,
+            closingStock,
+            totalCogs: cogs,
+          },
+          grossProfit,
+          expenses: expenseBreakdown,
+          netProfit,
+        },
+      });
     } catch (err: any) {
       console.error("Financial Summary Error:", err);
       res.status(500).json({ message: err.message });
@@ -6523,11 +6885,13 @@ export async function registerRoutes(
 
   app.post("/api/stock-takes/:id/complete", requireAuth, async (req, res) => {
     try {
+      const idempotencyKey = await sendIdempotentHit(req, res);
+      if (idempotencyKey === false) return;
       const id = parseInt(req.params.id);
       const { companyId } = req.body;
       const { processStockTake } = await import("./lib/inventory.js");
       await processStockTake(id, companyId);
-      res.json({ message: "Stock take completed and inventory adjusted" });
+      sendIdempotent(req, res, idempotencyKey, 200, { message: "Stock take completed and inventory adjusted" });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -6538,11 +6902,15 @@ export async function registerRoutes(
   // Reconcile / Close POS Shift
   app.post("/api/pos/shifts/:id/close", requireAuth, async (req, res) => {
     try {
+      const idempotencyKey = await sendIdempotentHit(req, res);
+      if (idempotencyKey === false) return;
       const shiftId = Number(req.params.id);
-      const { actualCash, notes, reconciledBy } = req.body;
-      const parsedCash = actualCash === undefined || actualCash === null ? Number.NaN : Number(actualCash);
+      const { actualCash, closingBalance, notes, reconciledBy } = req.body;
+      const cashAmount = actualCash !== undefined ? actualCash : closingBalance;
+      const parsedCash = cashAmount === undefined || cashAmount === null ? Number.NaN : Number(cashAmount);
       const shift = await endPosShift(shiftId, parsedCash, notes, reconciledBy);
-      res.json(shift);
+      const summary = await buildShiftSummary(shiftId);
+      sendIdempotent(req, res, idempotencyKey, 200, { shift, summary });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -7196,3 +7564,4 @@ async function seedDatabase() {
     // Create seed logic here if needed
   }
 }
+

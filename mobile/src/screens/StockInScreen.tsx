@@ -5,7 +5,7 @@ import {
   KeyboardAvoidingView, Platform,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Menu, Search, Package, ChevronDown, Plus, X, Users } from "lucide-react-native";
+import { Menu, Search, Package, ChevronDown, Plus, X, Users, Trash2 } from "lucide-react-native";
 import { StatusBar } from "expo-status-bar";
 import { useProducts, useSuppliers } from "../hooks/usePosData";
 import { apiFetch } from "../lib/api";
@@ -27,6 +27,9 @@ export function StockInScreen({ onOpenDrawer, onClose, companyId }: Props) {
   const [supplierSearch, setSupplierSearch] = useState("");
   const [quantity, setQuantity] = useState("");
   const [unitCost, setUnitCost] = useState("");
+  const [grvItems, setGrvItems] = useState<any[]>([]);
+  const [landedCosts, setLandedCosts] = useState("");
+  const [allocationMethod, setAllocationMethod] = useState<"value" | "quantity" | "manual">("value");
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [importCompleted, setImportCompleted] = useState(false);
@@ -43,26 +46,30 @@ export function StockInScreen({ onOpenDrawer, onClose, companyId }: Props) {
     if (!p.isTracked) return false;
     if (!productSearch) return true;
     const searchLower = productSearch.toLowerCase();
-    return (p.name?.toLowerCase().includes(searchLower) ?? false) || (p.sku?.toLowerCase().includes(searchLower) ?? false);
+    return (p.name?.toLowerCase().includes(searchLower) ?? false) ||
+      (p.sku?.toLowerCase().includes(searchLower) ?? false) ||
+      (p.barcode?.toLowerCase().includes(searchLower) ?? false);
   });
 
   const handleSubmit = useCallback(async () => {
     if (importCompleted) return;
-    if (!selectedProduct) return Alert.alert("Error", "Please select a product");
-    const qty = parseFloat(quantity);
-    if (!qty || qty <= 0) return Alert.alert("Error", "Please enter a valid quantity");
-    const cost = parseFloat(unitCost);
-    if (!cost || cost < 0) return Alert.alert("Error", "Please enter a valid unit cost");
+    if (grvItems.length === 0) return Alert.alert("Error", "Add at least one product line to the GRV.");
 
     setSaving(true);
     try {
-      const res = await apiFetch(`/api/companies/${companyId}/inventory/stock-in`, {
+      const res = await apiFetch(`/api/companies/${companyId}/inventory/batch-stock-in`, {
         method: "POST",
+        headers: { "Idempotency-Key": `grv-${companyId}-${Date.now()}` },
         body: JSON.stringify({
-          productId: selectedProduct.id,
-          quantity: qty,
-          unitCost: cost,
+          items: grvItems.map((item) => ({
+            productId: item.product.id,
+            quantity: item.quantity,
+            unitCost: item.unitCost,
+            landedCost: item.landedCost || 0,
+          })),
           supplierId: selectedSupplier?.id,
+          landedCosts: Number(landedCosts || 0),
+          allocationMethod,
           notes: notes.trim() || undefined,
         }),
       });
@@ -77,9 +84,37 @@ export function StockInScreen({ onOpenDrawer, onClose, companyId }: Props) {
     } catch (e: any) {
       Alert.alert("Error", e.message);
     } finally { setSaving(false); }
-  }, [selectedProduct, quantity, unitCost, notes, companyId, importCompleted, onClose]);
+  }, [allocationMethod, grvItems, landedCosts, selectedSupplier, notes, companyId, importCompleted, onClose]);
 
-  const currentStock = Number(selectedProduct?.stockLevel || 0);
+  const currentStock = Number(selectedProduct?.branchStock ?? selectedProduct?.stockLevel ?? 0);
+  const baseTotal = grvItems.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unitCost || 0), 0);
+  const landedTotal = Number(landedCosts || 0);
+  const effectiveLandedTotal = allocationMethod === "manual"
+    ? grvItems.reduce((sum, item) => sum + Number(item.landedCost || 0), 0)
+    : landedTotal;
+  const grvTotal = baseTotal + effectiveLandedTotal;
+  const addLine = () => {
+    if (!selectedProduct) return Alert.alert("Product", "Select a product first.");
+    const qty = parseFloat(quantity);
+    if (!qty || qty <= 0) return Alert.alert("Quantity", "Enter a valid quantity.");
+    const cost = parseFloat(unitCost);
+    if (!Number.isFinite(cost) || cost < 0) return Alert.alert("Unit cost", "Enter a valid unit cost.");
+    setGrvItems((items) => [
+      ...items,
+      { product: selectedProduct, quantity: qty, unitCost: cost, landedCost: 0 },
+    ]);
+    setSelectedProduct(null);
+    setQuantity("");
+    setUnitCost("");
+  };
+  const lineAllocatedCost = (item: any) => {
+    if (allocationMethod === "manual") return Number(item.landedCost || 0);
+    if (allocationMethod === "quantity") {
+      const totalQty = grvItems.reduce((sum, row) => sum + Number(row.quantity || 0), 0);
+      return totalQty > 0 ? landedTotal * (Number(item.quantity || 0) / totalQty) : 0;
+    }
+    return baseTotal > 0 ? landedTotal * ((Number(item.quantity || 0) * Number(item.unitCost || 0)) / baseTotal) : 0;
+  };
   const styles = makeStyles(C, isDark, insets);
 
   return (
@@ -88,25 +123,12 @@ export function StockInScreen({ onOpenDrawer, onClose, companyId }: Props) {
       <View style={{ flex: 1 }}>
         <View style={styles.header}>
           <TouchableOpacity onPress={onOpenDrawer} style={styles.iconBtn}><Menu size={20} color={C.text.primary} /></TouchableOpacity>
-          <Text style={styles.title}>Stock In</Text>
+          <Text style={styles.title}>Create GRV</Text>
           <View style={{ width: 44 }} />
         </View>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
           <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
-            <Text style={styles.label}>Select Product *</Text>
-            <TouchableOpacity style={[styles.selector, importCompleted && { opacity: 0.6 }]} onPress={() => !importCompleted && setShowPicker(true)}>
-              {selectedProduct ? (
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                  <Package size={18} color={C.amber.primary} />
-                  <Text style={styles.selectorText} numberOfLines={1}>{selectedProduct.name} ({selectedProduct.sku})</Text>
-                </View>
-              ) : (
-                <Text style={[styles.selectorText, { color: C.text.secondary }]}>Tap to select product...</Text>
-              )}
-              <ChevronDown size={18} color={C.text.secondary} />
-            </TouchableOpacity>
-
-            <Text style={styles.label}>Select Supplier</Text>
+            <Text style={styles.label}>Supplier</Text>
             <TouchableOpacity style={[styles.selector, importCompleted && { opacity: 0.6 }]} onPress={() => !importCompleted && setShowSupplierPicker(true)}>
               {selectedSupplier ? (
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
@@ -115,6 +137,19 @@ export function StockInScreen({ onOpenDrawer, onClose, companyId }: Props) {
                 </View>
               ) : (
                 <Text style={[styles.selectorText, { color: C.text.secondary }]}>Tap to select supplier (optional)...</Text>
+              )}
+              <ChevronDown size={18} color={C.text.secondary} />
+            </TouchableOpacity>
+
+            <Text style={styles.label}>Add Product Line</Text>
+            <TouchableOpacity style={[styles.selector, importCompleted && { opacity: 0.6 }]} onPress={() => !importCompleted && setShowPicker(true)}>
+              {selectedProduct ? (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                  <Package size={18} color={C.amber.primary} />
+                  <Text style={styles.selectorText} numberOfLines={1}>{selectedProduct.name} ({selectedProduct.sku})</Text>
+                </View>
+              ) : (
+                <Text style={[styles.selectorText, { color: C.text.secondary }]}>Tap to select product...</Text>
               )}
               <ChevronDown size={18} color={C.text.secondary} />
             </TouchableOpacity>
@@ -129,6 +164,27 @@ export function StockInScreen({ onOpenDrawer, onClose, companyId }: Props) {
                   <TextInput style={styles.input} keyboardType="numeric" placeholder="0.00" placeholderTextColor={C.text.secondary} value={unitCost} onChangeText={setUnitCost} editable={!importCompleted} />
                </View>
             </View>
+            <TouchableOpacity style={styles.addLineBtn} onPress={addLine} disabled={importCompleted}>
+              <Plus size={18} color={C.amber.primary} />
+              <Text style={styles.addLineText}>Add product to GRV</Text>
+            </TouchableOpacity>
+
+            <Text style={styles.label}>Landed Costs</Text>
+            <TextInput style={styles.input} keyboardType="numeric" placeholder="Transport, duty, handling..." placeholderTextColor={C.text.secondary} value={landedCosts} onChangeText={setLandedCosts} editable={!importCompleted} />
+            <View style={styles.methodRow}>
+              {(["value", "quantity", "manual"] as const).map((method) => (
+                <TouchableOpacity
+                  key={method}
+                  onPress={() => setAllocationMethod(method)}
+                  style={[styles.methodChip, allocationMethod === method && styles.methodChipActive]}
+                >
+                  <Text style={[styles.methodText, allocationMethod === method && styles.methodTextActive]}>{method}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            {allocationMethod === "manual" && grvItems.length > 0 && (
+              <Text style={styles.hintText}>Manual allocation uses each line's landed cost value below.</Text>
+            )}
             
             <Text style={styles.label}>Notes</Text>
             <TextInput style={[styles.input, { height: 80, textAlignVertical: "top", paddingTop: 12 }]} multiline placeholder="Optional notes..." placeholderTextColor={C.text.secondary} value={notes} onChangeText={setNotes} editable={!importCompleted} />
@@ -139,20 +195,42 @@ export function StockInScreen({ onOpenDrawer, onClose, companyId }: Props) {
               </View>
             )}
 
-            {selectedProduct && quantity ? (
+            {grvItems.length > 0 ? (
               <View style={styles.summaryCard}>
-                <Text style={styles.summaryTitle}>Summary</Text>
-                <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Product</Text><Text style={styles.summaryValue}>{selectedProduct.name}</Text></View>
-                <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Current Stock</Text><Text style={styles.summaryValue}>{currentStock}</Text></View>
-                <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Adding</Text><Text style={[styles.summaryValue, { color: C.status.success }]}>+{quantity}</Text></View>
+                <Text style={styles.summaryTitle}>GRV Lines</Text>
+                {grvItems.map((item, index) => {
+                  const allocated = lineAllocatedCost(item);
+                  const effective = (Number(item.quantity) * Number(item.unitCost)) + allocated;
+                  return (
+                    <View key={`${item.product.id}-${index}`} style={styles.grvLine}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.summaryValue}>{item.product.name}</Text>
+                        <Text style={styles.summaryLabel}>{item.quantity} x ${Number(item.unitCost).toFixed(2)} + landed ${allocated.toFixed(2)}</Text>
+                        {allocationMethod === "manual" && (
+                          <TextInput
+                            style={[styles.input, { height: 42, marginTop: 8 }]}
+                            keyboardType="numeric"
+                            placeholder="Line landed cost"
+                            placeholderTextColor={C.text.secondary}
+                            value={String(item.landedCost || "")}
+                            onChangeText={(value) => setGrvItems((rows) => rows.map((row, i) => i === index ? { ...row, landedCost: Number(value || 0) } : row))}
+                          />
+                        )}
+                      </View>
+                      <View style={{ alignItems: "flex-end", gap: 8 }}>
+                        <Text style={[styles.summaryValue, { color: C.amber.primary }]}>${effective.toFixed(2)}</Text>
+                        <TouchableOpacity onPress={() => setGrvItems((rows) => rows.filter((_, i) => i !== index))}>
+                          <Trash2 size={16} color={C.status.error} />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  );
+                })}
                 <View style={styles.summaryDivider} />
-                <View style={styles.summaryRow}>
-                  <Text style={[styles.summaryLabel, { fontWeight: "800" }]}>New Stock</Text>
-                  <Text style={[styles.summaryValue, { fontWeight: "900", color: C.amber.primary, fontSize: 16 }]}>{currentStock + parseFloat(quantity || "0")}</Text>
-                </View>
-                {unitCost ? (
-                  <View style={[styles.summaryRow, { marginTop: 4 }]}><Text style={styles.summaryLabel}>Total Cost</Text><Text style={styles.summaryValue}>${(parseFloat(quantity || "0") * parseFloat(unitCost || "0")).toFixed(2)}</Text></View>
-                ) : null}
+                <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Products</Text><Text style={styles.summaryValue}>{grvItems.length}</Text></View>
+                <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Product Cost</Text><Text style={styles.summaryValue}>${baseTotal.toFixed(2)}</Text></View>
+                <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Landed Cost</Text><Text style={styles.summaryValue}>${effectiveLandedTotal.toFixed(2)}</Text></View>
+                <View style={styles.summaryRow}><Text style={[styles.summaryLabel, { fontWeight: "900" }]}>Inventory Value</Text><Text style={[styles.summaryValue, { color: C.amber.primary, fontSize: 16 }]}>${grvTotal.toFixed(2)}</Text></View>
               </View>
             ) : null}
           </ScrollView>
@@ -162,7 +240,7 @@ export function StockInScreen({ onOpenDrawer, onClose, companyId }: Props) {
               {saving ? <ActivityIndicator color="#000" /> : (
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
                   <Plus size={20} color="#000" />
-                  <Text style={styles.submitBtnText}>{importCompleted ? "Imported" : "Receive Stock"}</Text>
+                  <Text style={styles.submitBtnText}>{importCompleted ? "Posted" : "Post GRV"}</Text>
                 </View>
               )}
             </TouchableOpacity>
@@ -182,7 +260,7 @@ export function StockInScreen({ onOpenDrawer, onClose, companyId }: Props) {
               </View>
               <View style={styles.searchBar}>
                 <Search size={18} color={C.text.secondary} />
-                <TextInput style={styles.searchInput} placeholder="Search by name or SKU..." placeholderTextColor={C.text.secondary} value={productSearch} onChangeText={setProductSearch} />
+                <TextInput style={styles.searchInput} placeholder="Scan barcode, name, or SKU..." placeholderTextColor={C.text.secondary} value={productSearch} onChangeText={setProductSearch} />
               </View>
               {isLoading ? (
                 <ActivityIndicator color={C.amber.primary} style={{ padding: 40 }} />
@@ -199,7 +277,7 @@ export function StockInScreen({ onOpenDrawer, onClose, companyId }: Props) {
                         <Text style={styles.pickerItemSub}>SKU: {item.sku}</Text>
                       </View>
                       <View style={{ alignItems: "flex-end" }}>
-                        <Text style={styles.pickerStockText}>Stock: {Number(item.stockLevel || 0)}</Text>
+                        <Text style={styles.pickerStockText}>Branch stock: {Number(item.branchStock ?? item.stockLevel ?? 0)}</Text>
                         <Text style={styles.pickerPriceText}>Cost: ${Number(item.costPrice || 0).toFixed(2)}</Text>
                       </View>
                     </TouchableOpacity>
@@ -286,6 +364,15 @@ const makeStyles = (C: any, isDark: boolean, insets: any) => StyleSheet.create({
   summaryDivider: { height: 1, backgroundColor: C.bg.glassBorder, marginVertical: 10 },
   successBadge: { marginTop: 16, backgroundColor: hexAlpha(C.status.success, 0.08), borderWidth: 1, borderColor: hexAlpha(C.status.success, 0.2), padding: 14, borderRadius: 12 },
   successBadgeText: { color: C.status.success, fontSize: 13, fontWeight: "800", textAlign: "center" },
+  addLineBtn: { marginTop: 14, height: 48, borderRadius: 14, borderWidth: 1, borderColor: C.amber.primary, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, backgroundColor: hexAlpha(C.amber.primary, 0.08) },
+  addLineText: { color: C.amber.primary, fontWeight: "900", fontSize: 13, textTransform: "uppercase" },
+  methodRow: { flexDirection: "row", gap: 8, marginTop: 10 },
+  methodChip: { flex: 1, alignItems: "center", paddingVertical: 10, borderRadius: 12, backgroundColor: C.bg.panel, borderWidth: 1, borderColor: C.bg.glassBorder },
+  methodChipActive: { borderColor: C.amber.primary, backgroundColor: hexAlpha(C.amber.primary, 0.12) },
+  methodText: { color: C.text.secondary, fontSize: 11, fontWeight: "900", textTransform: "uppercase" },
+  methodTextActive: { color: C.amber.primary },
+  hintText: { color: C.text.secondary, fontSize: 12, fontWeight: "600", marginTop: 8 },
+  grvLine: { flexDirection: "row", justifyContent: "space-between", gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.bg.glassBorder },
   footer: { paddingHorizontal: 20, paddingBottom: Math.max(insets.bottom, 20), paddingTop: 16, borderTopWidth: 1, borderTopColor: C.bg.glassBorder },
   submitBtn: { backgroundColor: C.amber.primary, borderRadius: 16, paddingVertical: 18, alignItems: "center", shadowColor: C.amber.primary, shadowOpacity: 0.35, shadowRadius: 15, shadowOffset: { width: 0, height: 8 }, elevation: 8 },
   submitBtnDisabled: { opacity: 0.5 },

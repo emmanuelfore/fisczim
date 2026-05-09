@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from "react";
 import {
   View, Text, FlatList, TouchableOpacity, TextInput,
-  StyleSheet, ActivityIndicator, Alert, Platform,
+  StyleSheet, ActivityIndicator, Alert, Platform, Share,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -12,7 +12,7 @@ import {
 import { StatusBar } from "expo-status-bar";
 import { Modal, ScrollView } from "react-native";
 import { usePosSales, useInvoiceItems, useCurrencies, useCompany, useProducts } from "../hooks/usePosData";
-import { apiJson } from "../lib/api";
+import { apiFetch, apiJson } from "../lib/api";
 import { printReceipt, printToBluetooth } from "../lib/printing";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import NetInfo from "@react-native-community/netinfo";
@@ -33,6 +33,9 @@ const getStyles = (C: any) => StyleSheet.create({
   tabText: { color: C.text.secondary, fontSize: 13, fontWeight: "700" },
   tabTextActive: { color: C.amber.primary, fontWeight: "800" },
   filterRow: { flexDirection: "row", justifyContent: "space-between", gap: 8 },
+  exportRow: { flexDirection: "row", gap: 8, marginBottom: 10 },
+  exportBtn: { flex: 1, minHeight: 38, borderRadius: 12, backgroundColor: C.bg.card, borderWidth: 1, borderColor: C.border.default, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 6, paddingHorizontal: 8 },
+  exportText: { color: C.text.primary, fontSize: 11, fontWeight: "800" },
   periodBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 12, backgroundColor: C.bg.card, shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 5, shadowOffset: { width: 0, height: 2 }, elevation: 2, flex: 1 },
   periodText: { color: C.text.primary, fontSize: 12, fontWeight: "600", flex: 1 },
   customDateRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10 },
@@ -201,10 +204,11 @@ interface ExpandedSaleContentProps {
   isPrinting: boolean;
   onCreditNote?: (sale: any, items: any[]) => void;
   onDebitNote?: (sale: any, items: any[]) => void;
+  onVoid?: (sale: any) => void;
   isPrintingEnabled?: boolean;
 }
 
-function ExpandedSaleContent({ sale, currencySymbols, onReprint, isPrinting, onCreditNote, onDebitNote, isPrintingEnabled }: ExpandedSaleContentProps) {
+function ExpandedSaleContent({ sale, currencySymbols, onReprint, isPrinting, onCreditNote, onDebitNote, onVoid, isPrintingEnabled }: ExpandedSaleContentProps) {
   const { theme: C } = useTheme();
   const styles = getStyles(C);
   const { data: items, isLoading } = useInvoiceItems(sale.id);
@@ -238,7 +242,7 @@ function ExpandedSaleContent({ sale, currencySymbols, onReprint, isPrinting, onC
                 paddingHorizontal: 8, paddingVertical: 5, borderRadius: 8,
                 backgroundColor: hexAlpha(C.amber.primary, 0.1), borderWidth: 1, borderColor: hexAlpha(C.amber.primary, 0.3)
               }}>
-              <Text style={{ color: C.amber.primary, fontSize: 10, fontWeight: "700" }}>CN</Text>
+              <Text style={{ color: C.amber.primary, fontSize: 10, fontWeight: "700" }}>Refund</Text>
             </TouchableOpacity>
           )}
           {canIssueNote && onDebitNote && (
@@ -249,7 +253,18 @@ function ExpandedSaleContent({ sale, currencySymbols, onReprint, isPrinting, onC
                 paddingHorizontal: 8, paddingVertical: 5, borderRadius: 8,
                 backgroundColor: hexAlpha(C.status.info, 0.1), borderWidth: 1, borderColor: hexAlpha(C.status.info, 0.3)
               }}>
-              <Text style={{ color: C.status.info, fontSize: 10, fontWeight: "700" }}>DN</Text>
+              <Text style={{ color: C.status.info, fontSize: 10, fontWeight: "700" }}>Charge</Text>
+            </TouchableOpacity>
+          )}
+          {canIssueNote && onVoid && (
+            <TouchableOpacity
+              onPress={() => onVoid(sale)}
+              style={{
+                flexDirection: "row", alignItems: "center", gap: 4,
+                paddingHorizontal: 8, paddingVertical: 5, borderRadius: 8,
+                backgroundColor: hexAlpha(C.status.error, 0.1), borderWidth: 1, borderColor: hexAlpha(C.status.error, 0.3)
+              }}>
+              <Text style={{ color: C.status.error, fontSize: 10, fontWeight: "700" }}>Void</Text>
             </TouchableOpacity>
           )}
           {isPrintingEnabled && (
@@ -659,6 +674,47 @@ export function ReportsScreen({ onOpenDrawer, companyId, userRole = "member", us
 
   const { data: expandedSaleItems, isLoading: loadingExpandedSaleItems } = useInvoiceItems(expandedSaleId);
 
+  const handleExport = async (kind: "sales" | "inventory" | "expenses") => {
+    try {
+      const res = await apiFetch(`/api/companies/${companyId}/export/${kind}`);
+      if (!res.ok) throw new Error(await res.text().catch(() => "Export failed"));
+      const csv = await res.text();
+      await Share.share({
+        title: `${kind} export`,
+        message: csv || "No rows found for this export.",
+      });
+    } catch (error: any) {
+      Alert.alert("Export Failed", error.message || "Could not export data.");
+    }
+  };
+
+  const handleVoidSale = (sale: any) => {
+    Alert.alert(
+      "Void / Refund Sale",
+      "This creates a credit note for an issued or paid sale. Draft sales will be cancelled.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Void",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const res = await apiFetch(`/api/invoices/${sale.id}/void`, {
+                method: "POST",
+                headers: { "Idempotency-Key": `void-${sale.id}-${Date.now()}` },
+                body: JSON.stringify({ reason: "Voided from mobile reports" }),
+              });
+              if (!res.ok) throw new Error(await res.text().catch(() => "Could not void sale"));
+              Alert.alert("Done", "Void/refund document created.");
+            } catch (error: any) {
+              Alert.alert("Void Failed", error.message || "Could not void sale.");
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const currencySymbols = useMemo(() => {
     const map: Record<string, string> = { "USD": "$" };
     currencies?.forEach((c: any) => { map[c.code] = c.symbol; });
@@ -936,6 +992,22 @@ export function ReportsScreen({ onOpenDrawer, companyId, userRole = "member", us
       </View>
 
       <View style={{ padding: 16 }}>
+        {!isCashier && (
+          <View style={styles.exportRow}>
+            <TouchableOpacity style={styles.exportBtn} onPress={() => handleExport("sales")}>
+              <Download size={14} color={C.amber.primary} />
+              <Text style={styles.exportText}>Sales CSV</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.exportBtn} onPress={() => handleExport("inventory")}>
+              <Download size={14} color={C.amber.primary} />
+              <Text style={styles.exportText}>Stock CSV</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.exportBtn} onPress={() => handleExport("expenses")}>
+              <Download size={14} color={C.amber.primary} />
+              <Text style={styles.exportText}>Expenses CSV</Text>
+            </TouchableOpacity>
+          </View>
+        )}
         {/* Filters Row — date hidden on stock sub-tab, cashier only on sales/pnl */}
         {(showDateFilter || showCashierFilter || showOwnerGroupFilter) && (
           <View style={styles.filterRow}>
@@ -1241,6 +1313,7 @@ export function ReportsScreen({ onOpenDrawer, companyId, userRole = "member", us
                   isPrinting={isPrinting}
                   onCreditNote={(s, items) => setNoteModal({ visible: true, noteType: "credit", sale: s, items })}
                   onDebitNote={(s, items) => setNoteModal({ visible: true, noteType: "debit", sale: s, items })}
+                  onVoid={handleVoidSale}
                   isPrintingEnabled={printerConfig.enabled}
                 />
               )}

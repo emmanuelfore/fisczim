@@ -19,7 +19,7 @@ export class ReceiptTemplate {
   static formatFiscalReceipt(data: ReceiptData, options: any = {}): Uint8Array {
     const { company, branch, invoice, customer, items } = data;
     const encoder = new EscPosEncoder();
-    
+
     // Default to 32 chars (58mm) if not specified
     const width = options.width || 32;
     const autoCut = options.autoCut !== false;
@@ -41,26 +41,26 @@ export class ReceiptTemplate {
 
     // Helper for multi-line centered text
     const centerWrapped = (text: string, w: number) => {
-        const words = text.split(" ");
-        let lines: string[] = [];
-        let current = "";
-        
-        words.forEach(word => {
-            if ((current + word).length > w) {
-                if (current) lines.push(centerText(current, w));
-                current = word;
-            } else {
-                current += (current ? " " : "") + word;
-            }
-        });
-        if (current) lines.push(centerText(current, w));
-        lines.forEach(l => encoder.line(l));
+      const words = text.split(" ");
+      let lines: string[] = [];
+      let current = "";
+
+      words.forEach(word => {
+        if ((current + word).length > w) {
+          if (current) lines.push(centerText(current, w));
+          current = word;
+        } else {
+          current += (current ? " " : "") + word;
+        }
+      });
+      if (current) lines.push(centerText(current, w));
+      lines.forEach(l => encoder.line(l));
     };
 
     let documentTitle = "INVOICE";
     if (invoice.transactionType === 'CreditNote' || invoice.type === 'credit_note') documentTitle = "CREDIT NOTE";
     else if (invoice.transactionType === 'DebitNote' || invoice.type === 'debit_note') documentTitle = "DEBIT NOTE";
-    
+
     if (invoice._offline || invoice._simulation) {
       documentTitle = isVatPayer ? "FISCAL TAX INVOICE" : "FISCAL INVOICE";
     }
@@ -110,7 +110,7 @@ export class ReceiptTemplate {
     if (activeCompany.phone) encoder.line(`TEL: ${activeCompany.phone.trim()}`);
     if (activeCompany.email) encoder.line(`EMAIL: ${activeCompany.email.trim()}`);
 
-    encoder.align(TextAlignment.Left); 
+    encoder.align(TextAlignment.Left);
     encoder.separator(width);
 
     encoder.align(TextAlignment.Center);
@@ -187,7 +187,7 @@ export class ReceiptTemplate {
         const qtyS = qty.toFixed(2).padEnd(6);
         const totalS = total.toFixed(2).padStart(8);
         const vatS = vatAmount.toFixed(2).padStart(6);
-        const descMax = width - 6 - 8 - 6 - 3; 
+        const descMax = width - 6 - 8 - 6 - 3;
         const descRow = desc.substring(0, descMax).padEnd(descMax);
         encoder.line(`${qtyS}${descRow} ${vatS} ${totalS}`);
         if (desc.length > descMax) encoder.line(`      ${desc.substring(descMax)}`);

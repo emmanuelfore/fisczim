@@ -104,10 +104,6 @@ export default function ZimraLogs() {
                                 <ArrowLeft className="h-4 w-4" />
                             </Button>
                         </Link>
-                        <div>
-                            <h1 className="text-3xl font-bold tracking-tight">ZIMRA Transaction Logs</h1>
-                            <p className="text-muted-foreground">View detailed logs of all requests made to the FDMS API.</p>
-                        </div>
                     </div>
                     <Button variant="outline" onClick={() => { refetch(); refetchSeq(); }} disabled={isLoading}>
                         <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />

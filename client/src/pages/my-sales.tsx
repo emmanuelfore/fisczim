@@ -121,10 +121,6 @@ export default function MySalesPage() {
                             <ArrowLeft className="h-4 w-4" />
                         </Button>
                     </Link>
-                    <div>
-                        <h1 className="text-3xl font-display font-bold text-slate-900">My Sales History</h1>
-                        <p className="text-slate-500">Recent transactions processed by you</p>
-                    </div>
                     <div className="ml-auto flex gap-2">
                         <Button
                             variant="outline"

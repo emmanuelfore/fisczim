@@ -145,8 +145,7 @@ export function Layout({
       icon: BarChart3,
       label: "Reports",
       children: [
-        { icon: BarChart3, label: "Reports Module", href: "/reports-module" },
-        { icon: BarChart3, label: "Analytics", href: "/reports?tab=analytics" },
+        { icon: BarChart3, label: "Reports", href: "/reports" },
         { icon: Receipt, label: "Daily Sales", href: "/reports/daily" },
         { icon: TrendingUp, label: "Profit & Loss", href: "/reports/financial" },
         { icon: CreditCard, label: "Cash Collection", href: "/reports/cash-collection" },
@@ -376,13 +375,13 @@ export function Layout({
 
         {/* Primary Navigation Sidebar */}
         <aside className={cn(
-          "admin-sidebar bg-white border-r border-slate-200/60 shadow-[1px_0_10px_rgba(0,0,0,0.02)] flex shrink-0 flex-col transition-all duration-500 ease-in-out",
-          "fixed inset-y-0 left-0 z-50 lg:relative lg:inset-y-auto lg:h-auto lg:min-h-screen",
+          "admin-sidebar bg-white border-r border-slate-200/60 shadow-[1px_0_10px_rgba(0,0,0,0.02)] flex shrink-0 flex-col overflow-hidden transition-all duration-500 ease-in-out",
+          "fixed inset-y-0 left-0 z-50 lg:inset-y-0 lg:h-screen lg:max-h-screen",
           isSidebarCollapsed ? "w-20" : "w-[240px]",
           isMobileMenuOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         )}>
           <div className={cn(
-            "relative h-[88px] flex items-center bg-white",
+            "relative h-[64px] flex items-center bg-white",
             isSidebarCollapsed ? "px-3 justify-center" : "px-4"
           )}>
             <div className={cn("flex items-center gap-2 transition-all w-full", isSidebarCollapsed ? "justify-center" : "px-1")}>
@@ -404,7 +403,7 @@ export function Layout({
 
           </div>
 
-          <nav className={cn("flex-1 py-4 sidebar-scroller", isSidebarCollapsed ? "px-2" : "px-3")}>
+          <nav className={cn("min-h-0 flex-1 pb-4 pt-1 sidebar-scroller", isSidebarCollapsed ? "px-2" : "px-3")}>
             <div className="space-y-2">
               {navItems.map((item) => {
 
@@ -425,7 +424,7 @@ export function Layout({
                         <DropdownMenuTrigger asChild>
                           <div className={cn(
                             "w-11 h-11 rounded-[10px] flex items-center justify-center cursor-pointer transition-all duration-300 relative group collapsed-item mx-auto mb-1 nav-item",
-                            isActiveGroup ? "bg-[#EEF4FF] text-[#2563EB] shadow-none" : "text-[#1F2937] hover:bg-slate-100"
+                            isActiveGroup ? "bg-[#F8FAFC] text-[#0F172A] shadow-none" : "text-[#0F172A] hover:bg-slate-100"
                           )}>
                             <item.icon className="w-[18px] h-[18px]" />
                             <span className="nav-item-tooltip shadow-2xl">{item.label}</span>
@@ -438,8 +437,8 @@ export function Layout({
                             return (
                               <Link key={child.label} href={child.href}>
                                 <div className={cn(
-                                  "flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-all text-[13px] font-medium mb-1 nav-sub-item",
-                                  isChildActive ? "bg-[#EEF4FF] text-[#2563EB]" : "text-[#6B7280] hover:bg-slate-50 hover:text-[#111827]"
+                                  "flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-all text-sm font-medium mb-1 nav-sub-item",
+                                  isChildActive ? "bg-[#F8FAFC] text-[#0F172A]" : "text-[#64748B] hover:bg-slate-50 hover:text-[#0F172A]"
                                 )}>
                                   <child.icon className="w-[18px] h-[18px]" />
                                   <span>{child.label}</span>
@@ -457,14 +456,14 @@ export function Layout({
                       <Collapsible open={isOpen} onOpenChange={setIsOpen} className="space-y-1">
                         <CollapsibleTrigger asChild>
                           <div className={cn(
-                            "flex items-center w-full px-3 py-2.5 rounded-[10px] text-[13px] font-semibold transition-all duration-200 cursor-pointer select-none group nav-item",
+                            "flex items-center w-full px-3 py-2.5 rounded-[10px] text-sm font-semibold transition-all duration-200 cursor-pointer select-none group nav-item",
                             isActiveGroup
-                              ? "bg-[#EEF4FF] text-[#2563EB] shadow-none"
-                              : "text-[#1F2937] hover:bg-slate-50 hover:text-[#111827]"
+                              ? "bg-[#F8FAFC] text-[#0F172A] shadow-none"
+                              : "text-[#0F172A] hover:bg-slate-50 hover:text-[#0F172A]"
                           )}>
                             <div className="flex items-center gap-3 min-w-0">
-                              <item.icon className={cn("w-[18px] h-[18px] shrink-0", isActiveGroup ? "text-[#2563EB]" : "text-[#6B7280] group-hover:text-[#111827]")} />
-                              <span className="font-display tracking-tight text-[13px]">{item.label}</span>
+                              <item.icon className={cn("w-[18px] h-[18px] shrink-0", isActiveGroup ? "text-[#0F172A]" : "text-[#64748B] group-hover:text-[#0F172A]")} />
+                              <span className="font-display tracking-tight text-sm">{item.label}</span>
                             </div>
                             <span className="ml-auto pl-3">
                               <svg
@@ -487,10 +486,10 @@ export function Layout({
                                   <div className={cn(
                                     "flex items-center gap-3 px-2.5 py-2 rounded-lg text-[12.5px] font-semibold transition-all duration-150 cursor-pointer nav-sub-item",
                                     isChildActive
-                                      ? "bg-[#EEF4FF] text-[#2563EB]"
-                                      : "text-[#6B7280] hover:text-[#111827] hover:bg-slate-50/50"
+                                      ? "bg-[#F8FAFC] text-[#0F172A]"
+                                      : "text-[#64748B] hover:text-[#0F172A] hover:bg-slate-50/50"
                                   )}>
-                                    <child.icon className={cn("w-[18px] h-[18px] shrink-0", isChildActive ? "text-[#2563EB]" : "text-[#9CA3AF]")} />
+                                    <child.icon className={cn("w-[18px] h-[18px] shrink-0", isChildActive ? "text-[#0F172A]" : "text-[#94A3B8]")} />
                                     <span className="truncate">{child.label}</span>
                                   </div>
                                 </Link>
@@ -510,7 +509,7 @@ export function Layout({
                     <Link key={item.label} href={item.href!}>
                       <div className={cn(
                         "w-11 h-11 rounded-[10px] flex items-center justify-center cursor-pointer transition-all duration-300 relative group collapsed-item mx-auto mb-1 nav-item",
-                        isActive ? "bg-[#EEF4FF] text-[#2563EB] shadow-none" : "text-[#1F2937] hover:bg-slate-100"
+                        isActive ? "bg-[#F8FAFC] text-[#0F172A] shadow-none" : "text-[#0F172A] hover:bg-slate-100"
                       )}>
                         <item.icon className="w-[18px] h-[18px]" />
                         <span className="nav-item-tooltip shadow-2xl">{item.label}</span>
@@ -523,12 +522,12 @@ export function Layout({
                   <div key={item.label}>
                     <Link href={item.href!}>
                       <div className={cn(
-                        "flex items-center gap-3 px-3 py-2.5 rounded-[10px] text-[13px] font-semibold transition-all duration-200 cursor-pointer select-none group nav-item",
+                        "flex items-center gap-3 px-3 py-2.5 rounded-[10px] text-sm font-semibold transition-all duration-200 cursor-pointer select-none group nav-item",
                         isActive
-                          ? "bg-[#EEF4FF] text-[#2563EB] shadow-none"
-                          : "text-[#1F2937] hover:bg-slate-50 hover:text-[#111827]"
+                          ? "bg-[#F8FAFC] text-[#0F172A] shadow-none"
+                          : "text-[#0F172A] hover:bg-slate-50 hover:text-[#0F172A]"
                       )}>
-                        <item.icon className={cn("w-[18px] h-[18px] shrink-0", isActive ? "text-[#2563EB]" : "text-[#6B7280] group-hover:text-[#111827]")} />
+                        <item.icon className={cn("w-[18px] h-[18px] shrink-0", isActive ? "text-[#0F172A]" : "text-[#64748B] group-hover:text-[#0F172A]")} />
                         <span className="font-display tracking-tight">{item.label}</span>
                       </div>
                     </Link>
@@ -606,7 +605,8 @@ export function Layout({
 
         {/* Main Administrative Workspace */}
         <div className={cn(
-          "flex-1 flex flex-col min-h-screen min-w-0 transition-all duration-500 ease-in-out"
+          "flex-1 flex flex-col min-h-screen min-w-0 transition-all duration-500 ease-in-out",
+          isSidebarCollapsed ? "lg:ml-20" : "lg:ml-[240px]"
         )}>
 
           {/* Top Header */}
@@ -626,13 +626,13 @@ export function Layout({
                 <div className="min-w-0">
                   <h1 className="truncate text-[22px] font-bold leading-tight tracking-[-0.015em] text-[#0F172A]">{pageTitle}</h1>
                   {pageSubtitle ? (
-                    <p className="mt-1 truncate text-[13px] font-medium text-[#64748B]">{pageSubtitle}</p>
+                    <p className="mt-1 truncate text-sm text-muted-foreground">{pageSubtitle}</p>
                   ) : null}
                 </div>
               </div>
             )}
 
-            <div className="flex items-center gap-2">
+            <div className="ml-auto flex items-center gap-2">
               <div className="hidden xl:flex items-center h-10 px-3 rounded-[10px] border border-[#E5E7EB] bg-white min-w-[280px] shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
                 <Search className="w-4 h-4 text-[#64748B]" />
                 <input

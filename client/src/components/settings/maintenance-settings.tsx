@@ -63,7 +63,7 @@ export function MaintenanceSettings({ company }: MaintenanceSettingsProps) {
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div>
         <h2 className="text-xl font-bold text-slate-900">Maintenance & Data Management</h2>
-        <p className="text-sm text-slate-500">System maintenance tools and data clearing options</p>
+        <p className="text-sm text-muted-foreground">System maintenance tools and data clearing options</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">

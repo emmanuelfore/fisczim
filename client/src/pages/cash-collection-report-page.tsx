@@ -44,10 +44,6 @@ export default function CashCollectionReportPage() {
                     >
                         <ArrowLeft className="h-5 w-5 text-slate-500" />
                     </Button>
-                    <div>
-                        <h1 className="text-3xl font-display font-black text-slate-900 uppercase tracking-tight">Cash Collection</h1>
-                        <p className="text-slate-500 mt-1 font-medium italic">Detailed payment collection analysis for {activeCompany?.name}</p>
-                    </div>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3 bg-white/50 backdrop-blur-md p-2 rounded-[1.5rem] border border-slate-100 shadow-sm">

@@ -140,7 +140,7 @@ export function TeamManagement({ companyId }: TeamManagementProps) {
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-xl font-bold text-slate-900">Team Management</h2>
-          <p className="text-sm text-slate-500">Manage user access and roles for your organization</p>
+          <p className="text-sm text-muted-foreground">Manage user access and roles for your organization</p>
         </div>
         <Dialog open={isAddUserOpen} onOpenChange={setIsAddUserOpen}>
           <DialogTrigger asChild>

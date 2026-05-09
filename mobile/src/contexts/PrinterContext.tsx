@@ -3,7 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../lib/supabase";
 import { TicketData, printReceipt as printStandard, printToBluetooth } from "../lib/printing";
 import { getPrintQueue, addPrintToQueue, removePrintFromQueue, QueuedPrint } from "../lib/printQueue";
-import { Alert } from "react-native";
+import { Alert, Platform } from "react-native";
 
 export interface PrinterConfig {
   enabled: boolean;
@@ -16,6 +16,7 @@ export interface PrinterConfig {
   paperWidth: number;
   isInternal?: boolean;
   isZ100?: boolean;
+  z100DefaultsApplied?: boolean;
 }
 
 const DEFAULT_CONFIG: PrinterConfig = {
@@ -27,6 +28,18 @@ const DEFAULT_CONFIG: PrinterConfig = {
   terminalId: "POS-01",
   targetPrinter: "",
   paperWidth: 58
+};
+
+const Z100_DEFAULT_CONFIG: PrinterConfig = {
+  ...DEFAULT_CONFIG,
+  enabled: true,
+  autoPrint: true,
+  autoShowModal: false,
+  silentPrint: true,
+  isInternal: false,
+  isZ100: true,
+  paperWidth: 58,
+  z100DefaultsApplied: true,
 };
 
 interface PrinterContextType {
@@ -42,6 +55,7 @@ interface PrinterContextType {
   scanForPrinters: () => Promise<{deviceName: string, macAddress: string}[]>;
   autoConnect: () => Promise<string | null>;
   getDebugLogs: () => Promise<string[]>;
+  getPrinterDiagnostics: () => Promise<string[]>;
   clearDebugLogs: () => Promise<boolean>;
 }
 
@@ -58,24 +72,59 @@ export function PrinterProvider({ children }: { children: ReactNode }) {
     supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id || null));
   }, []);
 
+  const detectZ100Device = useCallback(async () => {
+    if (Platform.OS !== "android") return false;
+    try {
+      const mod = await import("../../modules/z100-printer");
+      if (typeof mod.isZ100Device === "function") {
+        return !!(await mod.isZ100Device());
+      }
+      return typeof mod.getDiagnostics === "function";
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const applyZ100DefaultsOnce = useCallback((current: PrinterConfig, isZ100Device: boolean): PrinterConfig => {
+    if (!isZ100Device || current.z100DefaultsApplied) return current;
+    return {
+      ...current,
+      enabled: true,
+      autoPrint: true,
+      autoShowModal: false,
+      silentPrint: true,
+      isInternal: false,
+      isZ100: true,
+      paperWidth: 58,
+      z100DefaultsApplied: true,
+    };
+  }, []);
+
   const loadState = useCallback(async () => {
+    const isZ100Device = await detectZ100Device();
+    let nextConfig = isZ100Device ? Z100_DEFAULT_CONFIG : DEFAULT_CONFIG;
+
     if (userId) {
       const val = await AsyncStorage.getItem(`printer_config_${userId}`);
       if (val) {
         try { 
           const parsed = JSON.parse(val);
           // Ensure we merge with DEFAULT_CONFIG to handle new fields
-          setConfig({ ...DEFAULT_CONFIG, ...parsed }); 
+          nextConfig = applyZ100DefaultsOnce({ ...DEFAULT_CONFIG, ...parsed }, isZ100Device);
         } catch {
-          setConfig(DEFAULT_CONFIG);
+          nextConfig = isZ100Device ? Z100_DEFAULT_CONFIG : DEFAULT_CONFIG;
         }
-      } else {
-        setConfig(DEFAULT_CONFIG);
       }
+      setConfig(nextConfig);
+      if (isZ100Device && nextConfig.z100DefaultsApplied) {
+        await AsyncStorage.setItem(`printer_config_${userId}`, JSON.stringify(nextConfig));
+      }
+    } else {
+      setConfig(nextConfig);
     }
     const queue = await getPrintQueue();
     setFailedPrints(queue);
-  }, [userId]);
+  }, [userId, detectZ100Device, applyZ100DefaultsOnce]);
 
   useEffect(() => { loadState(); }, [loadState]);
 
@@ -83,8 +132,13 @@ export function PrinterProvider({ children }: { children: ReactNode }) {
     // Implement dependency logic here as a safeguard even if UI also does it
     const updated = {
         ...newConfig,
-        autoPrint: newConfig.enabled ? newConfig.autoPrint : false,
-        silentPrint: newConfig.enabled ? newConfig.silentPrint : false,
+        enabled: newConfig.isZ100 ? true : newConfig.enabled,
+        autoPrint: newConfig.isZ100 ? true : (newConfig.enabled ? newConfig.autoPrint : false),
+        autoShowModal: newConfig.isZ100 ? false : newConfig.autoShowModal,
+        silentPrint: newConfig.isZ100 ? true : (newConfig.enabled ? newConfig.silentPrint : false),
+        isInternal: newConfig.isZ100 ? false : newConfig.isInternal,
+        paperWidth: newConfig.isZ100 ? 58 : newConfig.paperWidth,
+        z100DefaultsApplied: newConfig.z100DefaultsApplied || newConfig.isZ100 || false,
     };
 
     setConfig(updated);
@@ -224,6 +278,85 @@ export function PrinterProvider({ children }: { children: ReactNode }) {
         console.error("[PrinterContext] Failed to get debug logs:", e);
         return [`JS_ERROR: ${e instanceof Error ? e.message : String(e)}`];
       }
+    },
+    getPrinterDiagnostics: async () => {
+      const lines: string[] = [];
+      lines.push("=== FIELD POS MOBILE PRINTER REPORT ===");
+      lines.push(`capturedAt=${new Date().toISOString()}`);
+      lines.push(`platform=android`);
+      lines.push("-- Saved printer settings --");
+      lines.push(`enabled=${config.enabled}`);
+      lines.push(`isZ100=${!!config.isZ100}`);
+      lines.push(`isInternal=${!!config.isInternal}`);
+      lines.push(`macAddress=${config.macAddress || "(empty)"}`);
+      lines.push(`targetPrinter=${config.targetPrinter || "(empty)"}`);
+      lines.push(`paperWidth=${config.paperWidth}`);
+      lines.push(`autoPrint=${config.autoPrint}`);
+      lines.push(`silentPrint=${config.silentPrint}`);
+      lines.push(`terminalId=${config.terminalId || "(empty)"}`);
+
+      try {
+        const mod = await import("../../modules/z100-printer");
+        lines.push("");
+        lines.push("-- Native diagnostics --");
+        if (typeof mod.getDiagnostics === "function") {
+          lines.push(...await mod.getDiagnostics());
+        } else {
+          lines.push("getDiagnostics: unavailable in this native build");
+        }
+
+        lines.push("");
+        const describePrinterStatus = (status: number) => {
+          switch (status) {
+            case 0:
+              return "ok";
+            case -1:
+            case -1021:
+            case -1015:
+            case -1014:
+            case -4002:
+              return "paper_out";
+            case -2:
+            case -4005:
+              return "too_hot";
+            case -3:
+              return "vendor_status_-3_demo_can_still_print";
+            case -4001:
+              return "print_busy";
+            case -4003:
+              return "data_error";
+            case -4004:
+              return "printer_fault";
+            case -4007:
+              return "font_library_missing";
+            case -4008:
+              return "buffer_overflow";
+            case -4009:
+              return "set_font_error";
+            default:
+              return "unknown";
+          }
+        };
+        lines.push("-- Direct status check --");
+        const directStatus = await mod.checkStatus();
+        lines.push(`checkStatus=${directStatus} (${describePrinterStatus(directStatus)})`);
+
+        lines.push("");
+        lines.push("-- UART port diagnostics --");
+        if (typeof mod.diagnoseUart === "function") {
+          lines.push(...await mod.diagnoseUart());
+        } else {
+          lines.push("diagnoseUart: unavailable in this native build");
+        }
+
+        lines.push("");
+        lines.push("-- Native printer log --");
+        lines.push(...await mod.getLogs());
+      } catch (e) {
+        lines.push(`DIAGNOSTICS_ERROR: ${e instanceof Error ? e.message : String(e)}`);
+      }
+
+      return lines;
     },
     clearDebugLogs: async () => {
       try {

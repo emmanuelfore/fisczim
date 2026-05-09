@@ -32,6 +32,19 @@ export const resetTokens = pgTable("reset_tokens", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const idempotencyKeys = pgTable("idempotency_keys", {
+  key: text("key").primaryKey(),
+  userId: uuid("user_id").references(() => users.id),
+  method: text("method").notNull(),
+  path: text("path").notNull(),
+  statusCode: integer("status_code").notNull(),
+  responseBody: jsonb("response_body").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  expiresAtIdx: index("idempotency_keys_expires_at_idx").on(table.expiresAt),
+}));
+
 // Companies (Tenants)
 export const companies = pgTable("companies", {
   id: serial("id").primaryKey(),
@@ -47,7 +60,7 @@ export const companies = pgTable("companies", {
   logoUrl: text("logo_url"),
 
   // ZIMRA Compliance
-  tin: text("tin").unique().notNull(),
+  tin: text("tin").unique(),
   vatNumber: text("vat_number"),
   bpNumber: text("bp_number"),
   vatEnabled: boolean("vat_enabled").default(true),
@@ -89,7 +102,7 @@ export const companies = pgTable("companies", {
   lastReceiptAt: timestamp("last_receipt_at"),
 
   // Inventory Settings
-  inventoryValuationMethod: text("inventory_valuation_method").default("FIFO"), // FIFO, LIFO, WAC
+  inventoryValuationMethod: text("inventory_valuation_method").default("WAC"), // WAC, FIFO, LIFO
 
   subscriptionEndDate: timestamp("subscription_end_date"),
   subscriptionStatus: text("subscription_status").default("inactive"), // active, inactive, expired
@@ -1176,4 +1189,3 @@ export type InsertBranchUser = z.infer<typeof insertBranchUserSchema>;
 export const insertBranchStockSchema = createInsertSchema(branchStocks).omit({ id: true });
 export type BranchStock = typeof branchStocks.$inferSelect;
 export type InsertBranchStock = z.infer<typeof insertBranchStockSchema>;
-

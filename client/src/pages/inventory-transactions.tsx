@@ -45,11 +45,7 @@ export default function InventoryTransactionsPage() {
 
     return (
         <Layout>
-            <div className="flex items-center justify-between mb-8">
-                <div>
-                    <h1 className="text-3xl font-display font-bold text-slate-900">Stock Ledger</h1>
-                    <p className="text-slate-500 mt-1">Full audit trail of all inventory movements</p>
-                </div>
+            <div className="flex items-center justify-end mb-4">
                 <GrnForm />
             </div>
 

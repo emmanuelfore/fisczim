@@ -8,6 +8,7 @@
  * This plugin:
  * 1. Copies the ISRG Root X1 PEM cert into the app's raw resources
  * 2. Creates a network_security_config.xml that trusts system CAs + the bundled ISRG Root X1
+ *    and permits cleartext traffic for POS/dev-client local network communication.
  * 3. References the config in AndroidManifest.xml
  */
 
@@ -17,7 +18,7 @@ const path = require('path');
 
 const NETWORK_SECURITY_CONFIG = `<?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <base-config cleartextTrafficPermitted="false">
+    <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
             <certificates src="system" />
             <certificates src="@raw/isrgrootx1" />
@@ -63,6 +64,7 @@ const withNetworkSecurityConfig = (config) => {
     const application = config.modResults.manifest.application?.[0];
     if (application) {
       application.$['android:networkSecurityConfig'] = '@xml/network_security_config';
+      application.$['android:usesCleartextTraffic'] = 'true';
       console.log('[withNetworkSecurityConfig] Set android:networkSecurityConfig attribute');
     }
 

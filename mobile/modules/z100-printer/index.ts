@@ -12,6 +12,26 @@ export async function clearLogs(): Promise<boolean> {
   return await Z100PrinterModule.clearLogs();
 }
 
+export async function saveLogsToDevice(): Promise<string> {
+  return await Z100PrinterModule.saveLogsToDevice();
+}
+
+export async function diagnoseUart(): Promise<string[]> {
+  return await Z100PrinterModule.diagnoseUart();
+}
+
+export async function getDiagnostics(): Promise<string[]> {
+  return await Z100PrinterModule.getDiagnostics();
+}
+
+export async function isZ100Device(): Promise<boolean> {
+  return await Z100PrinterModule.isZ100Device();
+}
+
+export async function recordLog(message: string): Promise<boolean> {
+  return await Z100PrinterModule.recordLog(message);
+}
+
 export async function printQrCode(content: string, width: number, height: number): Promise<boolean> {
   return await Z100PrinterModule.printQrCode(content, width, height);
 }
@@ -22,6 +42,10 @@ export async function printString(text: string, size?: number, align?: number, z
 
 export async function printStart(): Promise<boolean> {
   return await Z100PrinterModule.printStart();
+}
+
+export async function printSdkSample(): Promise<boolean> {
+  return await Z100PrinterModule.printSdkSample();
 }
 
 export async function printClose(): Promise<boolean> {
@@ -43,9 +67,16 @@ export async function checkStatus(): Promise<number> {
 export default {
   printInit,
   printString,
+  printQrCode,
   printStart,
+  printSdkSample,
   printClose,
   printSetVoltage,
   printSetGray,
   checkStatus,
+  saveLogsToDevice,
+  diagnoseUart,
+  getDiagnostics,
+  isZ100Device,
+  recordLog,
 };

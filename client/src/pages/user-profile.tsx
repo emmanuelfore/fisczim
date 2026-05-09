@@ -87,11 +87,6 @@ export default function UserProfilePage() {
 
     return (
         <Layout>
-            <div className="mb-8">
-                <h1 className="text-3xl font-display font-bold text-slate-900">User Profile</h1>
-                <p className="text-slate-500 mt-1">Manage your account settings and security</p>
-            </div>
-
             <div className="grid gap-6 md:grid-cols-2 max-w-4xl">
                 {/* Personal Details */}
                 <Card className="card-depth border-none">

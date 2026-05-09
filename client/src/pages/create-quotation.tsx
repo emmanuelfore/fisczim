@@ -256,7 +256,6 @@ export default function CreateQuotationPage() {
                     <Button variant="ghost" onClick={() => setLocation("/quotations")} className="pl-0">
                         <ArrowLeft className="w-4 h-4 mr-2" /> Back
                     </Button>
-                    <h1 className="text-2xl font-bold">{isEditing ? "Edit Quotation" : "New Quotation"}</h1>
                 </div>
                 <div className="flex gap-2">
                     <Button variant="outline" onClick={() => handleSave("draft")} disabled={createQuotation.isPending || updateQuotation.isPending}>

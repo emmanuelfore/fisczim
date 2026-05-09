@@ -34,7 +34,7 @@ export function SecuritySettings({ company }: SecuritySettingsProps) {
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
        <div>
         <h2 className="text-xl font-bold text-slate-900">Security & Access</h2>
-        <p className="text-sm text-slate-500">Manage API credentials and system audit logs</p>
+        <p className="text-sm text-muted-foreground">Manage API credentials and system audit logs</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">

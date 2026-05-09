@@ -31,7 +31,7 @@ type CurrencyFormValues = z.infer<typeof currencySchema>;
 
 export default function CurrencySettingsPage() {
     const companyId = parseInt(localStorage.getItem("selectedCompanyId") || "0");
-    const { data: currencies, isLoading } = useCurrencies(companyId);
+    const { data: currencies, isLoading, isError, error } = useCurrencies(companyId);
     const createCurrency = useCreateCurrency(companyId);
     const updateCurrency = useUpdateCurrency();
     const deleteCurrency = useDeleteCurrency();
@@ -92,11 +92,7 @@ export default function CurrencySettingsPage() {
     return (
         <Layout>
             <div className="mb-8">
-                <div className="flex justify-between items-center">
-                    <div>
-                        <h1 className="text-3xl font-display font-bold text-slate-900">Currency Management</h1>
-                        <p className="text-slate-500 mt-1">Manage multiple currencies and exchange rates</p>
-                    </div>
+                <div className="flex justify-end">
                     <Dialog open={isModalOpen} onOpenChange={(open) => {
                         setModalOpen(open);
                         if (!open) resetForm();
@@ -188,6 +184,18 @@ export default function CurrencySettingsPage() {
                             {isLoading ? (
                                 <TableRow>
                                     <TableCell colSpan={6} className="text-center py-8 text-slate-500">Loading currencies...</TableCell>
+                                </TableRow>
+                            ) : !companyId ? (
+                                <TableRow>
+                                    <TableCell colSpan={6} className="text-center py-8 text-slate-500">
+                                        Select a company to manage currencies.
+                                    </TableCell>
+                                </TableRow>
+                            ) : isError ? (
+                                <TableRow>
+                                    <TableCell colSpan={6} className="text-center py-8 text-red-500">
+                                        {(error as Error)?.message || "Failed to load currencies."}
+                                    </TableCell>
                                 </TableRow>
                             ) : currencies?.length === 0 ? (
                                 <TableRow>

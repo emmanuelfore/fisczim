@@ -55,12 +55,7 @@ export default function FinancialReportsPage() {
 
     return (
         <Layout>
-            <div className="mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div>
-                    <h1 className="text-3xl font-display font-bold text-slate-900 uppercase tracking-tight">Financial Performance</h1>
-                    <p className="text-slate-500 mt-1 font-medium italic">Comprehensive Profit & Loss Analysis for {activeCompany?.name}</p>
-                </div>
-
+            <div className="mb-4 flex flex-col md:flex-row justify-end items-start md:items-center gap-4">
                 <div className="flex flex-wrap items-center gap-3 bg-white/50 backdrop-blur-md p-2 rounded-[1.5rem] border border-slate-100 shadow-sm">
                     <div className="flex items-center gap-2 pl-2">
                         <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest">Base:</span>

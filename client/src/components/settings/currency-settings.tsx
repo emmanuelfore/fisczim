@@ -30,7 +30,7 @@ interface CurrencySettingsProps {
 }
 
 export function CurrencySettings({ companyId }: CurrencySettingsProps) {
-  const { data: currencies, isLoading } = useCurrencies(companyId);
+  const { data: currencies, isLoading, isError, error } = useCurrencies(companyId);
   const createCurrency = useCreateCurrency(companyId);
   const updateCurrency = useUpdateCurrency();
   const deleteCurrency = useDeleteCurrency();
@@ -93,7 +93,7 @@ export function CurrencySettings({ companyId }: CurrencySettingsProps) {
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-xl font-bold text-slate-900">Currency Management</h2>
-          <p className="text-sm text-slate-500">Manage multiple currencies and exchange rates for reporting</p>
+          <p className="text-sm text-muted-foreground">Manage multiple currencies and exchange rates for reporting</p>
         </div>
         <Dialog open={isModalOpen} onOpenChange={(open) => {
           setModalOpen(open);
@@ -178,6 +178,12 @@ export function CurrencySettings({ companyId }: CurrencySettingsProps) {
                   <TableRow>
                     <TableCell colSpan={6} className="text-center py-12">
                       <Loader2 className="w-6 h-6 animate-spin mx-auto text-slate-200" />
+                    </TableCell>
+                  </TableRow>
+                ) : isError ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center py-12 text-red-500 font-medium">
+                      {(error as Error)?.message || "Failed to load currencies."}
                     </TableCell>
                   </TableRow>
                 ) : currencies?.length === 0 ? (

@@ -8,6 +8,57 @@ function generateGrvReference() {
     return `GRV-${stamp}-${suffix}`;
 }
 
+type LandedCostAllocationMethod = "quantity" | "value" | "manual";
+
+type StockInItemInput = {
+    productId: number;
+    quantity: number | string;
+    unitCost: number | string;
+    landedCost?: number | string;
+};
+
+function allocateLandedCosts(
+    items: StockInItemInput[],
+    landedCosts: number,
+    allocationMethod: LandedCostAllocationMethod = "value"
+) {
+    const parsed = items.map((item) => {
+        const quantity = typeof item.quantity === "string" ? parseFloat(item.quantity) : item.quantity;
+        const baseUnitCost = typeof item.unitCost === "string" ? parseFloat(item.unitCost) : item.unitCost;
+        const manualLandedCost = item.landedCost === undefined
+            ? 0
+            : typeof item.landedCost === "string"
+                ? parseFloat(item.landedCost)
+                : item.landedCost;
+        return {
+            productId: item.productId,
+            quantity: Number.isFinite(quantity) ? quantity : 0,
+            baseUnitCost: Number.isFinite(baseUnitCost) ? baseUnitCost : 0,
+            manualLandedCost: Number.isFinite(manualLandedCost) ? manualLandedCost : 0,
+        };
+    });
+
+    if (allocationMethod === "manual") {
+        return parsed.map((item) => ({ ...item, landedCost: item.manualLandedCost }));
+    }
+
+    const base = allocationMethod === "quantity"
+        ? parsed.reduce((sum, item) => sum + item.quantity, 0)
+        : parsed.reduce((sum, item) => sum + (item.quantity * item.baseUnitCost), 0);
+
+    return parsed.map((item, index) => {
+        const itemBase = allocationMethod === "quantity" ? item.quantity : item.quantity * item.baseUnitCost;
+        const allocated = base > 0 ? landedCosts * (itemBase / base) : 0;
+        const landedCost = index === parsed.length - 1
+            ? landedCosts - parsed.slice(0, -1).reduce((sum, prev) => {
+                const prevBase = allocationMethod === "quantity" ? prev.quantity : prev.quantity * prev.baseUnitCost;
+                return sum + (base > 0 ? landedCosts * (prevBase / base) : 0);
+            }, 0)
+            : allocated;
+        return { ...item, landedCost };
+    });
+}
+
 export async function calculateCOGS(
     productId: number,
     quantitySold: number,
@@ -22,7 +73,7 @@ export async function calculateCOGS(
         .where(eq(companies.id, companyId))
         .limit(1);
 
-    const method = company?.method || "FIFO";
+    const method = company?.method || "WAC";
 
     if (method === "WAC") {
         return calculateWAC(productId, quantitySold, companyId, tx);
@@ -149,7 +200,8 @@ export async function recordStockIn(
     unitCost: number,
     companyId: number,
     supplierId?: number,
-    notes?: string
+    notes?: string,
+    landedCost: number = 0
 ) {
     const grvReference = generateGrvReference();
 
@@ -166,11 +218,12 @@ export async function recordStockIn(
     const currentQty = parseFloat(product?.stockLevel?.toString() || "0") || 0;
     const currentCost = parseFloat(product?.costPrice?.toString() || "0") || 0;
 
-    let newCostPrice = unitCost;
+    const effectiveUnitCost = unitCost + (quantity > 0 ? landedCost / quantity : 0);
+    let newCostPrice = effectiveUnitCost;
     const totalNewQty = currentQty + quantity;
 
     if (totalNewQty > 0 && currentQty > 0) {
-        newCostPrice = ((currentQty * currentCost) + (quantity * unitCost)) / totalNewQty;
+        newCostPrice = ((currentQty * currentCost) + (quantity * effectiveUnitCost)) / totalNewQty;
     }
 
     // 1. Record the transaction
@@ -180,12 +233,12 @@ export async function recordStockIn(
         supplierId: supplierId || null,
         type: "STOCK_IN",
         quantity: quantity.toString(),
-        unitCost: unitCost.toString(),
-        totalCost: (quantity * unitCost).toString(),
+        unitCost: effectiveUnitCost.toFixed(4),
+        totalCost: (quantity * effectiveUnitCost).toFixed(4),
         referenceType: "GRN",
         referenceId: grvReference,
         remainingQuantity: quantity.toString(),
-        notes,
+        notes: landedCost > 0 ? `${notes || ""}${notes ? "\n" : ""}Landed cost allocated: ${landedCost.toFixed(2)}` : notes,
     });
 
     // 2. Update product stock level
@@ -200,17 +253,21 @@ export async function recordStockIn(
 
 export async function recordBatchStockIn(
     companyId: number,
-    items: { productId: number; quantity: number | string; unitCost: number | string }[],
+    items: StockInItemInput[],
     supplierId?: number,
-    notes?: string
+    notes?: string,
+    landedCosts: number = 0,
+    allocationMethod: LandedCostAllocationMethod = "value"
 ) {
     const grvReference = generateGrvReference();
+    const allocatedItems = allocateLandedCosts(items, landedCosts, allocationMethod);
 
     // Wrap in a transaction to ensure all or nothing
     await db.transaction(async (tx) => {
-        for (const item of items) {
-            const quantity = typeof item.quantity === 'string' ? parseFloat(item.quantity) : item.quantity;
-            const unitCost = typeof item.unitCost === 'string' ? parseFloat(item.unitCost) : item.unitCost;
+        for (const item of allocatedItems) {
+            const quantity = item.quantity;
+            const baseUnitCost = item.baseUnitCost;
+            const effectiveUnitCost = baseUnitCost + (quantity > 0 ? item.landedCost / quantity : 0);
 
             // Fetch current stock and cost for weighted average
             const [product] = await tx
@@ -225,11 +282,11 @@ export async function recordBatchStockIn(
             const currentQty = parseFloat(product?.stockLevel?.toString() || "0") || 0;
             const currentCost = parseFloat(product?.costPrice?.toString() || "0") || 0;
 
-            let newCostPrice = unitCost;
+            let newCostPrice = effectiveUnitCost;
             const totalNewQty = currentQty + quantity;
 
             if (totalNewQty > 0 && currentQty > 0) {
-                newCostPrice = ((currentQty * currentCost) + (quantity * unitCost)) / totalNewQty;
+                newCostPrice = ((currentQty * currentCost) + (quantity * effectiveUnitCost)) / totalNewQty;
             }
 
             // 1. Record the transaction
@@ -239,12 +296,12 @@ export async function recordBatchStockIn(
                 supplierId: supplierId || null,
                 type: "STOCK_IN",
                 quantity: quantity.toString(),
-                unitCost: unitCost.toString(),
-                totalCost: (quantity * unitCost).toString(),
+                unitCost: effectiveUnitCost.toFixed(4),
+                totalCost: (quantity * effectiveUnitCost).toFixed(4),
                 referenceType: "GRN",
                 referenceId: grvReference,
                 remainingQuantity: quantity.toString(),
-                notes: notes || "Batch GRN",
+                notes: `${notes || "Batch GRV"}\nBase cost: ${(quantity * baseUnitCost).toFixed(2)}; landed cost: ${item.landedCost.toFixed(2)}; allocation: ${allocationMethod}`,
             });
 
             // 2. Update product stock level

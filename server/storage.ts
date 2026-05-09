@@ -32,7 +32,8 @@ import {
   type RestaurantTable, type InsertRestaurantTable,
   type RecipeItem, type InsertRecipeItem,
   type ProductVariation, type InsertProductVariation,
-  type ProductBatch, type InsertProductBatch
+  type ProductBatch, type InsertProductBatch,
+  priceAdjustments, type PriceAdjustment, type InsertPriceAdjustment
 } from "../shared/schema.js";
 import { db } from "./db.js";
 import { eq, and, desc, lte, gte, lt, ne, or, isNull, sql, ilike, count, inArray, gt } from "drizzle-orm";
@@ -399,11 +400,19 @@ export class DatabaseStorage implements IStorage {
 
   async createCompany(company: InsertCompany, userId: string): Promise<Company> {
     return await db.transaction(async (tx) => {
-      const [newCompany] = await tx.insert(companies).values(company).returning();
+      const normalizedCompany = {
+        ...company,
+        tin: company.tin?.trim() || null,
+        vatNumber: company.vatNumber?.trim() || null,
+        bpNumber: company.bpNumber?.trim() || null,
+        vatEnabled: !!company.vatNumber?.trim(),
+        vatRegistered: !!company.vatNumber?.trim(),
+      };
+      const [newCompany] = await tx.insert(companies).values(normalizedCompany).returning();
       await tx.insert(companyUsers).values({
         userId,
         companyId: newCompany.id,
-        role: "owner"
+        role: "admin"
       });
 
       // Automatically create default currencies (USD and ZIG)
@@ -1446,11 +1455,35 @@ export class DatabaseStorage implements IStorage {
 
 
   async getCurrencies(companyId: number): Promise<Currency[]> {
+    const existing = await db.select().from(currencies).where(
+      eq(currencies.companyId, companyId)
+    ).orderBy(currencies.id);
+
+    if (existing.length > 0) return existing;
+
+    await db.insert(currencies).values([
+      {
+        companyId,
+        code: "USD",
+        name: "US Dollar",
+        symbol: "$",
+        exchangeRate: "1.000000",
+        isBase: true,
+        isActive: true
+      },
+      {
+        companyId,
+        code: "ZWG",
+        name: "Zimbabwe Gold",
+        symbol: "ZWG",
+        exchangeRate: "13.500000",
+        isBase: false,
+        isActive: true
+      }
+    ]);
+
     return await db.select().from(currencies).where(
-      and(
-        eq(currencies.companyId, companyId),
-        eq(currencies.isActive, true)
-      )
+      eq(currencies.companyId, companyId)
     ).orderBy(currencies.id);
   }
 
@@ -3467,6 +3500,26 @@ export class DatabaseStorage implements IStorage {
       grossProfit,
       expenses: totalExpenses,
       netProfit,
+      grossMarginPercent: revenue > 0 ? (grossProfit / revenue) * 100 : 0,
+      netProfitPercent: revenue > 0 ? (netProfit / revenue) * 100 : 0,
+      pnl: {
+        revenue: {
+          grossSales: revenue,
+          discounts: 0,
+          returns: 0,
+          netSales: revenue,
+        },
+        costOfGoodsSold: {
+          openingStock: 0,
+          purchases: 0,
+          landedCosts: 0,
+          closingStock: 0,
+          totalCogs: cogs,
+        },
+        grossProfit,
+        expenses: expenseBreakdown,
+        netProfit,
+      },
       expenseBreakdown,
       drillDown: drillDown ? {
         revenueItems,

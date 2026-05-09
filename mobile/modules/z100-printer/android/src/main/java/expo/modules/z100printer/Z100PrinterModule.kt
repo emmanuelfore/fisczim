@@ -1,37 +1,35 @@
 package expo.modules.z100printer
 
+import android.os.Build
+import android.os.Environment
 import android.util.Log
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
-import vpos.apipackage.PosApiHelper
-import vpos.apipackage.PrintInitException
 import java.io.File
+import java.io.FileOutputStream
 import java.io.PrintWriter
 import java.io.StringWriter
-import java.io.FileOutputStream
+import java.lang.reflect.Modifier
 
 class Z100PrinterModule : Module() {
-  // posApi instance is only needed for PrintBarcode / PrintBmp (true instance methods)
-  private var posApi: PosApiHelper? = null
+  private var posApi: Any? = null
 
   companion object {
     private const val TAG = "Z100Printer"
     private const val LOG_FILE_NAME = "printer_debug.log"
+    private const val POS_API_HELPER = "vpos.apipackage.PosApiHelper"
+    private const val PRINT_WRAPPER = "vpos.apipackage.Print"
     private var logFile: File? = null
 
     @JvmStatic
     fun initLogger(filesDir: File) {
       logFile = File(filesDir, LOG_FILE_NAME)
-      if (!logFile!!.exists()) {
-        logFile!!.createNewFile()
-      }
-
+      if (logFile?.exists() != true) logFile?.createNewFile()
       val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
       Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
         logError("FATAL_CRASH", throwable)
         defaultHandler?.uncaughtException(thread, throwable)
       }
-
       logMessage("Logger initialized at ${System.currentTimeMillis()}")
     }
 
@@ -41,12 +39,11 @@ class Z100PrinterModule : Module() {
       try {
         val file = logFile ?: return
         FileOutputStream(file, true).use { fos ->
-          val line = "[${System.currentTimeMillis()}] $msg\n"
-          fos.write(line.toByteArray())
+          fos.write("[${System.currentTimeMillis()}] $msg\n".toByteArray())
         }
         Log.d(TAG, msg)
       } catch (e: Exception) {
-        Log.e(TAG, "Failed to write log", e)
+        Log.e(TAG, "Log write failed: ${e.message}")
       }
     }
 
@@ -61,27 +58,133 @@ class Z100PrinterModule : Module() {
     @JvmStatic
     fun loadLibraries(libDir: String) {
       logMessage("NATIVE: Starting library load")
-      // With PosApiSdk.aar, the native lib (libAndroid.so) is bundled inside the AAR.
-      // Android extracts it automatically — no manual loading required.
       logMessage("NATIVE: AAR-based SDK; skipping manual .so loading")
     }
+  }
 
-    init {
-      // No auto-loading here to avoid crashing during class loading
+  private fun sdkClass(className: String): Class<*> = Class.forName(className)
+
+  private fun getPosApiInstance(): Any? {
+    posApi?.let { return it }
+    return try {
+      val cls = sdkClass(POS_API_HELPER)
+      val method = cls.methods.firstOrNull { it.name == "getInstance" && it.parameterTypes.isEmpty() }
+      val instance = method?.invoke(null)
+      posApi = instance
+      logMessage("SDK getInstance result=${instance != null}")
+      instance
+    } catch (e: Throwable) {
+      logMessage("SDK getInstance failed: ${e.message}")
+      null
     }
+  }
+
+  private fun newPrintWrapper(): Any? = try {
+    sdkClass(PRINT_WRAPPER).getDeclaredConstructor().newInstance()
+  } catch (e: Throwable) {
+    null
+  }
+
+  private fun sdkTarget(className: String, method: java.lang.reflect.Method, explicitTarget: Any?): Any? {
+    if (Modifier.isStatic(method.modifiers)) return null
+    if (explicitTarget != null) return explicitTarget
+    return when (className) {
+      POS_API_HELPER -> getPosApiInstance()
+      PRINT_WRAPPER -> newPrintWrapper()
+      else -> sdkClass(className).getDeclaredConstructor().newInstance()
+    }
+  }
+
+  private fun invokeSdkAny(
+    label: String,
+    className: String,
+    methodName: String,
+    explicitTarget: Any? = null,
+    vararg args: Any
+  ): Any? {
+    return try {
+      val cls = sdkClass(className)
+      val method = cls.methods.firstOrNull { it.name == methodName && it.parameterTypes.size == args.size }
+      if (method == null) {
+        logMessage("$label: $className.$methodName(${args.size}) not found")
+        return null
+      }
+      val target = sdkTarget(className, method, explicitTarget)
+      val result = method.invoke(target, *args)
+      logMessage("$label: $className.$methodName result=$result")
+      result
+    } catch (e: Throwable) {
+      logMessage("$label failed: ${e.message}")
+      null
+    }
+  }
+
+  private fun invokeSdkInt(label: String, className: String, methodName: String, explicitTarget: Any? = null, vararg args: Any): Int? {
+    return (invokeSdkAny(label, className, methodName, explicitTarget, *args) as? Number)?.toInt()
+  }
+
+  private fun invokePrintStr(label: String, text: String): Int? {
+    val result = invokeSdkInt(label, POS_API_HELPER, "PrintStr", null, text)
+    logMessage("$label argType=String bytes=${text.toByteArray().size} result=$result")
+    return result
+  }
+
+  private fun readBatteryVoltageRaw(): Int? {
+    val paths = listOf(
+      "/sys/class/power_supply/battery/batt_vol",
+      "/sys/class/power_supply/battery/voltage_now"
+    )
+    for (path in paths) {
+      try {
+        val value = File(path).takeIf { it.exists() }?.readText()?.trim()?.toLongOrNull() ?: continue
+        return value.toInt()
+      } catch (_: Throwable) {
+      }
+    }
+    return null
+  }
+
+  private fun correctedVoltageSetting(): Int {
+    val raw = readBatteryVoltageRaw()
+    val setting = if (raw != null && raw > 0) (raw * 2) / 100 else 76000
+    logMessage("battery voltage raw=$raw correctedSetting=$setting")
+    return setting
+  }
+
+  private fun configureVoltage(label: String) {
+    val setting = correctedVoltageSetting()
+    invokeSdkInt("$label isCharge", PRINT_WRAPPER, "Lib_PrnIsCharge", null, setting)
+    invokeSdkInt("$label setVoltage", PRINT_WRAPPER, "Lib_PrnSetVoltage", null, setting)
+  }
+
+  private fun setPlainFont(label: String) {
+    val result = invokeSdkInt(label, POS_API_HELPER, "PrintSetFont", null, 16.toByte(), 24.toByte(), 0x00.toByte())
+    logMessage("$label plain font result=$result width=16 height=24 zoom=0")
+  }
+
+  private fun directPrintStart(label: String): Int? {
+    configureVoltage(label)
+    return invokeSdkInt("$label", PRINT_WRAPPER, "Lib_PrnStart")
+      ?: invokeSdkInt("$label fallback", POS_API_HELPER, "PrintStart")
+  }
+
+  private fun checkStatusLine(label: String): Int {
+    configureVoltage(label)
+    val helper = invokeSdkInt("$label helper", POS_API_HELPER, "PrintCheckStatus")
+    val lib = invokeSdkInt("$label lib", PRINT_WRAPPER, "Lib_PrnCheckStatus")
+    val final = lib ?: helper ?: -999
+    logMessage("$label result: helper=$helper lib=$lib final=$final")
+    return final
   }
 
   override fun definition() = ModuleDefinition {
     Name("Z100Printer")
 
     OnCreate {
-      val reactContext = appContext.reactContext
-      val filesDir = reactContext?.filesDir ?: File("/tmp")
+      val filesDir = appContext.reactContext?.filesDir ?: File("/tmp")
       initLogger(filesDir)
       loadLibraries("")
     }
-
-    // ─── Diagnostics ────────────────────────────────────────────────────────
 
     AsyncFunction("getLogs") {
       try {
@@ -99,85 +202,93 @@ class Z100PrinterModule : Module() {
         logFile?.createNewFile()
         logMessage("Logs cleared")
         return@AsyncFunction true
-      } catch (e: Exception) {
+      } catch (_: Exception) {
         return@AsyncFunction false
+      }
+    }
+
+    AsyncFunction("recordLog") { message: String ->
+      logMessage("JS: $message")
+      return@AsyncFunction true
+    }
+
+    AsyncFunction("saveLogsToDevice") {
+      try {
+        val context = appContext.reactContext ?: return@AsyncFunction "No Android context"
+        val source = logFile ?: return@AsyncFunction "Logger not initialized"
+        val dir = context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS) ?: context.filesDir
+        val target = File(dir, "z100-printer-log.txt")
+        target.writeText(if (source.exists()) source.readText() else "")
+        logMessage("Saved printer log to ${target.absolutePath}")
+        return@AsyncFunction target.absolutePath
+      } catch (e: Throwable) {
+        logMessage("saveLogsToDevice failed: ${e.message}")
+        return@AsyncFunction "Failed: ${e.message}"
       }
     }
 
     AsyncFunction("diagnoseUart") {
       val ports = listOf("/dev/ttyMT1", "/dev/ttyMT2", "/dev/ttyMT0", "/dev/ttyS0", "/dev/ttyS1", "/dev/ttyS2")
-      val results = mutableListOf<String>()
-      for (port in ports) {
+      val results = ports.map { port ->
         val f = File(port)
         when {
-          !f.exists() -> results.add("$port: NOT_FOUND")
-          !f.canRead() || !f.canWrite() -> results.add("$port: PERMISSION_DENIED (canRead=${f.canRead()} canWrite=${f.canWrite()})")
-          else -> {
-            results.add("$port: OK")
-            try {
-              val raf = java.io.RandomAccessFile(f, "rw")
-              raf.close()
-            } catch (e: Exception) {
-              results.add("$port: OPEN_FAIL (${e.message})")
-            }
-          }
+          !f.exists() -> "$port: NOT_FOUND"
+          !f.canRead() || !f.canWrite() -> "$port: PERMISSION_DENIED (canRead=${f.canRead()} canWrite=${f.canWrite()})"
+          else -> "$port: OK"
         }
       }
-      logMessage("UART Diagnostics: " + results.joinToString(", "))
+      logMessage("UART Diagnostics: ${results.joinToString(", ")}")
       return@AsyncFunction results
     }
 
-    // ─── Printer lifecycle ──────────────────────────────────────────────────
-    // NOTE: In PosApiSdk.aar, most print methods are STATIC on PosApiHelper.
-    // Only PrintBarcode and PrintBmp are instance methods on the PosApiHelper singleton.
+    AsyncFunction("getDiagnostics") {
+      val lines = mutableListOf<String>()
+      getPosApiInstance()
+      listOf("getAARVersion", "getOSVersion", "getMcuTargetVersion").forEach { method ->
+        val value = invokeSdkAny("diagnostics", POS_API_HELPER, method)
+        lines.add("$method: $value")
+      }
+      lines.add("status: ${checkStatusLine("status")}")
+      logMessage("Diagnostics captured")
+      return@AsyncFunction lines
+    }
+
+    AsyncFunction("isZ100Device") {
+      val buildText = listOf(Build.MODEL, Build.DEVICE, Build.PRODUCT, Build.HARDWARE, Build.MANUFACTURER, Build.BRAND)
+        .joinToString(" ") { it ?: "" }
+        .lowercase()
+      val hasPorts = listOf("/dev/ttyMT1", "/dev/ttyMT2", "/dev/ttyMT0").any { File(it).exists() }
+      val hasSdk = try { sdkClass(POS_API_HELPER); true } catch (_: Throwable) { false }
+      val isZ100 = buildText.contains("z100") || buildText.contains("a26") || (hasSdk && hasPorts)
+      logMessage("isZ100Device=$isZ100 build=\"$buildText\" hasSdk=$hasSdk hasPorts=$hasPorts")
+      return@AsyncFunction isZ100
+    }
 
     AsyncFunction("printInit") {
       try {
-        logMessage("Calling PrintInit (static)")
-        // Ensure singleton is fetched so instance methods (PrintBarcode) work later
-        if (posApi == null) {
-          posApi = PosApiHelper.getInstance()
-        }
-        val result = PosApiHelper.PrintInit()
-        logMessage("printInit result: $result")
-        return@AsyncFunction result == 0
-      } catch (e: PrintInitException) {
-        logMessage("printInit PrintInitException code: ${e.exceptionCode}")
-        return@AsyncFunction false
+        logMessage("printInit requested")
+        getPosApiInstance()
+        val configured = invokeSdkInt("printInit configured", POS_API_HELPER, "PrintInit", null, 2, 24, 16, 0x00)
+        val fallback = if (configured == null || configured != 0) invokeSdkInt("printInit", POS_API_HELPER, "PrintInit") else configured
+        logMessage("printInit results configuredHelper=$configured helper=$fallback lib=null")
+        val status = checkStatusLine("printInit status after")
+        logMessage("printInit status after final=$status")
+        return@AsyncFunction fallback == 0 || configured == 0
       } catch (e: Throwable) {
         logError("printInit", e)
         return@AsyncFunction false
       }
     }
 
-    AsyncFunction("printClose") {
-      // PrintClose() does not exist in this SDK version — releasing the reference is sufficient
-      posApi = null
-      logMessage("printClose: released PosApiHelper reference")
-      return@AsyncFunction true
-    }
-
-    AsyncFunction("checkStatus") {
-      try {
-        val result = PosApiHelper.PrintCheckStatus()
-        logMessage("checkStatus result: $result")
-        return@AsyncFunction result
-      } catch (e: Throwable) {
-        logError("checkStatus", e)
-        return@AsyncFunction -1
-      }
-    }
-
-    // ─── Queue operations ───────────────────────────────────────────────────
-
     AsyncFunction("printString") { text: String, size: Int?, align: Int?, zoom: Int? ->
       try {
-        val fontSize = size ?: 24
-        val w: Byte = (fontSize / 4).toByte()
-        val h: Byte = w
-        val type: Byte = (zoom ?: 0).toByte()
-        PosApiHelper.PrintSetFont(w, h, type)
-        val result = PosApiHelper.PrintStr(text)
+        val safeAlign = align ?: 0
+        logMessage("printString request: align=$safeAlign requestedSize=${size ?: 24} rawZoom=${zoom ?: 0} bytes=${text.toByteArray().size} text=${text.take(80).replace("\n", "\\n")}")
+        val alignResult = invokeSdkInt("printString align", POS_API_HELPER, "PrintSetAlign", null, safeAlign)
+        logMessage("printString align results helper=$alignResult lib=null align=$safeAlign")
+        setPlainFont("printString font")
+        val result = invokePrintStr("printString text", text)
+        logMessage("printString result: final=$result helper=$result lib=null align=$safeAlign requestedSize=${size ?: 24}")
         return@AsyncFunction result == 0
       } catch (e: Throwable) {
         logError("printString", e)
@@ -186,55 +297,82 @@ class Z100PrinterModule : Module() {
     }
 
     AsyncFunction("printQrCode") { content: String, width: Int, height: Int ->
-      // PrintBarcode is an instance method — ensure singleton exists
-      if (posApi == null) {
-        logMessage("printQrCode: posApi null, re-fetching singleton")
-        posApi = PosApiHelper.getInstance()
-      }
       try {
-        val result = posApi!!.PrintBarcode(
-          content, width, height,
-          com.google.zxing.BarcodeFormat.QR_CODE
-        )
-        logMessage("printQrCode result: $result")
+        val barcodeFormat = Class.forName("com.google.zxing.BarcodeFormat")
+        val qr = barcodeFormat.enumConstants.firstOrNull { it.toString() == "QR_CODE" }
+        val target = getPosApiInstance()
+        val result = invokeSdkInt("printQrCode", POS_API_HELPER, "PrintBarcode", target, content, width, height, qr as Any)
         return@AsyncFunction result == 0
       } catch (e: Throwable) {
-        logError("printQrCode", e)
+        logMessage("printQrCode skipped: ${e.message}")
         return@AsyncFunction false
       }
     }
 
     AsyncFunction("printStart") {
       try {
-        val result = PosApiHelper.PrintStart()
-        logMessage("printStart result: $result")
-        return@AsyncFunction result == 0
+        Thread.sleep(300)
+        val libStartResult = directPrintStart("printStart")
+        logMessage("printStart results lib=$libStartResult helper=null")
+        logMessage("printStart trailing feed skipped; using queued receipt blank lines")
+        if (libStartResult != 0) {
+          logMessage("printStart failed; closing helper printer handle to avoid locking other SDK apps")
+          val closeHelper = invokeSdkInt("printStart failure close", POS_API_HELPER, "PrintClose")
+          logMessage("printStart failure close results helper=$closeHelper lib=null")
+        }
+        return@AsyncFunction libStartResult == 0
       } catch (e: Throwable) {
         logError("printStart", e)
         return@AsyncFunction false
       }
     }
 
-    // ─── Print settings ─────────────────────────────────────────────────────
-
-    AsyncFunction("printSetVoltage") { voltage: Int ->
+    AsyncFunction("printSdkSample") {
       try {
-        PosApiHelper.PrintSetVoltage(voltage)
-        return@AsyncFunction true
+        logMessage("printSdkSample requested")
+        invokeSdkInt("printSdkSample pre-close", POS_API_HELPER, "PrintClose")
+        val init = invokeSdkInt("printSdkSample low-power init", POS_API_HELPER, "PrintInit", null, 2, 24, 16, 0x00)
+        logMessage("printSdkSample init result=$init")
+        val first = invokePrintStr("printSdkSample text1", "Print Tile\n")
+        setPlainFont("printSdkSample font")
+        val dash = invokePrintStr("printSdkSample text2", "- - - - - - - - - - - -\n")
+        val second = invokePrintStr("printSdkSample text3", " Print Str2 \n")
+        val feed = invokePrintStr("printSdkSample text4", "\n\n")
+        logMessage("printSdkSample text results first=$first dash=$dash second=$second feed=$feed")
+        logMessage("printSdkSample direct start with no status check")
+        val start = directPrintStart("printSdkSample start")
+        logMessage("printSdkSample start result=$start")
+        Thread.sleep(700)
+        val close = invokeSdkInt("printSdkSample close", POS_API_HELPER, "PrintClose")
+        logMessage("printSdkSample close result=$close")
+        return@AsyncFunction start == 0
       } catch (e: Throwable) {
-        logError("printSetVoltage", e)
+        logError("printSdkSample", e)
         return@AsyncFunction false
       }
     }
 
+    AsyncFunction("printClose") {
+      logMessage("printClose requested")
+      val closeHelper = invokeSdkInt("printClose", POS_API_HELPER, "PrintClose")
+      logMessage("printClose results helper=$closeHelper lib=null")
+      posApi = null
+      logMessage("printClose: released PosApiHelper reference")
+      return@AsyncFunction closeHelper == 0 || closeHelper == null
+    }
+
+    AsyncFunction("printSetVoltage") { voltage: Int ->
+      val result = invokeSdkInt("printSetVoltage", PRINT_WRAPPER, "Lib_PrnSetVoltage", null, voltage)
+      return@AsyncFunction result == 0 || result == null
+    }
+
     AsyncFunction("printSetGray") { gray: Int ->
-      try {
-        PosApiHelper.PrintSetGray(gray)
-        return@AsyncFunction true
-      } catch (e: Throwable) {
-        logError("printSetGray", e)
-        return@AsyncFunction false
-      }
+      val result = invokeSdkInt("printSetGray", POS_API_HELPER, "PrintSetGray", null, gray)
+      return@AsyncFunction result == 0 || result == null
+    }
+
+    AsyncFunction("checkStatus") {
+      return@AsyncFunction checkStatusLine("checkStatus")
     }
   }
 }

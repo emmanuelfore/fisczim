@@ -115,7 +115,7 @@ export function InventoryScreen({ onOpenDrawer, companyId }: Props) {
         description: form.description || null,
         productType: form.productType,
         isTracked: form.isTracked,
-        stockLevel: form.stockLevel || "0",
+        ...(editingId ? {} : { stockLevel: form.stockLevel || "0" }),
         lowStockThreshold: form.lowStockThreshold || "10",
         taxTypeId: form.taxTypeId,
         barcode: form.barcode || null,
@@ -141,7 +141,8 @@ export function InventoryScreen({ onOpenDrawer, companyId }: Props) {
   }, [form, companyId, editingId, refreshProducts]);
 
   const renderItem = ({ item }: { item: any }) => {
-    const stock = Number(item.stockLevel || 0);
+    const branchStock = item.branchStock !== undefined && item.branchStock !== null ? Number(item.branchStock || 0) : null;
+    const stock = branchStock ?? Number(item.stockLevel || 0);
     const lowThreshold = Number(item.lowStockThreshold || 10);
     const isOutOfStock = stock <= 0;
     const isLowStock = stock <= lowThreshold;
@@ -173,7 +174,7 @@ export function InventoryScreen({ onOpenDrawer, companyId }: Props) {
               styles.stockBadgeText,
               { color: isLowStock ? "#000" : "#fff" }
             ]}>
-              {item.isTracked ? (isOutOfStock ? "OUT" : `${stock} UNITS`) : "NOT TRACKED"}
+              {item.isTracked ? (isOutOfStock ? "OUT" : `${stock} ${branchStock !== null ? "BRANCH" : "UNITS"}`) : "NOT TRACKED"}
             </Text>
           </View>
         </View>
@@ -311,7 +312,15 @@ export function InventoryScreen({ onOpenDrawer, companyId }: Props) {
                   </View>
                   <Text style={styles.toggleLabel}>Track Inventory</Text>
                 </TouchableOpacity>
-                {form.isTracked && (
+                {form.isTracked && editingId && (
+                  <View style={styles.stockNotice}>
+                    <Text style={styles.stockNoticeTitle}>Stock is controlled by ledger movements</Text>
+                    <Text style={styles.stockNoticeText}>
+                      Use GRVs, stock transfers, stock adjustments, or physical counts to change quantity.
+                    </Text>
+                  </View>
+                )}
+                {form.isTracked && !editingId && (
                   <View style={{ flexDirection: "row", gap: 10 }}>
                     <View style={[styles.field, { flex: 1 }]}><Text style={styles.fieldLabel}>Opening Stock</Text>
                       <TextInput style={styles.fieldInput} keyboardType="numeric" value={form.stockLevel} onChangeText={(v) => setForm({ ...form, stockLevel: v })} placeholderTextColor={C.text.secondary} /></View>
@@ -379,6 +388,9 @@ const getStyles = (C: Theme) => StyleSheet.create({
   modalTitle: { color: C.text.primary, fontSize: 18, fontWeight: "800" },
   field: { marginBottom: 12 },
   fieldLabel: { color: C.text.secondary, fontSize: 11, fontWeight: "600", marginBottom: 5 },
+  stockNotice: { marginBottom: 12, padding: 12, borderRadius: 12, backgroundColor: hexAlpha(C.amber.primary, 0.08), borderWidth: 1, borderColor: hexAlpha(C.amber.primary, 0.24) },
+  stockNoticeTitle: { color: C.text.primary, fontSize: 12, fontWeight: "800", marginBottom: 4 },
+  stockNoticeText: { color: C.text.secondary, fontSize: 12, lineHeight: 17, fontWeight: "600" },
   fieldInput: { backgroundColor: C.bg.hover, color: C.text.primary, borderRadius: 10, paddingHorizontal: 14, height: 42, borderWidth: 1, borderColor: C.border.default, fontSize: 14 },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6 },
   chip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: C.bg.card, shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 3 },

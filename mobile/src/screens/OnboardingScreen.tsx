@@ -70,19 +70,17 @@ export function OnboardingScreen({ onComplete, onSignOut }: OnboardingProps) {
   const prevStep = () => setStep(step - 1);
 
   const handleSubmit = async () => {
-    if (!form.tin) {
-      Alert.alert("Missing Information", "Please provide your Taxpayer Identification Number (TIN).");
-      return;
-    }
-
     setBusy(true);
     try {
       const res = await apiFetch("/api/companies", {
         method: "POST",
         body: JSON.stringify({
           ...form,
+          tin: form.tin.trim() || null,
+          vatNumber: form.vatNumber.trim() || null,
+          bpNumber: form.bpNumber.trim() || null,
           country: "Zimbabwe",
-          vatEnabled: !!form.vatNumber,
+          vatEnabled: !!form.vatNumber.trim(),
         }),
       });
 
@@ -134,7 +132,7 @@ export function OnboardingScreen({ onComplete, onSignOut }: OnboardingProps) {
               <Text style={styles.subtitle}>
                 {step === 1 
                   ? "Tell us about your organization to get started" 
-                  : "Required details for ZIMRA fiscalization"}
+                  : "Add these now if you have them. You can finish setup without them."}
               </Text>
             </View>
 
@@ -192,14 +190,14 @@ export function OnboardingScreen({ onComplete, onSignOut }: OnboardingProps) {
               <View style={styles.formCard}>
                 <View style={styles.alertBox}>
                   <Text style={styles.alertText}>
-                    Ensure numbers match your ZIMRA documents exactly.
+                    TIN, VAT and BP numbers are optional during signup. Add them later before fiscalization if needed.
                   </Text>
                 </View>
 
                 <InputField 
-                  label="Company TIN *" 
+                  label="Company TIN" 
                   icon={FileText} 
-                  placeholder="10-digit Tax Number" 
+                  placeholder="Optional 10-digit tax number" 
                   keyboardType="numeric"
                   value={form.tin} 
                   onChangeText={(v: string) => setForm({...form, tin: v})} 

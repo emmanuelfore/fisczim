@@ -9,17 +9,21 @@ import { apiJson } from "./lib/api";
 import { PremiumColors } from "./ui/PremiumColors";
 import { LoginScreen } from "./screens/LoginScreen";
 import { ForgotPasswordScreen } from "./screens/ForgotPasswordScreen";
+import { SignUpScreen } from "./screens/SignUpScreen";
 
 
 import { CompanySelectScreen } from "./screens/CompanySelectScreen";
 import { POSScreen } from "./screens/POSScreen";
+import { DashboardScreen } from "./screens/DashboardScreen";
 import { ReportsScreen } from "./screens/ReportsScreen";
 import { ProfileScreen } from "./screens/ProfileScreen";
 import { InventoryScreen } from "./screens/InventoryScreen";
 import { StockInScreen } from "./screens/StockInScreen";
+import { StockOperationsScreen } from "./screens/StockOperationsScreen";
 import { CustomersScreen } from "./screens/CustomersScreen";
 import { SuppliersScreen } from "./screens/SuppliersScreen";
 import { ExpensesScreen } from "./screens/ExpensesScreen";
+import { CashiersScreen } from "./screens/CashiersScreen";
 import { OnboardingScreen } from "./screens/OnboardingScreen";
 import { StockTakeScreen } from "./screens/StockTakeScreen";
 import { AppDrawer } from "./ui/AppDrawer";
@@ -28,15 +32,15 @@ import { Button } from "./ui/Button";
 import { getSelectedCompanyId, setSelectedCompanyId } from "./lib/storage";
 import { PrinterProvider } from "./contexts/PrinterContext";
 
-type Stage = "boot" | "login" | "forgot-password" | "onboarding" | "company" | "main";
+type Stage = "boot" | "login" | "signup" | "forgot-password" | "onboarding" | "company" | "main";
 
-type ScreenName = "pos" | "reports" | "profile" | "inventory" | "stockin" | "customers" | "suppliers" | "expenses" | "stocktake";
+type ScreenName = "dashboard" | "pos" | "reports" | "profile" | "inventory" | "stockin" | "stockops" | "customers" | "suppliers" | "expenses" | "cashiers" | "stocktake";
 
 export function AppRoot() {
   const [stage, setStage] = useState<Stage>("boot");
   const [bootError, setBootError] = useState<string | null>(null);
   const [companyId, setCompanyId] = useState<number | null>(null);
-  const [currentScreen, setCurrentScreen] = useState<ScreenName>("pos");
+  const [currentScreen, setCurrentScreen] = useState<ScreenName>("dashboard");
   const [showDrawer, setShowDrawer] = useState(false);
   const [userName, setUserName] = useState("Cashier");
   const [userRole, setUserRole] = useState("member");
@@ -444,6 +448,7 @@ export function AppRoot() {
     if (stage === "login") {
       return (
         <LoginScreen
+          onSignUp={() => setStage("signup")}
           onForgotPassword={() => setStage("forgot-password")}
           onLoggedIn={async () => {
             setStage("boot");
@@ -471,6 +476,19 @@ export function AppRoot() {
               setBootError(e.message || "Failed to initialize after login");
               setStage("boot");
             }
+          }}
+        />
+      );
+    }
+
+    if (stage === "signup") {
+      return (
+        <SignUpScreen
+          onBack={() => setStage("login")}
+          onSignedUp={async () => {
+            await fetchUser(false).catch(() => null);
+            setCompanyId(null);
+            setStage("onboarding");
           }}
         />
       );
@@ -523,6 +541,14 @@ export function AppRoot() {
 
     return (
       <View style={{ flex: 1 }}>
+        {currentScreen === "dashboard" && (
+          <DashboardScreen
+            companyId={companyId}
+            userName={userName}
+            onOpenDrawer={() => setShowDrawer(true)}
+            onNavigate={(screen) => setCurrentScreen(screen)}
+          />
+        )}
         {currentScreen === "pos" && (
           <POSScreen 
             companyId={companyId} 
@@ -560,6 +586,12 @@ export function AppRoot() {
             companyId={companyId}
           />
         )}
+        {currentScreen === "stockops" && (
+          <StockOperationsScreen
+            onOpenDrawer={() => setShowDrawer(true)}
+            companyId={companyId}
+          />
+        )}
         {currentScreen === "customers" && (
           <CustomersScreen 
             onOpenDrawer={() => setShowDrawer(true)} 
@@ -575,6 +607,12 @@ export function AppRoot() {
         {currentScreen === "expenses" && (
           <ExpensesScreen 
             onOpenDrawer={() => setShowDrawer(true)} 
+            companyId={companyId}
+          />
+        )}
+        {currentScreen === "cashiers" && (
+          <CashiersScreen
+            onOpenDrawer={() => setShowDrawer(true)}
             companyId={companyId}
           />
         )}

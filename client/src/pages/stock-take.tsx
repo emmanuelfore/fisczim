@@ -324,7 +324,7 @@ export default function StockTakePage() {
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 p-6 border-b border-slate-100 bg-slate-50/30">
               <div>
                 <h3 className="text-lg font-black text-slate-900">Count Stock</h3>
-                <p className="text-sm text-slate-500">Enter physical counts for selected products.</p>
+                <p className="text-sm text-muted-foreground">Enter physical counts for selected products.</p>
               </div>
               <div className="flex gap-2">
                 <Button variant="outline" className="rounded-xl" onClick={exportSheet}>
@@ -418,7 +418,7 @@ export default function StockTakePage() {
             <CardContent className="p-0 h-full flex flex-col">
               <div className="p-6 border-b border-slate-100 bg-slate-50/30">
                 <h3 className="text-lg font-black text-slate-900">Variance Review</h3>
-                <p className="text-sm text-slate-500">Confirm variance impact before committing corrections.</p>
+                <p className="text-sm text-muted-foreground">Confirm variance impact before committing corrections.</p>
               </div>
 
               <ScrollArea className="flex-1">

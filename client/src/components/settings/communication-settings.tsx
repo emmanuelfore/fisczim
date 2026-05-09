@@ -13,7 +13,7 @@ export function CommunicationSettings({ formData, setFormData }: CommunicationSe
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div>
         <h2 className="text-xl font-bold text-slate-900">Communication Gateway</h2>
-        <p className="text-sm text-slate-500">Configure how the system sends emails and notifications</p>
+        <p className="text-sm text-muted-foreground">Configure how the system sends emails and notifications</p>
       </div>
 
       <Card className="card-depth border-none max-w-3xl">

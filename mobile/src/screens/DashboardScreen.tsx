@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { AlertTriangle, BarChart3, Landmark, Menu, Package, Receipt, Scale, TrendingUp, Users } from "lucide-react-native";
+import { AlertTriangle, BarChart3, Banknote, Check, Landmark, Menu, Package, Receipt, Scale, TrendingUp, Users } from "lucide-react-native";
 import { StatusBar } from "expo-status-bar";
 import { apiJson } from "../lib/api";
 import { useTheme, hexAlpha } from "../ui/PremiumColors";
@@ -10,7 +10,7 @@ type Props = {
   companyId: number;
   userName: string;
   onOpenDrawer: () => void;
-  onNavigate: (screen: "pos" | "reports" | "inventory" | "stockin" | "stockops" | "cashiers" | "expenses") => void;
+  onNavigate: (screen: "pos" | "reports" | "inventory" | "stockin" | "stockops" | "cashiers" | "expenses" | "suppliers", options?: { openCashCollection?: boolean }) => void;
 };
 
 export function DashboardScreen({ companyId, userName, onOpenDrawer, onNavigate }: Props) {
@@ -21,6 +21,10 @@ export function DashboardScreen({ companyId, userName, onOpenDrawer, onNavigate 
   const [stock, setStock] = useState<any[]>([]);
   const [abc, setAbc] = useState<any>(null);
   const [shifts, setShifts] = useState<any[]>([]);
+  const [cashBalances, setCashBalances] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
+  const [suppliers, setSuppliers] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -31,17 +35,25 @@ export function DashboardScreen({ companyId, userName, onOpenDrawer, onNavigate 
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
       const monthEnd = now.toISOString();
       try {
-        const [financialData, stockData, abcData, shiftData] = await Promise.all([
+        const [financialData, stockData, abcData, shiftData, cashBalanceData, productData, supplierData, userData] = await Promise.all([
           apiJson<any>(`/api/companies/${companyId}/reports/financial-summary?from=${monthStart}&to=${monthEnd}`).catch(() => null),
           apiJson<any[]>(`/api/companies/${companyId}/reports/stock-valuation`).catch(() => []),
           apiJson<any>(`/api/companies/${companyId}/reports/abc-analysis?from=${monthStart}&to=${monthEnd}`).catch(() => null),
           apiJson<any[]>(`/api/pos/reports/shifts?companyId=${companyId}&startDate=${monthStart}&endDate=${monthEnd}`).catch(() => []),
+          apiJson<any[]>(`/api/companies/${companyId}/reports/cash-collection-balances?mode=sinceLastCollection`).catch(() => []),
+          apiJson<any[]>(`/api/companies/${companyId}/products`).catch(() => []),
+          apiJson<any[]>(`/api/companies/${companyId}/suppliers`).catch(() => []),
+          apiJson<any[]>(`/api/companies/${companyId}/users`).catch(() => []),
         ]);
         if (!cancelled) {
           setFinancial(financialData);
           setStock(Array.isArray(stockData) ? stockData : []);
           setAbc(abcData);
           setShifts(Array.isArray(shiftData) ? shiftData : []);
+          setCashBalances(Array.isArray(cashBalanceData) ? cashBalanceData : []);
+          setProducts(Array.isArray(productData) ? productData : []);
+          setSuppliers(Array.isArray(supplierData) ? supplierData : []);
+          setUsers(Array.isArray(userData) ? userData : []);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -64,8 +76,17 @@ export function DashboardScreen({ companyId, userName, onOpenDrawer, onNavigate 
   const grossMargin = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
   const openShiftCount = shifts.filter((shift) => String(shift.status).toLowerCase() === "open").length;
   const unreconciledShifts = shifts.filter((shift) => String(shift.status).toLowerCase() === "closed" && !["approved", "reconciled"].includes(String(shift.reconciliationStatus || "").toLowerCase()));
-  const expectedCash = shifts.reduce((sum, shift) => sum + Number(shift.expectedCash || 0), 0);
+  const expectedCash = cashBalances.reduce((sum, row) => sum + Number(row.expectedCash || 0), 0);
   const cashVariance = shifts.reduce((sum, shift) => sum + Number(shift.cashVariance || 0), 0);
+  const hasProducts = products.some((item) => item?.isActive !== false);
+  const hasSuppliers = suppliers.some((item) => item?.isActive !== false);
+  const hasCashiers = users.some((item) => item?.role && !["owner", "super_admin"].includes(String(item.role).toLowerCase()));
+  const checklist = [
+    { label: "Add products", done: hasProducts, screen: "inventory" as const },
+    { label: "Add suppliers", done: hasSuppliers, screen: "suppliers" as const },
+    { label: "Add cashiers", done: hasCashiers, screen: "cashiers" as const },
+  ];
+  const completedSetup = checklist.filter((item) => item.done).length;
 
   return (
     <View style={styles.container}>
@@ -102,6 +123,7 @@ export function DashboardScreen({ companyId, userName, onOpenDrawer, onNavigate 
             <QuickButton label="Sell" onPress={() => onNavigate("pos")} styles={styles} />
             <QuickButton label="Create GRV" onPress={() => onNavigate("stockin")} styles={styles} />
             <QuickButton label="Adjust Stock" onPress={() => onNavigate("stockops")} styles={styles} />
+            <QuickButton label="Collect Cash" onPress={() => onNavigate("pos", { openCashCollection: true })} styles={styles} />
             <QuickButton label="Cashiers" onPress={() => onNavigate("cashiers")} styles={styles} />
             <QuickButton label="Reports" onPress={() => onNavigate("reports")} styles={styles} />
           </View>
@@ -110,23 +132,32 @@ export function DashboardScreen({ companyId, userName, onOpenDrawer, onNavigate 
             <View style={styles.ledgerGrid}>
               <LedgerCard label="Open Shifts" value={openShiftCount.toString()} icon={Landmark} color={C.amber.primary} styles={styles} />
               <LedgerCard label="Unreconciled" value={unreconciledShifts.length.toString()} icon={AlertTriangle} color={C.status.warning} styles={styles} />
-              <LedgerCard label="Expected Cash" value={`$${expectedCash.toFixed(2)}`} icon={Receipt} color={C.status.info} styles={styles} />
+              <LedgerCard label="To Collect" value={`$${expectedCash.toFixed(2)}`} icon={Banknote} color={C.status.info} styles={styles} />
               <LedgerCard label="Cash Variance" value={`$${cashVariance.toFixed(2)}`} icon={Scale} color={Math.abs(cashVariance) > 0.01 ? C.status.error : C.status.success} styles={styles} />
             </View>
-            <TouchableOpacity onPress={() => onNavigate("reports")} style={styles.cashierLink}>
-              <BarChart3 size={18} color={C.amber.primary} />
-              <Text style={styles.cashierLinkText}>Review settlements, shift variances, collections, and ledger reports</Text>
+            <TouchableOpacity onPress={() => onNavigate("pos", { openCashCollection: true })} style={styles.cashierLink}>
+              <Banknote size={18} color={C.amber.primary} />
+              <Text style={styles.cashierLinkText}>Collect cash from a selected cashier using their expected balance</Text>
             </TouchableOpacity>
+            {cashBalances.slice(0, 3).map((row) => (
+              <View key={row.userId || row.cashierName} style={styles.row}>
+                <Text style={styles.rowMain}>{row.cashierName}</Text>
+                <Text style={styles.rowValue}>${Number(row.expectedCash || 0).toFixed(2)}</Text>
+              </View>
+            ))}
           </Section>
 
           <Section title="Setup Checklist" styles={styles}>
-            {["Add products", "Add suppliers", "Add cashiers", "Create first GRV", "View reports"].map((item, index) => (
-              <View key={item} style={styles.checkRow}>
-                <View style={[styles.checkDot, index < 2 && { backgroundColor: C.status.success }]} />
-                <Text style={styles.checkText}>{item}</Text>
-              </View>
+            {checklist.map((item) => (
+              <TouchableOpacity key={item.label} onPress={() => onNavigate(item.screen)} style={styles.checkRow}>
+                <View style={[styles.checkDot, item.done && { backgroundColor: C.status.success, borderColor: C.status.success }]}>
+                  {item.done && <Check size={10} color={C.bg.base} />}
+                </View>
+                <Text style={[styles.checkText, item.done && { color: C.text.secondary }]}>{item.label}</Text>
+                <Text style={styles.checkAction}>{item.done ? "Done" : "Open"}</Text>
+              </TouchableOpacity>
             ))}
-            <Text style={styles.setupProgress}>Setup 2 of 5 started</Text>
+            <Text style={styles.setupProgress}>Setup {completedSetup} of {checklist.length} complete</Text>
           </Section>
 
           <Section title="Top Products" styles={styles}>
@@ -215,9 +246,10 @@ const makeStyles = (C: any, insets: any) => StyleSheet.create({
   quickText: { color: C.amber.primary, fontSize: 12, fontWeight: "900", textTransform: "uppercase" },
   section: { backgroundColor: C.bg.card, borderRadius: 18, padding: 16, borderWidth: 1, borderColor: C.border.default, marginBottom: 14 },
   sectionTitle: { color: C.text.primary, fontSize: 16, fontWeight: "900", marginBottom: 12 },
-  checkRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 7 },
-  checkDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: C.border.default },
+  checkRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10 },
+  checkDot: { width: 18, height: 18, borderRadius: 9, backgroundColor: C.bg.hover, borderWidth: 1, borderColor: C.border.default, alignItems: "center", justifyContent: "center" },
   checkText: { color: C.text.primary, fontSize: 14, fontWeight: "700" },
+  checkAction: { color: C.amber.primary, fontSize: 12, fontWeight: "900", marginLeft: "auto", textTransform: "uppercase" },
   setupProgress: { color: C.text.secondary, fontSize: 12, fontWeight: "800", marginTop: 8 },
   row: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 10, borderTopWidth: 1, borderTopColor: C.border.default },
   rowMain: { color: C.text.primary, fontSize: 13, fontWeight: "800" },

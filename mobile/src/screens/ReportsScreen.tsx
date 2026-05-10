@@ -634,7 +634,7 @@ export function ReportsScreen({ onOpenDrawer, companyId, userRole = "member", us
   const [showCashierPicker, setShowCashierPicker] = useState(false);
   const [ownerGroupFilter, setOwnerGroupFilter] = useState<string>("all");
   const [showOwnerGroupPicker, setShowOwnerGroupPicker] = useState(false);
-  const { data: products } = useProducts(companyId);
+  const { data: products, refresh: refreshProducts } = useProducts(companyId);
 
   // Drill-down State
   const [drillDownType, setDrillDownType] = useState<"Revenue" | "COGS" | "Expenses" | null>(null);
@@ -705,6 +705,7 @@ export function ReportsScreen({ onOpenDrawer, companyId, userRole = "member", us
                 body: JSON.stringify({ reason: "Voided from mobile reports" }),
               });
               if (!res.ok) throw new Error(await res.text().catch(() => "Could not void sale"));
+              refreshProducts();
               Alert.alert("Done", "Void/refund document created.");
             } catch (error: any) {
               Alert.alert("Void Failed", error.message || "Could not void sale.");
@@ -1446,7 +1447,10 @@ export function ReportsScreen({ onOpenDrawer, companyId, userRole = "member", us
           printerConfig={printerConfig}
           isOnline={isOnline}
           onClose={() => setNoteModal(null)}
-          onSuccess={() => setNoteModal(null)}
+          onSuccess={() => {
+            refreshProducts();
+            setNoteModal(null);
+          }}
         />
       )}
 

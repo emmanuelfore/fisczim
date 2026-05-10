@@ -18,6 +18,7 @@ import {
   TriangleAlert,
   Users,
   ArrowRight,
+  Banknote,
 } from "lucide-react";
 import { Link } from "wouter";
 import {
@@ -126,6 +127,15 @@ export default function Dashboard() {
     },
     enabled: !!companyId,
   });
+  const { data: cashCollectionBalances = [] } = useQuery<any[]>({
+    queryKey: ["dashboard-cash-collection-balances", companyId],
+    queryFn: async () => {
+      const res = await apiFetch(`/api/companies/${companyId}/reports/cash-collection-balances`);
+      if (!res.ok) return [];
+      return await res.json();
+    },
+    enabled: !!companyId,
+  });
 
   const paymentData = paymentDataRaw.map((row: any) => {
     const rawName = String(row.method || "OTHER").toUpperCase();
@@ -142,6 +152,7 @@ export default function Dashboard() {
   const connected = Boolean(deviceStatus?.isConfigured && deviceStatus?.isOnline);
   const lowStockCount = stockAlerts.filter((x: any) => Number(x?.stockLevel || 0) > 0).length;
   const outOfStockCount = stockAlerts.filter((x: any) => Number(x?.stockLevel || 0) <= 0).length;
+  const expectedCashCollections = cashCollectionBalances.reduce((sum: number, row: any) => sum + Number(row.expectedCash || 0), 0);
 
   if (!activeCompany) {
     return (
@@ -162,11 +173,19 @@ export default function Dashboard() {
       <div className="space-y-5">
         <div className="-mt-1 space-y-4">
           <section className="mt-0 mb-0 flex justify-end">
-            <Link href="/invoices/new">
-              <Button className="h-10 w-[148px] rounded-[10px] bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-semibold text-sm">
-                Create Invoice
-              </Button>
-            </Link>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Link href="/reports/cash-collection">
+                <Button variant="outline" className="h-10 rounded-[10px] border-[#E5E7EB] text-[#334155] font-semibold text-sm">
+                  <Banknote className="w-4 h-4 mr-2" />
+                  Collect Cash
+                </Button>
+              </Link>
+              <Link href="/invoices/new">
+                <Button className="h-10 w-[148px] rounded-[10px] bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-semibold text-sm">
+                  Create Invoice
+                </Button>
+              </Link>
+            </div>
           </section>
 
           <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
@@ -292,6 +311,42 @@ export default function Dashboard() {
                   <span className="text-sm font-semibold text-[#111827]">{currency(paymentTotal)}</span>
                 </div>
               </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-[14px] border border-[#E5E7EB] bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+          <div className="mb-5 flex items-center justify-between">
+            <div>
+              <h3 className="text-[16px] font-bold text-[#0F172A]">Cash Collections</h3>
+              <p className="mt-1 text-sm text-[#64748B]">Expected uncollected cash by cashier</p>
+            </div>
+            <Link href="/reports/cash-collection">
+              <Button variant="outline" className="h-9 rounded-[10px] border-[#E5E7EB] text-[#334155]">
+                Collect Cash
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+            </Link>
+          </div>
+          <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+            <div className="rounded-[12px] bg-[#FFFBEB] border border-[#FEF3C7] p-4">
+              <p className="text-xs font-bold uppercase tracking-wide text-[#B45309]">Expected Uncollected</p>
+              <p className="mt-2 text-2xl font-bold text-[#0F172A]">{currency(expectedCashCollections)}</p>
+              <p className="mt-1 text-xs text-[#92400E]">{cashCollectionBalances.length} cashier balance{cashCollectionBalances.length === 1 ? "" : "s"}</p>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              {cashCollectionBalances.slice(0, 4).map((row: any) => (
+                <div key={row.userId || row.cashierName} className="rounded-[12px] border border-[#E5E7EB] p-4">
+                  <p className="truncate text-sm font-semibold text-[#0F172A]">{row.cashierName}</p>
+                  <p className="mt-1 text-xs text-[#64748B]">Collected {currency(Number(row.collections || 0))}</p>
+                  <p className="mt-3 text-lg font-bold text-[#B45309]">{currency(Number(row.expectedCash || 0))}</p>
+                </div>
+              ))}
+              {cashCollectionBalances.length === 0 && (
+                <div className="rounded-[12px] border border-dashed border-[#E5E7EB] p-4 text-sm font-semibold text-[#94A3B8]">
+                  No outstanding cash balances.
+                </div>
+              )}
             </div>
           </div>
         </section>

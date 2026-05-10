@@ -72,7 +72,7 @@ export function CreateProductDialog({ companyId, defaultType = "good", triggerLa
                 .map((p: any) => (typeof p.ownerGroup === "string" ? p.ownerGroup.trim() : ""))
                 .filter((v: string) => v.length > 0)
         )
-    );
+    ).sort((a, b) => a.localeCompare(b));
 
     const form = useForm<InsertProduct>({
         resolver: zodResolver(insertProductSchema),
@@ -222,29 +222,44 @@ export function CreateProductDialog({ companyId, defaultType = "good", triggerLa
                             render={({ field }) => (
                                 <FormItem>
                                     <FormLabel className="text-slate-700 font-semibold">Cost Center</FormLabel>
-                                    <FormControl>
-                                        <Input
-                                            placeholder="e.g. Mother"
-                                            value={field.value || ""}
-                                            onChange={field.onChange}
-                                            className="rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-primary/20"
-                                        />
-                                    </FormControl>
                                     {existingOwnerGroups.length > 0 && (
                                         <div className="flex flex-wrap gap-2 pt-2">
+                                            <Button
+                                                type="button"
+                                                variant={!field.value ? "default" : "outline"}
+                                                size="sm"
+                                                className={!field.value
+                                                    ? "h-7 rounded-full px-3 text-[10px] font-black bg-slate-900 text-white"
+                                                    : "h-7 rounded-full px-3 text-[10px] font-bold border-slate-200"}
+                                                onClick={() => form.setValue("ownerGroup", "", { shouldDirty: true })}
+                                            >
+                                                No Cost Center
+                                            </Button>
                                             {existingOwnerGroups.map((group) => (
                                                 <Button
                                                     key={group}
                                                     type="button"
-                                                    variant="outline"
+                                                    variant={field.value === group ? "default" : "outline"}
                                                     size="sm"
-                                                    className="h-7 rounded-full px-3 text-[10px] font-bold border-slate-200"
+                                                    className={field.value === group
+                                                        ? "h-7 rounded-full px-3 text-[10px] font-black bg-indigo-600 text-white hover:bg-indigo-700"
+                                                        : "h-7 rounded-full px-3 text-[10px] font-bold border-slate-200"}
                                                     onClick={() => form.setValue("ownerGroup", group, { shouldDirty: true })}
                                                 >
                                                     {group}
                                                 </Button>
                                             ))}
                                         </div>
+                                    )}
+                                    {existingOwnerGroups.length === 0 && (
+                                        <FormControl>
+                                            <Input
+                                                placeholder="Create the first cost center"
+                                                value={field.value || ""}
+                                                onChange={field.onChange}
+                                                className="rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-primary/20"
+                                            />
+                                        </FormControl>
                                     )}
                                     <FormDescription>Optional. Used to separate reporting by owner/group.</FormDescription>
                                     <FormMessage />

@@ -36,7 +36,7 @@ import { useToast } from "@/hooks/use-toast";
 
 const stockAdjustmentSchema = z.object({
     productId: z.number(),
-    quantity: z.string().transform((v) => parseFloat(v)).pipe(z.number()),
+    actualQuantity: z.string().transform((v) => parseFloat(v)).pipe(z.number().min(0, "Actual quantity cannot be negative")),
     type: z.enum(['ADJUSTMENT', 'SHRINKAGE', 'CORRECTION', 'DAMAGE', 'EXPIRY']),
     notes: z.string().min(3, "Please provide a reason for the adjustment"),
 });
@@ -47,22 +47,39 @@ export function StockAdjustmentDialog({ product, companyId, branchId, children }
     const [open, setOpen] = useState(false);
     const { toast } = useToast();
     const adjustMutation = useInventoryAdjust(companyId);
+    const systemQuantity = Number((product as any).branchStock ?? product.stockLevel ?? 0);
 
     const form = useForm<StockAdjustmentFormValues>({
         // @ts-ignore
         resolver: zodResolver(stockAdjustmentSchema),
         defaultValues: {
             productId: product.id,
-            quantity: "" as any,
+            actualQuantity: "" as any,
             type: "ADJUSTMENT",
             notes: "",
         },
     });
+    const actualQuantityValue = form.watch("actualQuantity");
+    const hasPreviewQuantity = actualQuantityValue !== undefined && String(actualQuantityValue).trim() !== "";
+    const previewActualQuantity = Number(actualQuantityValue);
+    const previewDelta = hasPreviewQuantity && Number.isFinite(previewActualQuantity) ? previewActualQuantity - systemQuantity : null;
 
     const onSubmit = async (data: StockAdjustmentFormValues) => {
+        const quantity = data.actualQuantity - systemQuantity;
+        if (quantity === 0) {
+            toast({
+                title: "No Stock Change",
+                description: "The actual quantity matches the system quantity.",
+                variant: "destructive",
+            });
+            return;
+        }
         try {
             await adjustMutation.mutateAsync({
-                ...data,
+                productId: data.productId,
+                quantity,
+                type: data.type,
+                notes: data.notes,
                 branchId
             });
             toast({
@@ -104,7 +121,7 @@ export function StockAdjustmentDialog({ product, companyId, branchId, children }
                 <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 flex gap-3 items-start mb-2">
                     <Info className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
                     <div className="text-sm text-amber-800 leading-relaxed">
-                        Use <span className="font-bold">positive numbers</span> to increase stock and <span className="font-bold">negative numbers</span> (e.g., -5) to decrease stock levels.
+                        System quantity is <span className="font-bold">{systemQuantity.toFixed(2)}</span>. Enter the actual counted quantity; the system will post only the difference.
                     </div>
                 </div>
 
@@ -140,17 +157,22 @@ export function StockAdjustmentDialog({ product, companyId, branchId, children }
                             />
                             <FormField
                                 control={form.control}
-                                name="quantity"
+                                name="actualQuantity"
                                 render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel className="text-slate-700 font-semibold">Qty Change</FormLabel>
+                                        <FormLabel className="text-slate-700 font-semibold">Actual Qty</FormLabel>
                                         <FormControl>
-                                            <Input type="number" step="0.01" placeholder="e.g. -5 or 10" {...field} className="rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-amber-500/20" />
+                                            <Input type="number" step="0.01" min="0" placeholder={systemQuantity.toString()} {...field} className="rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-amber-500/20" />
                                         </FormControl>
                                         <FormMessage />
                                     </FormItem>
                                 )}
                             />
+                        </div>
+                        <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-600">
+                            {previewDelta === null ? "Enter the counted quantity to preview the adjustment." : (
+                                <>Ledger change: <span className={previewDelta > 0 ? "text-emerald-600" : previewDelta < 0 ? "text-rose-600" : "text-slate-500"}>{previewDelta > 0 ? "+" : ""}{previewDelta.toFixed(2)}</span></>
+                            )}
                         </div>
 
                         <FormField

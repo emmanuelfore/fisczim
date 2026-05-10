@@ -38,34 +38,40 @@ export function StockTakeScreen({ companyId, onClose }: StockTakeScreenProps) {
   const [notes, setNotes] = useState("");
 
   const filteredProducts = useMemo(() => {
-    if (!products || !search) return [];
+    if (!products) return [];
     const s = search.toLowerCase();
     return products.filter(p => 
       p.isActive !== false && 
       p.isTracked && (
+        !s ||
         p.name.toLowerCase().includes(s) || 
         (p.sku && p.sku.toLowerCase().includes(s)) ||
         (p.barcode && p.barcode.toLowerCase().includes(s))
       )
-    ).slice(0, 10);
+    ).slice(0, 50);
   }, [products, search]);
 
-  const addItem = (product: any) => {
-    if (items.find(it => it.productId === product.id)) {
-      Alert.alert("Already Added", "This product is already in the count list.");
-      return;
-    }
-    const newItem: StockTakeItem = {
+  const productToItem = (product: any): StockTakeItem => ({
       productId: product.id,
       name: product.name,
       sku: product.sku,
       systemCount: parseFloat(product.branchStock ?? product.stockLevel ?? "0"),
       physicalCount: parseFloat(product.branchStock ?? product.stockLevel ?? "0"),
       unitCost: parseFloat(product.costPrice || "0"),
-    };
-    setItems([newItem, ...items]);
-    setShowProductSearch(false);
-    setSearch("");
+  });
+
+  const toggleItem = (product: any) => {
+    if (items.find(it => it.productId === product.id)) {
+      removeItem(product.id);
+      return;
+    }
+    setItems([productToItem(product), ...items]);
+  };
+
+  const addVisibleProducts = () => {
+    const existing = new Set(items.map((it) => it.productId));
+    const additions = filteredProducts.filter((product: any) => !existing.has(product.id)).map(productToItem);
+    setItems([...additions, ...items]);
   };
 
   const updateCount = (productId: number, count: number) => {
@@ -158,7 +164,7 @@ export function StockTakeScreen({ companyId, onClose }: StockTakeScreenProps) {
             onPress={() => setShowProductSearch(true)}
           >
             <Search size={18} color={C.text.secondary} />
-            <Text style={styles.searchPlaceholder}>Search products to count...</Text>
+            <Text style={styles.searchPlaceholder}>Select products to count...</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.scanBtn} onPress={() => setShowProductSearch(true)}>
             <Scan size={20} color={C.amber.primary} />
@@ -263,7 +269,7 @@ export function StockTakeScreen({ companyId, onClose }: StockTakeScreenProps) {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Add Product</Text>
+              <Text style={styles.modalTitle}>Select Products</Text>
               <TouchableOpacity onPress={() => setShowProductSearch(false)} style={styles.closeBtn}>
                 <X size={20} color={C.text.primary} />
               </TouchableOpacity>
@@ -281,31 +287,45 @@ export function StockTakeScreen({ companyId, onClose }: StockTakeScreenProps) {
               />
             </View>
 
+            <View style={styles.modalActionRow}>
+              <TouchableOpacity style={styles.modalActionBtn} onPress={addVisibleProducts}>
+                <Text style={styles.modalActionText}>Add Visible</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.modalActionBtn} onPress={() => setItems([])}>
+                <Text style={styles.modalActionText}>Clear</Text>
+              </TouchableOpacity>
+              <View style={styles.modalCountPill}>
+                <Text style={styles.modalCountText}>{items.length} selected</Text>
+              </View>
+            </View>
+
             {loadingProducts ? (
               <ActivityIndicator color={C.amber.primary} style={{ marginTop: 20 }} />
             ) : (
               <FlatList
                 data={filteredProducts}
                 keyExtractor={p => p.id.toString()}
-                renderItem={({ item }) => (
-                  <TouchableOpacity style={styles.productItem} onPress={() => addItem(item)}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.productName}>{item.name}</Text>
-                      <Text style={styles.productSku}>{item.sku || "No SKU"}</Text>
-                    </View>
-                    <View style={{ alignItems: "flex-end" }}>
-                      <Text style={styles.productStock}>{item.branchStock ?? item.stockLevel} in this branch</Text>
-                      <Plus size={20} color={C.amber.primary} />
-                    </View>
-                  </TouchableOpacity>
-                )}
+                renderItem={({ item }) => {
+                  const selected = !!items.find(it => it.productId === item.id);
+                  return (
+                    <TouchableOpacity style={[styles.productItem, selected && styles.productItemSelected]} onPress={() => toggleItem(item)}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.productName}>{item.name}</Text>
+                        <Text style={styles.productSku}>{item.sku || "No SKU"}</Text>
+                      </View>
+                      <View style={{ alignItems: "flex-end" }}>
+                        <Text style={styles.productStock}>{item.branchStock ?? item.stockLevel} in this branch</Text>
+                        {selected ? <CheckCircle size={20} color={C.status.success} /> : <Plus size={20} color={C.amber.primary} />}
+                      </View>
+                    </TouchableOpacity>
+                  );
+                }}
                 ListEmptyComponent={
-                  search.length > 0 ? (
-                    <Text style={styles.modalEmptyText}>No matching tracked products found.</Text>
-                  ) : null
+                  <Text style={styles.modalEmptyText}>No matching tracked products found.</Text>
                 }
               />
             )}
+            <Button title="Done" onPress={() => setShowProductSearch(false)} style={{ marginTop: 12 }} />
           </View>
         </View>
       </Modal>
@@ -419,6 +439,11 @@ const styles = StyleSheet.create({
     borderColor: C.border.default,
     marginBottom: 20
   },
+  modalActionRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 },
+  modalActionBtn: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: C.bg.hover, borderWidth: 1, borderColor: C.border.default },
+  modalActionText: { color: C.text.primary, fontSize: 11, fontWeight: "800" },
+  modalCountPill: { marginLeft: "auto", paddingHorizontal: 10, paddingVertical: 7, borderRadius: 999, backgroundColor: `${C.amber.primary}18` },
+  modalCountText: { color: C.amber.primary, fontSize: 11, fontWeight: "900" },
   modalSearchInput: { flex: 1, color: C.text.primary, fontSize: 15, marginLeft: 10 },
   productItem: {
     flexDirection: "row",
@@ -427,6 +452,10 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderBottomWidth: 1,
     borderBottomColor: C.border.default
+  },
+  productItemSelected: {
+    borderColor: C.amber.primary,
+    backgroundColor: `${C.amber.primary}10`,
   },
   productName: { color: C.text.primary, fontSize: 14, fontWeight: "600" },
   productSku: { color: C.text.secondary, fontSize: 11, marginTop: 2 },

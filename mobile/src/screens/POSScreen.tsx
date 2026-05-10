@@ -120,6 +120,7 @@ type Props = {
   companyId: number;
   userName?: string;
   onOpenDrawer: () => void;
+  openCashCollectionSignal?: number;
 };
 
 const FlyingParticle = ({ startX, startY, endX, endY, onComplete, color, emoji }: { startX: number, startY: number, endX: number, endY: number, onComplete: () => void, color?: string, emoji?: string }) => {
@@ -174,7 +175,7 @@ const ProductImage = ({ url, fallbackColor, color }: { url: string; fallbackColo
     />
   );
 };
-export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
+export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectionSignal = 0 }: Props) {
   const insets = useSafeAreaInsets();
   const { theme: C, isDark } = useTheme();
 
@@ -299,36 +300,41 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
   const [showQuickMenu, setShowQuickMenu] = useState(false);
 
   // Admin Collection States
-  const [activeShifts, setActiveShifts] = useState<any[]>([]);
-  const [isFetchingActiveShifts, setIsFetchingActiveShifts] = useState(false);
-  const [selectedShift, setSelectedShift] = useState<any>(null);
+  const [cashierBalances, setCashierBalances] = useState<any[]>([]);
+  const [isFetchingCashierBalances, setIsFetchingCashierBalances] = useState(false);
+  const [selectedCashierBalance, setSelectedCashierBalance] = useState<any>(null);
 
-  const fetchActiveShifts = async () => {
+  const fetchCashierBalances = async () => {
     if (userRole !== "admin" && userRole !== "owner") return;
-    setIsFetchingActiveShifts(true);
+    setIsFetchingCashierBalances(true);
     try {
-      const res = await apiFetch(`/api/pos/shifts/active?companyId=${companyId}`);
+      const res = await apiFetch(`/api/companies/${companyId}/reports/cash-collection-balances?mode=sinceLastCollection`);
       if (res.ok) {
         const data = await res.json();
-        setActiveShifts(data);
-        // If there's an active shift for the current user, pre-select it or just wait
-        if (currentShift) {
-          const mine = data.find((s: any) => s.id === currentShift.id);
-          if (mine) setSelectedShift(mine);
-        }
+        setCashierBalances(Array.isArray(data) ? data : []);
       }
     } catch (e) {
-      console.error("Failed to fetch active shifts", e);
+      console.error("Failed to fetch cashier cash balances", e);
     } finally {
-      setIsFetchingActiveShifts(false);
+      setIsFetchingCashierBalances(false);
     }
   };
 
   useEffect(() => {
     if (showPayoutModal && (userRole === "admin" || userRole === "owner")) {
-      fetchActiveShifts();
+      fetchCashierBalances();
     }
   }, [showPayoutModal]);
+
+  useEffect(() => {
+    if (!openCashCollectionSignal) return;
+    setTransactionType("DROP");
+    setSelectedCashierBalance(null);
+    setPayoutAmount("");
+    setPayoutReason("");
+    setShowQuickMenu(false);
+    setShowPayoutModal(true);
+  }, [openCashCollectionSignal]);
 
   // Sync input field when orderDiscount is changed from OUTSIDE (e.g. resuming hold, manager override)
   // Use a ref to avoid the loop: don't overwrite when the user is actively typing
@@ -684,14 +690,16 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
   };
 
   const handlePayout = async (supervisorId?: string) => {
-    const targetShift = (userRole === "admin" || userRole === "owner") ? selectedShift : currentShift;
-    if (!targetShift || !payoutAmount) {
-      if (!targetShift) Alert.alert("Error", "Please select a cashier/shift for collection.");
+    const isAdminCollector = userRole === "admin" || userRole === "owner";
+    const targetShift = isAdminCollector ? null : currentShift;
+    if ((!isAdminCollector && !targetShift) || (isAdminCollector && transactionType === "DROP" && !selectedCashierBalance) || !payoutAmount) {
+      if (!targetShift && !isAdminCollector) Alert.alert("Error", "Please select a cashier/shift for collection.");
+      if (isAdminCollector && transactionType === "DROP" && !selectedCashierBalance) Alert.alert("Error", "Please select a cashier to collect from.");
       return;
     }
 
-    // Require supervisor PIN for Drops (Collections)
-    if (transactionType === "DROP" && !supervisorId) {
+    // Cashiers still need supervisor PIN for drops. Admin/owner users are already authenticated.
+    if (transactionType === "DROP" && !supervisorId && !isAdminCollector) {
       setShowPayoutModal(false); // close payout modal first to prevent modal freeze
       setSupervisorAction("DROP");
       setTimeout(() => setIsSupervisorAuthVisible(true), 350); // wait for modal to fully close
@@ -700,24 +708,33 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
 
     setIsSubmitting(true);
     try {
-      const res = await apiFetch(`/api/pos/shifts/${targetShift.id}/transaction`, {
-        method: "POST",
-        body: JSON.stringify({
-          type: transactionType,
-          amount: parseFloat(payoutAmount),
-          reason: payoutReason || (transactionType === "DROP" ? "Supervisor Cash Collection" : "General Payout"),
-          authorizedBy: supervisorId
-        })
-      });
+      const res = isAdminCollector && transactionType === "DROP"
+        ? await apiFetch(`/api/companies/${companyId}/cash-collections`, {
+            method: "POST",
+            body: JSON.stringify({
+              cashierId: selectedCashierBalance.userId,
+              amount: parseFloat(payoutAmount),
+              reason: payoutReason || `Owner/Admin cash collection from ${selectedCashierBalance.cashierName}`,
+            })
+          })
+        : await apiFetch(`/api/pos/shifts/${targetShift!.id}/transaction`, {
+            method: "POST",
+            body: JSON.stringify({
+              type: transactionType,
+              amount: parseFloat(payoutAmount),
+              reason: payoutReason || (transactionType === "DROP" ? "Supervisor Cash Collection" : "General Payout"),
+              authorizedBy: supervisorId
+            })
+          });
       if (res.ok) {
         setShowPayoutModal(false);
         setPayoutAmount("");
         setPayoutReason("");
-        setSelectedShift(null);
+        setSelectedCashierBalance(null);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         // Refresh summary if it was open or just as good practice
         if (showSummaryModal) fetchShiftSummary();
-        if (userRole === "admin" || userRole === "owner") fetchActiveShifts();
+        if (isAdminCollector) fetchCashierBalances();
       } else {
         const err = await res.text();
         Alert.alert("Error", `Failed to log ${transactionType.toLowerCase()}: ${err}`);
@@ -2422,8 +2439,8 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
                       <Text style={{ color: C.text.secondary, fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 1 }}>
                         Select Cashier to Collect From
                       </Text>
-                      <TouchableOpacity onPress={fetchActiveShifts} disabled={isFetchingActiveShifts}>
-                        {isFetchingActiveShifts ? (
+                      <TouchableOpacity onPress={fetchCashierBalances} disabled={isFetchingCashierBalances}>
+                        {isFetchingCashierBalances ? (
                           <ActivityIndicator size="small" color={C.amber.primary} />
                         ) : (
                           <History size={14} color={C.text.secondary} />
@@ -2431,27 +2448,30 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
                       </TouchableOpacity>
                     </View>
 
-                    {activeShifts.length === 0 && !isFetchingActiveShifts ? (
+                    {cashierBalances.length === 0 && !isFetchingCashierBalances ? (
                       <View style={{ padding: 20, backgroundColor: C.bg.hover, borderRadius: 16, alignItems: "center", borderWidth: 1, borderColor: C.border.default, borderStyle: "dashed" }}>
                         <Text style={{ color: C.text.secondary, fontSize: 12, textAlign: "center" }}>
-                          No active cashier shifts found.
+                          No cashier cash balances found.
                         </Text>
                       </View>
                     ) : (
                       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-                        {activeShifts.map((s) => (
+                        {cashierBalances.map((s) => (
                           <TouchableOpacity
-                            key={s.id}
-                            onPress={() => setSelectedShift(s)}
+                            key={s.userId || s.cashierName}
+                            onPress={() => {
+                              setSelectedCashierBalance(s);
+                              setPayoutAmount(Number(s.expectedCash || 0).toFixed(2));
+                            }}
                             style={{
                               paddingHorizontal: 12, paddingVertical: 12, borderRadius: 12,
-                              backgroundColor: selectedShift?.id === s.id ? hexAlpha(C.amber.primary, 0.13) : C.bg.card,
-                              borderWidth: 1.5, borderColor: selectedShift?.id === s.id ? C.amber.primary : C.border.default,
+                              backgroundColor: selectedCashierBalance?.userId === s.userId ? hexAlpha(C.amber.primary, 0.13) : C.bg.card,
+                              borderWidth: 1.5, borderColor: selectedCashierBalance?.userId === s.userId ? C.amber.primary : C.border.default,
                               minWidth: "47%"
                             }}
                           >
                             <Text style={{ color: C.text.primary, fontWeight: "800", fontSize: 13 }} numberOfLines={1}>{s.cashierName}</Text>
-                            <Text style={{ color: C.text.secondary, fontSize: 10, marginTop: 4 }}>Shift #{s.id}</Text>
+                            <Text style={{ color: C.text.secondary, fontSize: 10, marginTop: 4 }}>To collect ${Number(s.expectedCash || 0).toFixed(2)}</Text>
                           </TouchableOpacity>
                         ))}
                       </View>
@@ -2459,13 +2479,16 @@ export function POSScreen({ companyId, userName, onOpenDrawer }: Props) {
                   </View>
                 )}
 
-                {/* Show expected cash if a shift is selected */}
-                {selectedShift && (
+                {/* Show expected cash if a cashier is selected */}
+                {selectedCashierBalance && (
                   <View style={{ backgroundColor: hexAlpha(C.amber.primary, 0.06), padding: 12, borderRadius: 12, marginBottom: 16, borderWidth: 1, borderColor: hexAlpha(C.amber.primary, 0.19) }}>
                     <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                      <Text style={{ color: C.text.secondary, fontSize: 12 }}>Expected Cash since last collection:</Text>
-                      <Text style={{ color: C.amber.primary, fontWeight: "800", fontSize: 16 }}>${selectedShift.availableCash}</Text>
+                      <Text style={{ color: C.text.secondary, fontSize: 12 }}>Cash to Collect:</Text>
+                      <Text style={{ color: C.amber.primary, fontWeight: "800", fontSize: 16 }}>${Number(selectedCashierBalance.expectedCash || 0).toFixed(2)}</Text>
                     </View>
+                    <Text style={{ color: C.text.secondary, fontSize: 10, marginTop: 4 }}>
+                      Since last collection ${Number(selectedCashierBalance.cashSinceLastCollection || selectedCashierBalance.expectedCash || 0).toFixed(2)}. Total outstanding ${Number(selectedCashierBalance.outstandingCash || 0).toFixed(2)}
+                    </Text>
                   </View>
                 )}
 

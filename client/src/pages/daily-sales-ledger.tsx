@@ -34,6 +34,7 @@ export default function DailySalesLedgerPage() {
     });
     const [consolidatedCode, setConsolidatedCode] = useState<string>("USD");
     const [cashierId, setCashierId] = useState<string>("all");
+    const [ownerGroup, setOwnerGroup] = useState<string>("all");
     const [currencyMode, setCurrencyMode] = useState<"consolidated" | "original">("consolidated");
 
     const consolidatedCurrency = currencies?.find(c => c.code === consolidatedCode);
@@ -51,14 +52,33 @@ export default function DailySalesLedgerPage() {
         enabled: !!companyId
     });
 
+    const { data: products = [] } = useQuery<any[]>({
+        queryKey: ["products-cost-centers", companyId],
+        queryFn: async () => {
+            const res = await apiFetch(`/api/companies/${companyId}/products`);
+            if (!res.ok) return [];
+            return await res.json();
+        },
+        enabled: !!companyId
+    });
+
+    const costCenters = Array.from(
+        new Set(
+            products
+                .map((product: any) => typeof product.ownerGroup === "string" ? product.ownerGroup.trim() : "")
+                .filter(Boolean)
+        )
+    ).sort();
+
     const { data: salesReport, isLoading: isLoadingSales } = useQuery({
-        queryKey: ["reports-sales", companyId, dateRange.from, dateRange.to, cashierId],
+        queryKey: ["reports-sales", companyId, dateRange.from, dateRange.to, cashierId, ownerGroup],
         queryFn: async () => {
             if (!companyId) return [];
             const params = new URLSearchParams({
                 startDate: format(dateRange.from, 'yyyy-MM-dd'),
                 endDate: format(dateRange.to, 'yyyy-MM-dd'),
-                cashierId: cashierId
+                cashierId: cashierId,
+                ownerGroup
             });
             const res = await apiFetch(`/api/reports/sales/${companyId}?${params.toString()}`);
             if (!res.ok) return [];
@@ -71,7 +91,8 @@ export default function DailySalesLedgerPage() {
         const params = new URLSearchParams({
             startDate: format(dateRange.from, 'yyyy-MM-dd'),
             endDate: format(dateRange.to, 'yyyy-MM-dd'),
-            cashierId: cashierId
+            cashierId: cashierId,
+            ownerGroup
         });
         downloadExcel(`/api/reports/export/sales/${companyId}?${params.toString()}`, `Sales_Report_${format(new Date(), "yyyyMMdd")}.xlsx`);
     };
@@ -100,6 +121,23 @@ export default function DailySalesLedgerPage() {
                                 <SelectItem value="all" className="text-xs font-bold">All Cashiers</SelectItem>
                                 {companyUsers?.map(user => (
                                     <SelectItem key={user.id} value={user.id} className="text-xs font-bold">{user.username || user.name}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+
+                    <div className="h-6 w-px bg-slate-200" />
+
+                    <div className="flex items-center gap-2 pl-2">
+                        <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest">Cost Center:</span>
+                        <Select value={ownerGroup} onValueChange={setOwnerGroup}>
+                            <SelectTrigger className="w-[150px] h-8 text-xs font-bold border-none bg-slate-100/50 rounded-xl focus:ring-0">
+                                <SelectValue placeholder="All Cost Centers" />
+                            </SelectTrigger>
+                            <SelectContent className="rounded-xl border-slate-100 shadow-xl">
+                                <SelectItem value="all" className="text-xs font-bold">All Cost Centers</SelectItem>
+                                {costCenters.map(group => (
+                                    <SelectItem key={group} value={group} className="text-xs font-bold">{group}</SelectItem>
                                 ))}
                             </SelectContent>
                         </Select>

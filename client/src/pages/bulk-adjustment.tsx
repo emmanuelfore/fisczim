@@ -61,7 +61,7 @@ import {
 const itemSchema = z.object({
     productId: z.number({ required_error: "Required" }),
     variationId: z.number().optional(),
-    quantity: z.string().transform((v) => parseFloat(v)).pipe(z.number()),
+    actualQuantity: z.string().transform((v) => parseFloat(v)).pipe(z.number().min(0)),
     type: z.enum(['ADJUSTMENT', 'SHRINKAGE', 'CORRECTION', 'DAMAGE', 'EXPIRY']),
     notes: z.string().optional(),
 });
@@ -101,17 +101,26 @@ export default function BulkAdjustmentPage() {
 
     const onSubmit = async (data: BulkAdjustmentFormValues) => {
         try {
+            let processed = 0;
             for (const item of data.items) {
+                const product = trackedProducts.find((p) => p.id === item.productId);
+                const systemQuantity = Number((product as any)?.branchStock ?? product?.stockLevel ?? 0);
+                const quantity = item.actualQuantity - systemQuantity;
+                if (quantity === 0) continue;
                 await adjustMutation.mutateAsync({
-                    ...item,
+                    productId: item.productId,
+                    variationId: item.variationId,
+                    quantity,
+                    type: item.type,
                     notes: item.notes || data.globalNotes,
                     branchId
                 });
+                processed += 1;
             }
             
             toast({
                 title: "Bulk Adjustment Complete",
-                description: `Successfully adjusted ${data.items.length} items.`,
+                description: `Successfully adjusted ${processed} items.`,
             });
             form.reset();
             setLocation("/inventory/adjustments");
@@ -138,11 +147,33 @@ export default function BulkAdjustmentPage() {
         }
         append({
             productId: product.id,
-            quantity: "" as any,
+            actualQuantity: "" as any,
             type: "ADJUSTMENT",
             notes: "",
         });
         setSearchOpen(false);
+    };
+
+    const addProducts = (productsToAdd: Product[]) => {
+        const existing = new Set(fields.map((field) => field.productId));
+        const additions = productsToAdd.filter((product) => !existing.has(product.id));
+        additions.forEach((product) => {
+            append({
+                productId: product.id,
+                actualQuantity: "" as any,
+                type: "ADJUSTMENT",
+                notes: "",
+            });
+        });
+        if (additions.length === 0) {
+            toast({
+                title: "Nothing to add",
+                description: "All selected products are already in the list.",
+                variant: "destructive"
+            });
+        } else {
+            setSearchOpen(false);
+        }
     };
 
     return (
@@ -164,6 +195,12 @@ export default function BulkAdjustmentPage() {
                         </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-[400px] p-0 rounded-3xl overflow-hidden shadow-2xl border-slate-100" align="end">
+                        <div className="flex items-center justify-between gap-2 border-b border-slate-100 p-3">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Select products</span>
+                            <Button type="button" variant="outline" size="sm" className="h-8 rounded-xl text-[10px] font-black" onClick={() => addProducts(trackedProducts as Product[])}>
+                                Add All
+                            </Button>
+                        </div>
                         <Command className="rounded-none">
                             <CommandInput placeholder="Search catalog by name or SKU..." className="h-14 font-medium" />
                             <CommandList className="max-h-[300px]">
@@ -206,7 +243,7 @@ export default function BulkAdjustmentPage() {
                         </div>
                         <div className="bg-amber-50 text-amber-600 px-4 py-2 rounded-xl border border-amber-100 flex gap-2 items-center text-[10px] font-black uppercase tracking-widest ring-1 ring-amber-500/5">
                             <AlertCircle className="w-3.5 h-3.5" />
-                            <span>Negative values reduce stock</span>
+                            <span>Enter actual counted quantity</span>
                         </div>
                     </div>
                 </CardHeader>
@@ -232,7 +269,7 @@ export default function BulkAdjustmentPage() {
                                                     <th className="px-4 py-3 font-black text-slate-400 uppercase tracking-[0.2em] text-[9px] pointer-events-none">Identity</th>
                                                     <th className="px-4 py-3 font-black text-slate-400 uppercase tracking-[0.2em] text-[9px] w-24 text-center pointer-events-none">Current</th>
                                                     <th className="px-4 py-3 font-black text-slate-400 uppercase tracking-[0.2em] text-[9px] w-48 text-center pointer-events-none">Type</th>
-                                                    <th className="px-4 py-3 font-black text-slate-400 uppercase tracking-[0.2em] text-[9px] w-28 text-center pointer-events-none">Change</th>
+                                                    <th className="px-4 py-3 font-black text-slate-400 uppercase tracking-[0.2em] text-[9px] w-28 text-center pointer-events-none">Actual</th>
                                                     <th className="px-4 py-3 font-black text-slate-400 uppercase tracking-[0.2em] text-[9px] pointer-events-none">Audit Notes</th>
                                                     <th className="px-6 py-3 w-14 text-center"></th>
                                                 </tr>
@@ -240,6 +277,10 @@ export default function BulkAdjustmentPage() {
                                             <tbody className="divide-y divide-slate-50">
                                                 {fields.map((field, index) => {
                                                     const product = trackedProducts.find(p => p.id === field.productId);
+                                                    const systemQuantity = Number((product as any)?.branchStock ?? product?.stockLevel ?? 0);
+                                                    const actualQuantityValue = form.watch(`items.${index}.actualQuantity`);
+                                                    const actualQuantity = Number(actualQuantityValue);
+                                                    const quantityChange = String(actualQuantityValue ?? "").trim() && Number.isFinite(actualQuantity) ? actualQuantity - systemQuantity : null;
                                                     return (
                                                         <tr key={field.id} className="group hover:bg-slate-50/50 transition-all bg-white border-b border-slate-50 last:border-0 h-11">
                                                             <td className="px-6 py-1 align-middle text-center">
@@ -253,7 +294,7 @@ export default function BulkAdjustmentPage() {
                                                             </td>
                                                             <td className="px-4 py-1 align-middle text-center">
                                                                 <Badge variant="outline" className="bg-white border-slate-100 text-slate-600 px-2 h-7 font-mono text-[11px] font-black shadow-none pointer-events-none">
-                                                                    {product?.branchStock || product?.stockLevel || 0}
+                                                                    {systemQuantity}
                                                                 </Badge>
                                                             </td>
                                                             <td className="px-4 py-1 align-middle">
@@ -283,13 +324,15 @@ export default function BulkAdjustmentPage() {
                                                             <td className="px-4 py-1 align-middle">
                                                                 <FormField
                                                                     control={form.control}
-                                                                    name={`items.${index}.quantity`}
+                                                                    name={`items.${index}.actualQuantity`}
                                                                     render={({ field }) => (
                                                                         <FormItem>
                                                                             <FormControl>
                                                                                 <Input 
                                                                                     type="number" 
+                                                                                    min="0"
                                                                                     step="0.01" 
+                                                                                    placeholder={systemQuantity.toString()}
                                                                                     {...field} 
                                                                                     className="rounded-xl h-8 bg-white border-slate-100 focus:ring-primary/5 font-mono font-black text-sm text-center text-slate-800 shadow-none" 
                                                                                 />
@@ -297,6 +340,13 @@ export default function BulkAdjustmentPage() {
                                                                         </FormItem>
                                                                     )}
                                                                 />
+                                                                <p className="mt-1 text-center text-[9px] font-black text-slate-400">
+                                                                    {quantityChange === null ? "Diff -" : (
+                                                                        <span className={quantityChange > 0 ? "text-emerald-600" : quantityChange < 0 ? "text-rose-600" : "text-slate-400"}>
+                                                                            Diff {quantityChange > 0 ? "+" : ""}{quantityChange.toFixed(2)}
+                                                                        </span>
+                                                                    )}
+                                                                </p>
                                                             </td>
                                                             <td className="px-4 py-1 align-middle">
                                                                 <FormField

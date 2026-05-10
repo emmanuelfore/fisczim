@@ -1,13 +1,13 @@
 
 import { useState } from "react";
 import { format, parseISO, startOfDay } from "date-fns";
-import { 
-    Table, 
-    TableBody, 
-    TableCell, 
-    TableHead, 
-    TableHeader, 
-    TableRow 
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -28,32 +28,35 @@ export function DailySalesTable({ sales, currencies, consolidatedSymbol, consoli
     const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({});
     const [expandedInvoices, setExpandedInvoices] = useState<Record<number, boolean>>({});
 
-    // Group sales by date
+    // Group sales by date and cost center. The API returns one row per invoice/cost-center slice.
     const groupedSales = sales.reduce((acc: any, inv: any) => {
         const date = format(new Date(inv.issueDate || inv.createdAt), 'yyyy-MM-dd');
-        if (!acc[date]) acc[date] = { 
-            date, 
-            invoices: [], 
-            totals: {} as Record<string, number>, 
+        const costCenter = inv.costCenter || "Unassigned";
+        const key = `${date}::${costCenter}`;
+        if (!acc[key]) acc[key] = {
+            date,
+            costCenter,
+            invoices: [],
+            totals: {} as Record<string, number>,
             discountTotals: {} as Record<string, number>,
             consolidatedTotal: 0,
             consolidatedDiscount: 0
         };
-        
-        acc[date].invoices.push(inv);
-        
+
+        acc[key].invoices.push(inv);
+
         const currency = inv.currency || "USD";
-        acc[date].totals[currency] = (acc[date].totals[currency] || 0) + Number(inv.total);
-        acc[date].discountTotals[currency] = (acc[date].discountTotals[currency] || 0) + Number(inv.discountAmount || 0);
-        
+        acc[key].totals[currency] = (acc[key].totals[currency] || 0) + Number(inv.total);
+        acc[key].discountTotals[currency] = (acc[key].discountTotals[currency] || 0) + Number(inv.discountAmount || 0);
+
         const rate = Number(inv.exchangeRate || 1);
-        acc[date].consolidatedTotal += Number(inv.total) / rate;
-        acc[date].consolidatedDiscount += Number(inv.discountAmount || 0) / rate;
-        
+        acc[key].consolidatedTotal += Number(inv.total) / rate;
+        acc[key].consolidatedDiscount += Number(inv.discountAmount || 0) / rate;
+
         return acc;
     }, {});
 
-    const sortedDates = Object.keys(groupedSales).sort((a, b) => b.localeCompare(a));
+    const sortedGroups = Object.keys(groupedSales).sort((a, b) => b.localeCompare(a));
 
     const toggleDay = (date: string) => {
         setExpandedDays(prev => ({ ...prev, [date]: !prev[date] }));
@@ -82,12 +85,12 @@ export function DailySalesTable({ sales, currencies, consolidatedSymbol, consoli
                     </TableRow>
                 </TableHeader>
                 <TableBody>
-                    {sortedDates.map(date => (
-                        <DaySection 
-                            key={date}
-                            dayData={groupedSales[date]}
-                            isExpanded={!!expandedDays[date]}
-                            onToggle={() => toggleDay(date)}
+                    {sortedGroups.map(key => (
+                        <DaySection
+                            key={key}
+                            dayData={groupedSales[key]}
+                            isExpanded={!!expandedDays[key]}
+                            onToggle={() => toggleDay(key)}
                             expandedInvoices={expandedInvoices}
                             onToggleInvoice={toggleInvoice}
                             currencies={currencies}
@@ -96,7 +99,7 @@ export function DailySalesTable({ sales, currencies, consolidatedSymbol, consoli
                             currencyMode={currencyMode}
                         />
                     ))}
-                    {sortedDates.length === 0 && (
+                    {sortedGroups.length === 0 && (
                         <TableRow>
                             <TableCell colSpan={7} className="h-32 text-center text-slate-400 italic">
                                 No sales data found for this period
@@ -112,7 +115,7 @@ export function DailySalesTable({ sales, currencies, consolidatedSymbol, consoli
 function DaySection({ dayData, isExpanded, onToggle, expandedInvoices, onToggleInvoice, currencies, consolidatedSymbol, consolidatedRate, currencyMode }: any) {
     return (
         <>
-            <TableRow 
+            <TableRow
                 className={cn(
                     "cursor-pointer transition-colors group",
                     isExpanded ? "bg-indigo-50/30" : "hover:bg-slate-50"
@@ -129,7 +132,10 @@ function DaySection({ dayData, isExpanded, onToggle, expandedInvoices, onToggleI
                     </div>
                 </TableCell>
                 <TableCell>
-                    <Badge variant="outline" className="bg-white/50">{dayData.invoices.length} Invoices</Badge>
+                    <div className="flex flex-wrap gap-2">
+                        <Badge variant="outline" className="bg-white/50">{dayData.invoices.length} Entries</Badge>
+                        <Badge className="bg-indigo-100 text-indigo-700 hover:bg-indigo-100">{dayData.costCenter}</Badge>
+                    </div>
                 </TableCell>
                 <TableCell></TableCell>
                 <TableCell></TableCell>
@@ -167,9 +173,9 @@ function DaySection({ dayData, isExpanded, onToggle, expandedInvoices, onToggleI
                 </TableCell>
             </TableRow>
             {isExpanded && dayData.invoices.map((inv: any) => (
-                <InvoiceRow 
-                    key={inv.id} 
-                    inv={inv} 
+                <InvoiceRow
+                    key={inv.id}
+                    inv={inv}
                     currencies={currencies}
                     isExpanded={!!expandedInvoices[inv.id]}
                     onToggle={() => onToggleInvoice(inv.id)}
@@ -185,10 +191,11 @@ function DaySection({ dayData, isExpanded, onToggle, expandedInvoices, onToggleI
 function InvoiceRow({ inv, currencies, isExpanded, onToggle, consolidatedSymbol, consolidatedRate, currencyMode }: any) {
     const currency = currencies?.find((c: any) => c.code === (inv.currency || "USD"));
     const symbol = currency?.symbol || (inv.currency === "USD" ? "$" : inv.currency);
+    const invoiceId = inv.invoiceId || inv.id;
 
     return (
         <>
-            <TableRow 
+            <TableRow
                 className={cn(
                     "cursor-pointer transition-colors border-l-4",
                     isExpanded ? "bg-slate-50 border-l-indigo-500" : "hover:bg-slate-50 border-l-transparent"
@@ -202,6 +209,7 @@ function InvoiceRow({ inv, currencies, isExpanded, onToggle, consolidatedSymbol,
                     <div className="flex flex-col">
                         <span className="text-[10px] text-slate-400 font-bold">{format(new Date(inv.issueDate || inv.createdAt), 'HH:mm')}</span>
                         <span className="font-bold text-indigo-600">{inv.invoiceNumber}</span>
+                        <span className="text-[10px] text-slate-400 font-bold">{inv.costCenter || "Unassigned"}</span>
                     </div>
                 </TableCell>
                 <TableCell className="text-sm text-slate-700">
@@ -240,7 +248,7 @@ function InvoiceRow({ inv, currencies, isExpanded, onToggle, consolidatedSymbol,
             {isExpanded && (
                 <TableRow className="bg-slate-50/50 hover:bg-slate-50/50">
                     <TableCell colSpan={7} className="p-0">
-                        <InvoiceItemsList invoiceId={inv.id} />
+                        <InvoiceItemsList invoiceId={invoiceId} costCenter={inv.costCenter} />
                     </TableCell>
                 </TableRow>
             )}
@@ -248,7 +256,7 @@ function InvoiceRow({ inv, currencies, isExpanded, onToggle, consolidatedSymbol,
     );
 }
 
-function InvoiceItemsList({ invoiceId }: { invoiceId: number }) {
+function InvoiceItemsList({ invoiceId, costCenter }: { invoiceId: number; costCenter?: string }) {
     const { data: invoice, isLoading } = useQuery({
         queryKey: ["invoice", invoiceId],
         queryFn: async () => {
@@ -276,7 +284,13 @@ function InvoiceItemsList({ invoiceId }: { invoiceId: number }) {
                     <div className="col-span-2 text-right">Price</div>
                     <div className="col-span-2 text-right">Total</div>
                 </div>
-                {invoice?.items?.map((item: any, idx: number) => (
+                {invoice?.items
+                    ?.filter((item: any) => {
+                        if (!costCenter) return true;
+                        const itemCostCenter = (item.product?.ownerGroup || "Unassigned").trim() || "Unassigned";
+                        return itemCostCenter === costCenter;
+                    })
+                    ?.map((item: any, idx: number) => (
                     <div key={idx} className="grid grid-cols-12 text-xs py-1 border-b border-slate-50 last:border-0 hover:bg-slate-100/50 rounded px-1 transition-colors">
                         <div className="col-span-6 font-medium text-slate-700">{item.description || item.product?.name}</div>
                         <div className="col-span-2 text-center font-bold text-slate-500">{item.quantity}</div>

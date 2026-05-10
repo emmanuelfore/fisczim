@@ -26,7 +26,7 @@ import sageWebhookRouter from "./lib/sage-webhook.js";
 import sageOAuthRouter from "./lib/sage-oauth.js";
 import v1Router from "./api/v1/index.js";
 import { db } from "./db";
-import { eq, and, gte, lte, ne, desc, asc, sql, or, ilike } from "drizzle-orm";
+import { eq, and, gte, lte, ne, desc, asc, sql, or, ilike, isNull } from "drizzle-orm";
 import { format } from "date-fns";
 import {
   invoices,
@@ -100,11 +100,20 @@ export async function registerRoutes(
       return false;
     }
 
-    const [stored] = await db
-      .select()
-      .from(idempotencyKeys)
-      .where(eq(idempotencyKeys.key, key))
-      .limit(1);
+    let stored: any;
+    try {
+      [stored] = await db
+        .select()
+        .from(idempotencyKeys)
+        .where(eq(idempotencyKeys.key, key))
+        .limit(1);
+    } catch (err: any) {
+      if (err?.code === "42P01") {
+        console.warn("[Idempotency] idempotency_keys table is missing; falling back to in-memory request protection.");
+        return key;
+      }
+      throw err;
+    }
     if (!stored) return key;
     if (stored.expiresAt < new Date()) {
       await db.delete(idempotencyKeys).where(eq(idempotencyKeys.key, key));
@@ -137,6 +146,58 @@ export async function registerRoutes(
         .catch((err) => console.error("[Idempotency] Failed to persist key:", err));
     }
     return res.status(status).json(payload);
+  };
+
+  const normalizeInvoiceLine = (item: any) => ({
+    productId: item.productId ?? null,
+    description: item.description || "",
+    quantity: Number(item.quantity || 0).toFixed(4),
+    unitPrice: Number(item.unitPrice || 0).toFixed(4),
+    discountAmount: Number(item.discountAmount || 0).toFixed(4),
+    taxRate: Number(item.taxRate || 0).toFixed(4),
+    lineTotal: Number(item.lineTotal || 0).toFixed(4),
+    taxTypeId: item.taxTypeId ?? null,
+    batchId: item.batchId ?? null,
+  });
+
+  const findDuplicatePosInvoice = async (input: any, companyId: number, userId: string, shiftId?: number | null, branchId?: number | null) => {
+    if (!input.isPos || !input.issueDate || !input.items?.length) return null;
+
+    const conditions = [
+      eq(invoices.companyId, companyId),
+      eq(invoices.isPos, true),
+      eq(invoices.status, "paid"),
+      eq(invoices.transactionType, input.transactionType || "FiscalInvoice"),
+      eq(invoices.createdBy, userId),
+      eq(invoices.issueDate, input.issueDate),
+      eq(invoices.total, String(input.total)),
+      input.customerId ? eq(invoices.customerId, input.customerId) : isNull(invoices.customerId),
+      shiftId ? eq(invoices.shiftId, shiftId) : isNull(invoices.shiftId),
+      branchId ? eq(invoices.branchId, branchId) : isNull(invoices.branchId),
+      input.notes ? eq(invoices.notes, input.notes) : isNull(invoices.notes),
+    ];
+
+    const candidates = await db
+      .select()
+      .from(invoices)
+      .where(and(...conditions))
+      .orderBy(desc(invoices.createdAt))
+      .limit(10);
+
+    const requestedFingerprint = JSON.stringify(input.items.map(normalizeInvoiceLine));
+    for (const candidate of candidates) {
+      const existingItems = await db
+        .select()
+        .from(invoiceItems)
+        .where(eq(invoiceItems.invoiceId, candidate.id))
+        .orderBy(asc(invoiceItems.id));
+
+      if (JSON.stringify(existingItems.map(normalizeInvoiceLine)) === requestedFingerprint) {
+        return candidate;
+      }
+    }
+
+    return null;
   };
 
   const buildShiftSummary = async (shiftId: number) => {
@@ -5006,6 +5067,18 @@ export async function registerRoutes(
 
       // POS sales are paid upfront, so set status immediately
       const initialStatus = input.isPos ? "paid" : (input.status || "issued");
+      const requestBranchId = getBranchId(req);
+
+      const duplicatePosInvoice = await findDuplicatePosInvoice(input, companyId, userId, activeShift?.id, requestBranchId);
+      if (duplicatePosInvoice) {
+        markPerf("duplicate_replay_detected");
+        flushPerf("ok", { invoiceId: duplicatePosInvoice.id, duplicateReplay: true });
+        return sendIdempotent(req, res, idempotencyKey, 200, {
+          ...duplicatePosInvoice,
+          duplicateReplay: true,
+          message: "Duplicate POS sale replay ignored; returning the original invoice.",
+        });
+      }
 
       let invoice = await storage.createInvoice({
         ...input,
@@ -5014,7 +5087,7 @@ export async function registerRoutes(
         companyId,
         createdBy: userId,
         shiftId: activeShift?.id || undefined,
-        branchId: getBranchId(req)
+        branchId: requestBranchId
       });
       markPerf("invoice_created");
 
@@ -5433,6 +5506,7 @@ export async function registerRoutes(
 
       const cn = await storage.createInvoice({
         companyId: originalInvoice.companyId,
+        branchId: originalInvoice.branchId || getBranchId(req) || undefined,
         customerId: originalInvoice.customerId,
         issueDate: new Date(),
         dueDate: new Date(),
@@ -5491,6 +5565,7 @@ export async function registerRoutes(
 
       const creditNote = await storage.createInvoice({
         companyId: originalInvoice.companyId,
+        branchId: originalInvoice.branchId || getBranchId(req) || undefined,
         customerId: originalInvoice.customerId,
         issueDate: new Date(),
         dueDate: new Date(),
@@ -5547,6 +5622,7 @@ export async function registerRoutes(
 
       const dn = await storage.createInvoice({
         companyId: originalInvoice.companyId,
+        branchId: originalInvoice.branchId || getBranchId(req) || undefined,
         customerId: originalInvoice.customerId,
         issueDate: new Date(),
         dueDate: new Date(),
@@ -6082,6 +6158,185 @@ export async function registerRoutes(
   });
 
   // Cash Collections Report
+  app.post("/api/companies/:companyId/cash-collections", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const user = req.user as any;
+      const role = await storage.getCompanyUserRole(user.id, companyId);
+      if (role !== "owner" && role !== "admin" && !user.isSuperAdmin) {
+        return res.status(403).json({ message: "Only owner/admin can record cash collections." });
+      }
+
+      const { cashierId, amount, reason } = req.body;
+      const collectionAmount = Number(amount);
+      if (!cashierId) return res.status(400).json({ message: "Cashier is required." });
+      if (!Number.isFinite(collectionAmount) || collectionAmount <= 0) {
+        return res.status(400).json({ message: "Collection amount must be greater than zero." });
+      }
+
+      const cashierRole = await storage.getCompanyUserRole(cashierId, companyId);
+      if (!cashierRole) {
+        return res.status(404).json({ message: "Cashier does not belong to this company." });
+      }
+
+      let shift = await db.query.posShifts.findFirst({
+        where: and(
+          eq(posShifts.companyId, companyId),
+          eq(posShifts.userId, cashierId),
+          eq(posShifts.status, "open")
+        ),
+        orderBy: [desc(posShifts.startTime)]
+      });
+
+      if (!shift) {
+        const [createdShift] = await db.insert(posShifts).values({
+          companyId,
+          userId: cashierId,
+          openingBalance: "0.00",
+          status: "open",
+          startTime: new Date(),
+          notes: "Auto-created cash collection ledger"
+        }).returning();
+        shift = createdShift;
+      }
+
+      const transaction = await addPosTransaction(
+        shift.id,
+        user.id,
+        "DROP",
+        collectionAmount,
+        reason || "Owner/Admin cash collection",
+        [],
+        user.id
+      );
+
+      res.status(201).json({ transaction, shiftId: shift.id });
+    } catch (err: any) {
+      console.error("Cash Collection Error:", err);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/companies/:companyId/reports/cash-collection-balances", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const currentUserId = req.user!.id;
+      const role = await storage.getCompanyUserRole(currentUserId, companyId);
+      const isOwner = role === 'owner' || role === 'admin';
+      const mode = String(req.query.mode || "sinceLastCollection").toLowerCase();
+      const useSinceLastCollection = ["sincelastcollection", "since_last_collection", "current"].includes(mode);
+
+      const salesRows = await db
+        .select({
+          userId: invoices.createdBy,
+          cashierName: users.name,
+          total: invoices.total,
+          paymentMethod: invoices.paymentMethod,
+          splitPayments: invoices.splitPayments,
+          transactionType: invoices.transactionType,
+          createdAt: invoices.createdAt,
+        })
+        .from(invoices)
+        .leftJoin(users, eq(invoices.createdBy, users.id))
+        .where(and(
+          eq(invoices.companyId, companyId),
+          eq(invoices.isPos, true),
+          ne(invoices.status, 'cancelled')
+        ));
+
+      const collectionRows = await db
+        .select({
+          userId: posShifts.userId,
+          cashierName: users.name,
+          amount: posShiftTransactions.amount,
+          createdAt: posShiftTransactions.createdAt,
+        })
+        .from(posShiftTransactions)
+        .innerJoin(posShifts, eq(posShiftTransactions.shiftId, posShifts.id))
+        .leftJoin(users, eq(posShifts.userId, users.id))
+        .where(and(
+          eq(posShiftTransactions.type, 'DROP'),
+          eq(posShifts.companyId, companyId)
+        ));
+
+      const balances = new Map<string, any>();
+      const ensure = (userId: string | null, cashierName?: string | null) => {
+        const key = userId || "unknown";
+        if (!balances.has(key)) {
+          balances.set(key, {
+            userId,
+            cashierName: cashierName || "Unknown Cashier",
+            cashSales: 0,
+            cashSinceLastCollection: 0,
+            collections: 0,
+            expectedCash: 0,
+            lastSaleAt: null as Date | null,
+            lastCollectionAt: null as Date | null,
+          });
+        }
+        return balances.get(key);
+      };
+
+      for (const collection of collectionRows) {
+        if (!isOwner && collection.userId !== currentUserId) continue;
+        const row = ensure(collection.userId, collection.cashierName);
+        row.collections += Number(collection.amount || 0);
+        if (!row.lastCollectionAt || (collection.createdAt && new Date(collection.createdAt) > row.lastCollectionAt)) {
+          row.lastCollectionAt = collection.createdAt ? new Date(collection.createdAt) : null;
+        }
+      }
+
+      for (const sale of salesRows) {
+        if (!isOwner && sale.userId !== currentUserId) continue;
+        const method = String(sale.paymentMethod || "CASH").toUpperCase();
+        const sign = sale.transactionType === "CreditNote" ? -1 : 1;
+        let cashAmount = 0;
+        if (method === "CASH") {
+          cashAmount = Number(sale.total || 0);
+        } else if (method === "SPLIT" && Array.isArray(sale.splitPayments)) {
+          cashAmount = sale.splitPayments
+            .filter((payment: any) => String(payment.method || "").toUpperCase() === "CASH")
+            .reduce((sum: number, payment: any) => sum + Number(payment.amount || 0), 0);
+        }
+        if (cashAmount === 0) continue;
+        const row = ensure(sale.userId, sale.cashierName);
+        const signedCashAmount = sign * cashAmount;
+        row.cashSales += signedCashAmount;
+        const saleDate = sale.createdAt ? new Date(sale.createdAt) : null;
+        if (!row.lastCollectionAt || (saleDate && saleDate > row.lastCollectionAt)) {
+          row.cashSinceLastCollection += signedCashAmount;
+        }
+        if (!row.lastSaleAt || (sale.createdAt && new Date(sale.createdAt) > row.lastSaleAt)) {
+          row.lastSaleAt = sale.createdAt ? new Date(sale.createdAt) : null;
+        }
+      }
+
+      const result = Array.from(balances.values())
+        .map((row) => {
+          const outstandingCash = row.cashSales - row.collections;
+          const expectedCash = useSinceLastCollection ? row.cashSinceLastCollection : outstandingCash;
+          return {
+            ...row,
+            expectedCash,
+            outstandingCash: outstandingCash.toFixed(2),
+            cashSales: row.cashSales.toFixed(2),
+            cashSinceLastCollection: row.cashSinceLastCollection.toFixed(2),
+            collections: row.collections.toFixed(2),
+            lastSaleAt: row.lastSaleAt,
+            lastCollectionAt: row.lastCollectionAt,
+          };
+        })
+        .filter((row) => Math.abs(Number(row.expectedCash)) > 0.004 || Number(row.cashSales) !== 0 || Number(row.collections) !== 0)
+        .map((row) => ({ ...row, expectedCash: Number(row.expectedCash).toFixed(2) }))
+        .sort((a, b) => Number(b.expectedCash) - Number(a.expectedCash));
+
+      res.json(result);
+    } catch (err: any) {
+      console.error("Cash Collection Balances Error:", err);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.get("/api/companies/:companyId/reports/cash-collections", requireAuth, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
@@ -6092,7 +6347,8 @@ export async function registerRoutes(
       endDate.setHours(23, 59, 59, 999);
 
       // Check role
-      const role = await storage.getCompanyUserRole(req.user.id, companyId);
+      const currentUserId = req.user!.id;
+      const role = await storage.getCompanyUserRole(currentUserId, companyId);
       const isOwner = role === 'owner' || role === 'admin';
 
       const conditions = [
@@ -6104,7 +6360,7 @@ export async function registerRoutes(
 
       if (!isOwner) {
         // Cashiers should see collections done on THEIR shifts, regardless of who did the collection (admin/supervisor)
-        conditions.push(eq(posShifts.userId, req.user.id));
+        conditions.push(eq(posShifts.userId, currentUserId));
       }
 
       const rows = await db
@@ -6133,7 +6389,7 @@ export async function registerRoutes(
   app.get("/api/companies/:companyId/my-role", requireAuth, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
-      const role = await storage.getCompanyUserRole(req.user.id, companyId);
+      const role = await storage.getCompanyUserRole(req.user!.id, companyId);
       res.json({ role: role || 'member' });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -6500,8 +6756,10 @@ export async function registerRoutes(
       const endDate = req.query.endDate ? new Date(req.query.endDate as string) : new Date();
       endDate.setHours(23, 59, 59, 999);
       const cashierId = req.query.cashierId as string | undefined;
+      const ownerGroupScope = await getUserOwnerGroupScope((req.user as any)?.id);
+      const ownerGroup = ownerGroupScope || (req.query.ownerGroup as string | undefined);
 
-      const data = await storage.getSalesReport(companyId, startDate, endDate, cashierId);
+      const data = await storage.getSalesReport(companyId, startDate, endDate, cashierId, ownerGroup);
       res.json(data);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -6516,12 +6774,15 @@ export async function registerRoutes(
       const endDate = req.query.endDate ? new Date(req.query.endDate as string) : new Date();
       endDate.setHours(23, 59, 59, 999);
       const cashierId = req.query.cashierId as string | undefined;
+      const ownerGroupScope = await getUserOwnerGroupScope((req.user as any)?.id);
+      const ownerGroup = ownerGroupScope || (req.query.ownerGroup as string | undefined);
 
-      const data = await storage.getSalesReport(companyId, startDate, endDate, cashierId);
+      const data = await storage.getSalesReport(companyId, startDate, endDate, cashierId, ownerGroup);
       
       const worksheet = XLSX.utils.json_to_sheet(data.map(inv => ({
         "Date": format(new Date(inv.issueDate), "yyyy-MM-dd HH:mm"),
         "Invoice #": inv.invoiceNumber,
+        "Cost Center": inv.costCenter,
         "Customer": inv.customerName,
         "Cashier": inv.cashierName,
         "Method": inv.paymentMethod,

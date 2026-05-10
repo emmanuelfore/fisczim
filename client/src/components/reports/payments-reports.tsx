@@ -1,10 +1,15 @@
 import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { filterRecords, computeTotal } from "@/lib/report-utils";
 import { format, isValid } from "date-fns";
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/hooks/use-toast";
 
 interface ReportProps {
   companyId: number;
@@ -451,6 +456,11 @@ export function PaymentsReceivedReport({ companyId, dateRange, search }: ReportP
 }
 
 export function CashCollectionReport({ companyId, dateRange, search }: ReportProps) {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const [collectionTarget, setCollectionTarget] = useState<any>(null);
+  const [collectionAmount, setCollectionAmount] = useState("");
+  const [collectionReason, setCollectionReason] = useState("");
   const { data = [], isLoading, error } = useQuery<any[]>({
     queryKey: ["reports/cash-collections", companyId, dateRange.from, dateRange.to],
     queryFn: async () => {
@@ -462,13 +472,53 @@ export function CashCollectionReport({ companyId, dateRange, search }: ReportPro
     },
     enabled: !!companyId,
   });
+  const { data: balances = [], isLoading: balancesLoading } = useQuery<any[]>({
+    queryKey: ["reports/cash-collection-balances", companyId],
+    queryFn: async () => {
+      const res = await apiFetch(`/api/companies/${companyId}/reports/cash-collection-balances`);
+      if (!res.ok) throw new Error(`Failed to load collection balances (${res.status})`);
+      return res.json();
+    },
+    enabled: !!companyId,
+  });
 
   const filtered = filterRecords(data, search, ["cashierName", "reason", "shiftId"]);
   
   const stats = useMemo(() => {
     const total = filtered.reduce((sum, r) => sum + Number(r.amount), 0);
-    return { total };
-  }, [filtered]);
+    const expected = balances.reduce((sum, r) => sum + Number(r.expectedCash || 0), 0);
+    return { total, expected };
+  }, [filtered, balances]);
+
+  const collectMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiFetch(`/api/companies/${companyId}/cash-collections`, {
+        method: "POST",
+        body: JSON.stringify({
+          cashierId: collectionTarget?.userId,
+          amount: Number(collectionAmount),
+          reason: collectionReason || `Cash collection from ${collectionTarget?.cashierName || "cashier"}`,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || "Failed to record cash collection");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Cash collected", description: "The cashier balance was updated." });
+      setCollectionTarget(null);
+      setCollectionAmount("");
+      setCollectionReason("");
+      queryClient.invalidateQueries({ queryKey: ["reports/cash-collections", companyId] });
+      queryClient.invalidateQueries({ queryKey: ["reports/cash-collection-balances", companyId] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-cash-collection-balances", companyId] });
+    },
+    onError: (error: any) => {
+      toast({ title: "Collection failed", description: error.message, variant: "destructive" });
+    },
+  });
 
   if (isLoading) return <div className="flex justify-center p-12"><Loader2 className="w-8 h-8 animate-spin text-violet-400" /></div>;
   if (error) return <EmptyState message="Failed to load cashier collection report" />;
@@ -480,6 +530,65 @@ export function CashCollectionReport({ companyId, dateRange, search }: ReportPro
           <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Total Collected (Drops)</p>
           <p className="text-2xl font-black font-display">${stats.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
           <p className="text-[10px] font-bold text-slate-500 mt-1 uppercase">{filtered.length} COLLECTIONS</p>
+        </div>
+        <div className="bg-amber-50 text-slate-900 p-5 rounded-3xl border border-amber-100 shadow-xl shadow-slate-100">
+          <p className="text-[10px] font-black uppercase tracking-widest text-amber-700 mb-1">Expected Uncollected Cash</p>
+          <p className="text-2xl font-black font-display">${stats.expected.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+          <p className="text-[10px] font-bold text-amber-700/70 mt-1 uppercase">{balances.length} CASHIER BALANCES</p>
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
+            <div className="w-1.5 h-4 bg-blue-500 rounded-full" />
+            Expected Cash By Cashier
+          </h3>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Cash sales less recorded collections</p>
+        </div>
+        <div className="bg-white rounded-3xl border border-slate-100 overflow-hidden shadow-2xl shadow-slate-100">
+          <table className="w-full text-[11px] text-left">
+            <thead className="bg-slate-50 text-slate-500 border-b border-slate-100">
+              <tr>
+                <th className="px-4 py-3 font-black uppercase tracking-widest">Cashier</th>
+                <th className="px-4 py-3 font-black uppercase tracking-widest text-right">Cash Sales</th>
+                <th className="px-4 py-3 font-black uppercase tracking-widest text-right">Collected</th>
+                <th className="px-4 py-3 font-black uppercase tracking-widest text-right">Expected</th>
+                <th className="px-4 py-3 font-black uppercase tracking-widest">Last Collection</th>
+                <th className="px-4 py-3 font-black uppercase tracking-widest text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {balancesLoading ? (
+                <tr><td colSpan={6} className="text-center py-12 text-slate-300 font-bold">Loading cashier balances...</td></tr>
+              ) : balances.map((r) => (
+                <tr key={r.userId || r.cashierName} className="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
+                  <td className="px-4 py-3 font-bold text-slate-800">{r.cashierName}</td>
+                  <td className="px-4 py-3 text-right font-mono font-bold text-slate-700">${Number(r.cashSales).toFixed(2)}</td>
+                  <td className="px-4 py-3 text-right font-mono font-bold text-slate-700">${Number(r.collections).toFixed(2)}</td>
+                  <td className="px-4 py-3 text-right font-black text-amber-700">${Number(r.expectedCash).toFixed(2)}</td>
+                  <td className="px-4 py-3 text-slate-500">{r.lastCollectionAt ? format(new Date(r.lastCollectionAt), "dd MMM yyyy, HH:mm") : "Never"}</td>
+                  <td className="px-4 py-3 text-right">
+                    <Button
+                      size="sm"
+                      className="h-8 rounded-xl bg-slate-900 text-[10px] font-black text-white hover:bg-slate-800"
+                      disabled={!r.userId || Number(r.expectedCash) <= 0}
+                      onClick={() => {
+                        setCollectionTarget(r);
+                        setCollectionAmount(Number(r.expectedCash).toFixed(2));
+                        setCollectionReason("");
+                      }}
+                    >
+                      Collect
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+              {!balancesLoading && balances.length === 0 && (
+                <tr><td colSpan={6} className="text-center py-16 text-slate-300 font-black uppercase tracking-widest opacity-50 italic">No cashier cash balances found</td></tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -519,6 +628,56 @@ export function CashCollectionReport({ companyId, dateRange, search }: ReportPro
           </table>
         </div>
       </div>
+
+      <Dialog open={!!collectionTarget} onOpenChange={(open) => {
+        if (!open) {
+          setCollectionTarget(null);
+          setCollectionAmount("");
+          setCollectionReason("");
+        }
+      }}>
+        <DialogContent className="rounded-3xl">
+          <DialogHeader>
+            <DialogTitle>Collect Cash</DialogTitle>
+            <DialogDescription>
+              Record cash collected from {collectionTarget?.cashierName}. Expected balance is ${Number(collectionTarget?.expectedCash || 0).toFixed(2)}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Amount Collected</label>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                value={collectionAmount}
+                onChange={(event) => setCollectionAmount(event.target.value)}
+                className="mt-2 rounded-xl font-mono font-black"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Reference / Notes</label>
+              <Textarea
+                value={collectionReason}
+                onChange={(event) => setCollectionReason(event.target.value)}
+                placeholder="e.g. Cash picked up by owner"
+                className="mt-2 rounded-xl"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" className="rounded-xl" onClick={() => setCollectionTarget(null)}>Cancel</Button>
+            <Button
+              className="rounded-xl bg-slate-900 text-white hover:bg-slate-800"
+              disabled={collectMutation.isPending || !collectionAmount || Number(collectionAmount) <= 0}
+              onClick={() => collectMutation.mutate()}
+            >
+              {collectMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Record Collection
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

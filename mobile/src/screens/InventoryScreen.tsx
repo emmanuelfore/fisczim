@@ -278,14 +278,34 @@ export function InventoryScreen({ onOpenDrawer, companyId }: Props) {
                 </View>
                 {/* Owner Group */}
                 <View style={styles.field}>
-                  <Text style={styles.fieldLabel}>Owner Group (for separate reports)</Text>
-                  <TextInput
-                    style={styles.fieldInput}
-                    value={form.ownerGroup}
-                    onChangeText={(v) => setForm({ ...form, ownerGroup: v })}
-                    placeholder="e.g. Beauty or Mother"
-                    placeholderTextColor={C.text.secondary}
-                  />
+                  <Text style={styles.fieldLabel}>Cost Center (for separate reports)</Text>
+                  {ownerGroups.length > 0 ? (
+                    <View style={styles.chipRow}>
+                      <TouchableOpacity
+                        style={[styles.chip, !form.ownerGroup && styles.chipActive]}
+                        onPress={() => setForm({ ...form, ownerGroup: "" })}
+                      >
+                        <Text style={[styles.chipText, !form.ownerGroup && styles.chipTextActive]}>No Cost Center</Text>
+                      </TouchableOpacity>
+                      {ownerGroups.map((group) => (
+                        <TouchableOpacity
+                          key={group}
+                          style={[styles.chip, form.ownerGroup === group && styles.chipActive]}
+                          onPress={() => setForm({ ...form, ownerGroup: group })}
+                        >
+                          <Text style={[styles.chipText, form.ownerGroup === group && styles.chipTextActive]}>{group}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  ) : (
+                    <TextInput
+                      style={styles.fieldInput}
+                      value={form.ownerGroup}
+                      onChangeText={(v) => setForm({ ...form, ownerGroup: v })}
+                      placeholder="Create the first cost center"
+                      placeholderTextColor={C.text.secondary}
+                    />
+                  )}
                 </View>
                 {/* Tax Type */}
                 <View style={styles.field}>

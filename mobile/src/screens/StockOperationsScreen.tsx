@@ -15,6 +15,14 @@ interface Props {
 }
 
 type Mode = "adjust" | "transfer";
+type AdjustmentItem = {
+  productId: number;
+  name: string;
+  sku?: string | null;
+  systemQuantity: number;
+  actualQuantity: string;
+  costPrice?: string | number;
+};
 
 export function StockOperationsScreen({ companyId, onOpenDrawer }: Props) {
   const insets = useSafeAreaInsets();
@@ -25,6 +33,7 @@ export function StockOperationsScreen({ companyId, onOpenDrawer }: Props) {
   const [mode, setMode] = useState<Mode>("adjust");
   const [query, setQuery] = useState("");
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
+  const [adjustmentItems, setAdjustmentItems] = useState<AdjustmentItem[]>([]);
   const [quantity, setQuantity] = useState("");
   const [reason, setReason] = useState("");
   const [fromBranchId, setFromBranchId] = useState<number | null>(null);
@@ -33,45 +42,55 @@ export function StockOperationsScreen({ companyId, onOpenDrawer }: Props) {
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return [];
     return (products || [])
       .filter((p: any) =>
         p.isTracked !== false &&
-        (p.name?.toLowerCase().includes(q) || p.sku?.toLowerCase().includes(q) || p.barcode?.toLowerCase().includes(q))
+        (!q || p.name?.toLowerCase().includes(q) || p.sku?.toLowerCase().includes(q) || p.barcode?.toLowerCase().includes(q))
       )
-      .slice(0, 8);
+      .slice(0, 30);
   }, [products, query]);
 
   const resetForm = () => {
     setQuery("");
     setSelectedProduct(null);
+    setAdjustmentItems([]);
     setQuantity("");
     setReason("");
   };
 
+  const systemQuantity = Number(selectedProduct?.branchStock ?? selectedProduct?.stockLevel ?? 0);
+  const enteredQuantity = Number(quantity);
+  const adjustmentDelta = quantity.trim() && Number.isFinite(enteredQuantity) ? enteredQuantity - systemQuantity : null;
+
   const submitAdjustment = async () => {
-    if (!selectedProduct) return Alert.alert("Product", "Select a product first.");
-    const qty = Number(quantity);
-    if (!Number.isFinite(qty) || qty === 0) return Alert.alert("Quantity", "Enter a positive or negative adjustment quantity.");
+    if (adjustmentItems.length === 0) return Alert.alert("Products", "Select one or more products first.");
     if (reason.trim().length < 5) return Alert.alert("Reason", "Enter a clear adjustment reason.");
+    const changes = adjustmentItems.map((item) => {
+      const actualQty = Number(item.actualQuantity);
+      const quantityChange = actualQty - item.systemQuantity;
+      return { ...item, actualQty, quantityChange };
+    }).filter((item) => Number.isFinite(item.actualQty) && item.actualQty >= 0 && item.quantityChange !== 0);
+    if (changes.length === 0) return Alert.alert("No Changes", "Enter actual quantities that differ from system quantities.");
     setSaving(true);
     try {
-      const res = await apiFetch("/api/pos/inventory/adjust", {
-        method: "POST",
-        headers: { "Idempotency-Key": `stock-adj-${companyId}-${selectedProduct.id}-${Date.now()}` },
-        body: JSON.stringify({
-          companyId,
-          productId: selectedProduct.id,
-          quantityChange: qty,
-          type: "ADJUSTMENT",
-          unitCost: selectedProduct.costPrice || 0,
-          notes: reason.trim(),
-        }),
-      });
-      if (!res.ok) throw new Error(await res.text().catch(() => "Failed to post adjustment"));
+      for (const item of changes) {
+        const res = await apiFetch("/api/pos/inventory/adjust", {
+          method: "POST",
+          headers: { "Idempotency-Key": `stock-adj-${companyId}-${item.productId}-${Date.now()}` },
+          body: JSON.stringify({
+            companyId,
+            productId: item.productId,
+            quantityChange: item.quantityChange,
+            type: "ADJUSTMENT",
+            unitCost: item.costPrice || 0,
+            notes: `${reason.trim()} (System: ${item.systemQuantity}, Actual: ${item.actualQty})`,
+          }),
+        });
+        if (!res.ok) throw new Error(await res.text().catch(() => "Failed to post adjustment"));
+      }
       await refresh();
       resetForm();
-      Alert.alert("Posted", "Stock adjustment posted to the inventory ledger.");
+      Alert.alert("Posted", `${changes.length} stock adjustment${changes.length === 1 ? "" : "s"} posted to the inventory ledger.`);
     } catch (error: any) {
       Alert.alert("Error", error.message);
     } finally {
@@ -109,6 +128,30 @@ export function StockOperationsScreen({ companyId, onOpenDrawer }: Props) {
 
   const submit = mode === "adjust" ? submitAdjustment : submitTransfer;
 
+  const addAdjustmentItem = (product: any) => {
+    if (adjustmentItems.some((item) => item.productId === product.id)) return;
+    const current = Number(product.branchStock ?? product.stockLevel ?? 0);
+    setAdjustmentItems([
+      {
+        productId: product.id,
+        name: product.name,
+        sku: product.sku,
+        systemQuantity: current,
+        actualQuantity: current.toString(),
+        costPrice: product.costPrice || 0,
+      },
+      ...adjustmentItems,
+    ]);
+  };
+
+  const removeAdjustmentItem = (productId: number) => {
+    setAdjustmentItems(adjustmentItems.filter((item) => item.productId !== productId));
+  };
+
+  const updateAdjustmentActual = (productId: number, actualQuantity: string) => {
+    setAdjustmentItems(adjustmentItems.map((item) => item.productId === productId ? { ...item, actualQuantity } : item));
+  };
+
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
@@ -142,18 +185,67 @@ export function StockOperationsScreen({ companyId, onOpenDrawer }: Props) {
           />
         </View>
 
-        {selectedProduct ? (
+        {mode === "adjust" && adjustmentItems.length > 0 ? (
+          <View style={styles.adjustList}>
+            {adjustmentItems.map((item) => {
+              const actual = Number(item.actualQuantity);
+              const delta = Number.isFinite(actual) ? actual - item.systemQuantity : null;
+              return (
+                <View key={item.productId} style={styles.adjustCard}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.selectedTitle}>{item.name}</Text>
+                    <Text style={styles.selectedSub}>SKU {item.sku || "-"} - System qty {item.systemQuantity.toFixed(2)}</Text>
+                    <Text style={styles.diffText}>
+                      Ledger change: {delta === null ? "-" : `${delta > 0 ? "+" : ""}${delta.toFixed(2)}`}
+                    </Text>
+                  </View>
+                  <TextInput
+                    style={styles.adjustQtyInput}
+                    keyboardType="numeric"
+                    value={item.actualQuantity}
+                    onChangeText={(value) => updateAdjustmentActual(item.productId, value)}
+                    placeholder={item.systemQuantity.toFixed(2)}
+                    placeholderTextColor={C.text.secondary}
+                  />
+                  <TouchableOpacity onPress={() => removeAdjustmentItem(item.productId)} style={styles.removeBtn}>
+                    <Text style={styles.removeBtnText}>x</Text>
+                  </TouchableOpacity>
+                </View>
+              );
+            })}
+            {matches
+              .filter((item: any) => !adjustmentItems.some((selected) => selected.productId === item.id))
+              .map((item: any) => (
+                <TouchableOpacity key={item.id} style={styles.matchRow} onPress={() => addAdjustmentItem(item)}>
+                  <Text style={styles.matchTitle}>{item.name}</Text>
+                  <Text style={styles.matchSub}>{item.sku || item.barcode || "No code"} - Stock {Number(item.branchStock ?? item.stockLevel ?? 0).toFixed(2)}</Text>
+                </TouchableOpacity>
+              ))}
+          </View>
+        ) : selectedProduct && mode === "transfer" ? (
           <View style={styles.selectedCard}>
             <Package size={18} color={C.amber.primary} />
             <View style={{ flex: 1 }}>
               <Text style={styles.selectedTitle}>{selectedProduct.name}</Text>
-              <Text style={styles.selectedSub}>SKU {selectedProduct.sku || "-"} · Branch stock {Number(selectedProduct.branchStock ?? selectedProduct.stockLevel ?? 0).toFixed(2)}</Text>
+              <Text style={styles.selectedSub}>SKU {selectedProduct.sku || "-"} - System qty {systemQuantity.toFixed(2)}</Text>
             </View>
           </View>
         ) : matches.map((item: any) => (
-          <TouchableOpacity key={item.id} style={styles.matchRow} onPress={() => { setSelectedProduct(item); setQuery(`${item.sku || item.barcode || item.name}`); }}>
+          <TouchableOpacity
+            key={item.id}
+            style={styles.matchRow}
+            onPress={() => {
+              if (mode === "adjust") {
+                addAdjustmentItem(item);
+                setQuery("");
+              } else {
+                setSelectedProduct(item);
+                setQuery(`${item.sku || item.barcode || item.name}`);
+              }
+            }}
+          >
             <Text style={styles.matchTitle}>{item.name}</Text>
-            <Text style={styles.matchSub}>{item.sku || item.barcode || "No code"}</Text>
+            <Text style={styles.matchSub}>{item.sku || item.barcode || "No code"} - Stock {Number(item.branchStock ?? item.stockLevel ?? 0).toFixed(2)}</Text>
           </TouchableOpacity>
         ))}
 
@@ -178,8 +270,17 @@ export function StockOperationsScreen({ companyId, onOpenDrawer }: Props) {
           </View>
         )}
 
-        <Text style={styles.label}>{mode === "adjust" ? "Adjustment Quantity" : "Transfer Quantity"}</Text>
-        <TextInput style={styles.input} keyboardType="numeric" value={quantity} onChangeText={setQuantity} placeholder={mode === "adjust" ? "e.g. -2 or 5" : "e.g. 5"} placeholderTextColor={C.text.secondary} />
+        {mode === "transfer" && (
+          <>
+            <Text style={styles.label}>Transfer Quantity</Text>
+            <TextInput style={styles.input} keyboardType="numeric" value={quantity} onChangeText={setQuantity} placeholder="e.g. 5" placeholderTextColor={C.text.secondary} />
+          </>
+        )}
+        {mode === "adjust" && selectedProduct && adjustmentItems.length === 0 && (
+          <Text style={styles.diffText}>
+            Ledger change: {adjustmentDelta === null ? "-" : `${adjustmentDelta > 0 ? "+" : ""}${adjustmentDelta.toFixed(2)}`}
+          </Text>
+        )}
         <Text style={styles.label}>Reason / Reference</Text>
         <TextInput style={[styles.input, styles.notes]} multiline value={reason} onChangeText={setReason} placeholder="Required for adjustments; optional for transfers..." placeholderTextColor={C.text.secondary} />
 
@@ -208,8 +309,14 @@ const getStyles = (C: Theme) => StyleSheet.create({
   input: { minHeight: 48, borderRadius: 14, backgroundColor: C.bg.card, borderWidth: 1, borderColor: C.border.default, color: C.text.primary, paddingHorizontal: 12, fontSize: 14 },
   notes: { height: 82, textAlignVertical: "top", paddingTop: 12 },
   selectedCard: { marginTop: 12, padding: 12, borderRadius: 14, backgroundColor: hexAlpha(C.amber.primary, 0.08), borderWidth: 1, borderColor: hexAlpha(C.amber.primary, 0.22), flexDirection: "row", alignItems: "center", gap: 10 },
+  adjustList: { marginTop: 12, gap: 10 },
+  adjustCard: { padding: 12, borderRadius: 14, backgroundColor: hexAlpha(C.amber.primary, 0.08), borderWidth: 1, borderColor: hexAlpha(C.amber.primary, 0.22), flexDirection: "row", alignItems: "center", gap: 10 },
+  adjustQtyInput: { width: 82, minHeight: 42, borderRadius: 12, backgroundColor: C.bg.card, borderWidth: 1, borderColor: C.border.default, color: C.text.primary, paddingHorizontal: 10, fontSize: 14, fontWeight: "900", textAlign: "center" },
+  removeBtn: { width: 30, height: 30, borderRadius: 10, backgroundColor: hexAlpha(C.status.error, 0.12), alignItems: "center", justifyContent: "center" },
+  removeBtnText: { color: C.status.error, fontSize: 16, fontWeight: "900" },
   selectedTitle: { color: C.text.primary, fontSize: 14, fontWeight: "900" },
   selectedSub: { color: C.text.secondary, fontSize: 12, marginTop: 3 },
+  diffText: { color: C.text.secondary, fontSize: 12, fontWeight: "800", marginTop: 8 },
   matchRow: { marginTop: 8, padding: 12, borderRadius: 12, backgroundColor: C.bg.card, borderWidth: 1, borderColor: C.border.default },
   matchTitle: { color: C.text.primary, fontSize: 14, fontWeight: "800" },
   matchSub: { color: C.text.secondary, fontSize: 12, marginTop: 2 },

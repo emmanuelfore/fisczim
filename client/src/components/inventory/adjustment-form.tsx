@@ -36,7 +36,7 @@ import { SlidersHorizontal, Package, AlertTriangle } from "lucide-react";
 const adjustmentSchema = z.object({
     productId: z.string().min(1, "Product is required"),
     type: z.enum(["SHRINKAGE", "ADJUSTMENT"]),
-    quantityChange: z.string().min(1, "Qty change required").refine((val) => !isNaN(Number(val)) && Number(val) !== 0, "Must be a non-zero number"),
+    actualQuantity: z.string().min(1, "Actual quantity required").refine((val) => !isNaN(Number(val)) && Number(val) >= 0, "Must be zero or more"),
     notes: z.string().min(1, "Notes/Reason required"),
 });
 
@@ -54,16 +54,33 @@ export function AdjustmentForm() {
         defaultValues: {
             productId: "",
             type: "SHRINKAGE",
-            quantityChange: "",
+            actualQuantity: "",
             notes: "",
         },
     });
+    const selectedProductId = form.watch("productId");
+    const actualQuantityValue = form.watch("actualQuantity");
+    const actualQuantity = Number(actualQuantityValue);
+    const selectedProduct = products?.find((product) => product.id.toString() === selectedProductId);
+    const systemQuantity = Number((selectedProduct as any)?.branchStock ?? selectedProduct?.stockLevel ?? 0);
+    const quantityChange = String(actualQuantityValue ?? "").trim() && Number.isFinite(actualQuantity) ? actualQuantity - systemQuantity : null;
 
     const onSubmit = (values: AdjustmentFormValues) => {
+        const selected = products?.find((product) => product.id.toString() === values.productId);
+        const currentStock = Number((selected as any)?.branchStock ?? selected?.stockLevel ?? 0);
+        const delta = Number(values.actualQuantity) - currentStock;
+        if (delta === 0) {
+            toast({
+                title: "No Stock Change",
+                description: "The actual quantity matches the system quantity.",
+                variant: "destructive",
+            });
+            return;
+        }
         adjustStock({
             productId: parseInt(values.productId),
             type: values.type,
-            quantityChange: values.quantityChange,
+            quantity: delta,
             notes: values.notes,
         }, {
             onSuccess: () => {
@@ -151,15 +168,25 @@ export function AdjustmentForm() {
                                 </FormItem>
                             )}
                         />
+                        {selectedProduct && (
+                            <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-600">
+                                System quantity: <span className="font-mono text-slate-900">{systemQuantity.toFixed(2)}</span>
+                                {quantityChange !== null && (
+                                    <span className="ml-3">
+                                        Ledger change: <span className={quantityChange > 0 ? "text-emerald-600" : quantityChange < 0 ? "text-rose-600" : "text-slate-500"}>{quantityChange > 0 ? "+" : ""}{quantityChange.toFixed(2)}</span>
+                                    </span>
+                                )}
+                            </div>
+                        )}
 
                         <FormField
                             control={form.control}
-                            name="quantityChange"
+                            name="actualQuantity"
                             render={({ field }) => (
                                 <FormItem>
-                                    <FormLabel className="text-[10px] font-black uppercase tracking-widest text-slate-400">Quantity Change (+ or -)</FormLabel>
+                                    <FormLabel className="text-[10px] font-black uppercase tracking-widest text-slate-400">Actual Quantity Counted</FormLabel>
                                     <FormControl>
-                                        <Input {...field} placeholder="e.g. -5 for missing items" className="h-12 font-mono text-lg border-slate-200 rounded-xl focus:ring-orange-500/20" />
+                                        <Input {...field} type="number" min="0" step="0.01" placeholder={selectedProduct ? systemQuantity.toString() : "Select a product first"} className="h-12 font-mono text-lg border-slate-200 rounded-xl focus:ring-orange-500/20" />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>

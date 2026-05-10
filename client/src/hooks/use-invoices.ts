@@ -195,6 +195,9 @@ export function useCreateCreditNote() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: [api.invoices.list.path] });
+      queryClient.invalidateQueries({ queryKey: [api.products.list.path, data.companyId] });
+      queryClient.invalidateQueries({ queryKey: [api.inventory.transactions.path, data.companyId] });
+      queryClient.invalidateQueries({ queryKey: [api.reports.stockValuation.path, data.companyId] });
       toast({
         title: "Credit Note Created",
         description: `Draft CN-${data.id} created successfully.`,
@@ -227,6 +230,9 @@ export function useCreateDebitNote() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: [api.invoices.list.path] });
+      queryClient.invalidateQueries({ queryKey: [api.products.list.path, data.companyId] });
+      queryClient.invalidateQueries({ queryKey: [api.inventory.transactions.path, data.companyId] });
+      queryClient.invalidateQueries({ queryKey: [api.reports.stockValuation.path, data.companyId] });
       toast({
         title: "Debit Note Created",
         description: `Draft DN-${data.id} created successfully.`,

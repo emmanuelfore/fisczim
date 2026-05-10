@@ -41,6 +41,7 @@ export function AppRoot() {
   const [bootError, setBootError] = useState<string | null>(null);
   const [companyId, setCompanyId] = useState<number | null>(null);
   const [currentScreen, setCurrentScreen] = useState<ScreenName>("dashboard");
+  const [openCashCollectionSignal, setOpenCashCollectionSignal] = useState(0);
   const [showDrawer, setShowDrawer] = useState(false);
   const [userName, setUserName] = useState("Cashier");
   const [userRole, setUserRole] = useState("member");
@@ -546,7 +547,12 @@ export function AppRoot() {
             companyId={companyId}
             userName={userName}
             onOpenDrawer={() => setShowDrawer(true)}
-            onNavigate={(screen) => setCurrentScreen(screen)}
+            onNavigate={(screen, options) => {
+              if (screen === "pos" && options?.openCashCollection) {
+                setOpenCashCollectionSignal((value) => value + 1);
+              }
+              setCurrentScreen(screen);
+            }}
           />
         )}
         {currentScreen === "pos" && (
@@ -554,6 +560,7 @@ export function AppRoot() {
             companyId={companyId} 
             userName={userName}
             onOpenDrawer={() => setShowDrawer(true)} 
+            openCashCollectionSignal={openCashCollectionSignal}
           />
         )}
         {currentScreen === "reports" && (
@@ -642,7 +649,7 @@ export function AppRoot() {
         />
       </View>
     );
-  }, [bootError, stage, companyId, currentScreen, showDrawer, userName, userRole, companies, diagResults, diagRunning]);
+  }, [bootError, stage, companyId, currentScreen, openCashCollectionSignal, showDrawer, userName, userRole, companies, diagResults, diagRunning]);
 
   return (
     <PrinterProvider>

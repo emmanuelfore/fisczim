@@ -177,7 +177,7 @@ export interface IStorage {
     closingBalance: number;
     transactions: any[];
   }>;
-  getSalesReport(companyId: number, startDate: Date, endDate: Date, cashierId?: string): Promise<any[]>;
+  getSalesReport(companyId: number, startDate: Date, endDate: Date, cashierId?: string, ownerGroup?: string): Promise<any[]>;
   getPaymentsReport(companyId: number, startDate: Date, endDate: Date): Promise<any[]>;
   getFiscalReportData(companyId: number, date: Date, cashierId?: string): Promise<any>;
 
@@ -1009,24 +1009,61 @@ export class DatabaseStorage implements IStorage {
                 const [ingredient] = await tx.select().from(products).where(eq(products.id, recipe.ingredientProductId));
 
                 if (ingredient && ingredient.isTracked) {
-                  const ingredientCogs = await calculateCOGS(ingredient.id, ingredientQty, invoiceData.companyId, tx);
-                  totalRecipeCogs += (ingredientCogs || 0);
+                  if (invoiceData.transactionType !== 'CreditNote') {
+                    const ingredientCogs = await calculateCOGS(ingredient.id, ingredientQty, invoiceData.companyId, tx);
+                    totalRecipeCogs += (ingredientCogs || 0);
 
-                  // Record the STOCK_OUT for ingredient
-                  await tx.insert(inventoryTransactions).values({
-                    companyId: invoiceData.companyId,
-                    productId: ingredient.id,
-                    type: "STOCK_OUT",
-                    quantity: (-ingredientQty).toString(),
-                    totalCost: ingredientCogs?.toString() || null,
-                    referenceType: "INVOICE",
-                    referenceId: invoice.id.toString(),
-                    notes: `Recipe Ingredient for ${product.name} - Invoice ${invoice.invoiceNumber}`
-                  });
+                    await tx.insert(inventoryTransactions).values({
+                      companyId: invoiceData.companyId,
+                      branchId: invoiceData.branchId || null,
+                      productId: ingredient.id,
+                      type: "STOCK_OUT",
+                      quantity: (-ingredientQty).toString(),
+                      totalCost: ingredientCogs?.toString() || null,
+                      referenceType: "INVOICE",
+                      referenceId: invoice.id.toString(),
+                      notes: `Recipe Ingredient for ${product.name} - Invoice ${invoice.invoiceNumber}`
+                    });
+                  } else {
+                    await tx.insert(inventoryTransactions).values({
+                      companyId: invoiceData.companyId,
+                      branchId: invoiceData.branchId || null,
+                      productId: ingredient.id,
+                      type: "ADJUSTMENT",
+                      quantity: ingredientQty.toString(),
+                      referenceType: "INVOICE",
+                      referenceId: invoice.id.toString(),
+                      notes: `Recipe Return for ${product.name} - Credit Note ${invoice.invoiceNumber}`,
+                      remainingQuantity: ingredientQty.toString()
+                    });
+                  }
 
-                  // Update stock level on ingredient
-                  const newIngStock = (parseFloat(ingredient.stockLevel || "0") - ingredientQty).toString();
+                  const recipeStockChange = invoiceData.transactionType === 'CreditNote' ? ingredientQty : -ingredientQty;
+                  const newIngStock = (parseFloat(ingredient.stockLevel || "0") + recipeStockChange).toString();
                   await tx.update(products).set({ stockLevel: newIngStock }).where(eq(products.id, ingredient.id));
+
+                  if (invoiceData.branchId) {
+                    const [currentBranchStock] = await tx
+                      .select()
+                      .from(branchStocks)
+                      .where(and(
+                        eq(branchStocks.branchId, invoiceData.branchId),
+                        eq(branchStocks.productId, ingredient.id)
+                      ));
+
+                    const newBranchStock = (parseFloat(currentBranchStock?.stockLevel || "0") + recipeStockChange).toString();
+                    await tx
+                      .insert(branchStocks)
+                      .values({
+                        branchId: invoiceData.branchId,
+                        productId: ingredient.id,
+                        stockLevel: newBranchStock
+                      })
+                      .onConflictDoUpdate({
+                        target: [branchStocks.branchId, branchStocks.productId],
+                        set: { stockLevel: newBranchStock }
+                      });
+                  }
                 }
               }
               cogsAmount = totalRecipeCogs;
@@ -1042,6 +1079,7 @@ export class DatabaseStorage implements IStorage {
                 // Record the STOCK_OUT transaction
                 await tx.insert(inventoryTransactions).values({
                   companyId: invoiceData.companyId,
+                  branchId: invoiceData.branchId || null,
                   productId: item.productId,
                   type: "STOCK_OUT",
                   quantity: (-quantity).toString(),
@@ -1054,6 +1092,7 @@ export class DatabaseStorage implements IStorage {
                 // Restoring stock for Credit Note
                 await tx.insert(inventoryTransactions).values({
                   companyId: invoiceData.companyId,
+                  branchId: invoiceData.branchId || null,
                   productId: item.productId,
                   type: "ADJUSTMENT",
                   quantity: quantity.toString(),
@@ -2745,36 +2784,130 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getSalesReport(companyId: number, startDate: Date, endDate: Date, cashierId?: string): Promise<any[]> {
+  async getSalesReport(companyId: number, startDate: Date, endDate: Date, cashierId?: string, ownerGroup?: string): Promise<any[]> {
     const filters = [
       eq(invoices.companyId, companyId),
       gte(invoices.issueDate, startDate),
-      lte(invoices.issueDate, endDate)
+      lte(invoices.issueDate, endDate),
+      ne(invoices.status, 'cancelled'),
+      ne(invoices.status, 'draft'),
+      ne(invoices.status, 'quote')
     ];
 
     if (cashierId && cashierId !== 'all') {
       filters.push(eq(invoices.createdBy, cashierId));
     }
 
-    const result = await db
+    const ownerGroups = parseOwnerGroups(ownerGroup).map((group) => group.toLowerCase());
+
+    const rows = await db
       .select({
         invoice: invoices,
         customerName: customers.name,
         cashierName: users.name,
         cashierUsername: users.username,
-        cashierEmail: users.email
+        cashierEmail: users.email,
+        itemId: invoiceItems.id,
+        itemLineTotal: invoiceItems.lineTotal,
+        itemProductId: invoiceItems.productId,
+        itemOwnerGroup: products.ownerGroup,
       })
       .from(invoices)
       .leftJoin(customers, eq(invoices.customerId, customers.id))
       .leftJoin(users, eq(invoices.createdBy, users.id))
+      .leftJoin(invoiceItems, eq(invoiceItems.invoiceId, invoices.id))
+      .leftJoin(products, eq(invoiceItems.productId, products.id))
       .where(and(...filters))
       .orderBy(desc(invoices.createdAt));
 
-    return result.map(r => ({
-      ...r.invoice,
-      customerName: r.customerName,
-      cashierName: r.cashierName || r.cashierUsername || r.cashierEmail?.split("@")[0] || "System"
-    }));
+    const byInvoice = new Map<number, {
+      invoice: Invoice;
+      customerName: string | null;
+      cashierName: string | null;
+      cashierUsername: string | null;
+      cashierEmail: string | null;
+      segments: Map<string, { costCenter: string; lineTotal: number }>;
+      invoiceLineTotal: number;
+    }>();
+
+    for (const row of rows) {
+      const existing = byInvoice.get(row.invoice.id) ?? {
+        invoice: row.invoice,
+        customerName: row.customerName,
+        cashierName: row.cashierName,
+        cashierUsername: row.cashierUsername,
+        cashierEmail: row.cashierEmail,
+        segments: new Map<string, { costCenter: string; lineTotal: number }>(),
+        invoiceLineTotal: 0,
+      };
+
+      if (row.itemId) {
+        const costCenter = (row.itemOwnerGroup || "Unassigned").trim() || "Unassigned";
+        const key = costCenter.toLowerCase();
+        const lineTotal = Number(row.itemLineTotal || 0);
+        const segment = existing.segments.get(key) ?? { costCenter, lineTotal: 0 };
+        segment.lineTotal += lineTotal;
+        existing.segments.set(key, segment);
+        existing.invoiceLineTotal += lineTotal;
+      }
+
+      byInvoice.set(row.invoice.id, existing);
+    }
+
+    const reportRows: any[] = [];
+    for (const entry of byInvoice.values()) {
+      const segments = entry.segments.size > 0
+        ? Array.from(entry.segments.values())
+        : [{ costCenter: "Unassigned", lineTotal: Number(entry.invoice.total || 0) }];
+
+      const allocated = segments.map((segment) => {
+        const allocationBase = entry.invoiceLineTotal > 0 ? entry.invoiceLineTotal : Number(entry.invoice.total || 0);
+        const share = allocationBase > 0 ? segment.lineTotal / allocationBase : 1 / segments.length;
+        return {
+          segment,
+          total: Number(entry.invoice.total || 0) * share,
+          subtotal: Number(entry.invoice.subtotal || 0) * share,
+          taxAmount: Number(entry.invoice.taxAmount || 0) * share,
+          discountAmount: Number(entry.invoice.discountAmount || 0) * share,
+        };
+      });
+
+      if (allocated.length > 1) {
+        const last = allocated[allocated.length - 1];
+        const sumBeforeLast = allocated.slice(0, -1).reduce((sum, row) => ({
+          total: sum.total + Number(row.total.toFixed(2)),
+          subtotal: sum.subtotal + Number(row.subtotal.toFixed(2)),
+          taxAmount: sum.taxAmount + Number(row.taxAmount.toFixed(2)),
+          discountAmount: sum.discountAmount + Number(row.discountAmount.toFixed(2)),
+        }), { total: 0, subtotal: 0, taxAmount: 0, discountAmount: 0 });
+        last.total = Number(entry.invoice.total || 0) - sumBeforeLast.total;
+        last.subtotal = Number(entry.invoice.subtotal || 0) - sumBeforeLast.subtotal;
+        last.taxAmount = Number(entry.invoice.taxAmount || 0) - sumBeforeLast.taxAmount;
+        last.discountAmount = Number(entry.invoice.discountAmount || 0) - sumBeforeLast.discountAmount;
+      }
+
+      for (const allocation of allocated) {
+        const segment = allocation.segment;
+        const costCenterKey = segment.costCenter.toLowerCase();
+        if (ownerGroups.length > 0 && !ownerGroups.includes(costCenterKey)) continue;
+
+        reportRows.push({
+          ...entry.invoice,
+          id: `${entry.invoice.id}:${costCenterKey}`,
+          invoiceId: entry.invoice.id,
+          costCenter: segment.costCenter,
+          costCenterLineTotal: segment.lineTotal.toFixed(2),
+          total: allocation.total.toFixed(2),
+          subtotal: allocation.subtotal.toFixed(2),
+          taxAmount: allocation.taxAmount.toFixed(2),
+          discountAmount: allocation.discountAmount.toFixed(2),
+          customerName: entry.customerName,
+          cashierName: entry.cashierName || entry.cashierUsername || entry.cashierEmail?.split("@")[0] || "System"
+        });
+      }
+    }
+
+    return reportRows.sort((a, b) => new Date(b.createdAt || b.issueDate).getTime() - new Date(a.createdAt || a.issueDate).getTime());
   }
 
 

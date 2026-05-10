@@ -51,7 +51,7 @@ import { Separator } from "@/components/ui/separator";
 const itemSchema = z.object({
     productId: z.number({ required_error: "Required" }),
     variationId: z.number().optional(),
-    quantity: z.string().transform((v) => parseFloat(v)).pipe(z.number()),
+    actualQuantity: z.string().transform((v) => parseFloat(v)).pipe(z.number().min(0)),
     type: z.enum(['ADJUSTMENT', 'SHRINKAGE', 'CORRECTION', 'DAMAGE', 'EXPIRY']),
     notes: z.string().optional(),
 });
@@ -90,8 +90,15 @@ export function BulkAdjustmentDialog({ companyId, branchId }: { companyId: numbe
             // but we can wrap them in Promise.all or just loop
             // Better to add a bulk endpoint, but for now we follow existing patterns
             for (const item of data.items) {
+                const product = trackedProducts.find((p) => p.id === item.productId);
+                const systemQuantity = Number((product as any)?.branchStock ?? product?.stockLevel ?? 0);
+                const quantity = item.actualQuantity - systemQuantity;
+                if (quantity === 0) continue;
                 await adjustMutation.mutateAsync({
-                    ...item,
+                    productId: item.productId,
+                    variationId: item.variationId,
+                    quantity,
+                    type: item.type,
                     notes: item.notes || data.globalNotes,
                     branchId
                 });
@@ -130,11 +137,31 @@ export function BulkAdjustmentDialog({ companyId, branchId }: { companyId: numbe
         }
         append({
             productId: product.id,
-            quantity: "" as any,
+            actualQuantity: "" as any,
             type: "ADJUSTMENT",
             notes: "",
         });
         setSearchTerm("");
+    };
+
+    const addProducts = (productsToAdd: Product[]) => {
+        const existing = new Set(fields.map((field) => field.productId));
+        const additions = productsToAdd.filter((product) => !existing.has(product.id));
+        additions.forEach((product) => {
+            append({
+                productId: product.id,
+                actualQuantity: "" as any,
+                type: "ADJUSTMENT",
+                notes: "",
+            });
+        });
+        if (additions.length === 0) {
+            toast({
+                title: "Nothing to add",
+                description: "All visible products are already in the list.",
+                variant: "destructive"
+            });
+        }
     };
 
     return (
@@ -169,6 +196,14 @@ export function BulkAdjustmentDialog({ companyId, branchId }: { companyId: numbe
                                 onChange={(e) => setSearchTerm(e.target.value)}
                                 className="pl-9 h-10 bg-white border-slate-200 rounded-xl text-sm focus:ring-primary/20"
                             />
+                        </div>
+                        <div className="flex items-center gap-2 mb-4">
+                            <Button type="button" variant="outline" size="sm" className="h-8 rounded-xl text-[10px] font-black" onClick={() => addProducts(filteredProducts as Product[])}>
+                                Add Visible
+                            </Button>
+                            <Button type="button" variant="ghost" size="sm" className="h-8 rounded-xl text-[10px] font-black text-slate-500" onClick={() => addProducts(trackedProducts as Product[])}>
+                                Add All
+                            </Button>
                         </div>
 
                         <ScrollArea className="flex-1 -mx-2 px-2">
@@ -209,7 +244,7 @@ export function BulkAdjustmentDialog({ companyId, branchId }: { companyId: numbe
                                 </div>
                                 <div className="bg-amber-50 text-amber-700 p-3 rounded-2xl border border-amber-100 flex gap-2 items-center text-xs font-bold ring-1 ring-amber-500/10">
                                     <AlertCircle className="w-4 h-4" />
-                                    <span>Negative quantity reduces stock</span>
+                                    <span>Enter actual counted quantity</span>
                                 </div>
                             </div>
                         </DialogHeader>
@@ -229,6 +264,10 @@ export function BulkAdjustmentDialog({ companyId, branchId }: { companyId: numbe
                                         ) : (
                                             fields.map((field, index) => {
                                                 const product = trackedProducts.find(p => p.id === field.productId);
+                                                const systemQuantity = Number((product as any)?.branchStock ?? product?.stockLevel ?? 0);
+                                                const actualQuantityValue = form.watch(`items.${index}.actualQuantity`);
+                                                const actualQuantity = Number(actualQuantityValue);
+                                                const quantityChange = String(actualQuantityValue ?? "").trim() && Number.isFinite(actualQuantity) ? actualQuantity - systemQuantity : null;
                                                 return (
                                                     <div key={field.id} className="relative bg-slate-50/50 border border-slate-100 rounded-3xl p-5 group hover:border-slate-200 transition-all">
                                                         <Button 
@@ -251,7 +290,7 @@ export function BulkAdjustmentDialog({ companyId, branchId }: { companyId: numbe
                                                             </div>
                                                             <div className="text-right">
                                                                 <p className="text-[10px] font-black text-slate-300 uppercase tracking-tighter">Current Stock</p>
-                                                                <p className="font-mono text-xs font-bold text-slate-600">{product?.branchStock || product?.stockLevel || 0}</p>
+                                                                <p className="font-mono text-xs font-bold text-slate-600">{systemQuantity}</p>
                                                             </div>
                                                         </div>
 
@@ -284,17 +323,20 @@ export function BulkAdjustmentDialog({ companyId, branchId }: { companyId: numbe
                                                             />
                                                             <FormField
                                                                 control={form.control}
-                                                                name={`items.${index}.quantity`}
+                                                                name={`items.${index}.actualQuantity`}
                                                                 render={({ field }) => (
                                                                     <FormItem>
-                                                                        <FormLabel className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Qty Change</FormLabel>
+                                                                        <FormLabel className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Actual Qty</FormLabel>
                                                                         <FormControl>
-                                                                            <Input type="number" step="0.01" {...field} className="rounded-xl h-10 bg-white border-slate-200 focus:ring-amber-500/10 font-mono font-bold" />
+                                                                            <Input type="number" min="0" step="0.01" placeholder={systemQuantity.toString()} {...field} className="rounded-xl h-10 bg-white border-slate-200 focus:ring-amber-500/10 font-mono font-bold" />
                                                                         </FormControl>
                                                                     </FormItem>
                                                                 )}
                                                             />
                                                         </div>
+                                                        <p className="mt-3 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                                                            Ledger change: <span className={quantityChange && quantityChange > 0 ? "text-emerald-600" : quantityChange && quantityChange < 0 ? "text-rose-600" : "text-slate-500"}>{quantityChange === null ? "enter actual qty" : `${quantityChange > 0 ? "+" : ""}${quantityChange.toFixed(2)}`}</span>
+                                                        </p>
                                                         <FormField
                                                             control={form.control}
                                                             name={`items.${index}.notes`}

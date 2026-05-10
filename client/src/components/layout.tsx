@@ -166,14 +166,7 @@ export function Layout({
         { icon: Building2, label: "Floor Plan", href: "/restaurant/layout" },
       ]
     },
-    {
-      icon: Bus,
-      label: "Bus Ticketing",
-      children: [
-        { icon: Bus, label: "Fleet & Routes", href: "/bus/fleet" },
-        { icon: CalendarDays, label: "Trip Scheduling", href: "/bus/trips" },
-      ]
-    },
+
     {
       icon: ShieldCheck,
       label: "Compliance",
@@ -467,14 +460,14 @@ export function Layout({
                       <Collapsible open={isOpen} onOpenChange={setIsOpen} className="space-y-1">
                         <CollapsibleTrigger asChild>
                           <div className={cn(
-                            "flex items-center w-full px-3 py-2.5 rounded-[10px] text-sm font-semibold transition-all duration-200 cursor-pointer select-none group nav-item",
+                            "flex items-center w-full px-3 py-2.5 rounded-[10px] text-[15px] font-semibold transition-all duration-200 cursor-pointer select-none group nav-item",
                             isActiveGroup
                               ? "bg-[#F8FAFC] text-[#0F172A] shadow-none"
                               : "text-[#0F172A] hover:bg-slate-50 hover:text-[#0F172A]"
                           )}>
                             <div className="flex items-center gap-3 min-w-0">
                               <item.icon className={cn("w-[18px] h-[18px] shrink-0", isActiveGroup ? "text-[#0F172A]" : "text-[#64748B] group-hover:text-[#0F172A]")} />
-                              <span className="font-display tracking-tight text-sm">{item.label}</span>
+                              <span className="font-display tracking-tight text-[15px]">{item.label}</span>
                             </div>
                             <span className="ml-auto pl-3">
                               <svg
@@ -495,7 +488,7 @@ export function Layout({
                               return (
                                 <Link key={child.label} href={child.href}>
                                   <div className={cn(
-                                    "flex items-center gap-3 px-2.5 py-2 rounded-lg text-[12.5px] font-semibold transition-all duration-150 cursor-pointer nav-sub-item",
+                                    "flex items-center gap-3 px-2.5 py-2 rounded-lg text-sm font-semibold transition-all duration-150 cursor-pointer nav-sub-item",
                                     isChildActive
                                       ? "bg-[#F8FAFC] text-[#0F172A]"
                                       : "text-[#64748B] hover:text-[#0F172A] hover:bg-slate-50/50"
@@ -533,7 +526,7 @@ export function Layout({
                   <div key={item.label}>
                     <Link href={item.href!}>
                       <div className={cn(
-                        "flex items-center gap-3 px-3 py-2.5 rounded-[10px] text-sm font-semibold transition-all duration-200 cursor-pointer select-none group nav-item",
+                        "flex items-center gap-3 px-3 py-2.5 rounded-[10px] text-[15px] font-semibold transition-all duration-200 cursor-pointer select-none group nav-item",
                         isActive
                           ? "bg-[#F8FAFC] text-[#0F172A] shadow-none"
                           : "text-[#0F172A] hover:bg-slate-50 hover:text-[#0F172A]"

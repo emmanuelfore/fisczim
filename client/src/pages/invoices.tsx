@@ -235,10 +235,10 @@ type StatCardProps = {
 
 function StatCard({ label, value, trend, trendTone = "green" }: StatCardProps) {
   return (
-    <div className="min-h-[86px] rounded-[14px] border border-[#E5E7EB] bg-white px-4 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-      <p className="text-xs font-medium text-[#64748B]">{label}</p>
-      <p className="mt-2 text-[22px] font-bold leading-none tracking-tight text-[#0F172A]">{value}</p>
-      <p className={cn("mt-2 truncate text-xs font-medium", trendTone === "red" ? "text-[#991B1B]" : "text-[#64748B]")}>{trend}</p>
+    <div className="min-h-[100px] rounded-[14px] border border-[#E5E7EB] bg-white px-5 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+      <p className="text-sm font-bold text-[#64748B]">{label}</p>
+      <p className="mt-2 text-3xl font-black leading-none tracking-tight text-[#0F172A]">{value}</p>
+      <p className={cn("mt-2 truncate text-[13px] font-semibold", trendTone === "red" ? "text-[#991B1B]" : "text-[#64748B]")}>{trend}</p>
     </div>
   );
 }

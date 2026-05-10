@@ -26,6 +26,7 @@ import { ExpensesScreen } from "./screens/ExpensesScreen";
 import { CashiersScreen } from "./screens/CashiersScreen";
 import { OnboardingScreen } from "./screens/OnboardingScreen";
 import { StockTakeScreen } from "./screens/StockTakeScreen";
+import { BusTicketingHubScreen } from "./screens/BusTicketing/BusTicketingHubScreen";
 import { AppDrawer } from "./ui/AppDrawer";
 import { BottomTabs } from "./ui/BottomTabs";
 import { Button } from "./ui/Button";
@@ -34,7 +35,11 @@ import { PrinterProvider } from "./contexts/PrinterContext";
 
 type Stage = "boot" | "login" | "signup" | "forgot-password" | "onboarding" | "company" | "main";
 
+<<<<<<< Updated upstream
 type ScreenName = "dashboard" | "pos" | "reports" | "profile" | "inventory" | "stockin" | "stockops" | "customers" | "suppliers" | "expenses" | "cashiers" | "stocktake";
+=======
+type ScreenName = "pos" | "reports" | "profile" | "inventory" | "stockin" | "customers" | "suppliers" | "expenses" | "stocktake" | "busTicketing";
+>>>>>>> Stashed changes
 
 export function AppRoot() {
   const [stage, setStage] = useState<Stage>("boot");
@@ -627,6 +632,11 @@ export function AppRoot() {
           <StockTakeScreen 
             companyId={companyId}
             onClose={() => setCurrentScreen("reports")}
+          />
+        )}
+        {currentScreen === "busTicketing" && (
+          <BusTicketingHubScreen
+            onClose={() => setCurrentScreen("pos")}
           />
         )}
 

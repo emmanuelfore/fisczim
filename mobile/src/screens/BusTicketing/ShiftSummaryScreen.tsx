@@ -1,0 +1,235 @@
+import React, { useMemo, useState } from 'react';
+import {
+  View, Text, ScrollView, TouchableOpacity, StyleSheet,
+  Alert, Share, StatusBar,
+} from 'react-native';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useBusTicketing } from '../../hooks/useBusTicketing';
+import { getDailySummary, formatAsCSV, formatAsWhatsAppText } from '../../hooks/useBusReports';
+import { ShiftRecord } from '../../types/busTicketing';
+
+const C = {
+  bg: '#07090C', surface: '#111318', border: '#1E2128',
+  amber: '#F0A500', fire: '#FF6B35', white: '#FFFFFF',
+  muted: '#9CA3AF', success: '#22C55E', danger: '#EF4444',
+};
+
+function fmtMoney(n: number) { return `$${n.toFixed(2)}`; }
+function uuid(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = Math.random() * 16 | 0;
+    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+  });
+}
+function fmtTime24(d: Date) {
+  return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
+
+interface Props { onClose: () => void; shiftStartTime?: string; }
+
+export function ShiftSummaryScreen({ onClose, shiftStartTime }: Props) {
+  const insets = useSafeAreaInsets();
+  const { tickets: allTickets, activeConductor, closeShift, getTodaysTickets } = useBusTicketing();
+
+  const today = new Date();
+  const todayTickets = getTodaysTickets();
+  const summary = useMemo(() => getDailySummary(allTickets, today), [allTickets]);
+  const [closing, setClosing] = useState(false);
+
+  async function handleCloseShift() {
+    Alert.alert('Close Shift', 'This will record the shift and cannot be undone. Continue?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Close Shift', style: 'destructive',
+        onPress: async () => {
+          setClosing(true);
+          const now = new Date();
+          const record: ShiftRecord = {
+            id: uuid(),
+            conductorId: activeConductor?.id,
+            conductorName: activeConductor?.name,
+            date: today.toISOString().slice(0, 10),
+            shiftStart: shiftStartTime ?? fmtTime24(today),
+            shiftEnd: fmtTime24(now),
+            totalTickets: summary.totalTickets,
+            totalPassengers: summary.totalPassengers,
+            totalRevenue: summary.totalRevenue,
+            closedAt: now.toISOString(),
+          };
+          await closeShift(record);
+          setClosing(false);
+          Alert.alert('Shift Closed', 'Shift has been recorded successfully.');
+          onClose();
+        },
+      },
+    ]);
+  }
+
+  async function handleShareCSV() {
+    try {
+      const csv = formatAsCSV(todayTickets);
+      await Share.share({ message: csv, title: `tickets_${today.toISOString().slice(0,10)}.csv` });
+    } catch (e: any) {
+      Alert.alert('Error', e.message);
+    }
+  }
+
+  async function handleShareWhatsApp() {
+    const text = formatAsWhatsAppText(summary, activeConductor?.name ?? 'Unknown');
+    await Share.share({ message: text });
+  }
+
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const dateLabel = `${String(today.getDate()).padStart(2,'0')} ${months[today.getMonth()]} ${today.getFullYear()}`;
+
+  return (
+    <View style={[styles.root, { paddingTop: insets.top }]}>
+      <StatusBar barStyle="light-content" backgroundColor={C.bg} />
+
+      <View style={styles.header}>
+        <TouchableOpacity onPress={onClose} style={styles.backBtn}>
+          <MaterialCommunityIcons name="arrow-left" size={22} color={C.white} />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Shift Summary</Text>
+        <View style={{ width: 40 }} />
+      </View>
+
+      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+        {/* Conductor + Date */}
+        <View style={styles.metaRow}>
+          <View style={styles.metaItem}>
+            <Text style={styles.metaLabel}>CONDUCTOR</Text>
+            <Text style={styles.metaValue}>{activeConductor?.name ?? '—'}</Text>
+          </View>
+          <View style={styles.metaItem}>
+            <Text style={styles.metaLabel}>DATE</Text>
+            <Text style={styles.metaValue}>{dateLabel}</Text>
+          </View>
+        </View>
+
+        {/* KPI cards */}
+        <View style={styles.kpiRow}>
+          <View style={styles.kpiCard}>
+            <Text style={styles.kpiValue}>{summary.totalTickets}</Text>
+            <Text style={styles.kpiLabel}>Tickets</Text>
+          </View>
+          <View style={styles.kpiCard}>
+            <Text style={styles.kpiValue}>{summary.totalPassengers}</Text>
+            <Text style={styles.kpiLabel}>Passengers</Text>
+          </View>
+          <View style={[styles.kpiCard, { borderColor: C.amber }]}>
+            <Text style={[styles.kpiValue, { color: C.amber }]}>{fmtMoney(summary.totalRevenue)}</Text>
+            <Text style={styles.kpiLabel}>Revenue</Text>
+          </View>
+        </View>
+
+        {/* Route breakdown */}
+        {summary.byRoute.length > 0 && (
+          <>
+            <Text style={styles.sectionTitle}>BY ROUTE</Text>
+            {summary.byRoute.map((rb) => (
+              <View key={rb.routeId} style={styles.tableRow}>
+                <Text style={styles.tableRouteName} numberOfLines={1}>{rb.routeName}</Text>
+                <Text style={styles.tableTickets}>{rb.ticketCount} tkts</Text>
+                <Text style={styles.tableRevenue}>{fmtMoney(rb.revenue)}</Text>
+              </View>
+            ))}
+          </>
+        )}
+
+        {/* Payment breakdown */}
+        {summary.byPaymentMethod.length > 0 && (
+          <>
+            <Text style={styles.sectionTitle}>PAYMENT METHOD</Text>
+            <View style={styles.payRow}>
+              {summary.byPaymentMethod.map((pb) => (
+                <View key={pb.method} style={styles.payCard}>
+                  <Text style={styles.payMethod}>{pb.method}</Text>
+                  <Text style={styles.payAmount}>{fmtMoney(pb.amount)}</Text>
+                  <Text style={styles.payPct}>{pb.percentage}%</Text>
+                </View>
+              ))}
+            </View>
+          </>
+        )}
+
+        {/* Share buttons */}
+        <View style={styles.shareRow}>
+          <TouchableOpacity style={styles.shareBtn} onPress={handleShareCSV}>
+            <MaterialCommunityIcons name="file-delimited-outline" size={18} color={C.amber} />
+            <Text style={styles.shareBtnText}>Export CSV</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.shareBtn} onPress={handleShareWhatsApp}>
+            <MaterialCommunityIcons name="whatsapp" size={18} color={C.success} />
+            <Text style={styles.shareBtnText}>WhatsApp</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Close shift */}
+        <TouchableOpacity
+          style={[styles.closeShiftBtn, closing && { opacity: 0.7 }]}
+          onPress={handleCloseShift}
+          disabled={closing}
+        >
+          <MaterialCommunityIcons name="flag-checkered" size={20} color={C.white} />
+          <Text style={styles.closeShiftBtnText}>{closing ? 'Closing...' : 'Close Shift'}</Text>
+        </TouchableOpacity>
+      </ScrollView>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: C.bg },
+  header: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingVertical: 14,
+    borderBottomWidth: 1, borderBottomColor: C.border,
+  },
+  backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  headerTitle: { color: C.white, fontSize: 18, fontWeight: '800' },
+  metaRow: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    backgroundColor: C.surface, borderRadius: 12, padding: 16, marginBottom: 16,
+  },
+  metaItem: { gap: 4 },
+  metaLabel: { color: C.muted, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
+  metaValue: { color: C.white, fontSize: 14, fontWeight: '700' },
+  kpiRow: { flexDirection: 'row', gap: 10, marginBottom: 20 },
+  kpiCard: {
+    flex: 1, backgroundColor: C.surface, borderRadius: 12, padding: 14,
+    alignItems: 'center', borderWidth: 1, borderColor: C.border,
+  },
+  kpiValue: { color: C.white, fontSize: 22, fontWeight: '900' },
+  kpiLabel: { color: C.muted, fontSize: 11, fontWeight: '600', marginTop: 4 },
+  sectionTitle: { color: C.muted, fontSize: 11, fontWeight: '800', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 10, marginTop: 4 },
+  tableRow: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: C.surface, borderRadius: 10, padding: 12,
+    marginBottom: 8, gap: 8,
+  },
+  tableRouteName: { flex: 1, color: C.white, fontSize: 13, fontWeight: '600' },
+  tableTickets: { color: C.muted, fontSize: 12 },
+  tableRevenue: { color: C.amber, fontSize: 13, fontWeight: '700', minWidth: 60, textAlign: 'right' },
+  payRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 },
+  payCard: {
+    backgroundColor: C.surface, borderRadius: 10, padding: 12, minWidth: 80,
+    alignItems: 'center', borderWidth: 1, borderColor: C.border,
+  },
+  payMethod: { color: C.white, fontSize: 12, fontWeight: '700' },
+  payAmount: { color: C.amber, fontSize: 14, fontWeight: '900', marginTop: 4 },
+  payPct: { color: C.muted, fontSize: 10, marginTop: 2 },
+  shareRow: { flexDirection: 'row', gap: 12, marginBottom: 20 },
+  shareBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 8, backgroundColor: C.surface, borderRadius: 12, paddingVertical: 14,
+    borderWidth: 1, borderColor: C.border,
+  },
+  shareBtnText: { color: C.white, fontWeight: '700', fontSize: 14 },
+  closeShiftBtn: {
+    backgroundColor: C.fire, borderRadius: 14, paddingVertical: 18,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
+  },
+  closeShiftBtnText: { color: C.white, fontWeight: '900', fontSize: 17 },
+});

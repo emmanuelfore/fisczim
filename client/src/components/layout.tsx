@@ -31,7 +31,10 @@ import {
   ArrowRightLeft,
   RefreshCw,
   Bell,
-  Search
+  Search,
+  Bus,
+  MapPin,
+  CalendarDays
 } from "lucide-react";
 import { useBranding } from "@/hooks/use-branding";
 import {
@@ -161,6 +164,14 @@ export function Layout({
         { icon: LayoutDashboard, label: "Live Orders", href: "/restaurant/orders" },
         { icon: MonitorCheck, label: "Kitchen Display", href: "/restaurant/kds" },
         { icon: Building2, label: "Floor Plan", href: "/restaurant/layout" },
+      ]
+    },
+    {
+      icon: Bus,
+      label: "Bus Ticketing",
+      children: [
+        { icon: Bus, label: "Fleet & Routes", href: "/bus/fleet" },
+        { icon: CalendarDays, label: "Trip Scheduling", href: "/bus/trips" },
       ]
     },
     {

@@ -29,7 +29,16 @@ import {
   type Expense,
   type Branch,
   type BranchStock,
-  type PriceAdjustment
+  type PriceAdjustment,
+  busVehicles,
+  busRoutes,
+  busTrips,
+  insertBusVehicleSchema,
+  insertBusRouteSchema,
+  insertBusTripSchema,
+  insertBusTicketSchema,
+  insertBusShiftSchema,
+  insertBusReconciliationSchema
 } from './schema.js';
 
 export const errorSchemas = {
@@ -791,6 +800,81 @@ export const api = {
             taxAmount: z.number()
           }))
         })
+      }
+    },
+
+  },
+  busTicketing: {
+    vehicles: {
+      list: {
+        method: 'GET' as const,
+        path: '/api/v1/bus-ticketing/vehicles',
+        responses: {
+          200: z.array(z.custom<typeof busVehicles.$inferSelect>()),
+        }
+      },
+      create: {
+        method: 'POST' as const,
+        path: '/api/v1/bus-ticketing/vehicles',
+        input: insertBusVehicleSchema,
+        responses: {
+          201: z.custom<typeof busVehicles.$inferSelect>(),
+        }
+      }
+    },
+    routes: {
+      list: {
+        method: 'GET' as const,
+        path: '/api/v1/bus-ticketing/routes',
+        responses: {
+          200: z.array(z.custom<typeof busRoutes.$inferSelect>()),
+        }
+      },
+      create: {
+        method: 'POST' as const,
+        path: '/api/v1/bus-ticketing/routes',
+        input: insertBusRouteSchema,
+        responses: {
+          201: z.custom<typeof busRoutes.$inferSelect>(),
+        }
+      }
+    },
+    trips: {
+      list: {
+        method: 'GET' as const,
+        path: '/api/v1/bus-ticketing/trips',
+        responses: {
+          200: z.array(z.custom<typeof busTrips.$inferSelect>()),
+        }
+      },
+      active: {
+        method: 'GET' as const,
+        path: '/api/v1/bus-ticketing/trips/active',
+        responses: {
+          200: z.array(z.custom<typeof busTrips.$inferSelect>()),
+        }
+      },
+      create: {
+        method: 'POST' as const,
+        path: '/api/v1/bus-ticketing/trips',
+        input: insertBusTripSchema,
+        responses: {
+          201: z.custom<typeof busTrips.$inferSelect>(),
+        }
+      }
+    },
+    sync: {
+      upload: {
+        method: 'POST' as const,
+        path: '/api/v1/bus-ticketing/sync',
+        input: z.object({
+          tickets: z.array(insertBusTicketSchema),
+          shifts: z.array(insertBusShiftSchema),
+          reconciliations: z.array(insertBusReconciliationSchema)
+        }),
+        responses: {
+          200: z.object({ success: z.boolean(), synced: z.object({ tickets: z.number(), shifts: z.number(), reconciliations: z.number() }) }),
+        }
       }
     }
   }

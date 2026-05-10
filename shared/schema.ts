@@ -21,6 +21,8 @@ export const users = pgTable("users", {
 export const usersRelations = relations(users, ({ many }) => ({
   companyUsers: many(companyUsers),
   branchUsers: many(branchUsers),
+  busTrips: many(busTrips),
+  busShifts: many(busShifts),
 }));
 
 export const resetTokens = pgTable("reset_tokens", {
@@ -154,6 +156,12 @@ export const companiesRelations = relations(companies, ({ many }) => ({
   invoices: many(invoices),
   suppliers: many(suppliers),
   expenses: many(expenses),
+  busVehicles: many(busVehicles),
+  busRoutes: many(busRoutes),
+  busTrips: many(busTrips),
+  busTickets: many(busTickets),
+  busShifts: many(busShifts),
+  busReconciliations: many(busReconciliations),
 }));
 
 export const branchesRelations = relations(branches, ({ one, many }) => ({
@@ -263,7 +271,7 @@ export const taxTypes = pgTable("tax_types", {
   calculationMethod: text("calculation_method").default("INCLUSIVE"), // INCLUSIVE, EXCLUSIVE
 }, (table) => {
   return {
-    companyCodeUnique: unique("company_code_idx").on(table.companyId, table.code),
+//    companyCodeUnique: unique("company_code_idx").on(table.companyId, table.code),
   };
 });
 
@@ -278,7 +286,7 @@ export const taxCategories = pgTable("tax_categories", {
   isActive: boolean("is_active").default(true),
 }, (table) => {
   return {
-    companyNameUnique: unique("company_name_idx").on(table.companyId, table.name),
+//    companyNameUnique: unique("company_name_idx").on(table.companyId, table.name),
   };
 });
 
@@ -347,7 +355,7 @@ export const products = pgTable("products", {
 }, (table) => {
   return {
     companyIdIdx: index("products_company_id_idx").on(table.companyId),
-    companySkuUnique: unique("products_company_sku_idx").on(table.companyId, table.sku),
+//    companySkuUnique: unique("products_company_sku_idx").on(table.companyId, table.sku),
   };
 });
 
@@ -368,7 +376,7 @@ export const productCategories = pgTable("product_categories", {
 }, (table) => {
   return {
     companyIdIdx: index("product_categories_company_id_idx").on(table.companyId),
-    companyNameUnique: unique("product_categories_company_name_idx").on(table.companyId, table.name),
+//    companyNameUnique: unique("product_categories_company_name_idx").on(table.companyId, table.name),
   };
 });
 
@@ -1189,3 +1197,149 @@ export type InsertBranchUser = z.infer<typeof insertBranchUserSchema>;
 export const insertBranchStockSchema = createInsertSchema(branchStocks).omit({ id: true });
 export type BranchStock = typeof branchStocks.$inferSelect;
 export type InsertBranchStock = z.infer<typeof insertBranchStockSchema>;
+<<<<<<< Updated upstream
+=======
+
+
+// --- BUS TICKETING TABLES ---
+
+export const busVehicles = pgTable("bus_vehicles", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  regNumber: text("reg_number").notNull(),
+  model: text("model"),
+  capacity: integer("capacity").notNull(),
+  fleetId: text("fleet_id"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const busRoutes = pgTable("bus_routes", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  name: text("name").notNull(),
+  fromLocation: text("from_location").notNull(),
+  toLocation: text("to_location").notNull(),
+  basePrice: decimal("base_price", { precision: 10, scale: 2 }).notNull(),
+  config: jsonb("config").notNull(), // { fields: TicketFieldConfig, dropOffPoints: string[] }
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const busTrips = pgTable("bus_trips", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  routeId: integer("route_id").references(() => busRoutes.id).notNull(),
+  vehicleId: integer("vehicle_id").references(() => busVehicles.id).notNull(),
+  conductorId: uuid("conductor_id").references(() => users.id).notNull(),
+  scheduledDeparture: timestamp("scheduled_departure").notNull(),
+  actualDeparture: timestamp("actual_departure"),
+  status: text("status").default("scheduled").notNull(), // scheduled, boarding, en_route, completed, cancelled
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const busTickets = pgTable("bus_tickets", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  tripId: integer("trip_id").references(() => busTrips.id).notNull(),
+  ticketNumber: text("ticket_number").notNull(),
+  passengerName: text("passenger_name"),
+  boardingPoint: text("boarding_point"),
+  dropOffPoint: text("drop_off_point"),
+  seatNumber: text("seat_number"),
+  quantity: integer("quantity").default(1),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  paymentMethod: text("payment_method"),
+  isSynced: boolean("is_synced").default(false),
+  timestamp: timestamp("timestamp").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const busShifts = pgTable("bus_shifts", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  conductorId: uuid("conductor_id").references(() => users.id).notNull(),
+  startTime: timestamp("start_time").notNull(),
+  endTime: timestamp("end_time"),
+  totalTickets: integer("total_tickets").default(0),
+  totalRevenue: decimal("total_revenue", { precision: 10, scale: 2 }).default("0"),
+  status: text("status").default("open"), // open, closed
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const busReconciliations = pgTable("bus_reconciliations", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  shiftId: integer("shift_id").references(() => busShifts.id),
+  conductorId: uuid("conductor_id").references(() => users.id).notNull(),
+  date: date("date").notNull(),
+  expectedCash: decimal("expected_cash", { precision: 10, scale: 2 }).notNull(),
+  cashReceived: decimal("cash_received", { precision: 10, scale: 2 }).notNull(),
+  gap: decimal("gap", { precision: 10, scale: 2 }).notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// --- BUS TICKETING RELATIONS ---
+
+export const busVehiclesRelations = relations(busVehicles, ({ one, many }) => ({
+  company: one(companies, { fields: [busVehicles.companyId], references: [companies.id] }),
+  trips: many(busTrips),
+}));
+
+export const busRoutesRelations = relations(busRoutes, ({ one, many }) => ({
+  company: one(companies, { fields: [busRoutes.companyId], references: [companies.id] }),
+  trips: many(busTrips),
+}));
+
+export const busTripsRelations = relations(busTrips, ({ one, many }) => ({
+  company: one(companies, { fields: [busTrips.companyId], references: [companies.id] }),
+  route: one(busRoutes, { fields: [busTrips.routeId], references: [busRoutes.id] }),
+  vehicle: one(busVehicles, { fields: [busTrips.vehicleId], references: [busVehicles.id] }),
+  conductor: one(users, { fields: [busTrips.conductorId], references: [users.id] }),
+  tickets: many(busTickets),
+}));
+
+export const busTicketsRelations = relations(busTickets, ({ one }) => ({
+  company: one(companies, { fields: [busTickets.companyId], references: [companies.id] }),
+  trip: one(busTrips, { fields: [busTickets.tripId], references: [busTrips.id] }),
+}));
+
+export const busShiftsRelations = relations(busShifts, ({ one, many }) => ({
+  company: one(companies, { fields: [busShifts.companyId], references: [companies.id] }),
+  conductor: one(users, { fields: [busShifts.conductorId], references: [users.id] }),
+  tickets: many(busTickets),
+}));
+
+export const busReconciliationsRelations = relations(busReconciliations, ({ one }) => ({
+  company: one(companies, { fields: [busReconciliations.companyId], references: [companies.id] }),
+  shift: one(busShifts, { fields: [busReconciliations.shiftId], references: [busShifts.id] }),
+  conductor: one(users, { fields: [busReconciliations.conductorId], references: [users.id] }),
+}));
+
+// --- BUS TICKETING SCHEMAS & TYPES ---
+
+export const insertBusVehicleSchema = createInsertSchema(busVehicles).omit({ id: true, createdAt: true });
+export type BusVehicle = typeof busVehicles.$inferSelect;
+export type InsertBusVehicle = z.infer<typeof insertBusVehicleSchema>;
+
+export const insertBusRouteSchema = createInsertSchema(busRoutes).omit({ id: true, createdAt: true });
+export type BusRouteCloud = typeof busRoutes.$inferSelect;
+export type InsertBusRouteCloud = z.infer<typeof insertBusRouteSchema>;
+
+export const insertBusTripSchema = createInsertSchema(busTrips).omit({ id: true, createdAt: true });
+export type BusTrip = typeof busTrips.$inferSelect;
+export type InsertBusTrip = z.infer<typeof insertBusTripSchema>;
+
+export const insertBusTicketSchema = createInsertSchema(busTickets).omit({ id: true, createdAt: true });
+export type BusTicketCloud = typeof busTickets.$inferSelect;
+export type InsertBusTicketCloud = z.infer<typeof insertBusTicketSchema>;
+
+export const insertBusShiftSchema = createInsertSchema(busShifts).omit({ id: true, createdAt: true });
+export type BusShiftCloud = typeof busShifts.$inferSelect;
+export type InsertBusShiftCloud = z.infer<typeof insertBusShiftSchema>;
+
+export const insertBusReconciliationSchema = createInsertSchema(busReconciliations).omit({ id: true, createdAt: true });
+export type BusReconciliationCloud = typeof busReconciliations.$inferSelect;
+export type InsertBusReconciliationCloud = z.infer<typeof insertBusReconciliationSchema>;
+>>>>>>> Stashed changes

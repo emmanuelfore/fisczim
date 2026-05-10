@@ -57,21 +57,20 @@ import PaymentsReceivedPage from "@/pages/payments-received";
 import PaymentPreviewPage from "@/pages/payment-preview";
 import CustomerStatementsPage from "@/pages/customer-statements";
 import CashCollectionReportPage from "@/pages/cash-collection-report-page";
+import BusFleetPage from "@/pages/bus-fleet";
+import BusTripsPage from "@/pages/bus-trips";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
 import { useCompanies } from "@/hooks/use-companies";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { Loader2 } from "lucide-react";
+import { insertBusRouteSchema, type BusRouteCloud } from "@shared/schema";
 import { useEffect, useRef, useState } from "react";
 import { PwaInstallPrompt } from "@/components/pwa-install-prompt";
 import { getPwaLaunchRedirect } from "@/hooks/use-pwa-install";
 import { useIsOnline } from "@/hooks/use-is-online";
 import { useBranding } from "@/hooks/use-branding";
 import { ThemeManager } from "@/components/theme-manager";
-
-// Prevents loading states from spinning forever.
-// Returns true while `loading` is true, but automatically
-// resolves to false after `maxMs` milliseconds regardless.
 function useBoundedLoading(loading: boolean, maxMs = 5000): boolean {
   const [timedOut, setTimedOut] = useState(false);
 
@@ -204,6 +203,7 @@ function Router() {
       <Route path="/inventory/stock-take">{() => <ProtectedRoute component={StockTakePage} />}</Route>
       <Route path="/inventory/account">{() => <ProtectedRoute component={InventoryAccountPage} />}</Route>
       <Route path="/inventory/grvs/:id">{() => <ProtectedRoute component={GrvDetailsPage} />}</Route>
+<<<<<<< Updated upstream
       <Route path="/reports/inventory">{() => <ProtectedRoute component={InventoryReportsPage} />}</Route>
       <Route path="/reports/financial">{() => <ProtectedRoute component={FinancialReportsPage} />}</Route>
       <Route path="/reports/daily">{() => <ProtectedRoute component={DailySalesLedgerPage} />}</Route>
@@ -219,6 +219,23 @@ function Router() {
       <Route path="/reports">{() => <ProtectedRoute component={ReportsPage} />}</Route>
       <Route path="/payments-received/:id?">{() => <ProtectedRoute component={PaymentsReceivedPage} />}</Route>
       <Route path="/payments/:id/preview">{() => <ProtectedRoute component={PaymentPreviewPage} />}</Route>
+=======
+      <Route path="/reports/inventory">{() => <ProtectedRoute component={InventoryReportsPage} />}</Route>
+      <Route path="/reports/financial">{() => <ProtectedRoute component={FinancialReportsPage} />}</Route>
+      <Route path="/reports/daily">{() => <ProtectedRoute component={DailySalesLedgerPage} />}</Route>
+      <Route path="/products">{() => <ProtectedRoute component={ProductsPage} />}</Route>
+      <Route path="/services">{() => <ProtectedRoute component={ServicesPage} />}</Route>
+      <Route path="/tax-config">{() => <ProtectedRoute component={TaxConfigPage} />}</Route>
+      <Route path="/settings">{() => <ProtectedRoute component={SettingsPage} />}</Route>
+      <Route path="/currencies">{() => <ProtectedRoute component={CurrencySettingsPage} />}</Route>
+      <Route path="/team-settings">{() => <ProtectedRoute component={TeamSettingsPage} />}</Route>
+      <Route path="/reports/pos">{() => <ProtectedRoute component={PosReportsPage} />}</Route>
+      <Route path="/reports/tax">{() => <ProtectedRoute component={TaxReportsPage} />}</Route>
+      <Route path="/reports-module">{() => <ProtectedRoute component={ReportsPage} />}</Route>
+      <Route path="/reports">{() => <ProtectedRoute component={ReportsPage} />}</Route>
+      <Route path="/payments-received/:id?">{() => <ProtectedRoute component={PaymentsReceivedPage} />}</Route>
+      <Route path="/payments/:id/preview">{() => <ProtectedRoute component={PaymentPreviewPage} />}</Route>
+>>>>>>> Stashed changes
       <Route path="/reports/customer-statements">{() => <ProtectedRoute component={CustomerStatementsPage} />}</Route>
       <Route path="/reports/cash-collection">{() => <ProtectedRoute component={CashCollectionReportPage} />}</Route>
       <Route path="/profile">{() => <ProtectedRoute component={UserProfilePage} />}</Route>
@@ -236,6 +253,8 @@ function Router() {
       <Route path="/pos/all-sales">{() => <ProtectedRoute component={RecentSalesPage} />}</Route>
       <Route path="/pos">{() => <ProtectedRoute component={POSPage} />}</Route>
       <Route path="/pos-settings">{() => <Redirect to="/settings?tab=pos" />}</Route>
+      <Route path="/bus/fleet">{() => <ProtectedRoute component={BusFleetPage} />}</Route>
+      <Route path="/bus/trips">{() => <ProtectedRoute component={BusTripsPage} />}</Route>
       <Route path="/restaurant/kds">{() => <ProtectedRoute component={KDSPage} />}</Route>
       <Route path="/restaurant/orders">{() => <ProtectedRoute component={LiveOrdersPage} />}</Route>
       <Route path="/order-status" component={OrderStatusPage} />

@@ -26,12 +26,17 @@ import {
   AlertTriangle,
   UserCog,
 } from "lucide-react-native";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { apiFetch } from "../lib/api";
 
 import { useTheme, hexAlpha } from "./PremiumColors";
 
+<<<<<<< Updated upstream
 type ScreenName = "dashboard" | "pos" | "reports" | "profile" | "inventory" | "stockin" | "stockops" | "customers" | "suppliers" | "expenses" | "cashiers" | "stocktake";
+=======
+type ScreenName = "pos" | "reports" | "profile" | "inventory" | "stockin" | "customers" | "suppliers" | "expenses" | "stocktake" | "busTicketing";
+>>>>>>> Stashed changes
 
 interface AppDrawerProps {
   visible: boolean;
@@ -63,9 +68,14 @@ export function AppDrawer({
       .catch(() => setIsOnline(false));
   }, [visible]);
 
+<<<<<<< Updated upstream
   const allMenuItems: { icon: any; label: string; id: ScreenName }[] = [
     { icon: LayoutDashboard, label: "Dashboard", id: "dashboard" },
     { icon: Receipt, label: "Sales", id: "pos" },
+=======
+  const allMenuItems: { icon: any; label: string; id: ScreenName; isMCI?: boolean }[] = [
+    { icon: LayoutDashboard, label: "POS", id: "pos" },
+>>>>>>> Stashed changes
     { icon: PieChart, label: "Reports", id: "reports" },
     { icon: Package, label: "Products", id: "inventory" },
     { icon: ArrowDownToLine, label: "Stock / GRVs", id: "stockin" },
@@ -76,6 +86,7 @@ export function AppDrawer({
     { icon: Receipt, label: "Expenses", id: "expenses" },
     { icon: Users, label: "Customers", id: "customers" },
     { icon: User, label: "Profile", id: "profile" },
+    { icon: "bus", label: "Bus Ticketing", id: "busTicketing", isMCI: true },
   ];
 
   const menuItems = allMenuItems.filter(item => {
@@ -85,13 +96,21 @@ export function AppDrawer({
 
     // Cashiers/Members are restricted
     if (role === "cashier" || role === "member") {
+<<<<<<< Updated upstream
       const allowed = ["dashboard", "pos", "customers", "profile", "reports"];
+=======
+      const allowed = ["pos", "customers", "profile", "reports", "busTicketing"];
+>>>>>>> Stashed changes
       return allowed.includes(item.id);
     }
 
     // Accountants see reports and expenses but maybe not POS?
     if (role === "accountant") {
+<<<<<<< Updated upstream
       const allowed = ["dashboard", "reports", "inventory", "stockin", "stockops", "suppliers", "expenses", "profile"];
+=======
+      const allowed = ["reports", "inventory", "stockin", "suppliers", "expenses", "profile", "busTicketing"];
+>>>>>>> Stashed changes
       return allowed.includes(item.id);
     }
 
@@ -140,10 +159,18 @@ export function AppDrawer({
                       ]}
                     >
                       <View style={styles.menuItemLeft}>
-                        <Icon
-                          size={20}
-                          color={isActive ? C.amber.primary : C.text.secondary}
-                        />
+                        {item.isMCI ? (
+                          <MaterialCommunityIcons
+                            name={item.icon as any}
+                            size={20}
+                            color={isActive ? C.amber.primary : C.text.secondary}
+                          />
+                        ) : (
+                          <Icon
+                            size={20}
+                            color={isActive ? C.amber.primary : C.text.secondary}
+                          />
+                        )}
                         <Text
                           style={[
                             styles.menuLabel,

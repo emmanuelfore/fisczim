@@ -6,6 +6,7 @@ import customersRouter from "./customers.js";
 import productsRouter from "./products.js";
 import fiscalRouter from "./fiscal.js";
 import webhooksRouter from "./webhooks.js";
+import busTicketingRouter from "./bus-ticketing.js";
 
 const v1Router = Router();
 
@@ -19,5 +20,6 @@ v1Router.use("/invoices", invoicesRouter);
 v1Router.use("/customers", customersRouter);
 v1Router.use("/products", productsRouter);
 v1Router.use("/fiscal", fiscalRouter);
+v1Router.use("/bus-ticketing", busTicketingRouter);
 
 export default v1Router;

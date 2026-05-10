@@ -25,6 +25,7 @@ import { processInvoiceFiscalization, getZimraLogger } from "./lib/fiscalization
 import sageWebhookRouter from "./lib/sage-webhook.js";
 import sageOAuthRouter from "./lib/sage-oauth.js";
 import v1Router from "./api/v1/index.js";
+import busTicketingRouter from "./api/v1/bus-ticketing.js";
 import { db } from "./db";
 import { eq, and, gte, lte, ne, desc, asc, sql, or, ilike, isNull } from "drizzle-orm";
 import { format } from "date-fns";
@@ -7807,6 +7808,9 @@ export async function registerRoutes(
 
   // Sage OAuth 2.0 (connect / callback / status / disconnect)
   app.use("/api/sage/oauth", sageOAuthRouter);
+
+  // Bus Ticketing direct web-admin access
+  app.use("/api/companies/:companyId/bus-ticketing", requireAuth, busTicketingRouter);
 
   app.use('/api/v1', v1Router);
 

@@ -32,11 +32,7 @@ import { apiFetch } from "../lib/api";
 
 import { useTheme, hexAlpha } from "./PremiumColors";
 
-<<<<<<< Updated upstream
-type ScreenName = "dashboard" | "pos" | "reports" | "profile" | "inventory" | "stockin" | "stockops" | "customers" | "suppliers" | "expenses" | "cashiers" | "stocktake";
-=======
-type ScreenName = "pos" | "reports" | "profile" | "inventory" | "stockin" | "customers" | "suppliers" | "expenses" | "stocktake" | "busTicketing";
->>>>>>> Stashed changes
+type ScreenName = "dashboard" | "pos" | "reports" | "profile" | "inventory" | "stockin" | "stockops" | "customers" | "suppliers" | "expenses" | "cashiers" | "stocktake" | "busTicketing";
 
 interface AppDrawerProps {
   visible: boolean;
@@ -68,14 +64,9 @@ export function AppDrawer({
       .catch(() => setIsOnline(false));
   }, [visible]);
 
-<<<<<<< Updated upstream
-  const allMenuItems: { icon: any; label: string; id: ScreenName }[] = [
+  const allMenuItems: { icon: any; label: string; id: ScreenName; isMCI?: boolean }[] = [
     { icon: LayoutDashboard, label: "Dashboard", id: "dashboard" },
     { icon: Receipt, label: "Sales", id: "pos" },
-=======
-  const allMenuItems: { icon: any; label: string; id: ScreenName; isMCI?: boolean }[] = [
-    { icon: LayoutDashboard, label: "POS", id: "pos" },
->>>>>>> Stashed changes
     { icon: PieChart, label: "Reports", id: "reports" },
     { icon: Package, label: "Products", id: "inventory" },
     { icon: ArrowDownToLine, label: "Stock / GRVs", id: "stockin" },
@@ -96,21 +87,13 @@ export function AppDrawer({
 
     // Cashiers/Members are restricted
     if (role === "cashier" || role === "member") {
-<<<<<<< Updated upstream
-      const allowed = ["dashboard", "pos", "customers", "profile", "reports"];
-=======
-      const allowed = ["pos", "customers", "profile", "reports", "busTicketing"];
->>>>>>> Stashed changes
+      const allowed = ["dashboard", "pos", "customers", "profile", "reports", "busTicketing"];
       return allowed.includes(item.id);
     }
 
     // Accountants see reports and expenses but maybe not POS?
     if (role === "accountant") {
-<<<<<<< Updated upstream
-      const allowed = ["dashboard", "reports", "inventory", "stockin", "stockops", "suppliers", "expenses", "profile"];
-=======
-      const allowed = ["reports", "inventory", "stockin", "suppliers", "expenses", "profile", "busTicketing"];
->>>>>>> Stashed changes
+      const allowed = ["dashboard", "reports", "inventory", "stockin", "stockops", "suppliers", "expenses", "profile", "busTicketing"];
       return allowed.includes(item.id);
     }
 

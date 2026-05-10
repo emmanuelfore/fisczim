@@ -1197,8 +1197,7 @@ export type InsertBranchUser = z.infer<typeof insertBranchUserSchema>;
 export const insertBranchStockSchema = createInsertSchema(branchStocks).omit({ id: true });
 export type BranchStock = typeof branchStocks.$inferSelect;
 export type InsertBranchStock = z.infer<typeof insertBranchStockSchema>;
-<<<<<<< Updated upstream
-=======
+
 
 
 // --- BUS TICKETING TABLES ---
@@ -1342,4 +1341,4 @@ export type InsertBusShiftCloud = z.infer<typeof insertBusShiftSchema>;
 export const insertBusReconciliationSchema = createInsertSchema(busReconciliations).omit({ id: true, createdAt: true });
 export type BusReconciliationCloud = typeof busReconciliations.$inferSelect;
 export type InsertBusReconciliationCloud = z.infer<typeof insertBusReconciliationSchema>;
->>>>>>> Stashed changes
+

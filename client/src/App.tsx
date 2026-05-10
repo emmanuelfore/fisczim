@@ -203,7 +203,6 @@ function Router() {
       <Route path="/inventory/stock-take">{() => <ProtectedRoute component={StockTakePage} />}</Route>
       <Route path="/inventory/account">{() => <ProtectedRoute component={InventoryAccountPage} />}</Route>
       <Route path="/inventory/grvs/:id">{() => <ProtectedRoute component={GrvDetailsPage} />}</Route>
-<<<<<<< Updated upstream
       <Route path="/reports/inventory">{() => <ProtectedRoute component={InventoryReportsPage} />}</Route>
       <Route path="/reports/financial">{() => <ProtectedRoute component={FinancialReportsPage} />}</Route>
       <Route path="/reports/daily">{() => <ProtectedRoute component={DailySalesLedgerPage} />}</Route>
@@ -219,23 +218,6 @@ function Router() {
       <Route path="/reports">{() => <ProtectedRoute component={ReportsPage} />}</Route>
       <Route path="/payments-received/:id?">{() => <ProtectedRoute component={PaymentsReceivedPage} />}</Route>
       <Route path="/payments/:id/preview">{() => <ProtectedRoute component={PaymentPreviewPage} />}</Route>
-=======
-      <Route path="/reports/inventory">{() => <ProtectedRoute component={InventoryReportsPage} />}</Route>
-      <Route path="/reports/financial">{() => <ProtectedRoute component={FinancialReportsPage} />}</Route>
-      <Route path="/reports/daily">{() => <ProtectedRoute component={DailySalesLedgerPage} />}</Route>
-      <Route path="/products">{() => <ProtectedRoute component={ProductsPage} />}</Route>
-      <Route path="/services">{() => <ProtectedRoute component={ServicesPage} />}</Route>
-      <Route path="/tax-config">{() => <ProtectedRoute component={TaxConfigPage} />}</Route>
-      <Route path="/settings">{() => <ProtectedRoute component={SettingsPage} />}</Route>
-      <Route path="/currencies">{() => <ProtectedRoute component={CurrencySettingsPage} />}</Route>
-      <Route path="/team-settings">{() => <ProtectedRoute component={TeamSettingsPage} />}</Route>
-      <Route path="/reports/pos">{() => <ProtectedRoute component={PosReportsPage} />}</Route>
-      <Route path="/reports/tax">{() => <ProtectedRoute component={TaxReportsPage} />}</Route>
-      <Route path="/reports-module">{() => <ProtectedRoute component={ReportsPage} />}</Route>
-      <Route path="/reports">{() => <ProtectedRoute component={ReportsPage} />}</Route>
-      <Route path="/payments-received/:id?">{() => <ProtectedRoute component={PaymentsReceivedPage} />}</Route>
-      <Route path="/payments/:id/preview">{() => <ProtectedRoute component={PaymentPreviewPage} />}</Route>
->>>>>>> Stashed changes
       <Route path="/reports/customer-statements">{() => <ProtectedRoute component={CustomerStatementsPage} />}</Route>
       <Route path="/reports/cash-collection">{() => <ProtectedRoute component={CashCollectionReportPage} />}</Route>
       <Route path="/profile">{() => <ProtectedRoute component={UserProfilePage} />}</Route>

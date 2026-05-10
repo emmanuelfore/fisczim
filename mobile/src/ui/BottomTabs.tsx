@@ -18,11 +18,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 
 import { useTheme, hexAlpha } from "./PremiumColors";
 
-<<<<<<< Updated upstream
-type ScreenName = "dashboard" | "pos" | "reports" | "profile" | "inventory" | "stockin" | "stockops" | "customers" | "suppliers" | "expenses" | "cashiers" | "stocktake";
-=======
-type ScreenName = "pos" | "reports" | "profile" | "inventory" | "stockin" | "customers" | "suppliers" | "expenses" | "stocktake" | "busTicketing";
->>>>>>> Stashed changes
+type ScreenName = "dashboard" | "pos" | "reports" | "profile" | "inventory" | "stockin" | "stockops" | "customers" | "suppliers" | "expenses" | "cashiers" | "stocktake" | "busTicketing";
 
 interface BottomTabsProps {
   currentScreen: ScreenName;
@@ -43,16 +39,10 @@ export function BottomTabs({
   const { theme: C, isDark } = useTheme();
   const styles = getStyles(C);
   
-<<<<<<< Updated upstream
-  const allTabs: { icon: any; label: string; id: ScreenName | "menu" }[] = [
+  const allTabs: { icon: any; label: string; id: ScreenName | "menu"; isMCI?: boolean }[] = [
     { icon: LayoutDashboard, label: "Home", id: "dashboard" },
     { icon: Receipt, label: "Sales", id: "pos" },
     { icon: Package, label: "Products", id: "inventory" },
-=======
-  const allTabs: { icon: any; label: string; id: ScreenName | "menu"; isMCI?: boolean }[] = [
-    { icon: LayoutDashboard, label: "POS", id: "pos" },
-    { icon: Package, label: "Inventory", id: "inventory" },
->>>>>>> Stashed changes
     { icon: Receipt, label: "Expenses", id: "expenses" },
     { icon: PieChart, label: "Reports", id: "reports" },
     { icon: "bus", label: "Bus", id: "busTicketing", isMCI: true },

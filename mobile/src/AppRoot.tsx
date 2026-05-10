@@ -35,11 +35,7 @@ import { PrinterProvider } from "./contexts/PrinterContext";
 
 type Stage = "boot" | "login" | "signup" | "forgot-password" | "onboarding" | "company" | "main";
 
-<<<<<<< Updated upstream
-type ScreenName = "dashboard" | "pos" | "reports" | "profile" | "inventory" | "stockin" | "stockops" | "customers" | "suppliers" | "expenses" | "cashiers" | "stocktake";
-=======
-type ScreenName = "pos" | "reports" | "profile" | "inventory" | "stockin" | "customers" | "suppliers" | "expenses" | "stocktake" | "busTicketing";
->>>>>>> Stashed changes
+type ScreenName = "dashboard" | "pos" | "reports" | "profile" | "inventory" | "stockin" | "stockops" | "customers" | "suppliers" | "expenses" | "cashiers" | "stocktake" | "busTicketing";
 
 export function AppRoot() {
   const [stage, setStage] = useState<Stage>("boot");

@@ -174,12 +174,6 @@ export default function Dashboard() {
         <div className="-mt-1 space-y-4">
           <section className="mt-0 mb-0 flex justify-end">
             <div className="flex flex-wrap justify-end gap-2">
-              <Link href="/reports/cash-collection">
-                <Button variant="outline" className="h-10 rounded-[10px] border-[#E5E7EB] text-[#334155] font-semibold text-sm">
-                  <Banknote className="w-4 h-4 mr-2" />
-                  Collect Cash
-                </Button>
-              </Link>
               <Link href="/invoices/new">
                 <Button className="h-10 w-[148px] rounded-[10px] bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-semibold text-sm">
                   Create Invoice
@@ -190,52 +184,52 @@ export default function Dashboard() {
 
           <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
             <div className="rounded-[14px] border border-[#E5E7EB] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-shadow hover:shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
-            <div className="flex items-start justify-between">
-              <p className="text-sm font-semibold text-[#64748B]">Total Sales</p>
-              <div className="flex items-center gap-2">
-                <svg width="56" height="20" viewBox="0 0 56 20" fill="none" aria-hidden="true">
-                  <path d="M1 14L10 10L19 12L28 7L37 9L46 4L55 6" stroke="#F59E0B" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-                <div className="h-9 w-9 rounded-[10px] bg-[#EFF6FF] border border-[#DBEAFE] flex items-center justify-center text-[#1D4ED8] text-sm font-extrabold">$</div>
+              <div className="flex items-start justify-between">
+                <p className="text-sm font-semibold text-[#64748B]">Total Sales</p>
+                <div className="flex items-center gap-2">
+                  <svg width="56" height="20" viewBox="0 0 56 20" fill="none" aria-hidden="true">
+                    <path d="M1 14L10 10L19 12L28 7L37 9L46 4L55 6" stroke="#F59E0B" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  <div className="h-9 w-9 rounded-[10px] bg-[#EFF6FF] border border-[#DBEAFE] flex items-center justify-center text-[#1D4ED8] text-sm font-extrabold">$</div>
+                </div>
               </div>
+              <p className="mt-3 text-[26px] leading-none font-bold tracking-[-0.015em] text-[#0F172A]">{currency(totalSales)}</p>
+              <p className="mt-3 text-sm text-[#16A34A] font-semibold inline-flex items-center gap-1"><ArrowUp className="w-3 h-3" /> 18.7% vs last week</p>
             </div>
-            <p className="mt-3 text-[26px] leading-none font-bold tracking-[-0.015em] text-[#0F172A]">{currency(totalSales)}</p>
-            <p className="mt-3 text-sm text-[#16A34A] font-semibold inline-flex items-center gap-1"><ArrowUp className="w-3 h-3" /> 18.7% vs last week</p>
-          </div>
 
             <div className="rounded-[14px] border border-[#E5E7EB] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-shadow hover:shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
-            <div className="flex items-start justify-between">
-              <p className="text-sm font-semibold text-[#64748B]">Invoices Issued</p>
-              <div className="flex items-center gap-2">
-                <svg width="56" height="20" viewBox="0 0 56 20" fill="none" aria-hidden="true">
-                  <path d="M1 13L10 11L19 8L28 10L37 7L46 5L55 3" stroke="#F59E0B" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-                <div className="h-9 w-9 rounded-[10px] bg-[#EFF6FF] border border-[#DBEAFE] flex items-center justify-center text-[#1D4ED8] text-sm font-extrabold">#</div>
+              <div className="flex items-start justify-between">
+                <p className="text-sm font-semibold text-[#64748B]">Invoices Issued</p>
+                <div className="flex items-center gap-2">
+                  <svg width="56" height="20" viewBox="0 0 56 20" fill="none" aria-hidden="true">
+                    <path d="M1 13L10 11L19 8L28 10L37 7L46 5L55 3" stroke="#F59E0B" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  <div className="h-9 w-9 rounded-[10px] bg-[#EFF6FF] border border-[#DBEAFE] flex items-center justify-center text-[#1D4ED8] text-sm font-extrabold">#</div>
+                </div>
               </div>
+              <p className="mt-3 text-[26px] leading-none font-bold tracking-[-0.015em] text-[#0F172A]">{invoicesTotal.toLocaleString()}</p>
+              <p className="mt-3 text-sm text-[#16A34A] font-semibold inline-flex items-center gap-1"><ArrowUp className="w-3 h-3" /> 15.3% vs last week</p>
             </div>
-            <p className="mt-3 text-[26px] leading-none font-bold tracking-[-0.015em] text-[#0F172A]">{invoicesTotal.toLocaleString()}</p>
-            <p className="mt-3 text-sm text-[#16A34A] font-semibold inline-flex items-center gap-1"><ArrowUp className="w-3 h-3" /> 15.3% vs last week</p>
-          </div>
 
             <div className="rounded-[14px] border border-[#E5E7EB] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-shadow hover:shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
-            <div className="flex items-start justify-between">
-              <p className="text-sm font-semibold text-[#64748B]">VAT Collected</p>
-              <div className="h-9 w-9 rounded-[10px] bg-[#EFF6FF] border border-[#DBEAFE] flex items-center justify-center text-[#1D4ED8] text-sm font-extrabold">%</div>
+              <div className="flex items-start justify-between">
+                <p className="text-sm font-semibold text-[#64748B]">VAT Collected</p>
+                <div className="h-9 w-9 rounded-[10px] bg-[#EFF6FF] border border-[#DBEAFE] flex items-center justify-center text-[#1D4ED8] text-sm font-extrabold">%</div>
+              </div>
+              <p className="mt-3 text-[26px] leading-none font-bold tracking-[-0.015em] text-[#0F172A]">{currency(vatCollected)}</p>
+              <p className="mt-3 text-sm text-[#16A34A] font-semibold inline-flex items-center gap-1"><ArrowUp className="w-3 h-3" /> 12.5% vs last week</p>
             </div>
-            <p className="mt-3 text-[26px] leading-none font-bold tracking-[-0.015em] text-[#0F172A]">{currency(vatCollected)}</p>
-            <p className="mt-3 text-sm text-[#16A34A] font-semibold inline-flex items-center gap-1"><ArrowUp className="w-3 h-3" /> 12.5% vs last week</p>
-          </div>
 
             <div className="rounded-[14px] border border-[#E5E7EB] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-shadow hover:shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
-            <div className="flex items-start justify-between">
-              <p className="text-sm font-semibold text-[#64748B]">FDMS Status</p>
-              <Cloud className="w-5 h-5 text-[#2563EB]" />
-            </div>
-            <p className="mt-3 text-[26px] leading-none font-bold tracking-[-0.015em] text-[#0F172A]">{connected ? "Connected" : "Offline"}</p>
-            <p className={`mt-3 text-sm font-semibold inline-flex items-center gap-1 ${connected ? "text-[#16A34A]" : "text-[#DC2626]"}`}>
-              <CheckCircle2 className="w-3 h-3" />
-              Last sync: {deviceStatus?.lastSync ? "2 mins ago" : "Not available"}
-            </p>
+              <div className="flex items-start justify-between">
+                <p className="text-sm font-semibold text-[#64748B]">FDMS Status</p>
+                <Cloud className="w-5 h-5 text-[#2563EB]" />
+              </div>
+              <p className="mt-3 text-[26px] leading-none font-bold tracking-[-0.015em] text-[#0F172A]">{connected ? "Connected" : "Offline"}</p>
+              <p className={`mt-3 text-sm font-semibold inline-flex items-center gap-1 ${connected ? "text-[#16A34A]" : "text-[#DC2626]"}`}>
+                <CheckCircle2 className="w-3 h-3" />
+                Last sync: {deviceStatus?.lastSync ? "2 mins ago" : "Not available"}
+              </p>
             </div>
           </section>
         </div>

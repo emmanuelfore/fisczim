@@ -33,7 +33,19 @@ import {
   type RecipeItem, type InsertRecipeItem,
   type ProductVariation, type InsertProductVariation,
   type ProductBatch, type InsertProductBatch,
-  priceAdjustments, type PriceAdjustment, type InsertPriceAdjustment
+  priceAdjustments, type PriceAdjustment, type InsertPriceAdjustment,
+  accounts, journalEntries, ledgerEntries,
+  type Account, type JournalEntry, type LedgerEntry,
+  type InsertAccount, type InsertJournalEntry, type InsertLedgerEntry,
+  supplierInvoices, supplierInvoiceItems, supplierPayments,
+  type SupplierInvoice, type InsertSupplierInvoice,
+  type SupplierInvoiceItem, type InsertSupplierInvoiceItem,
+  type SupplierPayment, type InsertSupplierPayment,
+  fixedAssets,
+  depreciationRuns,
+  type FixedAsset,
+  type InsertFixedAsset,
+  type DepreciationRun
 } from "../shared/schema.js";
 import { db } from "./db.js";
 import { eq, and, desc, lte, gte, lt, ne, or, isNull, sql, ilike, count, inArray, gt } from "drizzle-orm";
@@ -228,6 +240,21 @@ export interface IStorage {
   getPosShifts(companyId: number, userId: string, branchId?: number): Promise<PosShift[]>;
   getActivePosShift(companyId: number, userId: string, branchId?: number): Promise<PosShift | undefined>;
   getPosSales(companyId: number, startDate: Date, endDate: Date, cashierId?: string, paymentMethod?: string, status?: string, search?: string, branchId?: number, ownerGroup?: string): Promise<any[]>;
+  getFinancialSummary(companyId: number, dateFrom?: Date, dateTo?: Date, cashierId?: string, drillDown?: boolean, ownerGroup?: string): Promise<any>;
+  getARAgingReport(companyId: number, asOfDate?: Date): Promise<any[]>;
+  getAPAgingReport(companyId: number, asOfDate?: Date): Promise<any[]>;
+  getCostCenterReport(companyId: number, startDate?: Date, endDate?: Date): Promise<any[]>;
+
+  // Fixed Assets
+  getFixedAssets(companyId: number): Promise<FixedAsset[]>;
+  createFixedAsset(data: InsertFixedAsset & { accumulatedDepreciation?: number, netBookValue?: number }): Promise<FixedAsset>;
+  runDepreciation(companyId: number, asOfDate: Date, userId: string): Promise<{ success: boolean; depreciatedCount: number; amount: number }>;
+  
+  // Financial Periods
+  getFinancialPeriods(companyId: number): Promise<FinancialPeriod[]>;
+  createFinancialPeriod(data: InsertFinancialPeriod): Promise<FinancialPeriod>;
+  toggleFinancialPeriod(id: number, status: string): Promise<FinancialPeriod>;
+  runYearEndClose(companyId: number, asOfDate: Date, retainedEarningsCode?: string): Promise<void>;
   createPosShift(data: InsertPosShift): Promise<PosShift>;
   updatePosShift(id: number, userId: string, data: Partial<PosShift>): Promise<PosShift>;
 
@@ -249,6 +276,10 @@ export interface IStorage {
   getSupplier(id: number): Promise<Supplier | undefined>;
   createSupplier(data: InsertSupplier & { companyId: number }): Promise<Supplier>;
   updateSupplier(id: number, data: Partial<InsertSupplier>): Promise<Supplier | undefined>;
+  createSupplierInvoice(data: InsertSupplierInvoice & { items: InsertSupplierInvoiceItem[], createdBy?: string }): Promise<SupplierInvoice>;
+  createSupplierPayment(data: InsertSupplierPayment): Promise<SupplierPayment>;
+  getSupplierInvoices(companyId: number): Promise<any[]>;
+  getSupplierPayments(companyId: number): Promise<any[]>;
 
   // Inventory Transactions
   getInventoryTransactions(companyId: number, productId?: number, ownerGroup?: string): Promise<InventoryTransaction[]>;
@@ -261,7 +292,6 @@ export interface IStorage {
 
   // Reports & Analytics
   getStockValuationReport(companyId: number, ownerGroup?: string): Promise<any[]>;
-  getFinancialSummary(companyId: number, dateFrom?: Date, dateTo?: Date, cashierId?: string, drillDown?: boolean, ownerGroup?: string): Promise<any>;
 
   // Report Module Methods
   getReportSalesSummary(companyId: number, start: Date, end: Date): Promise<{ date: string; invoiceCount: number; subtotal: string; taxAmount: string; total: string }[]>;
@@ -342,6 +372,26 @@ export interface IStorage {
 
   // Combined Inventory Adjustments
   adjustInventory(companyId: number, data: { productId: number, branchId?: number, quantity: string | number, type: string, notes?: string, userId: string }): Promise<void>;
+
+  // Accounting
+  getAccounts(companyId: number): Promise<Account[]>;
+  getAccountByCode(companyId: number, code: string): Promise<Account | undefined>;
+  createAccount(data: InsertAccount): Promise<Account>;
+  initializeCompanyAccounts(companyId: number): Promise<void>;
+  getJournalEntries(companyId: number, dateFrom?: Date, dateTo?: Date): Promise<any[]>;
+  getLedgerEntries(companyId: number, accountId?: number, dateFrom?: Date, dateTo?: Date): Promise<any[]>;
+  getTrialBalance(companyId: number, date?: Date): Promise<any[]>;
+  getVatReturn(companyId: number, fromDate?: Date, toDate?: Date): Promise<{ outputVat: number; inputVat: number; netVat: number }>;
+  postToLedger(companyId: number, entryData: Omit<InsertJournalEntry, "companyId"> & { lines: { accountId: number; debit: string | number; credit: string | number; branchId?: number }[] }): Promise<JournalEntry>;
+  
+  // Bank Reconciliation
+  uploadBankStatement(data: InsertBankStatement, lines: InsertBankStatementLine[]): Promise<BankStatement>;
+  getBankStatements(companyId: number, accountId?: number): Promise<BankStatement[]>;
+  getBankStatementLines(statementId: number): Promise<BankStatementLine[]>;
+  getUnreconciledLedger(companyId: number, accountId: number): Promise<any[]>;
+  reconcileBankLine(lineId: number, ledgerEntryId: number): Promise<void>;
+  autoReconcile(statementId: number): Promise<number>;
+  createCashTransaction(data: { companyId: number, type: 'RECEIPT' | 'PAYMENT', bankAccountId: number, counterpartyAccountId: number, amount: number, date: Date, description: string, reference?: string, createdBy?: string }): Promise<JournalEntry>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -414,6 +464,9 @@ export class DatabaseStorage implements IStorage {
         companyId: newCompany.id,
         role: "admin"
       });
+
+      // Initialize default Chart of Accounts
+      await this.initializeCompanyAccounts(newCompany.id, tx);
 
       // Automatically create default currencies (USD and ZIG)
       await tx.insert(currencies).values([
@@ -1202,6 +1255,42 @@ export class DatabaseStorage implements IStorage {
         ...r.item,
         product: r.product || undefined
       }));
+
+      // --- LEDGER POSTING ---
+      const total = Number(invoice.total);
+      const subtotal = Number(invoice.subtotal);
+      const taxAmount = Number(invoice.taxAmount);
+      const totalCogs = fullItems.reduce((sum, item) => sum + Number(item.cogsAmount || 0), 0);
+
+      const isCreditNote = invoice.transactionType === 'CreditNote';
+      const description = `${isCreditNote ? 'Credit Note' : 'Invoice'} ${invoice.invoiceNumber}`;
+
+      await this.postToLedger(invoice.companyId, {
+        entryDate: invoice.issueDate || new Date(),
+        description,
+        referenceType: "INVOICE",
+        referenceId: invoice.id.toString(),
+        createdBy: invoice.createdBy || undefined,
+        lines: [
+          { accountCode: "1200", type: isCreditNote ? "CREDIT" : "DEBIT", amount: total },
+          { accountCode: "4000", type: isCreditNote ? "DEBIT" : "CREDIT", amount: subtotal },
+          { accountCode: "2100", type: isCreditNote ? "DEBIT" : "CREDIT", amount: taxAmount },
+        ].filter(line => line.amount > 0)
+      }, tx);
+
+      if (totalCogs > 0) {
+        await this.postToLedger(invoice.companyId, {
+          entryDate: invoice.issueDate || new Date(),
+          description: `COGS for ${description}`,
+          referenceType: "INVOICE",
+          referenceId: invoice.id.toString(),
+          createdBy: invoice.createdBy || undefined,
+          lines: [
+            { accountCode: "5000", type: isCreditNote ? "CREDIT" : "DEBIT", amount: totalCogs },
+            { accountCode: "1300", type: isCreditNote ? "DEBIT" : "CREDIT", amount: totalCogs },
+          ]
+        }, tx);
+      }
 
       return {
         ...invoice,
@@ -1993,8 +2082,54 @@ export class DatabaseStorage implements IStorage {
 
   // Payments
   async createPayment(payment: InsertPayment): Promise<Payment> {
-    const [newPayment] = await db.insert(payments).values(payment).returning();
-    return newPayment;
+    return await db.transaction(async (tx) => {
+      const [newPayment] = await tx.insert(payments).values(payment).returning();
+      
+      const [invoice] = await tx.select().from(invoices).where(eq(invoices.id, newPayment.invoiceId));
+      if (invoice) {
+        let fxVariance = 0;
+        const currentRate = Number(newPayment.exchangeRate || 1);
+        const invoiceRate = Number(invoice.exchangeRate || 1);
+        
+        const originalBaseValue = Number(newPayment.amount) / invoiceRate;
+        const currentBaseValue = Number(newPayment.amount) / currentRate;
+        fxVariance = Math.round((currentBaseValue - originalBaseValue) * 100) / 100;
+        
+        const lines: { accountCode: string, type: 'DEBIT' | 'CREDIT', amount: number }[] = [
+          { accountCode: "1000", type: "DEBIT", amount: currentBaseValue },
+          { accountCode: "1200", type: "CREDIT", amount: originalBaseValue },
+        ];
+
+        // FX Gain/Loss automated posting
+        if (fxVariance > 0) {
+           lines.push({ accountCode: "4900", type: "CREDIT", amount: fxVariance });
+        } else if (fxVariance < 0) {
+           lines.push({ accountCode: "5900", type: "DEBIT", amount: Math.abs(fxVariance) });
+        }
+
+        await this.postToLedger(invoice.companyId, {
+          entryDate: newPayment.paymentDate,
+          description: `Payment for Invoice ${invoice.invoiceNumber} (${newPayment.method}) - FX Auth`,
+          referenceType: "PAYMENT",
+          referenceId: newPayment.id.toString(),
+          createdBy: newPayment.createdBy || undefined,
+          lines
+        }, tx);
+
+        // Update Invoice Paid Amount and Status
+        const newPaidAmount = (Number(invoice.paidAmount) + Number(newPayment.amount)).toFixed(2);
+        const isFullyPaid = Number(newPaidAmount) >= Number(invoice.total);
+        
+        await tx.update(invoices)
+          .set({ 
+            paidAmount: newPaidAmount,
+            status: isFullyPaid ? 'paid' : 'partial'
+          })
+          .where(eq(invoices.id, invoice.id));
+      }
+      
+      return newPayment;
+    });
   }
 
   async getPayments(invoiceId: number): Promise<Payment[]> {
@@ -2677,6 +2812,532 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
+  async getARAgingReport(companyId: number, asOfDate: Date = new Date()): Promise<any[]> {
+    const rows = await db.select({
+      invoice: invoices,
+      customer: customers
+    }).from(invoices)
+      .leftJoin(customers, eq(invoices.customerId, customers.id))
+      .where(and(
+        eq(invoices.companyId, companyId),
+        ne(invoices.status, 'paid'),
+        ne(invoices.status, 'cancelled'),
+        eq(invoices.transactionType, 'FiscalInvoice')
+      ));
+    
+    const byCustomer = new Map<number, any>();
+    
+    rows.forEach(r => {
+      const custId = r.customer?.id || 0;
+      if (!byCustomer.has(custId)) {
+        byCustomer.set(custId, {
+          customerId: custId,
+          customerName: r.customer?.name || "No Customer",
+          current: 0,
+          days30: 0,
+          days60: 0,
+          days90: 0,
+          over90: 0,
+          total: 0
+        });
+      }
+      
+      const cust = byCustomer.get(custId);
+      const dueDate = new Date(r.invoice.dueDate || r.invoice.issueDate || new Date());
+      
+      // Calculate days overdue (difference from due date, not issuance)
+      const diffTime = asOfDate.getTime() - dueDate.getTime();
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      
+      const balance = Number(r.invoice.total) - Number(r.invoice.paidAmount);
+      
+      if (diffDays <= 0) cust.current += balance;
+      else if (diffDays <= 30) cust.days30 += balance;
+      else if (diffDays <= 60) cust.days60 += balance;
+      else if (diffDays <= 90) cust.days90 += balance;
+      else cust.over90 += balance;
+      
+      cust.total += balance;
+    });
+    
+    return Array.from(byCustomer.values());
+  }
+
+  async getDebtorAnalysis(companyId: number, customerId: number): Promise<any> {
+    const [customer] = await db.select().from(customers).where(and(eq(customers.id, customerId), eq(customers.companyId, companyId)));
+    if (!customer) throw new Error("Customer not found");
+
+    const unpaidInvoices = await db.select().from(invoices).where(and(
+      eq(invoices.customerId, customerId),
+      ne(invoices.status, 'paid'),
+      ne(invoices.status, 'cancelled')
+    )).orderBy(asc(invoices.dueDate));
+
+    const pastPayments = await db.select().from(payments).where(eq(payments.companyId, companyId))
+      .innerJoin(invoices, eq(payments.invoiceId, invoices.id))
+      .where(eq(invoices.customerId, customerId))
+      .orderBy(desc(payments.paymentDate));
+
+    // Calculate metrics
+    const totalSales = unpaidInvoices.reduce((sum, inv) => sum + Number(inv.total), 0);
+    const totalPaid = Number(customer.creditLimit); // Placeholder? No, let's use actual payments
+    const actualPaid = pastPayments.reduce((sum, p) => sum + Number(p.payments.amount), 0);
+    
+    const lastPayment = pastPayments.length > 0 ? pastPayments[0].payments.paymentDate : null;
+    
+    // Average pay lag
+    let totalLag = 0;
+    let lagCount = 0;
+    pastPayments.forEach(p => {
+      if (p.invoices.issueDate) {
+        const lag = p.payments.paymentDate.getTime() - p.invoices.issueDate.getTime();
+        totalLag += Math.max(0, lag);
+        lagCount++;
+      }
+    });
+    const avgPayLagDays = lagCount > 0 ? Math.floor(totalLag / (lagCount * 1000 * 60 * 60 * 24)) : 0;
+
+    return {
+      customer,
+      metrics: {
+        totalOutstanding: unpaidInvoices.reduce((sum, inv) => sum + (Number(inv.total) - Number(inv.paidAmount)), 0),
+        totalSales: totalSales + actualPaid,
+        actualPaid,
+        lastPayment,
+        avgPayLagDays,
+        invoiceCount: unpaidInvoices.length
+      },
+      invoices: unpaidInvoices.map(inv => ({
+        ...inv,
+        daysOverdue: Math.max(0, Math.floor((new Date().getTime() - new Date(inv.dueDate).getTime()) / (1000 * 60 * 60 * 24)))
+      }))
+    };
+  }
+
+  async getCostCenterReport(companyId: number, startDate?: Date, endDate?: Date): Promise<any[]> {
+    const allBranches = await db.select().from(branches).where(eq(branches.companyId, companyId));
+    
+    let invConditions = [eq(invoices.companyId, companyId), eq(invoices.type, 'tax'), ne(invoices.status, 'cancelled')];
+    if (startDate) invConditions.push(gte(invoices.issueDate, startDate));
+    if (endDate) invConditions.push(lte(invoices.issueDate, endDate));
+    const allInvoices = await db.select().from(invoices).where(and(...invConditions));
+    
+    let expConditions = [eq(expenses.companyId, companyId), eq(expenses.status, 'approved')];
+    if (startDate) expConditions.push(gte(expenses.date, startDate));
+    if (endDate) expConditions.push(lte(expenses.date, endDate));
+    const allExpenses = await db.select().from(expenses).where(and(...expConditions));
+    
+    let cogsConditions = [eq(inventoryTransactions.companyId, companyId), eq(inventoryTransactions.type, 'SALE')];
+    if (startDate) cogsConditions.push(gte(inventoryTransactions.createdAt, startDate));
+    if (endDate) cogsConditions.push(lte(inventoryTransactions.createdAt, endDate));
+    const allCogs = await db.select().from(inventoryTransactions).where(and(...cogsConditions));
+    
+    return allBranches.map(branch => {
+      const bInvoices = allInvoices.filter(i => i.branchId === branch.id);
+      const bExpenses = allExpenses.filter(e => e.branchId === branch.id);
+      const bCogs = allCogs.filter(c => c.branchId === branch.id);
+      
+      const revenue = bInvoices.reduce((sum, inv) => sum + Number(inv.subtotal || 0), 0);
+      const cogsAmount = bCogs.reduce((sum, c) => sum + Number(c.totalCost || 0), 0); 
+      const expenseAmount = bExpenses.reduce((sum, exp) => sum + Number(exp.amount || 0), 0);
+      
+      const grossProfit = revenue - cogsAmount;
+      const netProfit = grossProfit - expenseAmount;
+      
+      return {
+        id: branch.id,
+        name: branch.name,
+        revenue,
+        cogs: cogsAmount,
+        grossProfit,
+        expenses: expenseAmount,
+        netProfit,
+        transactionCount: bInvoices.length + bExpenses.length
+      };
+    });
+  }
+
+  async getAPAgingReport(companyId: number, asOfDate: Date = new Date()): Promise<any[]> {
+    const rows = await db.select({
+      invoice: supplierInvoices,
+      supplier: suppliers
+    }).from(supplierInvoices)
+      .leftJoin(suppliers, eq(supplierInvoices.supplierId, suppliers.id))
+      .where(and(
+        eq(supplierInvoices.companyId, companyId),
+        ne(supplierInvoices.status, 'paid'),
+        ne(supplierInvoices.status, 'cancelled')
+      ));
+      
+    const bySupplier = new Map<number, any>();
+    
+    rows.forEach(r => {
+      const suppId = r.supplier?.id || 0;
+      if (!bySupplier.has(suppId)) {
+        bySupplier.set(suppId, {
+          supplierId: suppId,
+          supplierName: r.supplier?.name || "Unknown Supplier",
+          current: 0,
+          days30: 0,
+          days60: 0,
+          days90: 0,
+          over90: 0,
+          total: 0
+        });
+      }
+      
+      const supp = bySupplier.get(suppId);
+      const dueDate = new Date(r.invoice.dueDate || r.invoice.date || new Date());
+      const diffTime = asOfDate.getTime() - dueDate.getTime();
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      
+      const balance = Number(r.invoice.totalAmount) - Number(r.invoice.paidAmount);
+      
+      if (diffDays <= 0) supp.current += balance;
+      else if (diffDays <= 30) supp.days30 += balance;
+      else if (diffDays <= 60) supp.days60 += balance;
+      else if (diffDays <= 90) supp.days90 += balance;
+      else supp.over90 += balance;
+      
+      supp.total += balance;
+    });
+    
+    return Array.from(bySupplier.values());
+  }
+
+  async getCreditorAnalysis(companyId: number, supplierId: number): Promise<any> {
+    const [supplier] = await db.select().from(suppliers).where(and(eq(suppliers.id, supplierId), eq(suppliers.companyId, companyId)));
+    if (!supplier) throw new Error("Supplier not found");
+
+    const unpaidInvoices = await db.select().from(supplierInvoices).where(and(
+      eq(supplierInvoices.supplierId, supplierId),
+      ne(supplierInvoices.status, 'paid'),
+      ne(supplierInvoices.status, 'cancelled')
+    )).orderBy(asc(supplierInvoices.dueDate));
+
+    const pastPayments = await db.select().from(supplierPayments).where(and(
+      eq(supplierPayments.supplierId, supplierId),
+      eq(supplierPayments.companyId, companyId)
+    )).orderBy(desc(supplierPayments.paymentDate));
+
+    const totalPurchases = unpaidInvoices.reduce((sum, inv) => sum + Number(inv.totalAmount), 0);
+    const actualPaid = pastPayments.reduce((sum, p) => sum + Number(p.amount), 0);
+    const lastPayment = pastPayments.length > 0 ? pastPayments[0].paymentDate : null;
+
+    return {
+      supplier,
+      metrics: {
+        totalOutstanding: unpaidInvoices.reduce((sum, inv) => sum + (Number(inv.totalAmount) - Number(inv.paidAmount)), 0),
+        totalPurchases: totalPurchases + actualPaid,
+        actualPaid,
+        lastPayment,
+        invoiceCount: unpaidInvoices.length
+      },
+      invoices: unpaidInvoices.map(inv => ({
+        ...inv,
+        daysOverdue: Math.max(0, Math.floor((new Date().getTime() - new Date(inv.dueDate || inv.date).getTime()) / (1000 * 60 * 60 * 24)))
+      }))
+    };
+  }
+
+  // ==========================================
+  // FINANCIAL PERIODS
+  // ==========================================
+  async getFinancialPeriods(companyId: number): Promise<FinancialPeriod[]> {
+    return db.select().from(financialPeriods).where(eq(financialPeriods.companyId, companyId)).orderBy(financialPeriods.startDate);
+  }
+
+  async createFinancialPeriod(data: InsertFinancialPeriod): Promise<FinancialPeriod> {
+    const [period] = await db.insert(financialPeriods).values(data).returning();
+    return period;
+  }
+
+  async toggleFinancialPeriod(id: number, status: string): Promise<FinancialPeriod> {
+    const [period] = await db.update(financialPeriods).set({ status }).where(eq(financialPeriods.id, id)).returning();
+    return period;
+  }
+
+  async runYearEndClose(companyId: number, asOfDate: Date, retainedEarningsCode: string = "3000"): Promise<void> {
+    return await db.transaction(async (tx) => {
+      // 1. Get trial balance of REVENUE and EXPENSE up to asOfDate
+      const balances = await tx.select({
+        accountId: ledgerEntries.accountId,
+        type: accounts.type,
+        accountCode: accounts.code,
+        accountName: accounts.name,
+        netDebit: sql<number>`sum(case when ${ledgerEntries.type} = 'DEBIT' then ${ledgerEntries.amount} else 0 end)`,
+        netCredit: sql<number>`sum(case when ${ledgerEntries.type} = 'CREDIT' then ${ledgerEntries.amount} else 0 end)`,
+      })
+      .from(ledgerEntries)
+      .innerJoin(journalEntries, eq(ledgerEntries.journalEntryId, journalEntries.id))
+      .innerJoin(accounts, eq(ledgerEntries.accountId, accounts.id))
+      .where(and(
+        eq(journalEntries.companyId, companyId),
+        lte(journalEntries.entryDate, asOfDate),
+        inArray(accounts.type, ['REVENUE', 'EXPENSE'])
+      ))
+      .groupBy(ledgerEntries.accountId, accounts.type, accounts.code, accounts.name);
+
+      const lines: { accountCode: string, type: 'DEBIT' | 'CREDIT', amount: number }[] = [];
+      let totalNetProfit = 0; 
+      
+      for (const bal of balances) {
+        const debit = Number(bal.netDebit || 0);
+        const credit = Number(bal.netCredit || 0);
+        
+        if (bal.type === 'REVENUE') {
+            const netBalance = credit - debit;
+            if (netBalance > 0) {
+               lines.push({ accountCode: bal.accountCode as string, type: 'DEBIT', amount: netBalance });
+            } else if (netBalance < 0) {
+               lines.push({ accountCode: bal.accountCode as string, type: 'CREDIT', amount: Math.abs(netBalance) });
+            }
+            totalNetProfit += netBalance;
+        } else if (bal.type === 'EXPENSE') {
+            const netBalance = debit - credit;
+            if (netBalance > 0) {
+               lines.push({ accountCode: bal.accountCode as string, type: 'CREDIT', amount: netBalance });
+            } else if (netBalance < 0) {
+               lines.push({ accountCode: bal.accountCode as string, type: 'DEBIT', amount: Math.abs(netBalance) });
+            }
+            totalNetProfit -= netBalance;
+        }
+      }
+
+      if (lines.length === 0) return; // Nothing to sweep
+
+      // Balance goes to Retained Earnings
+      if (totalNetProfit > 0) {
+          lines.push({ accountCode: retainedEarningsCode, type: 'CREDIT', amount: totalNetProfit });
+      } else if (totalNetProfit < 0) {
+          lines.push({ accountCode: retainedEarningsCode, type: 'DEBIT', amount: Math.abs(totalNetProfit) });
+      }
+
+      await this.postToLedger(companyId, {
+        entryDate: asOfDate,
+        description: "Automated Year-End Closing Sweep",
+        referenceType: "SYSTEM",
+        referenceId: "YEC",
+        lines
+      }, tx);
+    });
+  }
+
+  // ==========================================
+  // BANK RECONCILIATION
+  // ==========================================
+  async uploadBankStatement(data: InsertBankStatement, lines: InsertBankStatementLine[]): Promise<BankStatement> {
+    return await db.transaction(async (tx) => {
+      const [statement] = await tx.insert(bankStatements).values(data).returning();
+      if (lines.length > 0) {
+        const stmtLines = lines.map(l => ({ ...l, statementId: statement.id }));
+        await tx.insert(bankStatementLines).values(stmtLines);
+      }
+      return statement;
+    });
+  }
+
+  async getBankStatements(companyId: number, accountId?: number): Promise<BankStatement[]> {
+    const filters = [eq(bankStatements.companyId, companyId)];
+    if (accountId) filters.push(eq(bankStatements.accountId, accountId));
+    return db.select().from(bankStatements).where(and(...filters)).orderBy(desc(bankStatements.statementDate));
+  }
+
+  async getBankStatementLines(statementId: number): Promise<BankStatementLine[]> {
+    return db.select().from(bankStatementLines).where(eq(bankStatementLines.statementId, statementId)).orderBy(bankStatementLines.date);
+  }
+
+  async getUnreconciledLedger(companyId: number, accountId: number): Promise<any[]> {
+    return db.select({
+      id: ledgerEntries.id,
+      date: journalEntries.entryDate,
+      description: journalEntries.description,
+      amount: ledgerEntries.amount,
+      type: ledgerEntries.type,
+      referenceId: journalEntries.referenceId
+    })
+    .from(ledgerEntries)
+    .innerJoin(journalEntries, eq(ledgerEntries.journalEntryId, journalEntries.id))
+    .where(and(
+      eq(journalEntries.companyId, companyId),
+      eq(ledgerEntries.accountId, accountId),
+      eq(ledgerEntries.isReconciled, false)
+    ))
+    .orderBy(journalEntries.entryDate);
+  }
+
+  async reconcileBankLine(lineId: number, ledgerEntryId: number): Promise<void> {
+    await db.transaction(async (tx) => {
+      // 1. Mark line as reconciled
+      await tx.update(bankStatementLines)
+        .set({ isReconciled: true, matchedLedgerEntryId: ledgerEntryId })
+        .where(eq(bankStatementLines.id, lineId));
+      // 2. Mark ledger entry as reconciled
+      await tx.update(ledgerEntries)
+        .set({ isReconciled: true })
+        .where(eq(ledgerEntries.id, ledgerEntryId));
+    });
+  }
+
+  async autoReconcile(statementId: number): Promise<number> {
+    // Basic Auto-matcher: Matches exact amount within +/- 2 days
+    const lines = await this.getBankStatementLines(statementId);
+    if (!lines.length) return 0;
+    
+    const statement = await db.select().from(bankStatements).where(eq(bankStatements.id, statementId)).then(r => r[0]);
+    const unreconciledLedger = await this.getUnreconciledLedger(statement.companyId, statement.accountId);
+    
+    let matchedCount = 0;
+    
+    // Sort ledger items to optimize matching slightly, or we can just iterate.
+    const availableLedger = new Set(unreconciledLedger.map(l => l.id));
+    
+    for (const line of lines) {
+      if (line.isReconciled) continue;
+      
+      const lineDate = new Date(line.date);
+      const lineAmt = Number(line.amount);
+      const msInDay = 24 * 60 * 60 * 1000;
+      
+      // Look for a ledger entry that matches this line exactly in value and direction (+ is DEBIT, - is CREDIT, wait).
+      // If line.amount is positive -> Bank deposit (Debit to bank in GL)
+      // If line.amount is negative -> Bank withdrawal (Credit to bank in GL)
+      const expectedType = lineAmt >= 0 ? "DEBIT" : "CREDIT";
+      const absAmt = Math.abs(lineAmt);
+      
+      const match = unreconciledLedger.find(le => {
+        if (!availableLedger.has(le.id)) return false;
+        
+        const leDate = new Date(le.date);
+        const dayDiff = Math.abs(lineDate.getTime() - leDate.getTime()) / msInDay;
+        
+        // Exact amount, correct Debit/Credit type, within 2 days
+        return (Number(le.amount) === absAmt) && (le.type === expectedType) && (dayDiff <= 2);
+      });
+      
+      if (match) {
+        await this.reconcileBankLine(line.id, match.id);
+        availableLedger.delete(match.id);
+        matchedCount++;
+      }
+    }
+    
+    return matchedCount;
+  }
+
+  // ==========================================
+  // FIXED ASSETS & DEPRECIATION
+  // ==========================================
+  async getFixedAssets(companyId: number): Promise<FixedAsset[]> {
+    return db.select().from(fixedAssets).where(eq(fixedAssets.companyId, companyId)).orderBy(fixedAssets.name);
+  }
+
+  async createFixedAsset(data: InsertFixedAsset & { accumulatedDepreciation?: number, netBookValue?: number }): Promise<FixedAsset> {
+    const netBookValue = data.netBookValue ?? Number(data.purchasePrice);
+    const accumulatedDepreciation = data.accumulatedDepreciation ?? 0;
+    
+    const [asset] = await db.insert(fixedAssets).values({
+      ...data,
+      netBookValue: String(netBookValue),
+      accumulatedDepreciation: String(accumulatedDepreciation),
+    }).returning();
+    
+    return asset;
+  }
+
+  async runDepreciation(companyId: number, asOfDate: Date, userId: string): Promise<{ success: boolean; depreciatedCount: number; amount: number }> {
+    // 1. Fetch active assets
+    const activeAssets = await db.select().from(fixedAssets)
+      .where(and(
+        eq(fixedAssets.companyId, companyId),
+        eq(fixedAssets.status, 'ACTIVE')
+      ));
+      
+    let depreciatedCount = 0;
+    let totalDepreciation = 0;
+    
+    for (const asset of activeAssets) {
+      if (Number(asset.netBookValue) <= Number(asset.salvageValue)) {
+        continue; // Fully depreciated
+      }
+
+      // Calculate days to depreciate
+      const lastDepDateStr = asset.lastDepreciationDate || asset.purchaseDate;
+      const lastDepDate = new Date(lastDepDateStr);
+      
+      // If last dep date is after or equal to asOfDate, skip
+      if (lastDepDate >= asOfDate) continue;
+
+      const msInDay = 1000 * 60 * 60 * 24;
+      const daysElapsed = Math.floor((asOfDate.getTime() - lastDepDate.getTime()) / msInDay);
+      if (daysElapsed <= 0) continue;
+
+      let deprAmount = 0;
+      
+      if (asset.depreciationMethod === "STRAIGHT_LINE") {
+        const depreciableBase = Number(asset.purchasePrice) - Number(asset.salvageValue);
+        const annualDepr = depreciableBase / asset.usefulLifeYears;
+        const dailyDepr = annualDepr / 365.25;
+        deprAmount = dailyDepr * daysElapsed;
+      } else if (asset.depreciationMethod === "DECLINING_BALANCE") {
+        // e.g., Double Declining
+        const rate = (1 / asset.usefulLifeYears) * 2;
+        const annualDepr = Number(asset.netBookValue) * rate;
+        const dailyDepr = annualDepr / 365.25;
+        deprAmount = dailyDepr * daysElapsed;
+      }
+      
+      // Ensure we don't depreciate below salvage value
+      const potentialNbv = Number(asset.netBookValue) - deprAmount;
+      if (potentialNbv < Number(asset.salvageValue)) {
+        deprAmount = Number(asset.netBookValue) - Number(asset.salvageValue);
+      }
+      
+      if (deprAmount <= 0.01) continue; // Too small to journal
+
+      totalDepreciation += deprAmount;
+      depreciatedCount++;
+
+      // Post Journal Entry
+      const entry = await this.postToLedger(companyId, {
+        reference: `DEPR-${asset.id}-${asOfDate.getTime()}`,
+        date: asOfDate.toISOString(),
+        description: `Depreciation for ${asset.name}`,
+        lines: [
+          // Debit: Depreciation Expense
+          { accountId: asset.depreciationExpenseAccountId, debit: deprAmount, credit: 0 },
+          // Credit: Accumulated Depreciation (Contra-Asset)
+          { accountId: asset.accumulatedDepreciationAccountId, debit: 0, credit: deprAmount }
+        ],
+        createdBy: userId
+      });
+
+      // Update Asset Record
+      await db.update(fixedAssets)
+        .set({
+          accumulatedDepreciation: String(Number(asset.accumulatedDepreciation) + deprAmount),
+          netBookValue: String(Number(asset.netBookValue) - deprAmount),
+          lastDepreciationDate: asOfDate
+        })
+        .where(eq(fixedAssets.id, asset.id));
+
+      // Log the run
+      await db.insert(depreciationRuns).values({
+        companyId,
+        assetId: asset.id,
+        journalEntryId: entry.id,
+        date: asOfDate,
+        amount: String(deprAmount),
+        notes: `System generated depreciation for ${daysElapsed} days.`
+      });
+    }
+
+    return {
+      success: true,
+      depreciatedCount,
+      amount: totalDepreciation
+    };
+  }
 
   async addCompanyUser(userId: string, companyId: number, role: string): Promise<void> {
     await db.insert(companyUsers).values({
@@ -3256,6 +3917,128 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
+  async getSupplierInvoices(companyId: number): Promise<any[]> {
+    const rows = await db
+      .select({
+        invoice: supplierInvoices,
+        supplier: suppliers
+      })
+      .from(supplierInvoices)
+      .leftJoin(suppliers, eq(supplierInvoices.supplierId, suppliers.id))
+      .where(eq(supplierInvoices.companyId, companyId))
+      .orderBy(desc(supplierInvoices.createdAt));
+
+    return rows.map(r => ({
+      ...r.invoice,
+      supplier: r.supplier
+    }));
+  }
+
+  async getSupplierPayments(companyId: number): Promise<any[]> {
+    const rows = await db
+      .select({
+        payment: supplierPayments,
+        supplier: suppliers
+      })
+      .from(supplierPayments)
+      .leftJoin(suppliers, eq(supplierPayments.supplierId, suppliers.id))
+      .where(eq(supplierPayments.companyId, companyId))
+      .orderBy(desc(supplierPayments.paymentDate));
+
+    return rows.map(r => ({
+      ...r.payment,
+      supplier: r.supplier
+    }));
+  }
+
+  async createSupplierInvoice(data: InsertSupplierInvoice & { items: InsertSupplierInvoiceItem[], createdBy?: string }): Promise<SupplierInvoice> {
+    return await db.transaction(async (tx) => {
+      const { items, createdBy, ...invoiceData } = data;
+      const [invoice] = await tx.insert(supplierInvoices).values(invoiceData).returning();
+
+      if (items && items.length > 0) {
+        const itemsToInsert = items.map(item => ({
+          ...item,
+          supplierInvoiceId: invoice.id
+        }));
+        await tx.insert(supplierInvoiceItems).values(itemsToInsert);
+      }
+
+      // Automated Journaling: Credit Accounts Payable (2000), Debit Inventory (1300) or appropriate account
+      const subtotal = Number(invoiceData.totalAmount) - Number(invoiceData.taxAmount || 0);
+      const tax = Number(invoiceData.taxAmount || 0);
+
+      // Determine the debit account (Control Account for Inventory is 1300 by default)
+      let debitAccountCode = '1300';
+      if (invoiceData.debitAccountId) {
+        const [acc] = await tx.select().from(accounts).where(eq(accounts.id, invoiceData.debitAccountId));
+        if (acc) {
+          debitAccountCode = acc.code;
+        }
+      }
+
+      const lines: { accountCode: string, type: 'DEBIT'|'CREDIT', amount: number }[] = [
+        { accountCode: debitAccountCode, type: 'DEBIT', amount: subtotal }
+      ];
+      
+      if (tax > 0) {
+        lines.push({ accountCode: '2110', type: 'DEBIT', amount: tax }); // VAT Input (VAT Receivable)
+      }
+
+      lines.push({ accountCode: '2000', type: 'CREDIT', amount: Number(invoiceData.totalAmount) }); // Accounts Payable
+
+      await this.postToLedger(invoiceData.companyId, {
+        entryDate: invoiceData.date || new Date(),
+        description: `Supplier Invoice: ${invoiceData.invoiceNumber}`,
+        referenceType: 'SupplierInvoice',
+        referenceId: invoice.id.toString(),
+        createdBy: createdBy,
+        lines
+      }, tx);
+
+      return invoice;
+    });
+  }
+
+  async createSupplierPayment(data: InsertSupplierPayment): Promise<SupplierPayment> {
+    return await db.transaction(async (tx) => {
+      const [payment] = await tx.insert(supplierPayments).values(data).returning();
+
+      // Automated Journaling: Debit Accounts Payable (2000), Credit Cash/Bank (1000)
+      const lines: { accountCode: string, type: 'DEBIT'|'CREDIT', amount: number }[] = [
+        { accountCode: '2000', type: 'DEBIT', amount: Number(data.amount) },
+        { accountCode: '1000', type: 'CREDIT', amount: Number(data.amount) }
+      ];
+
+      await this.postToLedger(data.companyId, {
+        description: `Supplier Payment: ${data.reference || 'N/A'}`,
+        entryDate: data.paymentDate || new Date(),
+        referenceType: 'SupplierPayment',
+        referenceId: payment.id.toString(),
+        createdBy: data.createdBy || undefined,
+        lines
+      }, tx);
+
+      // If allocated to an invoice, update that invoice
+      if (data.supplierInvoiceId) {
+        const [invoice] = await tx.select().from(supplierInvoices).where(eq(supplierInvoices.id, data.supplierInvoiceId));
+        if (invoice) {
+          const newPaidAmount = (Number(invoice.paidAmount) + Number(data.amount)).toFixed(2);
+          const isFullyPaid = Number(newPaidAmount) >= Number(invoice.totalAmount);
+          
+          await tx.update(supplierInvoices)
+            .set({ 
+              paidAmount: newPaidAmount,
+              status: isFullyPaid ? 'paid' : 'partial'
+            })
+            .where(eq(supplierInvoices.id, invoice.id));
+        }
+      }
+
+      return payment;
+    });
+  }
+
   // Inventory Transactions
   async getInventoryTransactions(companyId: number, productId?: number, ownerGroup?: string): Promise<any[]> {
     const filters = [eq(inventoryTransactions.companyId, companyId)];
@@ -3343,8 +4126,36 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createExpense(data: InsertExpense & { companyId: number }): Promise<Expense> {
-    const [expense] = await db.insert(expenses).values(data).returning();
-    return expense;
+    return await db.transaction(async (tx) => {
+      const [expense] = await tx.insert(expenses).values(data).returning();
+      
+      // Determine accounts
+      let debitAccountCode = '5100'; // Default General Expenses
+      if (data.debitAccountId) {
+        const [acc] = await tx.select().from(accounts).where(eq(accounts.id, data.debitAccountId));
+        if (acc) debitAccountCode = acc.code;
+      }
+
+      let creditAccountCode = '1000'; // Default Cash
+      if (data.creditAccountId) {
+        const [acc] = await tx.select().from(accounts).where(eq(accounts.id, data.creditAccountId));
+        if (acc) creditAccountCode = acc.code;
+      }
+
+      await this.postToLedger(data.companyId, {
+        entryDate: expense.expenseDate,
+        description: `Expense: ${expense.category} - ${expense.description}`,
+        referenceType: "EXPENSE",
+        referenceId: expense.id.toString(),
+        createdBy: expense.createdBy || undefined,
+        lines: [
+          { accountCode: debitAccountCode, type: "DEBIT", amount: Number(expense.amount) },
+          { accountCode: creditAccountCode, type: "CREDIT", amount: Number(expense.amount) },
+        ]
+      }, tx);
+
+      return expense;
+    });
   }
 
   async updateExpense(id: number, data: Partial<InsertExpense>): Promise<Expense | undefined> {
@@ -4981,6 +5792,284 @@ export class DatabaseStorage implements IStorage {
       ...r.stock,
       product: r.product
     }));
+  }
+
+  // --- ACCOUNTING IMPLEMENTATION ---
+
+  async getAccounts(companyId: number): Promise<Account[]> {
+    return await db.select().from(accounts).where(eq(accounts.companyId, companyId)).orderBy(accounts.code);
+  }
+
+  async getAccountByCode(companyId: number, code: string): Promise<Account | undefined> {
+    const [account] = await db.select().from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.code, code)));
+    return account;
+  }
+
+  async createAccount(data: InsertAccount): Promise<Account> {
+    const [account] = await db.insert(accounts).values(data).returning();
+    return account;
+  }
+
+  async initializeCompanyAccounts(companyId: number, tx?: any): Promise<void> {
+    const executeInTx = async (t: any) => {
+      const defaultAccounts = [
+        // --- ASSETS (1000-1999) ---
+        { code: "1000", name: "Cash on Hand", type: "ASSET", category: "Current Asset", isSystem: true },
+        { code: "1010", name: "Bank Account (USD)", type: "ASSET", category: "Current Asset", isSystem: true },
+        { code: "1020", name: "Bank Account (ZiG)", type: "ASSET", category: "Current Asset", isSystem: true },
+        { code: "1050", name: "Petty Cash", type: "ASSET", category: "Current Asset", isSystem: true },
+        { code: "1200", name: "Accounts Receivable (Control)", type: "ASSET", category: "Current Asset", isSystem: true },
+        { code: "1300", name: "Inventory Asset", type: "ASSET", category: "Current Asset", isSystem: true },
+        { code: "1400", name: "Prepaid Expenses", type: "ASSET", category: "Current Asset", isSystem: true },
+        { code: "1500", name: "Fixed Assets - Cost", type: "ASSET", category: "Fixed Asset", isSystem: true },
+        { code: "1510", name: "Accumulated Depreciation", type: "ASSET", category: "Fixed Asset", isSystem: true },
+
+        // --- LIABILITIES (2000-2999) ---
+        { code: "2000", name: "Accounts Payable (Control)", type: "LIABILITY", category: "Current Liability", isSystem: true },
+        { code: "2100", name: "VAT Payable (Output)", type: "LIABILITY", category: "Current Liability", isSystem: true },
+        { code: "2110", name: "VAT Receivable (Input)", type: "LIABILITY", category: "Current Liability", isSystem: true },
+        { code: "2200", name: "Accrued Liabilities", type: "LIABILITY", category: "Current Liability", isSystem: true },
+        { code: "2300", name: "Directors Loan Account", type: "LIABILITY", category: "Long Term Liability", isSystem: true },
+
+        // --- EQUITY (3000-3999) ---
+        { code: "3000", name: "Retained Earnings", type: "EQUITY", category: "Equity", isSystem: true },
+        { code: "3100", name: "Opening Balance Equity", type: "EQUITY", category: "Equity", isSystem: true },
+        { code: "3200", name: "Share Capital", type: "EQUITY", category: "Equity", isSystem: true },
+
+        // --- REVENUE (4000-4999) ---
+        { code: "4000", name: "Sales Revenue", type: "REVENUE", category: "Revenue", isSystem: true },
+        { code: "4100", name: "Service Revenue", type: "REVENUE", category: "Revenue", isSystem: true },
+        { code: "4200", name: "Interest Income", type: "REVENUE", category: "Other Income", isSystem: true },
+        { code: "4900", name: "Realized FX Gain", type: "REVENUE", category: "Other Income", isSystem: true },
+
+        // --- EXPENSES (5000-5999) ---
+        { code: "5000", name: "Cost of Goods Sold", type: "EXPENSE", category: "Direct Expense", isSystem: true },
+        { code: "5100", name: "General Expenses", type: "EXPENSE", category: "Indirect Expense", isSystem: true },
+        { code: "5110", name: "Rent & Rates", type: "EXPENSE", category: "Indirect Expense", isSystem: true },
+        { code: "5120", name: "Utilities (Water/Elect)", type: "EXPENSE", category: "Indirect Expense", isSystem: true },
+        { code: "5130", name: "Salaries & Wages", type: "EXPENSE", category: "Indirect Expense", isSystem: true },
+        { code: "5140", name: "Printing & Stationery", type: "EXPENSE", category: "Indirect Expense", isSystem: true },
+        { code: "5150", name: "Bank Charges", type: "EXPENSE", category: "Indirect Expense", isSystem: true },
+        { code: "5160", name: "Repairs & Maintenance", type: "EXPENSE", category: "Indirect Expense", isSystem: true },
+        { code: "5170", name: "Telephone & Internet", type: "EXPENSE", category: "Indirect Expense", isSystem: true },
+        { code: "5180", name: "Depreciation Expense", type: "EXPENSE", category: "Indirect Expense", isSystem: true },
+        { code: "5900", name: "Realized FX Loss", type: "EXPENSE", category: "Other Expense", isSystem: true },
+      ];
+
+      for (const acc of defaultAccounts) {
+        await t.insert(accounts).values({
+          companyId,
+          ...acc,
+          isActive: true
+        }).onConflictDoUpdate({
+          target: [accounts.companyId, accounts.code],
+          set: { name: acc.name, type: acc.type, category: acc.category, isSystem: acc.isSystem }
+        });
+      }
+    };
+    
+    if (tx) return await executeInTx(tx);
+    return await db.transaction(executeInTx);
+  }
+
+  async createCashTransaction(data: { companyId: number, type: 'RECEIPT' | 'PAYMENT', bankAccountId: number, counterpartyAccountId: number, amount: number, date: Date, description: string, reference?: string, createdBy?: string }): Promise<JournalEntry> {
+    return await db.transaction(async (tx) => {
+      const [bankAcc] = await tx.select().from(accounts).where(eq(accounts.id, data.bankAccountId));
+      const [cpAcc] = await tx.select().from(accounts).where(eq(accounts.id, data.counterpartyAccountId));
+
+      if (!bankAcc || !cpAcc) throw new Error("Bank or Counterparty account not found");
+
+      const lines = [
+        {
+          accountCode: bankAcc.code,
+          type: data.type === 'RECEIPT' ? 'DEBIT' : 'CREDIT' as 'DEBIT' | 'CREDIT',
+          amount: data.amount
+        },
+        {
+          accountCode: cpAcc.code,
+          type: data.type === 'RECEIPT' ? 'CREDIT' : 'DEBIT' as 'DEBIT' | 'CREDIT',
+          amount: data.amount
+        }
+      ];
+
+      return await this.postToLedger(data.companyId, {
+        entryDate: data.date,
+        description: data.description,
+        referenceType: "CASHBOOK",
+        referenceId: data.reference,
+        createdBy: data.createdBy,
+        lines
+      }, tx);
+    });
+  }
+
+  async getJournalEntries(companyId: number, dateFrom?: Date, dateTo?: Date): Promise<any[]> {
+    const filters = [eq(journalEntries.companyId, companyId)];
+    if (dateFrom) filters.push(gte(journalEntries.entryDate, dateFrom));
+    if (dateTo) filters.push(lte(journalEntries.entryDate, dateTo));
+
+    const entries = await db.select()
+      .from(journalEntries)
+      .where(and(...filters))
+      .orderBy(desc(journalEntries.entryDate));
+
+    const result = [];
+    for (const entry of entries) {
+      const lines = await db.select({
+        id: ledgerEntries.id,
+        accountId: ledgerEntries.accountId,
+        accountName: accounts.name,
+        accountCode: accounts.code,
+        type: ledgerEntries.type,
+        amount: ledgerEntries.amount
+      })
+      .from(ledgerEntries)
+      .innerJoin(accounts, eq(ledgerEntries.accountId, accounts.id))
+      .where(eq(ledgerEntries.journalEntryId, entry.id));
+      
+      result.push({ ...entry, lines });
+    }
+    return result;
+  }
+
+  async getLedgerEntries(companyId: number, accountId?: number, dateFrom?: Date, dateTo?: Date): Promise<any[]> {
+    const filters: any[] = [eq(accounts.companyId, companyId)];
+    if (accountId) filters.push(eq(ledgerEntries.accountId, accountId));
+    if (dateFrom) filters.push(gte(journalEntries.entryDate, dateFrom));
+    if (dateTo) filters.push(lte(journalEntries.entryDate, dateTo));
+
+    return await db.select({
+      id: ledgerEntries.id,
+      date: journalEntries.entryDate,
+      description: journalEntries.description,
+      type: ledgerEntries.type,
+      amount: ledgerEntries.amount,
+      referenceType: journalEntries.referenceType,
+      referenceId: journalEntries.referenceId,
+      account: accounts
+    })
+    .from(ledgerEntries)
+    .innerJoin(journalEntries, eq(ledgerEntries.journalEntryId, journalEntries.id))
+    .innerJoin(accounts, eq(ledgerEntries.accountId, accounts.id))
+    .where(and(...filters))
+    .orderBy(journalEntries.entryDate);
+  }
+
+  async getTrialBalance(companyId: number, date?: Date): Promise<any[]> {
+    const filters: any[] = [eq(accounts.companyId, companyId)];
+    const entriesFilters: any[] = [];
+    if (date) entriesFilters.push(lte(journalEntries.entryDate, date));
+
+    const allAccounts = await db.select().from(accounts).where(and(...filters));
+    const result = [];
+
+    for (const acc of allAccounts) {
+      const entries = await db.select({
+        type: ledgerEntries.type,
+        amount: ledgerEntries.amount
+      })
+      .from(ledgerEntries)
+      .innerJoin(journalEntries, eq(ledgerEntries.journalEntryId, journalEntries.id))
+      .where(and(eq(ledgerEntries.accountId, acc.id), ...entriesFilters));
+
+      let debit = 0;
+      let credit = 0;
+      entries.forEach(e => {
+        if (e.type === 'DEBIT') debit += Number(e.amount);
+        else credit += Number(e.amount);
+      });
+
+      if (debit !== 0 || credit !== 0) {
+        result.push({
+          accountId: acc.id,
+          accountCode: acc.code,
+          accountName: acc.name,
+          accountType: acc.type,
+          debit,
+          credit,
+          balance: debit - credit
+        });
+      }
+    }
+    return result;
+  }
+
+  async postToLedger(companyId: number, data: { entryDate: Date, description: string, referenceType?: string, referenceId?: string, createdBy?: string, lines: { accountCode: string, type: 'DEBIT' | 'CREDIT', amount: number }[] }, tx?: any): Promise<JournalEntry> {
+    const executeInTx = async (t: any) => {
+      // POSTING GUARD: Cannot post to a CLOSED period
+      const postingDate = new Date(data.entryDate);
+      const periods = await t.select().from(financialPeriods).where(eq(financialPeriods.companyId, companyId));
+      const applicablePeriod = periods.find((p: any) => {
+        const pStart = new Date(p.startDate);
+        const pEnd = new Date(p.endDate);
+        return postingDate >= pStart && postingDate <= pEnd;
+      });
+
+      if (applicablePeriod && applicablePeriod.status === "CLOSED") {
+        throw new Error(`Cannot post journal entry: The financial period '${applicablePeriod.name}' is closed.`);
+      }
+
+      // 1. Create Journal Entry
+      const [je] = await t.insert(journalEntries).values({
+        companyId,
+        entryDate: data.entryDate,
+        description: data.description,
+        referenceType: data.referenceType,
+        referenceId: data.referenceId,
+        createdBy: data.createdBy,
+      }).returning();
+
+      // 2. Create Ledger Entries
+      for (const line of data.lines) {
+        const [acc] = await t.select().from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.code, line.accountCode)));
+        if (!acc) throw new Error(`Account code ${line.accountCode} not found for company ${companyId}`);
+
+        await t.insert(ledgerEntries).values({
+          journalEntryId: je.id,
+          accountId: acc.id,
+          type: line.type,
+          amount: line.amount.toString(),
+        });
+      }
+
+      return je;
+    };
+
+    if (tx) {
+      return await executeInTx(tx);
+    } else {
+      return await db.transaction(async (t) => await executeInTx(t));
+    }
+  }
+
+  async getVatReturn(companyId: number, fromDate?: Date, toDate?: Date): Promise<{ outputVat: number; inputVat: number; netVat: number }> {
+    // Output VAT: Sum of tax amount from sales invoices
+    const salesInvoices = await db.select({ tax: invoices.taxAmount })
+      .from(invoices)
+      .where(and(
+        eq(invoices.companyId, companyId),
+        ne(invoices.status, 'CANCELLED'),
+        ...(fromDate ? [gte(invoices.createdAt, fromDate)] : []),
+        ...(toDate ? [lte(invoices.createdAt, toDate)] : [])
+      ));
+    const outputVat = salesInvoices.reduce((sum, inv) => sum + Number(inv.tax || 0), 0);
+
+    // Input VAT: Sum of tax amount from supplier invoices
+    const purchases = await db.select({ tax: supplierInvoices.taxAmount })
+      .from(supplierInvoices)
+      .where(and(
+        eq(supplierInvoices.companyId, companyId),
+        ne(supplierInvoices.status, 'CANCELLED'),
+        ...(fromDate ? [gte(supplierInvoices.createdAt, fromDate)] : []),
+        ...(toDate ? [lte(supplierInvoices.createdAt, toDate)] : [])
+      ));
+    const inputVat = purchases.reduce((sum, inv) => sum + Number(inv.tax || 0), 0);
+
+    return {
+      outputVat,
+      inputVat,
+      netVat: outputVat - inputVat
+    };
   }
 }
 

@@ -1,6 +1,5 @@
-
-import { useState } from "react";
-import { format, parseISO, startOfDay } from "date-fns";
+import { useState, useMemo } from "react";
+import { format, parseISO } from "date-fns";
 import {
     Table,
     TableBody,
@@ -11,7 +10,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ChevronDown, ChevronRight, FileSearch, Package, Calendar } from "lucide-react";
+import { ChevronDown, ChevronRight, Package, Calendar } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
@@ -40,23 +39,60 @@ export function DailySalesTable({ sales, currencies, consolidatedSymbol, consoli
             totals: {} as Record<string, number>,
             discountTotals: {} as Record<string, number>,
             consolidatedTotal: 0,
-            consolidatedDiscount: 0
+            consolidatedDiscount: 0,
+            paymentTotals: {} as Record<string, { total: number; byCurrency: Record<string, number> }>
         };
 
         acc[key].invoices.push(inv);
 
         const currency = inv.currency || "USD";
+        const method = inv.paymentMethod || "CASH";
+        
+        // Group by currency
         acc[key].totals[currency] = (acc[key].totals[currency] || 0) + Number(inv.total);
         acc[key].discountTotals[currency] = (acc[key].discountTotals[currency] || 0) + Number(inv.discountAmount || 0);
 
+        // Consolidated totals
         const rate = Number(inv.exchangeRate || 1);
         acc[key].consolidatedTotal += Number(inv.total) / rate;
         acc[key].consolidatedDiscount += Number(inv.discountAmount || 0) / rate;
+
+        // Group by payment method
+        const paymentTotals = acc[key].paymentTotals as Record<string, { total: number; byCurrency: Record<string, number> }>;
+        if (!paymentTotals[method]) paymentTotals[method] = { total: 0, byCurrency: {} };
+        
+        paymentTotals[method].total += Number(inv.total) / rate;
+        paymentTotals[method].byCurrency[currency] = (paymentTotals[method].byCurrency[currency] || 0) + Number(inv.total);
 
         return acc;
     }, {});
 
     const sortedGroups = Object.keys(groupedSales).sort((a, b) => b.localeCompare(a));
+
+    // Global Aggregate
+    const globalSummary = useMemo(() => {
+        const methods: Record<string, { total: number; byCurrency: Record<string, number> }> = {};
+        let total = 0;
+        let discount = 0;
+
+        Object.values(groupedSales).forEach((day: any) => {
+            total += day.consolidatedTotal;
+            discount += day.consolidatedDiscount;
+            Object.entries(day.paymentTotals as Record<string, any>).forEach(([method, data]) => {
+                if (!methods[method]) methods[method] = { total: 0, byCurrency: {} };
+                methods[method].total += data.total;
+                Object.entries(data.byCurrency as Record<string, number>).forEach(([code, amt]) => {
+                    methods[method].byCurrency[code] = (methods[method].byCurrency[code] || 0) + amt;
+                });
+            });
+        });
+
+        return { 
+            total, 
+            discount, 
+            methods: Object.entries(methods).sort((a, b) => b[1].total - a[1].total) 
+        };
+    }, [groupedSales]);
 
     const toggleDay = (date: string) => {
         setExpandedDays(prev => ({ ...prev, [date]: !prev[date] }));
@@ -67,47 +103,90 @@ export function DailySalesTable({ sales, currencies, consolidatedSymbol, consoli
     };
 
     return (
-        <div className="rounded-2xl border border-slate-200 overflow-hidden bg-white shadow-sm">
-            <Table>
-                <TableHeader className="bg-slate-50/50">
-                    <TableRow className="hover:bg-transparent border-b border-slate-100">
-                        <TableHead className="w-[50px]"></TableHead>
-                        <TableHead className="font-bold text-slate-800">Date / Ref</TableHead>
-                        <TableHead className="font-bold text-slate-800">Customer</TableHead>
-                        <TableHead className="font-bold text-slate-800">Cashier</TableHead>
-                        <TableHead className="font-bold text-slate-800">Method</TableHead>
-                        <TableHead className="text-right font-bold text-slate-800">
-                            {currencyMode === "consolidated" ? `Discount (${consolidatedSymbol})` : "Discount"}
-                        </TableHead>
-                        <TableHead className="text-right font-bold text-slate-800">
-                            {currencyMode === "consolidated" ? `Total (${consolidatedSymbol})` : "Total"}
-                        </TableHead>
-                    </TableRow>
-                </TableHeader>
-                <TableBody>
-                    {sortedGroups.map(key => (
-                        <DaySection
-                            key={key}
-                            dayData={groupedSales[key]}
-                            isExpanded={!!expandedDays[key]}
-                            onToggle={() => toggleDay(key)}
-                            expandedInvoices={expandedInvoices}
-                            onToggleInvoice={toggleInvoice}
-                            currencies={currencies}
-                            consolidatedSymbol={consolidatedSymbol}
-                            consolidatedRate={consolidatedRate}
-                            currencyMode={currencyMode}
-                        />
-                    ))}
-                    {sortedGroups.length === 0 && (
-                        <TableRow>
-                            <TableCell colSpan={7} className="h-32 text-center text-slate-400 italic">
-                                No sales data found for this period
-                            </TableCell>
+        <div className="space-y-4">
+            {/* Global Summary Card */}
+            {sortedGroups.length > 0 && (
+                <div className="rounded-[2.5rem] border border-slate-100 bg-white/80 backdrop-blur-md p-8 shadow-sm flex flex-col md:flex-row items-center gap-10 overflow-x-auto scrollbar-hide">
+                    <div className="flex flex-col shrink-0">
+                        <span className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">Report Summary</span>
+                        <div className="mt-1 flex items-baseline gap-2">
+                            <span className="text-3xl font-black text-slate-900 font-display">
+                                {consolidatedSymbol}{(globalSummary.total * consolidatedRate).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                            </span>
+                            <span className="text-[10px] font-bold text-emerald-500 bg-emerald-50 px-2 py-0.5 rounded-lg uppercase">Net Revenue</span>
+                        </div>
+                    </div>
+                    
+                    <div className="h-10 w-px bg-slate-200 shrink-0 hidden md:block" />
+                    
+                    <div className="flex items-center gap-6">
+                        {globalSummary.methods.map(([method, data]) => (
+                            <div key={method} className="flex flex-col min-w-[140px]">
+                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{method}</span>
+                                <span className="text-lg font-black text-slate-900 leading-tight">
+                                    {currencyMode === "consolidated" ? (
+                                        `${consolidatedSymbol}${(data.total * consolidatedRate).toLocaleString(undefined, { minimumFractionDigits: 2 })}`
+                                    ) : (
+                                        <div className="flex flex-col">
+                                            {Object.entries(data.byCurrency as Record<string, number>).map(([code, total]) => {
+                                                const curr = currencies?.find((c: any) => c.code === code);
+                                                return (
+                                                    <span key={code} className="text-sm">
+                                                        {curr?.symbol || code}{total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                                    </span>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            <div className="rounded-2xl border border-slate-200 overflow-hidden bg-white shadow-sm">
+                <Table>
+                    <TableHeader className="bg-slate-50/50">
+                        <TableRow className="hover:bg-transparent border-b border-slate-100">
+                            <TableHead className="w-[50px]"></TableHead>
+                            <TableHead className="font-bold text-slate-800">Date / Ref</TableHead>
+                            <TableHead className="font-bold text-slate-800">Customer</TableHead>
+                            <TableHead className="font-bold text-slate-800">Cashier</TableHead>
+                            <TableHead className="font-bold text-slate-800">Method</TableHead>
+                            <TableHead className="text-right font-bold text-slate-800">
+                                {currencyMode === "consolidated" ? `Discount (${consolidatedSymbol})` : "Discount"}
+                            </TableHead>
+                            <TableHead className="text-right font-bold text-slate-800">
+                                {currencyMode === "consolidated" ? `Total (${consolidatedSymbol})` : "Total"}
+                            </TableHead>
                         </TableRow>
-                    )}
-                </TableBody>
-            </Table>
+                    </TableHeader>
+                    <TableBody>
+                        {sortedGroups.map(key => (
+                            <DaySection
+                                key={key}
+                                dayData={groupedSales[key]}
+                                isExpanded={!!expandedDays[key]}
+                                onToggle={() => toggleDay(key)}
+                                expandedInvoices={expandedInvoices}
+                                onToggleInvoice={toggleInvoice}
+                                currencies={currencies}
+                                consolidatedSymbol={consolidatedSymbol}
+                                consolidatedRate={consolidatedRate}
+                                currencyMode={currencyMode}
+                            />
+                        ))}
+                        {sortedGroups.length === 0 && (
+                            <TableRow>
+                                <TableCell colSpan={7} className="h-32 text-center text-slate-400 italic">
+                                    No sales data found for this period
+                                </TableCell>
+                            </TableRow>
+                        )}
+                    </TableBody>
+                </Table>
+            </div>
         </div>
     );
 }
@@ -144,7 +223,7 @@ function DaySection({ dayData, isExpanded, onToggle, expandedInvoices, onToggleI
                         `${consolidatedSymbol}${(dayData.consolidatedDiscount * consolidatedRate).toLocaleString(undefined, { minimumFractionDigits: 2 })}`
                     ) : (
                         <div className="flex flex-col items-end gap-0.5">
-                            {Object.entries(dayData.discountTotals).map(([code, total]: [any, any]) => {
+                            {Object.entries(dayData.discountTotals as Record<string, number>).map(([code, total]) => {
                                 const curr = currencies?.find((c: any) => c.code === code);
                                 return (
                                     <span key={code} className="text-xs">
@@ -160,7 +239,7 @@ function DaySection({ dayData, isExpanded, onToggle, expandedInvoices, onToggleI
                         `${consolidatedSymbol}${(dayData.consolidatedTotal * consolidatedRate).toLocaleString(undefined, { minimumFractionDigits: 2 })}`
                     ) : (
                         <div className="flex flex-col items-end gap-0.5">
-                            {Object.entries(dayData.totals).map(([code, total]: [any, any]) => {
+                            {Object.entries(dayData.totals as Record<string, number>).map(([code, total]) => {
                                 const curr = currencies?.find((c: any) => c.code === code);
                                 return (
                                     <span key={code} className="text-xs">
@@ -172,6 +251,41 @@ function DaySection({ dayData, isExpanded, onToggle, expandedInvoices, onToggleI
                     )}
                 </TableCell>
             </TableRow>
+            {isExpanded && (
+                <TableRow className="bg-slate-50/80 shadow-inner border-b border-slate-100">
+                    <TableCell colSpan={7} className="px-8 py-4">
+                        <div className="flex items-center gap-6 overflow-x-auto pb-1 scrollbar-hide">
+                            <div className="flex flex-col shrink-0">
+                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Payment Methods</span>
+                                <span className="text-[9px] text-indigo-500 font-bold uppercase">Revenue Split</span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                {Object.entries(dayData.paymentTotals as Record<string, any>).sort((a,b) => (b[1] as any).total - (a[1] as any).total).map(([method, data]) => (
+                                    <div key={method} className="flex flex-col bg-white border border-slate-200 px-4 py-2 rounded-2xl shadow-sm min-w-[120px] transition-transform hover:scale-[1.02]">
+                                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">{method}</span>
+                                        <div className="text-xs font-black text-slate-900 font-display">
+                                            {currencyMode === "consolidated" ? (
+                                                `${consolidatedSymbol}${(data.total * consolidatedRate).toLocaleString(undefined, { minimumFractionDigits: 2 })}`
+                                            ) : (
+                                                <div className="flex flex-col gap-0.5">
+                                                    {Object.entries(data.byCurrency as Record<string, number>).map(([code, total]) => {
+                                                        const curr = currencies?.find((c: any) => c.code === code);
+                                                        return (
+                                                            <span key={code} className="block whitespace-nowrap">
+                                                                {curr?.symbol || code}{total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                                            </span>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </TableCell>
+                </TableRow>
+            )}
             {isExpanded && dayData.invoices.map((inv: any) => (
                 <InvoiceRow
                     key={inv.id}

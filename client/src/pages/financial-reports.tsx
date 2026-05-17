@@ -16,6 +16,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
 import { ProfitAndLossView } from "@/components/reports/profit-and-loss-view";
+import { BalanceSheetView } from "@/components/reports/balance-sheet-view";
+import { CashFlowView } from "@/components/reports/cash-flow-view";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { downloadExcel } from "@/lib/export-utils";
 
 export default function FinancialReportsPage() {
@@ -55,7 +58,12 @@ export default function FinancialReportsPage() {
 
     return (
         <Layout>
-            <div className="mb-4 flex flex-col md:flex-row justify-end items-start md:items-center gap-4">
+            <div className="mb-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div className="flex-1">
+                    <h1 className="text-xl font-bold font-display text-slate-800">Financial Statements</h1>
+                    <p className="text-sm text-slate-500">Comprehensive overview of company financials</p>
+                </div>
+                {/* Right actions remain the same */}
                 <div className="flex flex-wrap items-center gap-3 bg-white/50 backdrop-blur-md p-2 rounded-[1.5rem] border border-slate-100 shadow-sm">
                     <div className="flex items-center gap-2 pl-2">
                         <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest">Base:</span>
@@ -112,13 +120,46 @@ export default function FinancialReportsPage() {
                     </div>
                 </div>
             </div>
+            <Tabs defaultValue="pl" className="w-full">
+                <TabsList className="mb-6 h-12 bg-slate-100 rounded-xl p-1">
+                    <TabsTrigger value="pl" className="px-6 rounded-lg font-bold data-[state=active]:bg-white data-[state=active]:shadow-sm">
+                        Profit & Loss
+                    </TabsTrigger>
+                    <TabsTrigger value="bs" className="px-6 rounded-lg font-bold data-[state=active]:bg-white data-[state=active]:shadow-sm">
+                        Balance Sheet
+                    </TabsTrigger>
+                    <TabsTrigger value="cf" className="px-6 rounded-lg font-bold data-[state=active]:bg-white data-[state=active]:shadow-sm">
+                        Cash Flow
+                    </TabsTrigger>
+                </TabsList>
 
-            <ProfitAndLossView 
-                companyId={companyId}
-                dateRange={dateRange}
-                consolidatedSymbol={consolidatedSymbol}
-                consolidatedRate={consolidatedRate}
-            />
+                <TabsContent value="pl" className="m-0 outline-none focus:ring-0">
+                    <ProfitAndLossView 
+                        companyId={companyId}
+                        dateRange={dateRange}
+                        consolidatedSymbol={consolidatedSymbol}
+                        consolidatedRate={consolidatedRate}
+                    />
+                </TabsContent>
+
+                <TabsContent value="bs" className="m-0 outline-none focus:ring-0">
+                    <BalanceSheetView 
+                        companyId={companyId}
+                        dateRange={dateRange}
+                        consolidatedSymbol={consolidatedSymbol}
+                        consolidatedRate={consolidatedRate}
+                    />
+                </TabsContent>
+
+                <TabsContent value="cf" className="m-0 outline-none focus:ring-0">
+                    <CashFlowView 
+                        companyId={companyId}
+                        dateRange={dateRange}
+                        consolidatedSymbol={consolidatedSymbol}
+                        consolidatedRate={consolidatedRate}
+                    />
+                </TabsContent>
+            </Tabs>
         </Layout>
     );
 }

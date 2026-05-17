@@ -59,6 +59,21 @@ import CustomerStatementsPage from "@/pages/customer-statements";
 import CashCollectionReportPage from "@/pages/cash-collection-report-page";
 import BusFleetPage from "@/pages/bus-fleet";
 import BusTripsPage from "@/pages/bus-trips";
+import AccountingCOAPage from "@/pages/accounting-coa";
+import AccountingJournalPage from "@/pages/accounting-journal";
+import TrialBalancePage from "@/pages/accounting-trial-balance";
+import GeneralLedgerPage from "@/pages/accounting-ledger";
+import SupplierInvoicesPage from "@/pages/supplier-invoices";
+import CashbookPage from "@/pages/cashbook";
+import AgingReportsPage from "@/pages/aging-reports";
+import CostCentersPage from "@/pages/cost-centers";
+import FixedAssetsPage from "@/pages/fixed-assets";
+import FinancialPeriodsPage from "@/pages/financial-periods";
+import VatReturnPage from "@/pages/vat-return";
+import BankReconciliationPage from "@/pages/bank-reconciliation";
+import AccountLedgerPage from "@/pages/account-drilled-ledger";
+import DebtorAnalysisPage from "@/pages/debtor-analysis";
+import CreditorAnalysisPage from "@/pages/creditor-analysis";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
 import { useCompanies } from "@/hooks/use-companies";
@@ -240,6 +255,21 @@ function Router() {
       <Route path="/restaurant/kds">{() => <ProtectedRoute component={KDSPage} />}</Route>
       <Route path="/restaurant/orders">{() => <ProtectedRoute component={LiveOrdersPage} />}</Route>
       <Route path="/order-status" component={OrderStatusPage} />
+      <Route path="/accounting/coa">{() => <ProtectedRoute component={AccountingCOAPage} />}</Route>
+      <Route path="/accounting/journal">{() => <ProtectedRoute component={AccountingJournalPage} />}</Route>
+      <Route path="/accounting/reports/trial-balance">{() => <ProtectedRoute component={TrialBalancePage} />}</Route>
+      <Route path="/accounting/reports/ledger">{() => <ProtectedRoute component={GeneralLedgerPage} />}</Route>
+      <Route path="/accounting/reports/aging">{() => <ProtectedRoute component={AgingReportsPage} />}</Route>
+      <Route path="/accounting/reports/cost-centers">{() => <ProtectedRoute component={CostCentersPage} />}</Route>
+      <Route path="/accounting/reports/vat-return">{() => <ProtectedRoute component={VatReturnPage} />}</Route>
+      <Route path="/accounting/fixed-assets">{() => <ProtectedRoute component={FixedAssetsPage} />}</Route>
+      <Route path="/accounting/reconciliation">{() => <ProtectedRoute component={BankReconciliationPage} />}</Route>
+      <Route path="/accounting/periods">{() => <ProtectedRoute component={FinancialPeriodsPage} />}</Route>
+      <Route path="/accounting/ledger/:id">{() => <ProtectedRoute component={AccountLedgerPage} />}</Route>
+      <Route path="/accounting/debtors/:id">{() => <ProtectedRoute component={DebtorAnalysisPage} />}</Route>
+      <Route path="/accounting/creditors/:id">{() => <ProtectedRoute component={CreditorAnalysisPage} />}</Route>
+      <Route path="/accounting/cashbook">{() => <ProtectedRoute component={CashbookPage} />}</Route>
+      <Route path="/supplier-invoices">{() => <ProtectedRoute component={SupplierInvoicesPage} />}</Route>
       <Route path="/">
         {user ? <Redirect to={isOnline ? "/dashboard" : "/pos"} /> : <LandingPage />}
       </Route>

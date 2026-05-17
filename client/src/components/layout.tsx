@@ -140,7 +140,16 @@ export function Layout({
         { icon: ArrowRightLeft, label: "Stock Adjustments", href: "/inventory/adjustments" },
         { icon: Package, label: "Stock Counts", href: "/inventory/stock-counts" },
         { icon: History, label: "Stock Ledger", href: "/inventory" },
-        { icon: Truck, label: "Suppliers", href: "/suppliers" },
+      ]
+    },
+    {
+      icon: Calculator,
+      label: "Accounting",
+      children: [
+        { icon: ClipboardList, label: "Chart of Accounts", href: "/accounting/coa" },
+        { icon: History, label: "General Journal", href: "/accounting/journal" },
+        { icon: BarChart3, label: "Trial Balance", href: "/accounting/reports/trial-balance" },
+        { icon: FileText, label: "General Ledger", href: "/accounting/reports/ledger" },
       ]
     },
     { icon: Calculator, label: "Expenses", href: "/expenses" },
@@ -242,6 +251,10 @@ export function Layout({
     if (location.startsWith("/zimra-logs")) return { title: "Transaction Logs", subtitle: "Review FDMS communication and fiscal submission history." };
     if (location.startsWith("/zimra-settings")) return { title: "ZIMRA Settings", subtitle: "Manage fiscal device and ZIMRA configuration." };
     if (location.startsWith("/fdms-test")) return { title: "FDMS Test", subtitle: "Test fiscal device connectivity and FDMS responses." };
+    if (location.startsWith("/accounting/coa")) return { title: "Chart of Accounts", subtitle: "Manage your business accounts and financial structure." };
+    if (location.startsWith("/accounting/journal")) return { title: "General Journal", subtitle: "Review and record manual journal entries and transactions." };
+    if (location.startsWith("/accounting/reports/trial-balance")) return { title: "Trial Balance", subtitle: "Review unadjusted account balances as of a specific date." };
+    if (location.startsWith("/accounting/reports/ledger")) return { title: "General Ledger", subtitle: "Review detailed transaction history for specific accounts." };
     if (location.startsWith("/reports/financial")) return { title: "Profit & Loss", subtitle: "Review revenue, expenses, and profitability." };
     if (location.startsWith("/reports/daily")) return { title: "Daily Sales", subtitle: "Review daily sales and fiscal activity." };
     if (location.startsWith("/reports/inventory")) return { title: "Stock Reports", subtitle: "Analyse inventory movement, valuation, and stock health." };

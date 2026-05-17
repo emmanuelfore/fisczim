@@ -56,6 +56,8 @@ import {
   insertPosHoldSchema,
   insertProductCategorySchema,
   insertSupplierSchema,
+  insertSupplierInvoiceSchema,
+  insertSupplierPaymentSchema,
   insertExpenseSchema,
   insertTaxTypeSchema,
   insertInvoiceSchema,
@@ -4317,6 +4319,63 @@ export async function registerRoutes(
     res.json(updated);
   });
 
+  app.get("/api/companies/:companyId/supplier-invoices", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const invoices = await storage.getSupplierInvoices(companyId);
+      res.json(invoices);
+    } catch (err: any) {
+      console.error("Get Supplier Invoices Error:", err);
+      res.status(500).json({ message: "Failed to fetch supplier invoices" });
+    }
+  });
+
+  app.get("/api/companies/:companyId/supplier-payments", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const payments = await storage.getSupplierPayments(companyId);
+      res.json(payments);
+    } catch (err: any) {
+      console.error("Get Supplier Payments Error:", err);
+      res.status(500).json({ message: "Failed to fetch supplier payments" });
+    }
+  });
+
+  app.post("/api/companies/:companyId/supplier-invoices", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const input = insertSupplierInvoiceSchema.parse(req.body);
+      
+      const invoice = await storage.createSupplierInvoice({
+        ...input,
+        companyId,
+        items: req.body.items || [],
+        createdBy: (req.user as any)?.id
+      });
+      res.status(201).json(invoice);
+    } catch (err: any) {
+      console.error("Create Supplier Invoice Error:", err);
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/companies/:companyId/supplier-payments", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const input = insertSupplierPaymentSchema.parse(req.body);
+      
+      const payment = await storage.createSupplierPayment({
+        ...input,
+        companyId,
+        createdBy: (req.user as any)?.id
+      });
+      res.status(201).json(payment);
+    } catch (err: any) {
+      console.error("Create Supplier Payment Error:", err);
+      res.status(400).json({ message: err.message });
+    }
+  });
+
   // Inventory Routes
   app.get("/api/companies/:companyId/inventory/transactions", requireAuth, async (req, res) => {
     const productId = req.query.productId ? Number(req.query.productId) : undefined;
@@ -5066,8 +5125,12 @@ export async function registerRoutes(
         });
       }
 
-      // POS sales are paid upfront, so set status immediately
-      const initialStatus = input.isPos ? "paid" : (input.status || "issued");
+      // POS sales are paid upfront, so set status immediately.
+      // Exception: CREDIT sales create an AR — invoice stays "issued" and no payment is recorded.
+      const isCreditSale = input.isPos && input.paymentMethod === "CREDIT";
+      const initialStatus = input.isPos
+        ? (isCreditSale ? "issued" : "paid")
+        : (input.status || "issued");
       const requestBranchId = getBranchId(req);
 
       const duplicatePosInvoice = await findDuplicatePosInvoice(input, companyId, userId, activeShift?.id, requestBranchId);
@@ -5093,7 +5156,8 @@ export async function registerRoutes(
       markPerf("invoice_created");
 
       // 2. POS Payment Recording
-      if (input.isPos) {
+      // CREDIT sales skip payment recording — the invoice stays "issued" as an open AR.
+      if (input.isPos && !isCreditSale) {
         try {
           await storage.createPayment({
             companyId: invoice.companyId,
@@ -5105,13 +5169,14 @@ export async function registerRoutes(
             createdBy: userId,
             exchangeRate: invoice.exchangeRate?.toString() || "1.000000",
           });
-          // Redundant updateInvoice(paid) Removed
           invoice.status = "paid";
           markPerf("payment_recorded");
         } catch (payErr) {
           console.error("[POS] Auto-payment recording failed:", payErr);
           markPerf("payment_failed");
         }
+      } else if (isCreditSale) {
+        markPerf("credit_sale_ar_created");
       }
 
       // 3. ZIMRA Fiscalization Trigger Logic
@@ -7811,6 +7876,431 @@ export async function registerRoutes(
 
   // Bus Ticketing direct web-admin access
   app.use("/api/companies/:companyId/bus-ticketing", requireAuth, busTicketingRouter);
+
+  // --- ACCOUNTING ROUTES ---
+
+  app.get("/api/accounting/accounts", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const accs = await storage.getAccounts(companyId);
+      res.json(accs);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/accounts", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const account = await storage.createAccount({ ...req.body, companyId });
+      res.json(account);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/accounting/journal", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      
+      const { from, to } = req.query;
+      const dateFrom = from ? new Date(from as string) : undefined;
+      const dateTo = to ? new Date(to as string) : undefined;
+      
+      const entries = await storage.getJournalEntries(companyId, dateFrom, dateTo);
+      res.json(entries);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/journal", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      
+      const entry = await storage.postToLedger(companyId, {
+        ...req.body,
+        createdBy: req.user?.displayName || req.user?.username
+      });
+      res.json(entry);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/accounting/trial-balance", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      
+      const { date } = req.query;
+      const asOfDate = date ? new Date(date as string) : undefined;
+      
+      const report = await storage.getTrialBalance(companyId, asOfDate);
+      res.json(report);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/accounting/ledger", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      
+      const { accountId, from, to } = req.query;
+      const accId = accountId && accountId !== 'all' ? parseInt(accountId as string) : undefined;
+      const dateFrom = from ? new Date(from as string) : undefined;
+      const dateTo = to ? new Date(to as string) : undefined;
+      
+      const entries = await storage.getLedgerEntries(companyId, accId, dateFrom, dateTo);
+      res.json(entries);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/transfer", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      
+      const { fromAccountId, toAccountId, amount, reference, date, notes } = req.body;
+      
+      // We need to fetch account codes for the IDs provided
+      const [fromAcc] = await storage.getAccountById(Number(fromAccountId));
+      const [toAcc] = await storage.getAccountById(Number(toAccountId));
+
+      if (!fromAcc || !toAcc) throw new Error("Source or destination account not found");
+
+      const entry = await storage.postToLedger(companyId, {
+        referenceType: "TRANSFER",
+        referenceId: reference || `TRF-${Date.now()}`,
+        entryDate: date ? new Date(date) : new Date(),
+        description: notes || "Funds Transfer",
+        lines: [
+          { accountCode: fromAcc.code, type: 'CREDIT', amount: Number(amount) },
+          { accountCode: toAcc.code, type: 'DEBIT', amount: Number(amount) }
+        ],
+        createdBy: req.user?.displayName || req.user?.username
+      });
+      res.json(entry);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/accounting/reports/ar-aging", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const asOfDate = req.query.date ? new Date(req.query.date as string) : new Date();
+      const report = await storage.getARAgingReport(companyId, asOfDate);
+      res.json(report);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/accounting/reports/ap-aging", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const asOfDate = req.query.date ? new Date(req.query.date as string) : new Date();
+      const report = await storage.getAPAgingReport(companyId, asOfDate);
+      res.json(report);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/accounting/reports/cost-centers", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const startDate = req.query.from ? new Date(req.query.from as string) : undefined;
+      const endDate = req.query.to ? new Date(req.query.to as string) : undefined;
+      const report = await storage.getCostCenterReport(companyId, startDate, endDate);
+      res.json(report);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/accounting/reports/balance-sheet", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const asOfDate = req.query.date ? new Date(req.query.date as string) : new Date();
+      
+      // Use trial balance as the base data
+      const tb = await storage.getTrialBalance(companyId, asOfDate);
+      
+      const assets = tb.filter(a => a.type === 'ASSET');
+      const liabilities = tb.filter(a => a.type === 'LIABILITY');
+      const equity = tb.filter(a => a.type === 'EQUITY');
+      const revenue = tb.filter(a => a.type === 'REVENUE');
+      const expenses = tb.filter(a => a.type === 'EXPENSE');
+
+      const totalAssets = assets.reduce((sum, a) => sum + Number(a.balance), 0);
+      const totalLiabilities = liabilities.reduce((sum, a) => sum + Number(a.balance), 0);
+      
+      // Calculate retained earnings (Net Income)
+      const totalRevenue = revenue.reduce((sum, a) => sum + Number(a.balance), 0); // Credits are positive for revenue normally, but balance is raw
+      const totalExpenses = expenses.reduce((sum, a) => sum + Number(a.balance), 0); // Debits
+      
+      // Depending on how trial balance signs work, usually Revenue is Credit (negative balance) and Expenses Debit (positive balance)
+      // If we assume a positive balance means normal balance...
+      // Let's just output raw categories and let frontend format
+      res.json({
+        date: asOfDate,
+        assets,
+        liabilities,
+        equity,
+        revenue,
+        expenses
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/accounting/reports/cash-flow", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      
+      const startDate = req.query.from ? new Date(req.query.from as string) : undefined;
+      const endDate = req.query.to ? new Date(req.query.to as string) : undefined;
+      
+      // Grab all journal entries hitting Cash & Cash Equivalents 
+      // First get cash accounts
+      const accounts = await storage.getAccounts(companyId);
+      const cashAccounts = accounts.filter(a => a.type === 'ASSET' && String(a.code).startsWith('10'));
+      const cashAccountIds = cashAccounts.map(a => a.id);
+      
+      // In a real scenario we use a dedicated query, but here we can query ledger entries
+      const entriesProms = cashAccountIds.map(id => storage.getLedgerEntries(companyId, id, startDate, endDate));
+      const entriesArrays = await Promise.all(entriesProms);
+      
+      const allEntries = entriesArrays.flat().sort((a, b) => new Date(a.journal_entries.date).getTime() - new Date(b.journal_entries.date).getTime());
+      
+      // Group by money in / money out
+      const inflows = allEntries.filter(e => Number(e.debit) > 0); // debiting cash = money in
+      const outflows = allEntries.filter(e => Number(e.credit) > 0); // crediting cash = money out
+      
+      res.json({
+        startDate,
+        endDate,
+        inflows,
+        outflows,
+        netCashFlow: inflows.reduce((s, e) => s + Number(e.debit), 0) - outflows.reduce((s, e) => s + Number(e.credit), 0)
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/accounting/fixed-assets", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const assets = await storage.getFixedAssets(companyId);
+      res.json(assets);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/fixed-assets", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      
+      const payload = { ...req.body, companyId };
+      const asset = await storage.createFixedAsset(payload);
+      res.json(asset);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/fixed-assets/depreciate", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      
+      const asOfDate = req.body.date ? new Date(req.body.date) : new Date();
+      const userId = req.user?.id || 'system';
+      
+      const result = await storage.runDepreciation(companyId, asOfDate, userId);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Financial Periods
+  app.get("/api/accounting/periods", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const periods = await storage.getFinancialPeriods(companyId);
+      res.json(periods);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/periods", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      
+      const payload = { ...req.body, companyId };
+      const period = await storage.createFinancialPeriod(payload);
+      res.json(period);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/accounting/periods/:id/toggle", requireAuth, async (req: any, res: any) => {
+    try {
+      const { status } = req.body;
+      const period = await storage.toggleFinancialPeriod(Number(req.params.id), status);
+      res.json(period);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/periods/year-end-close", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(401).json({ message: "No company selected" });
+      await storage.runYearEndClose(companyId, new Date(req.body.asOfDate));
+      res.json({ success: true, message: "Year-End closing sweep completed." });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // VAT Return
+  app.get("/api/accounting/reports/vat-return", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      
+      const { startDate, endDate } = req.query;
+      const from = startDate ? new Date(startDate) : undefined;
+      const to = endDate ? new Date(endDate) : undefined;
+
+      const report = await storage.getVatReturn(companyId, from, to);
+      res.json(report);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Debtor/Creditor Analysis
+  app.get("/api/accounting/reports/debtors/:id", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const analysis = await storage.getDebtorAnalysis(companyId, Number(req.params.id));
+      res.json(analysis);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/accounting/reports/creditors/:id", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const analysis = await storage.getCreditorAnalysis(companyId, Number(req.params.id));
+      res.json(analysis);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Bank Reconciliation
+  app.post("/api/accounting/reconciliation/statements", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      
+      const { statementDate, closingBalance, accountId, lines } = req.body;
+      const stmt = await storage.uploadBankStatement({
+        companyId,
+        accountId: Number(accountId),
+        statementDate: new Date(statementDate),
+        closingBalance: String(closingBalance)
+      }, lines);
+      
+      res.json(stmt);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/accounting/reconciliation/statements", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const { accountId } = req.query;
+      const stmts = await storage.getBankStatements(companyId, accountId ? Number(accountId) : undefined);
+      res.json(stmts);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/accounting/reconciliation/statements/:id/lines", requireAuth, async (req: any, res: any) => {
+    try {
+      const lines = await storage.getBankStatementLines(Number(req.params.id));
+      res.json(lines);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/accounting/reconciliation/ledger", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const { accountId } = req.query;
+      const entries = await storage.getUnreconciledLedger(companyId, Number(accountId));
+      res.json(entries);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/reconciliation/match", requireAuth, async (req: any, res: any) => {
+    try {
+      const { lineId, ledgerEntryId } = req.body;
+      await storage.reconcileBankLine(Number(lineId), Number(ledgerEntryId));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/reconciliation/statements/:id/auto-match", requireAuth, async (req: any, res: any) => {
+    try {
+      const matched = await storage.autoReconcile(Number(req.params.id));
+      res.json({ success: true, matchedCount: matched });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
 
   app.use('/api/v1', v1Router);
 

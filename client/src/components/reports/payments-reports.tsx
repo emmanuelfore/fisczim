@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { filterRecords, computeTotal } from "@/lib/report-utils";
 import { format, isValid } from "date-fns";
-import { Loader2 } from "lucide-react";
+import { Loader2, Banknote, TriangleAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -526,15 +526,30 @@ export function CashCollectionReport({ companyId, dateRange, search }: ReportPro
   return (
     <div className="p-6 space-y-8 max-w-7xl mx-auto">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-slate-900 text-white p-5 rounded-3xl shadow-xl shadow-slate-200">
-          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Total Collected (Drops)</p>
-          <p className="text-2xl font-black font-display">${stats.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
-          <p className="text-[10px] font-bold text-slate-500 mt-1 uppercase">{filtered.length} COLLECTIONS</p>
+        <div className="rounded-[14px] border border-[#E5E7EB] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-shadow hover:shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
+          <div className="flex items-start justify-between">
+            <p className="text-sm font-semibold text-[#64748B]">Total Collected (Drops)</p>
+            <div className="h-9 w-9 rounded-[10px] bg-[#EFF6FF] border border-[#DBEAFE] flex items-center justify-center text-[#1D4ED8] text-sm font-extrabold">
+              <Banknote className="w-5 h-5" />
+            </div>
+          </div>
+          <p className="mt-3 text-[26px] leading-none font-bold tracking-[-0.015em] text-[#0F172A]">
+            ${stats.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+          </p>
+          <p className="mt-3 text-[10px] font-bold text-[#64748B] uppercase tracking-widest">{filtered.length} COLLECTIONS</p>
         </div>
-        <div className="bg-amber-50 text-slate-900 p-5 rounded-3xl border border-amber-100 shadow-xl shadow-slate-100">
-          <p className="text-[10px] font-black uppercase tracking-widest text-amber-700 mb-1">Expected Uncollected Cash</p>
-          <p className="text-2xl font-black font-display">${stats.expected.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
-          <p className="text-[10px] font-bold text-amber-700/70 mt-1 uppercase">{balances.length} CASHIER BALANCES</p>
+
+        <div className="rounded-[14px] border border-[#FEF3C7] bg-[#FFFBEB] p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-shadow hover:shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
+          <div className="flex items-start justify-between">
+            <p className="text-sm font-semibold text-[#B45309]">Expected Uncollected Cash</p>
+            <div className="h-9 w-9 rounded-[10px] bg-[#FEF3C7] border border-[#FDE68A] flex items-center justify-center text-[#B45309] text-sm font-extrabold">
+              <TriangleAlert className="w-5 h-5" />
+            </div>
+          </div>
+          <p className="mt-3 text-[26px] leading-none font-bold tracking-[-0.015em] text-[#0F172A]">
+            ${stats.expected.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+          </p>
+          <p className="mt-3 text-[10px] font-bold text-[#B45309]/80 uppercase tracking-widest">{balances.length} CASHIER BALANCES</p>
         </div>
       </div>
 

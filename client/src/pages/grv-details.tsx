@@ -10,6 +10,13 @@ import { ArrowLeft, Download, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 import { PDFDownloadLink } from "@react-pdf/renderer";
 import { GrvPdfDocument } from "@/components/inventory/grv-pdf-document";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { useState } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 
 export default function GrvDetailsPage() {
   const [, setLocation] = useLocation();
@@ -20,6 +27,43 @@ export default function GrvDetailsPage() {
 
   const { data: grv, isLoading } = useGrv(companyId, grvId);
   const { data: company } = useCompany(companyId);
+
+  const [isInvoiceDialogOpen, setIsInvoiceDialogOpen] = useState(false);
+  const [invoiceNumber, setInvoiceNumber] = useState("");
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const createInvoiceMutation = useMutation({
+    mutationFn: async () => {
+      const payload = {
+        supplierId: grv?.supplierId,
+        invoiceNumber,
+        date: new Date().toISOString(),
+        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        totalAmount: grv?.totalCost?.toString() || "0",
+        taxAmount: "0", // Could be enhanced to compute tax
+        currency: company?.currency || "USD",
+        status: "draft", // initially draft
+        items: grv?.lines.map((line: any) => ({
+          productId: line.productId,
+          quantity: line.quantity.toString(),
+          unitPrice: line.unitCost.toString(),
+          totalPrice: line.totalCost.toString()
+        })) || []
+      };
+      const res = await apiRequest("POST", `/api/companies/${companyId}/supplier-invoices`, payload);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({ title: "Success", description: "Supplier Invoice created successfully" });
+      setIsInvoiceDialogOpen(false);
+      queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/supplier-invoices`] });
+      setLocation("/supplier-invoices"); // Navigate to the invoices page to see it
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message || "Failed to create invoice", variant: "destructive" });
+    }
+  });
 
   return (
     <Layout>
@@ -32,17 +76,52 @@ export default function GrvDetailsPage() {
         </div>
 
         {grv && (
-          <PDFDownloadLink
-            document={<GrvPdfDocument grv={grv} company={company} />}
-            fileName={`${grv.grvNumber || "GRV"}.pdf`}
-          >
-            {({ loading }) => (
-              <Button className="rounded-xl">
-                {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
-                Download PDF
-              </Button>
-            )}
-          </PDFDownloadLink>
+          <div className="flex items-center gap-2">
+            <Dialog open={isInvoiceDialogOpen} onOpenChange={setIsInvoiceDialogOpen}>
+              <DialogTrigger asChild>
+                <Button className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white">
+                  Create Supplier Invoice
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Create Supplier Invoice</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4 py-4">
+                  <div className="space-y-2">
+                    <Label>Supplier Invoice Number</Label>
+                    <Input 
+                      placeholder="e.g. INV-2023-001" 
+                      value={invoiceNumber} 
+                      onChange={e => setInvoiceNumber(e.target.value)} 
+                    />
+                    <p className="text-xs text-slate-500">Provide the invoice number given by the supplier.</p>
+                  </div>
+                  <div className="flex justify-end gap-2 pt-4">
+                    <Button variant="outline" onClick={() => setIsInvoiceDialogOpen(false)}>Cancel</Button>
+                    <Button 
+                      onClick={() => createInvoiceMutation.mutate()} 
+                      disabled={createInvoiceMutation.isPending || !invoiceNumber}
+                    >
+                      {createInvoiceMutation.isPending ? "Creating..." : "Confirm"}
+                    </Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+
+            <PDFDownloadLink
+              document={<GrvPdfDocument grv={grv} company={company} />}
+              fileName={`${grv.grvNumber || "GRV"}.pdf`}
+            >
+              {({ loading }) => (
+                <Button variant="outline" className="rounded-xl border-slate-200">
+                  {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
+                  Download PDF
+                </Button>
+              )}
+            </PDFDownloadLink>
+          </div>
         )}
       </div>
 

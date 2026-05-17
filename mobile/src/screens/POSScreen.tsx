@@ -50,7 +50,8 @@ import {
   Play,
   Pause,
   MonitorSmartphone,
-  Package
+  Package,
+  FileText
 } from "lucide-react-native";
 import { usePrinter } from "../hooks/usePrinter";
 import { PrinterSettingsModal } from "../ui/PrinterSettingsModal";
@@ -921,8 +922,21 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
 
   const processOrder = async () => {
     if (!selectedCustomerId) return;
+
+    // CREDIT sales require a real (non-default) customer — no walk-in credit accounts
+    if (paymentMethod === "CREDIT" && isDefaultCustomerSelected) {
+      Alert.alert(
+        "Customer Required",
+        "Credit sales require a named customer account. Please select a customer before proceeding."
+      );
+      return;
+    }
+
     // paid is in local currency, total is in base — compare in same unit
-    const paid = paymentMethod === "CARD" ? total * currencyInfo.rate : parseFloat(paidAmount || "0");
+    // CARD and CREDIT bypass the amount check (amount is locked / deferred)
+    const paid = (paymentMethod === "CARD" || paymentMethod === "CREDIT")
+      ? total * currencyInfo.rate
+      : parseFloat(paidAmount || "0");
     if (paid < total * currencyInfo.rate - 0.001) return;
     const currencyObj = resolvedCurrencies.find((c: any) => c.code === selectedCurrency) || { code: "USD", exchangeRate: "1" };
     const invoiceData = {
@@ -1875,10 +1889,11 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
               <Text style={{ color: C.text.secondary, fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>
                 Payment Method
               </Text>
-              <View style={{ flexDirection: "row", gap: 8, marginBottom: 14 }}>
+              <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
                 {[
-                  { key: "CASH", label: "Cash", sub: "Cash drawer payment", Icon: Banknote },
-                  { key: "CARD", label: "Card", sub: "Swipe, POS or mobile", Icon: CreditCard },
+                  { key: "CASH",   label: "Cash",   sub: "Cash drawer payment",   Icon: Banknote },
+                  { key: "CARD",   label: "Card",   sub: "Swipe, POS or mobile",  Icon: CreditCard },
+                  { key: "CREDIT", label: "Credit", sub: "Accounts receivable",    Icon: FileText },
                 ].map(({ key, label, sub, Icon }) => {
                   const isActive = paymentMethod === key;
                   return (
@@ -1887,10 +1902,13 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                       activeOpacity={0.86}
                       onPress={() => {
                         setPaymentMethod(key);
-                        if (key === "CARD") setPaidAmount((total * currencyInfo.rate).toFixed(2));
+                        if (key === "CARD" || key === "CREDIT") {
+                          setPaidAmount((total * currencyInfo.rate).toFixed(2));
+                        }
                       }}
                       style={{
                         flex: 1,
+                        minWidth: 90,
                         minHeight: 66,
                         borderRadius: 18,
                         flexDirection: "row",
@@ -1980,7 +1998,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                 );
               })()}
 
-              {paymentMethod === "CARD" && (
+              {(paymentMethod === "CARD" || paymentMethod === "CREDIT") && (
                 <View style={{
                   marginBottom: 12,
                   borderRadius: 18,
@@ -2003,11 +2021,22 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                       alignItems: "center",
                       justifyContent: "center",
                     }}>
-                      <CreditCard size={18} color={C.amber.primary} />
+                      {paymentMethod === "CARD"
+                        ? <CreditCard size={18} color={C.amber.primary} />
+                        : <FileText size={18} color={C.amber.primary} />}
                     </View>
                     <View>
-                      <Text style={{ color: C.text.primary, fontSize: 13, fontWeight: "800" }}>Card amount locked</Text>
-                      <Text style={{ color: C.text.secondary, fontSize: 10, marginTop: 2 }}>No cash change needed</Text>
+                      {paymentMethod === "CARD" ? (
+                        <>
+                          <Text style={{ color: C.text.primary, fontSize: 13, fontWeight: "800" }}>Card amount locked</Text>
+                          <Text style={{ color: C.text.secondary, fontSize: 10, marginTop: 2 }}>No cash change needed</Text>
+                        </>
+                      ) : (
+                        <>
+                          <Text style={{ color: C.text.primary, fontSize: 13, fontWeight: "800" }}>Credit sale — AR created</Text>
+                          <Text style={{ color: C.text.secondary, fontSize: 10, marginTop: 2 }}>Invoice stays open until customer pays</Text>
+                        </>
+                      )}
                     </View>
                   </View>
                   <Text style={{ color: C.amber.primary, fontSize: 18, fontWeight: "900" }}>{fmt(total)}</Text>
@@ -2080,7 +2109,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                         {isSubmitting ? "Processing…" : "Confirm Payment"}
                       </Text>
                       <Text style={{ color: "rgba(0,0,0,0.55)", fontSize: 10, marginTop: 2 }}>
-                        {paymentMethod === "CASH" ? "Cash" : "Card"} · {selectedCustomer?.name || "Guest"}
+                        {paymentMethod === "CASH" ? "Cash" : paymentMethod === "CARD" ? "Card" : "Credit (AR)"} · {selectedCustomer?.name || "Guest"}
                       </Text>
                     </View>
                   </View>

@@ -1070,12 +1070,24 @@ export default function POSPage() {
         let invoiceData: any = null;
 
         const sumTendersValue = parseFloat(paidAmount || "0");
-        const sumTenders = splitPayments.length > 0
-            ? splitPayments.reduce((acc, p) => acc + p.amount, 0)
+        const sumTenders = (paymentMethod === "CREDIT" || splitPayments.length > 0)
+            ? (splitPayments.length > 0 ? splitPayments.reduce((acc, p) => acc + p.amount, 0) : total)
             : (sumTendersValue > 0 ? sumTendersValue : total);
 
+        // CREDIT sales require a real (non-default) customer — no walk-in credit accounts
+        const isDefaultCustomer = resolvedCustomers?.find((c: any) => c.id.toString() === finalCustomerId)?.name.toLowerCase().match(/walk-in|guest/);
+        if (paymentMethod === "CREDIT" && isDefaultCustomer) {
+            toast({
+                title: "Customer Required",
+                description: "Credit sales require a named customer account. Please select a customer before proceeding.",
+                variant: "destructive"
+            });
+            setIsProcessing(false);
+            return;
+        }
 
-        if (sumTenders < total - 0.05) {
+
+        if (paymentMethod !== "CREDIT" && sumTenders < total - 0.05) {
             toast({
                 title: "Insufficient Payment",
                 description: `Received amount is less than total payable (${fmt(total)})`,
@@ -3139,9 +3151,8 @@ export default function POSPage() {
                                         {[
                                             { id: 'CASH', icon: Banknote, label: 'Cash' },
                                             { id: 'CARD', icon: CreditCard, label: 'Card' },
+                                            { id: 'CREDIT', icon: FileText, label: 'Credit' },
                                             { id: 'ECOCASH', icon: ShoppingBag, label: 'EcoCash' },
-                                            { id: 'usd', icon: Banknote, label: 'USD' },
-                                            { id: 'zig', icon: Banknote, label: 'ZiG' }
                                         ].filter(m => {
                                             const allowed = (company?.posSettings as any)?.allowedPaymentMethods;
                                             return !allowed || allowed.length === 0 || allowed.includes(m.id);
@@ -3165,21 +3176,31 @@ export default function POSPage() {
 
                                     {/* Results & Finish Block */}
                                     <div className="space-y-2 sm:space-y-4">
-                                        {((parseFloat(paidAmount || "0") > 0) || splitPayments.length > 0) && (
-                                            <div className="flex items-center justify-between px-4 sm:px-6 py-2 sm:py-3 bg-emerald-50 rounded-2xl sm:rounded-3xl border border-emerald-100 animate-in zoom-in-95">
-                                                <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-emerald-600">Change Due</span>
-                                                <div className="flex items-center gap-2 sm:gap-3">
-                                                    <h3 className="text-xl sm:text-2xl font-black text-emerald-700">
-                                                        {(() => {
-                                                            const sumParams = splitPayments.reduce((a, b) => a + b.amount, 0) + parseFloat(paidAmount || "0");
-                                                            const req = total * Number(currencies?.find(c => c.code === selectedCurrencyCode)?.exchangeRate || 1);
-                                                            const change = Math.max(0, sumParams - req);
-                                                            return `+ ${fmt(change)}`;
-                                                        })()}
-                                                    </h3>
-                                                    <Banknote className="h-5 w-5 sm:h-6 w-6 text-emerald-500 opacity-30" />
+                                        {paymentMethod === "CREDIT" ? (
+                                            <div className="flex items-center justify-between px-4 sm:px-6 py-2 sm:py-3 bg-blue-50 rounded-2xl sm:rounded-3xl border border-blue-100 animate-in zoom-in-95">
+                                                <div className="flex flex-col">
+                                                    <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-blue-600">Accounts Receivable</span>
+                                                    <span className="text-[10px] sm:text-xs font-medium text-blue-500">Invoice will stay open until paid</span>
                                                 </div>
+                                                <FileText className="h-5 w-5 sm:h-6 w-6 text-blue-600 opacity-40" />
                                             </div>
+                                        ) : (
+                                            ((parseFloat(paidAmount || "0") > 0) || splitPayments.length > 0) && (
+                                                <div className="flex items-center justify-between px-4 sm:px-6 py-2 sm:py-3 bg-emerald-50 rounded-2xl sm:rounded-3xl border border-emerald-100 animate-in zoom-in-95">
+                                                    <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-emerald-600">Change Due</span>
+                                                    <div className="flex items-center gap-2 sm:gap-3">
+                                                        <h3 className="text-xl sm:text-2xl font-black text-emerald-700">
+                                                            {(() => {
+                                                                const sumParams = splitPayments.reduce((a, b) => a + b.amount, 0) + parseFloat(paidAmount || "0");
+                                                                const req = total * Number(currencies?.find(c => c.code === selectedCurrencyCode)?.exchangeRate || 1);
+                                                                const change = Math.max(0, sumParams - req);
+                                                                return `+ ${fmt(change)}`;
+                                                            })()}
+                                                        </h3>
+                                                        <Banknote className="h-5 w-5 sm:h-6 w-6 text-emerald-500 opacity-30" />
+                                                    </div>
+                                                </div>
+                                            )
                                         )}
 
                                         <div className="flex gap-2 sm:gap-4">

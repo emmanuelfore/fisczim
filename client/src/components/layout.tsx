@@ -21,6 +21,7 @@ import {
   CreditCard,
   MonitorCheck,
   TrendingUp,
+  TrendingDown,
   ShieldCheck,
   History,
   Receipt,
@@ -29,6 +30,7 @@ import {
   Utensils,
   X,
   ArrowRightLeft,
+  Factory,
   RefreshCw,
   Bell,
   Search,
@@ -135,8 +137,10 @@ export function Layout({
       label: "Inventory",
       children: [
         { icon: Package, label: "Products", href: "/products" },
+        { icon: ShieldCheck, label: "Serial & Warranty Items", href: "/auto-spares" },
         { icon: Briefcase, label: "Services", href: "/services" },
         { icon: LayoutDashboard, label: "Goods Received", href: "/inventory/account" },
+        { icon: Factory, label: "Production", href: "/inventory/production" },
         { icon: ArrowRightLeft, label: "Stock Adjustments", href: "/inventory/adjustments" },
         { icon: Package, label: "Stock Counts", href: "/inventory/stock-counts" },
         { icon: History, label: "Stock Ledger", href: "/inventory" },
@@ -147,9 +151,26 @@ export function Layout({
       label: "Accounting",
       children: [
         { icon: ClipboardList, label: "Chart of Accounts", href: "/accounting/coa" },
+        { icon: CreditCard, label: "Cashbook", href: "/accounting/cashbook" },
+        { icon: Settings, label: "System Postings", href: "/settings?tab=accounting" },
+        { icon: Receipt, label: "Supplier Bills", href: "/supplier-invoices" },
         { icon: History, label: "General Journal", href: "/accounting/journal" },
-        { icon: BarChart3, label: "Trial Balance", href: "/accounting/reports/trial-balance" },
         { icon: FileText, label: "General Ledger", href: "/accounting/reports/ledger" },
+        { icon: ArrowRightLeft, label: "Bank Reconciliation", href: "/accounting/reconciliation" },
+        { icon: Briefcase, label: "Fixed Assets", href: "/accounting/fixed-assets" },
+        { icon: CalendarDays, label: "Open / Close Periods", href: "/accounting/periods" },
+        { icon: BarChart3, label: "Trial Balance", href: "/accounting/reports/trial-balance" },
+        { icon: TrendingUp, label: "Financial Statements", href: "/accounting/reports/financial" },
+        { icon: FileText, label: "Balance Sheet", href: "/accounting/reports/balance-sheet" },
+        { icon: Activity, label: "Cash Flow", href: "/accounting/reports/cash-flow" },
+        { icon: Users, label: "Accounts Receivable", href: "/accounting/accounts-receivable" },
+        { icon: TrendingUp, label: "Debtors Analysis", href: "/accounting/accounts-receivable" },
+        { icon: Receipt, label: "Accounts Payable", href: "/accounting/accounts-payable" },
+        { icon: TrendingDown, label: "Creditors Analysis", href: "/accounting/accounts-payable" },
+        { icon: Users, label: "Aging Reports", href: "/accounting/reports/aging" },
+        { icon: Coins, label: "VAT Returns", href: "/accounting/reports/vat-return" },
+        { icon: Building2, label: "Cost Centers", href: "/accounting/reports/cost-centers" },
+        { icon: Settings, label: "Cost Center Setup", href: "/settings?tab=branches" },
       ]
     },
     { icon: Calculator, label: "Expenses", href: "/expenses" },
@@ -226,8 +247,10 @@ export function Layout({
     if (location.startsWith("/customers")) return { title: "Customers", subtitle: "Manage your client base and customer records." };
     if (location.startsWith("/suppliers")) return { title: "Suppliers", subtitle: "Manage supplier records and procurement contacts." };
     if (location.startsWith("/products")) return { title: "Products", subtitle: "Manage inventory items, pricing, tax, and stock controls." };
+    if (location.startsWith("/auto-spares")) return { title: "Serial & Warranty Items", subtitle: "Manage serialized products, warranties, lay-bys, and compatibility notes." };
     if (location.startsWith("/services")) return { title: "Services", subtitle: "Manage service offerings for invoices and sales." };
     if (location.startsWith("/inventory/adjustments")) return { title: "Stock Adjustments", subtitle: "Record corrections, shrinkage, damage, and stock movements." };
+    if (location.startsWith("/inventory/production")) return { title: "Production", subtitle: "Convert raw materials into finished stock." };
     if (location.startsWith("/inventory/stock-counts")) return { title: "Stock Counts", subtitle: "Run and review physical inventory counts." };
     if (location.startsWith("/inventory/bulk-adjust")) return { title: "Bulk Adjustment", subtitle: "Apply inventory changes across multiple products." };
     if (location.startsWith("/inventory/stock-take")) return { title: "Stock Take", subtitle: "Count inventory and reconcile stock positions." };
@@ -240,6 +263,8 @@ export function Layout({
     if (location.startsWith("/settings")) {
       if (search.includes("tab=zimra")) return { title: "ZIMRA Device", subtitle: "Configure fiscal device credentials and FDMS connectivity." };
       if (search.includes("tab=team")) return { title: "Team Management", subtitle: "Manage users, roles, and business access." };
+      if (search.includes("tab=branches")) return { title: "Cost Center Setup", subtitle: "Manage branches used for cost center reporting." };
+      if (search.includes("tab=accounting")) return { title: "System Postings", subtitle: "Configure the default accounts used by automatic transactions." };
       if (search.includes("tab=pos")) return { title: "POS Configuration", subtitle: "Configure tills, printing, and point-of-sale preferences." };
       if (search.includes("tab=currencies")) return { title: "Currencies", subtitle: "Manage currency settings and exchange rates." };
       return { title: "Settings", subtitle: "Manage company profile, security, compliance, and system preferences." };
@@ -252,9 +277,23 @@ export function Layout({
     if (location.startsWith("/zimra-settings")) return { title: "ZIMRA Settings", subtitle: "Manage fiscal device and ZIMRA configuration." };
     if (location.startsWith("/fdms-test")) return { title: "FDMS Test", subtitle: "Test fiscal device connectivity and FDMS responses." };
     if (location.startsWith("/accounting/coa")) return { title: "Chart of Accounts", subtitle: "Manage your business accounts and financial structure." };
+    if (location.startsWith("/accounting/ledger/")) return { title: "Account Ledger", subtitle: "Drill into the transaction history for an individual account." };
+    if (location.startsWith("/accounting/cashbook")) return { title: "Cashbook", subtitle: "Record and review cash and bank movements." };
+    if (location.startsWith("/accounting/reconciliation")) return { title: "Bank Reconciliation", subtitle: "Match bank statement lines to ledger transactions." };
+    if (location.startsWith("/accounting/fixed-assets")) return { title: "Fixed Assets", subtitle: "Manage PPE, depreciation, and asset registers." };
+    if (location.startsWith("/accounting/periods")) return { title: "Open / Close Financial Periods", subtitle: "Create periods, close periods, reopen periods, and run year-end close." };
     if (location.startsWith("/accounting/journal")) return { title: "General Journal", subtitle: "Review and record manual journal entries and transactions." };
     if (location.startsWith("/accounting/reports/trial-balance")) return { title: "Trial Balance", subtitle: "Review unadjusted account balances as of a specific date." };
     if (location.startsWith("/accounting/reports/ledger")) return { title: "General Ledger", subtitle: "Review detailed transaction history for specific accounts." };
+    if (location.startsWith("/accounting/reports/balance-sheet")) return { title: "Balance Sheet", subtitle: "Review assets, liabilities, and equity." };
+    if (location.startsWith("/accounting/reports/cash-flow")) return { title: "Cash Flow Statement", subtitle: "Review operating, investing, and financing cash movement." };
+    if (location.startsWith("/accounting/reports/financial")) return { title: "Financial Statements", subtitle: "Review profit or loss, financial position, and cash flows." };
+    if (location.startsWith("/accounting/reports/aging")) return { title: "Aging Reports", subtitle: "Review receivables and payables aging." };
+    if (location.startsWith("/accounting/accounts-receivable")) return { title: "Accounts Receivable", subtitle: "Review debtors, outstanding balances, and receivables aging." };
+    if (location.startsWith("/accounting/accounts-payable")) return { title: "Accounts Payable", subtitle: "Review creditors, supplier balances, and payables aging." };
+    if (location.startsWith("/accounting/reports/vat-return")) return { title: "VAT Returns", subtitle: "Review output VAT, input VAT, and net VAT payable." };
+    if (location.startsWith("/accounting/reports/cost-centers")) return { title: "Cost Centers", subtitle: "Review income and expense performance by center." };
+    if (location.startsWith("/supplier-invoices")) return { title: "Supplier Bills", subtitle: "Manage supplier invoices, payables, and payments." };
     if (location.startsWith("/reports/financial")) return { title: "Profit & Loss", subtitle: "Review revenue, expenses, and profitability." };
     if (location.startsWith("/reports/daily")) return { title: "Daily Sales", subtitle: "Review daily sales and fiscal activity." };
     if (location.startsWith("/reports/inventory")) return { title: "Stock Reports", subtitle: "Analyse inventory movement, valuation, and stock health." };

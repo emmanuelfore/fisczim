@@ -158,6 +158,7 @@ export async function syncPendingSales(
             const url = buildUrl(api.invoices.create.path, { companyId });
             const res = await authFetch(url, {
                 method: 'POST',
+                headers: { 'Idempotency-Key': sale.id },
                 body: JSON.stringify({
                     ...sale.invoiceData,
                     isOfflineSync: true // Mark as synced offline sale to bypass shift validation

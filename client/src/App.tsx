@@ -20,9 +20,11 @@ import ExpensesPage from "@/pages/expenses";
 import InventoryTransactionsPage from "@/pages/inventory-transactions";
 import InventoryAdjustmentsPage from "@/pages/inventory-adjustments";
 import InventoryStockCountsPage from "@/pages/inventory-stock-counts";
+import ProductionPage from "@/pages/production";
 import InventoryAccountPage from "@/pages/inventory-account";
 import GrvDetailsPage from "@/pages/grv-details";
 import ProductsPage from "@/pages/products";
+import AutoSparesPage from "@/pages/auto-spares";
 import ServicesPage from "@/pages/services";
 import TaxConfigPage from "@/pages/tax-config";
 import SettingsPage from "@/pages/settings";
@@ -211,6 +213,7 @@ function Router() {
       <Route path="/customers/:id">{() => <ProtectedRoute component={CustomerDetailsPage} />}</Route>
       <Route path="/suppliers">{() => <ProtectedRoute component={SuppliersPage} />}</Route>
       <Route path="/expenses">{() => <ProtectedRoute component={ExpensesPage} />}</Route>
+      <Route path="/inventory/production">{() => <ProtectedRoute component={ProductionPage} />}</Route>
       <Route path="/inventory">{() => <ProtectedRoute component={InventoryTransactionsPage} />}</Route>
       <Route path="/inventory/adjustments">{() => <ProtectedRoute component={InventoryAdjustmentsPage} />}</Route>
       <Route path="/inventory/stock-counts">{() => <ProtectedRoute component={InventoryStockCountsPage} />}</Route>
@@ -222,6 +225,7 @@ function Router() {
       <Route path="/reports/financial">{() => <ProtectedRoute component={FinancialReportsPage} />}</Route>
       <Route path="/reports/daily">{() => <ProtectedRoute component={DailySalesLedgerPage} />}</Route>
       <Route path="/products">{() => <ProtectedRoute component={ProductsPage} />}</Route>
+      <Route path="/auto-spares">{() => <ProtectedRoute component={AutoSparesPage} />}</Route>
       <Route path="/services">{() => <ProtectedRoute component={ServicesPage} />}</Route>
       <Route path="/tax-config">{() => <ProtectedRoute component={TaxConfigPage} />}</Route>
       <Route path="/settings">{() => <ProtectedRoute component={SettingsPage} />}</Route>
@@ -259,6 +263,11 @@ function Router() {
       <Route path="/accounting/journal">{() => <ProtectedRoute component={AccountingJournalPage} />}</Route>
       <Route path="/accounting/reports/trial-balance">{() => <ProtectedRoute component={TrialBalancePage} />}</Route>
       <Route path="/accounting/reports/ledger">{() => <ProtectedRoute component={GeneralLedgerPage} />}</Route>
+      <Route path="/accounting/reports/financial">{() => <ProtectedRoute component={FinancialReportsPage} />}</Route>
+      <Route path="/accounting/reports/balance-sheet">{() => <ProtectedRoute component={FinancialReportsPage} />}</Route>
+      <Route path="/accounting/reports/cash-flow">{() => <ProtectedRoute component={FinancialReportsPage} />}</Route>
+      <Route path="/accounting/accounts-receivable">{() => <ProtectedRoute component={AgingReportsPage} />}</Route>
+      <Route path="/accounting/accounts-payable">{() => <ProtectedRoute component={AgingReportsPage} />}</Route>
       <Route path="/accounting/reports/aging">{() => <ProtectedRoute component={AgingReportsPage} />}</Route>
       <Route path="/accounting/reports/cost-centers">{() => <ProtectedRoute component={CostCentersPage} />}</Route>
       <Route path="/accounting/reports/vat-return">{() => <ProtectedRoute component={VatReturnPage} />}</Route>

@@ -64,6 +64,55 @@
       "when": 1778170000000,
       "tag": "0008_idempotency_keys",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1779009300000,
+      "tag": "0009_customer_supplier_credit_terms",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1779010200000,
+      "tag": "0010_accounting_core",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1779010800000,
+      "tag": "0011_ifrs_chart_of_accounts",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1779011400000,
+      "tag": "0012_invoice_paid_amount",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1779012000000,
+      "tag": "0013_journal_entry_drafts",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1779012600000,
+      "tag": "0014_accounting_system_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1779013200000,
+      "tag": "0015_auto_spares_pos_extensions",
+      "breakpoints": true
     }
   ]
 }

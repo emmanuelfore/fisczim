@@ -20,6 +20,7 @@ import { CommunicationSettings } from "@/components/settings/communication-setti
 import { MaintenanceSettings } from "@/components/settings/maintenance-settings";
 import { RestaurantSettings } from "@/components/settings/restaurant-settings";
 import { BranchManagement } from "@/components/settings/branch-management";
+import { AccountingSystemSettings } from "@/components/settings/accounting-system-settings";
 
 export default function SettingsPage() {
   const { toast } = useToast();
@@ -83,6 +84,7 @@ export default function SettingsPage() {
           printerName: "",
           secondaryPrinterName: ""
         },
+        accountingSettings: activeCompany.accountingSettings || {},
         restaurantSettings: activeCompany.restaurantSettings || { enabled: false },
         pharmacySettings: activeCompany.pharmacySettings || { enabled: false },
         primaryColor: activeCompany.primaryColor || "#4f46e5",
@@ -130,6 +132,7 @@ export default function SettingsPage() {
       title: "Financial",
       items: [
         { id: "banking", label: "Banking" },
+        { id: "accounting", label: "Accounting" },
         { id: "currencies", label: "Currencies" },
       ]
     },
@@ -163,6 +166,7 @@ export default function SettingsPage() {
       case 'team': return <TeamManagement companyId={activeCompany.id} />;
       case 'security': return <SecuritySettings company={activeCompany} />;
       case 'banking': return <BankingSettings formData={formData} setFormData={setFormData} />;
+      case 'accounting': return <AccountingSystemSettings companyId={activeCompany.id} formData={formData} setFormData={setFormData} />;
       case 'currencies': return <CurrencySettings companyId={activeCompany.id} />;
       case 'tax': return <TaxComplianceSettings companyId={activeCompany.id} formData={formData} setFormData={setFormData} />;
       case 'zimra': return <ZimraDeviceSettings company={activeCompany} />;
@@ -174,7 +178,7 @@ export default function SettingsPage() {
     }
   };
 
-  const showGlobalSave = ['profile', 'banking', 'tax', 'pos', 'communication', 'restaurant', 'maintenance'].includes(activeTab);
+  const showGlobalSave = ['profile', 'banking', 'accounting', 'tax', 'pos', 'communication', 'restaurant', 'maintenance'].includes(activeTab);
   const settingsTabs = menuGroups.flatMap((group) => group.items);
 
   return (

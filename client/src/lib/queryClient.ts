@@ -1,4 +1,5 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import { supabase } from "./supabase";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
@@ -12,10 +13,19 @@ export async function apiRequest(
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const session = sessionData?.session ?? null;
   const branchId = localStorage.getItem("selectedBranchId");
+  const companyId = localStorage.getItem("selectedCompanyId");
   const headers: Record<string, string> = data ? { "Content-Type": "application/json" } : {};
+  if (session?.access_token) {
+    headers["Authorization"] = `Bearer ${session.access_token}`;
+  }
   if (branchId) {
     headers["X-Branch-ID"] = branchId;
+  }
+  if (companyId) {
+    headers["X-Company-ID"] = companyId;
   }
 
   const res = await fetch(url, {
@@ -35,13 +45,38 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const session = sessionData?.session ?? null;
     const branchId = localStorage.getItem("selectedBranchId");
+    const companyId = localStorage.getItem("selectedCompanyId");
     const headers: Record<string, string> = {};
+    if (session?.access_token) {
+      headers["Authorization"] = `Bearer ${session.access_token}`;
+    }
     if (branchId) {
       headers["X-Branch-ID"] = branchId;
     }
+    if (companyId) {
+      headers["X-Company-ID"] = companyId;
+    }
 
-    const res = await fetch(queryKey.join("/") as string, {
+    let url = String(queryKey[0]);
+    const searchParams = new URLSearchParams();
+    for (const part of queryKey.slice(1)) {
+      if (part && typeof part === "object" && !Array.isArray(part)) {
+        for (const [key, value] of Object.entries(part as Record<string, unknown>)) {
+          if (value !== undefined && value !== null && value !== "") {
+            searchParams.set(key, value instanceof Date ? value.toISOString() : String(value));
+          }
+        }
+      } else if (part !== undefined && part !== null && part !== "") {
+        url += `/${encodeURIComponent(String(part))}`;
+      }
+    }
+    const qs = searchParams.toString();
+    if (qs) url += `${url.includes("?") ? "&" : "?"}${qs}`;
+
+    const res = await fetch(url, {
       headers,
       credentials: "include",
     });

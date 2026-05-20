@@ -201,6 +201,7 @@ router.post("/close-day", async (req, res) => {
     } else {
       console.warn(`[ZIMRA] CloseDay returned status: ${response.fiscalDayStatus}. Local counters preserved.`);
       await storage.updateCompany(company.id, {
+        fiscalDayOpen: true,
         lastFiscalDayStatus: response.fiscalDayStatus || 'FiscalDayCloseFailed'
       });
     }
@@ -213,6 +214,15 @@ router.post("/close-day", async (req, res) => {
     });
   } catch (err: any) {
     console.error("ZIMRA v1 Close Day Error:", err);
+    try {
+      await storage.updateCompany(company.id, {
+        fiscalDayOpen: true,
+        lastFiscalDayStatus: 'FiscalDayCloseFailed'
+      });
+    } catch (updateErr) {
+      console.error("Failed to preserve fiscal day state after close failure:", updateErr);
+    }
+
     if (err instanceof ZimraApiError) {
       return res.status(err.statusCode).json({
         error: "ZIMRA_API_ERROR",

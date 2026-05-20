@@ -23,8 +23,12 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
 
     // multi-branch support: inject current branch ID if available
     const branchId = localStorage.getItem("selectedBranchId");
+    const companyId = localStorage.getItem("selectedCompanyId");
     if (branchId) {
         headers.set("X-Branch-ID", branchId);
+    }
+    if (companyId) {
+        headers.set("X-Company-ID", companyId);
     }
 
     const controller = (init?.signal || typeof AbortController === 'undefined') ? null : new AbortController();

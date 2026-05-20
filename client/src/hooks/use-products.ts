@@ -5,6 +5,17 @@ import { apiFetch } from "@/lib/api";
 import { cacheProducts, getCachedProducts, setLastCacheTime } from "@/lib/offline-db";
 import { getIsOnline } from "@/lib/online-state";
 
+export function refreshProductQueries(queryClient: ReturnType<typeof useQueryClient>, companyId?: number) {
+  if (!companyId) {
+    queryClient.invalidateQueries({ queryKey: [api.products.list.path] });
+    queryClient.refetchQueries({ queryKey: [api.products.list.path], type: "active" });
+    return;
+  }
+
+  queryClient.invalidateQueries({ queryKey: [api.products.list.path, companyId] });
+  queryClient.refetchQueries({ queryKey: [api.products.list.path, companyId], type: "active" });
+}
+
 export function useProducts(companyId: number, branchId?: number) {
   return useQuery({
     queryKey: [api.products.list.path, companyId, branchId],
@@ -59,7 +70,7 @@ export function useCreateProduct(companyId: number) {
       return api.products.create.responses[201].parse(await res.json());
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [api.products.list.path, companyId] });
+      refreshProductQueries(queryClient, companyId);
     },
   });
 }
@@ -77,7 +88,7 @@ export function useUpdateProduct() {
       return await res.json();
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: [api.products.list.path, variables.companyId] });
+      refreshProductQueries(queryClient, variables.companyId);
     },
   });
 }
@@ -95,7 +106,7 @@ export function useAdjustPrice(companyId: number) {
       return await res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [api.products.list.path, companyId] });
+      refreshProductQueries(queryClient, companyId);
     },
   });
 }
@@ -125,7 +136,7 @@ export function useBulkConvertProducts(companyId: number) {
       return await res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [api.products.list.path, companyId] });
+      refreshProductQueries(queryClient, companyId);
     },
   });
 }

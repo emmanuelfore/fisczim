@@ -27,7 +27,7 @@ import sageOAuthRouter from "./lib/sage-oauth.js";
 import v1Router from "./api/v1/index.js";
 import busTicketingRouter from "./api/v1/bus-ticketing.js";
 import { db } from "./db";
-import { eq, and, gte, lte, ne, desc, asc, sql, or, ilike, isNull } from "drizzle-orm";
+import { eq, and, gte, lte, ne, desc, asc, sql, or, ilike, isNull, inArray } from "drizzle-orm";
 import { format } from "date-fns";
 import {
   invoices,
@@ -71,6 +71,11 @@ import {
   type BranchStock,
   priceAdjustments,
   insertPriceAdjustmentSchema,
+  insertProductSerialNumberSchema,
+  insertWarrantyClaimSchema,
+  insertLaybySchema,
+  insertLaybyItemSchema,
+  insertLaybyPaymentSchema,
 } from "@shared/schema";
 import { paynowService } from "./paynow.js";
 
@@ -165,19 +170,23 @@ export async function registerRoutes(
 
   const findDuplicatePosInvoice = async (input: any, companyId: number, userId: string, shiftId?: number | null, branchId?: number | null) => {
     if (!input.isPos || !input.issueDate || !input.items?.length) return null;
+    const issueDate = input.issueDate instanceof Date ? input.issueDate : new Date(input.issueDate);
+    const windowStart = new Date(issueDate.getTime() - 10 * 1000);
+    const windowEnd = new Date(issueDate.getTime() + 10 * 1000);
 
     const conditions = [
       eq(invoices.companyId, companyId),
       eq(invoices.isPos, true),
-      eq(invoices.status, "paid"),
+      or(eq(invoices.status, "paid"), eq(invoices.status, "issued")),
       eq(invoices.transactionType, input.transactionType || "FiscalInvoice"),
       eq(invoices.createdBy, userId),
-      eq(invoices.issueDate, input.issueDate),
+      gte(invoices.issueDate, windowStart),
+      lte(invoices.issueDate, windowEnd),
       eq(invoices.total, String(input.total)),
+      eq(invoices.paymentMethod, input.paymentMethod || "CASH"),
       input.customerId ? eq(invoices.customerId, input.customerId) : isNull(invoices.customerId),
       shiftId ? eq(invoices.shiftId, shiftId) : isNull(invoices.shiftId),
       branchId ? eq(invoices.branchId, branchId) : isNull(invoices.branchId),
-      input.notes ? eq(invoices.notes, input.notes) : isNull(invoices.notes),
     ];
 
     const candidates = await db
@@ -516,13 +525,13 @@ export async function registerRoutes(
   // Logo Upload Configuration (Supabase Storage)
   const logoUpload = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: 2 * 1024 * 1024 }, // 2MB limit
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
     fileFilter: (_req, file, cb) => {
-      const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+      const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'];
       if (allowedTypes.includes(file.mimetype)) {
         cb(null, true);
       } else {
-        cb(new Error("Invalid file type. Only JPEG, PNG and WebP are allowed."));
+        cb(new Error("Invalid file type. Only JPEG, PNG, WebP and SVG are allowed."));
       }
     }
   });
@@ -875,6 +884,12 @@ export async function registerRoutes(
           const categoryHeader = findHeader(row, ['Category', 'Cat', 'Product Category', 'Group']);
           const trackHeader = findHeader(row, ['Track Inventory', 'Track', 'Inventory Tracking']);
           const costCenterHeader = findHeader(row, ['Cost Center', 'Cost Centre', 'Owner Group', 'Owner']);
+          const brandHeader = findHeader(row, ['Brand', 'Brand Name']);
+          const oemPartHeader = findHeader(row, ['OEM Part No', 'OEM Part Number', 'OEM', 'Original Part Number']);
+          const supplierPartHeader = findHeader(row, ['Supplier Part No', 'Supplier Part Number', 'Supplier Code']);
+          const fitmentHeader = findHeader(row, ['Vehicle Fitment', 'Fitment', 'Compatible Vehicles', 'Vehicle Compatibility']);
+          const serialTrackingHeader = findHeader(row, ['Serial Tracking', 'Track Serial', 'Serial Number Tracking']);
+          const warrantyHeader = findHeader(row, ['Warranty Months', 'Warranty']);
 
           const name = nameHeader ? (row as any)[nameHeader] : null;
           if (!name) throw new Error("Missing 'Name' column");
@@ -885,6 +900,9 @@ export async function registerRoutes(
           // Parse Track Inventory: "Yes", "True", "1" -> true
           const trackValue = trackHeader ? (row as any)[trackHeader].toString().toLowerCase() : "";
           const isTracked = ["yes", "true", "1", "on"].includes(trackValue);
+          const serialTrackingValue = serialTrackingHeader ? (row as any)[serialTrackingHeader]?.toString().toLowerCase() : "";
+          const serialTrackingEnabled = ["yes", "true", "1", "on"].includes(serialTrackingValue);
+          const warrantyMonths = warrantyHeader ? Math.max(0, Math.round(cleanNum((row as any)[warrantyHeader]))) : 0;
 
           // Resolve Tax Type ID and Rate
           let taxTypeId: number | undefined;
@@ -936,6 +954,13 @@ export async function registerRoutes(
             hsCode: hsHeader ? (row as any)[hsHeader] : "0000.00.00",
             category: categoryName || "General",
             ownerGroup: ownerGroupValue.length > 0 ? ownerGroupValue : null,
+            brandName: brandHeader ? (row as any)[brandHeader]?.toString() : undefined,
+            oemPartNumber: oemPartHeader ? (row as any)[oemPartHeader]?.toString() : undefined,
+            supplierPartNumber: supplierPartHeader ? (row as any)[supplierPartHeader]?.toString() : undefined,
+            fitmentNotes: fitmentHeader ? (row as any)[fitmentHeader]?.toString() : undefined,
+            serialTrackingEnabled,
+            warrantyTrackingEnabled: warrantyMonths > 0,
+            warrantyMonths,
             isActive: true,
             stockLevel: stockHeader ? cleanNum((row as any)[stockHeader]).toString() : "0.00",
             isTracked: trackHeader ? isTracked : (!!stockHeader && type === 'good')
@@ -1004,12 +1029,18 @@ export async function registerRoutes(
       const products = await storage.getProductsForExport(companyId);
 
       // Construct CSV
-      const headers = ["Name", "Description", "SKU", "Barcode", "Price", "Cost Price", "Tax Rate", "Tax Type", "Type", "Stock", "HS Code", "Category", "Track Inventory"];
+      const headers = ["Name", "Description", "SKU", "Barcode", "Brand", "OEM Part No", "Supplier Part No", "Vehicle Fitment", "Serial Tracking", "Warranty Months", "Price", "Cost Price", "Tax Rate", "Tax Type", "Type", "Stock", "HS Code", "Category", "Track Inventory"];
       const rows = products.map(p => [
         p.name,
         p.description || "",
         p.sku || "",
         p.barcode || "",
+        p.brandName || "",
+        p.oemPartNumber || "",
+        p.supplierPartNumber || "",
+        p.fitmentNotes || "",
+        p.serialTrackingEnabled ? "Yes" : "No",
+        p.warrantyMonths || 0,
         p.price,
         p.costPrice || "0.00",
         p.taxRate,
@@ -2186,6 +2217,156 @@ export async function registerRoutes(
     }
   });
 
+  const productionLineSchema = z.object({
+    productId: z.number().int().positive(),
+    quantity: z.union([z.string(), z.number()]).transform((value) => Number(value)),
+  });
+
+  const productionPostSchema = z.object({
+    branchId: z.number().int().positive().optional().nullable(),
+    reference: z.string().trim().optional().nullable(),
+    notes: z.string().trim().optional().nullable(),
+    inputs: z.array(productionLineSchema).min(1),
+    outputs: z.array(productionLineSchema).min(1),
+  });
+
+  app.post("/api/companies/:companyId/production-runs", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const parsed = productionPostSchema.parse(req.body);
+      const branchId = parsed.branchId || getBranchId(req);
+      const referenceId = parsed.reference?.trim() || `PROD-${Date.now()}`;
+      const notes = parsed.notes?.trim() || "Production run";
+      const aggregateLines = (lines: Array<{ productId: number; quantity: number }>) =>
+        Array.from(
+          lines.reduce((acc, line) => {
+            acc.set(line.productId, (acc.get(line.productId) || 0) + line.quantity);
+            return acc;
+          }, new Map<number, number>()),
+          ([productId, quantity]) => ({ productId, quantity }),
+        );
+      const inputLines = aggregateLines(parsed.inputs);
+      const outputLines = aggregateLines(parsed.outputs);
+
+      const allLines = [...inputLines, ...outputLines];
+      if (allLines.some((line) => !Number.isFinite(line.quantity) || line.quantity <= 0)) {
+        return res.status(400).json({ message: "Production quantities must be greater than zero." });
+      }
+
+      const productIds = Array.from(new Set(allLines.map((line) => line.productId)));
+      const productRows = await db
+        .select()
+        .from(products)
+        .where(and(eq(products.companyId, companyId), inArray(products.id, productIds)));
+      const productMap = new Map(productRows.map((product) => [product.id, product]));
+
+      if (productMap.size !== productIds.length) {
+        return res.status(404).json({ message: "One or more production products were not found." });
+      }
+
+      const branchStockRows = branchId
+        ? await db.select().from(branchStocks).where(eq(branchStocks.branchId, branchId))
+        : [];
+      const branchStockMap = new Map(branchStockRows.map((stock) => [stock.productId, stock]));
+
+      const getAvailableStock = (productId: number) => {
+        if (branchId) return Number(branchStockMap.get(productId)?.stockLevel || 0);
+        return Number(productMap.get(productId)?.stockLevel || 0);
+      };
+
+      const insufficient = inputLines
+        .map((line) => ({
+          ...line,
+          product: productMap.get(line.productId),
+          available: getAvailableStock(line.productId),
+        }))
+        .filter((line) => line.quantity > line.available);
+
+      if (insufficient.length > 0) {
+        return res.status(400).json({
+          message: `Insufficient input stock for ${insufficient[0].product?.name || "selected product"}. Available: ${insufficient[0].available}`,
+        });
+      }
+
+      await db.transaction(async (tx) => {
+        const updateStock = async (productId: number, delta: number) => {
+          const product = productMap.get(productId)!;
+          const currentGlobal = Number(product.stockLevel || 0);
+          const nextGlobal = currentGlobal + delta;
+          await tx
+            .update(products)
+            .set({ stockLevel: nextGlobal.toString() })
+            .where(eq(products.id, productId));
+          productMap.set(productId, { ...product, stockLevel: nextGlobal.toString() });
+
+          if (branchId) {
+            const currentBranchStock = branchStockMap.get(productId);
+            const currentBranch = Number(currentBranchStock?.stockLevel || 0);
+            const nextBranch = currentBranch + delta;
+            await tx
+              .insert(branchStocks)
+              .values({
+                branchId,
+                productId,
+                stockLevel: nextBranch.toString(),
+              })
+              .onConflictDoUpdate({
+                target: [branchStocks.branchId, branchStocks.productId],
+                set: { stockLevel: nextBranch.toString() },
+              });
+            branchStockMap.set(productId, {
+              ...(currentBranchStock || { id: 0, branchId, productId, lowStockThreshold: "10" }),
+              stockLevel: nextBranch.toString(),
+            } as any);
+          }
+        };
+
+        for (const line of inputLines) {
+          const product = productMap.get(line.productId)!;
+          const unitCost = Number(product.costPrice || 0);
+          await updateStock(line.productId, -line.quantity);
+          await tx.insert(inventoryTransactions).values({
+            companyId,
+            branchId: branchId || null,
+            productId: line.productId,
+            type: "PRODUCTION_OUT",
+            quantity: (-line.quantity).toString(),
+            unitCost: unitCost.toString(),
+            totalCost: (-line.quantity * unitCost).toString(),
+            referenceType: "PRODUCTION",
+            referenceId,
+            notes: `${notes} - input consumed`,
+            createdBy: (req.user as any).id,
+          });
+        }
+
+        for (const line of outputLines) {
+          const product = productMap.get(line.productId)!;
+          const unitCost = Number(product.costPrice || 0);
+          await updateStock(line.productId, line.quantity);
+          await tx.insert(inventoryTransactions).values({
+            companyId,
+            branchId: branchId || null,
+            productId: line.productId,
+            type: "PRODUCTION_IN",
+            quantity: line.quantity.toString(),
+            unitCost: unitCost.toString(),
+            totalCost: (line.quantity * unitCost).toString(),
+            referenceType: "PRODUCTION",
+            referenceId,
+            notes: `${notes} - output produced`,
+            createdBy: (req.user as any).id,
+          });
+        }
+      });
+
+      res.status(201).json({ message: "Production run posted successfully", referenceId });
+    } catch (error: any) {
+      console.error("[Production]", error);
+      res.status(400).json({ message: error.message || "Failed to post production run" });
+    }
+  });
+
   // ============================================================================
   // API KEY MANAGEMENT ENDPOINTS
   // ============================================================================
@@ -3194,8 +3375,9 @@ export async function registerRoutes(
       if (lastError) {
         console.error(`[CloseDay] ✗ All ${maxRetries} attempts failed for fiscal day ${fiscalDayNo}`);
 
-        // Update company state to reflect failed closure
+        // Preserve the open day and its dailyReceiptCount so closure can be retried.
         await storage.updateCompany(companyId, {
+          fiscalDayOpen: true,
           lastFiscalDayStatus: 'FiscalDayCloseFailed'
         });
 
@@ -3246,8 +3428,9 @@ export async function registerRoutes(
         if (status.fiscalDayStatus === 'FiscalDayCloseFailed') {
           console.error(`[CloseDay] ✗ ZIMRA reported FiscalDayCloseFailed even after API returned success.`);
 
-          // Update local state to reflect failure
+          // Preserve the open day and its dailyReceiptCount so closure can be retried.
           await storage.updateCompany(companyId, {
+            fiscalDayOpen: true,
             lastFiscalDayStatus: 'FiscalDayCloseFailed'
           });
 
@@ -3277,7 +3460,7 @@ export async function registerRoutes(
       }
 
       // Success! Update company state
-      +console.log(`[CloseDay] Updating company state after successful verified closure`);
+      console.log(`[CloseDay] Updating company state after successful verified closure`);
 
       await storage.updateCompany(companyId, {
         fiscalDayOpen: false,
@@ -3314,6 +3497,7 @@ export async function registerRoutes(
       // Try to update status even if there's an unexpected error
       try {
         await storage.updateCompany(companyId, {
+          fiscalDayOpen: true,
           lastFiscalDayStatus: 'FiscalDayCloseFailed'
         });
       } catch (updateErr) {
@@ -3984,6 +4168,7 @@ export async function registerRoutes(
         } else {
           console.warn(`[ZIMRA] CloseDay returned status: ${result.fiscalDayStatus}. Local counters preserved.`);
           await storage.updateCompany(companyId, {
+            fiscalDayOpen: true,
             lastFiscalDayStatus: result.fiscalDayStatus || 'FiscalDayCloseFailed'
           });
         }
@@ -4344,12 +4529,20 @@ export async function registerRoutes(
   app.post("/api/companies/:companyId/supplier-invoices", requireAuth, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
-      const input = insertSupplierInvoiceSchema.parse(req.body);
+      const body = {
+        ...req.body,
+        date: req.body.date ? new Date(req.body.date) : undefined,
+        dueDate: req.body.dueDate ? new Date(req.body.dueDate) : undefined,
+      };
+      const input = insertSupplierInvoiceSchema.parse(body);
       
       const invoice = await storage.createSupplierInvoice({
         ...input,
         companyId,
-        items: req.body.items || [],
+        items: (req.body.items || []).map((item: any) => ({
+          ...item,
+          description: item.description || "Supplier bill line",
+        })),
         createdBy: (req.user as any)?.id
       });
       res.status(201).json(invoice);
@@ -4783,7 +4976,8 @@ export async function registerRoutes(
           errors: [] as string[]
         };
 
-        for (const [index, row] of records.entries()) {
+        for (const [index, rowRaw] of records.entries()) {
+          const row = rowRaw as Record<string, any>;
           try {
             // Map CSV columns to Schema
             // Expected: Name,Description,SKU,Price,Tax Rate,Type,Stock,HS Code,Category,Track Inventory
@@ -4812,6 +5006,13 @@ export async function registerRoutes(
               hsCode: row["HS Code"] || "0000.00.00",
               category: row["Category"] || "General",
               ownerGroup: row["Cost Center"] || row["Cost Centre"] || row["Owner Group"] || row["Owner"] || null,
+              brandName: row["Brand"] || row["Brand Name"] || undefined,
+              oemPartNumber: row["OEM Part No"] || row["OEM Part Number"] || row["OEM"] || undefined,
+              supplierPartNumber: row["Supplier Part No"] || row["Supplier Part Number"] || row["Supplier Code"] || undefined,
+              fitmentNotes: row["Vehicle Fitment"] || row["Fitment"] || row["Compatible Vehicles"] || undefined,
+              serialTrackingEnabled: String(row["Serial Tracking"] || "").toLowerCase() === "yes",
+              warrantyTrackingEnabled: Number(row["Warranty Months"] || 0) > 0,
+              warrantyMonths: Number(row["Warranty Months"] || 0),
               isTracked: isTracked
             });
 
@@ -4857,6 +5058,117 @@ export async function registerRoutes(
     } catch (err) {
       console.error(err);
       res.status(500).json({ message: "Failed to update product" });
+    }
+  });
+
+  app.get("/api/companies/:companyId/product-serials", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const productId = req.query.productId ? Number(req.query.productId) : undefined;
+      const status = req.query.status ? String(req.query.status) : undefined;
+      const serials = await storage.getProductSerialNumbers(companyId, productId, status);
+      res.json(serials);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Failed to fetch serial numbers" });
+    }
+  });
+
+  app.post("/api/companies/:companyId/product-serials", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const rows = Array.isArray(req.body) ? req.body : [req.body];
+      const serials = rows.map((row) => insertProductSerialNumberSchema.parse({
+        ...row,
+        companyId,
+        branchId: row.branchId ?? getBranchId(req) ?? undefined,
+      }));
+      const created = await storage.createProductSerialNumbers(serials as any);
+      res.status(201).json(created);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message || "Failed to create serial numbers" });
+    }
+  });
+
+  app.patch("/api/companies/:companyId/product-serials/:id", requireAuth, async (req, res) => {
+    try {
+      const updated = await storage.updateProductSerialNumber(Number(req.params.id), Number(req.params.companyId), req.body);
+      res.json(updated);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message || "Failed to update serial number" });
+    }
+  });
+
+  app.get("/api/companies/:companyId/warranty-claims", requireAuth, async (req, res) => {
+    try {
+      const claims = await storage.getWarrantyClaims(Number(req.params.companyId));
+      res.json(claims);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Failed to fetch warranty claims" });
+    }
+  });
+
+  app.post("/api/companies/:companyId/warranty-claims", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const input = insertWarrantyClaimSchema.parse({
+        ...req.body,
+        companyId,
+        branchId: req.body.branchId ?? getBranchId(req) ?? undefined,
+        createdBy: (req.user as any)?.id,
+      });
+      const claim = await storage.createWarrantyClaim(input as any);
+      res.status(201).json(claim);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message || "Failed to create warranty claim" });
+    }
+  });
+
+  app.patch("/api/companies/:companyId/warranty-claims/:id", requireAuth, async (req, res) => {
+    try {
+      const claim = await storage.updateWarrantyClaim(Number(req.params.id), Number(req.params.companyId), req.body);
+      res.json(claim);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message || "Failed to update warranty claim" });
+    }
+  });
+
+  app.get("/api/companies/:companyId/laybys", requireAuth, async (req, res) => {
+    try {
+      const laybyRows = await storage.getLaybys(Number(req.params.companyId));
+      res.json(laybyRows);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Failed to fetch lay-bys" });
+    }
+  });
+
+  app.post("/api/companies/:companyId/laybys", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const input = insertLaybySchema.extend({ items: z.array(insertLaybyItemSchema).min(1) }).parse({
+        ...req.body,
+        companyId,
+        branchId: req.body.branchId ?? getBranchId(req) ?? undefined,
+        createdBy: (req.user as any)?.id,
+      });
+      const layby = await storage.createLayby(companyId, input as any);
+      res.status(201).json(layby);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message || "Failed to create lay-by" });
+    }
+  });
+
+  app.post("/api/companies/:companyId/laybys/:id/payments", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const input = insertLaybyPaymentSchema.parse(req.body);
+      const payment = await storage.addLaybyPayment(Number(req.params.id), companyId, {
+        ...input,
+        branchId: getBranchId(req),
+        createdBy: (req.user as any)?.id,
+      } as any);
+      res.status(201).json(payment);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message || "Failed to add lay-by payment" });
     }
   });
 
@@ -5163,12 +5475,13 @@ export async function registerRoutes(
             companyId: invoice.companyId,
             invoiceId: invoice.id,
             amount: invoice.total.toString(),
-            currency: invoice.currency,
+            currency: invoice.currency || input.currency || "USD",
             paymentMethod: invoice.paymentMethod || "CASH",
             paymentDate: new Date(),
             createdBy: userId,
             exchangeRate: invoice.exchangeRate?.toString() || "1.000000",
-          });
+            skipLedger: true,
+          } as any);
           invoice.status = "paid";
           markPerf("payment_recorded");
         } catch (payErr) {
@@ -6909,7 +7222,7 @@ export async function registerRoutes(
       
       const rows = [
         { "Category": "Revenue", "Amount": data.revenue },
-        { "Category": "Cost of Goods Sold", "Amount": -data.cogs },
+        { "Category": "Cost of Sales", "Amount": -data.cogs },
         { "Category": "Gross Profit", "Amount": data.grossProfit },
         { "Category": "Total Expenses", "Amount": -data.expenses },
         { "Category": "Net Profit", "Amount": data.netProfit },
@@ -7879,31 +8192,42 @@ export async function registerRoutes(
 
   // --- ACCOUNTING ROUTES ---
 
-  app.get("/api/accounting/accounts", requireAuth, async (req: any, res: any) => {
+  const resolveAccountingCompanyId = (req: any): number | null => {
+    const rawCompanyId = req.params?.companyId ?? req.query?.companyId ?? req.body?.companyId ?? req.headers?.["x-company-id"] ?? req.user?.companyId;
+    const companyId = Number(rawCompanyId);
+    return Number.isFinite(companyId) && companyId > 0 ? companyId : null;
+  };
+
+  const listAccountingAccounts = async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const accs = await storage.getAccounts(companyId);
       res.json(accs);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
-  });
+  };
 
-  app.post("/api/accounting/accounts", requireAuth, async (req: any, res: any) => {
+  const createAccountingAccount = async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const account = await storage.createAccount({ ...req.body, companyId });
       res.json(account);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
-  });
+  };
+
+  app.get("/api/accounting/accounts", requireAuth, listAccountingAccounts);
+  app.post("/api/accounting/accounts", requireAuth, createAccountingAccount);
+  app.get("/api/companies/:companyId/accounting/accounts", requireAuth, listAccountingAccounts);
+  app.post("/api/companies/:companyId/accounting/accounts", requireAuth, createAccountingAccount);
 
   app.get("/api/accounting/journal", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       
       const { from, to } = req.query;
@@ -7917,31 +8241,75 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/accounting/journal", requireAuth, async (req: any, res: any) => {
+  app.get("/api/accounting/journal-drafts", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
-      
-      const entry = await storage.postToLedger(companyId, {
-        ...req.body,
-        createdBy: req.user?.displayName || req.user?.username
-      });
-      res.json(entry);
+
+      const drafts = await storage.getJournalEntryDrafts(companyId);
+      res.json(drafts);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
   });
 
+  app.post("/api/accounting/journal-drafts", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+
+      const draft = await storage.createJournalEntryDraft(companyId, {
+        ...req.body,
+        createdBy: req.user?.id,
+      });
+      res.json(draft);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/journal-drafts/:id/post", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+
+      const entry = await storage.postJournalEntryDraft(companyId, Number(req.params.id), req.user?.id);
+      res.json(entry);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/journal", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      
+      const entry = await storage.postToLedger(companyId, {
+        ...req.body,
+        createdBy: req.user?.id
+      });
+      res.json(entry);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
   app.get("/api/accounting/trial-balance", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       
       const { date } = req.query;
       const asOfDate = date ? new Date(date as string) : undefined;
       
-      const report = await storage.getTrialBalance(companyId, asOfDate);
-      res.json(report);
+      const lines = await storage.getTrialBalance(companyId, asOfDate);
+      res.json({
+        asOfDate: asOfDate || new Date(),
+        lines,
+        totalDebit: lines.reduce((sum: number, line: any) => sum + Number(line.debit || 0), 0),
+        totalCredit: lines.reduce((sum: number, line: any) => sum + Number(line.credit || 0), 0)
+      });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -7949,7 +8317,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/ledger", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       
       const { accountId, from, to } = req.query;
@@ -7966,14 +8334,14 @@ export async function registerRoutes(
 
   app.post("/api/accounting/transfer", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       
       const { fromAccountId, toAccountId, amount, reference, date, notes } = req.body;
       
       // We need to fetch account codes for the IDs provided
-      const [fromAcc] = await storage.getAccountById(Number(fromAccountId));
-      const [toAcc] = await storage.getAccountById(Number(toAccountId));
+      const fromAcc = await storage.getAccountById(Number(fromAccountId));
+      const toAcc = await storage.getAccountById(Number(toAccountId));
 
       if (!fromAcc || !toAcc) throw new Error("Source or destination account not found");
 
@@ -7986,7 +8354,7 @@ export async function registerRoutes(
           { accountCode: fromAcc.code, type: 'CREDIT', amount: Number(amount) },
           { accountCode: toAcc.code, type: 'DEBIT', amount: Number(amount) }
         ],
-        createdBy: req.user?.displayName || req.user?.username
+        createdBy: req.user?.id
       });
       res.json(entry);
     } catch (err: any) {
@@ -7996,7 +8364,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/reports/ar-aging", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const asOfDate = req.query.date ? new Date(req.query.date as string) : new Date();
       const report = await storage.getARAgingReport(companyId, asOfDate);
@@ -8008,7 +8376,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/reports/ap-aging", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const asOfDate = req.query.date ? new Date(req.query.date as string) : new Date();
       const report = await storage.getAPAgingReport(companyId, asOfDate);
@@ -8020,7 +8388,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/reports/cost-centers", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const startDate = req.query.from ? new Date(req.query.from as string) : undefined;
       const endDate = req.query.to ? new Date(req.query.to as string) : undefined;
@@ -8033,18 +8401,25 @@ export async function registerRoutes(
 
   app.get("/api/accounting/reports/balance-sheet", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const asOfDate = req.query.date ? new Date(req.query.date as string) : new Date();
       
       // Use trial balance as the base data
       const tb = await storage.getTrialBalance(companyId, asOfDate);
       
-      const assets = tb.filter(a => a.type === 'ASSET');
-      const liabilities = tb.filter(a => a.type === 'LIABILITY');
-      const equity = tb.filter(a => a.type === 'EQUITY');
-      const revenue = tb.filter(a => a.type === 'REVENUE');
-      const expenses = tb.filter(a => a.type === 'EXPENSE');
+      const reportLines = tb.map((line: any) => ({
+        ...line,
+        id: line.accountId,
+        code: line.accountCode,
+        name: line.accountName,
+        type: line.accountType,
+      }));
+      const assets = reportLines.filter(a => a.type === 'ASSET');
+      const liabilities = reportLines.filter(a => a.type === 'LIABILITY');
+      const equity = reportLines.filter(a => a.type === 'EQUITY');
+      const revenue = reportLines.filter(a => a.type === 'REVENUE');
+      const expenses = reportLines.filter(a => a.type === 'EXPENSE');
 
       const totalAssets = assets.reduce((sum, a) => sum + Number(a.balance), 0);
       const totalLiabilities = liabilities.reduce((sum, a) => sum + Number(a.balance), 0);
@@ -8071,7 +8446,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/reports/cash-flow", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       
       const startDate = req.query.from ? new Date(req.query.from as string) : undefined;
@@ -8087,18 +8462,18 @@ export async function registerRoutes(
       const entriesProms = cashAccountIds.map(id => storage.getLedgerEntries(companyId, id, startDate, endDate));
       const entriesArrays = await Promise.all(entriesProms);
       
-      const allEntries = entriesArrays.flat().sort((a, b) => new Date(a.journal_entries.date).getTime() - new Date(b.journal_entries.date).getTime());
+      const allEntries = entriesArrays.flat().sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
       
       // Group by money in / money out
-      const inflows = allEntries.filter(e => Number(e.debit) > 0); // debiting cash = money in
-      const outflows = allEntries.filter(e => Number(e.credit) > 0); // crediting cash = money out
+      const inflows = allEntries.filter(e => e.type === "DEBIT"); // debiting cash = money in
+      const outflows = allEntries.filter(e => e.type === "CREDIT"); // crediting cash = money out
       
       res.json({
         startDate,
         endDate,
         inflows,
         outflows,
-        netCashFlow: inflows.reduce((s, e) => s + Number(e.debit), 0) - outflows.reduce((s, e) => s + Number(e.credit), 0)
+        netCashFlow: inflows.reduce((s, e) => s + Number(e.amount), 0) - outflows.reduce((s, e) => s + Number(e.amount), 0)
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -8107,7 +8482,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/fixed-assets", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const assets = await storage.getFixedAssets(companyId);
       res.json(assets);
@@ -8118,7 +8493,7 @@ export async function registerRoutes(
 
   app.post("/api/accounting/fixed-assets", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       
       const payload = { ...req.body, companyId };
@@ -8131,7 +8506,7 @@ export async function registerRoutes(
 
   app.post("/api/accounting/fixed-assets/depreciate", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       
       const asOfDate = req.body.date ? new Date(req.body.date) : new Date();
@@ -8147,7 +8522,7 @@ export async function registerRoutes(
   // Financial Periods
   app.get("/api/accounting/periods", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const periods = await storage.getFinancialPeriods(companyId);
       res.json(periods);
@@ -8158,14 +8533,26 @@ export async function registerRoutes(
 
   app.post("/api/accounting/periods", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
-      
-      const payload = { ...req.body, companyId };
+
+      const startDate = req.body.startDate ? new Date(req.body.startDate) : null;
+      const endDate = req.body.endDate ? new Date(req.body.endDate) : null;
+      if (!req.body.name || !startDate || !endDate || Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+        return res.status(400).json({ message: "Period name, start date, and end date are required" });
+      }
+
+      const payload = {
+        name: String(req.body.name).trim(),
+        startDate,
+        endDate,
+        status: req.body.status || "OPEN",
+        companyId,
+      };
       const period = await storage.createFinancialPeriod(payload);
       res.json(period);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      res.status(400).json({ message: err.message });
     }
   });
 
@@ -8181,7 +8568,7 @@ export async function registerRoutes(
 
   app.post("/api/accounting/periods/year-end-close", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company selected" });
       await storage.runYearEndClose(companyId, new Date(req.body.asOfDate));
       res.json({ success: true, message: "Year-End closing sweep completed." });
@@ -8193,7 +8580,7 @@ export async function registerRoutes(
   // VAT Return
   app.get("/api/accounting/reports/vat-return", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       
       const { startDate, endDate } = req.query;
@@ -8210,7 +8597,7 @@ export async function registerRoutes(
   // Debtor/Creditor Analysis
   app.get("/api/accounting/reports/debtors/:id", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const analysis = await storage.getDebtorAnalysis(companyId, Number(req.params.id));
       res.json(analysis);
@@ -8221,7 +8608,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/reports/creditors/:id", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const analysis = await storage.getCreditorAnalysis(companyId, Number(req.params.id));
       res.json(analysis);
@@ -8233,7 +8620,7 @@ export async function registerRoutes(
   // Bank Reconciliation
   app.post("/api/accounting/reconciliation/statements", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       
       const { statementDate, closingBalance, accountId, lines } = req.body;
@@ -8252,7 +8639,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/reconciliation/statements", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const { accountId } = req.query;
       const stmts = await storage.getBankStatements(companyId, accountId ? Number(accountId) : undefined);
@@ -8273,7 +8660,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/reconciliation/ledger", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const { accountId } = req.query;
       const entries = await storage.getUnreconciledLedger(companyId, Number(accountId));

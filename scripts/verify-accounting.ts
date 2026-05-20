@@ -17,8 +17,7 @@ async function verifyAccounting() {
       phone: "0771234567",
       email: "test@example.com",
       tin: Math.floor(Math.random() * 10000000000).toString().padStart(10, '0'),
-      currency: "USD",
-      isTest: true
+      currency: "USD"
     }).returning();
     console.log(`✅ Created Test Company: ${testCompany.name} (ID: ${testCompany.id})`);
 
@@ -41,7 +40,7 @@ async function verifyAccounting() {
 
     // 4. Test Cash Transaction (RECEIPT)
     const bankAcc = companyAccounts.find(a => a.code === "1010"); // Bank USD
-    const interestIncAcc = companyAccounts.find(a => a.code === "4200"); // Interest Income
+    const interestIncAcc = companyAccounts.find(a => a.code === "4200"); // Finance Income
     
     if (bankAcc && interestIncAcc) {
       await storage.createCashTransaction({
@@ -51,9 +50,9 @@ async function verifyAccounting() {
         counterpartyAccountId: interestIncAcc.id,
         amount: 150.50,
         date: new Date(),
-        description: "Test Interest Income Receipt"
+        description: "Test Finance Income Receipt"
       });
-      console.log("✅ Created Cash Receipt (Interest Income).");
+      console.log("✅ Created Cash Receipt (Finance Income).");
     }
 
     // 5. Verify Trial Balance

@@ -173,7 +173,7 @@ export default function InvoiceDetailsPage() {
       <div className="flex gap-4">
 
         {/* ── LEFT: invoice list ── */}
-        <div className="sticky top-[88px] flex h-[calc(100vh-96px)] w-[380px] shrink-0 flex-col overflow-hidden rounded-[14px] border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+        <div className="sticky top-[88px] hidden h-[calc(100vh-96px)] w-[380px] shrink-0 flex-col overflow-hidden rounded-[14px] border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] 2xl:flex">
           {/* List header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 shrink-0">
             <span className="text-sm font-black text-slate-800 uppercase tracking-tight">Invoices</span>
@@ -299,7 +299,7 @@ export default function InvoiceDetailsPage() {
         </div>
 
         {/* ── RIGHT: invoice preview ── */}
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[14px] border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+        <div className="flex min-h-[calc(100vh-104px)] min-w-0 flex-1 flex-col overflow-hidden rounded-[14px] border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
           {isLoading ? (
             <div className="flex items-center justify-center h-full"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
           ) : !invoice ? (
@@ -402,23 +402,25 @@ export default function InvoiceDetailsPage() {
                 </div>
               )}
 
-              {/* PDF viewer — blob URL in plain iframe, page scroll handles everything */}
-              <div className="bg-slate-100">
+              {/* PDF viewer */}
+              <div className="min-h-0 flex-1 bg-slate-100">
                 {canPreview ? (
                   pdfGenerating || !pdfBlobUrl ? (
-                    <div className="flex items-center justify-center h-64 gap-2 text-slate-400">
+                    <div className="flex h-full min-h-64 items-center justify-center gap-2 text-slate-400">
                       <Loader2 className="w-5 h-5 animate-spin" /> Generating preview...
                     </div>
                   ) : (
                     <iframe
-                      src={pdfBlobUrl}
+                      src={`${pdfBlobUrl}#toolbar=0&navpanes=0&scrollbar=0&view=Fit`}
                       title="Invoice Preview"
                       width="100%"
-                      style={{ height: "1400px", border: "none", display: "block" }}
+                      height="100%"
+                      className="h-full min-h-[calc(100vh-188px)]"
+                      style={{ border: "none", display: "block" }}
                     />
                   )
                 ) : (
-                  <div className="flex items-center justify-center h-64 gap-2 text-slate-400">
+                  <div className="flex h-full min-h-64 items-center justify-center gap-2 text-slate-400">
                     <Loader2 className="w-5 h-5 animate-spin" /> Generating preview...
                   </div>
                 )}

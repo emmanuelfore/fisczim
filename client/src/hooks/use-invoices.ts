@@ -48,18 +48,25 @@ export function useInvoice(id: number) {
   });
 }
 
+type CreateInvoicePayload = CreateInvoiceRequest & {
+  idempotencyKey?: string;
+};
+
 export function useCreateInvoice(companyId: number) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (data: CreateInvoiceRequest) => {
+    mutationFn: async (data: CreateInvoicePayload) => {
       // normalize any Date objects to ISO strings
       const payload: any = { ...data };
       if (payload.issueDate instanceof Date) payload.issueDate = payload.issueDate.toISOString();
       if (payload.dueDate instanceof Date) payload.dueDate = payload.dueDate.toISOString();
+      const idempotencyKey = payload.idempotencyKey;
+      delete payload.idempotencyKey;
 
       const url = buildUrl(api.invoices.create.path, { companyId });
       const res = await apiFetch(url, {
         method: "POST",
+        headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
         body: JSON.stringify(payload),
       });
       if (!res.ok) {

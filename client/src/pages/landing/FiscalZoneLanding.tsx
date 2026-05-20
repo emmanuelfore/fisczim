@@ -351,11 +351,28 @@ export default function FiscalZoneLanding() {
         .footer-legal a { font-size:10px; color:var(--muted); text-decoration:none; font-family:'DM Mono',monospace; }
 
         @media(max-width:768px){
-          .nav { padding:0 20px; } .nav-links { display:none; }
+          .nav { padding:0 18px; height:64px; }
+          .nav-links, .nav-cta { display:none; }
+          .nav-logo-txt { font-size:18px; }
+          .hero { min-height:auto; padding-top:96px; padding-bottom:46px; text-align:center; }
+          .eyebrow { justify-content:center; }
+          .hero-sub { margin-left:auto; margin-right:auto; }
+          .hero-actions { justify-content:center; }
+          .btn-hero, .btn-hero-ghost { justify-content:center; }
           .hero,.section,.pos-section,.inv-section,.cta-band { padding-left:5vw; padding-right:5vw; }
           .stats { padding:32px 5vw; }
           .how-grid::before { display:none; }
           footer { padding:40px 5vw 24px; }
+        }
+        @media(max-width:480px){
+          .hero-title { font-size:38px; line-height:0.98; }
+          .hero-actions { flex-direction:column; align-items:stretch; }
+          .btn-hero, .btn-hero-ghost { width:100%; }
+          .hero-badges { justify-content:center; }
+          .stats { grid-template-columns:1fr; text-align:center; }
+          .inv-preview-tabs { flex-wrap:wrap; }
+          .pos-mock, .inv-a4 { padding:18px; }
+          .price-card, .feat-card, .testi-card { padding:26px 22px; }
         }
       `}</style>
 

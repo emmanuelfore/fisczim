@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, buildUrl } from "@shared/routes";
 import { type InventoryTransaction } from "@shared/schema";
 import { apiFetch } from "@/lib/api";
+import { refreshProductQueries } from "@/hooks/use-products";
 
 export function useInventoryTransactions(companyId: number) {
     return useQuery({
@@ -40,7 +41,7 @@ export function useStockIn(companyId: number) {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: [api.inventory.transactions.path, companyId] });
             // Also invalidate products to reflect new stock levels
-            queryClient.invalidateQueries({ queryKey: [api.products.list.path, companyId] });
+            refreshProductQueries(queryClient, companyId);
             queryClient.invalidateQueries({ queryKey: ["grvs", companyId] });
         },
     });
@@ -67,7 +68,7 @@ export function useBatchStockIn(companyId: number) {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: [api.inventory.transactions.path, companyId] });
-            queryClient.invalidateQueries({ queryKey: [api.products.list.path, companyId] });
+            refreshProductQueries(queryClient, companyId);
             queryClient.invalidateQueries({ queryKey: [api.reports.stockValuation.path, companyId] });
             queryClient.invalidateQueries({ queryKey: ["grvs", companyId] });
         },
@@ -79,6 +80,7 @@ export function useInventoryAdjust(companyId: number) {
     return useMutation({
         mutationFn: async (data: {
             productId: number;
+            variationId?: number;
             type: "SHRINKAGE" | "ADJUSTMENT" | "CORRECTION" | "DAMAGE" | "EXPIRY";
             quantity: number | string;
             branchId?: number;
@@ -97,7 +99,7 @@ export function useInventoryAdjust(companyId: number) {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: [api.inventory.transactions.path, companyId] });
-            queryClient.invalidateQueries({ queryKey: [api.products.list.path, companyId] });
+            refreshProductQueries(queryClient, companyId);
             queryClient.invalidateQueries({ queryKey: ["grvs", companyId] });
         },
     });

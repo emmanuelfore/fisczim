@@ -58,6 +58,29 @@ export default function TrialBalancePage() {
     return acc;
   }, {} as Record<string, TrialBalanceLine[]>) || {};
 
+  const handleExport = () => {
+    const rows = [
+      ["Account Code", "Account Name", "Account Type", "Debit", "Credit"],
+      ...(report?.lines || []).map((line) => [
+        line.accountCode,
+        line.accountName,
+        line.accountType,
+        String(line.debit || 0),
+        String(line.credit || 0),
+      ]),
+    ];
+    const csv = rows
+      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `trial-balance-${format(new Date(), "yyyy-MM-dd")}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <Layout>
       <div className="space-y-6">
@@ -84,11 +107,11 @@ export default function TrialBalancePage() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-             <Button variant="outline" className="h-11 px-5 rounded-xl font-bold border-slate-200 hover:bg-slate-50 transition-all flex items-center gap-2">
+             <Button variant="outline" onClick={() => window.print()} className="h-11 px-5 rounded-xl font-bold border-slate-200 hover:bg-slate-50 transition-all flex items-center gap-2">
                <Printer className="h-4 w-4 text-slate-500" />
                <span>Print Report</span>
              </Button>
-             <Button variant="outline" className="h-11 px-5 rounded-xl font-bold border-slate-200 hover:bg-slate-50 transition-all flex items-center gap-2">
+             <Button variant="outline" onClick={handleExport} disabled={!report?.lines?.length} className="h-11 px-5 rounded-xl font-bold border-slate-200 hover:bg-slate-50 transition-all flex items-center gap-2">
                <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
                <span>Export Excel</span>
              </Button>

@@ -72,7 +72,7 @@ export function CreateProductDialog({ companyId, defaultType = "good", triggerLa
                 .map((p: any) => (typeof p.ownerGroup === "string" ? p.ownerGroup.trim() : ""))
                 .filter((v: string) => v.length > 0)
         )
-    ).sort((a, b) => a.localeCompare(b));
+    ).sort((a, b) => String(a).localeCompare(String(b))) as string[];
 
     const form = useForm<InsertProduct>({
         resolver: zodResolver(insertProductSchema),
@@ -88,6 +88,13 @@ export function CreateProductDialog({ companyId, defaultType = "good", triggerLa
             costPrice: "0.00",
             taxRate: "15.00",
             taxCategoryId: undefined, // Will be set by select
+            brandName: "",
+            oemPartNumber: "",
+            supplierPartNumber: "",
+            fitmentNotes: "",
+            serialTrackingEnabled: false,
+            warrantyTrackingEnabled: false,
+            warrantyMonths: 0,
             isActive: true,
             isTracked: defaultType === "good",
             stockLevel: "0",
@@ -267,7 +274,7 @@ export function CreateProductDialog({ companyId, defaultType = "good", triggerLa
                             )}
                         />
 
-                        {/* Restaurant & BOM Flags */}
+                        {/* Recipe / source deduction flags */}
                         {!isService && (
                             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                                 <FormField
@@ -276,8 +283,8 @@ export function CreateProductDialog({ companyId, defaultType = "good", triggerLa
                                     render={({ field }) => (
                                         <FormItem className="flex flex-row items-center justify-between rounded-xl border border-dashed border-amber-200 p-3 bg-amber-50/30">
                                             <div className="space-y-0.5">
-                                                <FormLabel className="text-xs font-bold text-amber-900">Is Ingredient</FormLabel>
-                                                <FormDescription className="text-[10px]">Used in other recipes</FormDescription>
+                                                <FormLabel className="text-xs font-bold text-amber-900">Ingredient / Source Stock</FormLabel>
+                                                <FormDescription className="text-[10px]">Can be used in recipes, bundles, or meat cuts</FormDescription>
                                             </div>
                                             <FormControl>
                                                 <Switch
@@ -294,8 +301,8 @@ export function CreateProductDialog({ companyId, defaultType = "good", triggerLa
                                     render={({ field }) => (
                                         <FormItem className="flex flex-row items-center justify-between rounded-xl border border-dashed border-indigo-200 p-3 bg-indigo-50/30">
                                             <div className="space-y-0.5">
-                                                <FormLabel className="text-xs font-bold text-indigo-900">Has Recipe (BOM)</FormLabel>
-                                                <FormDescription className="text-[10px]">Ingredients deduct on sale</FormDescription>
+                                                <FormLabel className="text-xs font-bold text-indigo-900">Has Recipe / BOM</FormLabel>
+                                                <FormDescription className="text-[10px]">Deduct ingredients or source stock when sold</FormDescription>
                                             </div>
                                             <FormControl>
                                                 <Switch
@@ -322,6 +329,105 @@ export function CreateProductDialog({ companyId, defaultType = "good", triggerLa
                                 </FormItem>
                             )}
                         />
+
+                        {!isService && (
+                            <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-5 space-y-4">
+                                <h4 className="text-sm font-bold text-slate-800">Product Details</h4>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <FormField
+                                        control={form.control}
+                                        name="brandName"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel className="text-slate-700 font-semibold">Brand / Manufacturer</FormLabel>
+                                                <FormControl>
+                                                    <Input placeholder="e.g. Samsung, Dairibord, Willard" value={field.value || ""} onChange={field.onChange} className="rounded-xl bg-white border-slate-200" />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                    <FormField
+                                        control={form.control}
+                                        name="oemPartNumber"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel className="text-slate-700 font-semibold">Item / Model Code</FormLabel>
+                                                <FormControl>
+                                                    <Input placeholder="Internal, model, or manufacturer code" value={field.value || ""} onChange={field.onChange} className="rounded-xl bg-white border-slate-200 font-mono" />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                    <FormField
+                                        control={form.control}
+                                        name="supplierPartNumber"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel className="text-slate-700 font-semibold">Supplier Code</FormLabel>
+                                                <FormControl>
+                                                    <Input placeholder="Supplier SKU, catalogue code, or reference" value={field.value || ""} onChange={field.onChange} className="rounded-xl bg-white border-slate-200 font-mono" />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                </div>
+                                <FormField
+                                    control={form.control}
+                                    name="fitmentNotes"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel className="text-slate-700 font-semibold">Compatibility / Usage Notes</FormLabel>
+                                            <FormControl>
+                                                <Textarea placeholder="e.g. compatible models, sizes, ingredients, pack details, or usage notes" value={field.value || ""} onChange={field.onChange} className="resize-none rounded-xl bg-white border-slate-200" />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <FormField
+                                        control={form.control}
+                                        name="serialTrackingEnabled"
+                                        render={({ field }) => (
+                                            <FormItem className="flex items-center justify-between rounded-xl bg-white border border-slate-200 p-3">
+                                                <FormLabel className="text-xs font-bold text-slate-700">Serial / Batch Tracking</FormLabel>
+                                                <FormControl>
+                                                    <Switch checked={!!field.value} onCheckedChange={field.onChange} />
+                                                </FormControl>
+                                            </FormItem>
+                                        )}
+                                    />
+                                    <FormField
+                                        control={form.control}
+                                        name="warrantyTrackingEnabled"
+                                        render={({ field }) => (
+                                            <FormItem className="flex items-center justify-between rounded-xl bg-white border border-slate-200 p-3">
+                                                <FormLabel className="text-xs font-bold text-slate-700">Warranty Tracking</FormLabel>
+                                                <FormControl>
+                                                    <Switch checked={!!field.value} onCheckedChange={field.onChange} />
+                                                </FormControl>
+                                            </FormItem>
+                                        )}
+                                    />
+                                    <FormField
+                                        control={form.control}
+                                        name="warrantyMonths"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel className="text-slate-700 font-semibold">Warranty Period (Months)</FormLabel>
+                                                <FormControl>
+                                                    <Input type="number" min="0" value={field.value || 0} onChange={(event) => field.onChange(Number(event.target.value || 0))} className="rounded-xl bg-white border-slate-200" />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                </div>
+                            </div>
+                        )}
 
                         {/* Tax Configuration Section */}
                         <div className="rounded-2xl bg-blue-50/50 p-5 border border-blue-100 space-y-4">

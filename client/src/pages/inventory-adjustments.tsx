@@ -46,6 +46,7 @@ export default function InventoryAdjustmentsPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [drafts, setDrafts] = useState<Record<number, DraftAdjustment>>({});
+  const [batchReason, setBatchReason] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showOnlyChanged, setShowOnlyChanged] = useState(false);
 
@@ -159,6 +160,17 @@ export default function InventoryAdjustmentsPage() {
       return;
     }
 
+    const fallbackReason = batchReason.trim();
+    const rowsWithoutReason = changedItems.filter((item) => item.notes.length < 5 && fallbackReason.length < 5);
+    if (rowsWithoutReason.length > 0) {
+      toast({
+        title: "Reason required",
+        description: "Add a batch reason of at least 5 characters, or add a reason on each changed row.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const results = await Promise.allSettled(
@@ -167,7 +179,7 @@ export default function InventoryAdjustmentsPage() {
             productId: item.productId,
             quantity: item.quantity,
             type: item.type,
-            notes: item.notes || undefined,
+            notes: item.notes.length >= 5 ? item.notes : fallbackReason,
             branchId,
           }),
         ),
@@ -193,6 +205,7 @@ export default function InventoryAdjustmentsPage() {
       }
 
       if (failedCount === 0) {
+        setBatchReason("");
         toast({
           title: "Adjustments saved",
           description: `Successfully committed ${successfulIds.length} stock adjustments.`,
@@ -290,7 +303,7 @@ export default function InventoryAdjustmentsPage() {
                 <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">Type</th>
                 <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px] w-[140px]">New Stock Qty</th>
                 <th className="hidden lg:table-cell p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">Live Diff</th>
-                <th className="hidden xl:table-cell p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">Notes</th>
+                <th className="hidden xl:table-cell p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">Row Reason</th>
               </tr>
             </thead>
             <tbody>
@@ -386,7 +399,7 @@ export default function InventoryAdjustmentsPage() {
 
                     <td className="hidden xl:table-cell p-4">
                       <Input
-                        placeholder="Reason (optional)"
+                        placeholder="Override batch reason"
                         value={rowDraft.notes}
                         onChange={(e) => updateDraft(product.id, { notes: e.target.value })}
                         className="h-9 rounded-xl border-slate-200 bg-white"
@@ -436,11 +449,19 @@ export default function InventoryAdjustmentsPage() {
 
       <div className="sticky bottom-4 z-30 mt-4">
         <div className="rounded-2xl border border-slate-200 bg-white/95 backdrop-blur-xl shadow-xl px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Pending {changedItems.length}</span>
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-              Changed View {showOnlyChanged ? "On" : "Off"}
-            </span>
+          <div className="flex min-w-0 flex-1 flex-col gap-2 lg:flex-row lg:items-center">
+            <div className="flex items-center gap-3">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Pending {changedItems.length}</span>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                Changed View {showOnlyChanged ? "On" : "Off"}
+              </span>
+            </div>
+            <Input
+              value={batchReason}
+              onChange={(event) => setBatchReason(event.target.value)}
+              placeholder="Batch reason required, e.g. monthly stock count"
+              className="h-10 min-w-0 rounded-xl border-slate-200 bg-white text-sm lg:max-w-xl"
+            />
           </div>
           <div className="flex items-center gap-2">
             <Button variant="ghost" onClick={resetDrafts} className="rounded-xl" disabled={isSubmitting || changedItems.length === 0}>

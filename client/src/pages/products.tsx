@@ -1,6 +1,6 @@
 
 import { Layout } from "@/components/layout";
-import { useProducts, useUpdateProduct } from "@/hooks/use-products";
+import { refreshProductQueries, useProducts, useUpdateProduct } from "@/hooks/use-products";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useTaxConfig } from "@/hooks/use-tax-config";
 import { Card, CardContent } from "@/components/ui/card";
@@ -79,7 +79,7 @@ export default function ProductsPage() {
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/companies/:companyId/products", companyId] });
+      refreshProductQueries(queryClient, companyId);
       toast({
         title: "Products Deleted",
         description: "All products have been successfully deleted.",
@@ -215,7 +215,7 @@ export default function ProductsPage() {
             type="product"
             companyId={companyId}
             onSuccess={() => {
-              queryClient.invalidateQueries({ queryKey: ["/api/companies/:companyId/products", companyId] });
+              refreshProductQueries(queryClient, companyId);
             }}
           />
           {companyId > 0 ? (
@@ -470,7 +470,8 @@ export default function ProductsPage() {
                               onConfirm={async () => {
                                 await updateProduct.mutateAsync({
                                   id: p.id,
-                                  data: { isActive: false }
+                                  data: { isActive: false },
+                                  companyId
                                 });
                               }}
                               isDeleting={updateProduct.isPending}

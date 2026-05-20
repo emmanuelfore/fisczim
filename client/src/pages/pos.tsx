@@ -201,6 +201,7 @@ export default function POSPage() {
     const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
     const [paymentMethod, setPaymentMethod] = useState("CASH");
     const [isProcessing, setIsProcessing] = useState(false);
+    const isProcessingRef = useRef(false);
     const [lastSuccessfulInvoice, setLastSuccessfulInvoice] = useState<any>(null);
     const [activeView, setActiveView] = useState<"products" | "cart">("products");
     const [paidAmount, setPaidAmount] = useState<string>("");
@@ -600,7 +601,7 @@ export default function POSPage() {
         const allowOutOfStock = settings?.allowOutOfStockSales ?? false;
 
         // Strict Stock Check
-        if (product && product.isTracked && !allowOutOfStock) {
+        if (product && product.isTracked && !product.hasRecipe && !allowOutOfStock) {
             const inCart = cart.find(item => item.productId === product.id)?.quantity || 0;
             const newTotal = inCart + quantity;
             if (newTotal > Number(product.stockLevel || 0)) {
@@ -840,7 +841,7 @@ export default function POSPage() {
 
                 // Stock Validation
                 const allowOutOfStock = (company?.posSettings as any)?.allowOutOfStockSales ?? false;
-                if (product?.isTracked && !allowOutOfStock && newQty > Number(product.stockLevel)) {
+                if (product?.isTracked && !product.hasRecipe && !allowOutOfStock && newQty > Number(product.stockLevel)) {
                     toast({
                         title: "Limit Reached",
                         description: `Maximum stock for ${product.name} is ${product.stockLevel}`,
@@ -1059,27 +1060,36 @@ export default function POSPage() {
     };
 
     const processOrder = async () => {
+        if (isProcessingRef.current) return;
+        isProcessingRef.current = true;
         let finalCustomerId = selectedCustomerId;
         const settings = company?.posSettings as any;
         if (!finalCustomerId && settings?.defaultCustomerId) {
             finalCustomerId = settings.defaultCustomerId;
         }
 
-        if (!finalCustomerId) return;
+        if (!finalCustomerId) {
+            isProcessingRef.current = false;
+            return;
+        }
         setIsProcessing(true);
         let invoiceData: any = null;
+        const checkoutAttemptId = `pos-${companyId}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
         const sumTendersValue = parseFloat(paidAmount || "0");
-        const sumTenders = (paymentMethod === "CREDIT" || splitPayments.length > 0)
-            ? (splitPayments.length > 0 ? splitPayments.reduce((acc, p) => acc + p.amount, 0) : total)
-            : (sumTendersValue > 0 ? sumTendersValue : total);
+        const isLaybySale = paymentMethod === "LAYBY";
+        const sumTenders = isLaybySale
+            ? sumTendersValue
+            : (paymentMethod === "CREDIT" || splitPayments.length > 0)
+                ? (splitPayments.length > 0 ? splitPayments.reduce((acc, p) => acc + p.amount, 0) : total)
+                : (sumTendersValue > 0 ? sumTendersValue : total);
 
         // CREDIT sales require a real (non-default) customer — no walk-in credit accounts
         const isDefaultCustomer = resolvedCustomers?.find((c: any) => c.id.toString() === finalCustomerId)?.name.toLowerCase().match(/walk-in|guest/);
-        if (paymentMethod === "CREDIT" && isDefaultCustomer) {
+        if ((paymentMethod === "CREDIT" || isLaybySale) && isDefaultCustomer) {
             toast({
                 title: "Customer Required",
-                description: "Credit sales require a named customer account. Please select a customer before proceeding.",
+                description: "Account sales and lay-bys require a named customer. Please select a customer before proceeding.",
                 variant: "destructive"
             });
             setIsProcessing(false);
@@ -1087,7 +1097,7 @@ export default function POSPage() {
         }
 
 
-        if (paymentMethod !== "CREDIT" && sumTenders < total - 0.05) {
+        if (paymentMethod !== "CREDIT" && !isLaybySale && sumTenders < total - 0.05) {
             toast({
                 title: "Insufficient Payment",
                 description: `Received amount is less than total payable (${fmt(total)})`,
@@ -1122,6 +1132,7 @@ export default function POSPage() {
                 splitPayments: splitPayments.length > 0 ? splitPayments : undefined,
                 status: "issued",
                 isPos: true,
+                idempotencyKey: checkoutAttemptId,
                 isFiscalized: isFiscalized,
                 createdBy: user?.id,
                 discountAmount: orderDiscount.toString(),
@@ -1143,6 +1154,61 @@ export default function POSPage() {
             };
 
             // ─── Offline fallback: queue sale locally ────────────────────
+            if (isLaybySale) {
+                if (!isOnline) {
+                    toast({ title: "Online Required", description: "Lay-bys need a live connection so stock and deposits stay in sync.", variant: "destructive" });
+                    return;
+                }
+                const expiryDate = new Date();
+                expiryDate.setDate(expiryDate.getDate() + 90);
+                const laybyRes = await apiFetch(`/api/companies/${companyId}/laybys`, {
+                    method: "POST",
+                    body: JSON.stringify({
+                        customerId: Number(finalCustomerId),
+                        branchId: selectedBranchId,
+                        subtotal: subtotal.toString(),
+                        taxAmount: taxAmount.toString(),
+                        total: total.toString(),
+                        depositRequired: sumTenders.toString(),
+                        currency: currency.code,
+                        expiryDate,
+                        notes: "POS Lay-by",
+                        items: cart.map(item => ({
+                            productId: item.productId,
+                            description: item.name,
+                            quantity: item.quantity.toString(),
+                            unitPrice: item.price.toString(),
+                            taxRate: item.taxRate.toString(),
+                            lineTotal: ((item.price * item.quantity) - item.discountAmount).toString(),
+                        }))
+                    })
+                });
+                if (!laybyRes.ok) {
+                    const error = await laybyRes.json().catch(() => ({ message: "Failed to create lay-by" }));
+                    throw new Error(error.message || "Failed to create lay-by");
+                }
+                const layby = await laybyRes.json();
+                if (sumTenders > 0) {
+                    const paymentRes = await apiFetch(`/api/companies/${companyId}/laybys/${layby.id}/payments`, {
+                        method: "POST",
+                        body: JSON.stringify({
+                            amount: sumTenders.toString(),
+                            currency: currency.code,
+                            paymentMethod: splitPayments.length > 0 ? "SPLIT" : "CASH",
+                            notes: "POS lay-by deposit",
+                        })
+                    });
+                    if (!paymentRes.ok) {
+                        const error = await paymentRes.json().catch(() => ({ message: "Lay-by created but deposit failed" }));
+                        throw new Error(error.message || "Lay-by created but deposit failed");
+                    }
+                }
+                toast({ title: "Lay-by Created", description: `${layby.laybyNumber} saved with ${fmt(sumTenders)} deposit.` });
+                prepareNextSaleImmediately();
+                clearPersistedSession();
+                return;
+            }
+
             if (!isOnline) {
                 const offlineId = await addPendingSale(companyId, invoiceData, selectedBranchId);
                 const offInvoice = {
@@ -1216,6 +1282,7 @@ export default function POSPage() {
                         splitPayments: splitPayments.length > 0 ? splitPayments : undefined,
                         status: "issued",
                         isPos: true,
+                        idempotencyKey: checkoutAttemptId,
                         isFiscalized: isFiscalized,
                         createdBy: user?.id,
                         discountAmount: orderDiscount.toString(),
@@ -1289,6 +1356,7 @@ export default function POSPage() {
                 toast({ title: "Error", description: error.message || "Could not process transaction", variant: "destructive" });
             }
         } finally {
+            isProcessingRef.current = false;
             setIsProcessing(false);
         }
     };
@@ -2084,11 +2152,15 @@ export default function POSPage() {
                                             {item.discountAmount > 0 && (
                                                 <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 px-1 rounded">-{item.discountAmount.toFixed(2)}</span>
                                             )}
-                                            {resolvedProducts?.find((p: any) => p.id === item.productId)?.isTracked && (
-                                                <span className="text-[9px] font-black text-slate-300 bg-slate-50 px-1 rounded uppercase tracking-tighter">
-                                                    Stock: {(resolvedProducts?.find((p: any) => p.id === item.productId)?.stockLevel || 0) - (cart.find(c => c.productId === item.productId)?.quantity || 0)}
-                                                </span>
-                                            )}
+                                            {(() => {
+                                                const cartProduct = resolvedProducts?.find((p: any) => p.id === item.productId);
+                                                if (!cartProduct?.isTracked) return null;
+                                                return (
+                                                    <span className="text-[9px] font-black text-slate-300 bg-slate-50 px-1 rounded uppercase tracking-tighter">
+                                                        {cartProduct.hasRecipe ? "Source stock" : `Stock: ${(cartProduct.stockLevel || 0) - (cart.find(c => c.productId === item.productId)?.quantity || 0)}`}
+                                                    </span>
+                                                );
+                                            })()}
                                         </div>
                                     </div>
 
@@ -2958,11 +3030,14 @@ export default function POSPage() {
                                                         ) : (
                                                             <Package className="h-4 w-4" style={{ color: iconColor }} />
                                                         )}
-                                                        {product.isTracked && Number(product.stockLevel) <= 0 && (
+                                                        {product.isTracked && !product.hasRecipe && Number(product.stockLevel) <= 0 && (
                                                             <div className="absolute top-0.5 right-0.5 bg-red-500 text-[5px] font-black h-2.5 px-1 rounded-sm flex items-center text-white uppercase">OUT</div>
                                                         )}
-                                                        {product.isTracked && Number(product.stockLevel) > 0 && Number(product.stockLevel) <= Number(product.lowStockThreshold) && (
+                                                        {product.isTracked && !product.hasRecipe && Number(product.stockLevel) > 0 && Number(product.stockLevel) <= Number(product.lowStockThreshold) && (
                                                             <div className="absolute top-0.5 right-0.5 bg-amber-500 text-[5px] font-black h-2.5 px-1 rounded-sm flex items-center text-white uppercase">LOW</div>
+                                                        )}
+                                                        {product.isTracked && product.hasRecipe && (
+                                                            <div className="absolute top-0.5 right-0.5 bg-indigo-500 text-[5px] font-black h-2.5 px-1 rounded-sm flex items-center text-white uppercase">SRC</div>
                                                         )}
                                                         <div className="absolute inset-0 bg-primary/20 opacity-0 active:opacity-100 transition-opacity flex items-center justify-center">
                                                             <Plus className="h-4 w-4 text-primary" />
@@ -3001,11 +3076,14 @@ export default function POSPage() {
                                                                     <Package className="h-6 w-6 md:h-8 md:w-8" style={{ color: iconColor }} />
                                                                 </div>
                                                             )}
-                                                            {product.isTracked && Number(product.stockLevel) <= 0 && (
+                                                            {product.isTracked && !product.hasRecipe && Number(product.stockLevel) <= 0 && (
                                                                 <Badge className="absolute top-2 right-2 bg-red-500 text-[8px] font-black h-4 px-1 border-none">OUT</Badge>
                                                             )}
-                                                            {product.isTracked && Number(product.stockLevel) > 0 && Number(product.stockLevel) <= Number(product.lowStockThreshold) && (
+                                                            {product.isTracked && !product.hasRecipe && Number(product.stockLevel) > 0 && Number(product.stockLevel) <= Number(product.lowStockThreshold) && (
                                                                 <Badge className="absolute top-2 right-2 bg-amber-500 text-[8px] font-black h-4 px-1 border-none">LOW</Badge>
+                                                            )}
+                                                            {product.isTracked && product.hasRecipe && (
+                                                                <Badge className="absolute top-2 right-2 bg-indigo-500 text-[8px] font-black h-4 px-1 border-none">SRC</Badge>
                                                             )}
                                                             <div className="absolute inset-0 bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                                                                 <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-lg">
@@ -3031,9 +3109,9 @@ export default function POSPage() {
                                                                 {product.isTracked && (
                                                                     <span className={cn(
                                                                         "text-[8px] md:text-[9px] font-bold",
-                                                                        Number(product.stockLevel) <= Number(product.lowStockThreshold) ? "text-red-500" : "text-slate-400"
+                                                                        product.hasRecipe ? "text-indigo-500" : Number(product.stockLevel) <= Number(product.lowStockThreshold) ? "text-red-500" : "text-slate-400"
                                                                     )}>
-                                                                        {Number(product.stockLevel)}
+                                                                        {product.hasRecipe ? "SRC" : Number(product.stockLevel)}
                                                                     </span>
                                                                 )}
                                                             </div>
@@ -3152,6 +3230,7 @@ export default function POSPage() {
                                             { id: 'CASH', icon: Banknote, label: 'Cash' },
                                             { id: 'CARD', icon: CreditCard, label: 'Card' },
                                             { id: 'CREDIT', icon: FileText, label: 'Credit' },
+                                            { id: 'LAYBY', icon: Receipt, label: 'Lay-by' },
                                             { id: 'ECOCASH', icon: ShoppingBag, label: 'EcoCash' },
                                         ].filter(m => {
                                             const allowed = (company?.posSettings as any)?.allowedPaymentMethods;
@@ -3176,11 +3255,11 @@ export default function POSPage() {
 
                                     {/* Results & Finish Block */}
                                     <div className="space-y-2 sm:space-y-4">
-                                        {paymentMethod === "CREDIT" ? (
+                                        {paymentMethod === "CREDIT" || paymentMethod === "LAYBY" ? (
                                             <div className="flex items-center justify-between px-4 sm:px-6 py-2 sm:py-3 bg-blue-50 rounded-2xl sm:rounded-3xl border border-blue-100 animate-in zoom-in-95">
                                                 <div className="flex flex-col">
-                                                    <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-blue-600">Accounts Receivable</span>
-                                                    <span className="text-[10px] sm:text-xs font-medium text-blue-500">Invoice will stay open until paid</span>
+                                                    <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-blue-600">{paymentMethod === "LAYBY" ? "Lay-by Deposit" : "Accounts Receivable"}</span>
+                                                    <span className="text-[10px] sm:text-xs font-medium text-blue-500">{paymentMethod === "LAYBY" ? "Stock is reserved until final payment" : "Invoice will stay open until paid"}</span>
                                                 </div>
                                                 <FileText className="h-5 w-5 sm:h-6 w-6 text-blue-600 opacity-40" />
                                             </div>
@@ -3212,13 +3291,13 @@ export default function POSPage() {
                                                 Cancel
                                             </Button>
                                             <Button
-                                                disabled={isProcessing || (!paidAmount && splitPayments.length === 0)}
+                                                disabled={isProcessing || (paymentMethod !== "CREDIT" && !paidAmount && splitPayments.length === 0)}
                                                 className="flex-1 h-10 sm:h-12 rounded-2xl sm:rounded-3xl bg-slate-900 hover:bg-black text-white font-black uppercase tracking-[0.1em] sm:tracking-[0.2em] shadow-xl transition-all active:scale-[0.98] group"
                                                 onClick={processOrder}
                                             >
                                                 {isProcessing ? <Loader2 className="h-5 w-5 animate-spin mx-auto" /> : (
                                                     <div className="flex items-center justify-center gap-3">
-                                                        <span>Complete Payment</span>
+                                                        <span>{paymentMethod === "LAYBY" ? "Create Lay-by" : "Complete Payment"}</span>
                                                         <ChevronRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
                                                     </div>
                                                 )}

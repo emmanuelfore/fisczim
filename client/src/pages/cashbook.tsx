@@ -15,6 +15,9 @@ import { Label } from "@/components/ui/label";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
+const debitAmount = (entry: any) => entry.type === "DEBIT" ? Number(entry.amount) : 0;
+const creditAmount = (entry: any) => entry.type === "CREDIT" ? Number(entry.amount) : 0;
+
 export default function CashbookPage() {
   const [selectedAccountId, setSelectedAccountId] = useState<string>("all");
   const [isTransferOpen, setIsTransferOpen] = useState(false);
@@ -64,7 +67,7 @@ export default function CashbookPage() {
   let runningBalance = 0;
   const entriesWithBalance = selectedAccountId !== "all" ? ledgerEntries?.map(entry => {
     // Debit increases asset (cash in), Credit decreases asset (cash out)
-    const amountChange = Number(entry.debit) - Number(entry.credit);
+    const amountChange = debitAmount(entry) - creditAmount(entry);
     runningBalance += amountChange;
     return { ...entry, runningBalance };
   }) : ledgerEntries;
@@ -175,7 +178,7 @@ export default function CashbookPage() {
                 <p className="text-sm font-bold text-slate-500 uppercase">Money In</p>
               </div>
               <p className="text-3xl font-black text-slate-900 mt-4">
-                {formatCurrency(entriesWithBalance?.reduce((acc, curr) => acc + Number(curr.debit), 0) || 0)}
+                {formatCurrency(entriesWithBalance?.reduce((acc, curr) => acc + debitAmount(curr), 0) || 0)}
               </p>
             </CardContent>
           </Card>
@@ -188,7 +191,7 @@ export default function CashbookPage() {
                 <p className="text-sm font-bold text-slate-500 uppercase">Money Out</p>
               </div>
               <p className="text-3xl font-black text-slate-900 mt-4">
-                {formatCurrency(entriesWithBalance?.reduce((acc, curr) => acc + Number(curr.credit), 0) || 0)}
+                {formatCurrency(entriesWithBalance?.reduce((acc, curr) => acc + creditAmount(curr), 0) || 0)}
               </p>
             </CardContent>
           </Card>
@@ -201,7 +204,7 @@ export default function CashbookPage() {
                 <p className="text-sm font-bold text-primary-foreground/80 uppercase">Net Balance</p>
               </div>
               <p className="text-3xl font-black text-white mt-4">
-                {formatCurrency(entriesWithBalance?.reduce((acc, curr) => acc + (Number(curr.debit) - Number(curr.credit)), 0) || 0)}
+                {formatCurrency(entriesWithBalance?.reduce((acc, curr) => acc + (debitAmount(curr) - creditAmount(curr)), 0) || 0)}
               </p>
             </CardContent>
           </Card>
@@ -241,15 +244,15 @@ export default function CashbookPage() {
                   entriesWithBalance?.map((entry, index) => (
                     <TableRow key={index} className="hover:bg-slate-50 border-slate-100">
                       <TableCell className="pl-6 text-sm font-medium text-slate-600">
-                        {format(new Date(entry.journal_entries.date), "dd MMM yyyy")}
+                        {format(new Date(entry.date), "dd MMM yyyy")}
                       </TableCell>
-                      <TableCell className="font-mono text-xs">{entry.journal_entries.reference}</TableCell>
-                      <TableCell className="text-sm text-slate-700">{entry.journal_entries.description}</TableCell>
+                      <TableCell className="font-mono text-xs">{entry.referenceId || entry.referenceType || "-"}</TableCell>
+                      <TableCell className="text-sm text-slate-700">{entry.description}</TableCell>
                       <TableCell className="text-right font-bold text-emerald-600">
-                        {Number(entry.debit) > 0 ? formatCurrency(Number(entry.debit)) : "-"}
+                        {debitAmount(entry) > 0 ? formatCurrency(debitAmount(entry)) : "-"}
                       </TableCell>
                       <TableCell className="text-right font-bold text-rose-600">
-                        {Number(entry.credit) > 0 ? formatCurrency(Number(entry.credit)) : "-"}
+                        {creditAmount(entry) > 0 ? formatCurrency(creditAmount(entry)) : "-"}
                       </TableCell>
                       {selectedAccountId !== "all" && (
                         <TableCell className="text-right pr-6 font-bold text-slate-900">

@@ -266,7 +266,7 @@ export const api = {
       method: 'POST' as const,
       path: '/api/companies/:companyId/invoices',
       input: insertInvoiceSchema.omit({ companyId: true }).extend({
-        items: z.array(insertInvoiceItemSchema),
+        items: z.array(insertInvoiceItemSchema).min(1, "At least one invoice line is required"),
         exchangeRate: z.string().optional(), // Explicitly allow if not picked up
       }),
       responses: {
@@ -286,7 +286,7 @@ export const api = {
       method: 'PUT' as const,
       path: '/api/invoices/:id',
       input: insertInvoiceSchema.partial().extend({
-        items: z.array(insertInvoiceItemSchema).optional(),
+        items: z.array(insertInvoiceItemSchema).min(1, "At least one invoice line is required").optional(),
         exchangeRate: z.string().optional(),
       }),
       responses: {

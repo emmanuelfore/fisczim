@@ -101,6 +101,7 @@ export const companies = pgTable("companies", {
   vatRegistered: boolean("vat_registered").default(true),
   emailSettings: jsonb("email_settings"),
   posSettings: jsonb("pos_settings"), // Stores receipt header/footer, auto-print defaults etc.
+  accountingSettings: jsonb("accounting_settings"), // Stores default GL accounts for automated system postings.
   lastReceiptAt: timestamp("last_receipt_at"),
 
   // Inventory Settings
@@ -354,6 +355,14 @@ export const products = pgTable("products", {
   batchTrackingEnabled: boolean("batch_tracking_enabled").default(false),
   brandName: text("brand_name"),
   genericName: text("generic_name"),
+  oemPartNumber: text("oem_part_number"),
+  supplierPartNumber: text("supplier_part_number"),
+  alternatePartNumbers: jsonb("alternate_part_numbers").$type<string[]>().default([]),
+  vehicleFitment: jsonb("vehicle_fitment").$type<Array<{ make?: string; model?: string; yearFrom?: number; yearTo?: number; engine?: string; variant?: string }>>().default([]),
+  fitmentNotes: text("fitment_notes"),
+  serialTrackingEnabled: boolean("serial_tracking_enabled").default(false),
+  warrantyTrackingEnabled: boolean("warranty_tracking_enabled").default(false),
+  warrantyMonths: integer("warranty_months").default(0),
 
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => {
@@ -569,6 +578,9 @@ export const invoiceItems = pgTable("invoice_items", {
   lineTotal: decimal("line_total", { precision: 10, scale: 2 }).notNull(),
   taxTypeId: integer("tax_type_id").references(() => taxTypes.id),
   cogsAmount: decimal("cogs_amount", { precision: 10, scale: 2 }),
+  serialNumber: text("serial_number"),
+  warrantyMonths: integer("warranty_months"),
+  warrantyExpiresAt: timestamp("warranty_expires_at"),
   
   // Modifiers
   // Modifiers
@@ -590,6 +602,52 @@ export const invoiceItems = pgTable("invoice_items", {
 export const invoiceItemsRelations = relations(invoiceItems, ({ one }) => ({
   invoice: one(invoices, { fields: [invoiceItems.invoiceId], references: [invoices.id] }),
   product: one(products, { fields: [invoiceItems.productId], references: [products.id] }),
+}));
+
+export const productSerialNumbers = pgTable("product_serial_numbers", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  branchId: integer("branch_id").references(() => branches.id),
+  productId: integer("product_id").references(() => products.id).notNull(),
+  serialNumber: text("serial_number").notNull(),
+  status: text("status").notNull().default("IN_STOCK"), // IN_STOCK, SOLD, RESERVED, WARRANTY_CLAIM, RETURNED, VOID
+  supplierId: integer("supplier_id").references(() => suppliers.id),
+  receivedInventoryTransactionId: integer("received_inventory_transaction_id"),
+  soldInvoiceId: integer("sold_invoice_id").references(() => invoices.id),
+  soldInvoiceItemId: integer("sold_invoice_item_id").references(() => invoiceItems.id),
+  soldAt: timestamp("sold_at"),
+  warrantyExpiresAt: timestamp("warranty_expires_at"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  companySerialUnique: unique("product_serial_numbers_company_serial_unique").on(table.companyId, table.serialNumber),
+  companyIdx: index("product_serial_numbers_company_idx").on(table.companyId),
+  productIdx: index("product_serial_numbers_product_idx").on(table.productId),
+  statusIdx: index("product_serial_numbers_status_idx").on(table.status),
+}));
+
+export const warrantyClaims = pgTable("warranty_claims", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  branchId: integer("branch_id").references(() => branches.id),
+  customerId: integer("customer_id").references(() => customers.id),
+  productId: integer("product_id").references(() => products.id).notNull(),
+  invoiceId: integer("invoice_id").references(() => invoices.id),
+  invoiceItemId: integer("invoice_item_id").references(() => invoiceItems.id),
+  serialNumberId: integer("serial_number_id").references(() => productSerialNumbers.id),
+  claimNumber: text("claim_number").notNull(),
+  status: text("status").notNull().default("OPEN"), // OPEN, APPROVED, REJECTED, REPLACED, SENT_TO_SUPPLIER, CLOSED
+  reason: text("reason").notNull(),
+  resolution: text("resolution"),
+  receivedAt: timestamp("received_at").defaultNow(),
+  resolvedAt: timestamp("resolved_at"),
+  createdBy: uuid("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  companyIdx: index("warranty_claims_company_idx").on(table.companyId),
+  claimNumberIdx: index("warranty_claims_claim_number_idx").on(table.claimNumber),
+  statusIdx: index("warranty_claims_status_idx").on(table.status),
 }));
 
 export const validationErrorsRelations = relations(validationErrors, ({ one }) => ({
@@ -720,10 +778,107 @@ export const invoicesRelations = relations(invoices, ({ one, many }) => ({
   validationErrors: many(validationErrors),
 }));
 
+export const laybys = pgTable("laybys", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  branchId: integer("branch_id").references(() => branches.id),
+  customerId: integer("customer_id").references(() => customers.id).notNull(),
+  laybyNumber: text("layby_number").notNull(),
+  status: text("status").notNull().default("ACTIVE"), // ACTIVE, COMPLETED, CANCELLED, EXPIRED
+  subtotal: decimal("subtotal", { precision: 10, scale: 2 }).notNull(),
+  taxAmount: decimal("tax_amount", { precision: 10, scale: 2 }).default("0.00").notNull(),
+  total: decimal("total", { precision: 10, scale: 2 }).notNull(),
+  depositRequired: decimal("deposit_required", { precision: 10, scale: 2 }).default("0.00"),
+  paidAmount: decimal("paid_amount", { precision: 10, scale: 2 }).default("0.00").notNull(),
+  currency: text("currency").default("USD").notNull(),
+  expiryDate: timestamp("expiry_date"),
+  completedInvoiceId: integer("completed_invoice_id").references(() => invoices.id),
+  notes: text("notes"),
+  createdBy: uuid("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  companyIdx: index("laybys_company_idx").on(table.companyId),
+  customerIdx: index("laybys_customer_idx").on(table.customerId),
+  laybyNumberIdx: index("laybys_number_idx").on(table.laybyNumber),
+  statusIdx: index("laybys_status_idx").on(table.status),
+}));
+
+export const laybyItems = pgTable("layby_items", {
+  id: serial("id").primaryKey(),
+  laybyId: integer("layby_id").references(() => laybys.id).notNull(),
+  productId: integer("product_id").references(() => products.id).notNull(),
+  description: text("description").notNull(),
+  quantity: decimal("quantity", { precision: 10, scale: 2 }).notNull(),
+  unitPrice: decimal("unit_price", { precision: 10, scale: 2 }).notNull(),
+  taxRate: decimal("tax_rate", { precision: 5, scale: 2 }).default("0.00").notNull(),
+  lineTotal: decimal("line_total", { precision: 10, scale: 2 }).notNull(),
+  serialNumberId: integer("serial_number_id").references(() => productSerialNumbers.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  laybyIdx: index("layby_items_layby_idx").on(table.laybyId),
+  productIdx: index("layby_items_product_idx").on(table.productId),
+}));
+
+export const laybyPayments = pgTable("layby_payments", {
+  id: serial("id").primaryKey(),
+  laybyId: integer("layby_id").references(() => laybys.id).notNull(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  branchId: integer("branch_id").references(() => branches.id),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  currency: text("currency").default("USD").notNull(),
+  paymentMethod: text("payment_method").notNull(),
+  reference: text("reference"),
+  notes: text("notes"),
+  paymentDate: timestamp("payment_date").defaultNow().notNull(),
+  createdBy: uuid("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  laybyIdx: index("layby_payments_layby_idx").on(table.laybyId),
+  companyIdx: index("layby_payments_company_idx").on(table.companyId),
+}));
+
+export const laybysRelations = relations(laybys, ({ one, many }) => ({
+  company: one(companies, { fields: [laybys.companyId], references: [companies.id] }),
+  branch: one(branches, { fields: [laybys.branchId], references: [branches.id] }),
+  customer: one(customers, { fields: [laybys.customerId], references: [customers.id] }),
+  items: many(laybyItems),
+  payments: many(laybyPayments),
+}));
+
+export const laybyItemsRelations = relations(laybyItems, ({ one }) => ({
+  layby: one(laybys, { fields: [laybyItems.laybyId], references: [laybys.id] }),
+  product: one(products, { fields: [laybyItems.productId], references: [products.id] }),
+  serialNumber: one(productSerialNumbers, { fields: [laybyItems.serialNumberId], references: [productSerialNumbers.id] }),
+}));
+
+export const laybyPaymentsRelations = relations(laybyPayments, ({ one }) => ({
+  layby: one(laybys, { fields: [laybyPayments.laybyId], references: [laybys.id] }),
+  company: one(companies, { fields: [laybyPayments.companyId], references: [companies.id] }),
+  branch: one(branches, { fields: [laybyPayments.branchId], references: [branches.id] }),
+}));
+
 
 export const insertPaymentSchema = createInsertSchema(payments).omit({ id: true, companyId: true, createdAt: true, createdBy: true });
 export type InsertPayment = z.infer<typeof insertPaymentSchema>;
 export type Payment = typeof payments.$inferSelect;
+
+export const insertProductSerialNumberSchema = createInsertSchema(productSerialNumbers).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertWarrantyClaimSchema = createInsertSchema(warrantyClaims).omit({ id: true, createdAt: true });
+export const insertLaybySchema = createInsertSchema(laybys).omit({ id: true, createdAt: true, updatedAt: true, laybyNumber: true, paidAmount: true, completedInvoiceId: true });
+export const insertLaybyItemSchema = createInsertSchema(laybyItems).omit({ id: true, laybyId: true, createdAt: true });
+export const insertLaybyPaymentSchema = createInsertSchema(laybyPayments).omit({ id: true, createdAt: true, companyId: true, branchId: true, createdBy: true });
+
+export type ProductSerialNumber = typeof productSerialNumbers.$inferSelect;
+export type InsertProductSerialNumber = z.infer<typeof insertProductSerialNumberSchema>;
+export type WarrantyClaim = typeof warrantyClaims.$inferSelect;
+export type InsertWarrantyClaim = z.infer<typeof insertWarrantyClaimSchema>;
+export type Layby = typeof laybys.$inferSelect;
+export type InsertLayby = z.infer<typeof insertLaybySchema>;
+export type LaybyItem = typeof laybyItems.$inferSelect;
+export type InsertLaybyItem = z.infer<typeof insertLaybyItemSchema>;
+export type LaybyPayment = typeof laybyPayments.$inferSelect;
+export type InsertLaybyPayment = z.infer<typeof insertLaybyPaymentSchema>;
 
 export const insertValidationErrorSchema = createInsertSchema(validationErrors).omit({ id: true, createdAt: true });
 export type InsertValidationError = z.infer<typeof insertValidationErrorSchema>;
@@ -1397,6 +1552,36 @@ export const ledgerEntries = pgTable("ledger_entries", {
   accountIdx: index("ledger_entries_account_idx").on(table.accountId),
 }));
 
+export const journalEntryDrafts = pgTable("journal_entry_drafts", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  entryDate: timestamp("entry_date").defaultNow().notNull(),
+  description: text("description").notNull(),
+  referenceType: text("reference_type").default("JOURNAL"),
+  referenceId: text("reference_id"),
+  status: text("status").default("DRAFT").notNull(),
+  createdBy: uuid("created_by").references(() => users.id),
+  postedJournalEntryId: integer("posted_journal_entry_id").references(() => journalEntries.id),
+  postedAt: timestamp("posted_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  companyStatusIdx: index("journal_entry_drafts_company_status_idx").on(table.companyId, table.status),
+}));
+
+export const journalEntryDraftLines = pgTable("journal_entry_draft_lines", {
+  id: serial("id").primaryKey(),
+  draftId: integer("draft_id").references(() => journalEntryDrafts.id).notNull(),
+  accountId: integer("account_id").references(() => accounts.id).notNull(),
+  type: text("type").notNull(),
+  amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
+  memo: text("memo"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  draftIdx: index("journal_entry_draft_lines_draft_idx").on(table.draftId),
+  accountIdx: index("journal_entry_draft_lines_account_idx").on(table.accountId),
+}));
+
 export const accountsRelations = relations(accounts, ({ one, many }) => ({
   company: one(companies, { fields: [accounts.companyId], references: [companies.id] }),
   ledgerEntries: many(ledgerEntries),
@@ -1411,6 +1596,18 @@ export const journalEntriesRelations = relations(journalEntries, ({ one, many })
 export const ledgerEntriesRelations = relations(ledgerEntries, ({ one }) => ({
   journalEntry: one(journalEntries, { fields: [ledgerEntries.journalEntryId], references: [journalEntries.id] }),
   account: one(accounts, { fields: [ledgerEntries.accountId], references: [accounts.id] }),
+}));
+
+export const journalEntryDraftsRelations = relations(journalEntryDrafts, ({ one, many }) => ({
+  company: one(companies, { fields: [journalEntryDrafts.companyId], references: [companies.id] }),
+  user: one(users, { fields: [journalEntryDrafts.createdBy], references: [users.id] }),
+  postedJournalEntry: one(journalEntries, { fields: [journalEntryDrafts.postedJournalEntryId], references: [journalEntries.id] }),
+  lines: many(journalEntryDraftLines),
+}));
+
+export const journalEntryDraftLinesRelations = relations(journalEntryDraftLines, ({ one }) => ({
+  draft: one(journalEntryDrafts, { fields: [journalEntryDraftLines.draftId], references: [journalEntryDrafts.id] }),
+  account: one(accounts, { fields: [journalEntryDraftLines.accountId], references: [accounts.id] }),
 }));
 
 // --- SUPPLIER INVOICES & PAYMENTS (AP) ---
@@ -1487,7 +1684,6 @@ export type InsertAccount = z.infer<typeof insertAccountSchema>;
 
 export const insertJournalEntrySchema = createInsertSchema(journalEntries).omit({ id: true, createdAt: true });
 export type JournalEntry = typeof journalEntries.$inferSelect;
-export type LedgerEntry = typeof ledgerEntries.$inferSelect;
 
 // ==========================================
 // FINANCIAL PERIODS
@@ -1622,6 +1818,20 @@ export type InsertJournalEntry = z.infer<typeof insertJournalEntrySchema>;
 export const insertLedgerEntrySchema = createInsertSchema(ledgerEntries).omit({ id: true, createdAt: true });
 export type LedgerEntry = typeof ledgerEntries.$inferSelect;
 export type InsertLedgerEntry = z.infer<typeof insertLedgerEntrySchema>;
+
+export const insertJournalEntryDraftSchema = createInsertSchema(journalEntryDrafts).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  postedAt: true,
+  postedJournalEntryId: true
+});
+export type JournalEntryDraft = typeof journalEntryDrafts.$inferSelect;
+export type InsertJournalEntryDraft = z.infer<typeof insertJournalEntryDraftSchema>;
+
+export const insertJournalEntryDraftLineSchema = createInsertSchema(journalEntryDraftLines).omit({ id: true, createdAt: true });
+export type JournalEntryDraftLine = typeof journalEntryDraftLines.$inferSelect;
+export type InsertJournalEntryDraftLine = z.infer<typeof insertJournalEntryDraftLineSchema>;
 
 export const insertSupplierInvoiceSchema = createInsertSchema(supplierInvoices).omit({ id: true, createdAt: true });
 export type SupplierInvoice = typeof supplierInvoices.$inferSelect;

@@ -12,8 +12,9 @@ import { Input } from "@/components/ui/input";
 import { useLocation } from "wouter";
 
 export default function AgingReportsPage() {
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const [asOfDate, setAsOfDate] = useState(format(new Date(), "yyyy-MM-dd"));
+  const defaultTab = location.includes("accounts-payable") ? "ap" : "ar";
   
   const { data: arData, isLoading: isLoadingAR } = useQuery<any[]>({
     queryKey: ["/api/accounting/reports/ar-aging", { date: asOfDate }],
@@ -65,7 +66,7 @@ export default function AgingReportsPage() {
           </div>
         </div>
 
-        <Tabs defaultValue="ar" className="w-full">
+        <Tabs defaultValue={defaultTab} className="w-full">
           <TabsList className="mb-6 h-12 bg-slate-100 rounded-xl p-1">
             <TabsTrigger value="ar" className="px-6 rounded-lg font-bold data-[state=active]:bg-white data-[state=active]:shadow-sm">
               <TrendingUp className="w-4 h-4 mr-2 text-emerald-600" />

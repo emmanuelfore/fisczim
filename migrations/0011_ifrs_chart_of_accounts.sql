@@ -1,0 +1,55 @@
+WITH ifrs_accounts(code, name, type, category) AS (
+  VALUES
+    ('1000', 'Cash on Hand', 'ASSET', 'Current Assets'),
+    ('1010', 'Cash at Bank - USD', 'ASSET', 'Current Assets'),
+    ('1020', 'Cash at Bank - ZiG', 'ASSET', 'Current Assets'),
+    ('1050', 'Petty Cash', 'ASSET', 'Current Assets'),
+    ('1100', 'Short-term Investments', 'ASSET', 'Current Assets'),
+    ('1200', 'Trade Receivables', 'ASSET', 'Current Assets'),
+    ('1210', 'Allowance for Expected Credit Losses', 'ASSET', 'Current Assets'),
+    ('1300', 'Inventories', 'ASSET', 'Current Assets'),
+    ('1400', 'Prepayments', 'ASSET', 'Current Assets'),
+    ('1500', 'Property, Plant and Equipment - Cost', 'ASSET', 'Non-current Assets'),
+    ('1510', 'Accumulated Depreciation - PPE', 'ASSET', 'Non-current Assets'),
+    ('1520', 'Right-of-use Assets', 'ASSET', 'Non-current Assets'),
+    ('1530', 'Intangible Assets', 'ASSET', 'Non-current Assets'),
+    ('1540', 'Accumulated Amortisation', 'ASSET', 'Non-current Assets'),
+    ('2000', 'Trade Payables', 'LIABILITY', 'Current Liabilities'),
+    ('2100', 'VAT Output Payable', 'LIABILITY', 'Current Liabilities'),
+    ('2110', 'VAT Input Recoverable', 'ASSET', 'Current Assets'),
+    ('2120', 'Income Tax Payable', 'LIABILITY', 'Current Liabilities'),
+    ('2200', 'Accrued Expenses', 'LIABILITY', 'Current Liabilities'),
+    ('2300', 'Related Party Loans', 'LIABILITY', 'Non-current Liabilities'),
+    ('2400', 'Lease Liabilities', 'LIABILITY', 'Non-current Liabilities'),
+    ('2500', 'Deferred Tax Liabilities', 'LIABILITY', 'Non-current Liabilities'),
+    ('3000', 'Retained Earnings', 'EQUITY', 'Equity'),
+    ('3100', 'Opening Balance Equity', 'EQUITY', 'Equity'),
+    ('3200', 'Share Capital', 'EQUITY', 'Equity'),
+    ('3300', 'Other Reserves', 'EQUITY', 'Equity'),
+    ('4000', 'Revenue from Contracts with Customers', 'REVENUE', 'Revenue'),
+    ('4100', 'Service Revenue', 'REVENUE', 'Revenue'),
+    ('4200', 'Finance Income', 'REVENUE', 'Other Income'),
+    ('4900', 'Foreign Exchange Gains', 'REVENUE', 'Other Income'),
+    ('5000', 'Cost of Sales', 'EXPENSE', 'Cost of Sales'),
+    ('5100', 'Administrative Expenses', 'EXPENSE', 'Operating Expenses'),
+    ('5110', 'Rent and Occupancy Expenses', 'EXPENSE', 'Operating Expenses'),
+    ('5120', 'Utilities', 'EXPENSE', 'Operating Expenses'),
+    ('5130', 'Employee Benefits Expense', 'EXPENSE', 'Operating Expenses'),
+    ('5140', 'Printing and Stationery', 'EXPENSE', 'Operating Expenses'),
+    ('5150', 'Bank Charges', 'EXPENSE', 'Finance Costs'),
+    ('5160', 'Repairs and Maintenance', 'EXPENSE', 'Operating Expenses'),
+    ('5170', 'Communication Expenses', 'EXPENSE', 'Operating Expenses'),
+    ('5180', 'Depreciation and Amortisation', 'EXPENSE', 'Operating Expenses'),
+    ('5190', 'Impairment Losses', 'EXPENSE', 'Operating Expenses'),
+    ('5900', 'Foreign Exchange Losses', 'EXPENSE', 'Other Expenses')
+)
+INSERT INTO "accounts" ("company_id", "code", "name", "type", "category", "is_system", "is_active")
+SELECT c."id", ia."code", ia."name", ia."type", ia."category", true, true
+FROM "companies" c
+CROSS JOIN ifrs_accounts ia
+ON CONFLICT ("company_id", "code") DO UPDATE SET
+  "name" = EXCLUDED."name",
+  "type" = EXCLUDED."type",
+  "category" = EXCLUDED."category",
+  "is_system" = true,
+  "is_active" = true;

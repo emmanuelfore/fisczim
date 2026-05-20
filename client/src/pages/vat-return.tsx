@@ -8,6 +8,7 @@ import { formatCurrency } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { apiFetch } from "@/lib/api";
 
 export default function VatReturnPage() {
   const [dateRange, setDateRange] = useState({
@@ -18,7 +19,7 @@ export default function VatReturnPage() {
   const { data: report, isLoading } = useQuery<any>({
     queryKey: ["/api/accounting/reports/vat-return", dateRange.from, dateRange.to],
     queryFn: async () => {
-      const res = await fetch(`/api/accounting/reports/vat-return?startDate=${dateRange.from}&endDate=${dateRange.to}`);
+      const res = await apiFetch(`/api/accounting/reports/vat-return?startDate=${dateRange.from}&endDate=${dateRange.to}`);
       if (!res.ok) throw new Error("Failed to fetch VAT report");
       return res.json();
     }

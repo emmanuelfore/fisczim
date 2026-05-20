@@ -4,13 +4,21 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Button } from "@/components/ui/button";
 import { MonitorSmartphone, X } from "lucide-react";
 import { useBranding } from "@/hooks/use-branding";
+import { useLocation } from "wouter";
 
 export function PwaInstallPrompt() {
     const { isInstallable, promptInstall } = usePwaInstall();
     const { brand } = useBranding();
+    const [location] = useLocation();
     const [isOpen, setIsOpen] = useState(false);
+    const isPublicEntryPage = location === "/" || location.startsWith("/auth") || location.startsWith("/forgot-password") || location.startsWith("/reset-password");
 
     useEffect(() => {
+        if (isPublicEntryPage) {
+            setIsOpen(false);
+            return;
+        }
+
         // Only show if installable and user hasn't previously dismissed it
         const hasDismissed = localStorage.getItem("pwa_install_dismissed");
 
@@ -22,7 +30,7 @@ export function PwaInstallPrompt() {
 
             return () => clearTimeout(timer);
         }
-    }, [isInstallable]);
+    }, [isInstallable, isPublicEntryPage]);
 
     const handleInstall = async () => {
         setIsOpen(false);
@@ -40,7 +48,7 @@ export function PwaInstallPrompt() {
         }
     };
 
-    if (!isInstallable) return null;
+    if (!isInstallable || isPublicEntryPage) return null;
 
     return (
         <Dialog open={isOpen} onOpenChange={handleOpenChange}>

@@ -34,9 +34,13 @@ import {
   type ProductVariation, type InsertProductVariation,
   type ProductBatch, type InsertProductBatch,
   priceAdjustments, type PriceAdjustment, type InsertPriceAdjustment,
-  accounts, journalEntries, ledgerEntries,
-  type Account, type JournalEntry, type LedgerEntry,
-  type InsertAccount, type InsertJournalEntry, type InsertLedgerEntry,
+  accounts, journalEntries, ledgerEntries, journalEntryDrafts, journalEntryDraftLines,
+  type Account, type JournalEntry, type LedgerEntry, type JournalEntryDraft,
+  type InsertAccount, type InsertJournalEntry, type InsertLedgerEntry, type InsertJournalEntryDraft,
+  financialPeriods, bankStatements, bankStatementLines,
+  type FinancialPeriod, type InsertFinancialPeriod,
+  type BankStatement, type InsertBankStatement,
+  type BankStatementLine, type InsertBankStatementLine,
   supplierInvoices, supplierInvoiceItems, supplierPayments,
   type SupplierInvoice, type InsertSupplierInvoice,
   type SupplierInvoiceItem, type InsertSupplierInvoiceItem,
@@ -45,16 +49,65 @@ import {
   depreciationRuns,
   type FixedAsset,
   type InsertFixedAsset,
-  type DepreciationRun
+  type DepreciationRun,
+  productSerialNumbers, warrantyClaims, laybys, laybyItems, laybyPayments,
+  type ProductSerialNumber, type InsertProductSerialNumber,
+  type WarrantyClaim, type InsertWarrantyClaim,
+  type Layby, type InsertLayby, type LaybyItem, type InsertLaybyItem,
+  type LaybyPayment, type InsertLaybyPayment
 } from "../shared/schema.js";
 import { db } from "./db.js";
-import { eq, and, desc, lte, gte, lt, ne, or, isNull, sql, ilike, count, inArray, gt } from "drizzle-orm";
+import { eq, and, asc, desc, lte, gte, lt, ne, or, isNull, sql, ilike, count, inArray, gt } from "drizzle-orm";
 import { type FiscalDayCounter } from "./zimra.js";
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
 import { format } from "date-fns";
 
 const scryptAsync = promisify(scrypt);
+
+const DEFAULT_ACCOUNTING_SYSTEM_ACCOUNTS = {
+  cashAccountCode: "1000",
+  accountsReceivableCode: "1200",
+  inventoryAccountCode: "1300",
+  accountsPayableCode: "2000",
+  vatOutputAccountCode: "2100",
+  vatInputAccountCode: "2110",
+  salesRevenueAccountCode: "4000",
+  cogsAccountCode: "5000",
+  generalExpenseAccountCode: "5100",
+  fxGainAccountCode: "4900",
+  fxLossAccountCode: "5900",
+} as const;
+
+type AccountingSystemAccountKey = keyof typeof DEFAULT_ACCOUNTING_SYSTEM_ACCOUNTS;
+
+function mergeAccountingSystemAccounts(settings: unknown): typeof DEFAULT_ACCOUNTING_SYSTEM_ACCOUNTS {
+  const raw = settings && typeof settings === "object" ? settings as Record<string, unknown> : {};
+  return Object.fromEntries(
+    Object.entries(DEFAULT_ACCOUNTING_SYSTEM_ACCOUNTS).map(([key, fallback]) => {
+      const value = raw[key];
+      return [key, typeof value === "string" && value.trim() ? value.trim() : fallback];
+    })
+  ) as typeof DEFAULT_ACCOUNTING_SYSTEM_ACCOUNTS;
+}
+
+function getAccountCodeRange(type?: string, category?: string): { start: number; end: number } {
+  if (type === "ASSET") {
+    return category === "Non-current Assets" ? { start: 1500, end: 1999 } : { start: 1000, end: 1499 };
+  }
+  if (type === "LIABILITY") {
+    return category === "Non-current Liabilities" ? { start: 2300, end: 2999 } : { start: 2000, end: 2299 };
+  }
+  if (type === "EQUITY") return { start: 3000, end: 3999 };
+  if (type === "REVENUE") return category === "Other Income" ? { start: 4200, end: 4999 } : { start: 4000, end: 4199 };
+  if (type === "EXPENSE") {
+    if (category === "Cost of Sales") return { start: 5000, end: 5099 };
+    if (category === "Finance Costs") return { start: 5150, end: 5899 };
+    if (category === "Other Expenses") return { start: 5900, end: 5999 };
+    return { start: 5100, end: 5899 };
+  }
+  return { start: 9000, end: 9999 };
+}
 
 function parseOwnerGroups(raw?: string): string[] {
   if (!raw) return [];
@@ -76,6 +129,28 @@ function buildOwnerGroupSql(column: any, raw?: string) {
   }
   return sql`lower(coalesce(${column}, '')) in (${sql.join(groups.map((g) => sql`${g}`), sql`, `)})`;
 }
+
+type LedgerPostLine = {
+  accountCode?: string;
+  accountId?: number;
+  type?: "DEBIT" | "CREDIT";
+  amount?: number;
+  debit?: string | number;
+  credit?: string | number;
+  branchId?: number;
+  memo?: string;
+};
+
+type LedgerPostData = {
+  entryDate?: Date;
+  date?: Date | string;
+  description: string;
+  referenceType?: string;
+  referenceId?: string;
+  reference?: string;
+  createdBy?: string;
+  lines: LedgerPostLine[];
+};
 
 export interface IStorage {
   // User & Auth
@@ -113,6 +188,15 @@ export interface IStorage {
   getProductBySku(companyId: number, sku: string): Promise<Product | undefined>;
   deleteCompanyProducts(companyId: number): Promise<void>;
   getProductsForExport(companyId: number): Promise<any[]>;
+  getProductSerialNumbers(companyId: number, productId?: number, status?: string): Promise<ProductSerialNumber[]>;
+  createProductSerialNumbers(data: Array<InsertProductSerialNumber & { companyId: number }>): Promise<ProductSerialNumber[]>;
+  updateProductSerialNumber(id: number, companyId: number, data: Partial<InsertProductSerialNumber>): Promise<ProductSerialNumber>;
+  getWarrantyClaims(companyId: number): Promise<WarrantyClaim[]>;
+  createWarrantyClaim(data: InsertWarrantyClaim & { companyId: number; createdBy?: string | null }): Promise<WarrantyClaim>;
+  updateWarrantyClaim(id: number, companyId: number, data: Partial<InsertWarrantyClaim>): Promise<WarrantyClaim>;
+  getLaybys(companyId: number): Promise<(Layby & { items: LaybyItem[]; payments: LaybyPayment[] })[]>;
+  createLayby(companyId: number, data: InsertLayby & { items: InsertLaybyItem[]; createdBy?: string | null; branchId?: number | null }): Promise<Layby>;
+  addLaybyPayment(laybyId: number, companyId: number, data: InsertLaybyPayment & { createdBy?: string | null; branchId?: number | null }): Promise<LaybyPayment>;
 
   // Invoices
   getInvoicesPaginated(companyId: number, page?: number, limit?: number, search?: string, status?: string, type?: string, dateFrom?: Date, dateTo?: Date, isPos?: boolean, branchId?: number): Promise<{ data: (Invoice & { customer?: Customer; latestError?: { message: string, color: string } })[]; total: number; pages: number }>;
@@ -177,7 +261,7 @@ export interface IStorage {
   generateNextDeviceSerial(companyId: number): Promise<string>;
 
   // Payments
-  createPayment(payment: InsertPayment): Promise<Payment>;
+  createPayment(payment: InsertPayment & { companyId: number; skipLedger?: boolean }): Promise<Payment>;
   getPayments(invoiceId: number): Promise<Payment[]>;
   getPayment(id: number): Promise<(Payment & { invoice?: Invoice; customer?: Customer; company?: Company }) | undefined>;
   deletePayment(id: number): Promise<void>;
@@ -375,14 +459,18 @@ export interface IStorage {
 
   // Accounting
   getAccounts(companyId: number): Promise<Account[]>;
+  getAccountById(id: number): Promise<Account | undefined>;
   getAccountByCode(companyId: number, code: string): Promise<Account | undefined>;
   createAccount(data: InsertAccount): Promise<Account>;
   initializeCompanyAccounts(companyId: number): Promise<void>;
   getJournalEntries(companyId: number, dateFrom?: Date, dateTo?: Date): Promise<any[]>;
+  getJournalEntryDrafts(companyId: number): Promise<any[]>;
+  createJournalEntryDraft(companyId: number, data: InsertJournalEntryDraft & { lines: LedgerPostLine[] }): Promise<any>;
+  postJournalEntryDraft(companyId: number, draftId: number, userId?: string): Promise<JournalEntry>;
   getLedgerEntries(companyId: number, accountId?: number, dateFrom?: Date, dateTo?: Date): Promise<any[]>;
   getTrialBalance(companyId: number, date?: Date): Promise<any[]>;
   getVatReturn(companyId: number, fromDate?: Date, toDate?: Date): Promise<{ outputVat: number; inputVat: number; netVat: number }>;
-  postToLedger(companyId: number, entryData: Omit<InsertJournalEntry, "companyId"> & { lines: { accountId: number; debit: string | number; credit: string | number; branchId?: number }[] }): Promise<JournalEntry>;
+  postToLedger(companyId: number, entryData: LedgerPostData, tx?: any): Promise<JournalEntry>;
   
   // Bank Reconciliation
   uploadBankStatement(data: InsertBankStatement, lines: InsertBankStatementLine[]): Promise<BankStatement>;
@@ -395,6 +483,66 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
+  private async normalizeLedgerLines(companyId: number, lines: LedgerPostLine[], tx: any = db): Promise<Array<{
+    accountId: number;
+    accountCode: string;
+    accountName: string;
+    type: "DEBIT" | "CREDIT";
+    amount: number;
+    memo?: string;
+  }>> {
+    const normalized = [];
+
+    for (const line of lines || []) {
+      const debit = Number(line.debit || 0);
+      const credit = Number(line.credit || 0);
+      const amount = Number(line.amount ?? (debit > 0 ? debit : credit));
+      const type = line.type ?? (debit > 0 ? "DEBIT" : "CREDIT");
+      if (!amount || amount <= 0) continue;
+
+      if (type !== "DEBIT" && type !== "CREDIT") {
+        throw new Error("Journal lines must be marked as DEBIT or CREDIT");
+      }
+
+      const accountWhere = line.accountCode
+        ? and(eq(accounts.companyId, companyId), eq(accounts.code, line.accountCode))
+        : and(eq(accounts.companyId, companyId), eq(accounts.id, Number(line.accountId)));
+      const [account] = await tx.select().from(accounts).where(accountWhere);
+      if (!account) {
+        const identifier = line.accountCode ? `code ${line.accountCode}` : `ID ${line.accountId}`;
+        throw new Error(`Account ${identifier} not found for company ${companyId}`);
+      }
+
+      normalized.push({
+        accountId: account.id,
+        accountCode: account.code,
+        accountName: account.name,
+        type,
+        amount,
+        memo: line.memo,
+      });
+    }
+
+    return normalized;
+  }
+
+  private assertBalancedLedgerLines(lines: Array<{ type: "DEBIT" | "CREDIT"; amount: number }>) {
+    if (lines.length < 2) {
+      throw new Error("A journal entry must contain at least two lines");
+    }
+
+    const totalDebit = lines
+      .filter((line) => line.type === "DEBIT")
+      .reduce((sum, line) => sum + Number(line.amount), 0);
+    const totalCredit = lines
+      .filter((line) => line.type === "CREDIT")
+      .reduce((sum, line) => sum + Number(line.amount), 0);
+
+    if (Math.abs(totalDebit - totalCredit) > 0.005) {
+      throw new Error(`Journal entry is out of balance. Debits: ${totalDebit.toFixed(2)}, Credits: ${totalCredit.toFixed(2)}`);
+    }
+  }
+
   async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
     return user;
@@ -540,12 +688,14 @@ export class DatabaseStorage implements IStorage {
     if (user?.isSuperAdmin) {
       let allCompanies = await db.select().from(companies);
       
-      // Hardcoded restriction: Hide "Goosehill Trading" from other Super Admins
+      // Only the system admin may see these restricted companies.
       if (!isSystemAdmin) {
-        allCompanies = allCompanies.filter(c => 
-          (c.name || "").toLowerCase() !== 'goosehill trading' && 
-          (c.tradingName || "").toLowerCase() !== 'goosehill trading'
-        );
+        const systemAdminOnlyCompanies = new Set(['goosehill trading', 'spares arena']);
+        allCompanies = allCompanies.filter(c => {
+          const companyName = (c.name || "").toLowerCase();
+          const tradingName = (c.tradingName || "").toLowerCase();
+          return !systemAdminOnlyCompanies.has(companyName) && !systemAdminOnlyCompanies.has(tradingName);
+        });
       }
 
       console.log(`[STORAGE] Superuser ${userId} found ${allCompanies.length} accessible companies`);
@@ -575,6 +725,15 @@ export class DatabaseStorage implements IStorage {
   async getCompanyByApiKey(apiKey: string): Promise<Company | undefined> {
     const [company] = await db.select().from(companies).where(eq(companies.apiKey, apiKey));
     return company;
+  }
+
+  async getSystemAccountCode(companyId: number, key: AccountingSystemAccountKey, tx?: any): Promise<string> {
+    const executor = tx || db;
+    const [company] = await executor
+      .select({ accountingSettings: companies.accountingSettings })
+      .from(companies)
+      .where(eq(companies.id, companyId));
+    return mergeAccountingSystemAccounts(company?.accountingSettings)[key];
   }
 
   async ensureGenericCustomer(companyId: number): Promise<number> {
@@ -689,7 +848,7 @@ export class DatabaseStorage implements IStorage {
     if (data.isTracked === false) {
       data.productType = 'service';
     }
-    const [newProduct] = await db.insert(products).values(data).returning();
+    const [newProduct] = await db.insert(products).values(data as any).returning();
     return newProduct;
   }
 
@@ -698,8 +857,162 @@ export class DatabaseStorage implements IStorage {
     if (data.isTracked === false) {
       data.productType = 'service';
     }
-    const [updated] = await db.update(products).set(data).where(eq(products.id, id)).returning();
+    const [updated] = await db.update(products).set(data as any).where(eq(products.id, id)).returning();
     return updated;
+  }
+
+  async getProductSerialNumbers(companyId: number, productId?: number, status?: string): Promise<ProductSerialNumber[]> {
+    const filters: any[] = [eq(productSerialNumbers.companyId, companyId)];
+    if (productId) filters.push(eq(productSerialNumbers.productId, productId));
+    if (status) filters.push(eq(productSerialNumbers.status, status));
+    return await db
+      .select()
+      .from(productSerialNumbers)
+      .where(and(...filters))
+      .orderBy(desc(productSerialNumbers.createdAt));
+  }
+
+  async createProductSerialNumbers(data: Array<InsertProductSerialNumber & { companyId: number }>): Promise<ProductSerialNumber[]> {
+    if (!data.length) return [];
+    return await db.insert(productSerialNumbers).values(data as any).returning();
+  }
+
+  async updateProductSerialNumber(id: number, companyId: number, data: Partial<InsertProductSerialNumber>): Promise<ProductSerialNumber> {
+    const [updated] = await db
+      .update(productSerialNumbers)
+      .set({ ...data, updatedAt: new Date() } as any)
+      .where(and(eq(productSerialNumbers.id, id), eq(productSerialNumbers.companyId, companyId)))
+      .returning();
+    if (!updated) throw new Error("Serial number not found");
+    return updated;
+  }
+
+  async getWarrantyClaims(companyId: number): Promise<WarrantyClaim[]> {
+    return await db
+      .select()
+      .from(warrantyClaims)
+      .where(eq(warrantyClaims.companyId, companyId))
+      .orderBy(desc(warrantyClaims.createdAt));
+  }
+
+  async createWarrantyClaim(data: InsertWarrantyClaim & { companyId: number; createdBy?: string | null }): Promise<WarrantyClaim> {
+    const claimNumber = data.claimNumber || await this.getNextInvoiceNumber(data.companyId, "WCL");
+    const [claim] = await db.insert(warrantyClaims).values({ ...data, claimNumber } as any).returning();
+    if (claim.serialNumberId) {
+      await db.update(productSerialNumbers)
+        .set({ status: "WARRANTY_CLAIM", updatedAt: new Date() } as any)
+        .where(and(eq(productSerialNumbers.id, claim.serialNumberId), eq(productSerialNumbers.companyId, data.companyId)));
+    }
+    return claim;
+  }
+
+  async updateWarrantyClaim(id: number, companyId: number, data: Partial<InsertWarrantyClaim>): Promise<WarrantyClaim> {
+    const [updated] = await db
+      .update(warrantyClaims)
+      .set(data as any)
+      .where(and(eq(warrantyClaims.id, id), eq(warrantyClaims.companyId, companyId)))
+      .returning();
+    if (!updated) throw new Error("Warranty claim not found");
+    return updated;
+  }
+
+  async getLaybys(companyId: number): Promise<(Layby & { items: LaybyItem[]; payments: LaybyPayment[] })[]> {
+    const rows = await db.select().from(laybys).where(eq(laybys.companyId, companyId)).orderBy(desc(laybys.createdAt));
+    if (!rows.length) return [];
+    const ids = rows.map((row) => row.id);
+    const [items, paymentsRows] = await Promise.all([
+      db.select().from(laybyItems).where(inArray(laybyItems.laybyId, ids)),
+      db.select().from(laybyPayments).where(inArray(laybyPayments.laybyId, ids)).orderBy(desc(laybyPayments.paymentDate)),
+    ]);
+    return rows.map((row) => ({
+      ...row,
+      items: items.filter((item) => item.laybyId === row.id),
+      payments: paymentsRows.filter((payment) => payment.laybyId === row.id),
+    }));
+  }
+
+  async createLayby(companyId: number, data: InsertLayby & { items: InsertLaybyItem[]; createdBy?: string | null; branchId?: number | null }): Promise<Layby> {
+    return await db.transaction(async (tx) => {
+      const laybyNumber = await this.getNextInvoiceNumber(companyId, "LAY");
+      const [layby] = await tx.insert(laybys).values({
+        ...data,
+        companyId,
+        laybyNumber,
+        paidAmount: "0.00",
+      } as any).returning();
+
+      if (data.items?.length) {
+        await tx.insert(laybyItems).values(data.items.map((item) => ({
+          ...item,
+          laybyId: layby.id,
+        })) as any);
+
+        for (const item of data.items as any[]) {
+          const [product] = await tx.select().from(products).where(eq(products.id, item.productId));
+          if (!product?.isTracked) continue;
+          const quantity = Number(item.quantity || 0);
+          if (quantity <= 0) continue;
+          await tx.insert(inventoryTransactions).values({
+            companyId,
+            branchId: data.branchId || null,
+            productId: item.productId,
+            type: "RESERVED",
+            quantity: (-quantity).toString(),
+            referenceType: "LAYBY",
+            referenceId: layby.id.toString(),
+            notes: `Lay-by reservation ${layby.laybyNumber}`,
+          } as any);
+          await tx.update(products)
+            .set({ stockLevel: (Number(product.stockLevel || 0) - quantity).toString() } as any)
+            .where(eq(products.id, item.productId));
+
+          if (data.branchId) {
+            const [currentBranchStock] = await tx.select().from(branchStocks).where(and(
+              eq(branchStocks.branchId, data.branchId),
+              eq(branchStocks.productId, item.productId)
+            ));
+            const newBranchStock = (Number(currentBranchStock?.stockLevel || 0) - quantity).toString();
+            await tx.insert(branchStocks)
+              .values({ branchId: data.branchId, productId: item.productId, stockLevel: newBranchStock })
+              .onConflictDoUpdate({
+                target: [branchStocks.branchId, branchStocks.productId],
+                set: { stockLevel: newBranchStock },
+              });
+          }
+        }
+
+        const serialIds = data.items.map((item: any) => item.serialNumberId).filter(Boolean);
+        if (serialIds.length) {
+          await tx.update(productSerialNumbers)
+            .set({ status: "RESERVED", updatedAt: new Date() } as any)
+            .where(and(eq(productSerialNumbers.companyId, companyId), inArray(productSerialNumbers.id, serialIds)));
+        }
+      }
+
+      return layby;
+    });
+  }
+
+  async addLaybyPayment(laybyId: number, companyId: number, data: InsertLaybyPayment & { createdBy?: string | null; branchId?: number | null }): Promise<LaybyPayment> {
+    return await db.transaction(async (tx) => {
+      const [layby] = await tx.select().from(laybys).where(and(eq(laybys.id, laybyId), eq(laybys.companyId, companyId)));
+      if (!layby) throw new Error("Lay-by not found");
+      if (layby.status !== "ACTIVE") throw new Error("Only active lay-bys can receive payments");
+
+      const [payment] = await tx.insert(laybyPayments).values({
+        ...data,
+        laybyId,
+        companyId,
+      } as any).returning();
+
+      const newPaidAmount = Number(layby.paidAmount || 0) + Number(data.amount || 0);
+      const nextStatus = newPaidAmount + 0.005 >= Number(layby.total || 0) ? "COMPLETED" : "ACTIVE";
+      await tx.update(laybys)
+        .set({ paidAmount: newPaidAmount.toFixed(2), status: nextStatus, updatedAt: new Date() } as any)
+        .where(eq(laybys.id, laybyId));
+
+      return payment;
+    });
   }
 
   async deleteCompanyProducts(companyId: number): Promise<void> {
@@ -795,7 +1108,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getInvoices(companyId: number, branchId?: number): Promise<(Invoice & { customer?: Customer })[]> {
-    const filters = [eq(invoices.companyId, companyId)];
+    const filters: any[] = [eq(invoices.companyId, companyId)];
     if (branchId) {
       filters.push(or(eq(invoices.branchId, branchId), isNull(invoices.branchId)));
     }
@@ -830,7 +1143,7 @@ export class DatabaseStorage implements IStorage {
   ): Promise<{ data: (Invoice & { customer?: Customer; latestError?: { message: string, color: string } })[]; total: number; pages: number }> {
     const offset = (page - 1) * limit;
 
-    const filters = [eq(invoices.companyId, companyId)];
+    const filters: any[] = [eq(invoices.companyId, companyId)];
 
     if (branchId) {
       filters.push(or(eq(invoices.branchId, branchId), isNull(invoices.branchId)));
@@ -1021,6 +1334,10 @@ export class DatabaseStorage implements IStorage {
     return await db.transaction(async (tx) => {
       const { items, ...invoiceData } = data;
 
+      if (!Array.isArray(items) || items.length === 0) {
+        throw new Error("Cannot create an invoice without at least one line item.");
+      }
+
       // Auto-assign order number for POS/Restaurant sales if not provided
       let orderNumber = data.orderNumber;
       let receiptNums = { receiptGlobalNo: 0, receiptCounter: 0 };
@@ -1199,12 +1516,39 @@ export class DatabaseStorage implements IStorage {
             }
           }
 
+          const productWarrantyMonths = item.productId
+            ? Number((await tx.select({ warrantyMonths: products.warrantyMonths }).from(products).where(eq(products.id, item.productId)).limit(1))[0]?.warrantyMonths || 0)
+            : 0;
+          const itemWarrantyMonths = Number((item as any).warrantyMonths || productWarrantyMonths || 0);
+          const warrantyExpiresAt = itemWarrantyMonths > 0
+            ? new Date(new Date(invoice.issueDate || new Date()).setMonth(new Date(invoice.issueDate || new Date()).getMonth() + itemWarrantyMonths))
+            : null;
+
           // Insert the invoice item with COGS
-          await tx.insert(invoiceItems).values({
+          const [createdItem] = await tx.insert(invoiceItems).values({
             ...item,
             invoiceId: invoice.id,
-            cogsAmount: cogsAmount?.toString() || null
-          });
+            cogsAmount: cogsAmount?.toString() || null,
+            warrantyMonths: itemWarrantyMonths || null,
+            warrantyExpiresAt,
+          } as any).returning();
+
+          if ((item as any).serialNumber && item.productId && invoiceData.transactionType !== "CreditNote") {
+            await tx.update(productSerialNumbers)
+              .set({
+                status: "SOLD",
+                soldInvoiceId: invoice.id,
+                soldInvoiceItemId: createdItem.id,
+                soldAt: invoice.issueDate || new Date(),
+                warrantyExpiresAt,
+                updatedAt: new Date(),
+              } as any)
+              .where(and(
+                eq(productSerialNumbers.companyId, invoiceData.companyId),
+                eq(productSerialNumbers.productId, item.productId),
+                eq(productSerialNumbers.serialNumber, String((item as any).serialNumber))
+              ));
+          }
         }
       }
 
@@ -1264,6 +1608,13 @@ export class DatabaseStorage implements IStorage {
 
       const isCreditNote = invoice.transactionType === 'CreditNote';
       const description = `${isCreditNote ? 'Credit Note' : 'Invoice'} ${invoice.invoiceNumber}`;
+      const arAccountCode = await this.getSystemAccountCode(invoice.companyId, "accountsReceivableCode", tx);
+      const cashAccountCode = await this.getSystemAccountCode(invoice.companyId, "cashAccountCode", tx);
+      const salesAccountCode = await this.getSystemAccountCode(invoice.companyId, "salesRevenueAccountCode", tx);
+      const vatOutputAccountCode = await this.getSystemAccountCode(invoice.companyId, "vatOutputAccountCode", tx);
+      const cogsAccountCode = await this.getSystemAccountCode(invoice.companyId, "cogsAccountCode", tx);
+      const inventoryAccountCode = await this.getSystemAccountCode(invoice.companyId, "inventoryAccountCode", tx);
+      const isImmediateCashSale = invoice.isPos && invoice.paymentMethod !== "CREDIT";
 
       await this.postToLedger(invoice.companyId, {
         entryDate: invoice.issueDate || new Date(),
@@ -1271,11 +1622,11 @@ export class DatabaseStorage implements IStorage {
         referenceType: "INVOICE",
         referenceId: invoice.id.toString(),
         createdBy: invoice.createdBy || undefined,
-        lines: [
-          { accountCode: "1200", type: isCreditNote ? "CREDIT" : "DEBIT", amount: total },
-          { accountCode: "4000", type: isCreditNote ? "DEBIT" : "CREDIT", amount: subtotal },
-          { accountCode: "2100", type: isCreditNote ? "DEBIT" : "CREDIT", amount: taxAmount },
-        ].filter(line => line.amount > 0)
+        lines: ([
+          { accountCode: isImmediateCashSale ? cashAccountCode : arAccountCode, type: isCreditNote ? "CREDIT" : "DEBIT", amount: total },
+          { accountCode: salesAccountCode, type: isCreditNote ? "DEBIT" : "CREDIT", amount: subtotal },
+          { accountCode: vatOutputAccountCode, type: isCreditNote ? "DEBIT" : "CREDIT", amount: taxAmount },
+        ] as LedgerPostLine[]).filter(line => Number(line.amount) > 0)
       }, tx);
 
       if (totalCogs > 0) {
@@ -1286,8 +1637,8 @@ export class DatabaseStorage implements IStorage {
           referenceId: invoice.id.toString(),
           createdBy: invoice.createdBy || undefined,
           lines: [
-            { accountCode: "5000", type: isCreditNote ? "CREDIT" : "DEBIT", amount: totalCogs },
-            { accountCode: "1300", type: isCreditNote ? "DEBIT" : "CREDIT", amount: totalCogs },
+            { accountCode: cogsAccountCode, type: isCreditNote ? "CREDIT" : "DEBIT", amount: totalCogs },
+            { accountCode: inventoryAccountCode, type: isCreditNote ? "DEBIT" : "CREDIT", amount: totalCogs },
           ]
         }, tx);
       }
@@ -2081,12 +2432,27 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Payments
-  async createPayment(payment: InsertPayment): Promise<Payment> {
+  async createPayment(payment: InsertPayment & { companyId: number; skipLedger?: boolean }): Promise<Payment> {
     return await db.transaction(async (tx) => {
-      const [newPayment] = await tx.insert(payments).values(payment).returning();
+      const { skipLedger, ...paymentData } = payment;
+      const [newPayment] = await tx.insert(payments).values(paymentData).returning();
       
       const [invoice] = await tx.select().from(invoices).where(eq(invoices.id, newPayment.invoiceId));
       if (invoice) {
+        if (skipLedger) {
+          const newPaidAmount = (Number(invoice.paidAmount) + Number(newPayment.amount)).toFixed(2);
+          const isFullyPaid = Number(newPaidAmount) >= Number(invoice.total);
+
+          await tx.update(invoices)
+            .set({
+              paidAmount: newPaidAmount,
+              status: isFullyPaid ? 'paid' : 'partial'
+            })
+            .where(eq(invoices.id, invoice.id));
+
+          return newPayment;
+        }
+
         let fxVariance = 0;
         const currentRate = Number(newPayment.exchangeRate || 1);
         const invoiceRate = Number(invoice.exchangeRate || 1);
@@ -2094,22 +2460,26 @@ export class DatabaseStorage implements IStorage {
         const originalBaseValue = Number(newPayment.amount) / invoiceRate;
         const currentBaseValue = Number(newPayment.amount) / currentRate;
         fxVariance = Math.round((currentBaseValue - originalBaseValue) * 100) / 100;
+        const cashAccountCode = await this.getSystemAccountCode(invoice.companyId, "cashAccountCode", tx);
+        const arAccountCode = await this.getSystemAccountCode(invoice.companyId, "accountsReceivableCode", tx);
+        const fxGainAccountCode = await this.getSystemAccountCode(invoice.companyId, "fxGainAccountCode", tx);
+        const fxLossAccountCode = await this.getSystemAccountCode(invoice.companyId, "fxLossAccountCode", tx);
         
         const lines: { accountCode: string, type: 'DEBIT' | 'CREDIT', amount: number }[] = [
-          { accountCode: "1000", type: "DEBIT", amount: currentBaseValue },
-          { accountCode: "1200", type: "CREDIT", amount: originalBaseValue },
+          { accountCode: cashAccountCode, type: "DEBIT", amount: currentBaseValue },
+          { accountCode: arAccountCode, type: "CREDIT", amount: originalBaseValue },
         ];
 
         // FX Gain/Loss automated posting
         if (fxVariance > 0) {
-           lines.push({ accountCode: "4900", type: "CREDIT", amount: fxVariance });
+           lines.push({ accountCode: fxGainAccountCode, type: "CREDIT", amount: fxVariance });
         } else if (fxVariance < 0) {
-           lines.push({ accountCode: "5900", type: "DEBIT", amount: Math.abs(fxVariance) });
+           lines.push({ accountCode: fxLossAccountCode, type: "DEBIT", amount: Math.abs(fxVariance) });
         }
 
         await this.postToLedger(invoice.companyId, {
           entryDate: newPayment.paymentDate,
-          description: `Payment for Invoice ${invoice.invoiceNumber} (${newPayment.method}) - FX Auth`,
+          description: `Payment for Invoice ${invoice.invoiceNumber} (${newPayment.paymentMethod}) - FX Auth`,
           referenceType: "PAYMENT",
           referenceId: newPayment.id.toString(),
           createdBy: newPayment.createdBy || undefined,
@@ -2873,9 +3243,9 @@ export class DatabaseStorage implements IStorage {
       ne(invoices.status, 'cancelled')
     )).orderBy(asc(invoices.dueDate));
 
-    const pastPayments = await db.select().from(payments).where(eq(payments.companyId, companyId))
+    const pastPayments = await db.select().from(payments)
       .innerJoin(invoices, eq(payments.invoiceId, invoices.id))
-      .where(eq(invoices.customerId, customerId))
+      .where(and(eq(payments.companyId, companyId), eq(invoices.customerId, customerId)))
       .orderBy(desc(payments.paymentDate));
 
     // Calculate metrics
@@ -2917,17 +3287,17 @@ export class DatabaseStorage implements IStorage {
   async getCostCenterReport(companyId: number, startDate?: Date, endDate?: Date): Promise<any[]> {
     const allBranches = await db.select().from(branches).where(eq(branches.companyId, companyId));
     
-    let invConditions = [eq(invoices.companyId, companyId), eq(invoices.type, 'tax'), ne(invoices.status, 'cancelled')];
+    let invConditions = [eq(invoices.companyId, companyId), ne(invoices.status, 'cancelled')];
     if (startDate) invConditions.push(gte(invoices.issueDate, startDate));
     if (endDate) invConditions.push(lte(invoices.issueDate, endDate));
     const allInvoices = await db.select().from(invoices).where(and(...invConditions));
     
     let expConditions = [eq(expenses.companyId, companyId), eq(expenses.status, 'approved')];
-    if (startDate) expConditions.push(gte(expenses.date, startDate));
-    if (endDate) expConditions.push(lte(expenses.date, endDate));
+    if (startDate) expConditions.push(gte(expenses.expenseDate, startDate));
+    if (endDate) expConditions.push(lte(expenses.expenseDate, endDate));
     const allExpenses = await db.select().from(expenses).where(and(...expConditions));
     
-    let cogsConditions = [eq(inventoryTransactions.companyId, companyId), eq(inventoryTransactions.type, 'SALE')];
+    let cogsConditions = [eq(inventoryTransactions.companyId, companyId), eq(inventoryTransactions.type, 'STOCK_OUT')];
     if (startDate) cogsConditions.push(gte(inventoryTransactions.createdAt, startDate));
     if (endDate) cogsConditions.push(lte(inventoryTransactions.createdAt, endDate));
     const allCogs = await db.select().from(inventoryTransactions).where(and(...cogsConditions));
@@ -3048,7 +3418,35 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createFinancialPeriod(data: InsertFinancialPeriod): Promise<FinancialPeriod> {
-    const [period] = await db.insert(financialPeriods).values(data).returning();
+    const startDate = new Date(data.startDate);
+    const endDate = new Date(data.endDate);
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+      throw new Error("Start date and end date must be valid dates");
+    }
+    if (startDate > endDate) {
+      throw new Error("Start date cannot be after end date");
+    }
+
+    const existing = await db
+      .select()
+      .from(financialPeriods)
+      .where(eq(financialPeriods.companyId, data.companyId));
+
+    const overlaps = existing.some((period) => {
+      const existingStart = new Date(period.startDate);
+      const existingEnd = new Date(period.endDate);
+      return startDate <= existingEnd && endDate >= existingStart;
+    });
+    if (overlaps) {
+      throw new Error("Financial period dates overlap an existing period");
+    }
+
+    const [period] = await db.insert(financialPeriods).values({
+      ...data,
+      startDate,
+      endDate,
+      status: data.status || "OPEN",
+    }).returning();
     return period;
   }
 
@@ -3969,23 +4367,25 @@ export class DatabaseStorage implements IStorage {
       const tax = Number(invoiceData.taxAmount || 0);
 
       // Determine the debit account (Control Account for Inventory is 1300 by default)
-      let debitAccountCode = '1300';
+      let debitAccountCode = await this.getSystemAccountCode(invoiceData.companyId, "inventoryAccountCode", tx);
       if (invoiceData.debitAccountId) {
         const [acc] = await tx.select().from(accounts).where(eq(accounts.id, invoiceData.debitAccountId));
         if (acc) {
           debitAccountCode = acc.code;
         }
       }
+      const vatInputAccountCode = await this.getSystemAccountCode(invoiceData.companyId, "vatInputAccountCode", tx);
+      const apAccountCode = await this.getSystemAccountCode(invoiceData.companyId, "accountsPayableCode", tx);
 
       const lines: { accountCode: string, type: 'DEBIT'|'CREDIT', amount: number }[] = [
         { accountCode: debitAccountCode, type: 'DEBIT', amount: subtotal }
       ];
       
       if (tax > 0) {
-        lines.push({ accountCode: '2110', type: 'DEBIT', amount: tax }); // VAT Input (VAT Receivable)
+        lines.push({ accountCode: vatInputAccountCode, type: 'DEBIT', amount: tax }); // VAT Input (VAT Receivable)
       }
 
-      lines.push({ accountCode: '2000', type: 'CREDIT', amount: Number(invoiceData.totalAmount) }); // Accounts Payable
+      lines.push({ accountCode: apAccountCode, type: 'CREDIT', amount: Number(invoiceData.totalAmount) }); // Accounts Payable
 
       await this.postToLedger(invoiceData.companyId, {
         entryDate: invoiceData.date || new Date(),
@@ -4005,9 +4405,11 @@ export class DatabaseStorage implements IStorage {
       const [payment] = await tx.insert(supplierPayments).values(data).returning();
 
       // Automated Journaling: Debit Accounts Payable (2000), Credit Cash/Bank (1000)
+      const apAccountCode = await this.getSystemAccountCode(data.companyId, "accountsPayableCode", tx);
+      const cashAccountCode = await this.getSystemAccountCode(data.companyId, "cashAccountCode", tx);
       const lines: { accountCode: string, type: 'DEBIT'|'CREDIT', amount: number }[] = [
-        { accountCode: '2000', type: 'DEBIT', amount: Number(data.amount) },
-        { accountCode: '1000', type: 'CREDIT', amount: Number(data.amount) }
+        { accountCode: apAccountCode, type: 'DEBIT', amount: Number(data.amount) },
+        { accountCode: cashAccountCode, type: 'CREDIT', amount: Number(data.amount) }
       ];
 
       await this.postToLedger(data.companyId, {
@@ -4130,13 +4532,13 @@ export class DatabaseStorage implements IStorage {
       const [expense] = await tx.insert(expenses).values(data).returning();
       
       // Determine accounts
-      let debitAccountCode = '5100'; // Default General Expenses
+      let debitAccountCode = await this.getSystemAccountCode(data.companyId, "generalExpenseAccountCode", tx); // Default General Expenses
       if (data.debitAccountId) {
         const [acc] = await tx.select().from(accounts).where(eq(accounts.id, data.debitAccountId));
         if (acc) debitAccountCode = acc.code;
       }
 
-      let creditAccountCode = '1000'; // Default Cash
+      let creditAccountCode = await this.getSystemAccountCode(data.companyId, "cashAccountCode", tx); // Default Cash
       if (data.creditAccountId) {
         const [acc] = await tx.select().from(accounts).where(eq(accounts.id, data.creditAccountId));
         if (acc) creditAccountCode = acc.code;
@@ -4147,7 +4549,7 @@ export class DatabaseStorage implements IStorage {
         description: `Expense: ${expense.category} - ${expense.description}`,
         referenceType: "EXPENSE",
         referenceId: expense.id.toString(),
-        createdBy: expense.createdBy || undefined,
+        createdBy: undefined,
         lines: [
           { accountCode: debitAccountCode, type: "DEBIT", amount: Number(expense.amount) },
           { accountCode: creditAccountCode, type: "CREDIT", amount: Number(expense.amount) },
@@ -4330,7 +4732,7 @@ export class DatabaseStorage implements IStorage {
         receiptsCount: dayInvoices.length,
         invoiceCount: dayInvoices.length,
         productsSold: Array.from(itemMap.values()).reduce((acc, i) => acc + i.quantity, 0),
-        fiscalDayNo: comp?.fiscalDayNumber || null,
+        fiscalDayNo: comp?.currentFiscalDayNo || null,
         date: date.toISOString()
       },
       currencies: Array.from(currencyMap.values()).map(c => ({
@@ -5797,7 +6199,12 @@ export class DatabaseStorage implements IStorage {
   // --- ACCOUNTING IMPLEMENTATION ---
 
   async getAccounts(companyId: number): Promise<Account[]> {
-    return await db.select().from(accounts).where(eq(accounts.companyId, companyId)).orderBy(accounts.code);
+    let companyAccounts = await db.select().from(accounts).where(eq(accounts.companyId, companyId)).orderBy(accounts.code);
+    if (companyAccounts.length === 0) {
+      await this.initializeCompanyAccounts(companyId);
+      companyAccounts = await db.select().from(accounts).where(eq(accounts.companyId, companyId)).orderBy(accounts.code);
+    }
+    return companyAccounts;
   }
 
   async getAccountByCode(companyId: number, code: string): Promise<Account | undefined> {
@@ -5805,55 +6212,96 @@ export class DatabaseStorage implements IStorage {
     return account;
   }
 
-  async createAccount(data: InsertAccount): Promise<Account> {
-    const [account] = await db.insert(accounts).values(data).returning();
+  async getAccountById(id: number): Promise<Account | undefined> {
+    const [account] = await db.select().from(accounts).where(eq(accounts.id, id));
     return account;
+  }
+
+  async generateAccountCode(companyId: number, type?: string, category?: string, tx?: any): Promise<string> {
+    const executor = tx || db;
+    const range = getAccountCodeRange(type, category);
+    const companyAccounts = await executor
+      .select({ code: accounts.code })
+      .from(accounts)
+      .where(eq(accounts.companyId, companyId));
+
+    const usedCodes = new Set(companyAccounts.map((account: { code: string }) => account.code));
+    const numericCodes = companyAccounts
+      .map((account: { code: string }) => Number(account.code))
+      .filter((code: number) => Number.isFinite(code) && code >= range.start && code <= range.end);
+
+    let nextCode = numericCodes.length > 0 ? Math.max(...numericCodes) + 10 : range.start;
+    while (usedCodes.has(String(nextCode)) && nextCode <= range.end) {
+      nextCode += 10;
+    }
+    if (nextCode > range.end) {
+      throw new Error(`No available account codes remain in the ${range.start}-${range.end} range`);
+    }
+    return String(nextCode);
+  }
+
+  async createAccount(data: InsertAccount): Promise<Account> {
+    return await db.transaction(async (tx) => {
+      const code = data.code?.trim() || await this.generateAccountCode(data.companyId, data.type, data.category || undefined, tx);
+      const [account] = await tx.insert(accounts).values({ ...data, code }).returning();
+      return account;
+    });
   }
 
   async initializeCompanyAccounts(companyId: number, tx?: any): Promise<void> {
     const executeInTx = async (t: any) => {
       const defaultAccounts = [
-        // --- ASSETS (1000-1999) ---
-        { code: "1000", name: "Cash on Hand", type: "ASSET", category: "Current Asset", isSystem: true },
-        { code: "1010", name: "Bank Account (USD)", type: "ASSET", category: "Current Asset", isSystem: true },
-        { code: "1020", name: "Bank Account (ZiG)", type: "ASSET", category: "Current Asset", isSystem: true },
-        { code: "1050", name: "Petty Cash", type: "ASSET", category: "Current Asset", isSystem: true },
-        { code: "1200", name: "Accounts Receivable (Control)", type: "ASSET", category: "Current Asset", isSystem: true },
-        { code: "1300", name: "Inventory Asset", type: "ASSET", category: "Current Asset", isSystem: true },
-        { code: "1400", name: "Prepaid Expenses", type: "ASSET", category: "Current Asset", isSystem: true },
-        { code: "1500", name: "Fixed Assets - Cost", type: "ASSET", category: "Fixed Asset", isSystem: true },
-        { code: "1510", name: "Accumulated Depreciation", type: "ASSET", category: "Fixed Asset", isSystem: true },
+        // --- ASSETS (IFRS presentation: current and non-current) ---
+        { code: "1000", name: "Cash on Hand", type: "ASSET", category: "Current Assets", isSystem: true },
+        { code: "1010", name: "Cash at Bank - USD", type: "ASSET", category: "Current Assets", isSystem: true },
+        { code: "1020", name: "Cash at Bank - ZiG", type: "ASSET", category: "Current Assets", isSystem: true },
+        { code: "1050", name: "Petty Cash", type: "ASSET", category: "Current Assets", isSystem: true },
+        { code: "1100", name: "Short-term Investments", type: "ASSET", category: "Current Assets", isSystem: true },
+        { code: "1200", name: "Trade Receivables", type: "ASSET", category: "Current Assets", isSystem: true },
+        { code: "1210", name: "Allowance for Expected Credit Losses", type: "ASSET", category: "Current Assets", isSystem: true },
+        { code: "1300", name: "Inventories", type: "ASSET", category: "Current Assets", isSystem: true },
+        { code: "1400", name: "Prepayments", type: "ASSET", category: "Current Assets", isSystem: true },
+        { code: "1500", name: "Property, Plant and Equipment - Cost", type: "ASSET", category: "Non-current Assets", isSystem: true },
+        { code: "1510", name: "Accumulated Depreciation - PPE", type: "ASSET", category: "Non-current Assets", isSystem: true },
+        { code: "1520", name: "Right-of-use Assets", type: "ASSET", category: "Non-current Assets", isSystem: true },
+        { code: "1530", name: "Intangible Assets", type: "ASSET", category: "Non-current Assets", isSystem: true },
+        { code: "1540", name: "Accumulated Amortisation", type: "ASSET", category: "Non-current Assets", isSystem: true },
+        { code: "2110", name: "VAT Input Recoverable", type: "ASSET", category: "Current Assets", isSystem: true },
 
-        // --- LIABILITIES (2000-2999) ---
-        { code: "2000", name: "Accounts Payable (Control)", type: "LIABILITY", category: "Current Liability", isSystem: true },
-        { code: "2100", name: "VAT Payable (Output)", type: "LIABILITY", category: "Current Liability", isSystem: true },
-        { code: "2110", name: "VAT Receivable (Input)", type: "LIABILITY", category: "Current Liability", isSystem: true },
-        { code: "2200", name: "Accrued Liabilities", type: "LIABILITY", category: "Current Liability", isSystem: true },
-        { code: "2300", name: "Directors Loan Account", type: "LIABILITY", category: "Long Term Liability", isSystem: true },
+        // --- LIABILITIES (IFRS presentation: current and non-current) ---
+        { code: "2000", name: "Trade Payables", type: "LIABILITY", category: "Current Liabilities", isSystem: true },
+        { code: "2100", name: "VAT Output Payable", type: "LIABILITY", category: "Current Liabilities", isSystem: true },
+        { code: "2120", name: "Income Tax Payable", type: "LIABILITY", category: "Current Liabilities", isSystem: true },
+        { code: "2200", name: "Accrued Expenses", type: "LIABILITY", category: "Current Liabilities", isSystem: true },
+        { code: "2300", name: "Related Party Loans", type: "LIABILITY", category: "Non-current Liabilities", isSystem: true },
+        { code: "2400", name: "Lease Liabilities", type: "LIABILITY", category: "Non-current Liabilities", isSystem: true },
+        { code: "2500", name: "Deferred Tax Liabilities", type: "LIABILITY", category: "Non-current Liabilities", isSystem: true },
 
-        // --- EQUITY (3000-3999) ---
+        // --- EQUITY ---
         { code: "3000", name: "Retained Earnings", type: "EQUITY", category: "Equity", isSystem: true },
         { code: "3100", name: "Opening Balance Equity", type: "EQUITY", category: "Equity", isSystem: true },
         { code: "3200", name: "Share Capital", type: "EQUITY", category: "Equity", isSystem: true },
+        { code: "3300", name: "Other Reserves", type: "EQUITY", category: "Equity", isSystem: true },
 
-        // --- REVENUE (4000-4999) ---
-        { code: "4000", name: "Sales Revenue", type: "REVENUE", category: "Revenue", isSystem: true },
+        // --- INCOME ---
+        { code: "4000", name: "Revenue from Contracts with Customers", type: "REVENUE", category: "Revenue", isSystem: true },
         { code: "4100", name: "Service Revenue", type: "REVENUE", category: "Revenue", isSystem: true },
-        { code: "4200", name: "Interest Income", type: "REVENUE", category: "Other Income", isSystem: true },
-        { code: "4900", name: "Realized FX Gain", type: "REVENUE", category: "Other Income", isSystem: true },
+        { code: "4200", name: "Finance Income", type: "REVENUE", category: "Other Income", isSystem: true },
+        { code: "4900", name: "Foreign Exchange Gains", type: "REVENUE", category: "Other Income", isSystem: true },
 
-        // --- EXPENSES (5000-5999) ---
-        { code: "5000", name: "Cost of Goods Sold", type: "EXPENSE", category: "Direct Expense", isSystem: true },
-        { code: "5100", name: "General Expenses", type: "EXPENSE", category: "Indirect Expense", isSystem: true },
-        { code: "5110", name: "Rent & Rates", type: "EXPENSE", category: "Indirect Expense", isSystem: true },
-        { code: "5120", name: "Utilities (Water/Elect)", type: "EXPENSE", category: "Indirect Expense", isSystem: true },
-        { code: "5130", name: "Salaries & Wages", type: "EXPENSE", category: "Indirect Expense", isSystem: true },
-        { code: "5140", name: "Printing & Stationery", type: "EXPENSE", category: "Indirect Expense", isSystem: true },
-        { code: "5150", name: "Bank Charges", type: "EXPENSE", category: "Indirect Expense", isSystem: true },
-        { code: "5160", name: "Repairs & Maintenance", type: "EXPENSE", category: "Indirect Expense", isSystem: true },
-        { code: "5170", name: "Telephone & Internet", type: "EXPENSE", category: "Indirect Expense", isSystem: true },
-        { code: "5180", name: "Depreciation Expense", type: "EXPENSE", category: "Indirect Expense", isSystem: true },
-        { code: "5900", name: "Realized FX Loss", type: "EXPENSE", category: "Other Expense", isSystem: true },
+        // --- EXPENSES ---
+        { code: "5000", name: "Cost of Sales", type: "EXPENSE", category: "Cost of Sales", isSystem: true },
+        { code: "5100", name: "Administrative Expenses", type: "EXPENSE", category: "Operating Expenses", isSystem: true },
+        { code: "5110", name: "Rent and Occupancy Expenses", type: "EXPENSE", category: "Operating Expenses", isSystem: true },
+        { code: "5120", name: "Utilities", type: "EXPENSE", category: "Operating Expenses", isSystem: true },
+        { code: "5130", name: "Employee Benefits Expense", type: "EXPENSE", category: "Operating Expenses", isSystem: true },
+        { code: "5140", name: "Printing and Stationery", type: "EXPENSE", category: "Operating Expenses", isSystem: true },
+        { code: "5150", name: "Bank Charges", type: "EXPENSE", category: "Finance Costs", isSystem: true },
+        { code: "5160", name: "Repairs and Maintenance", type: "EXPENSE", category: "Operating Expenses", isSystem: true },
+        { code: "5170", name: "Communication Expenses", type: "EXPENSE", category: "Operating Expenses", isSystem: true },
+        { code: "5180", name: "Depreciation and Amortisation", type: "EXPENSE", category: "Operating Expenses", isSystem: true },
+        { code: "5190", name: "Impairment Losses", type: "EXPENSE", category: "Operating Expenses", isSystem: true },
+        { code: "5900", name: "Foreign Exchange Losses", type: "EXPENSE", category: "Other Expenses", isSystem: true },
       ];
 
       for (const acc of defaultAccounts) {
@@ -5932,6 +6380,123 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
+  async getJournalEntryDrafts(companyId: number): Promise<any[]> {
+    const drafts = await db.select()
+      .from(journalEntryDrafts)
+      .where(eq(journalEntryDrafts.companyId, companyId))
+      .orderBy(desc(journalEntryDrafts.createdAt));
+
+    const result = [];
+    for (const draft of drafts) {
+      const lines = await db.select({
+        id: journalEntryDraftLines.id,
+        accountId: journalEntryDraftLines.accountId,
+        accountName: accounts.name,
+        accountCode: accounts.code,
+        type: journalEntryDraftLines.type,
+        amount: journalEntryDraftLines.amount,
+        memo: journalEntryDraftLines.memo,
+      })
+      .from(journalEntryDraftLines)
+      .innerJoin(accounts, eq(journalEntryDraftLines.accountId, accounts.id))
+      .where(eq(journalEntryDraftLines.draftId, draft.id));
+
+      result.push({ ...draft, lines });
+    }
+    return result;
+  }
+
+  async createJournalEntryDraft(companyId: number, data: InsertJournalEntryDraft & { lines: LedgerPostLine[] }): Promise<any> {
+    return await db.transaction(async (tx) => {
+      const normalizedLines = await this.normalizeLedgerLines(companyId, data.lines, tx);
+      this.assertBalancedLedgerLines(normalizedLines);
+
+      const [draft] = await tx.insert(journalEntryDrafts).values({
+        companyId,
+        entryDate: data.entryDate ? new Date(data.entryDate) : new Date(),
+        description: data.description,
+        referenceType: data.referenceType || "JOURNAL",
+        referenceId: data.referenceId,
+        status: "DRAFT",
+        createdBy: data.createdBy,
+        updatedAt: new Date(),
+      }).returning();
+
+      for (const line of normalizedLines) {
+        await tx.insert(journalEntryDraftLines).values({
+          draftId: draft.id,
+          accountId: line.accountId,
+          type: line.type,
+          amount: line.amount.toFixed(2),
+          memo: line.memo,
+        });
+      }
+
+      return {
+        ...draft,
+        lines: normalizedLines.map((line) => ({
+          accountId: line.accountId,
+          accountCode: line.accountCode,
+          accountName: line.accountName,
+          type: line.type,
+          amount: line.amount.toFixed(2),
+          memo: line.memo,
+        })),
+      };
+    });
+  }
+
+  async postJournalEntryDraft(companyId: number, draftId: number, userId?: string): Promise<JournalEntry> {
+    return await db.transaction(async (tx) => {
+      const [draft] = await tx.select()
+        .from(journalEntryDrafts)
+        .where(and(eq(journalEntryDrafts.id, draftId), eq(journalEntryDrafts.companyId, companyId)));
+
+      if (!draft) throw new Error("Journal draft not found");
+      if (draft.status !== "DRAFT") throw new Error("Only draft journal entries can be posted");
+
+      const lines = await tx.select({
+        accountId: journalEntryDraftLines.accountId,
+        accountCode: accounts.code,
+        accountName: accounts.name,
+        type: journalEntryDraftLines.type,
+        amount: journalEntryDraftLines.amount,
+      })
+      .from(journalEntryDraftLines)
+      .innerJoin(accounts, eq(journalEntryDraftLines.accountId, accounts.id))
+      .where(eq(journalEntryDraftLines.draftId, draftId));
+
+      const normalizedLines = lines.map((line) => ({
+        accountId: line.accountId,
+        accountCode: line.accountCode,
+        accountName: line.accountName,
+        type: line.type as "DEBIT" | "CREDIT",
+        amount: Number(line.amount),
+      }));
+      this.assertBalancedLedgerLines(normalizedLines);
+
+      const posted = await this.postToLedger(companyId, {
+        entryDate: draft.entryDate,
+        description: draft.description,
+        referenceType: draft.referenceType || "JOURNAL",
+        referenceId: draft.referenceId || `JD-${draft.id}`,
+        createdBy: userId || draft.createdBy || undefined,
+        lines: normalizedLines,
+      }, tx);
+
+      await tx.update(journalEntryDrafts)
+        .set({
+          status: "POSTED",
+          postedJournalEntryId: posted.id,
+          postedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(journalEntryDrafts.id, draftId));
+
+      return posted;
+    });
+  }
+
   async getLedgerEntries(companyId: number, accountId?: number, dateFrom?: Date, dateTo?: Date): Promise<any[]> {
     const filters: any[] = [eq(accounts.companyId, companyId)];
     if (accountId) filters.push(eq(ledgerEntries.accountId, accountId));
@@ -5994,10 +6559,11 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
-  async postToLedger(companyId: number, data: { entryDate: Date, description: string, referenceType?: string, referenceId?: string, createdBy?: string, lines: { accountCode: string, type: 'DEBIT' | 'CREDIT', amount: number }[] }, tx?: any): Promise<JournalEntry> {
+  async postToLedger(companyId: number, data: LedgerPostData, tx?: any): Promise<JournalEntry> {
     const executeInTx = async (t: any) => {
       // POSTING GUARD: Cannot post to a CLOSED period
-      const postingDate = new Date(data.entryDate);
+      const entryDate = data.entryDate ?? (data.date ? new Date(data.date) : new Date());
+      const postingDate = new Date(entryDate);
       const periods = await t.select().from(financialPeriods).where(eq(financialPeriods.companyId, companyId));
       const applicablePeriod = periods.find((p: any) => {
         const pStart = new Date(p.startDate);
@@ -6012,23 +6578,23 @@ export class DatabaseStorage implements IStorage {
       // 1. Create Journal Entry
       const [je] = await t.insert(journalEntries).values({
         companyId,
-        entryDate: data.entryDate,
+        entryDate,
         description: data.description,
         referenceType: data.referenceType,
-        referenceId: data.referenceId,
+        referenceId: data.referenceId ?? data.reference,
         createdBy: data.createdBy,
       }).returning();
 
-      // 2. Create Ledger Entries
-      for (const line of data.lines) {
-        const [acc] = await t.select().from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.code, line.accountCode)));
-        if (!acc) throw new Error(`Account code ${line.accountCode} not found for company ${companyId}`);
+      const normalizedLines = await this.normalizeLedgerLines(companyId, data.lines, t);
+      this.assertBalancedLedgerLines(normalizedLines);
 
+      // 2. Create Ledger Entries
+      for (const line of normalizedLines) {
         await t.insert(ledgerEntries).values({
           journalEntryId: je.id,
-          accountId: acc.id,
+          accountId: line.accountId,
           type: line.type,
-          amount: line.amount.toString(),
+          amount: line.amount.toFixed(2),
         });
       }
 

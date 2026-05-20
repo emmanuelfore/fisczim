@@ -229,13 +229,13 @@ const Hero = () => {
   });
 
   return (
-    <section style={{ minHeight: "100dvh", background: C.navy, position: "relative", display: "flex", alignItems: "center", overflow: "hidden", padding: "100px 0 60px" }}>
+    <section className="fs-hero" style={{ minHeight: "100dvh", background: C.navy, position: "relative", display: "flex", alignItems: "center", overflow: "hidden", padding: "100px 0 60px" }}>
       <div style={{ position: "absolute", inset: 0, background: `radial-gradient(ellipse 80% 60% at 70% 50%, rgba(37,99,235,0.1) 0%, transparent 70%), radial-gradient(ellipse 50% 80% at 10% 80%, rgba(26,107,82,0.1) 0%, transparent 60%)` }} />
       <div style={{ position: "absolute", top: "10%", right: "5%", width: 500, height: 500, borderRadius: "50%", background: "rgba(37,99,235,0.04)", border: "1px solid rgba(37,99,235,0.1)", transform: "rotate(-15deg)" }} />
 
-      <div style={{ maxWidth: 1180, margin: "0 auto", padding: "0 24px", width: "100%", display: "grid", gridTemplateColumns: "1fr auto", gap: 40, alignItems: "center" }}>
+      <div className="fs-hero-grid" style={{ maxWidth: 1180, margin: "0 auto", padding: "0 24px", width: "100%", display: "grid", gridTemplateColumns: "1fr auto", gap: 40, alignItems: "center" }}>
         {/* Left */}
-        <div>
+        <div className="fs-hero-copy">
           <div style={{ ...fu(0.1), display: "inline-flex", alignItems: "center", gap: 8, background: "rgba(37,99,235,0.1)", border: "1px solid rgba(37,99,235,0.25)", borderRadius: 9999, padding: "5px 14px", marginBottom: 28 }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e", display: "inline-block", animation: "pulse 1.5s infinite" }} />
             <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 11, color: C.gold, letterSpacing: "0.12em" }}>ZIMRA COMPLIANT · ZIMBABWE</span>
@@ -254,9 +254,10 @@ const Hero = () => {
             The all-in-one fiscalization platform for Zimbabwe's modern businesses. Seamlessly sync with ZIMRA, manage inventory, and drive growth with smart analytics.
           </p>
 
-          <div style={{ ...fu(0.65), display: "flex", flexWrap: "wrap", gap: 12, marginTop: 32 }}>
+          <div className="fs-hero-ctas" style={{ ...fu(0.65), display: "flex", flexWrap: "wrap", gap: 12, marginTop: 32 }}>
             <button
               onClick={() => setLocation("/auth?mode=signup")}
+              className="fs-hero-button"
               style={{ fontFamily: "'Plus Jakarta Sans',sans-serif", fontWeight: 700, fontSize: 14, padding: "13px 28px", borderRadius: 9999, background: C.gold, color: "#fff", border: "none", cursor: "pointer", transition: "transform 0.2s, box-shadow 0.2s", boxShadow: "0 4px 20px rgba(37,99,235,0.4)" }}
               onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = "scale(1.05)"; (e.currentTarget as HTMLButtonElement).style.boxShadow = "0 6px 28px rgba(37,99,235,0.5)"; }}
               onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = "scale(1)"; (e.currentTarget as HTMLButtonElement).style.boxShadow = "0 4px 20px rgba(37,99,235,0.4)"; }}
@@ -265,6 +266,7 @@ const Hero = () => {
             </button>
             <button
               onClick={() => setLocation("/auth?mode=signup")}
+              className="fs-hero-button"
               style={{ fontFamily: "'Plus Jakarta Sans',sans-serif", fontWeight: 600, fontSize: 14, padding: "13px 28px", borderRadius: 9999, background: "rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.85)", border: "1px solid rgba(255,255,255,0.15)", cursor: "pointer", transition: "all 0.2s" }}
               onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.12)"; }}
               onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.07)"; }}
@@ -273,7 +275,7 @@ const Hero = () => {
             </button>
           </div>
 
-          <div style={{ ...fu(0.8), display: "flex", alignItems: "center", gap: 12, marginTop: 28 }}>
+          <div className="fs-trust" style={{ ...fu(0.8), display: "flex", alignItems: "center", gap: 12, marginTop: 28 }}>
             <div style={{ display: "flex" }}>
               {["#2563eb", "#7c3aed", "#db2777", "#ea580c", "#16a34a"].map((c, i) => (
                 <div key={i} style={{ width: 28, height: 28, borderRadius: "50%", background: c, border: "2px solid " + C.navy, marginLeft: i > 0 ? -8 : 0 }} />
@@ -286,14 +288,14 @@ const Hero = () => {
         </div>
 
         {/* Right — invoice widget */}
-        <div style={{ ...fu(0.45), display: "flex", justifyContent: "center" }} className="hidden lg:flex">
+        <div style={{ ...fu(0.45), display: "flex", justifyContent: "center" }} className="fs-hero-visual">
           <InvoiceWidget />
         </div>
       </div>
 
       {/* Bottom stats */}
-      <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, borderTop: "1px solid rgba(255,255,255,0.05)", background: "rgba(255,255,255,0.02)", backdropFilter: "blur(8px)" }}>
-        <div style={{ maxWidth: 1180, margin: "0 auto", padding: "18px 24px", display: "flex", flexWrap: "wrap", gap: 24, justifyContent: "space-between" }}>
+      <div className="fs-hero-stats" style={{ position: "absolute", bottom: 0, left: 0, right: 0, borderTop: "1px solid rgba(255,255,255,0.05)", background: "rgba(255,255,255,0.02)", backdropFilter: "blur(8px)" }}>
+        <div className="fs-stats-row" style={{ maxWidth: 1180, margin: "0 auto", padding: "18px 24px", display: "flex", flexWrap: "wrap", gap: 24, justifyContent: "space-between" }}>
           {([["500+", "Businesses Active"], ["$12M+", "Invoices Processed"], ["99.9%", "FDMS Uptime"], ["< 1s", "Sync Latency"]] as [string, string][]).map(([v, l]) => (
             <div key={l} style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
               <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 18, fontWeight: 500, color: C.gold }}>{v}</span>
@@ -381,10 +383,10 @@ const POSHighlight = () => {
   return (
     <section style={{ background: C.navy, padding: "100px 24px", position: "relative", overflow: "hidden" }}>
       <div style={{ position: "absolute", inset: 0, background: `radial-gradient(ellipse 60% 70% at 90% 50%, rgba(37,99,235,0.08) 0%, transparent 70%)` }} />
-      <div style={{ maxWidth: 1180, margin: "0 auto", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 60, alignItems: "center" }} className="grid-cols-1 md:grid-cols-2">
+      <div className="fs-pos-grid" style={{ maxWidth: 1180, margin: "0 auto", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 60, alignItems: "center" }}>
 
         {/* POS Mock */}
-        <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 28, padding: 28, fontFamily: "'Plus Jakarta Sans',sans-serif" }}>
+        <div className="fs-pos-card" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 28, padding: 28, fontFamily: "'Plus Jakarta Sans',sans-serif" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
             <span style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>Smart POS Terminal</span>
             <div style={{ display: "flex", alignItems: "center", gap: 6, background: status === "online" ? "rgba(22,163,74,0.15)" : "rgba(239,68,68,0.15)", padding: "4px 10px", borderRadius: 99 }}>
@@ -394,7 +396,7 @@ const POSHighlight = () => {
               </span>
             </div>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginBottom: 16 }}>
+          <div className="fs-pos-products" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginBottom: 16 }}>
             {["Bread — $0.80", "Milk — $1.20", "Eggs ×6 — $2.50", "Sugar 1kg — $1.00", "Cooking Oil — $3.40", "Chicken — $5.80"].map(item => (
               <div key={item} style={{ background: "rgba(255,255,255,0.05)", borderRadius: 10, padding: "10px 8px", fontSize: 10, color: "rgba(255,255,255,0.65)", textAlign: "center", border: "1px solid rgba(255,255,255,0.05)" }}>
                 {item}
@@ -711,10 +713,97 @@ export default function LandingPage() {
         html { scroll-behavior: smooth; }
         body { -webkit-font-smoothing: antialiased; }
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+        @media(max-width:900px){
+          .fs-hero {
+            min-height: auto !important;
+            display: block !important;
+            padding: 104px 0 0 !important;
+          }
+          .fs-hero-grid {
+            grid-template-columns: 1fr !important;
+            gap: 24px !important;
+            padding: 0 18px !important;
+            text-align: center;
+          }
+          .fs-hero-copy {
+            max-width: 620px;
+            margin: 0 auto;
+          }
+          .fs-hero-copy p {
+            margin-left: auto;
+            margin-right: auto;
+            color: rgba(255,255,255,0.68) !important;
+          }
+          .fs-hero-ctas,
+          .fs-trust {
+            justify-content: center;
+          }
+          .fs-hero-visual {
+            display: none !important;
+          }
+          .fs-hero-stats {
+            position: relative !important;
+            margin-top: 40px;
+          }
+          .fs-stats-row {
+            justify-content: center !important;
+            gap: 16px !important;
+          }
+          .fs-pos-grid {
+            grid-template-columns: 1fr !important;
+            gap: 36px !important;
+          }
+        }
         @media(max-width:768px){
+          nav {
+            top: 10px !important;
+            padding-left: 14px !important;
+            padding-right: 14px !important;
+          }
           .grid-footer { grid-template-columns: 1fr 1fr !important; }
         }
         @media(max-width:480px){
+          .fs-hero {
+            padding-top: 92px !important;
+          }
+          .fs-hero-copy h1 span {
+            font-size: 2.35rem !important;
+          }
+          .fs-hero-copy h1 em {
+            font-size: 2.85rem !important;
+          }
+          .fs-hero-copy p {
+            font-size: 15px !important;
+            line-height: 1.62 !important;
+            margin-top: 16px !important;
+          }
+          .fs-hero-ctas {
+            margin-top: 24px !important;
+          }
+          .fs-trust {
+            margin-top: 22px !important;
+          }
+          .fs-hero-ctas {
+            flex-direction: column;
+            align-items: stretch;
+          }
+          .fs-hero-button {
+            width: 100%;
+          }
+          .fs-trust {
+            flex-direction: column;
+          }
+          .fs-stats-row > div {
+            width: 100%;
+            justify-content: center;
+          }
+          .fs-pos-card {
+            padding: 18px !important;
+            border-radius: 20px !important;
+          }
+          .fs-pos-products {
+            grid-template-columns: 1fr 1fr !important;
+          }
           .grid-footer { grid-template-columns: 1fr !important; }
         }
       `}</style>

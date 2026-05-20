@@ -30,7 +30,7 @@ export function RecipeManager({ productId, companyId }: Props) {
     const { data: allProducts } = useProducts(companyId);
     const [searchQuery, setSearchQuery] = useState("");
 
-    // Filter potential ingredients (anything that's marked as isIngredient)
+    // Filter potential inputs (anything marked as ingredient/source stock).
     const ingredients = allProducts?.filter(p => 
         p.isIngredient && 
         p.id !== productId && 
@@ -71,13 +71,13 @@ export function RecipeManager({ productId, companyId }: Props) {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["recipe", productId] });
-            toast({ title: "Recipe Saved", description: "Product BOM updated successfully." });
+            toast({ title: "Recipe / BOM Saved", description: "Ingredient and source-stock deduction setup updated successfully." });
         }
     });
 
     const addItem = (product: any) => {
         if (items.some(item => item.ingredientId === product.id)) {
-            toast({ title: "Already added", description: "This ingredient is already in the recipe.", variant: "destructive" });
+            toast({ title: "Already added", description: "This ingredient or source stock item is already selected.", variant: "destructive" });
             return;
         }
         setItems([...items, {
@@ -121,10 +121,10 @@ export function RecipeManager({ productId, companyId }: Props) {
                 <div className="flex items-center justify-between">
                     <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
                         <ChefHat className="w-5 h-5 text-indigo-600" />
-                        Recipe Ingredients
+                        Ingredients / Source Stock Consumed
                     </h3>
                     <div className="text-right">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Total BOM Cost</p>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Total Input Cost</p>
                         <p className="text-xl font-black text-indigo-600">${totalCost.toFixed(2)}</p>
                     </div>
                 </div>
@@ -134,7 +134,7 @@ export function RecipeManager({ productId, companyId }: Props) {
                         <ScrollArea className="h-[400px]">
                             {items.length === 0 ? (
                                 <div className="p-12 text-center text-slate-400 font-medium">
-                                    No ingredients added yet. Search and add from the right panel.
+                                    No ingredients or source stock added yet. Search and add from the right panel.
                                 </div>
                             ) : (
                                 <div className="divide-y divide-slate-100">
@@ -142,7 +142,7 @@ export function RecipeManager({ productId, companyId }: Props) {
                                         <div key={item.ingredientId} className="p-4 flex items-center justify-between hover:bg-white transition-colors group">
                                             <div className="flex-1 min-w-0 pr-4">
                                                 <p className="text-sm font-bold text-slate-900 truncate">{item.ingredientName}</p>
-                                                <p className="text-[10px] text-slate-500 font-bold uppercase mt-0.5">Unit Cost: ${Number(item.unitCost || 0).toFixed(2)}</p>
+                                                <p className="text-[10px] text-slate-500 font-bold uppercase mt-0.5">Input Unit Cost: ${Number(item.unitCost || 0).toFixed(2)}</p>
                                             </div>
                                             <div className="flex items-center gap-3">
                                                 <div className="w-24">
@@ -179,17 +179,17 @@ export function RecipeManager({ productId, companyId }: Props) {
                         className="btn-gradient px-8 py-6 rounded-2xl font-black gap-2 shadow-xl shadow-indigo-100"
                     >
                         {saveMutation.isPending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
-                        Save Recipe
+                        Save Recipe / BOM
                     </Button>
                 </div>
             </div>
 
             <div className="space-y-4">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Find Ingredients</p>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">Find Ingredients / Source Stock</p>
                 <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                     <Input 
-                        placeholder="Search ingredients..." 
+                        placeholder="Search ingredients or source stock..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         className="pl-9 h-11 rounded-xl bg-slate-100 border-none text-sm"
@@ -219,13 +219,13 @@ export function RecipeManager({ productId, companyId }: Props) {
                         ))}
                         {ingredients.length === 0 && (
                             <div className="p-8 text-center text-slate-400 text-xs italic">
-                                {searchQuery ? "No matching ingredients" : "No products marked as 'Ingredient' found."}
+                                {searchQuery ? "No matching input stock" : "No products marked as ingredient/source stock found."}
                             </div>
                         )}
                     </div>
                 </ScrollArea>
                 <p className="text-[9px] text-slate-400 px-2 italic bg-slate-50 p-2 rounded-lg leading-relaxed">
-                    <b>Tip:</b> Only products marked as "Is Ingredient" in inventory show up here.
+                    <b>Tip:</b> Recipes/BOM deduct inputs at the time of sale. For meat, mark the whole cut as Ingredient / Source Stock, then set each sellable cut to consume it. Production is different: use production when you know the output quantities and want to convert stock before selling.
                 </p>
             </div>
         </div>

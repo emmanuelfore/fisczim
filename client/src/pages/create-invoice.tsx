@@ -1,7 +1,7 @@
 import { Layout } from "@/components/layout";
 import { useCustomers, useCreateCustomer } from "@/hooks/use-customers";
 import { useProducts, useCreateProduct } from "@/hooks/use-products";
-import { useCreateInvoice, useInvoice, useUpdateInvoice } from "@/hooks/use-invoices";
+import { useCreateInvoice, useFiscalizeInvoice, useInvoice, useUpdateInvoice } from "@/hooks/use-invoices";
 import { useAuth } from "@/hooks/use-auth";
 import { useCurrencies } from "@/hooks/use-currencies";
 import { useCompany } from "@/hooks/use-companies";
@@ -83,6 +83,7 @@ export default function CreateInvoicePage() {
   const { taxTypes } = useTaxConfig(companyId);
   const { toast } = useToast();
   const updateInvoice = useUpdateInvoice();
+  const fiscalizeInvoice = useFiscalizeInvoice();
   const createProduct = useCreateProduct(companyId);
   const { user } = useAuth();
 
@@ -413,7 +414,8 @@ export default function CreateInvoicePage() {
 
 
 
-  const [loadingAction, setLoadingAction] = useState<'draft' | 'issue' | 'quote' | null>(null);
+  type InvoiceAction = 'draft' | 'issue' | 'issueAndFiscalize' | 'quote';
+  const [loadingAction, setLoadingAction] = useState<InvoiceAction | null>(null);
 
   const handleSaveDraft = async () => {
     setLoadingAction('draft');
@@ -538,8 +540,8 @@ export default function CreateInvoicePage() {
     }
   };
 
-  const handleIssue = async () => {
-    setLoadingAction('issue');
+  const handleIssue = async (fiscalizeNow = false) => {
+    setLoadingAction(fiscalizeNow ? 'issueAndFiscalize' : 'issue');
     if (!customerId) {
       toast({ title: "Validation Error", description: "Please select a customer.", variant: "destructive" });
       setLoadingAction(null);
@@ -589,15 +591,32 @@ export default function CreateInvoicePage() {
     };
 
     try {
+      let savedInvoice: any;
       if (isEditing && editId) {
-        await updateInvoice.mutateAsync({ id: parseInt(editId), data: invoiceData });
+        savedInvoice = await updateInvoice.mutateAsync({ id: parseInt(editId), data: invoiceData });
       } else {
-        await createInvoice.mutateAsync(invoiceData);
+        savedInvoice = await createInvoice.mutateAsync(invoiceData);
       }
-      toast({ title: "Invoice Issued", description: "Invoice issued successfully." });
-      setLocation("/invoices");
+
+      if (fiscalizeNow) {
+        try {
+          await fiscalizeInvoice.mutateAsync(savedInvoice.id);
+        } catch (fiscalizeError: any) {
+          toast({
+            title: "Invoice Issued, Fiscalization Failed",
+            description: fiscalizeError.message || "Open the invoice to review and retry fiscalization.",
+            variant: "destructive",
+          });
+          setLocation(`/invoices/${savedInvoice.id}`);
+          return;
+        }
+      } else {
+        toast({ title: "Invoice Issued", description: "Invoice issued successfully." });
+      }
+
+      setLocation(`/invoices/${savedInvoice.id}`);
     } catch (error: any) {
-      toast({ title: "Error", description: error.message || "Failed to issue invoice", variant: "destructive" });
+      toast({ title: "Error", description: error.message || (fiscalizeNow ? "Failed to issue and fiscalize invoice" : "Failed to issue invoice"), variant: "destructive" });
     } finally {
       setLoadingAction(null);
     }
@@ -605,9 +624,9 @@ export default function CreateInvoicePage() {
 
   const [validationWarnings, setValidationWarnings] = useState<string[]>([]);
   const [showValidationDialog, setShowValidationDialog] = useState(false);
-  const [pendingAction, setPendingAction] = useState<'draft' | 'issue' | 'quote' | null>(null);
+  const [pendingAction, setPendingAction] = useState<InvoiceAction | null>(null);
 
-  const validateInvoice = (action: 'draft' | 'issue' | 'quote'): string[] => {
+  const validateInvoice = (action: InvoiceAction): string[] => {
     const warnings: string[] = [];
     if (items.some(item => !item.hsCode || item.hsCode.length < 4)) {
       warnings.push("⚠️ Some items are missing valid HS Codes. ZIMRA requires proper classification.");
@@ -618,7 +637,7 @@ export default function CreateInvoicePage() {
     return warnings;
   };
 
-  const handleActionClick = (action: 'draft' | 'issue' | 'quote') => {
+  const handleActionClick = (action: InvoiceAction) => {
     const warnings = validateInvoice(action);
     if (warnings.length > 0) {
       setValidationWarnings(warnings);
@@ -629,9 +648,10 @@ export default function CreateInvoicePage() {
     }
   };
 
-  const executeAction = (action: 'draft' | 'issue' | 'quote') => {
+  const executeAction = (action: InvoiceAction) => {
     if (action === 'draft') handleSaveDraft();
     if (action === 'issue') handleIssue();
+    if (action === 'issueAndFiscalize') handleIssue(true);
     if (action === 'quote') handleSaveQuotation();
     setShowValidationDialog(false);
   };
@@ -719,8 +739,15 @@ export default function CreateInvoicePage() {
               {loadingAction === 'issue' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
               Issue Invoice
             </Button>
-
-
+            <Button
+              onClick={() => handleActionClick('issueAndFiscalize')}
+              disabled={loadingAction !== null || isLockedByOther || !hasFiscalDevice}
+              className="h-9 gap-2 bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 disabled:bg-slate-300"
+              title={!hasFiscalDevice ? "Connect a fiscal device before fiscalizing" : undefined}
+            >
+              {loadingAction === 'issueAndFiscalize' ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+              Issue & Fiscalize
+            </Button>
           </div>
         </div>
 
@@ -1500,6 +1527,15 @@ export default function CreateInvoicePage() {
                     >
                       {loadingAction === 'issue' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                       Review & Issue Invoice
+                    </Button>
+                    <Button
+                      className="h-11 rounded-xl gap-2 bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-slate-300"
+                      onClick={() => handleActionClick('issueAndFiscalize')}
+                      disabled={loadingAction !== null || isLockedByOther || !hasFiscalDevice}
+                      title={!hasFiscalDevice ? "Connect a fiscal device before fiscalizing" : undefined}
+                    >
+                      {loadingAction === 'issueAndFiscalize' ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+                      Issue & Fiscalize Now
                     </Button>
                   </div>
                 </div>

@@ -30,14 +30,14 @@ export function CashFlowView({ companyId, dateRange, consolidatedSymbol, consoli
   const netCashFlow = data.netCashFlow || 0;
 
   const groupedInflows = inflows.reduce((acc: any, curr: any) => {
-    const desc = curr.journal_entries?.description || "Other Receipts";
-    acc[desc] = (acc[desc] || 0) + Number(curr.debit);
+    const desc = curr.description || "Other Receipts";
+    acc[desc] = (acc[desc] || 0) + Number(curr.amount);
     return acc;
   }, {});
   
   const groupedOutflows = outflows.reduce((acc: any, curr: any) => {
-    const desc = curr.journal_entries?.description || "Other Payments";
-    acc[desc] = (acc[desc] || 0) + Number(curr.credit);
+    const desc = curr.description || "Other Payments";
+    acc[desc] = (acc[desc] || 0) + Number(curr.amount);
     return acc;
   }, {});
 
@@ -75,7 +75,7 @@ export function CashFlowView({ companyId, dateRange, consolidatedSymbol, consoli
                 <TableRow className="bg-slate-50/30">
                   <TableCell className="font-bold text-slate-800 text-right uppercase text-xs tracking-wider">Total Inflows</TableCell>
                   <TableCell className="text-right font-black text-emerald-700">
-                    {consolidatedSymbol}{(inflows.reduce((s: number, i: any) => s + Number(i.debit), 0) * consolidatedRate).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {consolidatedSymbol}{(inflows.reduce((s: number, i: any) => s + Number(i.amount), 0) * consolidatedRate).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </TableCell>
                 </TableRow>
               </TableBody>
@@ -105,7 +105,7 @@ export function CashFlowView({ companyId, dateRange, consolidatedSymbol, consoli
                 <TableRow className="bg-slate-50/30">
                   <TableCell className="font-bold text-slate-800 text-right uppercase text-xs tracking-wider">Total Outflows</TableCell>
                   <TableCell className="text-right font-black text-rose-700">
-                    ({consolidatedSymbol}{(outflows.reduce((s: number, o: any) => s + Number(o.credit), 0) * consolidatedRate).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
+                    ({consolidatedSymbol}{(outflows.reduce((s: number, o: any) => s + Number(o.amount), 0) * consolidatedRate).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
                   </TableCell>
                 </TableRow>
               </TableBody>

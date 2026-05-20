@@ -1,7 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Layout } from "@/components/layout";
-import { useQuery } from "@tanstack/react-query";
-import { useAuth } from "@/hooks/use-auth";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { Plus, Search, FileText } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -10,20 +9,163 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatCurrency } from "@/lib/utils";
+import { useActiveCompany } from "@/hooks/use-active-company";
+import { apiFetch } from "@/lib/api";
+import { useToast } from "@/hooks/use-toast";
+import { type Account, type Supplier } from "@shared/schema";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 
 export default function SupplierInvoicesPage() {
-  const { user } = useAuth();
-  const companyId = user?.companyId || 1;
+  const { activeCompany, activeCompanyId, isLoading: isCompanyLoading } = useActiveCompany();
+  const companyId = activeCompanyId || 0;
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [formData, setFormData] = useState({
+    supplierId: "",
+    invoiceNumber: "",
+    date: new Date().toISOString().slice(0, 10),
+    dueDate: "",
+    totalAmount: "",
+    vatRate: activeCompany?.vatRegistered ? "15" : "0",
+    taxInclusive: activeCompany?.vatEnabled ?? true,
+    taxAmount: "0",
+    debitAccountId: "",
+    notes: "",
+  });
+
+  useEffect(() => {
+    if (!activeCompany || formData.totalAmount) return;
+    setFormData((previous) => ({
+      ...previous,
+      vatRate: activeCompany.vatRegistered ? "15" : "0",
+      taxInclusive: activeCompany.vatEnabled ?? true,
+    }));
+  }, [activeCompany, formData.totalAmount]);
+
+  const calculateVatAmount = (amountValue: string, rateValue: string, isInclusive: boolean) => {
+    const amount = Number(amountValue || 0);
+    const rate = Number(rateValue || 0);
+    if (amount <= 0 || rate <= 0) return "0.00";
+    const vat = isInclusive ? amount - (amount / (1 + rate / 100)) : amount * (rate / 100);
+    return vat.toFixed(2);
+  };
+
+  const updateVatFields = (changes: Partial<typeof formData>) => {
+    setFormData((previous) => {
+      const next = { ...previous, ...changes };
+      return {
+        ...next,
+        taxAmount: calculateVatAmount(next.totalAmount, next.vatRate, next.taxInclusive),
+      };
+    });
+  };
 
   const { data: invoices, isLoading } = useQuery<any[]>({
     queryKey: [`/api/companies/${companyId}/supplier-invoices`],
+    enabled: !!companyId,
+  });
+
+  const { data: suppliers = [] } = useQuery<Supplier[]>({
+    queryKey: [`/api/companies/${companyId}/suppliers`],
+    enabled: !!companyId,
+  });
+
+  const { data: accounts = [] } = useQuery<Account[]>({
+    queryKey: ["/api/accounting/accounts", companyId],
+    enabled: !!companyId,
+    queryFn: async () => {
+      const res = await apiFetch(`/api/companies/${companyId}/accounting/accounts`);
+      if (!res.ok) throw new Error("Failed to load accounts");
+      return res.json();
+    },
+  });
+
+  const expenseAccounts = accounts.filter((account) =>
+    ["ASSET", "EXPENSE"].includes(account.type) && account.isActive
+  );
+
+  const resetForm = () => {
+    setFormData({
+      supplierId: "",
+      invoiceNumber: "",
+      date: new Date().toISOString().slice(0, 10),
+      dueDate: "",
+      totalAmount: "",
+      vatRate: activeCompany?.vatRegistered ? "15" : "0",
+      taxInclusive: activeCompany?.vatEnabled ?? true,
+      taxAmount: "0",
+      debitAccountId: "",
+      notes: "",
+    });
+  };
+
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      if (!companyId) throw new Error("No company selected");
+      if (!formData.supplierId) throw new Error("Select a supplier");
+      if (!formData.invoiceNumber.trim()) throw new Error("Enter the supplier invoice number");
+      const amount = Number(formData.totalAmount || 0);
+      const tax = Number(formData.taxAmount || 0);
+      const total = formData.taxInclusive ? amount : amount + tax;
+      const subtotal = formData.taxInclusive ? total - tax : amount;
+      if (total <= 0) throw new Error("Total amount must be greater than zero");
+      if (tax < 0 || tax > total) throw new Error("Tax amount cannot exceed the total");
+
+      const res = await apiFetch(`/api/companies/${companyId}/supplier-invoices`, {
+        method: "POST",
+        body: JSON.stringify({
+          supplierId: Number(formData.supplierId),
+          invoiceNumber: formData.invoiceNumber.trim(),
+          date: new Date(formData.date).toISOString(),
+          dueDate: formData.dueDate ? new Date(formData.dueDate).toISOString() : null,
+          totalAmount: total.toFixed(2),
+          taxAmount: tax.toFixed(2),
+          currency: activeCompany?.currency || "USD",
+          debitAccountId: formData.debitAccountId ? Number(formData.debitAccountId) : undefined,
+          notes: formData.notes || undefined,
+          status: "unpaid",
+          items: [{
+            description: formData.notes || `Supplier bill ${formData.invoiceNumber.trim()}`,
+            quantity: "1",
+            unitPrice: subtotal.toFixed(2),
+            totalPrice: subtotal.toFixed(2),
+            taxAmount: tax.toFixed(2),
+          }],
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: res.statusText }));
+        throw new Error(err.message || "Failed to create supplier bill");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/supplier-invoices`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/accounting/ledger"] });
+      toast({ title: "Supplier bill created", description: "The payable and ledger entry were posted." });
+      setIsDialogOpen(false);
+      resetForm();
+    },
+    onError: (error: any) => {
+      toast({ title: "Could not create bill", description: error.message, variant: "destructive" });
+    },
   });
 
   const filteredInvoices = invoices?.filter((inv) =>
     inv.invoiceNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    inv.supplier?.name.toLowerCase().includes(searchTerm.toLowerCase())
+    (inv.supplier?.name || "").toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const enteredAmount = Number(formData.totalAmount || 0);
+  const formTax = Number(formData.taxAmount || 0);
+  const formSubtotal = formData.taxInclusive ? Math.max(enteredAmount - formTax, 0) : enteredAmount;
+  const formTotal = formData.taxInclusive ? enteredAmount : enteredAmount + formTax;
 
   return (
     <Layout>
@@ -43,10 +185,127 @@ export default function SupplierInvoicesPage() {
               />
             </div>
           </div>
-          <Button className="h-11 px-6 rounded-xl font-bold bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/20 transition-all active:scale-95 flex items-center gap-2">
-            <Plus className="h-4 w-4" />
-            <span>Create Invoice</span>
-          </Button>
+          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            <DialogTrigger asChild>
+              <Button
+                disabled={!companyId}
+                className="h-11 px-6 rounded-xl font-bold bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/20 transition-all active:scale-95 flex items-center gap-2"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Create Bill</span>
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[560px]">
+              <DialogHeader>
+                <DialogTitle>Create Supplier Bill</DialogTitle>
+              </DialogHeader>
+              <form
+                className="grid gap-4 pt-4"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  createMutation.mutate();
+                }}
+              >
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>Supplier</Label>
+                    <Select value={formData.supplierId} onValueChange={(value) => setFormData((p) => ({ ...p, supplierId: value }))}>
+                      <SelectTrigger><SelectValue placeholder="Select supplier" /></SelectTrigger>
+                      <SelectContent>
+                        {suppliers.map((supplier) => (
+                          <SelectItem key={supplier.id} value={String(supplier.id)}>{supplier.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Invoice Number</Label>
+                    <Input value={formData.invoiceNumber} onChange={(e) => setFormData((p) => ({ ...p, invoiceNumber: e.target.value }))} placeholder="Supplier invoice #" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Bill Date</Label>
+                    <Input type="date" value={formData.date} onChange={(e) => setFormData((p) => ({ ...p, date: e.target.value }))} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Due Date</Label>
+                    <Input type="date" value={formData.dueDate} onChange={(e) => setFormData((p) => ({ ...p, dueDate: e.target.value }))} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{formData.taxInclusive ? "Total Including VAT" : "Subtotal Before VAT"}</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={formData.totalAmount}
+                      onChange={(e) => updateVatFields({ totalAmount: e.target.value })}
+                      placeholder="0.00"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>VAT Rate %</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={formData.vatRate}
+                      onChange={(e) => updateVatFields({ vatRate: e.target.value })}
+                      placeholder="15"
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                  <Label htmlFor="supplier-vat-inclusive" className="text-sm font-medium">Amounts include VAT</Label>
+                  <Switch
+                    id="supplier-vat-inclusive"
+                    checked={formData.taxInclusive}
+                    onCheckedChange={(checked) => updateVatFields({ taxInclusive: checked })}
+                  />
+                </div>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                  <div className="space-y-1 rounded-lg border border-slate-200 p-3">
+                    <p className="text-[11px] font-bold uppercase text-slate-500">Subtotal</p>
+                    <p className="font-mono font-bold">{formatCurrency(formSubtotal, activeCompany?.currency || "USD")}</p>
+                  </div>
+                  <div className="space-y-1 rounded-lg border border-slate-200 p-3">
+                    <p className="text-[11px] font-bold uppercase text-slate-500">VAT</p>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={formData.taxAmount}
+                      onChange={(e) => setFormData((p) => ({ ...p, taxAmount: e.target.value }))}
+                      className="h-8 px-2 font-mono font-bold"
+                    />
+                  </div>
+                  <div className="space-y-1 rounded-lg border border-slate-200 p-3">
+                    <p className="text-[11px] font-bold uppercase text-slate-500">Bill Total</p>
+                    <p className="font-mono font-bold">{formatCurrency(formTotal, activeCompany?.currency || "USD")}</p>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Debit Account</Label>
+                  <Select value={formData.debitAccountId} onValueChange={(value) => setFormData((p) => ({ ...p, debitAccountId: value }))}>
+                    <SelectTrigger><SelectValue placeholder="Use configured inventory/default account" /></SelectTrigger>
+                    <SelectContent>
+                      {expenseAccounts.map((account) => (
+                        <SelectItem key={account.id} value={String(account.id)}>{account.code} - {account.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Notes</Label>
+                  <Textarea value={formData.notes} onChange={(e) => setFormData((p) => ({ ...p, notes: e.target.value }))} placeholder="What was this bill for?" />
+                </div>
+                <div className="flex justify-end gap-3 pt-2">
+                  <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
+                  <Button type="submit" disabled={createMutation.isPending || isCompanyLoading}>
+                    {createMutation.isPending ? "Creating..." : "Create Bill"}
+                  </Button>
+                </div>
+              </form>
+            </DialogContent>
+          </Dialog>
         </div>
 
         <Card className="border-slate-200/60 shadow-sm overflow-hidden rounded-2xl">
@@ -66,6 +325,8 @@ export default function SupplierInvoicesPage() {
                   <TableHead className="font-bold text-slate-500 uppercase text-[11px] tracking-wider">Date</TableHead>
                   <TableHead className="font-bold text-slate-500 uppercase text-[11px] tracking-wider">Supplier</TableHead>
                   <TableHead className="font-bold text-slate-500 uppercase text-[11px] tracking-wider">Status</TableHead>
+                  <TableHead className="text-right font-bold text-slate-500 uppercase text-[11px] tracking-wider">Subtotal</TableHead>
+                  <TableHead className="text-right font-bold text-slate-500 uppercase text-[11px] tracking-wider">VAT</TableHead>
                   <TableHead className="text-right pr-6 font-bold text-slate-500 uppercase text-[11px] tracking-wider">Total Amount</TableHead>
                 </TableRow>
               </TableHeader>
@@ -73,12 +334,12 @@ export default function SupplierInvoicesPage() {
                 {isLoading ? (
                   Array.from({ length: 5 }).map((_, i) => (
                     <TableRow key={i} className="animate-pulse border-slate-50">
-                      <TableCell colSpan={5} className="h-16 bg-slate-50/20" />
+                      <TableCell colSpan={7} className="h-16 bg-slate-50/20" />
                     </TableRow>
                   ))
                 ) : filteredInvoices?.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="h-32 text-center text-slate-400 font-medium">
+                    <TableCell colSpan={7} className="h-32 text-center text-slate-400 font-medium">
                       No supplier invoices found.
                     </TableCell>
                   </TableRow>
@@ -103,6 +364,12 @@ export default function SupplierInvoicesPage() {
                         }>
                           {invoice.status.toUpperCase()}
                         </Badge>
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-slate-700">
+                        {formatCurrency(Number(invoice.totalAmount || 0) - Number(invoice.taxAmount || 0), invoice.currency)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-slate-700">
+                        {formatCurrency(Number(invoice.taxAmount || 0), invoice.currency)}
                       </TableCell>
                       <TableCell className="text-right pr-6 font-bold text-slate-900">
                         {formatCurrency(Number(invoice.totalAmount), invoice.currency)}

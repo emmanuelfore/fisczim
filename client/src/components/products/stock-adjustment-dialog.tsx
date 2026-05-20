@@ -38,7 +38,7 @@ const stockAdjustmentSchema = z.object({
     productId: z.number(),
     actualQuantity: z.string().transform((v) => parseFloat(v)).pipe(z.number().min(0, "Actual quantity cannot be negative")),
     type: z.enum(['ADJUSTMENT', 'SHRINKAGE', 'CORRECTION', 'DAMAGE', 'EXPIRY']),
-    notes: z.string().min(3, "Please provide a reason for the adjustment"),
+    notes: z.string().min(5, "Please provide a clear reason for the adjustment"),
 });
 
 type StockAdjustmentFormValues = z.infer<typeof stockAdjustmentSchema>;

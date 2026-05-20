@@ -4352,6 +4352,15 @@ export class DatabaseStorage implements IStorage {
   async createSupplierInvoice(data: InsertSupplierInvoice & { items: InsertSupplierInvoiceItem[], createdBy?: string }): Promise<SupplierInvoice> {
     return await db.transaction(async (tx) => {
       const { items, createdBy, ...invoiceData } = data;
+      const invoiceTotal = Number(invoiceData.totalAmount || 0);
+      const invoiceTax = Number(invoiceData.taxAmount || 0);
+      if (invoiceTotal <= 0) {
+        throw new Error("Supplier invoice total must be greater than zero");
+      }
+      if (invoiceTax < 0 || invoiceTax > invoiceTotal) {
+        throw new Error("Supplier invoice VAT cannot exceed the total amount");
+      }
+
       const [invoice] = await tx.insert(supplierInvoices).values(invoiceData).returning();
 
       if (items && items.length > 0) {
@@ -4363,8 +4372,8 @@ export class DatabaseStorage implements IStorage {
       }
 
       // Automated Journaling: Credit Accounts Payable (2000), Debit Inventory (1300) or appropriate account
-      const subtotal = Number(invoiceData.totalAmount) - Number(invoiceData.taxAmount || 0);
-      const tax = Number(invoiceData.taxAmount || 0);
+      const subtotal = invoiceTotal - invoiceTax;
+      const tax = invoiceTax;
 
       // Determine the debit account (Control Account for Inventory is 1300 by default)
       let debitAccountCode = await this.getSystemAccountCode(invoiceData.companyId, "inventoryAccountCode", tx);
@@ -4385,7 +4394,7 @@ export class DatabaseStorage implements IStorage {
         lines.push({ accountCode: vatInputAccountCode, type: 'DEBIT', amount: tax }); // VAT Input (VAT Receivable)
       }
 
-      lines.push({ accountCode: apAccountCode, type: 'CREDIT', amount: Number(invoiceData.totalAmount) }); // Accounts Payable
+      lines.push({ accountCode: apAccountCode, type: 'CREDIT', amount: invoiceTotal }); // Accounts Payable
 
       await this.postToLedger(invoiceData.companyId, {
         entryDate: invoiceData.date || new Date(),

@@ -17,6 +17,7 @@ import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 
 export default function GrvDetailsPage() {
   const [, setLocation] = useLocation();
@@ -30,25 +31,48 @@ export default function GrvDetailsPage() {
 
   const [isInvoiceDialogOpen, setIsInvoiceDialogOpen] = useState(false);
   const [invoiceNumber, setInvoiceNumber] = useState("");
+  const [vatRate, setVatRate] = useState("15");
+  const [taxInclusive, setTaxInclusive] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
   const createInvoiceMutation = useMutation({
     mutationFn: async () => {
+      const rate = Number(vatRate || 0);
+      const sourceTotal = Number(grv?.totalCost || 0);
+      const taxAmount = rate > 0
+        ? taxInclusive
+          ? sourceTotal - (sourceTotal / (1 + rate / 100))
+          : sourceTotal * (rate / 100)
+        : 0;
+      const totalAmount = taxInclusive ? sourceTotal : sourceTotal + taxAmount;
+
       const payload = {
         supplierId: grv?.supplierId,
         invoiceNumber,
         date: new Date().toISOString(),
         dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-        totalAmount: grv?.totalCost?.toString() || "0",
-        taxAmount: "0", // Could be enhanced to compute tax
+        totalAmount: totalAmount.toFixed(2),
+        taxAmount: taxAmount.toFixed(2),
         currency: company?.currency || "USD",
         status: "draft", // initially draft
         items: grv?.lines.map((line: any) => ({
+          ...(() => {
+            const lineTotal = Number(line.totalCost || 0);
+            const lineTax = rate > 0
+              ? taxInclusive
+                ? lineTotal - (lineTotal / (1 + rate / 100))
+                : lineTotal * (rate / 100)
+              : 0;
+            const lineSubtotal = taxInclusive ? lineTotal - lineTax : lineTotal;
+            return {
+              unitPrice: (lineSubtotal / Number(line.quantity || 1)).toFixed(2),
+              totalPrice: lineSubtotal.toFixed(2),
+              taxAmount: lineTax.toFixed(2),
+            };
+          })(),
           productId: line.productId,
           quantity: line.quantity.toString(),
-          unitPrice: line.unitCost.toString(),
-          totalPrice: line.totalCost.toString()
         })) || []
       };
       const res = await apiRequest("POST", `/api/companies/${companyId}/supplier-invoices`, payload);
@@ -96,6 +120,22 @@ export default function GrvDetailsPage() {
                       onChange={e => setInvoiceNumber(e.target.value)} 
                     />
                     <p className="text-xs text-slate-500">Provide the invoice number given by the supplier.</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label>VAT Rate %</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={vatRate}
+                        onChange={(e) => setVatRate(e.target.value)}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 mt-6">
+                      <Label htmlFor="grv-vat-inclusive" className="text-sm">Amounts include VAT</Label>
+                      <Switch id="grv-vat-inclusive" checked={taxInclusive} onCheckedChange={setTaxInclusive} />
+                    </div>
                   </div>
                   <div className="flex justify-end gap-2 pt-4">
                     <Button variant="outline" onClick={() => setIsInvoiceDialogOpen(false)}>Cancel</Button>

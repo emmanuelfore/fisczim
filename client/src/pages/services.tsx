@@ -1,6 +1,6 @@
 
 import { Layout } from "@/components/layout";
-import { useProducts, useUpdateProduct } from "@/hooks/use-products";
+import { refreshProductQueriesAsync, useProducts, useUpdateProduct } from "@/hooks/use-products";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useTaxConfig } from "@/hooks/use-tax-config";
 import { Card, CardContent } from "@/components/ui/card";
@@ -141,8 +141,9 @@ export default function ServicesPage() {
                     <CsvImportDialog
                         type="service"
                         companyId={companyId}
-                        onSuccess={() => {
-                            queryClient.invalidateQueries({ queryKey: ["products", companyId] });
+                        onSuccess={async () => {
+                            await refreshProductQueriesAsync(queryClient, companyId);
+                            setCurrentPage(1);
                         }}
                     />
                     <CreateProductDialog companyId={companyId} defaultType="service" triggerLabel="Add Service" />

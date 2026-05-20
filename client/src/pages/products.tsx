@@ -1,6 +1,6 @@
 
 import { Layout } from "@/components/layout";
-import { refreshProductQueries, useProducts, useUpdateProduct } from "@/hooks/use-products";
+import { refreshProductQueries, refreshProductQueriesAsync, useProducts, useUpdateProduct } from "@/hooks/use-products";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useTaxConfig } from "@/hooks/use-tax-config";
 import { Card, CardContent } from "@/components/ui/card";
@@ -214,8 +214,9 @@ export default function ProductsPage() {
           <CsvImportDialog
             type="product"
             companyId={companyId}
-            onSuccess={() => {
-              refreshProductQueries(queryClient, companyId);
+            onSuccess={async () => {
+              await refreshProductQueriesAsync(queryClient, companyId);
+              setCurrentPage(1);
             }}
           />
           {companyId > 0 ? (

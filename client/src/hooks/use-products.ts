@@ -6,14 +6,34 @@ import { cacheProducts, getCachedProducts, setLastCacheTime } from "@/lib/offlin
 import { getIsOnline } from "@/lib/online-state";
 
 export function refreshProductQueries(queryClient: ReturnType<typeof useQueryClient>, companyId?: number) {
+  const matchesProductList = (query: { queryKey: readonly unknown[] }) => {
+    const [path, queryCompanyId] = query.queryKey;
+    return path === api.products.list.path && (!companyId || queryCompanyId === companyId);
+  };
+
   if (!companyId) {
-    queryClient.invalidateQueries({ queryKey: [api.products.list.path] });
-    queryClient.refetchQueries({ queryKey: [api.products.list.path], type: "active" });
+    queryClient.invalidateQueries({ predicate: matchesProductList });
+    return queryClient.refetchQueries({ predicate: matchesProductList, type: "active" });
+  }
+
+  queryClient.invalidateQueries({ predicate: matchesProductList });
+  return queryClient.refetchQueries({ predicate: matchesProductList, type: "active" });
+}
+
+export async function refreshProductQueriesAsync(queryClient: ReturnType<typeof useQueryClient>, companyId?: number) {
+  const matchesProductList = (query: { queryKey: readonly unknown[] }) => {
+    const [path, queryCompanyId] = query.queryKey;
+    return path === api.products.list.path && (!companyId || queryCompanyId === companyId);
+  };
+
+  if (!companyId) {
+    await queryClient.invalidateQueries({ predicate: matchesProductList });
+    await queryClient.refetchQueries({ predicate: matchesProductList, type: "active" });
     return;
   }
 
-  queryClient.invalidateQueries({ queryKey: [api.products.list.path, companyId] });
-  queryClient.refetchQueries({ queryKey: [api.products.list.path, companyId], type: "active" });
+  await queryClient.invalidateQueries({ predicate: matchesProductList });
+  await queryClient.refetchQueries({ predicate: matchesProductList, type: "active" });
 }
 
 export function useProducts(companyId: number, branchId?: number) {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -11,7 +11,7 @@ import {
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useBusTicketing } from '../../hooks/useBusTicketing';
-import { BusTrip } from '../../types/busTicketing';
+import { BusTrip, Conductor } from '../../types/busTicketing';
 
 const C = {
   bg: '#07090C',
@@ -34,33 +34,76 @@ function uuid(): string {
 
 interface Props {
   onClose: () => void;
+  companyId?: number | null;
+  userName?: string;
+  userRole?: string;
+  userId?: string | null;
 }
 
-export function BusTripStartScreen({ onClose }: Props) {
+function isUuid(value?: string | null): boolean {
+  return !!value && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+export function BusTripStartScreen({ onClose, companyId, userName = 'Conductor', userRole = 'cashier', userId }: Props) {
   const insets = useSafeAreaInsets();
-  const { routes, vehicles, activeConductor, startTrip } = useBusTicketing();
+  const { routes, vehicles, trips, activeConductor, saveConductor, setActiveConductor, startTrip, refreshCloudSetup } = useBusTicketing(companyId);
   
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
 
   const activeRoutes = routes.filter(r => r.isActive);
-  const activeVehicles = vehicles.filter(v => v.isActive);
+  const busyVehicleIds = useMemo(
+    () => new Set(trips.filter((trip) => trip.status === 'in_progress').map((trip) => trip.vehicleId)),
+    [trips]
+  );
+  const activeVehicles = useMemo(
+    () => vehicles.filter((vehicle) => vehicle.isActive && !busyVehicleIds.has(vehicle.id)),
+    [vehicles, busyVehicleIds]
+  );
+  const fallbackConductorId = userId || `cashier-${String(userName || userRole || 'conductor').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'conductor'}`;
+
+  useEffect(() => {
+    refreshCloudSetup().catch((e) => {
+      console.warn('[BusTripStart] Failed to refresh available buses:', e?.message || e);
+    });
+  }, [refreshCloudSetup]);
+
+  useEffect(() => {
+    if (selectedVehicleId && busyVehicleIds.has(selectedVehicleId)) {
+      setSelectedVehicleId(null);
+    }
+  }, [busyVehicleIds, selectedVehicleId]);
+
+  async function ensureActiveConductor(): Promise<Conductor> {
+    if (activeConductor && (isUuid(activeConductor.id) || !userId)) return activeConductor;
+    const conductor: Conductor = {
+      id: fallbackConductorId,
+      name: userName || 'Conductor',
+      isActive: true,
+    };
+    await saveConductor(conductor);
+    await setActiveConductor(conductor.id);
+    return conductor;
+  }
 
   async function handleStartTrip() {
-    if (!activeConductor) {
-      Alert.alert("Error", "You must be an active conductor to start a trip.");
-      return;
-    }
     if (!selectedRouteId || !selectedVehicleId) {
       Alert.alert("Validation", "Please select both a Route and a Vehicle.");
       return;
     }
+    if (busyVehicleIds.has(selectedVehicleId)) {
+      Alert.alert("Bus Unavailable", "This bus is already on an ongoing trip. Please select another bus.");
+      setSelectedVehicleId(null);
+      return;
+    }
+
+    const conductor = await ensureActiveConductor();
 
     const trip: BusTrip = {
       id: uuid(),
       routeId: selectedRouteId,
       vehicleId: selectedVehicleId,
-      conductorId: activeConductor.id,
+      conductorId: conductor.id,
       status: 'in_progress',
       scheduledDeparture: new Date().toISOString(),
       actualDeparture: new Date().toISOString(),
@@ -116,7 +159,7 @@ export function BusTripStartScreen({ onClose }: Props) {
         {/* Step 2: Vehicle */}
         <Text style={[styles.sectionHeader, { marginTop: 24 }]}>2. SELECT VEHICLE</Text>
         {activeVehicles.length === 0 ? (
-          <Text style={styles.emptyText}>No active vehicles available. An admin must configure the fleet first.</Text>
+          <Text style={styles.emptyText}>No buses are available right now. Buses already on ongoing trips are hidden.</Text>
         ) : (
           <View style={styles.grid}>
             {activeVehicles.map(vehicle => (

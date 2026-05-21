@@ -42,8 +42,13 @@ import {
   customers,
   currencies,
   products,
+  branches,
   branchStocks,
   inventoryTransactions,
+  goodsDeliveryNotes,
+  goodsDeliveryNoteItems,
+  purchaseOrders,
+  purchaseOrderItems,
   suppliers,
   expenses,
   zimraLogs,
@@ -56,6 +61,8 @@ import {
   insertPosHoldSchema,
   insertProductCategorySchema,
   insertSupplierSchema,
+  insertPurchaseOrderSchema,
+  insertPurchaseOrderItemSchema,
   insertSupplierInvoiceSchema,
   insertSupplierPaymentSchema,
   insertExpenseSchema,
@@ -1991,6 +1998,57 @@ export async function registerRoutes(
       // Update product price
       const updated = await storage.updateProduct(productId, { price: String(newPrice) });
       res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post(api.products.bulkAdjustPrice.path, requireAuth, async (req, res) => {
+    try {
+      const { companyId, reason, effectiveFrom, adjustments } = api.products.bulkAdjustPrice.input.parse(req.body);
+
+      if (!adjustments || adjustments.length === 0) {
+        return res.status(400).json({ message: "No adjustments provided" });
+      }
+
+      const productIds = adjustments.map(a => a.productId);
+
+      // Perform transaction
+      await db.transaction(async (tx) => {
+        // Fetch all current products
+        const existingProducts = await tx
+          .select()
+          .from(products)
+          .where(and(eq(products.companyId, companyId), inArray(products.id, productIds)));
+
+        const productMap = new Map(existingProducts.map(p => [p.id, p]));
+
+        for (const adj of adjustments) {
+          const product = productMap.get(adj.productId);
+          if (!product) {
+            throw new Error(`Product with ID ${adj.productId} not found or does not belong to this company`);
+          }
+
+          // Record adjustment history
+          await tx.insert(priceAdjustments).values({
+            companyId,
+            productId: adj.productId,
+            oldPrice: product.price.toString(),
+            newPrice: String(adj.newPrice),
+            reason: reason || "Bulk Price Update",
+            effectiveFrom: effectiveFrom ? new Date(effectiveFrom) : new Date(),
+            createdBy: (req.user as any).id
+          });
+
+          // Update product price
+          await tx
+            .update(products)
+            .set({ price: String(adj.newPrice) })
+            .where(eq(products.id, adj.productId));
+        }
+      });
+
+      res.json({ success: true, count: adjustments.length });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -4504,6 +4562,158 @@ export async function registerRoutes(
     res.json(updated);
   });
 
+  app.get("/api/companies/:companyId/purchase-orders", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const rows = await db
+        .select({
+          id: purchaseOrders.id,
+          companyId: purchaseOrders.companyId,
+          supplierId: purchaseOrders.supplierId,
+          supplierName: suppliers.name,
+          branchId: purchaseOrders.branchId,
+          branchName: branches.name,
+          poNumber: purchaseOrders.poNumber,
+          status: purchaseOrders.status,
+          expectedDate: purchaseOrders.expectedDate,
+          notes: purchaseOrders.notes,
+          createdAt: purchaseOrders.createdAt,
+          updatedAt: purchaseOrders.updatedAt,
+          itemId: purchaseOrderItems.id,
+          productId: purchaseOrderItems.productId,
+          productName: products.name,
+          productSku: products.sku,
+          quantity: purchaseOrderItems.quantity,
+          unitCost: purchaseOrderItems.unitCost,
+          itemNotes: purchaseOrderItems.notes,
+        })
+        .from(purchaseOrders)
+        .leftJoin(purchaseOrderItems, eq(purchaseOrderItems.purchaseOrderId, purchaseOrders.id))
+        .leftJoin(products, eq(products.id, purchaseOrderItems.productId))
+        .leftJoin(suppliers, eq(suppliers.id, purchaseOrders.supplierId))
+        .leftJoin(branches, eq(branches.id, purchaseOrders.branchId))
+        .where(eq(purchaseOrders.companyId, companyId))
+        .orderBy(desc(purchaseOrders.createdAt), asc(purchaseOrderItems.id));
+
+      const grouped = new Map<number, any>();
+      for (const row of rows) {
+        if (!grouped.has(row.id)) {
+          grouped.set(row.id, {
+            id: row.id,
+            companyId: row.companyId,
+            supplierId: row.supplierId,
+            supplierName: row.supplierName,
+            branchId: row.branchId,
+            branchName: row.branchName,
+            poNumber: row.poNumber,
+            status: row.status,
+            expectedDate: row.expectedDate,
+            notes: row.notes,
+            createdAt: row.createdAt,
+            updatedAt: row.updatedAt,
+            items: [],
+            lineCount: 0,
+            totalCost: 0,
+          });
+        }
+        if (row.itemId) {
+          const po = grouped.get(row.id);
+          const quantity = Number(row.quantity || 0);
+          const unitCost = Number(row.unitCost || 0);
+          po.items.push({
+            id: row.itemId,
+            productId: row.productId,
+            productName: row.productName,
+            productSku: row.productSku,
+            quantity,
+            unitCost,
+            notes: row.itemNotes,
+          });
+          po.lineCount += 1;
+          po.totalCost += quantity * unitCost;
+        }
+      }
+
+      res.json(Array.from(grouped.values()));
+    } catch (err: any) {
+      console.error("Get Purchase Orders Error:", err);
+      res.status(500).json({ message: "Failed to fetch purchase orders" });
+    }
+  });
+
+  app.post("/api/companies/:companyId/purchase-orders", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const payload = z.object({
+        supplierId: z.coerce.number().int().positive(),
+        branchId: z.coerce.number().int().positive().optional().nullable(),
+        poNumber: z.string().trim().optional(),
+        status: z.enum(["DRAFT", "SENT", "RECEIVED", "CANCELLED"]).optional(),
+        expectedDate: z.string().optional().nullable(),
+        notes: z.string().optional().nullable(),
+        items: z.array(z.object({
+          productId: z.coerce.number().int().positive(),
+          quantity: z.coerce.number().positive(),
+          unitCost: z.coerce.number().nonnegative(),
+          notes: z.string().optional().nullable(),
+        })).min(1),
+      }).parse(req.body);
+
+      const poNumber = payload.poNumber?.trim() || `PO-${format(new Date(), "yyyyMMdd-HHmmss")}`;
+      const order = await db.transaction(async (tx) => {
+        const [created] = await tx.insert(purchaseOrders).values(insertPurchaseOrderSchema.parse({
+          companyId,
+          supplierId: payload.supplierId,
+          branchId: payload.branchId || null,
+          poNumber,
+          status: payload.status || "DRAFT",
+          expectedDate: payload.expectedDate ? new Date(payload.expectedDate) : null,
+          notes: payload.notes || null,
+          createdBy: (req.user as any)?.id,
+        })).returning();
+
+        await tx.insert(purchaseOrderItems).values(payload.items.map((item) =>
+          insertPurchaseOrderItemSchema.parse({
+            purchaseOrderId: created.id,
+            productId: item.productId,
+            quantity: item.quantity.toFixed(2),
+            unitCost: item.unitCost.toFixed(2),
+            notes: item.notes || null,
+          })
+        ));
+
+        return created;
+      });
+
+      res.status(201).json(order);
+    } catch (err: any) {
+      console.error("Create Purchase Order Error:", err);
+      const duplicate = String(err?.message || "").includes("purchase_orders_company_po_number_idx");
+      res.status(400).json({ message: duplicate ? "Purchase order number already exists" : err.message });
+    }
+  });
+
+  app.patch("/api/purchase-orders/:id/status", requireAuth, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const { status } = z.object({
+        status: z.enum(["DRAFT", "SENT", "RECEIVED", "CANCELLED"]),
+      }).parse(req.body);
+
+      const [updated] = await db
+        .update(purchaseOrders)
+        .set({ status, updatedAt: new Date() })
+        .where(eq(purchaseOrders.id, id))
+        .returning();
+
+      if (!updated) return res.status(404).json({ message: "Purchase order not found" });
+      res.json(updated);
+    } catch (err: any) {
+      console.error("Update Purchase Order Status Error:", err);
+      res.status(400).json({ message: err.message });
+    }
+  });
+
   app.get("/api/companies/:companyId/supplier-invoices", requireAuth, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
@@ -4596,19 +4806,220 @@ export async function registerRoutes(
   app.post("/api/companies/:companyId/inventory/batch-stock-in", requireAuth, async (req, res) => {
     const idempotencyKey = await sendIdempotentHit(req, res);
     if (idempotencyKey === false) return;
-    const { items, supplierId, notes, landedCosts, allocationMethod } = req.body;
+    const { items, supplierId, notes, landedCosts, allocationMethod, grvNumber } = req.body;
     const { recordBatchStockIn } = await import("./lib/inventory.js");
 
-    await recordBatchStockIn(
+    const result = await recordBatchStockIn(
       Number(req.params.companyId),
       items,
       supplierId ? Number(supplierId) : undefined,
       notes,
       landedCosts ? Number(landedCosts) : 0,
-      allocationMethod || "value"
+      allocationMethod || "value",
+      typeof grvNumber === "string" ? grvNumber : undefined,
+      (req.user as any)?.id
     );
 
-    sendIdempotent(req, res, idempotencyKey, 201, { message: "Batch stock recorded successfully" });
+    sendIdempotent(req, res, idempotencyKey, 201, { message: "Batch stock recorded successfully", ...result });
+  });
+
+  app.get("/api/companies/:companyId/gdns", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const status = typeof req.query.status === "string" ? req.query.status : undefined;
+      const whereClause = status
+        ? and(eq(goodsDeliveryNotes.companyId, companyId), eq(goodsDeliveryNotes.status, status))
+        : eq(goodsDeliveryNotes.companyId, companyId);
+
+      const rows = await db
+        .select({
+          id: goodsDeliveryNotes.id,
+          gdnNumber: goodsDeliveryNotes.gdnNumber,
+          status: goodsDeliveryNotes.status,
+          supplierId: goodsDeliveryNotes.supplierId,
+          supplierName: suppliers.name,
+          notes: goodsDeliveryNotes.notes,
+          confirmedGrvNumber: goodsDeliveryNotes.confirmedGrvNumber,
+          confirmedAt: goodsDeliveryNotes.confirmedAt,
+          createdAt: goodsDeliveryNotes.createdAt,
+          createdBy: users.username,
+          itemId: goodsDeliveryNoteItems.id,
+          productId: goodsDeliveryNoteItems.productId,
+          productName: products.name,
+          productSku: products.sku,
+          productCostPrice: products.costPrice,
+          quantityReceived: goodsDeliveryNoteItems.quantityReceived,
+          quantityAccepted: goodsDeliveryNoteItems.quantityAccepted,
+          quantityRejected: goodsDeliveryNoteItems.quantityRejected,
+        })
+        .from(goodsDeliveryNotes)
+        .leftJoin(goodsDeliveryNoteItems, eq(goodsDeliveryNoteItems.gdnId, goodsDeliveryNotes.id))
+        .leftJoin(products, eq(products.id, goodsDeliveryNoteItems.productId))
+        .leftJoin(suppliers, eq(suppliers.id, goodsDeliveryNotes.supplierId))
+        .leftJoin(users, eq(users.id, goodsDeliveryNotes.createdBy))
+        .where(whereClause)
+        .orderBy(desc(goodsDeliveryNotes.createdAt), asc(goodsDeliveryNoteItems.id));
+
+      const grouped = new Map<number, any>();
+      for (const row of rows) {
+        if (!grouped.has(row.id)) {
+          grouped.set(row.id, {
+            id: row.id,
+            gdnNumber: row.gdnNumber,
+            status: row.status,
+            supplierId: row.supplierId || null,
+            supplierName: row.supplierName || "N/A",
+            notes: row.notes || "",
+            confirmedGrvNumber: row.confirmedGrvNumber || null,
+            confirmedAt: row.confirmedAt,
+            createdAt: row.createdAt,
+            createdBy: row.createdBy || "System",
+            lineCount: 0,
+            totalQuantity: 0,
+            items: [],
+          });
+        }
+
+        const gdn = grouped.get(row.id);
+        if (row.itemId) {
+          const qty = Number(row.quantityReceived || 0);
+          gdn.lineCount += 1;
+          gdn.totalQuantity += qty;
+          gdn.items.push({
+            id: row.itemId,
+            productId: row.productId,
+            productName: row.productName || `Product ${row.productId}`,
+            sku: row.productSku || "",
+            costPrice: Number(row.productCostPrice || 0),
+            quantityReceived: qty,
+            quantityAccepted: row.quantityAccepted === null ? null : Number(row.quantityAccepted || 0),
+            quantityRejected: row.quantityRejected === null ? null : Number(row.quantityRejected || 0),
+          });
+        }
+      }
+
+      res.json(Array.from(grouped.values()));
+    } catch (error: any) {
+      console.error("Fetch GDNs Error:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch GDNs" });
+    }
+  });
+
+  app.post("/api/companies/:companyId/gdns", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const { gdnNumber, supplierId, notes, items } = req.body || {};
+      const cleanGdnNumber = String(gdnNumber || "").trim();
+
+      if (!cleanGdnNumber) return res.status(400).json({ message: "GDN number is required." });
+      if (!Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ message: "Add at least one item to the GDN." });
+      }
+
+      const result = await db.transaction(async (tx) => {
+        const [gdn] = await tx.insert(goodsDeliveryNotes).values({
+          companyId,
+          supplierId: supplierId ? Number(supplierId) : null,
+          gdnNumber: cleanGdnNumber,
+          status: "PENDING",
+          notes: notes || null,
+          createdBy: (req.user as any)?.id || null,
+        }).returning();
+
+        for (const raw of items) {
+          const productId = Number(raw.productId);
+          const quantity = Number(raw.quantity ?? raw.quantityReceived);
+          if (!productId || !Number.isFinite(quantity) || quantity <= 0) {
+            throw new Error("Each GDN line needs a product and positive quantity.");
+          }
+          await tx.insert(goodsDeliveryNoteItems).values({
+            gdnId: gdn.id,
+            productId,
+            quantityReceived: quantity.toString(),
+            notes: raw.notes || null,
+          });
+        }
+
+        return gdn;
+      });
+
+      res.status(201).json({ message: "GDN recorded for admin confirmation", gdn: result });
+    } catch (error: any) {
+      const duplicate = String(error?.message || "").includes("goods_delivery_notes_company_gdn_number_idx");
+      res.status(duplicate ? 409 : 400).json({ message: duplicate ? "A GDN with this number already exists." : error.message || "Failed to record GDN" });
+    }
+  });
+
+  app.post("/api/companies/:companyId/gdns/:gdnId/confirm", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const gdnId = Number(req.params.gdnId);
+      const role = await storage.getCompanyUserRole((req.user as any)?.id, companyId);
+      if (role !== "owner" && role !== "admin" && !(req.user as any)?.isSuperAdmin) {
+        return res.status(403).json({ message: "Only owner/admin can confirm GDN stock." });
+      }
+
+      const { items, notes, landedCosts, allocationMethod, grvNumber } = req.body || {};
+      if (!Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ message: "Add costs for at least one GDN line." });
+      }
+
+      const [gdn] = await db
+        .select()
+        .from(goodsDeliveryNotes)
+        .where(and(eq(goodsDeliveryNotes.id, gdnId), eq(goodsDeliveryNotes.companyId, companyId)))
+        .limit(1);
+
+      if (!gdn) return res.status(404).json({ message: "GDN not found." });
+      if (gdn.status !== "PENDING") return res.status(409).json({ message: "This GDN has already been processed." });
+
+      const stockItems = items.map((raw: any) => {
+        const productId = Number(raw.productId);
+        const quantity = Number(raw.quantity ?? raw.quantityAccepted ?? raw.quantityReceived);
+        const unitCost = Number(raw.unitCost);
+        const landedCost = raw.landedCost === undefined ? 0 : Number(raw.landedCost);
+        if (!productId || !Number.isFinite(quantity) || quantity <= 0) throw new Error("Each confirmation line needs a valid quantity.");
+        if (!Number.isFinite(unitCost) || unitCost < 0) throw new Error("Each confirmation line needs a valid unit cost.");
+        return { productId, quantity, unitCost, landedCost: Number.isFinite(landedCost) ? landedCost : 0 };
+      });
+
+      const { recordBatchStockIn } = await import("./lib/inventory.js");
+      const result = await recordBatchStockIn(
+        companyId,
+        stockItems,
+        gdn.supplierId || undefined,
+        notes || gdn.notes || `Confirmed from GDN ${gdn.gdnNumber}`,
+        landedCosts ? Number(landedCosts) : 0,
+        allocationMethod || "value",
+        typeof grvNumber === "string" && grvNumber.trim() ? grvNumber : undefined,
+        (req.user as any)?.id
+      );
+
+      await db.transaction(async (tx) => {
+        for (const item of stockItems) {
+          await tx
+            .update(goodsDeliveryNoteItems)
+            .set({
+              quantityAccepted: item.quantity.toString(),
+              quantityRejected: "0",
+            })
+            .where(and(eq(goodsDeliveryNoteItems.gdnId, gdnId), eq(goodsDeliveryNoteItems.productId, item.productId)));
+        }
+        await tx
+          .update(goodsDeliveryNotes)
+          .set({
+            status: "CONFIRMED",
+            confirmedBy: (req.user as any)?.id || null,
+            confirmedGrvNumber: result.grvNumber,
+            confirmedAt: new Date(),
+          })
+          .where(eq(goodsDeliveryNotes.id, gdnId));
+      });
+
+      res.status(200).json({ message: "GDN confirmed and stock posted", ...result });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message || "Failed to confirm GDN" });
+    }
   });
 
   app.post("/api/companies/:companyId/inventory/transfers", requireAuth, async (req, res) => {
@@ -6435,23 +6846,9 @@ export async function registerRoutes(
   app.get("/api/companies/:companyId/reports/stock-valuation", requireAuth, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
-
-      // Return all tracked products with their stock level and cost value
-      const rows = await db
-        .select({
-          productId: products.id,
-          name: products.name,
-          sku: products.sku,
-          stockLevel: products.stockLevel,
-          unitCost: products.costPrice,
-        })
-        .from(products)
-        .where(and(
-          eq(products.companyId, companyId),
-          ne(products.isActive, false)
-        ));
-
-      res.json(rows);
+      const ownerGroupScope = await getUserOwnerGroupScope((req.user as any)?.id);
+      const data = await storage.getStockValuationReport(companyId, ownerGroupScope);
+      res.json(data);
     } catch (err: any) {
       console.error("Stock Valuation Error:", err);
       res.status(500).json({ message: err.message });

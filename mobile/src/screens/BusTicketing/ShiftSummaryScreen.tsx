@@ -30,14 +30,18 @@ interface Props { onClose: () => void; shiftStartTime?: string; }
 
 export function ShiftSummaryScreen({ onClose, shiftStartTime }: Props) {
   const insets = useSafeAreaInsets();
-  const { tickets: allTickets, activeConductor, closeShift, getTodaysTickets } = useBusTicketing();
+  const { activeConductor, activeTrip, closeShift, getTodaysTickets } = useBusTicketing();
 
   const today = new Date();
-  const todayTickets = getTodaysTickets();
-  const summary = useMemo(() => getDailySummary(allTickets, today), [allTickets]);
+  const todayTickets = getTodaysTickets().filter((ticket) => !activeTrip?.id || ticket.tripId === activeTrip.id);
+  const summary = useMemo(() => getDailySummary(todayTickets, today), [todayTickets]);
   const [closing, setClosing] = useState(false);
 
   async function handleCloseShift() {
+    if (!activeTrip) {
+      Alert.alert('No Active Trip', 'There is no active trip to end.');
+      return;
+    }
     Alert.alert('Close Shift', 'This will record the shift and cannot be undone. Continue?', [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -52,6 +56,9 @@ export function ShiftSummaryScreen({ onClose, shiftStartTime }: Props) {
             date: today.toISOString().slice(0, 10),
             shiftStart: shiftStartTime ?? fmtTime24(today),
             shiftEnd: fmtTime24(now),
+            vehicleId: activeTrip.vehicleId,
+            tripId: activeTrip.id,
+            routeId: activeTrip.routeId,
             totalTickets: summary.totalTickets,
             totalPassengers: summary.totalPassengers,
             totalRevenue: summary.totalRevenue,

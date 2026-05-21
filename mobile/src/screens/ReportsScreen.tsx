@@ -384,7 +384,8 @@ function InventoryContent({ tab, companyId, start, end, symbol, ownerGroup, onNa
   }
 
   if (tab === "valuation") {
-    const totalValuation = filteredData.reduce((sum, item) => sum + Number(item.totalValue || 0), 0);
+    const valuationMethod = filteredData.find((item) => item.valuationMethod)?.valuationMethod || data.find((item) => item.valuationMethod)?.valuationMethod || "WAC";
+    const totalValuation = filteredData.reduce((sum, item) => sum + Number(item.totalValue ?? item.totalValuation ?? 0), 0);
     return (
       <View style={{ marginTop: 10, paddingBottom: 20 }}>
         <View style={styles.searchRow}>
@@ -400,7 +401,7 @@ function InventoryContent({ tab, companyId, start, end, symbol, ownerGroup, onNa
         <View style={[styles.netProfitCard, { backgroundColor: hexAlpha(C.amber.primary, 0.08), borderColor: C.amber.primary, marginBottom: 20 }]}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
             <View>
-              <Text style={{ color: C.text.secondary, fontSize: 12, fontWeight: "700", textTransform: "uppercase", marginBottom: 6 }}>Total Inventory Value</Text>
+              <Text style={{ color: C.text.secondary, fontSize: 12, fontWeight: "700", textTransform: "uppercase", marginBottom: 6 }}>Total Inventory Value ({valuationMethod})</Text>
               <Text style={{ color: C.text.primary, fontSize: 28, fontWeight: "900" }}>
                 {symbol}{totalValuation.toFixed(2)}
               </Text>
@@ -431,7 +432,7 @@ function InventoryContent({ tab, companyId, start, end, symbol, ownerGroup, onNa
               <View style={{ flex: 1 }}>
                 <Text style={styles.itemName}>{item.name}</Text>
                 <Text style={styles.itemSku}>{item.sku || "No SKU"} • {item.category || "General"}</Text>
-                <Text style={{ color: C.text.secondary, fontSize: 10, marginTop: 2 }}>Cost: {symbol}{Number(item.unitCost).toFixed(2)}</Text>
+                <Text style={{ color: C.text.secondary, fontSize: 10, marginTop: 2 }}>Cost: {symbol}{Number(item.unitCost).toFixed(2)} - {item.valuationMethod || valuationMethod}</Text>
               </View>
               <View style={{ alignItems: "flex-end" }}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
@@ -445,7 +446,7 @@ function InventoryContent({ tab, companyId, start, end, symbol, ownerGroup, onNa
                     {Number(item.stockLevel).toFixed(0)} units
                   </Text>
                 </View>
-                <Text style={styles.itemValue}>{symbol}{Number(item.totalValue).toFixed(2)}</Text>
+                <Text style={styles.itemValue}>{symbol}{Number(item.totalValue ?? item.totalValuation ?? 0).toFixed(2)}</Text>
               </View>
             </View>
           );

@@ -1,6 +1,5 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertBusVehicleSchema, type BusVehicle } from "@shared/schema";
 import { useCreateBusVehicle } from "@/hooks/use-bus-ticketing";
 import { Button } from "@/components/ui/button";
 import {
@@ -29,13 +28,23 @@ import {
 } from "@/components/ui/select";
 import { Plus, Loader2, Bus } from "lucide-react";
 import { useState } from "react";
+import { z } from "zod";
+
+const vehicleFormSchema = z.object({
+    companyId: z.number(),
+    registrationNumber: z.string().min(1, "Registration number is required"),
+    fleetNumber: z.string().optional(),
+    capacity: z.coerce.number().int().min(1, "Capacity must be greater than zero"),
+    model: z.string().optional(),
+    isActive: z.boolean().default(true),
+});
 
 export function CreateVehicleDialog({ companyId }: { companyId: number }) {
     const [open, setOpen] = useState(false);
     const createVehicle = useCreateBusVehicle();
 
     const form = useForm({
-        resolver: zodResolver(insertBusVehicleSchema),
+        resolver: zodResolver(vehicleFormSchema),
         defaultValues: {
             registrationNumber: "",
             fleetNumber: "",

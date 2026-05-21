@@ -29,10 +29,13 @@ import {
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { apiFetch } from "../lib/api";
+import { normalizeBusSettings, type BusSettings } from "../lib/busSettings";
+import { normalizeAppMode, type AppMode } from "../lib/appMode";
 
 import { useTheme, hexAlpha } from "./PremiumColors";
 
 type ScreenName = "dashboard" | "pos" | "reports" | "profile" | "inventory" | "stockin" | "stockops" | "customers" | "suppliers" | "expenses" | "cashiers" | "stocktake" | "busTicketing";
+type MenuItem = { icon: any; label: string; id: ScreenName; isMCI?: boolean; section?: string };
 
 interface AppDrawerProps {
   visible: boolean;
@@ -42,6 +45,8 @@ interface AppDrawerProps {
   onLogout: () => void;
   userName: string;
   userRole?: string;
+  busSettings?: BusSettings;
+  appMode?: AppMode;
 }
 
 export function AppDrawer({
@@ -52,10 +57,14 @@ export function AppDrawer({
   onLogout,
   userName,
   userRole,
+  busSettings,
+  appMode,
 }: AppDrawerProps) {
   const insets = useSafeAreaInsets();
   const { theme: C, isDark } = useTheme();
   const [isOnline, setIsOnline] = useState<boolean | null>(null);
+  const normalizedBusSettings = normalizeBusSettings(busSettings);
+  const mode = normalizedBusSettings.enabled ? "bus_ticketing" : normalizeAppMode(appMode);
 
   useEffect(() => {
     if (!visible) return;
@@ -64,21 +73,37 @@ export function AppDrawer({
       .catch(() => setIsOnline(false));
   }, [visible]);
 
-  const allMenuItems: { icon: any; label: string; id: ScreenName; isMCI?: boolean }[] = [
-    { icon: LayoutDashboard, label: "Dashboard", id: "dashboard" },
-    { icon: Receipt, label: "Sales", id: "pos" },
-    { icon: PieChart, label: "Reports", id: "reports" },
-    { icon: Package, label: "Products", id: "inventory" },
-    { icon: ArrowDownToLine, label: "Stock / GRVs", id: "stockin" },
-    { icon: ArrowRightLeft, label: "Adjust / Transfer", id: "stockops" },
-    { icon: Activity, label: "Physical Counts", id: "stocktake" },
-    { icon: Truck, label: "Suppliers", id: "suppliers" },
-    { icon: UserCog, label: "Cashiers", id: "cashiers" },
-    { icon: Receipt, label: "Expenses", id: "expenses" },
-    { icon: Users, label: "Customers", id: "customers" },
-    { icon: User, label: "Profile", id: "profile" },
-    { icon: "bus", label: "Bus Ticketing", id: "busTicketing", isMCI: true },
+  const posMenuItems: MenuItem[] = [
+    { icon: LayoutDashboard, label: "Dashboard", id: "dashboard", section: "Overview" },
+    { icon: Receipt, label: "Sales", id: "pos", section: "Sales" },
+    { icon: Users, label: "Customers", id: "customers", section: "Sales" },
+    { icon: PieChart, label: "Reports", id: "reports", section: "Sales" },
+    { icon: Package, label: "Products", id: "inventory", section: "Inventory" },
+    { icon: ArrowDownToLine, label: "GDNs / GRVs", id: "stockin", section: "Inventory" },
+    { icon: ArrowRightLeft, label: "Adjust / Transfer", id: "stockops", section: "Inventory" },
+    { icon: Activity, label: "Physical Counts", id: "stocktake", section: "Inventory" },
+    { icon: Truck, label: "Suppliers", id: "suppliers", section: "Inventory" },
+    { icon: UserCog, label: "Cashiers", id: "cashiers", section: "Admin" },
+    { icon: Receipt, label: "Expenses", id: "expenses", section: "Admin" },
+    { icon: User, label: "Profile", id: "profile", section: "Account" },
+    ...(normalizedBusSettings.enabled ? [{ icon: "bus", label: "Bus Ticketing", id: "busTicketing" as ScreenName, isMCI: true, section: "Modules" }] : []),
   ];
+  const restaurantMenuItems: MenuItem[] = [
+    { icon: LayoutDashboard, label: "Dashboard", id: "dashboard", section: "Overview" },
+    { icon: Receipt, label: "Restaurant POS", id: "pos", section: "Service" },
+    { icon: Package, label: "Menu Items", id: "inventory", section: "Service" },
+    { icon: Users, label: "Customers", id: "customers", section: "Service" },
+    { icon: PieChart, label: "Reports", id: "reports", section: "Reports" },
+    { icon: UserCog, label: "Staff", id: "cashiers", section: "Admin" },
+    { icon: Receipt, label: "Expenses", id: "expenses", section: "Admin" },
+    { icon: User, label: "Profile", id: "profile", section: "Account" },
+  ];
+  const busMenuItems: MenuItem[] = [
+    { icon: "bus", label: "Ticket Operations", id: "busTicketing", isMCI: true, section: "Operations" },
+    { icon: PieChart, label: "Trip Reports", id: "reports", section: "Reports" },
+    { icon: User, label: "Profile", id: "profile", section: "Account" },
+  ];
+  const allMenuItems = mode === "bus_ticketing" ? busMenuItems : mode === "restaurant" ? restaurantMenuItems : posMenuItems;
 
   const menuItems = allMenuItems.filter(item => {
     const role = (userRole || "member").toLowerCase();
@@ -87,18 +112,34 @@ export function AppDrawer({
 
     // Cashiers/Members are restricted
     if (role === "cashier" || role === "member") {
-      const allowed = ["dashboard", "pos", "customers", "profile", "reports", "busTicketing"];
+      const allowed = mode === "bus_ticketing"
+        ? ["busTicketing", "reports", "profile"]
+        : mode === "restaurant"
+          ? ["pos", "reports", "profile"]
+          : ["pos", "stockin", "customers", "profile", "reports"];
       return allowed.includes(item.id);
     }
 
     // Accountants see reports and expenses but maybe not POS?
     if (role === "accountant") {
-      const allowed = ["dashboard", "reports", "inventory", "stockin", "stockops", "suppliers", "expenses", "profile", "busTicketing"];
+      const allowed = mode === "bus_ticketing"
+        ? ["busTicketing", "reports", "profile"]
+        : ["dashboard", "reports", "inventory", "stockin", "stockops", "suppliers", "expenses", "profile", "busTicketing"];
       return allowed.includes(item.id);
     }
 
     return true; // Default to showing if unsure
   });
+  const menuSections = menuItems.reduce<Array<{ title: string; items: MenuItem[] }>>((sections, item) => {
+    const title = item.section || "Menu";
+    const section = sections.find((entry) => entry.title === title);
+    if (section) {
+      section.items.push(item);
+    } else {
+      sections.push({ title, items: [item] });
+    }
+    return sections;
+  }, []);
 
   const styles = getStyles(C);
 
@@ -126,49 +167,54 @@ export function AppDrawer({
               </View>
 
               <ScrollView style={styles.menu}>
-                {menuItems.map((item) => {
-                  const isActive = currentScreen === item.id;
-                  const Icon = item.icon;
-                  return (
-                    <TouchableOpacity
-                      key={item.id}
-                      onPress={() => {
-                        onNavigate(item.id);
-                        onClose();
-                      }}
-                      style={[
-                        styles.menuItem,
-                        isActive && { backgroundColor: isDark ? C.amber.glowLg : hexAlpha(C.amber.primary, 0.1) },
-                      ]}
-                    >
-                      <View style={styles.menuItemLeft}>
-                        {item.isMCI ? (
-                          <MaterialCommunityIcons
-                            name={item.icon as any}
-                            size={20}
-                            color={isActive ? C.amber.primary : C.text.secondary}
-                          />
-                        ) : (
-                          <Icon
-                            size={20}
-                            color={isActive ? C.amber.primary : C.text.secondary}
-                          />
-                        )}
-                        <Text
+                {menuSections.map((section) => (
+                  <View key={section.title} style={styles.menuSection}>
+                    <Text style={styles.sectionLabel}>{section.title}</Text>
+                    {section.items.map((item) => {
+                      const isActive = currentScreen === item.id;
+                      const Icon = item.icon;
+                      return (
+                        <TouchableOpacity
+                          key={item.id}
+                          onPress={() => {
+                            onNavigate(item.id);
+                            onClose();
+                          }}
                           style={[
-                            styles.menuLabel,
-                            isActive && styles.menuLabelActive,
+                            styles.menuItem,
+                            isActive && { backgroundColor: isDark ? C.amber.glowLg : hexAlpha(C.amber.primary, 0.1) },
                           ]}
                         >
-                          {item.label}
-                        </Text>
-                      </View>
-                      {isActive && (
-                        <ChevronRight size={16} color={C.amber.primary} />
-                      )}
-                    </TouchableOpacity>
-                  );
-                })}
+                          <View style={styles.menuItemLeft}>
+                            {item.isMCI ? (
+                              <MaterialCommunityIcons
+                                name={item.icon as any}
+                                size={20}
+                                color={isActive ? C.amber.primary : C.text.secondary}
+                              />
+                            ) : (
+                              <Icon
+                                size={20}
+                                color={isActive ? C.amber.primary : C.text.secondary}
+                              />
+                            )}
+                            <Text
+                              style={[
+                                styles.menuLabel,
+                                isActive && styles.menuLabelActive,
+                              ]}
+                            >
+                              {item.label}
+                            </Text>
+                          </View>
+                          {isActive && (
+                            <ChevronRight size={16} color={C.amber.primary} />
+                          )}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                ))}
               </ScrollView>
 
               <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 24) }]}>
@@ -249,6 +295,18 @@ const getStyles = (C: any) => StyleSheet.create({
   menu: {
     flex: 1,
     padding: 16,
+  },
+  menuSection: {
+    marginBottom: 14,
+  },
+  sectionLabel: {
+    marginBottom: 6,
+    paddingHorizontal: 12,
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.4,
+    color: C.text.tertiary,
+    textTransform: "uppercase",
   },
   menuItem: {
     flexDirection: "row",

@@ -5,7 +5,7 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
-    "scheme": "fisczim-pause",
+    "scheme": "fieldpos",
     "icon": "./assets/icon.png",
     "splash": {
       "image": "./assets/splash.png",
@@ -20,15 +20,12 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#2c1800"
       },
-      "package": "com.emmanuelff.fieldpos",
+      "package": "com.rhymy.fieldpos",
       "softwareKeyboardLayoutMode": "resize",
       "permissions": [
         "INTERNET",
-        "BLUETOOTH",
-        "BLUETOOTH_ADMIN",
         "BLUETOOTH_SCAN",
-        "BLUETOOTH_CONNECT",
-        "ACCESS_FINE_LOCATION"
+        "BLUETOOTH_CONNECT"
       ]
     },
     "androidStatusBar": {
@@ -45,13 +42,13 @@
     },
     "extra": {
       "eas": {
-        "projectId": "fa1b568d-e992-488d-bd56-1943345e7751"
+        "projectId": "e9e7bd23-9b42-4580-8827-3b6c3ab4d3d1"
       }
     },
     "plugins": [
       "expo-asset",
       "./scripts/withNetworkSecurityConfig"
     ],
-    "owner": "manuchidovi3"
+    "owner": "rhymy"
   }
 }

@@ -22,8 +22,10 @@ import InventoryAdjustmentsPage from "@/pages/inventory-adjustments";
 import InventoryStockCountsPage from "@/pages/inventory-stock-counts";
 import ProductionPage from "@/pages/production";
 import InventoryAccountPage from "@/pages/inventory-account";
+import PurchaseOrdersPage from "@/pages/purchase-orders";
 import GrvDetailsPage from "@/pages/grv-details";
 import ProductsPage from "@/pages/products";
+import BulkPriceAdjustmentPage from "@/pages/bulk-price-adjustment";
 import AutoSparesPage from "@/pages/auto-spares";
 import ServicesPage from "@/pages/services";
 import TaxConfigPage from "@/pages/tax-config";
@@ -61,6 +63,9 @@ import CustomerStatementsPage from "@/pages/customer-statements";
 import CashCollectionReportPage from "@/pages/cash-collection-report-page";
 import BusFleetPage from "@/pages/bus-fleet";
 import BusTripsPage from "@/pages/bus-trips";
+import BusConductorsPage from "@/pages/bus-conductors";
+import BusReportsPage from "@/pages/bus-reports";
+import BusDashboardPage from "@/pages/bus-dashboard";
 import AccountingCOAPage from "@/pages/accounting-coa";
 import AccountingJournalPage from "@/pages/accounting-journal";
 import TrialBalancePage from "@/pages/accounting-trial-balance";
@@ -214,6 +219,7 @@ function Router() {
       <Route path="/suppliers">{() => <ProtectedRoute component={SuppliersPage} />}</Route>
       <Route path="/expenses">{() => <ProtectedRoute component={ExpensesPage} />}</Route>
       <Route path="/inventory/production">{() => <ProtectedRoute component={ProductionPage} />}</Route>
+      <Route path="/inventory/purchase-orders">{() => <ProtectedRoute component={PurchaseOrdersPage} />}</Route>
       <Route path="/inventory">{() => <ProtectedRoute component={InventoryTransactionsPage} />}</Route>
       <Route path="/inventory/adjustments">{() => <ProtectedRoute component={InventoryAdjustmentsPage} />}</Route>
       <Route path="/inventory/stock-counts">{() => <ProtectedRoute component={InventoryStockCountsPage} />}</Route>
@@ -224,6 +230,7 @@ function Router() {
       <Route path="/reports/inventory">{() => <ProtectedRoute component={InventoryReportsPage} />}</Route>
       <Route path="/reports/financial">{() => <ProtectedRoute component={FinancialReportsPage} />}</Route>
       <Route path="/reports/daily">{() => <ProtectedRoute component={DailySalesLedgerPage} />}</Route>
+      <Route path="/products/bulk-adjust">{() => <ProtectedRoute component={BulkPriceAdjustmentPage} />}</Route>
       <Route path="/products">{() => <ProtectedRoute component={ProductsPage} />}</Route>
       <Route path="/auto-spares">{() => <ProtectedRoute component={AutoSparesPage} />}</Route>
       <Route path="/services">{() => <ProtectedRoute component={ServicesPage} />}</Route>
@@ -255,7 +262,10 @@ function Router() {
       <Route path="/pos">{() => <ProtectedRoute component={POSPage} />}</Route>
       <Route path="/pos-settings">{() => <Redirect to="/settings?tab=pos" />}</Route>
       <Route path="/bus/fleet">{() => <ProtectedRoute component={BusFleetPage} />}</Route>
+      <Route path="/bus/dashboard">{() => <ProtectedRoute component={BusDashboardPage} />}</Route>
       <Route path="/bus/trips">{() => <ProtectedRoute component={BusTripsPage} />}</Route>
+      <Route path="/bus/conductors">{() => <ProtectedRoute component={BusConductorsPage} />}</Route>
+      <Route path="/bus/reports">{() => <ProtectedRoute component={BusReportsPage} />}</Route>
       <Route path="/restaurant/kds">{() => <ProtectedRoute component={KDSPage} />}</Route>
       <Route path="/restaurant/orders">{() => <ProtectedRoute component={LiveOrdersPage} />}</Route>
       <Route path="/order-status" component={OrderStatusPage} />

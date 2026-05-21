@@ -19,6 +19,20 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 
+type SupplierInvoiceLinePreview = {
+  id: number;
+  productId: number;
+  productName: string;
+  sku: string;
+  quantity: number;
+  unitCost: number;
+  sourceTotal: number;
+  taxRate: number;
+  taxAmount: number;
+  subtotal: number;
+  total: number;
+};
+
 export default function GrvDetailsPage() {
   const [, setLocation] = useLocation();
   const [, params] = useRoute("/inventory/grvs/:id");
@@ -31,49 +45,71 @@ export default function GrvDetailsPage() {
 
   const [isInvoiceDialogOpen, setIsInvoiceDialogOpen] = useState(false);
   const [invoiceNumber, setInvoiceNumber] = useState("");
-  const [vatRate, setVatRate] = useState("15");
+  const [vatRate, setVatRate] = useState("");
   const [taxInclusive, setTaxInclusive] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const currency = company?.currency || "USD";
+
+  const getEffectiveLineRate = (lineRate?: number) => {
+    const override = vatRate.trim();
+    if (override !== "") return Number(override || 0);
+    return Number(lineRate || 0);
+  };
+
+  const invoiceLinePreview: SupplierInvoiceLinePreview[] = (grv?.lines || []).map((line) => {
+    const rate = getEffectiveLineRate(line.taxRate);
+    const sourceTotal = Number(line.totalCost || 0);
+    const taxAmount = rate > 0
+      ? taxInclusive
+        ? sourceTotal - (sourceTotal / (1 + rate / 100))
+        : sourceTotal * (rate / 100)
+      : 0;
+    const subtotal = taxInclusive ? sourceTotal - taxAmount : sourceTotal;
+    const total = taxInclusive ? sourceTotal : sourceTotal + taxAmount;
+
+    return {
+      id: line.id,
+      productId: line.productId,
+      productName: line.productName,
+      sku: line.sku,
+      quantity: line.quantity,
+      unitCost: line.unitCost,
+      sourceTotal,
+      taxRate: rate,
+      taxAmount,
+      subtotal,
+      total,
+    };
+  });
+
+  const invoiceSubtotal = invoiceLinePreview.reduce((sum, line) => sum + line.subtotal, 0);
+  const invoiceTaxAmount = invoiceLinePreview.reduce((sum, line) => sum + line.taxAmount, 0);
+  const invoiceTotal = invoiceLinePreview.reduce((sum, line) => sum + line.total, 0);
 
   const createInvoiceMutation = useMutation({
     mutationFn: async () => {
-      const rate = Number(vatRate || 0);
-      const sourceTotal = Number(grv?.totalCost || 0);
-      const taxAmount = rate > 0
-        ? taxInclusive
-          ? sourceTotal - (sourceTotal / (1 + rate / 100))
-          : sourceTotal * (rate / 100)
-        : 0;
-      const totalAmount = taxInclusive ? sourceTotal : sourceTotal + taxAmount;
+      if (!grv?.supplierId) throw new Error("This GRV does not have a supplier");
 
       const payload = {
         supplierId: grv?.supplierId,
         invoiceNumber,
         date: new Date().toISOString(),
         dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-        totalAmount: totalAmount.toFixed(2),
-        taxAmount: taxAmount.toFixed(2),
-        currency: company?.currency || "USD",
-        status: "draft", // initially draft
-        items: grv?.lines.map((line: any) => ({
-          ...(() => {
-            const lineTotal = Number(line.totalCost || 0);
-            const lineTax = rate > 0
-              ? taxInclusive
-                ? lineTotal - (lineTotal / (1 + rate / 100))
-                : lineTotal * (rate / 100)
-              : 0;
-            const lineSubtotal = taxInclusive ? lineTotal - lineTax : lineTotal;
-            return {
-              unitPrice: (lineSubtotal / Number(line.quantity || 1)).toFixed(2),
-              totalPrice: lineSubtotal.toFixed(2),
-              taxAmount: lineTax.toFixed(2),
-            };
-          })(),
+        totalAmount: invoiceTotal.toFixed(2),
+        taxAmount: invoiceTaxAmount.toFixed(2),
+        currency,
+        notes: `Created from GRV ${grv.grvNumber}`,
+        status: "unpaid",
+        items: invoiceLinePreview.map((line) => ({
           productId: line.productId,
           quantity: line.quantity.toString(),
-        })) || []
+          description: line.productName,
+          unitPrice: (line.subtotal / Number(line.quantity || 1)).toFixed(2),
+          totalPrice: line.subtotal.toFixed(2),
+          taxRate: line.taxRate.toFixed(2),
+          taxAmount: line.taxAmount.toFixed(2),
+        }))
       };
       const res = await apiRequest("POST", `/api/companies/${companyId}/supplier-invoices`, payload);
       return res.json();
@@ -123,18 +159,58 @@ export default function GrvDetailsPage() {
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-2">
-                      <Label>VAT Rate %</Label>
+                      <Label>VAT Rate Override %</Label>
                       <Input
                         type="number"
                         min="0"
                         step="0.01"
                         value={vatRate}
                         onChange={(e) => setVatRate(e.target.value)}
+                        placeholder="Use product VAT rates"
                       />
+                      <p className="text-xs text-slate-500">Clear this field to use each product's configured VAT rate.</p>
                     </div>
                     <div className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 mt-6">
                       <Label htmlFor="grv-vat-inclusive" className="text-sm">Amounts include VAT</Label>
                       <Switch id="grv-vat-inclusive" checked={taxInclusive} onCheckedChange={setTaxInclusive} />
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 overflow-hidden">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50">
+                        <tr>
+                          <th className="p-2 font-bold text-slate-500">Item</th>
+                          <th className="p-2 text-right font-bold text-slate-500">Qty</th>
+                          <th className="p-2 text-right font-bold text-slate-500">VAT %</th>
+                          <th className="p-2 text-right font-bold text-slate-500">VAT</th>
+                          <th className="p-2 text-right font-bold text-slate-500">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {invoiceLinePreview.map((line) => (
+                          <tr key={line.id} className="border-t border-slate-100">
+                            <td className="p-2 font-semibold text-slate-700">{line.productName}</td>
+                            <td className="p-2 text-right font-mono">{line.quantity.toFixed(2)}</td>
+                            <td className="p-2 text-right font-mono">{line.taxRate.toFixed(2)}%</td>
+                            <td className="p-2 text-right font-mono">{currency} {line.taxAmount.toFixed(2)}</td>
+                            <td className="p-2 text-right font-mono font-bold">{currency} {line.total.toFixed(2)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3 space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-500">Subtotal</span>
+                      <span className="font-mono font-semibold">{currency} {invoiceSubtotal.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-500">Input VAT</span>
+                      <span className="font-mono font-semibold">{currency} {invoiceTaxAmount.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-base">
+                      <span className="font-bold text-slate-700">Supplier Invoice Total</span>
+                      <span className="font-mono font-black">{currency} {invoiceTotal.toFixed(2)}</span>
                     </div>
                   </div>
                   <div className="flex justify-end gap-2 pt-4">

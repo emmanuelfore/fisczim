@@ -4576,7 +4576,16 @@ export class DatabaseStorage implements IStorage {
 
   // Reports
   async getStockValuationReport(companyId: number, ownerGroup?: string) {
-    const filters: any[] = [eq(products.companyId, companyId), eq(products.isTracked, true)];
+    const [company] = await db
+      .select({ method: companies.inventoryValuationMethod })
+      .from(companies)
+      .where(eq(companies.id, companyId))
+      .limit(1);
+    const valuationMethod = (company?.method === "FIFO" || company?.method === "LIFO" || company?.method === "WAC")
+      ? company.method
+      : "WAC";
+
+    const filters: any[] = [eq(products.companyId, companyId), eq(products.isTracked, true), ne(products.isActive, false)];
     const ownerGroupFilter = buildOwnerGroupSql(products.ownerGroup, ownerGroup);
     if (ownerGroupFilter) {
       filters.push(ownerGroupFilter);
@@ -4586,14 +4595,115 @@ export class DatabaseStorage implements IStorage {
       .from(products)
       .where(and(...filters));
 
-    return trackedProducts.map(p => ({
-      productId: p.id,
-      name: p.name,
-      sku: p.sku,
-      stockLevel: p.stockLevel || "0",
-      unitCost: p.costPrice || "0",
-      totalValuation: Number(p.stockLevel || 0) * Number(p.costPrice || 0)
-    }));
+    if (trackedProducts.length === 0) return [];
+
+    const productIds = trackedProducts.map((p) => p.id);
+    const ledgerRows = await db
+      .select({
+        productId: inventoryTransactions.productId,
+        quantity: inventoryTransactions.quantity,
+        unitCost: inventoryTransactions.unitCost,
+        totalCost: inventoryTransactions.totalCost,
+        createdAt: inventoryTransactions.createdAt,
+        id: inventoryTransactions.id,
+      })
+      .from(inventoryTransactions)
+      .where(and(
+        eq(inventoryTransactions.companyId, companyId),
+        inArray(inventoryTransactions.productId, productIds)
+      ))
+      .orderBy(asc(inventoryTransactions.createdAt), asc(inventoryTransactions.id));
+
+    const ledgerByProduct = new Map<number, typeof ledgerRows>();
+    for (const row of ledgerRows) {
+      const rows = ledgerByProduct.get(row.productId) || [];
+      rows.push(row);
+      ledgerByProduct.set(row.productId, rows);
+    }
+
+    const consumeLayers = (
+      layers: Array<{ quantity: number; unitCost: number }>,
+      quantity: number,
+      method: "FIFO" | "LIFO"
+    ) => {
+      let remaining = quantity;
+      while (remaining > 0.000001 && layers.length > 0) {
+        const index = method === "FIFO" ? 0 : layers.length - 1;
+        const layer = layers[index];
+        const consumed = Math.min(layer.quantity, remaining);
+        layer.quantity -= consumed;
+        remaining -= consumed;
+        if (layer.quantity <= 0.000001) layers.splice(index, 1);
+      }
+    };
+
+    return trackedProducts.map((product) => {
+      const currentStock = Number(product.stockLevel || 0);
+      const fallbackUnitCost = Number(product.costPrice || 0);
+      const rows = ledgerByProduct.get(product.id) || [];
+      let totalValuation = 0;
+
+      if (valuationMethod === "WAC") {
+        let poolQuantity = 0;
+        let poolValue = 0;
+
+        for (const row of rows) {
+          const quantity = Number(row.quantity || 0);
+          if (!Number.isFinite(quantity) || quantity === 0) continue;
+          const unitCost = Number(row.unitCost ?? (quantity !== 0 ? Number(row.totalCost || 0) / Math.abs(quantity) : fallbackUnitCost)) || fallbackUnitCost;
+
+          if (quantity > 0) {
+            poolQuantity += quantity;
+            poolValue += quantity * unitCost;
+          } else {
+            const averageCost = poolQuantity > 0 ? poolValue / poolQuantity : fallbackUnitCost;
+            const consumed = Math.min(Math.abs(quantity), Math.max(poolQuantity, 0));
+            poolQuantity -= consumed;
+            poolValue -= consumed * averageCost;
+          }
+        }
+
+        const averageCost = poolQuantity > 0 ? poolValue / poolQuantity : fallbackUnitCost;
+        totalValuation = currentStock * averageCost;
+      } else {
+        const layers: Array<{ quantity: number; unitCost: number }> = [];
+
+        for (const row of rows) {
+          const quantity = Number(row.quantity || 0);
+          if (!Number.isFinite(quantity) || quantity === 0) continue;
+          const unitCost = Number(row.unitCost ?? (quantity !== 0 ? Number(row.totalCost || 0) / Math.abs(quantity) : fallbackUnitCost)) || fallbackUnitCost;
+
+          if (quantity > 0) {
+            layers.push({ quantity, unitCost });
+          } else {
+            consumeLayers(layers, Math.abs(quantity), valuationMethod);
+          }
+        }
+
+        const layerQuantity = layers.reduce((sum, layer) => sum + layer.quantity, 0);
+        if (currentStock < layerQuantity) {
+          consumeLayers(layers, layerQuantity - currentStock, valuationMethod);
+        } else if (currentStock > layerQuantity) {
+          layers.push({ quantity: currentStock - layerQuantity, unitCost: fallbackUnitCost });
+        }
+
+        totalValuation = layers.reduce((sum, layer) => sum + (layer.quantity * layer.unitCost), 0);
+      }
+
+      const unitCost = currentStock > 0 ? totalValuation / currentStock : fallbackUnitCost;
+
+      return {
+        productId: product.id,
+        name: product.name,
+        sku: product.sku,
+        category: product.category,
+        stockLevel: product.stockLevel || "0",
+        unitCost: unitCost.toFixed(4),
+        valuationMethod,
+        totalValuation: Number(totalValuation.toFixed(2)),
+        totalValue: totalValuation.toFixed(2),
+      };
+    });
   }
 
   async getFiscalReportData(companyId: number, date: Date, cashierId?: string) {
@@ -5744,29 +5854,19 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getReportStockOnHand(companyId: number, ownerGroup?: string): Promise<{ productId: number; name: string; sku: string | null; category: string | null; stockLevel: string; unitCost: string; totalValue: string }[]> {
-    const filters: any[] = [eq(products.companyId, companyId), eq(products.isTracked, true)];
-    const ownerGroupFilter = buildOwnerGroupSql(products.ownerGroup, ownerGroup);
-    if (ownerGroupFilter) {
-      filters.push(ownerGroupFilter);
-    }
-    const results = await db.select({
-      productId: products.id,
-      name: products.name,
-      sku: products.sku,
-      category: products.category,
-      stockLevel: products.stockLevel,
-      unitCost: products.costPrice,
-      totalValue: sql<string>`(${products.stockLevel} * ${products.costPrice})`
-    })
-      .from(products)
-      .where(and(...filters))
-      .orderBy(products.name);
-    return results.map(r => ({
-      ...r,
-      stockLevel: String(r.stockLevel),
-      unitCost: String(r.unitCost || "0"),
-      totalValue: String(r.totalValue || "0")
-    }));
+    const valuationRows = await this.getStockValuationReport(companyId, ownerGroup);
+    return valuationRows
+      .map((row) => ({
+        productId: row.productId,
+        name: row.name,
+        sku: row.sku,
+        category: row.category ?? null,
+        stockLevel: String(row.stockLevel || "0"),
+        unitCost: String(row.unitCost || "0"),
+        valuationMethod: row.valuationMethod,
+        totalValue: String(row.totalValue ?? row.totalValuation ?? "0"),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
   }
 
   async getAbcAnalysis(companyId: number, ownerGroup?: string): Promise<{

@@ -1,12 +1,14 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
   Alert, Modal, ScrollView, TextInput, StatusBar,
+  ActivityIndicator,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useBusTicketing } from '../../hooks/useBusTicketing';
 import { Conductor } from '../../types/busTicketing';
+import { apiFetch, apiJson } from '../../lib/api';
 
 const C = {
   bg: '#07090C', surface: '#111318', border: '#1E2128',
@@ -14,43 +16,146 @@ const C = {
   muted: '#9CA3AF', success: '#22C55E', danger: '#EF4444',
 };
 
-function uuid(): string {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = Math.random() * 16 | 0;
-    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
-  });
+interface Props {
+  onClose: () => void;
+  companyId?: number | null;
 }
 
-interface Props { onClose: () => void; }
+type CashierConductor = Conductor & {
+  email?: string;
+  username?: string;
+  role?: string;
+};
 
-export function ConductorManagementScreen({ onClose }: Props) {
+export function ConductorManagementScreen({ onClose, companyId }: Props) {
   const insets = useSafeAreaInsets();
-  const { conductors, saveConductor, setActiveConductor, activeConductor } = useBusTicketing();
+  const { conductors, saveConductor, setActiveConductor, activeConductor } = useBusTicketing(companyId);
+  const [cashiers, setCashiers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState('');
   const [modalVisible, setModalVisible] = useState(false);
   const [editing, setEditing] = useState<Conductor | null>(null);
   const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('Zimra123!');
+
+  const syncCashierToConductor = useCallback(async (user: any) => {
+    const conductor: Conductor = {
+      id: String(user.id),
+      name: user.name || user.username || user.email?.split('@')[0] || 'Conductor',
+      phone: user.phone || undefined,
+      isActive: true,
+    };
+    await saveConductor(conductor);
+    return conductor;
+  }, [saveConductor]);
+
+  const loadCashiers = useCallback(async () => {
+    if (!companyId) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    try {
+      const users = await apiJson<any[]>(`/api/companies/${companyId}/users`);
+      const nextCashiers = users.filter((user) => String(user.role || '').toLowerCase() === 'cashier');
+      setCashiers(nextCashiers);
+      for (const user of nextCashiers) {
+        await syncCashierToConductor(user);
+      }
+    } catch (e: any) {
+      Alert.alert('Conductors', e?.message || 'Failed to load cashier accounts.');
+    } finally {
+      setLoading(false);
+    }
+  }, [companyId, syncCashierToConductor]);
+
+  useEffect(() => {
+    loadCashiers();
+  }, [loadCashiers]);
+
+  const conductorById = useMemo(() => {
+    return new Map(conductors.map((conductor) => [conductor.id, conductor]));
+  }, [conductors]);
+
+  const visibleConductors = useMemo<CashierConductor[]>(() => {
+    const q = search.trim().toLowerCase();
+    const fromCashiers: CashierConductor[] = cashiers.map((user) => conductorById.get(String(user.id)) ?? {
+      id: String(user.id),
+      name: user.name || user.username || user.email?.split('@')[0] || 'Conductor',
+      phone: user.phone || undefined,
+      isActive: true,
+    }).map((conductor) => {
+      const user = cashiers.find((item) => String(item.id) === conductor.id);
+      return {
+        ...conductor,
+        email: user?.email,
+        username: user?.username,
+        role: user?.role,
+      };
+    });
+    const localOnly: CashierConductor[] = conductors
+      .filter((conductor) => !cashiers.some((user) => String(user.id) === conductor.id))
+      .filter((conductor) => !conductor.id.startsWith('cashier-'));
+    return [...fromCashiers, ...localOnly].filter((conductor) => {
+      if (!q) return true;
+      return [conductor.name, conductor.email, conductor.username, conductor.phone, conductor.id].some((value) => String(value || '').toLowerCase().includes(q));
+    });
+  }, [cashiers, conductorById, conductors, search]);
 
   function openCreate() {
-    setEditing(null); setName(''); setPhone('');
+    setEditing(null); setName(''); setEmail(''); setUsername(''); setPhone(''); setPassword('Zimra123!');
     setModalVisible(true);
   }
 
   function openEdit(c: Conductor) {
-    setEditing(c); setName(c.name); setPhone(c.phone ?? '');
+    setEditing(c); setName(c.name); setEmail(''); setUsername(''); setPhone(c.phone ?? ''); setPassword('Zimra123!');
     setModalVisible(true);
   }
 
   async function handleSave() {
     if (!name.trim()) { Alert.alert('Validation', 'Name is required.'); return; }
-    const conductor: Conductor = {
-      id: editing?.id ?? uuid(),
-      name: name.trim(),
-      phone: phone.trim() || undefined,
-      isActive: editing?.isActive ?? true,
-    };
-    await saveConductor(conductor);
-    setModalVisible(false);
+    setSaving(true);
+    try {
+      if (editing) {
+        await saveConductor({ ...editing, name: name.trim(), phone: phone.trim() || undefined });
+        setModalVisible(false);
+        return;
+      }
+      if (!email.trim()) {
+        Alert.alert('Email required', 'Enter the cashier email address for this conductor.');
+        return;
+      }
+      if (!companyId) {
+        Alert.alert('Company missing', 'Select a company before adding conductors.');
+        return;
+      }
+      const res = await apiFetch(`/api/companies/${companyId}/users`, {
+        method: 'POST',
+        body: JSON.stringify({
+          email: email.trim(),
+          name: name.trim(),
+          username: username.trim() || email.trim().split('@')[0],
+          password: password.trim() || 'Zimra123!',
+          role: 'cashier',
+        }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(text || 'Could not create cashier account.');
+      }
+      setModalVisible(false);
+      setName(''); setEmail(''); setUsername(''); setPhone(''); setPassword('Zimra123!');
+      await loadCashiers();
+      Alert.alert('Conductor added', 'Cashier account created and added as a conductor.');
+    } catch (e: any) {
+      Alert.alert('Could not add conductor', e?.message || 'Please try again.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleSetActive(c: Conductor) {
@@ -69,11 +174,26 @@ export function ConductorManagementScreen({ onClose }: Props) {
           <MaterialCommunityIcons name="arrow-left" size={22} color={C.white} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Conductors</Text>
-        <View style={{ width: 40 }} />
+        <TouchableOpacity onPress={loadCashiers} style={styles.backBtn}>
+          <MaterialCommunityIcons name="refresh" size={20} color={C.amber} />
+        </TouchableOpacity>
       </View>
 
-      <FlatList
-        data={conductors}
+      <View style={styles.searchRow}>
+        <MaterialCommunityIcons name="magnify" size={18} color={C.muted} />
+        <TextInput
+          style={styles.searchInput}
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Search conductors..."
+          placeholderTextColor={C.muted}
+        />
+      </View>
+
+      {loading ? (
+        <ActivityIndicator color={C.amber} style={{ marginTop: 40 }} />
+      ) : <FlatList
+        data={visibleConductors}
         keyExtractor={(c) => c.id}
         contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
         ListEmptyComponent={
@@ -91,7 +211,8 @@ export function ConductorManagementScreen({ onClose }: Props) {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.name}>{item.name}</Text>
-                {item.phone ? <Text style={styles.phone}>{item.phone}</Text> : null}
+                <Text style={styles.phone}>{item.email || item.username || 'Cashier account'}</Text>
+                {item.username ? <Text style={styles.meta}>Username: {item.username}</Text> : null}
                 {isActive && (
                   <View style={styles.activeBadge}>
                     <Text style={styles.activeBadgeText}>ACTIVE CONDUCTOR</Text>
@@ -111,7 +232,7 @@ export function ConductorManagementScreen({ onClose }: Props) {
             </View>
           );
         }}
-      />
+      />}
 
       <TouchableOpacity style={[styles.fab, { bottom: insets.bottom + 24 }]} onPress={openCreate}>
         <MaterialCommunityIcons name="plus" size={28} color="#000" />
@@ -133,14 +254,30 @@ export function ConductorManagementScreen({ onClose }: Props) {
               placeholderTextColor={C.muted} value={name}
               onChangeText={setName}
             />
-            <Text style={styles.label}>Phone (optional)</Text>
-            <TextInput
-              style={styles.input} placeholder="+263 77 123 4567"
-              placeholderTextColor={C.muted} value={phone}
-              onChangeText={setPhone} keyboardType="phone-pad"
-            />
-            <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
-              <Text style={styles.saveBtnText}>{editing ? 'Save Changes' : 'Add Conductor'}</Text>
+            {!editing && (
+              <>
+                <Text style={styles.label}>Email</Text>
+                <TextInput
+                  style={styles.input} placeholder="conductor@business.com"
+                  placeholderTextColor={C.muted} value={email}
+                  onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none"
+                />
+                <Text style={styles.label}>Username</Text>
+                <TextInput
+                  style={styles.input} placeholder="tawanda"
+                  placeholderTextColor={C.muted} value={username}
+                  onChangeText={setUsername} autoCapitalize="none"
+                />
+                <Text style={styles.label}>Initial Password</Text>
+                <TextInput
+                  style={styles.input} placeholder="Zimra123!"
+                  placeholderTextColor={C.muted} value={password}
+                  onChangeText={setPassword} secureTextEntry
+                />
+              </>
+            )}
+            <TouchableOpacity style={[styles.saveBtn, saving && { opacity: 0.7 }]} onPress={handleSave} disabled={saving}>
+              {saving ? <ActivityIndicator color="#000" /> : <Text style={styles.saveBtnText}>{editing ? 'Save Changes' : 'Add Conductor'}</Text>}
             </TouchableOpacity>
             <TouchableOpacity style={styles.cancelBtn} onPress={() => setModalVisible(false)}>
               <Text style={styles.cancelBtnText}>Cancel</Text>
@@ -161,6 +298,12 @@ const styles = StyleSheet.create({
   },
   backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   headerTitle: { color: C.white, fontSize: 18, fontWeight: '800' },
+  searchRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    margin: 16, marginBottom: 0, paddingHorizontal: 14, height: 46,
+    borderRadius: 12, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
+  },
+  searchInput: { flex: 1, color: C.white, fontSize: 14, fontWeight: '600' },
   empty: { alignItems: 'center', paddingTop: 80, gap: 12 },
   emptyText: { color: C.white, fontSize: 16, fontWeight: '700' },
   row: {
@@ -176,6 +319,7 @@ const styles = StyleSheet.create({
   avatarText: { color: '#000', fontWeight: '900', fontSize: 18 },
   name: { color: C.white, fontSize: 15, fontWeight: '700' },
   phone: { color: C.muted, fontSize: 12, marginTop: 2 },
+  meta: { color: C.muted, fontSize: 11, marginTop: 2 },
   activeBadge: {
     marginTop: 6, backgroundColor: 'rgba(240,165,0,0.15)',
     borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, alignSelf: 'flex-start',

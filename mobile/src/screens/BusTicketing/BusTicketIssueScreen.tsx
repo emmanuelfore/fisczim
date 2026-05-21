@@ -1,12 +1,14 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  TextInput, Alert, Switch, StatusBar,
+  TextInput, Alert, StatusBar, BackHandler,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useBusTicketing } from '../../hooks/useBusTicketing';
 import { BusRoute, IssuedTicket } from '../../types/busTicketing';
+import { usePrinter } from '../../hooks/usePrinter';
+import { buildBusTicketPrintData } from '../../lib/busTicketReceipt';
 
 const C = {
   bg: '#07090C', surface: '#111318', border: '#1E2128',
@@ -17,17 +19,18 @@ const C = {
 type PaymentMethod = 'Cash' | 'EcoCash' | 'InnBucks' | 'Swipe';
 const PAYMENT_METHODS: PaymentMethod[] = ['Cash', 'EcoCash', 'InnBucks', 'Swipe'];
 
-interface Props { onClose: () => void; }
+interface Props { onClose: () => void; companyId?: number | null; company?: any; }
 
-export function BusTicketIssueScreen({ onClose }: Props) {
+export function BusTicketIssueScreen({ onClose, companyId, company }: Props) {
   const insets = useSafeAreaInsets();
-  const { routes, tickets: allTickets, activeConductor, issueTicket, generateTicketId } = useBusTicketing();
+  const { routes, activeConductor, activeTrip, issueTicket, isOnline, syncStatus, pendingTicketCount } = useBusTicketing(companyId);
+  const { config: printerConfig, print } = usePrinter();
 
   const activeRoutes = useMemo(() => routes.filter((r) => r.isActive), [routes]);
 
   const [selectedRoute, setSelectedRoute] = useState<BusRoute | null>(null);
   const [quantity, setQuantity] = useState(1);
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('Cash');
   const [passengerName, setPassengerName] = useState('');
   const [idNumber, setIdNumber] = useState('');
   const [phone, setPhone] = useState('');
@@ -37,12 +40,16 @@ export function BusTicketIssueScreen({ onClose }: Props) {
   const [issuing, setIssuing] = useState(false);
 
   const cfg = selectedRoute?.config;
+  const showingSync = syncStatus === 'syncing';
+  const modeColor = showingSync ? C.amber : isOnline ? C.success : C.danger;
+  const modeIcon = showingSync ? 'sync' : isOnline ? 'wifi' : 'wifi-off';
+  const modeLabel = showingSync ? 'System syncing' : isOnline ? 'Online mode' : 'Offline mode';
 
   const totalAmount = selectedRoute ? parseFloat((selectedRoute.price * quantity).toFixed(2)) : 0;
 
   function resetForm() {
     setQuantity(1);
-    setPaymentMethod(null);
+    setPaymentMethod('Cash');
     setPassengerName('');
     setIdNumber('');
     setPhone('');
@@ -55,7 +62,19 @@ export function BusTicketIssueScreen({ onClose }: Props) {
     resetForm();
   }
 
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      onClose();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [onClose]);
+
   async function handleIssue() {
+    if (!activeTrip) {
+      Alert.alert('No Active Trip', 'Start a trip before issuing tickets.');
+      return;
+    }
     if (!selectedRoute) { Alert.alert('Error', 'Please select a route.'); return; }
     if (cfg?.requirePaymentMethod && !paymentMethod) {
       Alert.alert('Error', 'Please select a payment method.');
@@ -81,18 +100,29 @@ export function BusTicketIssueScreen({ onClose }: Props) {
         issuedAt: new Date().toISOString(),
         conductorId: activeConductor?.id,
         conductorName: activeConductor?.name,
+        tripId: activeTrip?.id,
+        vehicleId: activeTrip?.vehicleId,
       };
-      await issueTicket(ticket);
-      // Show the issued ticket (id will have been generated, so reconstruct)
-      const todayKey = (() => {
-        const d = new Date();
-        return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
-      })();
-      const todayCount = allTickets.filter((t) => t.issuedAt.startsWith(new Date().toISOString().slice(0,10))).length + 1;
-      setLastTicket({ ...ticket, id: `TKT-${todayKey}-${String(todayCount).padStart(4,'0')}` });
+      const issuedTicket = await issueTicket(ticket);
+      setLastTicket(issuedTicket);
       resetForm();
       setSelectedRoute(null);
-      Alert.alert('✓ Ticket Issued', `${selectedRoute.name}\n${quantity} passenger(s) — ${selectedRoute.currency} ${totalAmount.toFixed(2)}`);
+      Alert.alert(
+        '✓ Ticket Issued',
+        `${selectedRoute.name}\n${quantity} passenger(s) — ${selectedRoute.currency} ${totalAmount.toFixed(2)}`,
+        [
+          {
+            text: printerConfig.enabled ? 'Print' : 'OK',
+            onPress: () => {
+              if (!printerConfig.enabled) return;
+              print(buildBusTicketPrintData(issuedTicket, company)).catch((e) => {
+                console.warn('[BusTicketIssue] Ticket print failed:', e?.message || e);
+                Alert.alert('Print Failed', e?.message || 'Ticket was issued, but printing failed.');
+              });
+            },
+          },
+        ],
+      );
     } catch (e: any) {
       Alert.alert('Error', e.message);
     } finally {
@@ -114,6 +144,19 @@ export function BusTicketIssueScreen({ onClose }: Props) {
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+        {/* Last ticket banner */}
+        <View style={[styles.syncBanner, { borderColor: `${modeColor}66` }]}>
+          <MaterialCommunityIcons name={modeIcon as any} size={16} color={modeColor} />
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.syncTitle, { color: modeColor }]}>{modeLabel}</Text>
+            <Text style={styles.syncSub}>
+              {pendingTicketCount > 0
+                ? `${pendingTicketCount} sale${pendingTicketCount === 1 ? '' : 's'} ${showingSync ? 'uploading now' : 'saved for sync'}`
+                : 'All bus sales synced'}
+            </Text>
+          </View>
+        </View>
+
         {/* Last ticket banner */}
         {lastTicket && (
           <View style={styles.lastTicketBanner}>
@@ -313,6 +356,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12,
   },
   lastTicketText: { color: C.success, fontSize: 12, fontWeight: '600', flex: 1 },
+  syncBanner: {
+    backgroundColor: C.surface, borderRadius: 10, padding: 12,
+    flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12,
+    borderWidth: 1,
+  },
+  syncTitle: { fontSize: 11, fontWeight: '900', textTransform: 'uppercase' },
+  syncSub: { color: C.muted, fontSize: 11, fontWeight: '600', marginTop: 2 },
   conductorBadge: {
     backgroundColor: 'rgba(240,165,0,0.1)', borderRadius: 10, padding: 10,
     flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 20,

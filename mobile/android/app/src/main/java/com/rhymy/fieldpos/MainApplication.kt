@@ -1,4 +1,4 @@
-package com.emmanuelff.fieldpos
+package com.rhymy.fieldpos
 
 import android.app.Application
 import android.content.res.Configuration

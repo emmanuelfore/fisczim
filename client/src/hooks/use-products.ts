@@ -46,16 +46,13 @@ export function useProducts(companyId: number, branchId?: number) {
         console.log(`[useProducts] offline, cached count: ${cached?.length ?? 0}`);
         return cached && cached.length > 0 ? cached : [];
       }
-      // Online path — try API, fall back to cache on any failure or 401
+      // Online path — try API, but do not hide expired sessions behind stale cached prices.
       try {
         const url = buildUrl(api.products.list.path, { companyId });
         const finalUrl = branchId ? `${url}?branchId=${branchId}` : url;
         const res = await apiFetch(finalUrl);
         if (res.status === 401) {
-          console.warn('[useProducts] 401 — using cached products');
-          const cached = await getCachedProducts(companyId);
-          console.log(`[useProducts] cache fallback count: ${cached?.length ?? 0}`);
-          return cached ?? [];
+          throw new Error("Unauthorized. Please sign in again to refresh products.");
         }
         if (!res.ok) throw new Error(`Failed to fetch products: ${res.status}`);
         const products = api.products.list.responses[200].parse(await res.json());
@@ -65,6 +62,9 @@ export function useProducts(companyId: number, branchId?: number) {
         }
         return products;
       } catch (err) {
+        if (err instanceof Error && err.message.startsWith("Unauthorized.")) {
+          throw err;
+        }
         console.warn('[useProducts] fetch error, falling back to cache:', err);
         const cached = await getCachedProducts(companyId);
         console.log(`[useProducts] error cache fallback count: ${cached?.length ?? 0}`);
@@ -153,6 +153,29 @@ export function useBulkConvertProducts(companyId: number) {
         body: JSON.stringify({ ids }),
       });
       if (!res.ok) throw new Error("Failed to convert items");
+      return await res.json();
+    },
+    onSuccess: () => {
+      refreshProductQueries(queryClient, companyId);
+    },
+  });
+}
+
+export function useBulkAdjustPrice(companyId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: {
+      companyId: number;
+      reason?: string;
+      effectiveFrom?: string;
+      adjustments: { productId: number; newPrice: number | string }[];
+    }) => {
+      const url = api.products.bulkAdjustPrice.path;
+      const res = await apiFetch(url, {
+        method: "POST",
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error("Failed to perform bulk price adjustment");
       return await res.json();
     },
     onSuccess: () => {

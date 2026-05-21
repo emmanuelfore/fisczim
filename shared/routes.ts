@@ -245,6 +245,23 @@ export const api = {
         404: errorSchemas.notFound,
       }
     },
+    bulkAdjustPrice: {
+      method: 'POST' as const,
+      path: '/api/products/bulk-adjust-price',
+      input: z.object({
+        companyId: z.number(),
+        reason: z.string().optional(),
+        effectiveFrom: z.string().optional(),
+        adjustments: z.array(z.object({
+          productId: z.number(),
+          newPrice: z.number().or(z.string()),
+        })),
+      }),
+      responses: {
+        200: z.object({ success: z.boolean(), count: z.number() }),
+        400: errorSchemas.validation,
+      }
+    },
     priceHistory: {
       method: 'GET' as const,
       path: '/api/products/:id/price-history',
@@ -577,8 +594,11 @@ export const api = {
           productId: z.number(),
           name: z.string(),
           sku: z.string().nullable(),
+          category: z.string().nullable().optional(),
           stockLevel: z.string(),
           unitCost: z.string(),
+          valuationMethod: z.enum(["WAC", "FIFO", "LIFO"]).optional(),
+          totalValue: z.string().optional(),
           totalValuation: z.number()
         }))
       }

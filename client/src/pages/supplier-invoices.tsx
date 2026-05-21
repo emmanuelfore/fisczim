@@ -135,6 +135,7 @@ export default function SupplierInvoicesPage() {
             quantity: "1",
             unitPrice: subtotal.toFixed(2),
             totalPrice: subtotal.toFixed(2),
+            taxRate: Number(formData.vatRate || 0).toFixed(2),
             taxAmount: tax.toFixed(2),
           }],
         }),
@@ -195,22 +196,22 @@ export default function SupplierInvoicesPage() {
                 <span>Create Bill</span>
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[560px]">
+            <DialogContent className="sm:max-w-[520px] max-h-[88vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Create Supplier Bill</DialogTitle>
               </DialogHeader>
               <form
-                className="grid gap-4 pt-4"
+                className="grid gap-3 pt-2"
                 onSubmit={(event) => {
                   event.preventDefault();
                   createMutation.mutate();
                 }}
               >
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label>Supplier</Label>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Supplier</Label>
                     <Select value={formData.supplierId} onValueChange={(value) => setFormData((p) => ({ ...p, supplierId: value }))}>
-                      <SelectTrigger><SelectValue placeholder="Select supplier" /></SelectTrigger>
+                      <SelectTrigger className="h-9"><SelectValue placeholder="Select supplier" /></SelectTrigger>
                       <SelectContent>
                         {suppliers.map((supplier) => (
                           <SelectItem key={supplier.id} value={String(supplier.id)}>{supplier.name}</SelectItem>
@@ -218,21 +219,22 @@ export default function SupplierInvoicesPage() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="space-y-2">
-                    <Label>Invoice Number</Label>
-                    <Input value={formData.invoiceNumber} onChange={(e) => setFormData((p) => ({ ...p, invoiceNumber: e.target.value }))} placeholder="Supplier invoice #" />
+                  <div className="space-y-1">
+                    <Label className="text-xs">Invoice Number</Label>
+                    <Input className="h-9" value={formData.invoiceNumber} onChange={(e) => setFormData((p) => ({ ...p, invoiceNumber: e.target.value }))} placeholder="Supplier invoice #" />
                   </div>
-                  <div className="space-y-2">
-                    <Label>Bill Date</Label>
-                    <Input type="date" value={formData.date} onChange={(e) => setFormData((p) => ({ ...p, date: e.target.value }))} />
+                  <div className="space-y-1">
+                    <Label className="text-xs">Bill Date</Label>
+                    <Input className="h-9" type="date" value={formData.date} onChange={(e) => setFormData((p) => ({ ...p, date: e.target.value }))} />
                   </div>
-                  <div className="space-y-2">
-                    <Label>Due Date</Label>
-                    <Input type="date" value={formData.dueDate} onChange={(e) => setFormData((p) => ({ ...p, dueDate: e.target.value }))} />
+                  <div className="space-y-1">
+                    <Label className="text-xs">Due Date</Label>
+                    <Input className="h-9" type="date" value={formData.dueDate} onChange={(e) => setFormData((p) => ({ ...p, dueDate: e.target.value }))} />
                   </div>
-                  <div className="space-y-2">
-                    <Label>{formData.taxInclusive ? "Total Including VAT" : "Subtotal Before VAT"}</Label>
+                  <div className="space-y-1">
+                    <Label className="text-xs">{formData.taxInclusive ? "Total Including VAT" : "Subtotal Before VAT"}</Label>
                     <Input
+                      className="h-9"
                       type="number"
                       min="0"
                       step="0.01"
@@ -241,9 +243,10 @@ export default function SupplierInvoicesPage() {
                       placeholder="0.00"
                     />
                   </div>
-                  <div className="space-y-2">
-                    <Label>VAT Rate %</Label>
+                  <div className="space-y-1">
+                    <Label className="text-xs">VAT Rate %</Label>
                     <Input
+                      className="h-9"
                       type="number"
                       min="0"
                       step="0.01"
@@ -253,39 +256,39 @@ export default function SupplierInvoicesPage() {
                     />
                   </div>
                 </div>
-                <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                  <Label htmlFor="supplier-vat-inclusive" className="text-sm font-medium">Amounts include VAT</Label>
+                <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5">
+                  <Label htmlFor="supplier-vat-inclusive" className="text-xs font-medium">Amounts include VAT</Label>
                   <Switch
                     id="supplier-vat-inclusive"
                     checked={formData.taxInclusive}
                     onCheckedChange={(checked) => updateVatFields({ taxInclusive: checked })}
                   />
                 </div>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                  <div className="space-y-1 rounded-lg border border-slate-200 p-3">
-                    <p className="text-[11px] font-bold uppercase text-slate-500">Subtotal</p>
-                    <p className="font-mono font-bold">{formatCurrency(formSubtotal, activeCompany?.currency || "USD")}</p>
+                <div className="grid grid-cols-3 gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2">
+                  <div className="space-y-0.5">
+                    <p className="text-[10px] font-bold uppercase text-slate-500">Subtotal</p>
+                    <p className="font-mono text-sm font-bold">{formatCurrency(formSubtotal, activeCompany?.currency || "USD")}</p>
                   </div>
-                  <div className="space-y-1 rounded-lg border border-slate-200 p-3">
-                    <p className="text-[11px] font-bold uppercase text-slate-500">VAT</p>
+                  <div className="space-y-0.5">
+                    <p className="text-[10px] font-bold uppercase text-slate-500">VAT</p>
                     <Input
                       type="number"
                       min="0"
                       step="0.01"
                       value={formData.taxAmount}
                       onChange={(e) => setFormData((p) => ({ ...p, taxAmount: e.target.value }))}
-                      className="h-8 px-2 font-mono font-bold"
+                      className="h-7 px-2 font-mono text-sm font-bold bg-white"
                     />
                   </div>
-                  <div className="space-y-1 rounded-lg border border-slate-200 p-3">
-                    <p className="text-[11px] font-bold uppercase text-slate-500">Bill Total</p>
-                    <p className="font-mono font-bold">{formatCurrency(formTotal, activeCompany?.currency || "USD")}</p>
+                  <div className="space-y-0.5">
+                    <p className="text-[10px] font-bold uppercase text-slate-500">Bill Total</p>
+                    <p className="font-mono text-sm font-bold">{formatCurrency(formTotal, activeCompany?.currency || "USD")}</p>
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <Label>Debit Account</Label>
+                <div className="space-y-1">
+                  <Label className="text-xs">Debit Account</Label>
                   <Select value={formData.debitAccountId} onValueChange={(value) => setFormData((p) => ({ ...p, debitAccountId: value }))}>
-                    <SelectTrigger><SelectValue placeholder="Use configured inventory/default account" /></SelectTrigger>
+                    <SelectTrigger className="h-9"><SelectValue placeholder="Use configured inventory/default account" /></SelectTrigger>
                     <SelectContent>
                       {expenseAccounts.map((account) => (
                         <SelectItem key={account.id} value={String(account.id)}>{account.code} - {account.name}</SelectItem>
@@ -293,13 +296,13 @@ export default function SupplierInvoicesPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-2">
-                  <Label>Notes</Label>
-                  <Textarea value={formData.notes} onChange={(e) => setFormData((p) => ({ ...p, notes: e.target.value }))} placeholder="What was this bill for?" />
+                <div className="space-y-1">
+                  <Label className="text-xs">Notes</Label>
+                  <Textarea className="min-h-[64px]" value={formData.notes} onChange={(e) => setFormData((p) => ({ ...p, notes: e.target.value }))} placeholder="What was this bill for?" />
                 </div>
-                <div className="flex justify-end gap-3 pt-2">
-                  <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
-                  <Button type="submit" disabled={createMutation.isPending || isCompanyLoading}>
+                <div className="flex justify-end gap-2 pt-1">
+                  <Button type="button" variant="outline" size="sm" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
+                  <Button type="submit" size="sm" disabled={createMutation.isPending || isCompanyLoading}>
                     {createMutation.isPending ? "Creating..." : "Create Bill"}
                   </Button>
                 </div>

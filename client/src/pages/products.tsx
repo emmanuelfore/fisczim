@@ -1,5 +1,6 @@
 
 import { Layout } from "@/components/layout";
+import { Link } from "wouter";
 import { refreshProductQueries, refreshProductQueriesAsync, useProducts, useUpdateProduct } from "@/hooks/use-products";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useTaxConfig } from "@/hooks/use-tax-config";
@@ -24,7 +25,7 @@ import {
 import { CsvImportDialog } from "@/components/csv-import-dialog";
 import { ManageCategoriesDialog } from "@/components/products/manage-categories-dialog";
 import { useQueryClient, useMutation } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { 
   AlertDialog, 
   AlertDialogAction, 
@@ -67,6 +68,11 @@ export default function ProductsPage() {
   const [taxFilter, setTaxFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const { toast } = useToast();
+
+  useEffect(() => {
+    if (!companyId) return;
+    refreshProductQueries(queryClient, companyId);
+  }, [companyId, selectedBranchId, queryClient]);
 
   const bulkDeleteMutation = useMutation({
     mutationFn: async () => {
@@ -219,6 +225,14 @@ export default function ProductsPage() {
               setCurrentPage(1);
             }}
           />
+          {companyId > 0 && (
+            <Link href="/products/bulk-adjust">
+              <Button variant="outline" className="rounded-xl flex-1 sm:flex-none gap-2">
+                <TrendingUp className="w-4 h-4 text-emerald-600" />
+                Bulk Adjust Prices
+              </Button>
+            </Link>
+          )}
           {companyId > 0 ? (
             <CreateProductDialog companyId={companyId} defaultType="good" triggerLabel="Add Product" />
           ) : (

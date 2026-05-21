@@ -8,6 +8,7 @@ export interface ReceiptData {
   items: any[];
   user?: any;
   paperWidth?: number;
+  suppressTaxDetails?: boolean;
 }
 
 export class ReceiptTemplate {
@@ -16,12 +17,12 @@ export class ReceiptTemplate {
    * Matches the desktop version exactly, but using the tagged mobile encoder
    */
   static formatFiscalReceipt(data: ReceiptData): string {
-    const { company, branch, invoice, customer, items, paperWidth } = data;
+    const { company, branch, invoice, customer, items, paperWidth, suppressTaxDetails } = data;
     const encoder = new MobileTaggedEncoder();
     const width = paperWidth === 80 ? 42 : 32; // Default thermal widths for 80mm and 58mm
 
     const activeCompany = branch || company;
-    const isVatPayer = !!company.vatNumber;
+    const isVatPayer = !suppressTaxDetails && !!company.vatNumber;
 
     // Helper for centering
     const centerText = (text: string, w: number): string => {
@@ -37,6 +38,9 @@ export class ReceiptTemplate {
     
     if (invoice._offline || invoice._simulation) {
       documentTitle = isVatPayer ? "FISCAL TAX INVOICE" : "FISCAL INVOICE";
+    }
+    if (suppressTaxDetails) {
+      documentTitle = invoice.receiptTitle || "BUS TICKET";
     }
 
     // Group taxes
@@ -76,7 +80,7 @@ export class ReceiptTemplate {
     encoder.separator(width);
 
     // ZIMRA Company Details
-    if (company.tin) encoder.line(`TIN: ${company.tin}`);
+    if (!suppressTaxDetails && company.tin) encoder.line(`TIN: ${company.tin}`);
     if (isVatPayer) encoder.line(`VAT No: ${company.vatNumber}`);
 
     encoder.separator(width);
@@ -119,7 +123,7 @@ export class ReceiptTemplate {
 
     // 3. Items List
     encoder.bold(true);
-    encoder.line("QTY  DESCRIPTION       TOTAL");
+    encoder.line(suppressTaxDetails ? "QTY  DESCRIPTION       TOTAL" : "QTY  DESCRIPTION       TOTAL");
     encoder.bold(false);
     encoder.separator(width);
 

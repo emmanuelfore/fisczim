@@ -112,6 +112,8 @@ export const companies = pgTable("companies", {
   registeredMacAddress: text("registered_mac_address"), // Physical device binding
   restaurantSettings: jsonb("restaurant_settings"), // Stores floor plan layout etc.
   pharmacySettings: jsonb("pharmacy_settings"), // { enabled: boolean, licenseNo: string, etc }
+  busSettings: jsonb("bus_settings"), // Controls bus-ticketing feature visibility for web and APK.
+  appMode: text("app_mode").default("pos"), // pos, restaurant, bus_ticketing
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -1193,6 +1195,102 @@ export const inventoryTransactionsRelations = relations(inventoryTransactions, (
   supplier: one(suppliers, { fields: [inventoryTransactions.supplierId], references: [suppliers.id] }),
 }));
 
+export const goodsDeliveryNotes = pgTable("goods_delivery_notes", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  supplierId: integer("supplier_id").references(() => suppliers.id),
+  gdnNumber: text("gdn_number").notNull(),
+  status: text("status").default("PENDING").notNull(), // PENDING, CONFIRMED, CANCELLED
+  notes: text("notes"),
+  createdBy: uuid("created_by").references(() => users.id),
+  confirmedBy: uuid("confirmed_by").references(() => users.id),
+  confirmedGrvNumber: text("confirmed_grv_number"),
+  confirmedAt: timestamp("confirmed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => {
+  return {
+    companyIdIdx: index("goods_delivery_notes_company_id_idx").on(table.companyId),
+    statusIdx: index("goods_delivery_notes_status_idx").on(table.status),
+    companyGdnUnique: unique("goods_delivery_notes_company_gdn_number_idx").on(table.companyId, table.gdnNumber),
+  };
+});
+
+export const goodsDeliveryNoteItems = pgTable("goods_delivery_note_items", {
+  id: serial("id").primaryKey(),
+  gdnId: integer("gdn_id").references(() => goodsDeliveryNotes.id).notNull(),
+  productId: integer("product_id").references(() => products.id).notNull(),
+  quantityReceived: decimal("quantity_received", { precision: 10, scale: 2 }).notNull(),
+  quantityAccepted: decimal("quantity_accepted", { precision: 10, scale: 2 }),
+  quantityRejected: decimal("quantity_rejected", { precision: 10, scale: 2 }),
+  notes: text("notes"),
+}, (table) => {
+  return {
+    gdnIdIdx: index("goods_delivery_note_items_gdn_id_idx").on(table.gdnId),
+    productIdIdx: index("goods_delivery_note_items_product_id_idx").on(table.productId),
+  };
+});
+
+export const goodsDeliveryNotesRelations = relations(goodsDeliveryNotes, ({ one, many }) => ({
+  company: one(companies, { fields: [goodsDeliveryNotes.companyId], references: [companies.id] }),
+  supplier: one(suppliers, { fields: [goodsDeliveryNotes.supplierId], references: [suppliers.id] }),
+  creator: one(users, { fields: [goodsDeliveryNotes.createdBy], references: [users.id] }),
+  confirmer: one(users, { fields: [goodsDeliveryNotes.confirmedBy], references: [users.id] }),
+  items: many(goodsDeliveryNoteItems),
+}));
+
+export const goodsDeliveryNoteItemsRelations = relations(goodsDeliveryNoteItems, ({ one }) => ({
+  gdn: one(goodsDeliveryNotes, { fields: [goodsDeliveryNoteItems.gdnId], references: [goodsDeliveryNotes.id] }),
+  product: one(products, { fields: [goodsDeliveryNoteItems.productId], references: [products.id] }),
+}));
+
+export const purchaseOrders = pgTable("purchase_orders", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  supplierId: integer("supplier_id").references(() => suppliers.id).notNull(),
+  branchId: integer("branch_id").references(() => branches.id),
+  poNumber: text("po_number").notNull(),
+  status: text("status").default("DRAFT").notNull(), // DRAFT, SENT, RECEIVED, CANCELLED
+  expectedDate: timestamp("expected_date"),
+  notes: text("notes"),
+  createdBy: uuid("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => {
+  return {
+    companyIdIdx: index("purchase_orders_company_id_idx").on(table.companyId),
+    supplierIdIdx: index("purchase_orders_supplier_id_idx").on(table.supplierId),
+    statusIdx: index("purchase_orders_status_idx").on(table.status),
+    companyPoUnique: unique("purchase_orders_company_po_number_idx").on(table.companyId, table.poNumber),
+  };
+});
+
+export const purchaseOrderItems = pgTable("purchase_order_items", {
+  id: serial("id").primaryKey(),
+  purchaseOrderId: integer("purchase_order_id").references(() => purchaseOrders.id).notNull(),
+  productId: integer("product_id").references(() => products.id).notNull(),
+  quantity: decimal("quantity", { precision: 10, scale: 2 }).notNull(),
+  unitCost: decimal("unit_cost", { precision: 10, scale: 2 }).notNull(),
+  notes: text("notes"),
+}, (table) => {
+  return {
+    purchaseOrderIdIdx: index("purchase_order_items_po_id_idx").on(table.purchaseOrderId),
+    productIdIdx: index("purchase_order_items_product_id_idx").on(table.productId),
+  };
+});
+
+export const purchaseOrdersRelations = relations(purchaseOrders, ({ one, many }) => ({
+  company: one(companies, { fields: [purchaseOrders.companyId], references: [companies.id] }),
+  supplier: one(suppliers, { fields: [purchaseOrders.supplierId], references: [suppliers.id] }),
+  branch: one(branches, { fields: [purchaseOrders.branchId], references: [branches.id] }),
+  creator: one(users, { fields: [purchaseOrders.createdBy], references: [users.id] }),
+  items: many(purchaseOrderItems),
+}));
+
+export const purchaseOrderItemsRelations = relations(purchaseOrderItems, ({ one }) => ({
+  purchaseOrder: one(purchaseOrders, { fields: [purchaseOrderItems.purchaseOrderId], references: [purchaseOrders.id] }),
+  product: one(products, { fields: [purchaseOrderItems.productId], references: [products.id] }),
+}));
+
 // Expenses
 export const expenses = pgTable("expenses", {
   id: serial("id").primaryKey(),
@@ -1325,6 +1423,22 @@ export type InsertSupplier = z.infer<typeof insertSupplierSchema>;
 export const insertInventoryTransactionSchema = createInsertSchema(inventoryTransactions).omit({ id: true, createdAt: true });
 export type InventoryTransaction = typeof inventoryTransactions.$inferSelect;
 export type InsertInventoryTransaction = z.infer<typeof insertInventoryTransactionSchema>;
+
+export const insertGoodsDeliveryNoteSchema = createInsertSchema(goodsDeliveryNotes).omit({ id: true, createdAt: true, confirmedAt: true });
+export type GoodsDeliveryNote = typeof goodsDeliveryNotes.$inferSelect;
+export type InsertGoodsDeliveryNote = z.infer<typeof insertGoodsDeliveryNoteSchema>;
+
+export const insertGoodsDeliveryNoteItemSchema = createInsertSchema(goodsDeliveryNoteItems).omit({ id: true });
+export type GoodsDeliveryNoteItem = typeof goodsDeliveryNoteItems.$inferSelect;
+export type InsertGoodsDeliveryNoteItem = z.infer<typeof insertGoodsDeliveryNoteItemSchema>;
+
+export const insertPurchaseOrderSchema = createInsertSchema(purchaseOrders).omit({ id: true, createdAt: true, updatedAt: true });
+export type PurchaseOrder = typeof purchaseOrders.$inferSelect;
+export type InsertPurchaseOrder = z.infer<typeof insertPurchaseOrderSchema>;
+
+export const insertPurchaseOrderItemSchema = createInsertSchema(purchaseOrderItems).omit({ id: true });
+export type PurchaseOrderItem = typeof purchaseOrderItems.$inferSelect;
+export type InsertPurchaseOrderItem = z.infer<typeof insertPurchaseOrderItemSchema>;
 
 export const insertExpenseSchema = createInsertSchema(expenses).omit({ id: true, createdAt: true });
 export type Expense = typeof expenses.$inferSelect;
@@ -1641,6 +1755,7 @@ export const supplierInvoiceItems = pgTable("supplier_invoice_items", {
   quantity: decimal("quantity", { precision: 15, scale: 4 }).notNull(),
   unitPrice: decimal("unit_price", { precision: 15, scale: 2 }).notNull(),
   totalPrice: decimal("total_price", { precision: 15, scale: 2 }).notNull(),
+  taxRate: decimal("tax_rate", { precision: 5, scale: 2 }).default("0.00"),
   taxAmount: decimal("tax_amount", { precision: 15, scale: 2 }).default("0.00"),
 });
 

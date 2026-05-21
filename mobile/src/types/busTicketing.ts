@@ -16,6 +16,8 @@ export type TicketFieldConfig = {
 export type BusVehicle = {
   id: string; // uuid
   registrationNumber: string;
+  fleetNumber?: string;
+  model?: string;
   capacity?: number;
   isActive: boolean;
   createdAt: string; // ISO datetime
@@ -29,6 +31,7 @@ export type BusTrip = {
   scheduledDeparture: string;
   status: 'scheduled' | 'in_progress' | 'completed' | 'cancelled';
   actualDeparture?: string;
+  localId?: string;
 };
 
 export type BusRoute = {
@@ -62,6 +65,8 @@ export type IssuedTicket = {
   conductorName?: string;
   tripId?: string;
   vehicleId?: string;
+  isSynced?: boolean;
+  syncedAt?: string;
 };
 
 export type Conductor = {
@@ -92,11 +97,17 @@ export type ReconciliationRecord = {
   conductorId: string;
   conductorName: string;
   date: string;
+  tripId?: string;
+  shiftId?: string;
   expectedCash: number;
   cashReceived: number;
   gap: number;
   notes?: string;
   savedAt: string;
+  status?: 'pending' | 'approved' | 'rejected';
+  signedOffBy?: string;
+  signedOffAt?: string;
+  adminNotes?: string;
 };
 
 export type RouteBreakdown = {

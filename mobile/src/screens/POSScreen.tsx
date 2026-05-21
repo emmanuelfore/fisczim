@@ -15,7 +15,6 @@ import {
   Image,
   Alert,
   Animated,
-  Easing
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import NetInfo from "@react-native-community/netinfo";
@@ -131,7 +130,6 @@ const FlyingParticle = ({ startX, startY, endX, endY, onComplete, color, emoji }
     Animated.timing(anim, {
       toValue: 1,
       duration: 550,
-      easing: Easing.out(Easing.poly(4)),
       useNativeDriver: true,
     }).start(onComplete);
   }, []);
@@ -235,6 +233,8 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [priceInputs, setPriceInputs] = useState<Record<number, string>>({});
+  const [focusedPriceProductId, setFocusedPriceProductId] = useState<number | null>(null);
   const [selectedCustomerId, setSelectedCustomerId] = useState<number | null>(null);
   const [paymentMethod, setPaymentMethod] = useState("CASH");
   const [selectedCurrency, setSelectedCurrency] = useState("USD");
@@ -346,13 +346,6 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
     }
   }, [orderDiscount]);
 
-  // When currency changes while checkout is open, convert paidAmount to the new currency
-  useEffect(() => {
-    if (showCheckout) {
-      setPaidAmount((total * currencyInfo.rate).toFixed(2));
-    }
-  }, [selectedCurrency]);
-
   const resolvedProducts: any[] = (productsData || []).filter((p: any) => p && p.isActive !== false);
   const resolvedCustomers: any[] = (customersData || []).filter((c: any) => c && c.isActive !== false);
   const resolvedCurrencies: any[] = (currencies || []).filter((c: any) => c && c.isActive !== false);
@@ -445,14 +438,15 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
 
   const filteredProducts = useMemo(() => {
     try {
+      const normalizedSearch = search.trim().toLowerCase();
       return resolvedProducts.filter((p: any) => {
         if (!p) return false;
         const matchesSearch =
-          !search ||
-          (p.name?.toLowerCase().includes(search.toLowerCase()) ?? false) ||
-          (p.sku?.toLowerCase().includes(search.toLowerCase()) ?? false);
+          !normalizedSearch ||
+          (p.name?.toLowerCase().includes(normalizedSearch) ?? false) ||
+          (p.sku?.toLowerCase().includes(normalizedSearch) ?? false);
         const matchesCategory = selectedCategory === "All" || p.category === selectedCategory;
-        return matchesSearch && matchesCategory;
+        return normalizedSearch ? matchesSearch : matchesCategory;
       });
     } catch (e) {
       console.error("FilteredProducts error:", e);
@@ -473,6 +467,23 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
     const converted = val * currencyInfo.rate;
     return `${currencyInfo.symbol}${converted.toFixed(2)}`;
   };
+
+  useEffect(() => {
+    if (!showCheckout && !showCart) {
+      setPriceInputs({});
+      setFocusedPriceProductId(null);
+      return;
+    }
+    setPriceInputs((prev) => {
+      const next: Record<number, string> = {};
+      cart.forEach((item) => {
+        next[item.productId] = focusedPriceProductId === item.productId
+          ? (prev[item.productId] ?? "")
+          : (item.price * currencyInfo.rate).toFixed(2);
+      });
+      return next;
+    });
+  }, [showCart, showCheckout, cart, currencyInfo.rate, focusedPriceProductId]);
 
   const { subtotal, taxAmount } = useMemo(() => {
     try {
@@ -496,19 +507,25 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
   }, [cart, taxInclusive]);
 
   const total = Math.max(0, subtotal + taxAmount - orderDiscount);
+  const isEditingItemPrice = focusedPriceProductId !== null;
+
+  // Keep tendered amount aligned when checkout totals change from currency or price edits.
+  useEffect(() => {
+    if (showCheckout && !isAmountFocused) {
+      setPaidAmount((total * currencyInfo.rate).toFixed(2));
+    }
+  }, [showCheckout, selectedCurrency, total, currencyInfo.rate, isAmountFocused]);
+
+  useEffect(() => {
+    if (paymentMethod === "CREDIT") {
+      setPaymentMethod("CASH");
+    }
+  }, [paymentMethod]);
+
   const selectedCustomer = resolvedCustomers.find((c: any) => c.id === selectedCustomerId);
   const isDefaultCustomerSelected = selectedCustomerId === defaultCustomerId;
 
   const addToCart = (product: any, event?: any) => {
-    // Spawn flying particle animation towards cart
-    if (event?.nativeEvent && cartPos) {
-      const { pageX, pageY } = event.nativeEvent;
-      const idx = (product.id || 0) % CAT_PALETTE.length;
-      const id = Date.now() + Math.random();
-      setFlyingItems(prev => [...prev, { id, x: pageX - 13, y: pageY - 13, color: CAT_PALETTE[idx], emoji: PROD_EMOJIS[idx] }]);
-      setTimeout(triggerCartBounce, 530);
-    }
-
     const availableStock = Number(product.branchStock ?? product.stockLevel ?? 0);
     if (product.isTracked) {
       const inCart = cart.find((item: CartItem) => item.productId === product.id)?.quantity || 0;
@@ -551,14 +568,6 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
   };
 
   const updateQuantity = (productId: number, delta: number, event?: any) => {
-    if (delta > 0 && event?.nativeEvent && cartPos) {
-      const { pageX, pageY } = event.nativeEvent;
-      const idx = productId % CAT_PALETTE.length;
-      const id = Date.now() + Math.random();
-      setFlyingItems(prev => [...prev, { id, x: pageX - 13, y: pageY - 13, color: CAT_PALETTE[idx], emoji: PROD_EMOJIS[idx] }]);
-      setTimeout(triggerCartBounce, 530);
-    }
-
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setCart((prev: CartItem[]) =>
       prev.map((item: CartItem) => {
@@ -574,6 +583,58 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
   const removeFromCart = (productId: number) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setCart((prev: CartItem[]) => prev.filter((item: CartItem) => item.productId !== productId));
+  };
+
+  const updateItemPrice = (productId: number, value: string) => {
+    const normalized = value.replace(",", ".");
+    const parsedPrice = Number.parseFloat(normalized);
+    if (!Number.isFinite(parsedPrice) || parsedPrice < 0) return;
+    const nextPrice = parsedPrice;
+    setCart((prev: CartItem[]) =>
+      prev.map((item: CartItem) => {
+        if (item.productId !== productId) return item;
+        const maxDiscount = nextPrice * item.quantity;
+        return {
+          ...item,
+          price: nextPrice,
+          discountAmount: Math.min(item.discountAmount || 0, maxDiscount),
+        };
+      })
+    );
+  };
+
+  const handleItemPriceInput = (productId: number, value: string) => {
+    setPriceInputs((prev) => ({ ...prev, [productId]: value }));
+    const parsed = Number.parseFloat(value.replace(",", "."));
+    if (Number.isFinite(parsed)) {
+      updateItemPrice(productId, (parsed / currencyInfo.rate).toString());
+    }
+  };
+
+  const handleItemPriceFocus = (item: CartItem) => {
+    setFocusedPriceProductId(item.productId);
+    setPriceInputs((prev) => ({
+      ...prev,
+      [item.productId]: prev[item.productId] ?? (item.price * currencyInfo.rate).toFixed(2),
+    }));
+  };
+
+  const handleItemPriceBlur = (item: CartItem) => {
+    const currentInput = priceInputs[item.productId] ?? "";
+    const parsed = Number.parseFloat(currentInput.replace(",", "."));
+    if (Number.isFinite(parsed) && parsed >= 0) {
+      updateItemPrice(item.productId, (parsed / currencyInfo.rate).toString());
+    }
+    setPriceInputs((prev) => ({
+      ...prev,
+      [item.productId]: (Number.isFinite(parsed) && parsed >= 0 ? parsed : item.price * currencyInfo.rate).toFixed(2),
+    }));
+  };
+
+  const finishItemPriceEdit = (item: CartItem) => {
+    handleItemPriceBlur(item);
+    setFocusedPriceProductId(null);
+    Keyboard.dismiss();
   };
 
   const handleOrderDiscountChange = (val: string) => {
@@ -923,18 +984,9 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
   const processOrder = async () => {
     if (!selectedCustomerId) return;
 
-    // CREDIT sales require a real (non-default) customer — no walk-in credit accounts
-    if (paymentMethod === "CREDIT" && isDefaultCustomerSelected) {
-      Alert.alert(
-        "Customer Required",
-        "Credit sales require a named customer account. Please select a customer before proceeding."
-      );
-      return;
-    }
-
     // paid is in local currency, total is in base — compare in same unit
-    // CARD and CREDIT bypass the amount check (amount is locked / deferred)
-    const paid = (paymentMethod === "CARD" || paymentMethod === "CREDIT")
+    // CARD bypasses the amount check (amount is locked)
+    const paid = paymentMethod === "CARD"
       ? total * currencyInfo.rate
       : parseFloat(paidAmount || "0");
     if (paid < total * currencyInfo.rate - 0.001) return;
@@ -1132,11 +1184,11 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                 width: 44,
                 height: 44,
                 borderRadius: 14,
-                backgroundColor: isDefaultCustomerSelected ? hexAlpha(C.amber.primary, 0.1) : POS_SURFACE_RAISED,
+                backgroundColor: POS_SURFACE_RAISED,
                 alignItems: "center",
                 justifyContent: "center",
-                shadowColor: isDefaultCustomerSelected ? C.amber.primary : "#000",
-                shadowOpacity: isDefaultCustomerSelected ? 0.25 : 0.1,
+                shadowColor: "#000",
+                shadowOpacity: 0.1,
                 shadowRadius: 6,
                 shadowOffset: { width: 0, height: 3 },
                 elevation: 3,
@@ -1261,11 +1313,6 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                       alignItems: "center",
                       backgroundColor: C.bg.panel,
                       opacity: outOfStock ? 0.42 : 1,
-                      shadowColor: "#000",
-                      shadowOpacity: inCart ? 0.35 : 0.18,
-                      shadowRadius: inCart ? 24 : 12,
-                      shadowOffset: { width: 0, height: inCart ? 12 : 6 },
-                      elevation: inCart ? 10 : 4,
                     }}>
                     <View style={{
                       width: 62,
@@ -1314,7 +1361,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                             fontSize: 13,
                             fontWeight: "800",
                           }}>
-                            Branch {visibleStock}
+                            {visibleStock}
                           </Text>
                         )}
                       </View>
@@ -1364,19 +1411,14 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                         activeOpacity={0.78}
                         onPress={(e) => { e.stopPropagation?.(); addToCart(item, e); }}
                         style={{
-                          width: 52,
-                          height: 52,
-                          borderRadius: 18,
-                          backgroundColor: hexAlpha(C.amber.primary, 0.12),
+                          width: 44,
+                          height: 44,
+                          borderRadius: 14,
+                          backgroundColor: POS_SURFACE_RAISED,
                           alignItems: "center",
                           justifyContent: "center",
-                          shadowColor: C.amber.primary,
-                          shadowOpacity: 0.22,
-                          shadowRadius: 12,
-                          shadowOffset: { width: 0, height: 6 },
-                          elevation: 6,
                         }}>
-                        <Plus size={28} color={C.amber.primary} strokeWidth={2.6} />
+                        <Plus size={22} color={C.amber.primary} strokeWidth={2.6} />
                       </TouchableOpacity>
                     )}
                   </TouchableOpacity>
@@ -1387,6 +1429,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
         </View>
 
         {/*  */}
+        {!isEditingItemPrice && (
         <View style={{
           position: "absolute",
           left: 16,
@@ -1460,6 +1503,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
             </TouchableOpacity>
           </Animated.View>
         </View>
+        )}
       </LinearGradient>
 
       {/* ── FLYING PARTICLES OVERLAY ──────────────────────────── */}
@@ -1500,7 +1544,12 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
               </TouchableOpacity>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              style={{ flex: 1 }}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ paddingBottom: isEditingItemPrice ? Math.max(insets.bottom, 120) : 0 }}
+            >
               {cart.length === 0 ? (
                 <View style={{ alignItems: "center", paddingVertical: 48 }}>
                   <View style={{
@@ -1548,6 +1597,38 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                           <Text style={{ color: C.text.secondary, fontSize: 11, marginTop: 4 }}>
                             {fmt(item.price)} each
                           </Text>
+                          <View style={{
+                            marginTop: 8,
+                            flexDirection: "row",
+                            alignItems: "center",
+                            alignSelf: "flex-start",
+                            minWidth: 130,
+                            backgroundColor: C.bg.card,
+                            borderWidth: 1,
+                            borderColor: C.border.default,
+                            borderRadius: 10,
+                            paddingHorizontal: 9,
+                          }}>
+                            <Text style={{ color: C.text.secondary, fontSize: 11, fontWeight: "800", marginRight: 6 }}>Unit</Text>
+                            <Text style={{ color: C.text.secondary, fontSize: 13, marginRight: 3 }}>{currencyInfo.symbol}</Text>
+                            <TextInput
+                              value={priceInputs[item.productId] ?? (item.price * currencyInfo.rate).toFixed(2)}
+                              onFocus={() => handleItemPriceFocus(item)}
+                              onChangeText={(value) => handleItemPriceInput(item.productId, value)}
+                              onBlur={() => handleItemPriceBlur(item)}
+                              keyboardType="decimal-pad"
+                              returnKeyType="done"
+                              onSubmitEditing={() => finishItemPriceEdit(item)}
+                              selectTextOnFocus
+                              style={{ flex: 1, color: C.text.primary, fontSize: 14, fontWeight: "800", paddingVertical: 7, minWidth: 66 }}
+                            />
+                            {focusedPriceProductId === item.productId && (
+                              <TouchableOpacity onPress={() => finishItemPriceEdit(item)}
+                                style={{ marginLeft: 8, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: C.amber.primary }}>
+                                <Text style={{ color: "#000", fontSize: 11, fontWeight: "900" }}>Done</Text>
+                              </TouchableOpacity>
+                            )}
+                          </View>
                         </View>
                         <TouchableOpacity onPress={() => removeFromCart(item.productId)} style={{
                           width: 32, height: 32, borderRadius: 10, backgroundColor: "rgba(255,71,87,0.12)",
@@ -1585,6 +1666,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
               })}
             </ScrollView>
 
+            {!isEditingItemPrice && (
             <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderColor: C.border.default }}>
               {/* Discount row */}
               <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 10, gap: 8 }}>
@@ -1716,6 +1798,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                 </LinearGradient>
               </TouchableOpacity>
             </View>
+            )}
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -1824,7 +1907,8 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}
-              contentContainerStyle={{ padding: 18, paddingTop: 12, paddingBottom: 8 }}>
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ padding: 18, paddingTop: 12, paddingBottom: 118 }}>
               <Text style={{ color: C.text.secondary, fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10, marginTop: 6 }}>
                 Order Summary
               </Text>
@@ -1838,27 +1922,63 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                   const isLast = idx === cart.length - 1;
                   return (
                     <View key={item.productId} style={{
-                      flexDirection: "row", alignItems: "center",
                       paddingHorizontal: 12, paddingVertical: 12,
                       borderBottomWidth: isLast ? 0 : 1, borderBottomColor: C.border.default
                     }}>
-                      <View style={{
-                        width: 28, height: 28, borderRadius: 8,
-                        backgroundColor: C.bg.hover, borderWidth: 1, borderColor: C.border.default,
-                        alignItems: "center", justifyContent: "center", marginRight: 12
-                      }}>
-                        <Text style={{ color: C.amber.primary, fontSize: 11, fontWeight: "900" }}>{item.quantity}</Text>
-                      </View>
-                      <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center" }}>
+                        <View style={{
+                          width: 28, height: 28, borderRadius: 8,
+                          backgroundColor: C.bg.hover, borderWidth: 1, borderColor: C.border.default,
+                          alignItems: "center", justifyContent: "center", marginRight: 12
+                        }}>
+                          <Text style={{ color: C.amber.primary, fontSize: 11, fontWeight: "900" }}>{item.quantity}</Text>
+                        </View>
+                      <View style={{ flex: 1, paddingRight: 10 }}>
                         <Text style={{ color: C.text.primary, fontSize: 13, fontWeight: "600" }} numberOfLines={1}>{item.name}</Text>
                         <Text style={{ color: C.text.secondary, fontSize: 10, marginTop: 1 }}>
                           {fmt(item.price)} each
                           {item.discountAmount > 0 ? `  ·  −${fmt(item.discountAmount)} disc` : ""}
                         </Text>
                       </View>
-                      <Text style={{ color: C.amber.primary, fontSize: 14, fontWeight: "800", letterSpacing: -0.3 }}>
-                        {fmt(lineTotal)}
-                      </Text>
+                        <Text style={{ color: C.amber.primary, fontSize: 14, fontWeight: "800", letterSpacing: -0.3 }}>
+                          {fmt(lineTotal)}
+                        </Text>
+                      </View>
+                      <View style={{
+                        marginTop: 10,
+                        flexDirection: "row",
+                        alignItems: "center",
+                        backgroundColor: C.bg.hover,
+                        borderWidth: 1,
+                        borderColor: C.border.default,
+                        borderRadius: 12,
+                        paddingHorizontal: 10,
+                      }}>
+                        <Text style={{ color: C.text.secondary, fontSize: 12, fontWeight: "800", marginRight: 6 }}>
+                          Unit
+                        </Text>
+                        <Text style={{ color: C.text.secondary, fontSize: 15, marginRight: 4 }}>{currencyInfo.symbol}</Text>
+                        <TextInput
+                          value={priceInputs[item.productId] ?? (item.price * currencyInfo.rate).toFixed(2)}
+                          onFocus={() => handleItemPriceFocus(item)}
+                          onChangeText={(value) => handleItemPriceInput(item.productId, value)}
+                          onBlur={() => handleItemPriceBlur(item)}
+                          keyboardType="decimal-pad"
+                          returnKeyType="done"
+                          onSubmitEditing={() => finishItemPriceEdit(item)}
+                          selectTextOnFocus
+                          style={{ flex: 1, color: C.text.primary, fontSize: 16, fontWeight: "800", paddingVertical: 9 }}
+                        />
+                        {focusedPriceProductId === item.productId && (
+                          <TouchableOpacity onPress={() => finishItemPriceEdit(item)}
+                            style={{ marginLeft: 8, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 9, backgroundColor: C.amber.primary }}>
+                            <Text style={{ color: "#000", fontSize: 11, fontWeight: "900" }}>Done</Text>
+                          </TouchableOpacity>
+                        )}
+                        <Text style={{ color: C.text.secondary, fontSize: 11, fontWeight: "700" }}>
+                          x {item.quantity}
+                        </Text>
+                      </View>
                     </View>
                   );
                 })}
@@ -1891,9 +2011,8 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
               </Text>
               <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
                 {[
-                  { key: "CASH",   label: "Cash",   sub: "Cash drawer payment",   Icon: Banknote },
-                  { key: "CARD",   label: "Card",   sub: "Swipe, POS or mobile",  Icon: CreditCard },
-                  { key: "CREDIT", label: "Credit", sub: "Accounts receivable",    Icon: FileText },
+                  { key: "CASH", label: "Cash", sub: "Cash drawer payment", Icon: Banknote },
+                  { key: "CARD", label: "Card", sub: "Swipe, POS or mobile", Icon: CreditCard },
                 ].map(({ key, label, sub, Icon }) => {
                   const isActive = paymentMethod === key;
                   return (
@@ -1902,7 +2021,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                       activeOpacity={0.86}
                       onPress={() => {
                         setPaymentMethod(key);
-                        if (key === "CARD" || key === "CREDIT") {
+                        if (key === "CARD") {
                           setPaidAmount((total * currencyInfo.rate).toFixed(2));
                         }
                       }}
@@ -1956,7 +2075,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                 ].map((cur: any) => {
                   const isActive = selectedCurrency === cur.code;
                   return (
-                    <TouchableOpacity key={cur.code} onPress={() => setSelectedCurrency(cur.code)}
+                    <TouchableOpacity key={cur.code} onPress={() => { setPriceInputs({}); setSelectedCurrency(cur.code); }}
                       style={{
                         minWidth: 76,
                         paddingHorizontal: 15,
@@ -1987,18 +2106,27 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                 return (
                   <View style={{
                     flexDirection: "row", justifyContent: "space-between", alignItems: "center",
-                    backgroundColor: hexAlpha(C.amber.primary, 0.06), borderRadius: 12, padding: 12, borderWidth: 1,
-                    borderColor: hexAlpha(C.amber.primary, 0.19), marginBottom: 14
+                    backgroundColor: hexAlpha(C.amber.primary, 0.08), borderRadius: 16, padding: 14, borderWidth: 1,
+                    borderColor: hexAlpha(C.amber.primary, 0.24), marginBottom: 16,
+                    shadowColor: C.amber.primary, shadowOpacity: 0.12, shadowRadius: 8,
+                    shadowOffset: { width: 0, height: 4 }, elevation: 3
                   }}>
-                    <Text style={{ color: C.text.secondary, fontSize: 12 }}>Total in {selectedCurrency}</Text>
-                    <Text style={{ color: C.amber.primary, fontSize: 18, fontWeight: "900" }}>
+                    <View style={{ flex: 1, paddingRight: 10 }}>
+                      <Text style={{ color: C.text.secondary, fontSize: 10, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.8 }}>
+                        Exchange total
+                      </Text>
+                      <Text style={{ color: C.text.primary, fontSize: 12, marginTop: 3 }}>
+                        Due in {selectedCurrency}
+                      </Text>
+                    </View>
+                    <Text style={{ color: C.amber.primary, fontSize: 20, fontWeight: "900" }} numberOfLines={1}>
                       {`${selectedCurrency} ${localTotal.toFixed(2)}`}
                     </Text>
                   </View>
                 );
               })()}
 
-              {(paymentMethod === "CARD" || paymentMethod === "CREDIT") && (
+              {paymentMethod === "CARD" && (
                 <View style={{
                   marginBottom: 12,
                   borderRadius: 18,
@@ -2021,22 +2149,11 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                       alignItems: "center",
                       justifyContent: "center",
                     }}>
-                      {paymentMethod === "CARD"
-                        ? <CreditCard size={18} color={C.amber.primary} />
-                        : <FileText size={18} color={C.amber.primary} />}
+                      <CreditCard size={18} color={C.amber.primary} />
                     </View>
                     <View>
-                      {paymentMethod === "CARD" ? (
-                        <>
-                          <Text style={{ color: C.text.primary, fontSize: 13, fontWeight: "800" }}>Card amount locked</Text>
-                          <Text style={{ color: C.text.secondary, fontSize: 10, marginTop: 2 }}>No cash change needed</Text>
-                        </>
-                      ) : (
-                        <>
-                          <Text style={{ color: C.text.primary, fontSize: 13, fontWeight: "800" }}>Credit sale — AR created</Text>
-                          <Text style={{ color: C.text.secondary, fontSize: 10, marginTop: 2 }}>Invoice stays open until customer pays</Text>
-                        </>
-                      )}
+                      <Text style={{ color: C.text.primary, fontSize: 13, fontWeight: "800" }}>Card amount locked</Text>
+                      <Text style={{ color: C.text.secondary, fontSize: 10, marginTop: 2 }}>No cash change needed</Text>
                     </View>
                   </View>
                   <Text style={{ color: C.amber.primary, fontSize: 18, fontWeight: "900" }}>{fmt(total)}</Text>
@@ -2086,7 +2203,15 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
               )}
             </ScrollView>
 
-            <View style={{ paddingHorizontal: 18, paddingTop: 14, borderTopWidth: 1, borderTopColor: C.border.default }}>
+            {!isEditingItemPrice && (
+            <View style={{
+              paddingHorizontal: 18,
+              paddingTop: 14,
+              paddingBottom: Math.max(insets.bottom, 18),
+              borderTopWidth: 1,
+              borderTopColor: C.border.default,
+              backgroundColor: C.bg.base
+            }}>
               <TouchableOpacity activeOpacity={0.85} disabled={isSubmitting} onPress={processOrder}>
                 <LinearGradient colors={[C.amber.primary, C.amber.light]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
                   style={{
@@ -2109,7 +2234,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                         {isSubmitting ? "Processing…" : "Confirm Payment"}
                       </Text>
                       <Text style={{ color: "rgba(0,0,0,0.55)", fontSize: 10, marginTop: 2 }}>
-                        {paymentMethod === "CASH" ? "Cash" : paymentMethod === "CARD" ? "Card" : "Credit (AR)"} · {selectedCustomer?.name || "Guest"}
+                        {paymentMethod === "CARD" ? "Card" : "Cash"} · {selectedCustomer?.name || "Guest"}
                       </Text>
                     </View>
                   </View>
@@ -2121,6 +2246,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                 </LinearGradient>
               </TouchableOpacity>
             </View>
+            )}
           </View>
         </KeyboardAvoidingView>
       </Modal>

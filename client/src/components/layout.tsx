@@ -36,7 +36,11 @@ import {
   Search,
   Bus,
   MapPin,
-  CalendarDays
+  CalendarDays,
+  Clock,
+  ClipboardCheck,
+  UserRoundCheck,
+  BarChart2
 } from "lucide-react";
 import { useBranding } from "@/hooks/use-branding";
 import {
@@ -52,10 +56,14 @@ import {
 } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { BranchSwitcher } from "./branch-switcher";
 import { DeviceStatusWidget } from "./device-status-widget";
+import { usePendingGdns } from "@/hooks/use-grvs";
+import { useToast } from "@/hooks/use-toast";
+import { isBusFeatureEnabled, normalizeBusSettings } from "@shared/bus-settings";
+import { normalizeAppMode } from "@shared/app-mode";
 
 type NavItem = {
   icon: any;
@@ -91,8 +99,10 @@ export function Layout({
   const { data: companies } = useCompanies(!!user, user?.id ?? null);
   const { activeCompany, activeCompanyId, setCompany } = useActiveCompany(!!user, user?.id ?? null);
   const { brand, currentBrand } = useBranding();
+  const { toast } = useToast();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const seenPendingGdnCountRef = useRef<number | null>(null);
 
   // Close mobile menu on location change
   useEffect(() => {
@@ -107,12 +117,41 @@ export function Layout({
   const selectedCompany = activeCompany;
 
   const activeRole = (activeCompany as any)?.role;
+  const appMode = normalizeAppMode((activeCompany as any)?.appMode);
+  const busSettings = normalizeBusSettings((activeCompany as any)?.busSettings);
+  const isBusOnlyMode = busSettings.enabled || appMode === "bus_ticketing";
+  const busOperationsChildren = [
+    ...(isBusFeatureEnabled(busSettings, "tripManagement")
+      ? [{ icon: Clock, label: "Trip Scheduling", href: "/bus/trips" }]
+      : []),
+  ];
+  const busSetupChildren = [
+    ...(isBusFeatureEnabled(busSettings, "fleetManagement") || isBusFeatureEnabled(busSettings, "fareMatrix")
+      ? [{ icon: Bus, label: "Fleet & Routes", href: "/bus/fleet" }]
+      : []),
+    ...(isBusFeatureEnabled(busSettings, "conductorManagement")
+      ? [{ icon: UserRoundCheck, label: "Conductors", href: "/bus/conductors" }]
+      : []),
+  ];
+  const busReportChildren = [
+    ...(isBusFeatureEnabled(busSettings, "reports")
+      ? [
+        { icon: BarChart2, label: "Daily Report", href: "/bus/reports?mode=daily" },
+        { icon: TrendingUp, label: "Range Report", href: "/bus/reports?mode=range" },
+        { icon: UserRoundCheck, label: "Conductor Report", href: "/bus/reports?mode=conductor" },
+      ]
+      : []),
+  ];
+  const busSettingsChildren = [
+    { icon: Settings, label: "App Mode", href: "/settings?tab=app-mode" },
+    { icon: Bus, label: "Bus Module", href: "/settings?tab=bus-ticketing" },
+  ];
   const roleLabel = user?.isSuperAdmin
     ? "Super Admin"
     : activeRole
       ? String(activeRole).charAt(0).toUpperCase() + String(activeRole).slice(1)
       : "User";
-  const allNavItems: NavItem[] = [
+  const posNavItems: NavItem[] = [
     { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
     { icon: MonitorCheck, label: "POS Terminal", href: "/pos" },
     {
@@ -139,6 +178,7 @@ export function Layout({
         { icon: Package, label: "Products", href: "/products" },
         { icon: ShieldCheck, label: "Serial & Warranty Items", href: "/auto-spares" },
         { icon: Briefcase, label: "Services", href: "/services" },
+        { icon: ClipboardList, label: "Purchase Orders", href: "/inventory/purchase-orders" },
         { icon: LayoutDashboard, label: "Goods Received", href: "/inventory/account" },
         { icon: Factory, label: "Production", href: "/inventory/production" },
         { icon: ArrowRightLeft, label: "Stock Adjustments", href: "/inventory/adjustments" },
@@ -213,7 +253,83 @@ export function Layout({
     },
   ];
 
+  const restaurantNavItems: NavItem[] = [
+    { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
+    { icon: MonitorCheck, label: "Restaurant POS", href: "/pos" },
+    {
+      icon: Utensils,
+      label: "Restaurant",
+      children: [
+        { icon: LayoutDashboard, label: "Live Orders", href: "/restaurant/orders" },
+        { icon: MonitorCheck, label: "Kitchen Display", href: "/restaurant/kds" },
+        { icon: Building2, label: "Floor Plan", href: "/restaurant/layout" },
+      ]
+    },
+    { icon: Package, label: "Menu Items", href: "/products" },
+    { icon: Users, label: "Customers", href: "/customers" },
+    {
+      icon: BarChart3,
+      label: "Reports",
+      children: [
+        { icon: BarChart3, label: "Reports", href: "/reports" },
+        { icon: Receipt, label: "Daily Sales", href: "/reports/daily" },
+        { icon: CreditCard, label: "Cash Collection", href: "/reports/cash-collection" },
+        { icon: FileText, label: "Tax & ZIMRA", href: "/reports/tax" },
+      ]
+    },
+    { icon: Settings, label: "Settings", href: "/settings?tab=app-mode" },
+  ];
+
+  const busNavItems: NavItem[] = [
+    { icon: LayoutDashboard, label: "Bus Dashboard", href: "/bus/dashboard" },
+    ...(busOperationsChildren.length > 0
+      ? [{
+        icon: CalendarDays,
+        label: "Operations",
+        children: busOperationsChildren
+      }]
+      : []),
+    ...(busSetupChildren.length > 0
+      ? [{
+        icon: ClipboardCheck,
+        label: "Setup",
+        children: busSetupChildren
+      }]
+      : []),
+    ...(busReportChildren.length > 0
+      ? [{
+        icon: BarChart3,
+        label: "Reports",
+        children: busReportChildren
+      }]
+      : []),
+    { icon: Settings, label: "Bus Settings", children: busSettingsChildren },
+  ];
+
+  const allNavItems: NavItem[] = isBusOnlyMode
+    ? busNavItems
+    : appMode === "restaurant"
+      ? restaurantNavItems
+      : posNavItems;
+
   const isCashier = !user?.isSuperAdmin && activeRole === 'cashier';
+  const { data: pendingGdns = [] } = usePendingGdns(isCashier ? 0 : selectedCompanyId || 0);
+  const pendingGdnCount = pendingGdns.length;
+
+  useEffect(() => {
+    if (isCashier) return;
+    if (seenPendingGdnCountRef.current === null) {
+      seenPendingGdnCountRef.current = pendingGdnCount;
+      return;
+    }
+    if (pendingGdnCount > seenPendingGdnCountRef.current) {
+      toast({
+        title: "Pending GDN requires verification",
+        description: `${pendingGdnCount} GDN${pendingGdnCount === 1 ? "" : "s"} waiting for admin confirmation.`,
+      });
+    }
+    seenPendingGdnCountRef.current = pendingGdnCount;
+  }, [isCashier, pendingGdnCount, toast]);
 
   const navItems = isCashier
     ? [
@@ -254,6 +370,7 @@ export function Layout({
     if (location.startsWith("/inventory/stock-counts")) return { title: "Stock Counts", subtitle: "Run and review physical inventory counts." };
     if (location.startsWith("/inventory/bulk-adjust")) return { title: "Bulk Adjustment", subtitle: "Apply inventory changes across multiple products." };
     if (location.startsWith("/inventory/stock-take")) return { title: "Stock Take", subtitle: "Count inventory and reconcile stock positions." };
+    if (location.startsWith("/inventory/purchase-orders")) return { title: "Purchase Orders", subtitle: "Create and track supplier purchase orders before goods are received." };
     if (location.startsWith("/inventory/account")) return { title: "Goods Received", subtitle: "Track received goods and inventory account movements." };
     if (location.startsWith("/inventory/grvs")) return { title: "Goods Received Voucher", subtitle: "Review received goods and supplier delivery details." };
     if (location.startsWith("/inventory")) return { title: "Stock Ledger", subtitle: "Review inventory transactions and stock movement history." };
@@ -302,6 +419,11 @@ export function Layout({
     if (location.startsWith("/reports/cash-collection")) return { title: "Cash Collection", subtitle: "Track cash collection and payment activity." };
     if (location.startsWith("/reports/pos")) return { title: "POS Reports", subtitle: "Review point-of-sale performance and cashier activity." };
     if (location.startsWith("/reports")) return { title: "Reports", subtitle: "Analyse sales, customers, taxes, inventory, and financial performance." };
+    if (location.startsWith("/bus/dashboard")) return { title: "Bus Dashboard", subtitle: "Review ticketing activity, dispatch, and cash position." };
+    if (location.startsWith("/bus/conductors")) return { title: "Bus Conductors", subtitle: "Manage conductor mobile access." };
+    if (location.startsWith("/bus/reports")) return { title: "Bus Reports", subtitle: "Review ticket revenue and conductor performance." };
+    if (location.startsWith("/bus/trips")) return { title: "Bus Trips", subtitle: "Dispatch and review bus trips." };
+    if (location.startsWith("/bus/fleet")) return { title: "Bus Fleet", subtitle: "Manage buses, routes, and fares." };
     if (location.startsWith("/restaurant/orders")) return { title: "Live Orders", subtitle: "Monitor restaurant orders and service flow." };
     if (location.startsWith("/restaurant/kds")) return { title: "Kitchen Display", subtitle: "Manage kitchen order preparation and fulfilment." };
     if (location.startsWith("/restaurant/layout")) return { title: "Floor Plan", subtitle: "Manage restaurant tables and layout." };
@@ -699,9 +821,45 @@ export function Layout({
                 <span className="text-[11px] font-semibold text-[#64748B] bg-[#F8FAFC] border border-[#E5E7EB] rounded px-2 py-0.5">Ctrl + K</span>
               </div>
 
-              <Button variant="ghost" size="icon" className="h-10 w-10 rounded-full border border-[#E5E7EB] bg-white text-[#64748B] shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-                <Bell className="w-4 h-4" />
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="relative h-10 w-10 rounded-full border border-[#E5E7EB] bg-white text-[#64748B] shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                    <Bell className="w-4 h-4" />
+                    {pendingGdnCount > 0 && !isCashier && (
+                      <span className="absolute -right-1 -top-1 min-w-5 h-5 rounded-full bg-amber-500 px-1.5 text-[10px] font-black leading-5 text-white shadow-sm">
+                        {pendingGdnCount > 9 ? "9+" : pendingGdnCount}
+                      </span>
+                    )}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-80 bg-white rounded-2xl shadow-2xl border-slate-200 p-2 mt-2">
+                  <div className="px-3 py-2 border-b border-slate-100 mb-1">
+                    <p className="text-sm font-black text-slate-900">System Alerts</p>
+                    <p className="text-[11px] font-semibold text-slate-500">Operational items that need attention.</p>
+                  </div>
+                  {!isCashier && pendingGdnCount > 0 ? (
+                    <DropdownMenuItem
+                      onClick={() => setLocation("/inventory/account")}
+                      className="p-3 rounded-xl cursor-pointer focus:bg-amber-50"
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="h-9 w-9 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+                          <ClipboardCheck className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-black text-slate-900">{pendingGdnCount} pending GDN{pendingGdnCount === 1 ? "" : "s"}</p>
+                          <p className="text-[11px] font-semibold text-slate-500">Review cashier delivery notes and post stock.</p>
+                        </div>
+                      </div>
+                    </DropdownMenuItem>
+                  ) : (
+                    <div className="p-5 text-center">
+                      <p className="text-sm font-black text-slate-700">No active alerts</p>
+                      <p className="text-[11px] font-semibold text-slate-500 mt-1">Pending GDNs and other system alerts will appear here.</p>
+                    </div>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
 
               <div className="hidden md:flex items-center gap-2">
                 {selectedCompany?.id && <DeviceStatusWidget companyId={selectedCompany.id} />}
@@ -756,6 +914,20 @@ export function Layout({
               </div>
               <Button size="sm" className="h-9 px-4 text-xs font-bold bg-white text-amber-700 border border-amber-200 shadow-sm hover:bg-amber-100 hover:border-amber-300 rounded-lg" onClick={() => setLocation("/profile")}>
                 Update Password
+              </Button>
+            </div>
+          )}
+
+          {!isCashier && pendingGdnCount > 0 && !location.startsWith("/inventory/account") && (
+            <div className="mx-4 sm:mx-6 mt-3 rounded-xl bg-amber-50 border border-amber-200/70 p-3.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shadow-sm">
+              <div className="flex items-center gap-3 text-amber-900 text-sm font-medium">
+                <div className="p-2 bg-amber-100 rounded-lg text-amber-700">
+                  <Clock className="w-5 h-5" />
+                </div>
+                <span><strong>GDN Alert:</strong> {pendingGdnCount} delivery note{pendingGdnCount === 1 ? "" : "s"} waiting for admin verification.</span>
+              </div>
+              <Button size="sm" className="h-9 px-4 text-xs font-bold bg-white text-amber-700 border border-amber-200 shadow-sm hover:bg-amber-100 hover:border-amber-300 rounded-lg" onClick={() => setLocation("/inventory/account")}>
+                Review GDNs
               </Button>
             </div>
           )}

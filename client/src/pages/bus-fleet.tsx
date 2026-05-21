@@ -9,11 +9,17 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageHeader } from "@/components/page-header";
+import { useActiveCompany } from "@/hooks/use-active-company";
+import { isBusFeatureEnabled, normalizeBusSettings } from "@shared/bus-settings";
 
 export default function BusFleetPage() {
     const companyId = parseInt(localStorage.getItem("selectedCompanyId") || "0");
-    const { data: vehicles, isLoading: loadingVehicles } = useBusVehicles();
-    const { data: routes, isLoading: loadingRoutes } = useBusRoutes();
+    const { activeCompany } = useActiveCompany();
+    const busSettings = normalizeBusSettings((activeCompany as any)?.busSettings);
+    const canManageFleet = isBusFeatureEnabled(busSettings, "fleetManagement");
+    const canManageFares = isBusFeatureEnabled(busSettings, "fareMatrix");
+    const { data: vehicles, isLoading: loadingVehicles } = useBusVehicles(companyId);
+    const { data: routes, isLoading: loadingRoutes } = useBusRoutes(companyId);
     
     const [vehicleSearch, setVehicleSearch] = useState("");
     const [routeSearch, setRouteSearch] = useState("");
@@ -37,25 +43,33 @@ export default function BusFleetPage() {
                 subtitle="Manage your vehicles and travel routes"
                 actions={
                     <div className="flex gap-2">
-                        <CreateRouteDialog companyId={companyId} />
-                        <CreateVehicleDialog companyId={companyId} />
+                        {canManageFares && <CreateRouteDialog companyId={companyId} />}
+                        {canManageFleet && <CreateVehicleDialog companyId={companyId} />}
                     </div>
                 }
             />
 
-            <Tabs defaultValue="vehicles" className="space-y-4">
+            {!canManageFleet && !canManageFares && (
+                <Card className="border-dashed border-slate-200 shadow-sm">
+                    <CardContent className="p-8 text-center text-sm text-slate-500">
+                        Bus fleet and fare matrix tools are hidden by the current bus-ticketing settings.
+                    </CardContent>
+                </Card>
+            )}
+
+            {(canManageFleet || canManageFares) && <Tabs defaultValue={canManageFleet ? "vehicles" : "routes"} className="space-y-4">
                 <TabsList className="bg-slate-100/50 p-1 rounded-xl w-fit">
-                    <TabsTrigger value="vehicles" className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm">
+                    {canManageFleet && <TabsTrigger value="vehicles" className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm">
                         <Bus className="w-4 h-4 mr-2" />
                         Vehicles ({vehicles?.length || 0})
-                    </TabsTrigger>
-                    <TabsTrigger value="routes" className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm">
+                    </TabsTrigger>}
+                    {canManageFares && <TabsTrigger value="routes" className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm">
                         <Route className="w-4 h-4 mr-2" />
                         Routes ({routes?.length || 0})
-                    </TabsTrigger>
+                    </TabsTrigger>}
                 </TabsList>
 
-                <TabsContent value="vehicles" className="space-y-4">
+                {canManageFleet && <TabsContent value="vehicles" className="space-y-4">
                     <div className="admin-panel mb-4 flex flex-col gap-3 p-4 md:flex-row md:items-center">
                         <div className="relative flex-1 w-full sm:max-w-sm group">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#64748B] transition-colors duration-200" />
@@ -124,9 +138,9 @@ export default function BusFleetPage() {
                             </table>
                         </CardContent>
                     </Card>
-                </TabsContent>
+                </TabsContent>}
 
-                <TabsContent value="routes" className="space-y-4">
+                {canManageFares && <TabsContent value="routes" className="space-y-4">
                     <div className="admin-panel mb-4 flex flex-col gap-3 p-4 md:flex-row md:items-center">
                         <div className="relative flex-1 w-full sm:max-w-sm group">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#64748B] transition-colors duration-200" />
@@ -197,8 +211,8 @@ export default function BusFleetPage() {
                             </table>
                         </CardContent>
                     </Card>
-                </TabsContent>
-            </Tabs>
+                </TabsContent>}
+            </Tabs>}
         </Layout>
     );
 }

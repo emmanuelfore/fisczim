@@ -212,7 +212,7 @@ export default function ServicesPage() {
                             <tr className="bg-slate-50 border-b border-slate-100">
                                 <th className="p-4 w-12">
                                     <Checkbox 
-                                        checked={paginatedServices?.length > 0 && selectedIds.length === paginatedServices?.length}
+                                        checked={(paginatedServices?.length || 0) > 0 && selectedIds.length === paginatedServices?.length}
                                         onCheckedChange={toggleSelectAll}
                                         className="rounded-md border-slate-300"
                                     />

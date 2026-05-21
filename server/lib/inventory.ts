@@ -2,7 +2,7 @@ import { db } from "../db";
 import { inventoryTransactions, products, companies, stockTakes, stockTakeItems, branchStocks } from "@shared/schema";
 import { eq, and, asc, desc, sql } from "drizzle-orm";
 
-function generateGrvReference() {
+export function generateGrvReference() {
     const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
     const suffix = Math.random().toString(36).slice(2, 7).toUpperCase();
     return `GRV-${stamp}-${suffix}`;
@@ -201,9 +201,10 @@ export async function recordStockIn(
     companyId: number,
     supplierId?: number,
     notes?: string,
-    landedCost: number = 0
+    landedCost: number = 0,
+    grvNumber?: string
 ) {
-    const grvReference = generateGrvReference();
+    const grvReference = grvNumber?.trim() || generateGrvReference();
 
     // Fetch current stock and cost for weighted average
     const [product] = await db
@@ -249,6 +250,8 @@ export async function recordStockIn(
             costPrice: newCostPrice.toFixed(2), // Update to weighted average cost
         })
         .where(eq(products.id, productId));
+
+    return { grvNumber: grvReference };
 }
 
 export async function recordBatchStockIn(
@@ -257,9 +260,11 @@ export async function recordBatchStockIn(
     supplierId?: number,
     notes?: string,
     landedCosts: number = 0,
-    allocationMethod: LandedCostAllocationMethod = "value"
+    allocationMethod: LandedCostAllocationMethod = "value",
+    grvNumber?: string,
+    createdBy?: string
 ) {
-    const grvReference = generateGrvReference();
+    const grvReference = grvNumber?.trim() || generateGrvReference();
     const allocatedItems = allocateLandedCosts(items, landedCosts, allocationMethod);
 
     // Wrap in a transaction to ensure all or nothing
@@ -302,6 +307,7 @@ export async function recordBatchStockIn(
                 referenceId: grvReference,
                 remainingQuantity: quantity.toString(),
                 notes: `${notes || "Batch GRV"}\nBase cost: ${(quantity * baseUnitCost).toFixed(2)}; landed cost: ${item.landedCost.toFixed(2)}; allocation: ${allocationMethod}`,
+                createdBy: createdBy || null,
             });
 
             // 2. Update product stock level
@@ -314,6 +320,13 @@ export async function recordBatchStockIn(
                 .where(eq(products.id, item.productId));
         }
     });
+
+    return {
+        grvNumber: grvReference,
+        lineCount: allocatedItems.length,
+        totalQuantity: allocatedItems.reduce((sum, item) => sum + item.quantity, 0),
+        totalCost: allocatedItems.reduce((sum, item) => sum + (item.quantity * (item.baseUnitCost + (item.quantity > 0 ? item.landedCost / item.quantity : 0))), 0),
+    };
 }
 
 export async function recordAdjustment(

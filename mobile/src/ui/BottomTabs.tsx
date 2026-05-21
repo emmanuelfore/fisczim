@@ -13,10 +13,13 @@ import {
   Package,
   Receipt,
   Menu,
+  ArrowDownToLine,
 } from "lucide-react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 
 import { useTheme, hexAlpha } from "./PremiumColors";
+import { normalizeBusSettings, type BusSettings } from "../lib/busSettings";
+import { normalizeAppMode, type AppMode } from "../lib/appMode";
 
 type ScreenName = "dashboard" | "pos" | "reports" | "profile" | "inventory" | "stockin" | "stockops" | "customers" | "suppliers" | "expenses" | "cashiers" | "stocktake" | "busTicketing";
 
@@ -26,6 +29,8 @@ interface BottomTabsProps {
   onOpenDrawer: () => void;
   userRole?: string;
   userName?: string;
+  busSettings?: BusSettings;
+  appMode?: AppMode;
 }
 
 export function BottomTabs({
@@ -34,28 +39,52 @@ export function BottomTabs({
   onOpenDrawer,
   userRole = "member",
   userName = "",
+  busSettings,
+  appMode,
 }: BottomTabsProps) {
   const insets = useSafeAreaInsets();
   const { theme: C, isDark } = useTheme();
   const styles = getStyles(C);
+  const role = userRole.toLowerCase();
+  const isAdmin = role === "owner" || role === "admin" || role === "superadmin" || userName === "Super Admin";
+  const isCashier = role === "cashier" || role === "member";
+  const normalizedBusSettings = normalizeBusSettings(busSettings);
+  const mode = normalizedBusSettings.enabled ? "bus_ticketing" : normalizeAppMode(appMode);
   
-  const allTabs: { icon: any; label: string; id: ScreenName | "menu"; isMCI?: boolean }[] = [
+  const posTabs: { icon: any; label: string; id: ScreenName | "menu"; isMCI?: boolean }[] = [
     { icon: LayoutDashboard, label: "Home", id: "dashboard" },
     { icon: Receipt, label: "Sales", id: "pos" },
+    { icon: ArrowDownToLine, label: "GDN", id: "stockin" },
     { icon: Package, label: "Products", id: "inventory" },
     { icon: Receipt, label: "Expenses", id: "expenses" },
     { icon: PieChart, label: "Reports", id: "reports" },
-    { icon: "bus", label: "Bus", id: "busTicketing", isMCI: true },
+    ...(normalizedBusSettings.enabled ? [{ icon: "bus", label: "Bus", id: "busTicketing" as ScreenName, isMCI: true }] : []),
     { icon: Menu, label: "Menu", id: "menu" },
   ];
+  const restaurantTabs: typeof posTabs = [
+    { icon: Receipt, label: "Orders", id: "pos" },
+    { icon: PieChart, label: "Reports", id: "reports" },
+    { icon: Package, label: "Menu", id: "inventory" },
+    { icon: Menu, label: "Menu", id: "menu" },
+  ];
+  const busTabs: typeof posTabs = [
+    { icon: "bus", label: "Bus", id: "busTicketing", isMCI: true },
+    { icon: PieChart, label: "Trip Reports", id: "reports" },
+    { icon: Menu, label: "Menu", id: "menu" },
+  ];
+  const allTabs = mode === "bus_ticketing" ? busTabs : mode === "restaurant" ? restaurantTabs : posTabs;
 
   const tabs = allTabs.filter(tab => {
-    if (tab.id === "menu" || tab.id === "busTicketing") return true;
-    const role = userRole.toLowerCase();
-    if (role === "owner" || role === "admin" || role === "superadmin" || userName === "Super Admin") return true;
+    if (tab.id === "menu") return true;
+    if (isAdmin) return true;
     
-    if (role === "cashier" || role === "member") {
-      return ["dashboard", "pos", "customers", "reports"].includes(tab.id);
+    if (isCashier) {
+      const allowed = mode === "bus_ticketing"
+        ? ["busTicketing", "reports"]
+        : mode === "restaurant"
+          ? ["pos", "reports"]
+          : ["pos", "stockin", "reports"];
+      return allowed.includes(tab.id);
     }
     
     if (role === "accountant") {

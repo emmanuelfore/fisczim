@@ -219,6 +219,25 @@ export async function registerRoutes(
     return null;
   };
 
+  const findOfflineSyncShift = async (companyId: number, userId: string, issueDate: Date, branchId?: number | null) => {
+    const conditions: any[] = [
+      eq(posShifts.companyId, companyId),
+      eq(posShifts.userId, userId),
+      lte(posShifts.startTime, issueDate),
+      or(isNull(posShifts.endTime), gte(posShifts.endTime, issueDate)),
+    ];
+    if (branchId) conditions.push(eq(posShifts.branchId, branchId));
+
+    const [shift] = await db
+      .select()
+      .from(posShifts)
+      .where(and(...conditions))
+      .orderBy(desc(posShifts.startTime))
+      .limit(1);
+
+    return shift || null;
+  };
+
   const buildShiftSummary = async (shiftId: number) => {
     const shift = await db.query.posShifts.findFirst({ where: eq(posShifts.id, shiftId) });
     if (!shift) return null;
@@ -2011,7 +2030,20 @@ export async function registerRoutes(
         return res.status(400).json({ message: "No adjustments provided" });
       }
 
-      const productIds = adjustments.map(a => a.productId);
+      const normalizedAdjustments = adjustments.map((adjustment) => {
+        const newPrice = Number(adjustment.newPrice);
+        if (!Number.isFinite(newPrice) || newPrice < 0) {
+          throw Object.assign(new Error(`Invalid price for product ${adjustment.productId}`), { statusCode: 400 });
+        }
+
+        return {
+          productId: adjustment.productId,
+          newPrice: newPrice.toFixed(2),
+        };
+      });
+
+      const productIds = Array.from(new Set(normalizedAdjustments.map(a => a.productId)));
+      const updatedProducts: Array<typeof products.$inferSelect> = [];
 
       // Perform transaction
       await db.transaction(async (tx) => {
@@ -2023,10 +2055,10 @@ export async function registerRoutes(
 
         const productMap = new Map(existingProducts.map(p => [p.id, p]));
 
-        for (const adj of adjustments) {
+        for (const adj of normalizedAdjustments) {
           const product = productMap.get(adj.productId);
           if (!product) {
-            throw new Error(`Product with ID ${adj.productId} not found or does not belong to this company`);
+            throw Object.assign(new Error(`Product with ID ${adj.productId} not found or does not belong to this company`), { statusCode: 404 });
           }
 
           // Record adjustment history
@@ -2034,23 +2066,30 @@ export async function registerRoutes(
             companyId,
             productId: adj.productId,
             oldPrice: product.price.toString(),
-            newPrice: String(adj.newPrice),
+            newPrice: adj.newPrice,
             reason: reason || "Bulk Price Update",
             effectiveFrom: effectiveFrom ? new Date(effectiveFrom) : new Date(),
             createdBy: (req.user as any).id
           });
 
           // Update product price
-          await tx
+          const [updatedProduct] = await tx
             .update(products)
-            .set({ price: String(adj.newPrice) })
-            .where(eq(products.id, adj.productId));
+            .set({ price: adj.newPrice })
+            .where(and(eq(products.id, adj.productId), eq(products.companyId, companyId)))
+            .returning();
+
+          if (!updatedProduct) {
+            throw Object.assign(new Error(`Product with ID ${adj.productId} was not updated`), { statusCode: 500 });
+          }
+
+          updatedProducts.push(updatedProduct);
         }
       });
 
-      res.json({ success: true, count: adjustments.length });
+      res.json({ success: true, count: updatedProducts.length, updatedProducts });
     } catch (error: any) {
-      res.status(500).json({ message: error.message });
+      res.status(error.statusCode || 500).json({ message: error.message });
     }
   });
 
@@ -5821,6 +5860,8 @@ export async function registerRoutes(
 
       const companyId = Number(req.params.companyId);
       const userId = (req.user as any)?.id;
+      const requestBranchId = getBranchId(req);
+      const isOfflineSync = req.body?.isOfflineSync === true;
 
       // 1. Parallelize initial validation and data fetching
       let activeShiftPromise: Promise<any> = Promise.resolve(null);
@@ -5831,19 +5872,31 @@ export async function registerRoutes(
         if (!userId) {
           return res.status(401).json({ message: "User authentication required for POS sales" });
         }
-        activeShiftPromise = storage.getActivePosShift(companyId, userId);
+        activeShiftPromise = storage.getActivePosShift(companyId, userId, requestBranchId || undefined);
       }
 
-      const [activeShift, company, customer] = await Promise.all([
+      let [activeShift, company, customer] = await Promise.all([
         activeShiftPromise,
         companyPromise,
         customerPromise
       ]);
       markPerf("prefetch_done");
 
+      if (input.isPos && !activeShift && isOfflineSync && userId) {
+        activeShift = await findOfflineSyncShift(
+          companyId,
+          userId,
+          input.issueDate instanceof Date ? input.issueDate : new Date(input.issueDate || Date.now()),
+          requestBranchId
+        );
+        if (activeShift) markPerf("offline_shift_recovered");
+      }
+
       if (input.isPos && !activeShift) {
         return res.status(400).json({
-          message: "No active shift found. Please open a shift before processing POS sales.",
+          message: isOfflineSync
+            ? "Offline sale could not be matched to a cashier shift. Please sync the shift first or reopen a shift for this cashier."
+            : "No active shift found. Please open a shift before processing POS sales.",
           code: "NO_ACTIVE_SHIFT"
         });
       }
@@ -5854,7 +5907,6 @@ export async function registerRoutes(
       const initialStatus = input.isPos
         ? (isCreditSale ? "issued" : "paid")
         : (input.status || "issued");
-      const requestBranchId = getBranchId(req);
 
       const duplicatePosInvoice = await findDuplicatePosInvoice(input, companyId, userId, activeShift?.id, requestBranchId);
       if (duplicatePosInvoice) {

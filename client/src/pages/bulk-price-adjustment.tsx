@@ -19,19 +19,15 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { Link, useLocation } from "wouter";
 import {
-  TrendingUp,
   Loader2,
   ChevronLeft,
   Search,
   SlidersHorizontal,
-  RefreshCw,
   AlertTriangle,
   Coins,
   Percent,
-  Check,
   ChevronRight,
-  Sparkles,
-  Tags
+  Sparkles
 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
@@ -59,7 +55,6 @@ export default function BulkPriceAdjustmentPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [draftPrices, setDraftPrices] = useState<Record<number, string>>({});
-  const [categoryPrices, setCategoryPrices] = useState<Record<string, string>>({});
   
   // Bulk math operations state
   const [bulkAction, setBulkAction] = useState<"percentage_increase" | "percentage_decrease" | "fixed_increase" | "fixed_decrease" | "set_price">("percentage_increase");
@@ -95,18 +90,6 @@ export default function BulkPriceAdjustmentPage() {
     const startIndex = (currentPage - 1) * itemsPerPage;
     return filteredProducts.slice(startIndex, startIndex + itemsPerPage);
   }, [filteredProducts, currentPage, itemsPerPage]);
-
-  const categoriesWithProducts = useMemo(() => {
-    const counts = new Map<string, number>();
-    (allProducts || []).forEach((product) => {
-      const category = product.category?.trim() || "Uncategorized";
-      counts.set(category, (counts.get(category) || 0) + 1);
-    });
-
-    return Array.from(counts.entries())
-      .map(([name, count]) => ({ name, count }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [allProducts]);
 
   // Apply Bulk Adjustment Math logic
   const handleApplyBulkAction = () => {
@@ -182,60 +165,6 @@ export default function BulkPriceAdjustmentPage() {
     });
   };
 
-  const handleApplyCategoryPrices = () => {
-    const configuredPrices = Object.entries(categoryPrices).filter(([, value]) => value.trim() !== "");
-
-    if (configuredPrices.length === 0) {
-      toast({
-        title: "No Category Prices",
-        description: "Enter at least one category price before applying drafts.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const parsedPrices = new Map<string, number>();
-    for (const [category, value] of configuredPrices) {
-      const price = parseFloat(value);
-      if (isNaN(price) || price < 0) {
-        toast({
-          title: "Invalid Category Price",
-          description: `${category} must have a valid positive price.`,
-          variant: "destructive",
-        });
-        return;
-      }
-      parsedPrices.set(category, price);
-    }
-
-    const updatedDrafts = { ...draftPrices };
-    let successCount = 0;
-
-    (allProducts || []).forEach((product) => {
-      const category = product.category?.trim() || "Uncategorized";
-      const categoryPrice = parsedPrices.get(category);
-      if (categoryPrice === undefined) return;
-
-      updatedDrafts[product.id] = categoryPrice.toFixed(2);
-      successCount++;
-    });
-
-    if (successCount === 0) {
-      toast({
-        title: "No Matching Products",
-        description: "The selected category prices did not match any products.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setDraftPrices(updatedDrafts);
-    toast({
-      title: "Category prices applied",
-      description: `Updated draft prices for ${successCount} products across ${parsedPrices.size} categories.`,
-    });
-  };
-
   // Clear all drafts
   const handleClearDrafts = () => {
     setDraftPrices({});
@@ -267,6 +196,8 @@ export default function BulkPriceAdjustmentPage() {
 
         const currentPrice = parseFloat(product.price.toString());
         const targetPrice = parseFloat(newPriceStr);
+
+        if (!Number.isFinite(targetPrice) || targetPrice < 0) return null;
 
         // Skip if new price is identical to current price
         if (currentPrice === targetPrice) return null;
@@ -336,71 +267,6 @@ export default function BulkPriceAdjustmentPage() {
           </div>
         </div>
       </div>
-
-      <Card className="mb-6 border-none shadow-xl bg-white rounded-3xl ring-1 ring-slate-100/50 overflow-hidden">
-        <CardHeader className="border-b border-slate-50 px-8 py-5 bg-slate-50/40 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <div className="flex items-center gap-2">
-              <Tags className="w-4 h-4 text-sky-600" />
-              <CardTitle className="text-sm font-bold text-slate-900">Price by Category</CardTitle>
-            </div>
-            <CardDescription className="mt-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
-              Set one selling price for every product in each category
-            </CardDescription>
-          </div>
-          <div className="flex items-center gap-3">
-            <Badge variant="outline" className="bg-white text-[10px] font-bold text-slate-500 border-slate-100 py-1 px-3">
-              {categoriesWithProducts.length} Categories
-            </Badge>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleApplyCategoryPrices}
-              disabled={categoriesWithProducts.length === 0}
-              className="rounded-xl h-10 border-slate-100 hover:bg-sky-50 hover:text-sky-700 font-black text-xs uppercase tracking-widest text-slate-600"
-            >
-              Apply Category Prices
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="p-6">
-          {categoriesWithProducts.length === 0 ? (
-            <div className="rounded-2xl border border-slate-100 bg-slate-50/60 p-8 text-center text-[10px] font-bold uppercase tracking-wider text-slate-400">
-              No product categories found
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-              {categoriesWithProducts.map((category) => (
-                <div key={category.name} className="grid grid-cols-[1fr_132px] items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50/40 p-3">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-black text-slate-700">{category.name}</div>
-                    <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
-                      {category.count} {category.count === 1 ? "item" : "items"}
-                    </div>
-                  </div>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[11px] font-bold text-slate-400">$</span>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      placeholder="0.00"
-                      value={categoryPrices[category.name] || ""}
-                      onChange={(e) =>
-                        setCategoryPrices((current) => ({
-                          ...current,
-                          [category.name]: e.target.value,
-                        }))
-                      }
-                      className="h-10 rounded-xl border-slate-100 pl-6 text-center font-mono text-xs font-black"
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8">
         {/* Filters and Bulk Math panel */}

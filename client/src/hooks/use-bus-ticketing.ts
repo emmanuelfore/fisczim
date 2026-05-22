@@ -159,7 +159,7 @@ export function useCreateBusTrip() {
   return useMutation({
     mutationFn: async (data: any) => {
       const payload = toTripPayload(data);
-      const response = await apiFetch(`/api/companies/${data.companyId}/bus-ticketing/trips`, {
+      const response = await apiFetch(`/api/companies/${data.companyId}/bus-ticketing/trips/`, {
         method: "POST",
         body: JSON.stringify(payload),
       });

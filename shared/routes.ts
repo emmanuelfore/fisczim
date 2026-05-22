@@ -258,7 +258,11 @@ export const api = {
         })),
       }),
       responses: {
-        200: z.object({ success: z.boolean(), count: z.number() }),
+        200: z.object({
+          success: z.boolean(),
+          count: z.number(),
+          updatedProducts: z.array(z.custom<typeof products.$inferSelect>()).optional(),
+        }),
         400: errorSchemas.validation,
       }
     },

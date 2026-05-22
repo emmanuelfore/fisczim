@@ -1365,3 +1365,10 @@
         Calculated NextGlobalNo: 11
         Calculated NextReceiptCounter: 10
         --------------------------------
+[2026-05-22T10:22:24.378Z] Invoice 3628
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 58
+        Calculated NextReceiptCounter: 10
+        --------------------------------

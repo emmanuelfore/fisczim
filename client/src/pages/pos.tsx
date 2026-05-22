@@ -966,9 +966,10 @@ export default function POSPage() {
                 }
             } else {
                 // Offline fallback
-                await addPendingShiftAction(companyId, 'open', { openingBalance: shiftBalance || "0" }, selectedBranchId);
-                setCurrentShift(shiftData);
-                await cacheShift(companyId, shiftData);
+                const provisionalShiftId = await addPendingShiftAction(companyId, 'open', { openingBalance: shiftBalance || "0" }, selectedBranchId);
+                const provisionalShift = { ...shiftData, id: provisionalShiftId };
+                setCurrentShift(provisionalShift);
+                await cacheShift(companyId, provisionalShift);
                 toast({ title: "Shift Opened (Offline)", description: "Provisional shift started. Will sync when online." });
                 setIsShiftModalOpen(false);
                 setShiftBalance("");
@@ -977,9 +978,10 @@ export default function POSPage() {
         } catch (e) {
             if (!isOnline) {
                 // Secondary check for offline if network failed mid-request
-                await addPendingShiftAction(companyId, 'open', { openingBalance: shiftBalance || "0" }, selectedBranchId);
-                setCurrentShift(shiftData);
-                await cacheShift(companyId, shiftData);
+                const provisionalShiftId = await addPendingShiftAction(companyId, 'open', { openingBalance: shiftBalance || "0" }, selectedBranchId);
+                const provisionalShift = { ...shiftData, id: provisionalShiftId };
+                setCurrentShift(provisionalShift);
+                await cacheShift(companyId, provisionalShift);
                 toast({ title: "Shift Opened (Offline)", description: "Connection lost. Provisional shift started." });
                 setIsShiftModalOpen(false);
                 setShiftBalance("");
@@ -1211,16 +1213,23 @@ export default function POSPage() {
 
             if (!isOnline) {
                 const offlineId = await addPendingSale(companyId, invoiceData, selectedBranchId);
+                const offlineRef = `OFFLINE-${Date.now().toString().slice(-6)}`;
                 const offInvoice = {
                     id: offlineId,
                     ...invoiceData,
                     _offline: true,
-                    invoiceNumber: `OFFLINE-${Date.now().toString().slice(-6)}`,
+                    invoiceNumber: offlineRef,
+                    customerReference: offlineRef,
+                    paymentAmount: sumTenders,
+                    change: sumTenders - total
                 };
                 if (posSettings.printingEnabled) {
                     setLastSuccessfulInvoice(offInvoice);
                 } else {
-                    toast({ title: "📴 Saved Offline", description: "Sale queued — will sync when reconnected" });
+                    toast({
+                        title: "Sale Queued Offline",
+                        description: `Pending sale ${offlineId} was saved locally and will sync when online.`,
+                    });
                     setActiveView("products");
                 }
                 prepareNextSaleImmediately();
@@ -1303,16 +1312,23 @@ export default function POSPage() {
                         }))
                     };
                     const offlineId = await addPendingSale(companyId, payload, selectedBranchId);
+                    const offlineRef = `OFFLINE-${Date.now().toString().slice(-6)}`;
                     const offInvoice = {
                         id: offlineId,
                         ...payload,
                         _offline: true,
-                        invoiceNumber: `OFFLINE-${Date.now().toString().slice(-6)}`,
+                        invoiceNumber: offlineRef,
+                        customerReference: offlineRef,
+                        paymentAmount: sumTenders,
+                        change: sumTenders - total
                     };
                     if (posSettings.printingEnabled) {
                         setLastSuccessfulInvoice(offInvoice);
                     } else {
-                        toast({ title: "📴 Saved Offline", description: "Connection lost — sale queued for sync" });
+                        toast({
+                            title: "Sale Queued Offline",
+                            description: `Connection lost. Pending sale ${offlineId} was saved locally and will sync when online.`,
+                        });
                         setActiveView("products");
                     }
                     prepareNextSaleImmediately();

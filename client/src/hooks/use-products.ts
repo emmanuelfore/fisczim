@@ -175,11 +175,40 @@ export function useBulkAdjustPrice(companyId: number) {
         method: "POST",
         body: JSON.stringify(data),
       });
-      if (!res.ok) throw new Error("Failed to perform bulk price adjustment");
+      if (!res.ok) {
+        const errorBody = await res.json().catch(() => null);
+        throw new Error(errorBody?.message || "Failed to perform bulk price adjustment");
+      }
       return await res.json();
     },
-    onSuccess: () => {
-      refreshProductQueries(queryClient, companyId);
+    onSuccess: async (data) => {
+      if (Array.isArray(data?.updatedProducts) && data.updatedProducts.length > 0) {
+        queryClient.setQueriesData(
+          {
+            predicate: (query) => {
+              const [path, queryCompanyId] = query.queryKey;
+              return path === api.products.list.path && queryCompanyId === companyId;
+            },
+          },
+          (current: unknown) => {
+            if (!Array.isArray(current)) return current;
+            const updatedById = new Map(data.updatedProducts.map((product: any) => [product.id, product]));
+            return current.map((product: any) => updatedById.get(product.id) || product);
+          }
+        );
+
+        const cached = await getCachedProducts(companyId);
+        if (cached?.length) {
+          const updatedById = new Map(data.updatedProducts.map((product: any) => [product.id, product]));
+          await cacheProducts(
+            companyId,
+            cached.map((product: any) => updatedById.get(product.id) || product)
+          );
+          await setLastCacheTime(companyId, Date.now());
+        }
+      }
+
+      await refreshProductQueriesAsync(queryClient, companyId);
     },
   });
 }

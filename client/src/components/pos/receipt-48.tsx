@@ -53,10 +53,12 @@ export function Receipt48({ id = "receipt-48", invoice, company, customer, items
     const isCreditNote = invoice.transactionType === 'CreditNote' || invoice.type === 'credit_note';
     const isDebitNote = invoice.transactionType === 'DebitNote' || invoice.type === 'debit_note';
     const isFiscalized = !!invoice.fiscalCode || !!invoice.receiptGlobalNo;
+    const isOffline = !!invoice._offline;
     const isVatPayer = !!company.vatNumber;
 
     let documentTitle = "INVOICE";
-    if (isCreditNote) documentTitle = "CREDIT NOTE";
+    if (isOffline) documentTitle = "OFFLINE RECEIPT";
+    else if (isCreditNote) documentTitle = "CREDIT NOTE";
     else if (isDebitNote) documentTitle = "DEBIT NOTE";
     else if (isFiscalized) {
         documentTitle = isVatPayer ? "FISCAL TAX INVOICE" : "FISCAL INVOICE";
@@ -107,6 +109,12 @@ export function Receipt48({ id = "receipt-48", invoice, company, customer, items
             {/* [9] Label */}
             <div className="text-center font-bold mb-2 pb-2 border-b border-dashed border-black text-xs">
                 <p>{documentTitle}</p>
+                {isOffline && (
+                    <div className="mt-1 text-[9px] leading-tight">
+                        <p>PENDING SYNC - NOT FISCALIZED</p>
+                        <p>KEEP FOR CASH HANDOVER</p>
+                    </div>
+                )}
             </div>
 
             {/* [10-16] Buyer Block */}
@@ -256,8 +264,8 @@ export function Receipt48({ id = "receipt-48", invoice, company, customer, items
                     // ZIMRA Field [21]: Device receipt verification code
                     let vCode = invoice.verificationCode || "";
                     
-                    // Simulation/Draft Logic
-                    const isSimulated = invoice._simulation || invoice._offline || invoice.status === 'draft';
+                    // Simulation/draft receipts may show placeholders, but offline receipts must stay provisional.
+                    const isSimulated = invoice._simulation || invoice.status === 'draft';
                     if (!vCode && isSimulated) {
                         vCode = "9A2B-C48D-80FE-12A5-99BF"; // Realistic looking placeholder
                     }
@@ -265,6 +273,14 @@ export function Receipt48({ id = "receipt-48", invoice, company, customer, items
                     // Field [29]: QR data
                     const qrData = invoice.qrCodeData || invoice.receiptQRData || company.qrUrl || (isSimulated ? "https://fdms.zimra.co.zw/verify/SIMULATION-ONLY" : "");
                     
+                    if (isOffline && !qrData && !vCode) {
+                        return (
+                            <p className="text-[8px] font-bold text-center px-2">
+                                Sync required before fiscal verification.
+                            </p>
+                        );
+                    }
+
                     if (!qrData && !vCode) return null;
 
                     return (

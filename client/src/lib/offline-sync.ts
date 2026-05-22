@@ -55,34 +55,63 @@ async function syncPendingShiftsWithToken(
     fetchFn: (url: string, init?: RequestInit) => Promise<Response>
 ): Promise<{ success: boolean; errors: string[] }> {
     const pending = await getPendingShifts(companyId);
-    const toSync = pending.filter(s => s.status === 'pending' || s.status === 'failed');
+    const toSync = pending
+        .filter(s => s.status === 'pending' || s.status === 'failed')
+        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
     if (toSync.length === 0) return { success: true, errors: [] };
 
     const errors: string[] = [];
+    const syncedShiftIds = new Map<string, number>();
+
     for (const action of toSync) {
         try {
             await updatePendingShiftStatus(action.id, 'syncing');
 
             let url = '';
             let body = {};
+            const headers: Record<string, string> = {};
+            if (action.branchId) headers['X-Branch-ID'] = String(action.branchId);
 
             if (action.type === 'open') {
                 url = "/api/pos/shifts/open";
                 body = { companyId: action.companyId, openingBalance: action.data.openingBalance };
             } else {
-                url = `/api/pos/shifts/${action.data.shiftId}/close`;
+                let serverShiftId = action.data.shiftId;
+                if (!Number.isFinite(Number(serverShiftId))) {
+                    serverShiftId = syncedShiftIds.get(String(serverShiftId));
+                }
+                if (!serverShiftId) {
+                    const currentShiftRes = await fetchFn(`/api/pos/shifts/current?companyId=${action.companyId}`, {
+                        method: 'GET',
+                        headers,
+                    });
+                    if (currentShiftRes.ok) {
+                        const currentShift = await currentShiftRes.json();
+                        serverShiftId = currentShift?.id;
+                    }
+                }
+                if (!serverShiftId) {
+                    throw new Error('Could not match offline shift close to a synced shift.');
+                }
+                url = `/api/pos/shifts/${serverShiftId}/close`;
                 body = { closingBalance: action.data.closingBalance };
             }
 
             const res = await fetchFn(url, {
                 method: 'POST',
+                headers,
                 body: JSON.stringify(body),
             });
 
             if (!res.ok) {
                 const err = await res.json().catch(() => ({ message: 'Unknown error' }));
                 throw new Error(err.message || `HTTP ${res.status}`);
+            }
+
+            const payload = await res.json().catch(() => null);
+            if (action.type === 'open' && payload?.id) {
+                syncedShiftIds.set(action.id, Number(payload.id));
             }
 
             await removePendingShift(action.id);

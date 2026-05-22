@@ -379,7 +379,7 @@ export function useBusTicketing(companyId?: number | null) {
       : await getAuthenticatedUserId();
     if (!conductorId) throw new Error('No logged-in user id available for the trip conductor.');
 
-    const res = await apiFetch(`/api/companies/${companyId}/bus-ticketing/trips`, {
+    const res = await apiFetch(`/api/companies/${companyId}/bus-ticketing/trips/`, {
       method: 'POST',
       body: JSON.stringify({
         routeId: Number(routeId),

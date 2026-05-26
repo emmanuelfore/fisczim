@@ -13,6 +13,7 @@ import Dashboard from "@/pages/dashboard";
 import InvoicesPage from "@/pages/invoices";
 import CreateInvoicePage from "@/pages/create-invoice";
 import InvoiceDetailsPage from "@/pages/invoice-details";
+import InvoiceTemplateDesignerPage from "@/pages/invoice-template-designer";
 import CustomersPage from "@/pages/customers";
 import CustomerDetailsPage from "@/pages/customer-details";
 import SuppliersPage from "@/pages/suppliers";
@@ -81,6 +82,10 @@ import BankReconciliationPage from "@/pages/bank-reconciliation";
 import AccountLedgerPage from "@/pages/account-drilled-ledger";
 import DebtorAnalysisPage from "@/pages/debtor-analysis";
 import CreditorAnalysisPage from "@/pages/creditor-analysis";
+import OpeningBalancesPage from "@/pages/opening-balances";
+import AccountingAuditTrailPage from "@/pages/accounting-audit-trail";
+import AllocationWorkbenchPage from "@/pages/allocation-workbench";
+import AccountingDashboardPage from "@/pages/accounting-dashboard";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
 import { useCompanies } from "@/hooks/use-companies";
@@ -213,6 +218,7 @@ function Router() {
       <Route path="/dashboard">{() => <ProtectedRoute component={Dashboard} />}</Route>
       <Route path="/invoices">{() => <ProtectedRoute component={InvoicesPage} />}</Route>
       <Route path="/invoices/new">{() => <ProtectedRoute component={CreateInvoicePage} />}</Route>
+      <Route path="/invoice-templates">{() => <ProtectedRoute component={InvoiceTemplateDesignerPage} />}</Route>
       <Route path="/invoices/:id">{() => <ProtectedRoute component={InvoiceDetailsPage} />}</Route>
       <Route path="/customers">{() => <ProtectedRoute component={CustomersPage} />}</Route>
       <Route path="/customers/:id">{() => <ProtectedRoute component={CustomerDetailsPage} />}</Route>
@@ -270,7 +276,11 @@ function Router() {
       <Route path="/restaurant/orders">{() => <ProtectedRoute component={LiveOrdersPage} />}</Route>
       <Route path="/order-status" component={OrderStatusPage} />
       <Route path="/accounting/coa">{() => <ProtectedRoute component={AccountingCOAPage} />}</Route>
+      <Route path="/accounting/dashboard">{() => <ProtectedRoute component={AccountingDashboardPage} />}</Route>
+      <Route path="/accounting/opening-balances">{() => <ProtectedRoute component={OpeningBalancesPage} />}</Route>
       <Route path="/accounting/journal">{() => <ProtectedRoute component={AccountingJournalPage} />}</Route>
+      <Route path="/accounting/audit-trail">{() => <ProtectedRoute component={AccountingAuditTrailPage} />}</Route>
+      <Route path="/accounting/allocations">{() => <ProtectedRoute component={AllocationWorkbenchPage} />}</Route>
       <Route path="/accounting/reports/trial-balance">{() => <ProtectedRoute component={TrialBalancePage} />}</Route>
       <Route path="/accounting/reports/ledger">{() => <ProtectedRoute component={GeneralLedgerPage} />}</Route>
       <Route path="/accounting/reports/financial">{() => <ProtectedRoute component={FinancialReportsPage} />}</Route>

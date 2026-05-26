@@ -25,6 +25,13 @@ const DEFAULT_ACCOUNTING_SETTINGS = {
   generalExpenseAccountCode: "5100",
   fxGainAccountCode: "4900",
   fxLossAccountCode: "5900",
+  busConductorCashAccountCode: "1060",
+  busCashOnHandAccountCode: "1000",
+  busMobileMoneyAccountCode: "1070",
+  busCardClearingAccountCode: "1010",
+  busRevenueAccountCode: "4110",
+  busCashShortageAccountCode: "5920",
+  busCashOverageAccountCode: "4920",
 };
 
 const SYSTEM_POSTINGS = [
@@ -39,6 +46,13 @@ const SYSTEM_POSTINGS = [
   { key: "generalExpenseAccountCode", label: "General expenses", hint: "Default debit account for expenses." },
   { key: "fxGainAccountCode", label: "Foreign exchange gains", hint: "Automatic gains when settlement rates move favorably." },
   { key: "fxLossAccountCode", label: "Foreign exchange losses", hint: "Automatic losses when settlement rates move unfavorably." },
+  { key: "busConductorCashAccountCode", label: "Bus conductor cash clearing", hint: "Debit account for cash tickets issued by conductors before cash-up." },
+  { key: "busCashOnHandAccountCode", label: "Bus cash received", hint: "Debit account when approved conductor cash-ups are counted into office cash." },
+  { key: "busMobileMoneyAccountCode", label: "Bus mobile money clearing", hint: "Debit account for bus tickets paid by EcoCash or mobile wallet." },
+  { key: "busCardClearingAccountCode", label: "Bus card and bank clearing", hint: "Debit account for card, swipe, and bank transfer bus ticket payments." },
+  { key: "busRevenueAccountCode", label: "Bus passenger revenue", hint: "Credit account for non-fiscal bus ticket revenue postings." },
+  { key: "busCashShortageAccountCode", label: "Bus cash shortages", hint: "Debit expense account when approved cash-ups are short." },
+  { key: "busCashOverageAccountCode", label: "Bus cash overages", hint: "Credit income account when approved cash-ups are over." },
 ] as const;
 
 export function AccountingSystemSettings({ companyId, formData, setFormData }: Props) {
@@ -76,7 +90,7 @@ export function AccountingSystemSettings({ companyId, formData, setFormData }: P
       <CardHeader className="border-b border-[#E5E7EB]">
         <CardTitle>System Transaction Accounts</CardTitle>
         <CardDescription>
-          Choose the GL accounts used by automatic postings for sales, payments, VAT, inventory, suppliers, expenses and FX.
+          Choose the GL accounts used by automatic postings for sales, payments, VAT, inventory, suppliers, expenses, FX, and bus ticketing.
         </CardDescription>
       </CardHeader>
       <CardContent className="pt-5">

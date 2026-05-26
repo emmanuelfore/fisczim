@@ -76,7 +76,7 @@ function ReceiptDownloader({ p, company, label }: { p: any; company: any; label?
             paymentDate: safeDate(p.paymentDate),
             invoiceNumber: p.invoiceNumber || invoice?.invoiceNumber || "N/A",
             customerName: p.customerName || invoice?.customerName,
-            customerEmail: p.customerEmail || invoice?.customerEmail,
+            customerEmail: p.customerEmail || (invoice as any)?.customerEmail,
           }}
           allPayments={[p]}
           overallBalance={p.invoiceTotal - p.invoicePaidAmount}
@@ -461,6 +461,7 @@ function PaymentDetailView({ paymentId, company, setLocation }: { paymentId: num
     queryFn: async () => {
       const start = "2000-01-01";
       const end = format(new Date(), "yyyy-MM-dd");
+      if (!invoice?.customerId) throw new Error("Invoice customer is not available");
       const res = await apiFetch(`/api/customers/${invoice.customerId}/statement?startDate=${start}&endDate=${end}&currency=${payment.currency || 'USD'}`);
       if (!res.ok) throw new Error("Failed to fetch customer statement");
       return res.json();

@@ -17,7 +17,8 @@ import {
   Zap, 
   ShieldCheck, 
   AlertTriangle,
-  CheckCircle2
+  CheckCircle2,
+  FileText
 } from "lucide-react";
 import {
   Dialog,
@@ -168,6 +169,32 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
     },
     onError: (err: Error) => {
       toast({ title: "Test Failed", description: err.message, variant: "destructive" });
+    }
+  });
+
+  const createSampleDocumentsMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiFetch(`/api/companies/${company.id}/zimra/sample-documents`, { method: "POST" });
+      if (!res.ok) throw await res.json();
+      return await res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({
+        predicate: (query) => String(query.queryKey[0]).includes("/invoices")
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
+      toast({
+        title: "Sample Documents Created",
+        description: data.message || "ZIMRA approval samples are ready in invoices.",
+        className: "bg-green-100 text-green-900"
+      });
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Sample Creation Failed",
+        description: err.message || "Could not create ZIMRA approval sample documents.",
+        variant: "destructive"
+      });
     }
   });
 
@@ -386,6 +413,16 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
                 <Button variant="outline" size="sm" className="h-10 rounded-xl font-bold text-xs" onClick={() => testConnectivityMutation.mutate()} disabled={testConnectivityMutation.isPending}>
                   {testConnectivityMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-2" /> : <Activity className="w-3.5 h-3.5 mr-2" />}
                   Test Hardware
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-10 rounded-xl font-bold text-xs col-span-2"
+                  onClick={() => createSampleDocumentsMutation.mutate()}
+                  disabled={createSampleDocumentsMutation.isPending}
+                >
+                  {createSampleDocumentsMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-2" /> : <FileText className="w-3.5 h-3.5 mr-2" />}
+                  Create ZIMRA Samples
                 </Button>
               </div>
             </div>

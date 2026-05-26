@@ -1,10 +1,11 @@
 import React, { useState } from "react";
-import { ActivityIndicator, Modal, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Modal, Text, TouchableOpacity, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { X } from "lucide-react-native";
 import { PremiumColors as C } from "./PremiumColors";
 import { apiFetch } from "../lib/api";
 import { Button } from "./Button";
+import { DoneTextInput as TextInput } from "./DoneTextInput";
 
 type Props = {
   visible: boolean;

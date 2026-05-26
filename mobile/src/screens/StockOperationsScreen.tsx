@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import {
-  View, Text, TouchableOpacity, TextInput, StyleSheet, Alert, ScrollView, ActivityIndicator,
+  View, Text, TouchableOpacity, StyleSheet, Alert, ScrollView, ActivityIndicator,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { Menu, Package, ArrowRightLeft, SlidersHorizontal, ScanLine } from "lucide-react-native";
@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { apiFetch } from "../lib/api";
 import { useBranches, useProducts } from "../hooks/usePosData";
 import { useTheme, hexAlpha, Theme } from "../ui/PremiumColors";
+import { DoneTextInput as TextInput } from "../ui/DoneTextInput";
 
 interface Props {
   companyId: number;

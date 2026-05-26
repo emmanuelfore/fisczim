@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback } from "react";
 import {
-  View, Text, FlatList, TouchableOpacity, TextInput,
+  View, Text, FlatList, TouchableOpacity,
   StyleSheet, ActivityIndicator, Modal, Alert, ScrollView,
   KeyboardAvoidingView, Platform,
 } from "react-native";
@@ -10,6 +10,7 @@ import { StatusBar } from "expo-status-bar";
 import { useSuppliers } from "../hooks/usePosData";
 import { apiFetch } from "../lib/api";
 import { useTheme, hexAlpha } from "../ui/PremiumColors";
+import { DoneTextInput as TextInput } from "../ui/DoneTextInput";
 
 interface Props { onOpenDrawer: () => void; companyId: number; }
 

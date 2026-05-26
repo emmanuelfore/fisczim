@@ -29,8 +29,9 @@ export type BusTrip = {
   vehicleId: string;
   conductorId: string;
   scheduledDeparture: string;
-  status: 'scheduled' | 'in_progress' | 'completed' | 'cancelled';
+  status: 'scheduled' | 'boarding' | 'en_route' | 'in_progress' | 'completed' | 'cancelled';
   actualDeparture?: string;
+  actualArrival?: string;
   localId?: string;
 };
 
@@ -65,6 +66,7 @@ export type IssuedTicket = {
   conductorName?: string;
   tripId?: string;
   vehicleId?: string;
+  tripSnapshot?: BusTrip;
   isSynced?: boolean;
   syncedAt?: string;
 };

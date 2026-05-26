@@ -53,7 +53,7 @@ export function BusTripStartScreen({ onClose, companyId, userName = 'Conductor',
 
   const activeRoutes = routes.filter(r => r.isActive);
   const busyVehicleIds = useMemo(
-    () => new Set(trips.filter((trip) => trip.status === 'in_progress').map((trip) => trip.vehicleId)),
+    () => new Set(trips.filter((trip) => ['in_progress', 'boarding', 'en_route'].includes(String(trip.status).trim().toLowerCase())).map((trip) => trip.vehicleId)),
     [trips]
   );
   const activeVehicles = useMemo(

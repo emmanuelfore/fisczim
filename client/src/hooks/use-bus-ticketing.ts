@@ -159,7 +159,7 @@ export function useCreateBusTrip() {
   return useMutation({
     mutationFn: async (data: any) => {
       const payload = toTripPayload(data);
-      const response = await apiFetch(`/api/companies/${data.companyId}/bus-ticketing/trips/`, {
+      const response = await apiFetch(`/api/companies/${data.companyId}/bus-ticketing/trips`, {
         method: "POST",
         body: JSON.stringify(payload),
       });
@@ -169,6 +169,29 @@ export function useCreateBusTrip() {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["bus-trips", variables.companyId] });
     }
+  });
+}
+
+export function useUpdateBusTripStatus() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ companyId, tripId, status }: { companyId: number; tripId: number; status: string }) => {
+      const now = new Date().toISOString();
+      const payload: Record<string, string> = { status };
+      if (status === "en_route" || status === "in_progress") payload.actualDeparture = now;
+      if (status === "completed") payload.actualArrival = now;
+
+      const response = await apiFetch(`/api/companies/${companyId}/bus-ticketing/trips/${tripId}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) throw new Error(await readError(response, "Failed to update trip"));
+      return response.json();
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["bus-trips", variables.companyId] });
+      queryClient.invalidateQueries({ queryKey: ["bus-report", variables.companyId] });
+    },
   });
 }
 

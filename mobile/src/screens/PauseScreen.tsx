@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Modal,
   Text,
-  TextInput,
   TouchableOpacity,
   View
 } from "react-native";
@@ -14,6 +13,7 @@ import { apiFetch } from "../lib/api";
 import { getPausedState, PausedState, setPausedState } from "../lib/storage";
 import { supabase } from "../lib/supabase";
 import { PremiumColors as C } from "../ui/PremiumColors";
+import { DoneTextInput as TextInput } from "../ui/DoneTextInput";
 import { Button } from "../ui/Button";
 
 type Props = {

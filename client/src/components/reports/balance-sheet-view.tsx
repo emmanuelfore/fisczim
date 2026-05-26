@@ -1,8 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { formatCurrency } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 
 interface BalanceSheetViewProps {
   companyId: number;
@@ -54,19 +53,14 @@ export function BalanceSheetView({ companyId, dateRange, consolidatedSymbol, con
   const rawAssets = data.assets || [];
   const rawLiabilities = data.liabilities || [];
   const rawEquity = data.equity || [];
-  
-  const totalAssets = rawAssets.reduce((sum: number, a: any) => sum + Number(a.balance), 0);
-  const totalLiabilities = rawLiabilities.reduce((sum: number, a: any) => sum + Number(a.balance), 0);
-  
-  // Calculate Net Income and add it to Equity
-  const rawRevenue = data.revenue || [];
-  const rawExpenses = data.expenses || [];
-  const totalRevenue = rawRevenue.reduce((sum: number, a: any) => sum + Number(a.balance), 0);
-  const totalExpenses = rawExpenses.reduce((sum: number, a: any) => sum + Number(a.balance), 0);
-  const netIncome = Math.abs(totalRevenue) - Math.abs(totalExpenses); // Simplified
-  
-  const totalEquityBeforeIncome = rawEquity.reduce((sum: number, a: any) => sum + Math.abs(Number(a.balance)), 0);
-  const totalEquity = totalEquityBeforeIncome + netIncome;
+
+  const totalAssets = Number(data.totals?.assets || rawAssets.reduce((sum: number, a: any) => sum + Number(a.balance), 0));
+  const totalLiabilities = Number(data.totals?.liabilities || rawLiabilities.reduce((sum: number, a: any) => sum + Number(a.balance), 0));
+  const totalEquityBeforeIncome = Number(data.totals?.equity || rawEquity.reduce((sum: number, a: any) => sum + Number(a.balance), 0));
+  const currentYearEarnings = Number(data.currentYearEarnings || 0);
+  const totalEquity = totalEquityBeforeIncome + currentYearEarnings;
+  const totalLiabilitiesAndEquity = Number(data.totals?.liabilitiesAndEquity || totalLiabilities + totalEquity);
+  const equationDifference = Number(data.totals?.equationDifference || totalAssets - totalLiabilitiesAndEquity);
 
   return (
     <Card className="rounded-3xl border-slate-200 overflow-hidden shadow-sm">
@@ -96,15 +90,15 @@ export function BalanceSheetView({ companyId, dateRange, consolidatedSymbol, con
                       <TableCell className="w-[120px] font-mono text-xs text-slate-500">{item.code}</TableCell>
                       <TableCell className="font-medium text-slate-700">{item.name}</TableCell>
                       <TableCell className="text-right font-semibold text-slate-900">
-                        {consolidatedSymbol}{(Math.abs(Number(item.balance)) * consolidatedRate).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {consolidatedSymbol}{(Number(item.balance) * consolidatedRate).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </TableCell>
                     </TableRow>
                   ))}
                   <TableRow className="border-slate-50">
                     <TableCell className="w-[120px] font-mono text-xs text-slate-500">-</TableCell>
-                    <TableCell className="font-medium text-slate-700 italic">Retained Earnings (Net Income)</TableCell>
-                    <TableCell className="text-right font-semibold text-emerald-600">
-                      {consolidatedSymbol}{(netIncome * consolidatedRate).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    <TableCell className="font-medium text-slate-700 italic">Current Year Earnings</TableCell>
+                    <TableCell className={`text-right font-semibold ${currentYearEarnings >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                      {consolidatedSymbol}{(currentYearEarnings * consolidatedRate).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </TableCell>
                   </TableRow>
                   <TableRow className="bg-slate-50/50">
@@ -120,9 +114,14 @@ export function BalanceSheetView({ companyId, dateRange, consolidatedSymbol, con
             <div className="bg-slate-50 rounded-xl p-4 border border-slate-200 mt-6 flex justify-between items-center">
               <span className="font-bold text-slate-800 uppercase text-sm tracking-wider">Total Liabilities & Equity</span>
               <span className="font-black text-slate-900 text-xl">
-                {consolidatedSymbol}{((totalLiabilities + totalEquity) * consolidatedRate).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {consolidatedSymbol}{(totalLiabilitiesAndEquity * consolidatedRate).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </span>
             </div>
+            {Math.abs(equationDifference) >= 0.01 && (
+              <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-medium text-amber-800">
+                Balance sheet difference: {consolidatedSymbol}{(equationDifference * consolidatedRate).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+            )}
           </div>
         </div>
       </CardContent>

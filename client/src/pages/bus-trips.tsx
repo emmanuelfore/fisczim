@@ -1,10 +1,11 @@
 import { Layout } from "@/components/layout";
 import { useState } from "react";
-import { useBusTrips, useBusVehicles, useBusRoutes, useCreateBusTrip } from "@/hooks/use-bus-ticketing";
+import { useBusTrips, useBusVehicles, useBusRoutes, useCreateBusTrip, useUpdateBusTripStatus } from "@/hooks/use-bus-ticketing";
 import { Card, CardContent } from "@/components/ui/card";
-import { Calendar, Search, MapPin, Bus, Clock, Users, Plus, Loader2 } from "lucide-react";
+import { Calendar, Search, MapPin, Bus, Clock, Users, Plus, Loader2, MoreHorizontal, Play, Flag, XCircle } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
     Dialog,
     DialogContent,
@@ -37,6 +38,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { isBusFeatureEnabled, normalizeBusSettings } from "@shared/bus-settings";
+import { useToast } from "@/hooks/use-toast";
 
 const tripFormSchema = z.object({
     companyId: z.number(),
@@ -243,11 +245,13 @@ function CreateTripDialog({ companyId }: { companyId: number }) {
 export default function BusTripsPage() {
     const companyId = parseInt(localStorage.getItem("selectedCompanyId") || "0");
     const { activeCompany } = useActiveCompany();
+    const { toast } = useToast();
     const busSettings = normalizeBusSettings((activeCompany as any)?.busSettings);
     const canManageTrips = isBusFeatureEnabled(busSettings, "tripManagement");
     const { data: trips, isLoading } = useBusTrips(companyId);
     const { data: routes } = useBusRoutes(companyId);
     const { data: vehicles } = useBusVehicles(companyId);
+    const updateTripStatus = useUpdateBusTripStatus();
     
     const [searchTerm, setSearchTerm] = useState("");
 
@@ -271,6 +275,30 @@ export default function BusTripsPage() {
             case 'completed': return 'bg-emerald-50 text-emerald-700 border-emerald-100';
             case 'cancelled': return 'bg-red-50 text-red-700 border-red-100';
             default: return 'bg-slate-50 text-slate-700 border-slate-100';
+        }
+    };
+
+    const updateStatus = async (tripId: number, status: string) => {
+        try {
+            await updateTripStatus.mutateAsync({ companyId, tripId, status });
+            toast({ title: "Trip updated", description: `Trip #${tripId} is now ${status.replace("_", " ")}.` });
+        } catch (error: any) {
+            toast({ title: "Trip update failed", description: error.message || "Could not update trip status.", variant: "destructive" });
+        }
+    };
+
+    const statusActions = (status: string) => {
+        switch (status) {
+            case "scheduled":
+                return [{ label: "Start boarding", status: "boarding", icon: Play }];
+            case "boarding":
+                return [{ label: "Depart", status: "en_route", icon: Play }, { label: "Cancel", status: "cancelled", icon: XCircle }];
+            case "en_route":
+                return [{ label: "Pause trip", status: "in_progress", icon: Clock }, { label: "Complete trip", status: "completed", icon: Flag }];
+            case "in_progress":
+                return [{ label: "Resume trip", status: "en_route", icon: Play }, { label: "Complete trip", status: "completed", icon: Flag }];
+            default:
+                return [];
         }
     };
 
@@ -369,7 +397,26 @@ export default function BusTripsPage() {
                                             </span>
                                         </td>
                                         <td className="px-6 py-4 text-right">
-                                            <Button variant="ghost" size="sm" className="rounded-xl text-slate-400 hover:text-orange-600 hover:bg-orange-50">Manage</Button>
+                                            <DropdownMenu>
+                                                <DropdownMenuTrigger asChild>
+                                                    <Button variant="ghost" size="icon" className="h-9 w-9 rounded-xl text-slate-400 hover:text-orange-600 hover:bg-orange-50" disabled={updateTripStatus.isPending}>
+                                                        <MoreHorizontal className="h-4 w-4" />
+                                                    </Button>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent align="end">
+                                                    {statusActions(t.status).length === 0 ? (
+                                                        <DropdownMenuItem disabled>No available actions</DropdownMenuItem>
+                                                    ) : statusActions(t.status).map((action) => {
+                                                        const Icon = action.icon;
+                                                        return (
+                                                            <DropdownMenuItem key={action.status} onClick={() => updateStatus(t.id, action.status)}>
+                                                                <Icon className="h-4 w-4" />
+                                                                {action.label}
+                                                            </DropdownMenuItem>
+                                                        );
+                                                    })}
+                                                </DropdownMenuContent>
+                                            </DropdownMenu>
                                         </td>
                                     </tr>
                                 );

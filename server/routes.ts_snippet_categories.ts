@@ -1,4 +1,6 @@
 
+// @ts-nocheck
+
 // Product Categories
 app.get("/api/product-categories", requireAuth, async (req, res) => {
     try {

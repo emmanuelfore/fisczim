@@ -32,6 +32,10 @@ import { format } from "date-fns";
 import {
   invoices,
   invoiceItems,
+  accounts,
+  journalEntries,
+  ledgerEntries,
+  paymentAllocations,
   validationErrors,
   payments,
   posShifts,
@@ -50,6 +54,13 @@ import {
   purchaseOrders,
   purchaseOrderItems,
   suppliers,
+  supplierInvoices,
+  supplierInvoiceItems,
+  supplierPayments,
+  supplierPaymentAllocations,
+  financialPeriods,
+  bankStatements,
+  bankStatementLines,
   expenses,
   zimraLogs,
   auditLogs,
@@ -1151,13 +1162,15 @@ export async function registerRoutes(
 
       console.log(`[MAINTENANCE] Data cleared successfully for company ${companyId}`);
       
-      await logAction({
+      await logAction(
         companyId,
-        userId: (req.user as any).id,
-        action: "DATA_CLEAR",
-        details: { message: "Owner cleared all sales and transaction data" },
-        ipAddress: req.ip
-      });
+        (req.user as any).id,
+        "DATA_CLEAR",
+        "MAINTENANCE",
+        undefined,
+        { message: "Owner cleared all sales and transaction data" },
+        req.ip
+      );
 
       res.json({ message: "All sales and transaction data have been cleared successfully." });
     } catch (error: any) {
@@ -1307,10 +1320,11 @@ export async function registerRoutes(
     const updatedCompany = await storage.updateCompany(companyId, { apiKey });
     // Log the action for security audit
     await logAction(
-      req.user!.id,
       companyId,
+      req.user!.id,
       "UPDATE_COMPANY_SETTINGS",
       "Using Settings",
+      undefined,
       { action: "generated_api_key" }
     );
 
@@ -1458,7 +1472,7 @@ export async function registerRoutes(
     if (isNaN(branchId)) return res.status(400).json({ message: "Invalid branch ID" });
     const { productId, quantity, type } = req.body;
     try {
-      const result = await storage.updateBranchStock(branchId, productId, quantity.toString(), type);
+      const result = await storage.updateBranchStock(branchId, Number(productId), quantity.toString());
       res.json(result);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -1558,11 +1572,11 @@ export async function registerRoutes(
 
       // Log action
       await logAction(
-        req.user!.id,
         companyId,
+        req.user!.id,
         "UPDATE_USER_PIN",
         "User Management",
-        { targetUserId: userId }
+        userId
       );
 
       res.json({ message: "PIN updated successfully" });
@@ -2604,7 +2618,7 @@ export async function registerRoutes(
         prefix: getApiKeyPrefix(company.apiKey),
         environment: company.zimraEnvironment || 'test',
         createdAt: company.apiKeyCreatedAt,
-        lastUsed: company.apiKeyLastUsed || null
+        lastUsed: null
       });
 
     } catch (err: any) {
@@ -2632,8 +2646,7 @@ export async function registerRoutes(
       // Revoke the key
       await storage.updateCompany(companyId, {
         apiKey: null,
-        apiKeyCreatedAt: null,
-        apiKeyLastUsed: null
+        apiKeyCreatedAt: null
       });
 
       // Log the action
@@ -2782,7 +2795,7 @@ export async function registerRoutes(
         activationKey: company.fdmsApiKey || "",
         privateKey: company.zimraPrivateKey || "",
         certificate: company.zimraCertificate || "",
-        baseUrl: getZimraBaseUrl(company.zimraEnvironment || 'test')
+        baseUrl: getZimraBaseUrl((company.zimraEnvironment as "test" | "production") || 'test')
       }, getZimraLogger(companyId));
 
       const keys = await device.issueCertificate();
@@ -2822,7 +2835,7 @@ export async function registerRoutes(
         deviceId: company.fdmsDeviceId || "0",
         deviceSerialNo: "UNKNOWN",
         activationKey: "",
-        baseUrl: getZimraBaseUrl(company.zimraEnvironment || 'test')
+        baseUrl: getZimraBaseUrl((company.zimraEnvironment as "test" | "production") || 'test')
       }, getZimraLogger(companyId));
 
       const certs = await device.getServerCertificate(thumbprint);
@@ -3085,10 +3098,10 @@ export async function registerRoutes(
       }
 
       const device = new ZimraDevice({
-        deviceId: company.fdmsDeviceId,
+        deviceId: company.fdmsDeviceId || "0",
         deviceSerialNo: "UNKNOWN", // Should be stored?
         activationKey: company.fdmsApiKey || "",
-        privateKey: company.zimraPrivateKey,
+        privateKey: company.zimraPrivateKey || "",
         certificate: company.zimraCertificate || "",
         baseUrl: getZimraBaseUrl((company.zimraEnvironment as "test" | "production") || 'test')
       }, getZimraLogger(companyId));
@@ -3963,11 +3976,11 @@ export async function registerRoutes(
         await storage.createInvoiceItem({
           invoiceId: invoice.id,
           description: item.ITEMNAME1 || item.ITEMNAME2 || "Item",
-          quantity: parseFloat(item.QTY || "1"),
-          unitPrice: parseFloat(item.PRICE || "0"),
+          quantity: String(parseFloat(item.QTY || "1")),
+          unitPrice: String(parseFloat(item.PRICE || "0")),
           taxRate: taxRate.toString(),
           taxTypeId: matchedTax?.id,
-          total: parseFloat(item.AMT || "0")
+          lineTotal: String(parseFloat(item.AMT || "0"))
         });
       }
 
@@ -4124,11 +4137,11 @@ export async function registerRoutes(
         await storage.createInvoiceItem({
           invoiceId: invoice.id,
           description: item.ITEMNAME1 || item.ITEMNAME2 || "Item",
-          quantity: parseFloat(item.QTY || "1"),
-          unitPrice: parseFloat(item.PRICE || "0"),
+          quantity: String(parseFloat(item.QTY || "1")),
+          unitPrice: String(parseFloat(item.PRICE || "0")),
           taxRate: taxRate.toString(),
           taxTypeId: matchedTax?.id,
-          total: parseFloat(item.AMT || "0")
+          lineTotal: String(parseFloat(item.AMT || "0"))
         });
       }
 
@@ -4408,6 +4421,7 @@ export async function registerRoutes(
       const targetDate = new Date(fiscalDate);
 
       const unprocessed = invoices.filter(inv => {
+        if (!inv.issueDate) return false;
         const invDate = new Date(inv.issueDate);
         const sameDate = invDate.toISOString().split('T')[0] === targetDate.toISOString().split('T')[0];
         return sameDate && (inv.status === "draft" || !inv.syncedWithFdms);
@@ -4499,6 +4513,7 @@ export async function registerRoutes(
       const targetDate = new Date(fiscalDate);
 
       const toClear = invoices.filter(inv => {
+        if (!inv.issueDate) return false;
         const invDate = new Date(inv.issueDate);
         const sameDate = invDate.toISOString().split('T')[0] === targetDate.toISOString().split('T')[0];
         return sameDate && (inv.status === "draft" || !inv.syncedWithFdms);
@@ -4783,6 +4798,7 @@ export async function registerRoutes(
         date: req.body.date ? new Date(req.body.date) : undefined,
         dueDate: req.body.dueDate ? new Date(req.body.dueDate) : undefined,
       };
+      await assertOpenAccountingPeriod(companyId, body.date || new Date(), "Supplier bill posting");
       const input = insertSupplierInvoiceSchema.parse(body);
       
       const invoice = await storage.createSupplierInvoice({
@@ -4805,6 +4821,7 @@ export async function registerRoutes(
     try {
       const companyId = Number(req.params.companyId);
       const input = insertSupplierPaymentSchema.parse(req.body);
+      await assertOpenAccountingPeriod(companyId, input.paymentDate || new Date(), "Supplier payment posting");
       
       const payment = await storage.createSupplierPayment({
         ...input,
@@ -4860,6 +4877,148 @@ export async function registerRoutes(
     );
 
     sendIdempotent(req, res, idempotencyKey, 201, { message: "Batch stock recorded successfully", ...result });
+  });
+
+  app.post("/api/accounting/receipts/customer", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const { customerId, amount, currency = "USD", paymentDate, paymentMethod = "Bank", reference, notes, allocations = [] } = req.body;
+      const receiptAmount = Number(amount || 0);
+      if (!customerId || receiptAmount <= 0) return res.status(400).json({ message: "Customer and positive receipt amount are required" });
+      await assertOpenAccountingPeriod(companyId, paymentDate || new Date(), "Customer receipt posting");
+
+      const allocatedTotal = allocations.reduce((sum: number, row: any) => sum + Number(row.amount || 0), 0);
+      if (allocatedTotal - receiptAmount > 0.005) return res.status(400).json({ message: "Allocated amount cannot exceed receipt amount" });
+
+      const result = await db.transaction(async (tx) => {
+        const primaryInvoiceId = allocations[0]?.invoiceId ? Number(allocations[0].invoiceId) : null;
+        const [receipt] = await tx.insert(payments).values({
+          companyId,
+          invoiceId: primaryInvoiceId,
+          amount: receiptAmount.toFixed(2),
+          currency,
+          paymentDate: paymentDate ? new Date(paymentDate) : new Date(),
+          paymentMethod,
+          reference,
+          notes,
+          createdBy: req.user?.id,
+        } as any).returning();
+
+        for (const allocation of allocations) {
+          const invoiceId = Number(allocation.invoiceId);
+          const allocAmount = Number(allocation.amount || 0);
+          if (!invoiceId || allocAmount <= 0) continue;
+          const [invoice] = await tx.select().from(invoices).where(and(eq(invoices.id, invoiceId), eq(invoices.companyId, companyId), eq(invoices.customerId, Number(customerId))));
+          if (!invoice) throw new Error(`Invoice ${invoiceId} was not found for this customer`);
+
+          await tx.insert(paymentAllocations).values({
+            companyId,
+            paymentId: receipt.id,
+            invoiceId,
+            amount: allocAmount.toFixed(2),
+          });
+
+          const newPaidAmount = (Number(invoice.paidAmount || 0) + allocAmount).toFixed(2);
+          await tx.update(invoices).set({
+            paidAmount: newPaidAmount,
+            status: Number(newPaidAmount) >= Number(invoice.total) ? "paid" : "partial",
+          } as any).where(eq(invoices.id, invoiceId));
+        }
+
+        const cashAccountCode = await storage.getSystemAccountCode(companyId, "cashAccountCode", tx);
+        const arAccountCode = await storage.getSystemAccountCode(companyId, "accountsReceivableCode", tx);
+        const unallocatedAccountCode = arAccountCode;
+        await storage.postToLedger(companyId, {
+          entryDate: paymentDate ? new Date(paymentDate) : new Date(),
+          description: `Customer receipt ${reference || receipt.id}`,
+          referenceType: "CUSTOMER_RECEIPT",
+          referenceId: String(receipt.id),
+          createdBy: req.user?.id,
+          lines: [
+            { accountCode: cashAccountCode, type: "DEBIT", amount: receiptAmount },
+            { accountCode: unallocatedAccountCode, type: "CREDIT", amount: receiptAmount },
+          ],
+        }, tx);
+
+        return { receipt, allocatedTotal, unallocatedAmount: receiptAmount - allocatedTotal };
+      });
+
+      res.status(201).json(result);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/payments/supplier", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const { supplierId, amount, currency = "USD", paymentDate, method = "Bank", reference, notes, allocations = [] } = req.body;
+      const paymentAmount = Number(amount || 0);
+      if (!supplierId || paymentAmount <= 0) return res.status(400).json({ message: "Supplier and positive payment amount are required" });
+      await assertOpenAccountingPeriod(companyId, paymentDate || new Date(), "Supplier payment posting");
+
+      const allocatedTotal = allocations.reduce((sum: number, row: any) => sum + Number(row.amount || 0), 0);
+      if (allocatedTotal - paymentAmount > 0.005) return res.status(400).json({ message: "Allocated amount cannot exceed payment amount" });
+
+      const result = await db.transaction(async (tx) => {
+        const primaryInvoiceId = allocations[0]?.supplierInvoiceId ? Number(allocations[0].supplierInvoiceId) : null;
+        const [payment] = await tx.insert(supplierPayments).values({
+          companyId,
+          supplierId: Number(supplierId),
+          supplierInvoiceId: primaryInvoiceId,
+          amount: paymentAmount.toFixed(2),
+          currency,
+          paymentDate: paymentDate ? new Date(paymentDate) : new Date(),
+          method,
+          reference,
+          notes,
+          createdBy: req.user?.id,
+        } as any).returning();
+
+        for (const allocation of allocations) {
+          const supplierInvoiceId = Number(allocation.supplierInvoiceId);
+          const allocAmount = Number(allocation.amount || 0);
+          if (!supplierInvoiceId || allocAmount <= 0) continue;
+          const [bill] = await tx.select().from(supplierInvoices).where(and(eq(supplierInvoices.id, supplierInvoiceId), eq(supplierInvoices.companyId, companyId), eq(supplierInvoices.supplierId, Number(supplierId))));
+          if (!bill) throw new Error(`Supplier bill ${supplierInvoiceId} was not found for this supplier`);
+
+          await tx.insert(supplierPaymentAllocations).values({
+            companyId,
+            supplierPaymentId: payment.id,
+            supplierInvoiceId,
+            amount: allocAmount.toFixed(2),
+          });
+
+          const newPaidAmount = (Number(bill.paidAmount || 0) + allocAmount).toFixed(2);
+          await tx.update(supplierInvoices).set({
+            paidAmount: newPaidAmount,
+            status: Number(newPaidAmount) >= Number(bill.totalAmount) ? "paid" : "partial",
+          } as any).where(eq(supplierInvoices.id, supplierInvoiceId));
+        }
+
+        const apAccountCode = await storage.getSystemAccountCode(companyId, "accountsPayableCode", tx);
+        const cashAccountCode = await storage.getSystemAccountCode(companyId, "cashAccountCode", tx);
+        await storage.postToLedger(companyId, {
+          entryDate: paymentDate ? new Date(paymentDate) : new Date(),
+          description: `Supplier payment ${reference || payment.id}`,
+          referenceType: "SUPPLIER_PAYMENT",
+          referenceId: String(payment.id),
+          createdBy: req.user?.id,
+          lines: [
+            { accountCode: apAccountCode, type: "DEBIT", amount: paymentAmount },
+            { accountCode: cashAccountCode, type: "CREDIT", amount: paymentAmount },
+          ],
+        }, tx);
+
+        return { payment, allocatedTotal, unallocatedAmount: paymentAmount - allocatedTotal };
+      });
+
+      res.status(201).json(result);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
   });
 
   app.get("/api/companies/:companyId/gdns", requireAuth, async (req, res) => {
@@ -6050,6 +6209,174 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/companies/:companyId/zimra/sample-documents", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      if (!companyId) return res.status(400).json({ message: "Company ID is required" });
+
+      const memberRole = await storage.getCompanyUserRole((req.user as any)?.id, companyId);
+      if (!memberRole && !(req.user as any)?.isSuperAdmin) {
+        return res.status(403).json({ message: "You do not have permission to create samples for this company" });
+      }
+
+      await seedCompanyDefaults(companyId);
+
+      const [company, allProducts, allCustomers, allTaxTypes, allCurrencies] = await Promise.all([
+        storage.getCompany(companyId),
+        storage.getProducts(companyId),
+        storage.getCustomers(companyId),
+        storage.getTaxTypes(companyId),
+        storage.getCurrencies(companyId),
+      ]);
+
+      if (!company) return res.status(404).json({ message: "Company not found" });
+
+      const testCustomer = allCustomers.find((customer) => customer.name?.toUpperCase() === "TEST CUSTOMER");
+      if (!testCustomer) {
+        return res.status(400).json({ message: "TEST CUSTOMER could not be created or found" });
+      }
+
+      const requiredSkus = ["PRO-VAT", "PRO-NON", "PRO-EXE"];
+      const sampleProducts = requiredSkus
+        .map((sku) => allProducts.find((product) => product.sku === sku))
+        .filter(Boolean) as typeof allProducts;
+
+      if (sampleProducts.length !== requiredSkus.length) {
+        return res.status(400).json({ message: "Required test products could not be created or found" });
+      }
+
+      const activeCurrencies = allCurrencies.filter((currency) => currency.isActive !== false);
+      if (activeCurrencies.length === 0) {
+        return res.status(400).json({ message: "At least one active currency is required" });
+      }
+
+      const branchId = getBranchId(req);
+      const dueDate = new Date();
+      dueDate.setDate(dueDate.getDate() + 30);
+
+      const buildItems = (currencyRate: number) => {
+        const quantities = [2, 3, 4];
+        return sampleProducts.map((product, index) => {
+          const quantity = quantities[index];
+          const unitPrice = Number(product.price || 0) * currencyRate;
+          const taxType = product.taxTypeId
+            ? allTaxTypes.find((type) => type.id === product.taxTypeId)
+            : undefined;
+          const taxRate = Number(taxType?.rate ?? product.taxRate ?? 0);
+          const lineTotal = quantity * unitPrice;
+
+          return {
+            productId: product.id,
+            description: product.name,
+            quantity: quantity.toString(),
+            unitPrice: unitPrice.toFixed(2),
+            taxRate: taxRate.toFixed(2),
+            taxTypeId: product.taxTypeId || undefined,
+            lineTotal: lineTotal.toFixed(2),
+          };
+        });
+      };
+
+      const calculateTotals = (items: Array<{ lineTotal: string; taxRate: string }>) => {
+        let subtotal = 0;
+        let taxAmount = 0;
+
+        for (const item of items) {
+          const lineTotal = Number(item.lineTotal || 0);
+          const taxRate = Number(item.taxRate || 0);
+          subtotal += lineTotal;
+          taxAmount += lineTotal * (taxRate / 100);
+        }
+
+        return {
+          subtotal: subtotal.toFixed(2),
+          taxAmount: taxAmount.toFixed(2),
+          total: (subtotal + taxAmount).toFixed(2),
+        };
+      };
+
+      const created: Array<{ currency: string; invoice: any; creditNote: any; debitNote: any }> = [];
+
+      for (const currency of activeCurrencies) {
+        const exchangeRate = Number(currency.exchangeRate || 1);
+        const items = buildItems(exchangeRate);
+        const totals = calculateTotals(items);
+
+        const basePayload = {
+          companyId,
+          branchId,
+          customerId: testCustomer.id,
+          issueDate: new Date(),
+          dueDate,
+          subtotal: totals.subtotal,
+          taxAmount: totals.taxAmount,
+          total: totals.total,
+          status: "issued",
+          taxInclusive: false,
+          currency: currency.code,
+          exchangeRate: exchangeRate.toFixed(6),
+          paymentMethod: "CASH",
+          notes: null,
+          isFiscalized: true,
+          isPos: false,
+          createdBy: (req.user as any)?.id,
+          items,
+        };
+
+        let invoice = await storage.createInvoice({
+          ...basePayload,
+          transactionType: "FiscalInvoice",
+        } as any);
+
+        invoice = await processInvoiceFiscalization(
+          invoice.id,
+          companyId,
+          (req.user as any)?.id,
+          (req.user as any)?.isSuperAdmin
+        ) as any;
+
+        let creditNote = await storage.createInvoice({
+          ...basePayload,
+          transactionType: "CreditNote",
+          relatedInvoiceId: invoice.id,
+          notes: "Customer returned part of the goods after quality inspection.",
+        } as any);
+
+        creditNote = await processInvoiceFiscalization(
+          creditNote.id,
+          companyId,
+          (req.user as any)?.id,
+          (req.user as any)?.isSuperAdmin
+        ) as any;
+
+        let debitNote = await storage.createInvoice({
+          ...basePayload,
+          transactionType: "DebitNote",
+          relatedInvoiceId: invoice.id,
+          notes: "Additional quantity supplied after the original invoice was issued.",
+        } as any);
+
+        debitNote = await processInvoiceFiscalization(
+          debitNote.id,
+          companyId,
+          (req.user as any)?.id,
+          (req.user as any)?.isSuperAdmin
+        ) as any;
+
+        created.push({ currency: currency.code, invoice, creditNote, debitNote });
+      }
+
+      res.status(201).json({
+        message: `Created and fiscalized ${created.length * 3} sample documents.`,
+        currencies: created.map((entry) => entry.currency),
+        documents: created,
+      });
+    } catch (err: any) {
+      console.error("Create ZIMRA sample documents error:", err);
+      res.status(500).json({ message: err.message || "Failed to create ZIMRA approval sample documents" });
+    }
+  });
+
   app.get(api.invoices.get.path, requireAuth, async (req, res) => {
     const invoice = await storage.getInvoice(Number(req.params.id));
     if (!invoice) return res.status(404).json({ message: "Invoice not found" });
@@ -6066,6 +6393,9 @@ export async function registerRoutes(
       };
 
       const input = api.invoices.update.input.parse(body);
+      const existingInvoice = await storage.getInvoice(Number(req.params.id));
+      if (!existingInvoice) return res.status(404).json({ message: "Invoice not found" });
+      await assertOpenAccountingPeriod(existingInvoice.companyId, body.issueDate || existingInvoice.issueDate || new Date(), "Invoice editing");
       const invoice = await storage.updateInvoice(Number(req.params.id), {
         ...input,
         items: input.items as any
@@ -6557,7 +6887,7 @@ export async function registerRoutes(
       const invoice = await storage.getInvoice(Number(req.params.id));
       if (!invoice) return res.status(404).json({ message: "Invoice not found" });
 
-      if (invoice.status !== "draft" && !req.user.isSuperAdmin) {
+      if (invoice.status !== "draft" && !req.user?.isSuperAdmin) {
         return res.status(400).json({ message: "Only draft invoices can be deleted" });
       }
 
@@ -6589,6 +6919,60 @@ export async function registerRoutes(
     } catch (err: any) {
       console.error(err);
       res.status(500).json({ message: "Failed to fetch payments" });
+    }
+  });
+
+  app.get("/api/invoices/:invoiceId/payment-summary", requireAuth, async (req: any, res) => {
+    try {
+      const invoiceId = Number(req.params.invoiceId);
+      const invoice = await storage.getInvoice(invoiceId);
+      if (!invoice) return res.status(404).json({ message: "Invoice not found" });
+
+      const allocations = await db.select({
+        allocationId: paymentAllocations.id,
+        paymentId: payments.id,
+        amount: paymentAllocations.amount,
+        paymentAmount: payments.amount,
+        paymentDate: payments.paymentDate,
+        paymentMethod: payments.paymentMethod,
+        reference: payments.reference,
+        notes: payments.notes,
+        currency: payments.currency,
+        reversedAt: paymentAllocations.reversedAt,
+      })
+        .from(paymentAllocations)
+        .innerJoin(payments, eq(paymentAllocations.paymentId, payments.id))
+        .where(and(eq(paymentAllocations.invoiceId, invoiceId), isNull(paymentAllocations.reversedAt)))
+        .orderBy(desc(payments.paymentDate));
+
+      const paymentIds = Array.from(new Set(allocations.map((row: any) => Number(row.paymentId))));
+      const paymentTotals = paymentIds.length ? await db.select({
+        paymentId: paymentAllocations.paymentId,
+        allocated: sql<number>`coalesce(sum(${paymentAllocations.amount}), 0)`,
+      })
+        .from(paymentAllocations)
+        .where(and(inArray(paymentAllocations.paymentId, paymentIds), isNull(paymentAllocations.reversedAt)))
+        .groupBy(paymentAllocations.paymentId) : [];
+      const allocatedByPayment = new Map(paymentTotals.map((row: any) => [Number(row.paymentId), Number(row.allocated || 0)]));
+
+      const receiptHistory = allocations.map((row: any) => ({
+        ...row,
+        allocatedToThisInvoice: Number(row.amount || 0),
+        unallocatedAmount: Math.max(0, Number(row.paymentAmount || 0) - Number(allocatedByPayment.get(Number(row.paymentId)) || 0)),
+      }));
+
+      const allocatedTotal = allocations.reduce((sum: number, row: any) => sum + Number(row.amount || 0), 0);
+      const invoiceTotal = Number(invoice.total || 0);
+      res.json({
+        invoiceId,
+        invoiceTotal,
+        allocatedTotal,
+        balanceDue: Math.max(0, invoiceTotal - allocatedTotal),
+        overAllocated: Math.max(0, allocatedTotal - invoiceTotal),
+        receiptHistory,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
     }
   });
 
@@ -6903,6 +7287,77 @@ export async function registerRoutes(
       res.json(data);
     } catch (err: any) {
       console.error("Stock Valuation Error:", err);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/accounting/statements/suppliers/:id", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const supplierId = Number(req.params.id);
+      const start = req.query.startDate ? new Date(req.query.startDate as string) : new Date(0);
+      const end = req.query.endDate ? new Date(req.query.endDate as string) : new Date();
+      end.setHours(23, 59, 59, 999);
+
+      const [supplier] = await db.select().from(suppliers).where(and(eq(suppliers.id, supplierId), eq(suppliers.companyId, companyId)));
+      if (!supplier) return res.status(404).json({ message: "Supplier not found" });
+
+      const bills = await db.select().from(supplierInvoices).where(and(eq(supplierInvoices.companyId, companyId), eq(supplierInvoices.supplierId, supplierId), lte(supplierInvoices.date, end), ne(supplierInvoices.status, "cancelled")));
+      const payRows = await db.select().from(supplierPayments).where(and(eq(supplierPayments.companyId, companyId), eq(supplierPayments.supplierId, supplierId), lte(supplierPayments.paymentDate, end)));
+
+      const allTransactions = [
+        ...bills.map((bill: any) => ({
+          date: bill.date,
+          type: bill.invoiceNumber?.startsWith("OB-AP") ? "Opening Balance" : "Supplier Bill",
+          reference: bill.invoiceNumber,
+          description: bill.notes || "Supplier bill",
+          debit: 0,
+          credit: Number(bill.totalAmount || 0),
+        })),
+        ...payRows.map((payment: any) => ({
+          date: payment.paymentDate,
+          type: "Payment",
+          reference: payment.reference || `PAY-${payment.id}`,
+          description: payment.notes || payment.method,
+          debit: Number(payment.amount || 0),
+          credit: 0,
+        })),
+      ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+      let openingBalance = 0;
+      for (const tx of allTransactions.filter((tx) => new Date(tx.date) < start)) {
+        openingBalance += tx.credit - tx.debit;
+      }
+      let runningBalance = openingBalance;
+      const transactions = allTransactions
+        .filter((tx) => new Date(tx.date) >= start)
+        .map((tx) => {
+          runningBalance += tx.credit - tx.debit;
+          return { ...tx, balance: runningBalance };
+        });
+
+      res.json({ supplier, startDate: start, endDate: end, openingBalance, closingBalance: runningBalance, transactions });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/accounting/allocations/customer/:customerId", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const customerId = Number(req.params.customerId);
+      const [receiptTotals, allocationTotals] = await Promise.all([
+        db.select({ total: sql<number>`coalesce(sum(${payments.amount}), 0)` }).from(payments).leftJoin(invoices, eq(payments.invoiceId, invoices.id)).where(and(eq(payments.companyId, companyId), or(eq(invoices.customerId, customerId), isNull(payments.invoiceId)))),
+        db.select({ total: sql<number>`coalesce(sum(${paymentAllocations.amount}), 0)` }).from(paymentAllocations).innerJoin(invoices, eq(paymentAllocations.invoiceId, invoices.id)).where(and(eq(paymentAllocations.companyId, companyId), eq(invoices.customerId, customerId), isNull(paymentAllocations.reversedAt))),
+      ]);
+      res.json({
+        received: Number(receiptTotals[0]?.total || 0),
+        allocated: Number(allocationTotals[0]?.total || 0),
+        unallocated: Number(receiptTotals[0]?.total || 0) - Number(allocationTotals[0]?.total || 0),
+      });
+    } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
   });
@@ -7715,7 +8170,7 @@ export async function registerRoutes(
         )
       });
 
-      const customers = await db.query.customers.findMany({
+      const customerRows = await db.query.customers.findMany({
         where: eq(customers.companyId, companyId)
       });
 
@@ -7726,7 +8181,7 @@ export async function registerRoutes(
         totalRevenue,
         pendingAmount,
         invoicesCount: invoicesList.length,
-        customersCount: customers.length
+        customersCount: customerRows.length
       });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -7755,6 +8210,7 @@ export async function registerRoutes(
       // Group by date
       const revenueByDate: Record<string, number> = {};
       invoicesList.forEach(inv => {
+        if (!inv.issueDate) return;
         const date = format(new Date(inv.issueDate), 'MMM dd');
         revenueByDate[date] = (revenueByDate[date] || 0) + Number(inv.total);
       });
@@ -8647,6 +9103,42 @@ export async function registerRoutes(
     return Number.isFinite(companyId) && companyId > 0 ? companyId : null;
   };
 
+  const normalBalance = (accountType: string) =>
+    accountType === "ASSET" || accountType === "EXPENSE" ? "DEBIT" : "CREDIT";
+
+  const presentationBalance = (line: any) => {
+    const rawBalance = Number(line.balance || 0);
+    return normalBalance(line.accountType || line.type) === "DEBIT" ? rawBalance : -rawBalance;
+  };
+
+  const getClosedPeriodForDate = async (companyId: number, value: Date | string | null | undefined) => {
+    const postingDate = value ? new Date(value) : new Date();
+    if (Number.isNaN(postingDate.getTime())) throw new Error("Posting date is invalid");
+    const periods = await db.select().from(financialPeriods).where(eq(financialPeriods.companyId, companyId));
+    return periods.find((period: any) => {
+      const start = new Date(period.startDate);
+      const end = new Date(period.endDate);
+      return postingDate >= start && postingDate <= end && period.status === "CLOSED";
+    });
+  };
+
+  const assertOpenAccountingPeriod = async (companyId: number, value: Date | string | null | undefined, action: string) => {
+    const closedPeriod = await getClosedPeriodForDate(companyId, value);
+    if (closedPeriod) {
+      throw new Error(`${action} is blocked because ${closedPeriod.name} is closed.`);
+    }
+  };
+
+  const accountingSettingsOf = (company: any) =>
+    company?.accountingSettings && typeof company.accountingSettings === "object" ? company.accountingSettings : {};
+
+  const resolveOpeningEquityAccount = async (companyId: number) => {
+    const accs = await storage.getAccounts(companyId);
+    return accs.find((account: any) => account.code === "3000")
+      || accs.find((account: any) => account.type === "EQUITY")
+      || null;
+  };
+
   const listAccountingAccounts = async (req: any, res: any) => {
     try {
       const companyId = resolveAccountingCompanyId(req);
@@ -8863,6 +9355,9 @@ export async function registerRoutes(
         code: line.accountCode,
         name: line.accountName,
         type: line.accountType,
+        category: line.accountCategory,
+        normalBalance: normalBalance(line.accountType),
+        balance: presentationBalance(line),
       }));
       const assets = reportLines.filter(a => a.type === 'ASSET');
       const liabilities = reportLines.filter(a => a.type === 'LIABILITY');
@@ -8872,21 +9367,534 @@ export async function registerRoutes(
 
       const totalAssets = assets.reduce((sum, a) => sum + Number(a.balance), 0);
       const totalLiabilities = liabilities.reduce((sum, a) => sum + Number(a.balance), 0);
-      
-      // Calculate retained earnings (Net Income)
-      const totalRevenue = revenue.reduce((sum, a) => sum + Number(a.balance), 0); // Credits are positive for revenue normally, but balance is raw
-      const totalExpenses = expenses.reduce((sum, a) => sum + Number(a.balance), 0); // Debits
-      
-      // Depending on how trial balance signs work, usually Revenue is Credit (negative balance) and Expenses Debit (positive balance)
-      // If we assume a positive balance means normal balance...
-      // Let's just output raw categories and let frontend format
+      const totalEquity = equity.reduce((sum, a) => sum + Number(a.balance), 0);
+      const totalRevenue = revenue.reduce((sum, a) => sum + Number(a.balance), 0);
+      const totalExpenses = expenses.reduce((sum, a) => sum + Number(a.balance), 0);
+      const currentYearEarnings = totalRevenue - totalExpenses;
+      const totalLiabilitiesAndEquity = totalLiabilities + totalEquity + currentYearEarnings;
+
       res.json({
         date: asOfDate,
         assets,
         liabilities,
         equity,
         revenue,
-        expenses
+        expenses,
+        currentYearEarnings,
+        totals: {
+          assets: totalAssets,
+          liabilities: totalLiabilities,
+          equity: totalEquity,
+          liabilitiesAndEquity: totalLiabilitiesAndEquity,
+          equationDifference: totalAssets - totalLiabilitiesAndEquity,
+        }
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/accounting/dashboard-alerts", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+
+      const company = await storage.getCompany(companyId);
+      const settings = accountingSettingsOf(company);
+      const tb = await storage.getTrialBalance(companyId, new Date());
+      const totalDebit = tb.reduce((sum: number, line: any) => sum + Number(line.debit || 0), 0);
+      const totalCredit = tb.reduce((sum: number, line: any) => sum + Number(line.credit || 0), 0);
+      const alerts: any[] = [];
+
+      if (Math.abs(totalDebit - totalCredit) >= 0.01) {
+        alerts.push({ type: "critical", code: "TRIAL_BALANCE_OUT", title: "Trial balance is out of balance", detail: `Difference: ${(totalDebit - totalCredit).toFixed(2)}` });
+      }
+
+      const requiredPostingKeys = ["cashAccountCode", "accountsReceivableCode", "accountsPayableCode", "salesRevenueCode", "inventoryAccountCode", "vatOutputAccountCode", "vatInputAccountCode"];
+      const missingPostingKeys = requiredPostingKeys.filter((key) => !settings?.[key]);
+      if (missingPostingKeys.length) {
+        alerts.push({ type: "warning", code: "MISSING_POSTING_SETUP", title: "Posting setup is incomplete", detail: missingPostingKeys.join(", ") });
+      }
+
+      const unreconciledBankLines = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(bankStatementLines)
+        .innerJoin(bankStatements, eq(bankStatementLines.statementId, bankStatements.id))
+        .where(and(eq(bankStatements.companyId, companyId), eq(bankStatementLines.isReconciled, false)));
+      const unreconciledCount = Number(unreconciledBankLines[0]?.count || 0);
+      if (unreconciledCount > 0) {
+        alerts.push({ type: "info", code: "UNRECONCILED_BANK", title: "Unreconciled bank lines", detail: `${unreconciledCount} statement line${unreconciledCount === 1 ? "" : "s"} are unmatched.` });
+      }
+
+      if (!settings?.vatReturns?.length) {
+        alerts.push({ type: "info", code: "VAT_NOT_REVIEWED", title: "VAT returns not reviewed", detail: "No VAT return has been marked as reviewed or submitted yet." });
+      }
+
+      const cashAccounts = (await storage.getAccounts(companyId)).filter((account: any) => account.type === "ASSET" && String(account.code).startsWith("10"));
+      const negativeCash = tb.filter((line: any) => cashAccounts.some((account: any) => account.id === line.accountId) && Number(line.balance || 0) < -0.005);
+      if (negativeCash.length) {
+        alerts.push({ type: "warning", code: "NEGATIVE_CASH", title: "Negative cash or bank balance", detail: negativeCash.map((line: any) => `${line.accountCode} ${line.accountName}`).join(", ") });
+      }
+
+      res.json({ alerts, totalDebit, totalCredit });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/accounting/dashboard", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const company = await storage.getCompany(companyId);
+      const settings = accountingSettingsOf(company);
+      const today = new Date();
+      const [tb, ar, ap, vat, periods, statements, alertsPayload] = await Promise.all([
+        storage.getTrialBalance(companyId, today),
+        storage.getARAgingReport(companyId, today),
+        storage.getAPAgingReport(companyId, today),
+        storage.getVatReturn(companyId, new Date(today.getFullYear(), today.getMonth(), 1), today),
+        storage.getFinancialPeriods(companyId),
+        storage.getBankStatements(companyId),
+        (async () => {
+          const totalDebit = (await storage.getTrialBalance(companyId, today)).reduce((sum: number, line: any) => sum + Number(line.debit || 0), 0);
+          const totalCredit = (await storage.getTrialBalance(companyId, today)).reduce((sum: number, line: any) => sum + Number(line.credit || 0), 0);
+          return { totalDebit, totalCredit };
+        })(),
+      ]);
+
+      const cashBalance = tb
+        .filter((line: any) => String(line.accountCode).startsWith("10"))
+        .reduce((sum: number, line: any) => sum + Number(line.balance || 0), 0);
+      const currentPeriod = periods.find((period: any) => today >= new Date(period.startDate) && today <= new Date(period.endDate)) || null;
+      const unreconciledBankLines = await db.select({ count: sql<number>`count(*)` })
+        .from(bankStatementLines)
+        .innerJoin(bankStatements, eq(bankStatementLines.statementId, bankStatements.id))
+        .where(and(eq(bankStatements.companyId, companyId), eq(bankStatementLines.isReconciled, false)));
+
+      const unallocatedReceipts = await db.select({
+        paymentId: payments.id,
+        amount: payments.amount,
+        allocated: sql<number>`coalesce(sum(${paymentAllocations.amount}), 0)`,
+      })
+        .from(payments)
+        .leftJoin(paymentAllocations, and(eq(paymentAllocations.paymentId, payments.id), isNull(paymentAllocations.reversedAt)))
+        .where(eq(payments.companyId, companyId))
+        .groupBy(payments.id, payments.amount);
+
+      const unallocatedSupplierPayments = await db.select({
+        paymentId: supplierPayments.id,
+        amount: supplierPayments.amount,
+        allocated: sql<number>`coalesce(sum(${supplierPaymentAllocations.amount}), 0)`,
+      })
+        .from(supplierPayments)
+        .leftJoin(supplierPaymentAllocations, and(eq(supplierPaymentAllocations.supplierPaymentId, supplierPayments.id), isNull(supplierPaymentAllocations.reversedAt)))
+        .where(eq(supplierPayments.companyId, companyId))
+        .groupBy(supplierPayments.id, supplierPayments.amount);
+
+      const alerts: any[] = [];
+      if (Math.abs(alertsPayload.totalDebit - alertsPayload.totalCredit) >= 0.01) {
+        alerts.push({ type: "critical", title: "Trial balance is out of balance" });
+      }
+      if (!settings.vatReturns?.some((row: any) => row.status === "SUBMITTED")) {
+        alerts.push({ type: "info", title: "No submitted VAT return snapshot found" });
+      }
+      const unallocatedReceiptsTotal = unallocatedReceipts.reduce((sum, row: any) => sum + Math.max(0, Number(row.amount || 0) - Number(row.allocated || 0)), 0);
+      const unallocatedSupplierTotal = unallocatedSupplierPayments.reduce((sum, row: any) => sum + Math.max(0, Number(row.amount || 0) - Number(row.allocated || 0)), 0);
+
+      res.json({
+        cashBalance,
+        receivables: ar.reduce((sum: number, row: any) => sum + Number(row.total || 0), 0),
+        payables: ap.reduce((sum: number, row: any) => sum + Number(row.total || 0), 0),
+        vatDue: vat.netVat,
+        unallocatedReceipts: unallocatedReceiptsTotal,
+        unallocatedSupplierPayments: unallocatedSupplierTotal,
+        unreconciledBankLines: Number(unreconciledBankLines[0]?.count || 0),
+        currentPeriod,
+        latestStatement: statements[0] || null,
+        alerts,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/accounting/opening-balances", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const company = await storage.getCompany(companyId);
+      const openingBalances = accountingSettingsOf(company).openingBalances || null;
+      res.json(openingBalances || { locked: false, date: null, journalEntryId: null, customerBalances: [], supplierBalances: [], inventoryValue: 0 });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/opening-balances", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+
+      const company = await storage.getCompany(companyId);
+      if (!company) return res.status(404).json({ message: "Company not found" });
+      const settings = accountingSettingsOf(company);
+      if (settings.openingBalances?.locked) {
+        return res.status(409).json({ message: "Opening balances are already locked. Reverse the opening balance journal before reposting." });
+      }
+
+      const openingDate = req.body.date ? new Date(req.body.date) : new Date();
+      await assertOpenAccountingPeriod(companyId, openingDate, "Opening balance posting");
+
+      const accountsById = new Map((await storage.getAccounts(companyId)).map((account: any) => [Number(account.id), account]));
+      const lines: any[] = [];
+      for (const line of req.body.trialBalanceLines || []) {
+        const account = accountsById.get(Number(line.accountId));
+        const debit = Number(line.debit || 0);
+        const credit = Number(line.credit || 0);
+        if (!account || (debit <= 0 && credit <= 0)) continue;
+        if (debit > 0 && credit > 0) throw new Error("An opening balance line cannot have both debit and credit.");
+        lines.push({ accountCode: account.code, type: debit > 0 ? "DEBIT" : "CREDIT", amount: debit > 0 ? debit : credit });
+      }
+
+      const customerBalances = Array.isArray(req.body.customerBalances) ? req.body.customerBalances : [];
+      const supplierBalances = Array.isArray(req.body.supplierBalances) ? req.body.supplierBalances : [];
+      const inventoryValue = Number(req.body.inventoryValue || 0);
+      const customerTotal = customerBalances.reduce((sum: number, row: any) => sum + Number(row.amount || 0), 0);
+      const supplierTotal = supplierBalances.reduce((sum: number, row: any) => sum + Number(row.amount || 0), 0);
+
+      const arAccount = settings.accountsReceivableCode ? await storage.getAccountByCode(companyId, settings.accountsReceivableCode) : await storage.getAccountByCode(companyId, "1100");
+      const apAccount = settings.accountsPayableCode ? await storage.getAccountByCode(companyId, settings.accountsPayableCode) : await storage.getAccountByCode(companyId, "2000");
+      const inventoryAccount = settings.inventoryAccountCode ? await storage.getAccountByCode(companyId, settings.inventoryAccountCode) : await storage.getAccountByCode(companyId, "1300");
+
+      if (customerTotal > 0) {
+        if (!arAccount) throw new Error("Accounts receivable control account is not configured.");
+        lines.push({ accountCode: arAccount.code, type: "DEBIT", amount: customerTotal });
+      }
+      if (supplierTotal > 0) {
+        if (!apAccount) throw new Error("Accounts payable control account is not configured.");
+        lines.push({ accountCode: apAccount.code, type: "CREDIT", amount: supplierTotal });
+      }
+      if (inventoryValue > 0) {
+        if (!inventoryAccount) throw new Error("Inventory control account is not configured.");
+        lines.push({ accountCode: inventoryAccount.code, type: "DEBIT", amount: inventoryValue });
+      }
+
+      const totalDebit = lines.filter((line) => line.type === "DEBIT").reduce((sum, line) => sum + Number(line.amount), 0);
+      const totalCredit = lines.filter((line) => line.type === "CREDIT").reduce((sum, line) => sum + Number(line.amount), 0);
+      const difference = Number((totalDebit - totalCredit).toFixed(2));
+      if (Math.abs(difference) >= 0.01) {
+        const equityAccount = await resolveOpeningEquityAccount(companyId);
+        if (!equityAccount) throw new Error("Opening balance equity account is required to balance the opening entry.");
+        lines.push({ accountCode: equityAccount.code, type: difference > 0 ? "CREDIT" : "DEBIT", amount: Math.abs(difference) });
+      }
+
+      if (lines.length < 2) throw new Error("Add at least two opening balance lines.");
+
+      const result = await db.transaction(async (tx) => {
+        const entry = await storage.postToLedger(companyId, {
+          entryDate: openingDate,
+          description: `Opening balances as of ${format(openingDate, "yyyy-MM-dd")}`,
+          referenceType: "OPENING_BALANCE",
+          referenceId: `OB-${companyId}-${format(openingDate, "yyyyMMdd")}`,
+          createdBy: req.user?.id,
+          lines,
+        }, tx);
+
+        const customerSubledgerDocs = [];
+        for (const row of customerBalances) {
+          const amount = Number(row.amount || 0);
+          const name = String(row.name || "").trim();
+          if (!name || amount <= 0) continue;
+
+          let [customer] = await tx.select().from(customers).where(and(eq(customers.companyId, companyId), ilike(customers.name, name))).limit(1);
+          if (!customer) {
+            [customer] = await tx.insert(customers).values({
+              companyId,
+              name,
+              email: row.email || null,
+              phone: row.phone || null,
+              currency: row.currency || company.currency || "USD",
+              notes: "Created from opening balance import",
+            }).returning();
+          }
+
+          const [invoice] = await tx.insert(invoices).values({
+            companyId,
+            customerId: customer.id,
+            invoiceNumber: `OB-AR-${customer.id}-${entry.id}`,
+            issueDate: openingDate,
+            dueDate: row.dueDate ? new Date(row.dueDate) : openingDate,
+            subtotal: amount.toFixed(2),
+            taxAmount: "0.00",
+            total: amount.toFixed(2),
+            status: "issued",
+            paidAmount: "0.00",
+            taxInclusive: false,
+            currency: row.currency || customer.currency || company.currency || "USD",
+            paymentMethod: "OPENING",
+            transactionType: "OpeningBalance",
+            notes: `Opening receivable balance imported on ${format(openingDate, "yyyy-MM-dd")}`,
+            isFiscalized: false,
+            syncedWithFdms: false,
+            createdBy: req.user?.id,
+          } as any).returning();
+
+          await tx.insert(invoiceItems).values({
+            invoiceId: invoice.id,
+            description: "Opening receivable balance",
+            quantity: "1.00",
+            unitPrice: amount.toFixed(2),
+            taxRate: "0.00",
+            lineTotal: amount.toFixed(2),
+          });
+
+          customerSubledgerDocs.push({ customerId: customer.id, customerName: customer.name, invoiceId: invoice.id, amount });
+        }
+
+        const supplierSubledgerDocs = [];
+        for (const row of supplierBalances) {
+          const amount = Number(row.amount || 0);
+          const name = String(row.name || "").trim();
+          if (!name || amount <= 0) continue;
+
+          let [supplier] = await tx.select().from(suppliers).where(and(eq(suppliers.companyId, companyId), ilike(suppliers.name, name))).limit(1);
+          if (!supplier) {
+            [supplier] = await tx.insert(suppliers).values({
+              companyId,
+              name,
+              email: row.email || null,
+              phone: row.phone || null,
+            }).returning();
+          }
+
+          const [supplierInvoice] = await tx.insert(supplierInvoices).values({
+            companyId,
+            supplierId: supplier.id,
+            invoiceNumber: `OB-AP-${supplier.id}-${entry.id}`,
+            date: openingDate,
+            dueDate: row.dueDate ? new Date(row.dueDate) : openingDate,
+            totalAmount: amount.toFixed(2),
+            taxAmount: "0.00",
+            currency: row.currency || company.currency || "USD",
+            status: "unpaid",
+            paidAmount: "0.00",
+            notes: `Opening payable balance imported on ${format(openingDate, "yyyy-MM-dd")}`,
+          } as any).returning();
+
+          await tx.insert(supplierInvoiceItems).values({
+            supplierInvoiceId: supplierInvoice.id,
+            description: "Opening payable balance",
+            quantity: "1.0000",
+            unitPrice: amount.toFixed(2),
+            totalPrice: amount.toFixed(2),
+            taxRate: "0.00",
+            taxAmount: "0.00",
+          });
+
+          supplierSubledgerDocs.push({ supplierId: supplier.id, supplierName: supplier.name, supplierInvoiceId: supplierInvoice.id, amount });
+        }
+
+        const nextSettings = {
+          ...settings,
+          openingBalances: {
+            locked: true,
+            date: openingDate.toISOString(),
+            journalEntryId: entry.id,
+            customerBalances,
+            supplierBalances,
+            customerSubledgerDocs,
+            supplierSubledgerDocs,
+            inventoryValue,
+            lockedAt: new Date().toISOString(),
+            lockedBy: req.user?.id || "system",
+          },
+        };
+
+        await tx.update(companies).set({ accountingSettings: nextSettings } as any).where(eq(companies.id, companyId));
+        return { entry, openingBalances: nextSettings.openingBalances };
+      });
+
+      res.json({ success: true, entry: result.entry, openingBalances: result.openingBalances });
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/accounting/audit-trail", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const entries = await storage.getJournalEntries(companyId);
+      const reversalIds = new Set(entries.filter((entry: any) => entry.referenceType === "REVERSAL").map((entry: any) => String(entry.referenceId)));
+      res.json(entries.map((entry: any) => ({
+        ...entry,
+        sourceDocument: entry.referenceType && entry.referenceId ? `${entry.referenceType} #${entry.referenceId}` : "Manual journal",
+        postingDate: entry.entryDate,
+        actor: entry.createdBy || "system",
+        reversalStatus: entry.referenceType === "REVERSAL" ? "REVERSAL" : reversalIds.has(String(entry.id)) ? "REVERSED" : "ACTIVE",
+      })));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/journal/:id/reverse", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const originalId = Number(req.params.id);
+      const reversalDate = req.body.date ? new Date(req.body.date) : new Date();
+      await assertOpenAccountingPeriod(companyId, reversalDate, "Journal reversal");
+
+      const [original] = await db.select().from(journalEntries).where(and(eq(journalEntries.id, originalId), eq(journalEntries.companyId, companyId)));
+      if (!original) return res.status(404).json({ message: "Journal entry not found" });
+      if (original.referenceType === "REVERSAL") return res.status(400).json({ message: "Reversal journals cannot be reversed again." });
+
+      const existingReversal = await db.select().from(journalEntries).where(and(eq(journalEntries.companyId, companyId), eq(journalEntries.referenceType, "REVERSAL"), eq(journalEntries.referenceId, String(originalId))));
+      if (existingReversal.length) return res.status(409).json({ message: "This journal has already been reversed." });
+
+      const originalLines = await db.select({
+        accountCode: accounts.code,
+        type: ledgerEntries.type,
+        amount: ledgerEntries.amount,
+      })
+        .from(ledgerEntries)
+        .innerJoin(accounts, eq(ledgerEntries.accountId, accounts.id))
+        .where(eq(ledgerEntries.journalEntryId, originalId));
+
+      const reversal = await storage.postToLedger(companyId, {
+        entryDate: reversalDate,
+        description: req.body.reason || `Reversal of journal ${originalId}: ${original.description}`,
+        referenceType: "REVERSAL",
+        referenceId: String(originalId),
+        createdBy: req.user?.id,
+        lines: originalLines.map((line: any) => ({
+          accountCode: line.accountCode,
+          type: line.type === "DEBIT" ? "CREDIT" : "DEBIT",
+          amount: Number(line.amount),
+        })),
+      });
+
+      const company = await storage.getCompany(companyId);
+      const settings = accountingSettingsOf(company);
+      if (settings.openingBalances?.journalEntryId === originalId) {
+        const customerDocIds = (settings.openingBalances.customerSubledgerDocs || []).map((doc: any) => Number(doc.invoiceId)).filter(Boolean);
+        const supplierDocIds = (settings.openingBalances.supplierSubledgerDocs || []).map((doc: any) => Number(doc.supplierInvoiceId)).filter(Boolean);
+        if (customerDocIds.length) {
+          await db.update(invoices)
+            .set({ status: "cancelled", notes: "Cancelled by opening balance reversal" } as any)
+            .where(and(eq(invoices.companyId, companyId), inArray(invoices.id, customerDocIds)));
+        }
+        if (supplierDocIds.length) {
+          await db.update(supplierInvoices)
+            .set({ status: "cancelled", notes: "Cancelled by opening balance reversal" } as any)
+            .where(and(eq(supplierInvoices.companyId, companyId), inArray(supplierInvoices.id, supplierDocIds)));
+        }
+        await storage.updateCompany(companyId, {
+          accountingSettings: {
+            ...settings,
+            openingBalances: {
+              ...settings.openingBalances,
+              locked: false,
+              reversedAt: new Date().toISOString(),
+              reversalJournalEntryId: reversal.id,
+            },
+          },
+        } as any);
+      }
+
+      res.json({ success: true, reversal });
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/accounting/reports/profit-and-loss", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+
+      const startDate = req.query.from ? new Date(req.query.from as string) : undefined;
+      const endDate = req.query.to ? new Date(req.query.to as string) : undefined;
+      const filters: any[] = [
+        eq(journalEntries.companyId, companyId),
+        inArray(accounts.type, ["REVENUE", "EXPENSE"]),
+      ];
+      if (startDate) filters.push(gte(journalEntries.entryDate, startDate));
+      if (endDate) filters.push(lte(journalEntries.entryDate, endDate));
+
+      const rows = await db
+        .select({
+          accountId: accounts.id,
+          accountCode: accounts.code,
+          accountName: accounts.name,
+          accountType: accounts.type,
+          accountCategory: accounts.category,
+          debit: sql<number>`sum(case when ${ledgerEntries.type} = 'DEBIT' then ${ledgerEntries.amount} else 0 end)`,
+          credit: sql<number>`sum(case when ${ledgerEntries.type} = 'CREDIT' then ${ledgerEntries.amount} else 0 end)`,
+        })
+        .from(ledgerEntries)
+        .innerJoin(journalEntries, eq(ledgerEntries.journalEntryId, journalEntries.id))
+        .innerJoin(accounts, eq(ledgerEntries.accountId, accounts.id))
+        .where(and(...filters))
+        .groupBy(accounts.id, accounts.code, accounts.name, accounts.type, accounts.category)
+        .orderBy(accounts.code);
+
+      const lines = rows.map((row) => {
+        const debit = Number(row.debit || 0);
+        const credit = Number(row.credit || 0);
+        const amount = row.accountType === "REVENUE" ? credit - debit : debit - credit;
+        return {
+          accountId: row.accountId,
+          code: row.accountCode,
+          name: row.accountName,
+          type: row.accountType,
+          category: row.accountCategory || (row.accountType === "REVENUE" ? "Revenue" : "Operating Expenses"),
+          debit,
+          credit,
+          amount,
+        };
+      }).filter((line) => Math.abs(line.amount) >= 0.005);
+
+      const revenue = lines.filter((line) => line.type === "REVENUE" && line.category !== "Other Income");
+      const otherIncome = lines.filter((line) => line.type === "REVENUE" && line.category === "Other Income");
+      const costOfSales = lines.filter((line) => line.type === "EXPENSE" && line.category === "Cost of Sales");
+      const operatingExpenses = lines.filter((line) => line.type === "EXPENSE" && !["Cost of Sales", "Finance Costs", "Other Expenses"].includes(line.category));
+      const financeCosts = lines.filter((line) => line.type === "EXPENSE" && line.category === "Finance Costs");
+      const otherExpenses = lines.filter((line) => line.type === "EXPENSE" && line.category === "Other Expenses");
+
+      const total = (items: Array<{ amount: number }>) => items.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+      const totalRevenue = total(revenue);
+      const totalOtherIncome = total(otherIncome);
+      const totalCostOfSales = total(costOfSales);
+      const totalOperatingExpenses = total(operatingExpenses);
+      const totalFinanceCosts = total(financeCosts);
+      const totalOtherExpenses = total(otherExpenses);
+      const grossProfit = totalRevenue - totalCostOfSales;
+      const netProfit = grossProfit + totalOtherIncome - totalOperatingExpenses - totalFinanceCosts - totalOtherExpenses;
+
+      res.json({
+        startDate,
+        endDate,
+        sections: {
+          revenue,
+          costOfSales,
+          otherIncome,
+          operatingExpenses,
+          financeCosts,
+          otherExpenses,
+        },
+        totals: {
+          revenue: totalRevenue,
+          costOfSales: totalCostOfSales,
+          grossProfit,
+          otherIncome: totalOtherIncome,
+          operatingExpenses: totalOperatingExpenses,
+          financeCosts: totalFinanceCosts,
+          otherExpenses: totalOtherExpenses,
+          netProfit,
+        },
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -9043,6 +10051,100 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/accounting/vat-returns", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const company = await storage.getCompany(companyId);
+      res.json(accountingSettingsOf(company).vatReturns || []);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/vat-returns/draft", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const startDate = req.body.startDate ? new Date(req.body.startDate) : null;
+      const endDate = req.body.endDate ? new Date(req.body.endDate) : null;
+      if (!startDate || !endDate || Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+        return res.status(400).json({ message: "Valid startDate and endDate are required" });
+      }
+
+      const company = await storage.getCompany(companyId);
+      if (!company) return res.status(404).json({ message: "Company not found" });
+      const settings = accountingSettingsOf(company);
+      const report = await storage.getVatReturn(companyId, startDate, endDate);
+      const draft = {
+        id: `VAT-${companyId}-${format(startDate, "yyyyMMdd")}-${format(endDate, "yyyyMMdd")}`,
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString(),
+        status: "DRAFT",
+        snapshot: report,
+        reviewedAt: null,
+        submittedAt: null,
+        createdAt: new Date().toISOString(),
+        createdBy: req.user?.id || "system",
+      };
+
+      const vatReturns = [...(settings.vatReturns || []).filter((row: any) => row.id !== draft.id), draft];
+      await storage.updateCompany(companyId, { accountingSettings: { ...settings, vatReturns } } as any);
+      res.status(201).json(draft);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/vat-returns/:id/review", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const company = await storage.getCompany(companyId);
+      if (!company) return res.status(404).json({ message: "Company not found" });
+      const settings = accountingSettingsOf(company);
+      let updated: any = null;
+      const vatReturns = (settings.vatReturns || []).map((row: any) => {
+        if (row.id !== req.params.id) return row;
+        updated = { ...row, status: "REVIEWED", reviewedAt: new Date().toISOString(), reviewedBy: req.user?.id || "system" };
+        return updated;
+      });
+      if (!updated) return res.status(404).json({ message: "VAT return draft not found" });
+      await storage.updateCompany(companyId, { accountingSettings: { ...settings, vatReturns } } as any);
+      res.json(updated);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/vat-returns/:id/submit", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const company = await storage.getCompany(companyId);
+      if (!company) return res.status(404).json({ message: "Company not found" });
+      const settings = accountingSettingsOf(company);
+      let submitted: any = null;
+      const vatReturns = (settings.vatReturns || []).map((row: any) => {
+        if (row.id !== req.params.id) return row;
+        submitted = {
+          ...row,
+          status: "SUBMITTED",
+          submittedAt: new Date().toISOString(),
+          submittedBy: req.user?.id || "system",
+          submissionReference: req.body.submissionReference || null,
+          submittedSnapshot: row.snapshot,
+        };
+        return submitted;
+      });
+      if (!submitted) return res.status(404).json({ message: "VAT return not found" });
+      await storage.updateCompany(companyId, { accountingSettings: { ...settings, vatReturns } } as any);
+      res.json(submitted);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
   // Debtor/Creditor Analysis
   app.get("/api/accounting/reports/debtors/:id", requireAuth, async (req: any, res: any) => {
     try {
@@ -9073,6 +10175,7 @@ export async function registerRoutes(
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       
       const { statementDate, closingBalance, accountId, lines } = req.body;
+      await assertOpenAccountingPeriod(companyId, statementDate, "Bank statement import");
       const stmt = await storage.uploadBankStatement({
         companyId,
         accountId: Number(accountId),
@@ -9121,7 +10224,11 @@ export async function registerRoutes(
 
   app.post("/api/accounting/reconciliation/match", requireAuth, async (req: any, res: any) => {
     try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const { lineId, ledgerEntryId } = req.body;
+      const [line] = await db.select().from(bankStatementLines).where(eq(bankStatementLines.id, Number(lineId)));
+      await assertOpenAccountingPeriod(companyId, line?.date || new Date(), "Bank reconciliation");
       await storage.reconcileBankLine(Number(lineId), Number(ledgerEntryId));
       res.json({ success: true });
     } catch (err: any) {
@@ -9131,6 +10238,10 @@ export async function registerRoutes(
 
   app.post("/api/accounting/reconciliation/statements/:id/auto-match", requireAuth, async (req: any, res: any) => {
     try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const [statement] = await db.select().from(bankStatements).where(eq(bankStatements.id, Number(req.params.id)));
+      await assertOpenAccountingPeriod(companyId, statement?.statementDate || new Date(), "Bank auto-reconciliation");
       const matched = await storage.autoReconcile(Number(req.params.id));
       res.json({ success: true, matchedCount: matched });
     } catch (err: any) {

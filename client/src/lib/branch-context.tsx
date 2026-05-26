@@ -16,7 +16,7 @@ const BranchContext = createContext<BranchContextType | undefined>(undefined);
 
 export function BranchProvider({ children }: { children: ReactNode }) {
   const { activeCompany } = useActiveCompany();
-  const { branches = [], isLoading } = useBranches(activeCompany?.id);
+  const { data: branches = [], isLoading } = useBranches(activeCompany?.id || 0);
   
   const [selectedBranchId, setInternalSelectedBranchId] = useState<number | null>(() => {
     const saved = localStorage.getItem("selectedBranchId");
@@ -34,7 +34,7 @@ export function BranchProvider({ children }: { children: ReactNode }) {
     queryClient.invalidateQueries();
   };
 
-  const selectedBranch = branches.find(b => b.id === selectedBranchId) || null;
+  const selectedBranch = branches.find((b: Branch) => b.id === selectedBranchId) || null;
 
   // Auto-select first branch if none selected and branches exist
   useEffect(() => {

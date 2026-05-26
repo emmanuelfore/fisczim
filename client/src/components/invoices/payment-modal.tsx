@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { useAddPayment } from "@/hooks/use-invoices";
+import { useQueryClient } from "@tanstack/react-query";
 import { useCompany } from "@/hooks/use-companies";
 import { useCustomers } from "@/hooks/use-customers";
 import { Button } from "@/components/ui/button";
@@ -33,6 +33,8 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2 } from "lucide-react";
 import { PaymentReceipt } from "./payment-receipt";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 const formSchema = z.object({
     amount: z.string().refine((val) => !isNaN(Number(val)) && Number(val) > 0, {
@@ -56,7 +58,8 @@ export function PaymentModal({
     open,
     onOpenChange,
 }: PaymentModalProps) {
-    const addPayment = useAddPayment();
+    const queryClient = useQueryClient();
+    const { toast } = useToast();
     const companyId = parseInt(localStorage.getItem("selectedCompanyId") || "0");
     const { data: company } = useCompany(companyId);
     const { data: customers } = useCustomers(companyId);
@@ -64,6 +67,7 @@ export function PaymentModal({
 
     const [receiptData, setReceiptData] = useState<any | null>(null);
     const [showReceipt, setShowReceipt] = useState(false);
+    const [isPosting, setIsPosting] = useState(false);
 
     const form = useForm<z.infer<typeof formSchema>>({
         resolver: zodResolver(formSchema),
@@ -87,27 +91,45 @@ export function PaymentModal({
     }, [open, remainingBalance, form]);
 
     async function onSubmit(values: z.infer<typeof formSchema>) {
+        const amount = Number(values.amount);
+        const allocationAmount = Math.min(amount, remainingBalance);
         try {
-            const payment = await addPayment.mutateAsync({
-                invoiceId: invoice.id,
-                data: {
-                    ...values,
-                    amount: values.amount,
-                    currency: invoice.currency || "USD",
-                    exchangeRate: invoice.exchangeRate || "1.000000",
-                },
+            setIsPosting(true);
+            const response = await apiRequest("POST", "/api/accounting/receipts/customer", {
+                customerId: invoice.customerId,
+                amount,
+                currency: invoice.currency || "USD",
+                paymentDate: new Date().toISOString(),
+                paymentMethod: values.paymentMethod,
+                reference: values.reference,
+                notes: values.notes,
+                allocations: allocationAmount > 0 ? [{ invoiceId: invoice.id, amount: allocationAmount }] : [],
             });
+            const result = await response.json();
+            const payment = result.receipt;
+            const unallocatedAmount = Number(result.unallocatedAmount || 0);
+            toast({
+                title: unallocatedAmount > 0 ? "Payment recorded with overpayment" : "Payment allocated",
+                description: unallocatedAmount > 0
+                    ? `${invoice.currency || "USD"} ${unallocatedAmount.toFixed(2)} remains unallocated on the customer account.`
+                    : "The receipt was allocated to this invoice.",
+            });
+            queryClient.invalidateQueries({ queryKey: ["/api/invoices", invoice.id, "payment-summary"] });
+            queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
             // Store payment data for receipt, then close form and show receipt
             setReceiptData({
                 ...values,
+                amount: values.amount,
                 currency: invoice.currency || "USD",
                 createdAt: (payment as any)?.createdAt || new Date().toISOString(),
             });
             onOpenChange(false);
             form.reset();
             setShowReceipt(true);
-        } catch (error) {
-            console.error(error);
+        } catch (error: any) {
+            toast({ title: "Could not record payment", description: error.message, variant: "destructive" });
+        } finally {
+            setIsPosting(false);
         }
     }
 
@@ -118,7 +140,7 @@ export function PaymentModal({
                     <DialogHeader>
                         <DialogTitle>Record Payment</DialogTitle>
                         <DialogDescription>
-                            Add a payment for Invoice #{invoice.invoiceNumber}.
+                            Add a receipt for Invoice #{invoice.invoiceNumber}. Overpayments stay unallocated on the customer account.
                             Remaining Balance: {invoice.currency} {remainingBalance.toFixed(2)}
                         </DialogDescription>
                     </DialogHeader>
@@ -198,9 +220,9 @@ export function PaymentModal({
                                 <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                                     Cancel
                                 </Button>
-                                <Button type="submit" disabled={addPayment.isPending}>
-                                    {addPayment.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                    Record Payment
+                                <Button type="submit" disabled={isPosting}>
+                                    {isPosting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                    Record & Allocate
                                 </Button>
                             </DialogFooter>
                         </form>

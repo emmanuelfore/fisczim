@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  TextInput, Alert, StatusBar,
+  TextInput, Alert, StatusBar, Keyboard, KeyboardAvoidingView, Platform, InputAccessoryView,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -31,6 +31,7 @@ interface Props {
 
 export function ReconciliationScreen({ onClose, companyId, userRole = 'member', userName = 'Admin' }: Props) {
   const insets = useSafeAreaInsets();
+  const cashInputAccessoryId = 'reconciliation-cash-actions';
   const {
     tickets: allTickets,
     activeConductor,
@@ -66,9 +67,12 @@ export function ReconciliationScreen({ onClose, companyId, userRole = 'member', 
   const gap = parseFloat((received - expectedCash).toFixed(2));
   const isShortage = gap < 0;
   const isSurplus = gap > 0;
+  const tripIsRunning = activeTrip
+    ? ['in_progress', 'boarding', 'en_route'].includes(String(activeTrip.status).trim().toLowerCase())
+    : false;
 
   async function handleSave() {
-    if (activeTrip) {
+    if (tripIsRunning) {
       Alert.alert('Trip Still Active', 'End the trip before reconciling cash.');
       return;
     }
@@ -139,7 +143,12 @@ export function ReconciliationScreen({ onClose, companyId, userRole = 'member', 
   }
 
   return (
-    <View style={[styles.root, { paddingTop: insets.top }]}>
+    <KeyboardAvoidingView
+      style={styles.root}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={insets.top}
+    >
+    <View style={{ flex: 1, paddingTop: insets.top }}>
       <StatusBar barStyle="light-content" backgroundColor={C.bg} />
       <View style={styles.header}>
         <TouchableOpacity onPress={onClose} style={styles.backBtn}>
@@ -237,9 +246,25 @@ export function ReconciliationScreen({ onClose, companyId, userRole = 'member', 
           placeholder="0.00"
           placeholderTextColor={C.muted}
           keyboardType="decimal-pad"
+          inputAccessoryViewID={cashInputAccessoryId}
+          returnKeyType="done"
+          blurOnSubmit
+          onSubmitEditing={() => Keyboard.dismiss()}
           value={cashReceived}
           onChangeText={setCashReceived}
         />
+        {Platform.OS === 'ios' && (
+          <InputAccessoryView nativeID={cashInputAccessoryId}>
+            <View style={styles.keyboardBar}>
+              <TouchableOpacity style={styles.keyboardAction} onPress={() => Keyboard.dismiss()}>
+                <Text style={styles.keyboardActionText}>Done</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.keyboardAction, styles.keyboardSave]} onPress={handleSave} disabled={saving}>
+                <Text style={[styles.keyboardActionText, { color: '#000' }]}>{saving ? 'Saving...' : 'Save'}</Text>
+              </TouchableOpacity>
+            </View>
+          </InputAccessoryView>
+        )}
 
         {/* Gap indicator */}
         {cashReceived.trim() !== '' && (
@@ -280,6 +305,9 @@ export function ReconciliationScreen({ onClose, companyId, userRole = 'member', 
           value={notes}
           onChangeText={setNotes}
           multiline
+          returnKeyType="done"
+          blurOnSubmit
+          onSubmitEditing={() => Keyboard.dismiss()}
         />
 
         <TouchableOpacity
@@ -292,6 +320,7 @@ export function ReconciliationScreen({ onClose, companyId, userRole = 'member', 
         </TouchableOpacity>
       </ScrollView>
     </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -348,6 +377,32 @@ const styles = StyleSheet.create({
     backgroundColor: C.surface, color: C.white, borderWidth: 1, borderColor: C.border,
     borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, marginBottom: 16,
   },
+  keyboardBar: {
+    minHeight: 48,
+    backgroundColor: C.surface,
+    borderTopWidth: 1,
+    borderTopColor: C.border,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  keyboardAction: {
+    minHeight: 36,
+    paddingHorizontal: 16,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  keyboardSave: {
+    backgroundColor: C.amber,
+    borderColor: C.amber,
+  },
+  keyboardActionText: { color: C.white, fontSize: 14, fontWeight: '900' },
   gapCard: {
     flexDirection: 'row', alignItems: 'center', gap: 14,
     backgroundColor: C.surface, borderRadius: 12, padding: 16,

@@ -406,7 +406,7 @@ export type InsertProductCategory = z.infer<typeof insertProductCategorySchema>;
 // Validation Errors
 export const validationErrors = pgTable("validation_errors", {
   id: serial("id").primaryKey(),
-  invoiceId: integer("invoice_id").references(() => invoices.id).notNull(),
+  invoiceId: integer("invoice_id").references(() => invoices.id),
   errorCode: text("error_code").notNull(), // RCPT010, RCPT011, etc.
   errorMessage: text("error_message").notNull(),
   errorColor: text("error_color").notNull(), // Grey, Yellow, Red
@@ -540,6 +540,7 @@ export const invoices = pgTable("invoices", {
   relatedInvoiceId: integer("related_invoice_id"), // Self-reference for CN/DN
 
   notes: text("notes"),
+  poNumber: text("po_number"),
   invoiceTemplate: text("invoice_template").default("modern"),
   isFiscalized: boolean("is_fiscalized").default(true),
 
@@ -769,6 +770,27 @@ export const paymentsRelations = relations(payments, ({ one }) => ({
   user: one(users, { fields: [payments.createdBy], references: [users.id] }),
 }));
 
+export const paymentAllocations = pgTable("payment_allocations", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  paymentId: integer("payment_id").references(() => payments.id).notNull(),
+  invoiceId: integer("invoice_id").references(() => invoices.id).notNull(),
+  amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
+  allocatedAt: timestamp("allocated_at").defaultNow().notNull(),
+  reversedAt: timestamp("reversed_at"),
+  reversalReason: text("reversal_reason"),
+}, (table) => ({
+  paymentIdx: index("payment_allocations_payment_idx").on(table.paymentId),
+  invoiceIdx: index("payment_allocations_invoice_idx").on(table.invoiceId),
+  companyIdx: index("payment_allocations_company_idx").on(table.companyId),
+}));
+
+export const paymentAllocationsRelations = relations(paymentAllocations, ({ one }) => ({
+  company: one(companies, { fields: [paymentAllocations.companyId], references: [companies.id] }),
+  payment: one(payments, { fields: [paymentAllocations.paymentId], references: [payments.id] }),
+  invoice: one(invoices, { fields: [paymentAllocations.invoiceId], references: [invoices.id] }),
+}));
+
 // Also update Invoice relations to include payments
 export const invoicesRelations = relations(invoices, ({ one, many }) => ({
   company: one(companies, { fields: [invoices.companyId], references: [companies.id] }),
@@ -864,6 +886,9 @@ export const laybyPaymentsRelations = relations(laybyPayments, ({ one }) => ({
 export const insertPaymentSchema = createInsertSchema(payments).omit({ id: true, companyId: true, createdAt: true, createdBy: true });
 export type InsertPayment = z.infer<typeof insertPaymentSchema>;
 export type Payment = typeof payments.$inferSelect;
+export const insertPaymentAllocationSchema = createInsertSchema(paymentAllocations).omit({ id: true, allocatedAt: true, reversedAt: true, reversalReason: true });
+export type PaymentAllocation = typeof paymentAllocations.$inferSelect;
+export type InsertPaymentAllocation = z.infer<typeof insertPaymentAllocationSchema>;
 
 export const insertProductSerialNumberSchema = createInsertSchema(productSerialNumbers).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertWarrantyClaimSchema = createInsertSchema(warrantyClaims).omit({ id: true, createdAt: true });
@@ -1511,26 +1536,49 @@ export const busTrips = pgTable("bus_trips", {
   conductorId: uuid("conductor_id").references(() => users.id).notNull(),
   scheduledDeparture: timestamp("scheduled_departure").notNull(),
   actualDeparture: timestamp("actual_departure"),
-  status: text("status").default("scheduled").notNull(), // scheduled, boarding, en_route, completed, cancelled
+  actualArrival: timestamp("actual_arrival"),
+  status: text("status").default("scheduled").notNull(), // scheduled, boarding, en_route, in_progress, completed, cancelled
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => ({
+  companyStatusIdx: index("bus_trips_company_status_idx").on(table.companyId, table.status),
+  vehicleStatusIdx: index("bus_trips_vehicle_status_idx").on(table.vehicleId, table.status),
+  conductorStatusIdx: index("bus_trips_conductor_status_idx").on(table.conductorId, table.status),
+}));
 
 export const busTickets = pgTable("bus_tickets", {
   id: serial("id").primaryKey(),
   companyId: integer("company_id").references(() => companies.id).notNull(),
   tripId: integer("trip_id").references(() => busTrips.id).notNull(),
+  shiftId: integer("shift_id"),
   ticketNumber: text("ticket_number").notNull(),
+  deviceId: text("device_id"),
+  localTicketId: text("local_ticket_id"),
   passengerName: text("passenger_name"),
   boardingPoint: text("boarding_point"),
   dropOffPoint: text("drop_off_point"),
   seatNumber: text("seat_number"),
   quantity: integer("quantity").default(1),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  currency: text("currency").default("USD"),
   paymentMethod: text("payment_method"),
+  status: text("status").default("active").notNull(), // active, voided, refunded
   isSynced: boolean("is_synced").default(false),
+  accountingStatus: text("accounting_status").default("unposted").notNull(), // unposted, posted, skipped, failed
+  accountingError: text("accounting_error"),
+  postedJournalEntryId: integer("posted_journal_entry_id").references(() => journalEntries.id),
+  postedAt: timestamp("posted_at"),
   timestamp: timestamp("timestamp").notNull(),
+  voidedAt: timestamp("voided_at"),
+  voidReason: text("void_reason"),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => ({
+  companyTicketNumberUnique: unique("bus_tickets_company_ticket_number_idx").on(table.companyId, table.ticketNumber),
+  companyDeviceLocalUnique: unique("bus_tickets_company_device_local_idx").on(table.companyId, table.deviceId, table.localTicketId),
+  companyTimestampIdx: index("bus_tickets_company_timestamp_idx").on(table.companyId, table.timestamp),
+  tripIdx: index("bus_tickets_trip_id_idx").on(table.tripId),
+  shiftIdx: index("bus_tickets_shift_id_idx").on(table.shiftId),
+  postingIdx: index("bus_tickets_posting_idx").on(table.companyId, table.accountingStatus),
+}));
 
 export const busShifts = pgTable("bus_shifts", {
   id: serial("id").primaryKey(),
@@ -1554,8 +1602,18 @@ export const busReconciliations = pgTable("bus_reconciliations", {
   cashReceived: decimal("cash_received", { precision: 10, scale: 2 }).notNull(),
   gap: decimal("gap", { precision: 10, scale: 2 }).notNull(),
   notes: text("notes"),
+  status: text("status").default("pending").notNull(), // pending, approved, rejected
+  signedOffBy: uuid("signed_off_by").references(() => users.id),
+  signedOffAt: timestamp("signed_off_at"),
+  accountingStatus: text("accounting_status").default("unposted").notNull(), // unposted, posted, skipped, failed
+  accountingError: text("accounting_error"),
+  postedJournalEntryId: integer("posted_journal_entry_id").references(() => journalEntries.id),
+  postedAt: timestamp("posted_at"),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => ({
+  companyStatusIdx: index("bus_reconciliations_company_status_idx").on(table.companyId, table.status),
+  postingIdx: index("bus_reconciliations_posting_idx").on(table.companyId, table.accountingStatus),
+}));
 
 // --- BUS TICKETING RELATIONS ---
 
@@ -1580,6 +1638,7 @@ export const busTripsRelations = relations(busTrips, ({ one, many }) => ({
 export const busTicketsRelations = relations(busTickets, ({ one }) => ({
   company: one(companies, { fields: [busTickets.companyId], references: [companies.id] }),
   trip: one(busTrips, { fields: [busTickets.tripId], references: [busTrips.id] }),
+  postedJournalEntry: one(journalEntries, { fields: [busTickets.postedJournalEntryId], references: [journalEntries.id] }),
 }));
 
 export const busShiftsRelations = relations(busShifts, ({ one, many }) => ({
@@ -1592,6 +1651,7 @@ export const busReconciliationsRelations = relations(busReconciliations, ({ one 
   company: one(companies, { fields: [busReconciliations.companyId], references: [companies.id] }),
   shift: one(busShifts, { fields: [busReconciliations.shiftId], references: [busShifts.id] }),
   conductor: one(users, { fields: [busReconciliations.conductorId], references: [users.id] }),
+  postedJournalEntry: one(journalEntries, { fields: [busReconciliations.postedJournalEntryId], references: [journalEntries.id] }),
 }));
 
 // --- BUS TICKETING SCHEMAS & TYPES ---
@@ -1777,6 +1837,21 @@ export const supplierPayments = pgTable("supplier_payments", {
   supplierIdx: index("supplier_payments_supplier_idx").on(table.supplierId),
 }));
 
+export const supplierPaymentAllocations = pgTable("supplier_payment_allocations", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  supplierPaymentId: integer("supplier_payment_id").references(() => supplierPayments.id).notNull(),
+  supplierInvoiceId: integer("supplier_invoice_id").references(() => supplierInvoices.id).notNull(),
+  amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
+  allocatedAt: timestamp("allocated_at").defaultNow().notNull(),
+  reversedAt: timestamp("reversed_at"),
+  reversalReason: text("reversal_reason"),
+}, (table) => ({
+  paymentIdx: index("supplier_payment_allocations_payment_idx").on(table.supplierPaymentId),
+  invoiceIdx: index("supplier_payment_allocations_invoice_idx").on(table.supplierInvoiceId),
+  companyIdx: index("supplier_payment_allocations_company_idx").on(table.companyId),
+}));
+
 export const supplierInvoicesRelations = relations(supplierInvoices, ({ one, many }) => ({
   company: one(companies, { fields: [supplierInvoices.companyId], references: [companies.id] }),
   supplier: one(suppliers, { fields: [supplierInvoices.supplierId], references: [suppliers.id] }),
@@ -1791,6 +1866,12 @@ export const supplierInvoiceItemsRelations = relations(supplierInvoiceItems, ({ 
 export const supplierPaymentsRelations = relations(supplierPayments, ({ one }) => ({
   company: one(companies, { fields: [supplierPayments.companyId], references: [companies.id] }),
   supplier: one(suppliers, { fields: [supplierPayments.supplierId], references: [suppliers.id] }),
+}));
+
+export const supplierPaymentAllocationsRelations = relations(supplierPaymentAllocations, ({ one }) => ({
+  company: one(companies, { fields: [supplierPaymentAllocations.companyId], references: [companies.id] }),
+  payment: one(supplierPayments, { fields: [supplierPaymentAllocations.supplierPaymentId], references: [supplierPayments.id] }),
+  invoice: one(supplierInvoices, { fields: [supplierPaymentAllocations.supplierInvoiceId], references: [supplierInvoices.id] }),
 }));
 
 export const insertAccountSchema = createInsertSchema(accounts).omit({ id: true, createdAt: true });
@@ -1959,3 +2040,6 @@ export type InsertSupplierInvoiceItem = z.infer<typeof insertSupplierInvoiceItem
 export const insertSupplierPaymentSchema = createInsertSchema(supplierPayments).omit({ id: true, createdAt: true });
 export type SupplierPayment = typeof supplierPayments.$inferSelect;
 export type InsertSupplierPayment = z.infer<typeof insertSupplierPaymentSchema>;
+export const insertSupplierPaymentAllocationSchema = createInsertSchema(supplierPaymentAllocations).omit({ id: true, allocatedAt: true, reversedAt: true, reversalReason: true });
+export type SupplierPaymentAllocation = typeof supplierPaymentAllocations.$inferSelect;
+export type InsertSupplierPaymentAllocation = z.infer<typeof insertSupplierPaymentAllocationSchema>;

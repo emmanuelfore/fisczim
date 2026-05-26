@@ -8,7 +8,6 @@ import {
   Alert,
   Modal,
   ScrollView,
-  TextInput,
   Switch,
   Animated,
   StatusBar,
@@ -17,6 +16,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useBusTicketing } from '../../hooks/useBusTicketing';
 import { BusVehicle } from '../../types/busTicketing';
+import { DoneTextInput as TextInput } from '../../ui/DoneTextInput';
 
 const C = {
   bg: '#07090C',
@@ -39,11 +39,12 @@ function uuid(): string {
 
 interface Props {
   onClose: () => void;
+  companyId?: number | null;
 }
 
-export function BusFleetAdminScreen({ onClose }: Props) {
+export function BusFleetAdminScreen({ onClose, companyId }: Props) {
   const insets = useSafeAreaInsets();
-  const { vehicles, trips, saveVehicle, updateVehicle, deleteVehicle } = useBusTicketing();
+  const { vehicles, trips, saveVehicle, updateVehicle, deleteVehicle } = useBusTicketing(companyId);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<BusVehicle | null>(null);
   
@@ -84,23 +85,27 @@ export function BusFleetAdminScreen({ onClose }: Props) {
     const cap = parseInt(capacity, 10);
     const parsedCapacity = isNaN(cap) || cap <= 0 ? undefined : cap;
 
-    if (editingVehicle) {
-      await updateVehicle(editingVehicle.id, {
-        registrationNumber: reg,
-        capacity: parsedCapacity,
-        isActive,
-      });
-    } else {
-      const vehicle: BusVehicle = {
-        id: uuid(),
-        registrationNumber: reg,
-        capacity: parsedCapacity,
-        isActive,
-        createdAt: new Date().toISOString(),
-      };
-      await saveVehicle(vehicle);
+    try {
+      if (editingVehicle) {
+        await updateVehicle(editingVehicle.id, {
+          registrationNumber: reg,
+          capacity: parsedCapacity,
+          isActive,
+        });
+      } else {
+        const vehicle: BusVehicle = {
+          id: uuid(),
+          registrationNumber: reg,
+          capacity: parsedCapacity,
+          isActive,
+          createdAt: new Date().toISOString(),
+        };
+        await saveVehicle(vehicle);
+      }
+      setModalVisible(false);
+    } catch (e: any) {
+      Alert.alert('Vehicle not saved', e?.message || 'Could not save vehicle to the server.');
     }
-    setModalVisible(false);
   }
 
   async function handleDelete(vehicle: BusVehicle) {

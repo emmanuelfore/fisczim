@@ -26,11 +26,11 @@ function fmtTime24(d: Date) {
   return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
 }
 
-interface Props { onClose: () => void; shiftStartTime?: string; }
+interface Props { onClose: () => void; companyId?: number | null; shiftStartTime?: string; }
 
-export function ShiftSummaryScreen({ onClose, shiftStartTime }: Props) {
+export function ShiftSummaryScreen({ onClose, companyId, shiftStartTime }: Props) {
   const insets = useSafeAreaInsets();
-  const { activeConductor, activeTrip, closeShift, getTodaysTickets } = useBusTicketing();
+  const { activeConductor, activeTrip, closeShift, getTodaysTickets } = useBusTicketing(companyId);
 
   const today = new Date();
   const todayTickets = getTodaysTickets().filter((ticket) => !activeTrip?.id || ticket.tripId === activeTrip.id);
@@ -48,26 +48,31 @@ export function ShiftSummaryScreen({ onClose, shiftStartTime }: Props) {
         text: 'Close Shift', style: 'destructive',
         onPress: async () => {
           setClosing(true);
-          const now = new Date();
-          const record: ShiftRecord = {
-            id: uuid(),
-            conductorId: activeConductor?.id,
-            conductorName: activeConductor?.name,
-            date: today.toISOString().slice(0, 10),
-            shiftStart: shiftStartTime ?? fmtTime24(today),
-            shiftEnd: fmtTime24(now),
-            vehicleId: activeTrip.vehicleId,
-            tripId: activeTrip.id,
-            routeId: activeTrip.routeId,
-            totalTickets: summary.totalTickets,
-            totalPassengers: summary.totalPassengers,
-            totalRevenue: summary.totalRevenue,
-            closedAt: now.toISOString(),
-          };
-          await closeShift(record);
-          setClosing(false);
-          Alert.alert('Shift Closed', 'Shift has been recorded successfully.');
-          onClose();
+          try {
+            const now = new Date();
+            const record: ShiftRecord = {
+              id: uuid(),
+              conductorId: activeConductor?.id,
+              conductorName: activeConductor?.name,
+              date: today.toISOString().slice(0, 10),
+              shiftStart: shiftStartTime ?? fmtTime24(today),
+              shiftEnd: fmtTime24(now),
+              vehicleId: activeTrip.vehicleId,
+              tripId: activeTrip.id,
+              routeId: activeTrip.routeId,
+              totalTickets: summary.totalTickets,
+              totalPassengers: summary.totalPassengers,
+              totalRevenue: summary.totalRevenue,
+              closedAt: now.toISOString(),
+            };
+            await closeShift(record);
+            Alert.alert('Shift Closed', 'Shift has been recorded successfully.');
+            onClose();
+          } catch (e: any) {
+            Alert.alert('Trip Not Closed', e?.message || 'The trip could not be closed. Please try again while online.');
+          } finally {
+            setClosing(false);
+          }
         },
       },
     ]);

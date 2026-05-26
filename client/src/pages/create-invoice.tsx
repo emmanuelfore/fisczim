@@ -45,6 +45,7 @@ import { InvoicePDF } from "@/components/invoices/pdf-document";
 import { Eye, Download } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { motion, AnimatePresence } from "framer-motion";
+import { getStoredInvoiceTemplateSettings, invoiceTemplates, type InvoiceTemplateId } from "@/lib/invoice-templates";
 
 type LineItem = {
   localId: string;
@@ -144,6 +145,8 @@ export default function CreateInvoicePage() {
       }
 
       setNotes(existingInvoice.notes || "");
+      setPoNumber((existingInvoice as any).poNumber || "");
+      setInvoiceTemplate((existingInvoice.invoiceTemplate as InvoiceTemplateId) || getStoredInvoiceTemplateSettings(companyId).defaultTemplateId);
       setTaxInclusive(existingInvoice.taxInclusive || false);
       setCurrencyCode(existingInvoice.currency || "USD");
       setExchangeRate(existingInvoice.exchangeRate || "1.000000"); // Ensure we copy exchange rate too
@@ -170,6 +173,8 @@ export default function CreateInvoicePage() {
   const [issueDate, setIssueDate] = useState<string>(new Date().toISOString().split('T')[0]); // Default to today
   const [dueDate, setDueDate] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
+  const [poNumber, setPoNumber] = useState<string>("");
+  const [invoiceTemplate, setInvoiceTemplate] = useState<InvoiceTemplateId>(() => getStoredInvoiceTemplateSettings(companyId).defaultTemplateId);
   const [taxInclusive, setTaxInclusive] = useState<boolean>(false);
 
   // Helper to get default tax rate based on company registration
@@ -253,6 +258,8 @@ export default function CreateInvoicePage() {
         customerId,
         items,
         notes,
+        poNumber,
+        invoiceTemplate,
         currencyCode,
         exchangeRate,
         paymentMethod,
@@ -264,7 +271,7 @@ export default function CreateInvoicePage() {
     }, 1000);
 
     return () => clearTimeout(timer);
-  }, [customerId, items, notes, currencyCode, exchangeRate, paymentMethod, taxInclusive, issueDate, dueDate, isEditing, isDuplicating, companyId]);
+  }, [customerId, items, notes, poNumber, invoiceTemplate, currencyCode, exchangeRate, paymentMethod, taxInclusive, issueDate, dueDate, isEditing, isDuplicating, companyId]);
 
   // Restore State on Mount
   useEffect(() => {
@@ -277,6 +284,8 @@ export default function CreateInvoicePage() {
         if (state.customerId) setCustomerId(state.customerId);
         if (state.items) setItems(state.items);
         if (state.notes) setNotes(state.notes);
+        if (state.poNumber) setPoNumber(state.poNumber);
+        if (state.invoiceTemplate) setInvoiceTemplate(state.invoiceTemplate);
         if (state.currencyCode) setCurrencyCode(state.currencyCode);
         if (state.exchangeRate) setExchangeRate(state.exchangeRate);
         if (state.paymentMethod) setPaymentMethod(state.paymentMethod);
@@ -311,7 +320,7 @@ export default function CreateInvoicePage() {
         let taxRate = company?.vatRegistered ? Number(product.taxRate ?? 15) : 0;
 
         if (company?.vatRegistered && product.taxCategoryId && taxTypes.data) {
-          const category = taxTypes.data.find(t => t.id === product.taxCategoryId);
+          const category = taxTypes.data.find((t: any) => t.id === product.taxCategoryId);
           if (category) {
             taxRate = Number(category.rate);
           }
@@ -447,6 +456,8 @@ export default function CreateInvoicePage() {
       issueDate: issueDate ? new Date(issueDate) : new Date(),
       dueDate: new Date(dueDate),
       notes,
+      poNumber: poNumber.trim() || null,
+      invoiceTemplate,
       currency: currencyCode,
       exchangeRate: exchangeRate,
       paymentMethod,
@@ -505,6 +516,8 @@ export default function CreateInvoicePage() {
       issueDate: issueDate ? new Date(issueDate) : new Date(),
       dueDate: dueDate ? new Date(dueDate) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       notes,
+      poNumber: poNumber.trim() || null,
+      invoiceTemplate,
       currency: currencyCode,
       exchangeRate: exchangeRate,
       paymentMethod,
@@ -571,6 +584,8 @@ export default function CreateInvoicePage() {
       issueDate: new Date(issueDate),
       dueDate: new Date(dueDate),
       notes,
+      poNumber: poNumber.trim() || null,
+      invoiceTemplate,
       currency: currencyCode,
       exchangeRate: exchangeRate,
       paymentMethod,
@@ -858,6 +873,30 @@ export default function CreateInvoicePage() {
                           <SelectItem value="TRANSFER">Bank</SelectItem>
                           <SelectItem value="ECOCASH">Mobile</SelectItem>
                           <SelectItem value="OTHER">Other</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#64748B]">PO Number</Label>
+                      <Input
+                        value={poNumber}
+                        onChange={(e) => setPoNumber(e.target.value)}
+                        placeholder="Optional purchase order no."
+                        className="h-11 rounded-xl bg-white px-3 py-0 font-mono text-sm"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#64748B]">Invoice Template</Label>
+                      <Select value={invoiceTemplate} onValueChange={(value: InvoiceTemplateId) => setInvoiceTemplate(value)}>
+                        <SelectTrigger className="h-11 rounded-xl bg-white px-3 py-0">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {invoiceTemplates.map(template => (
+                            <SelectItem key={template.id} value={template.id}>{template.name}</SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>
@@ -1668,6 +1707,8 @@ export default function CreateInvoicePage() {
                           currency: currencyCode,
                           taxInclusive,
                           notes,
+                          poNumber: poNumber.trim() || undefined,
+                          invoiceTemplate,
                           currencySymbol: currentSymbol
                         }}
                         company={{ ...company, bankName, accountName, accountNumber, branchCode }}

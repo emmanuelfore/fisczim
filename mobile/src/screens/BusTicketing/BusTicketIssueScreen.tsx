@@ -1,7 +1,7 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  TextInput, Alert, StatusBar, BackHandler,
+  Alert, StatusBar, BackHandler,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -9,6 +9,7 @@ import { useBusTicketing } from '../../hooks/useBusTicketing';
 import { BusRoute, IssuedTicket } from '../../types/busTicketing';
 import { usePrinter } from '../../hooks/usePrinter';
 import { buildBusTicketPrintData } from '../../lib/busTicketReceipt';
+import { DoneTextInput as TextInput } from '../../ui/DoneTextInput';
 
 const C = {
   bg: '#07090C', surface: '#111318', border: '#1E2128',
@@ -27,6 +28,10 @@ export function BusTicketIssueScreen({ onClose, companyId, company }: Props) {
   const { config: printerConfig, print } = usePrinter();
 
   const activeRoutes = useMemo(() => routes.filter((r) => r.isActive), [routes]);
+  const activeTripRoute = useMemo(
+    () => activeTrip ? activeRoutes.find((route) => route.id === activeTrip.routeId) ?? null : null,
+    [activeRoutes, activeTrip]
+  );
 
   const [selectedRoute, setSelectedRoute] = useState<BusRoute | null>(null);
   const [quantity, setQuantity] = useState(1);
@@ -47,7 +52,7 @@ export function BusTicketIssueScreen({ onClose, companyId, company }: Props) {
 
   const totalAmount = selectedRoute ? parseFloat((selectedRoute.price * quantity).toFixed(2)) : 0;
 
-  function resetForm() {
+  const resetForm = useCallback(() => {
     setQuantity(1);
     setPaymentMethod('Cash');
     setPassengerName('');
@@ -55,12 +60,18 @@ export function BusTicketIssueScreen({ onClose, companyId, company }: Props) {
     setPhone('');
     setSeatNumber('');
     setDropOffPoint('');
-  }
+  }, []);
 
-  function selectRoute(route: BusRoute) {
+  const selectRoute = useCallback((route: BusRoute) => {
     setSelectedRoute(route);
     resetForm();
-  }
+  }, [resetForm]);
+
+  useEffect(() => {
+    if (!selectedRoute && activeTripRoute) {
+      selectRoute(activeTripRoute);
+    }
+  }, [activeTripRoute, selectedRoute, selectRoute]);
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -102,11 +113,12 @@ export function BusTicketIssueScreen({ onClose, companyId, company }: Props) {
         conductorName: activeConductor?.name,
         tripId: activeTrip?.id,
         vehicleId: activeTrip?.vehicleId,
+        tripSnapshot: activeTrip,
       };
       const issuedTicket = await issueTicket(ticket);
       setLastTicket(issuedTicket);
       resetForm();
-      setSelectedRoute(null);
+      setSelectedRoute(activeTripRoute || null);
       Alert.alert(
         '✓ Ticket Issued',
         `${selectedRoute.name}\n${quantity} passenger(s) — ${selectedRoute.currency} ${totalAmount.toFixed(2)}`,
@@ -167,6 +179,17 @@ export function BusTicketIssueScreen({ onClose, companyId, company }: Props) {
           </View>
         )}
 
+        {activeTrip && (
+          <View style={styles.tripCard}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.tripLabel}>ACTIVE TRIP</Text>
+              <Text style={styles.tripTitle}>{activeTripRoute?.name || `Trip #${activeTrip.id}`}</Text>
+              <Text style={styles.tripSub}>Status: {activeTrip.status.replace('_', ' ')}</Text>
+            </View>
+            <MaterialCommunityIcons name="bus-clock" size={26} color={C.amber} />
+          </View>
+        )}
+
         {/* Conductor info */}
         {activeConductor ? (
           <View style={styles.conductorBadge}>
@@ -211,6 +234,22 @@ export function BusTicketIssueScreen({ onClose, companyId, company }: Props) {
 
         {selectedRoute && (
           <>
+            <Text style={styles.label}>Quick Destination</Text>
+            <View style={styles.quickGrid}>
+              {[selectedRoute.destination, ...(cfg?.dropOffPoints || [])]
+                .filter((value, index, list) => value && list.indexOf(value) === index)
+                .slice(0, 6)
+                .map((stop) => (
+                  <TouchableOpacity
+                    key={stop}
+                    style={[styles.quickChip, dropOffPoint === stop && styles.quickChipActive]}
+                    onPress={() => setDropOffPoint(stop)}
+                  >
+                    <Text style={[styles.quickChipText, dropOffPoint === stop && styles.quickChipTextActive]}>{stop}</Text>
+                  </TouchableOpacity>
+                ))}
+            </View>
+
             {/* Optional fields */}
             {cfg?.passengerName && (
               <>
@@ -295,6 +334,17 @@ export function BusTicketIssueScreen({ onClose, companyId, company }: Props) {
             {cfg?.allowMultiPassenger && (
               <>
                 <Text style={styles.label}>Number of Passengers</Text>
+                <View style={styles.quickQtyRow}>
+                  {[1, 2, 3, 4].map((count) => (
+                    <TouchableOpacity
+                      key={count}
+                      style={[styles.quickQty, quantity === count && styles.quickQtyActive]}
+                      onPress={() => setQuantity(count)}
+                    >
+                      <Text style={[styles.quickQtyText, quantity === count && styles.quickQtyTextActive]}>{count}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
                 <View style={styles.quantityRow}>
                   <TouchableOpacity
                     style={styles.qtyBtn}
@@ -368,6 +418,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 20,
   },
   conductorName: { color: C.amber, fontSize: 13, fontWeight: '700' },
+  tripCard: {
+    backgroundColor: C.surface, borderRadius: 12, padding: 14,
+    flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12,
+    borderWidth: 1, borderColor: `${C.amber}55`,
+  },
+  tripLabel: { color: C.amber, fontSize: 10, fontWeight: '900', letterSpacing: 1 },
+  tripTitle: { color: C.white, fontSize: 15, fontWeight: '900', marginTop: 2 },
+  tripSub: { color: C.muted, fontSize: 11, fontWeight: '600', marginTop: 2 },
   sectionLabel: { color: C.muted, fontSize: 11, fontWeight: '800', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 10 },
   noRoutes: { backgroundColor: C.surface, borderRadius: 10, padding: 20, alignItems: 'center', marginBottom: 20 },
   noRoutesText: { color: C.muted, fontSize: 13, textAlign: 'center' },
@@ -384,6 +442,14 @@ const styles = StyleSheet.create({
     backgroundColor: C.surface, color: C.white, borderWidth: 1, borderColor: C.border,
     borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, marginBottom: 16,
   },
+  quickGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
+  quickChip: {
+    backgroundColor: C.surface, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 11,
+    borderWidth: 1, borderColor: C.border,
+  },
+  quickChipActive: { backgroundColor: C.fire, borderColor: C.fire },
+  quickChipText: { color: C.white, fontSize: 13, fontWeight: '800' },
+  quickChipTextActive: { color: C.white },
   stopChip: {
     backgroundColor: C.surface, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10,
     marginRight: 8, borderWidth: 1, borderColor: C.border,
@@ -399,6 +465,14 @@ const styles = StyleSheet.create({
   payChipActive: { backgroundColor: C.amber, borderColor: C.amber },
   payChipText: { color: C.white, fontWeight: '700', fontSize: 13 },
   payChipTextActive: { color: '#000' },
+  quickQtyRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
+  quickQty: {
+    minWidth: 48, height: 40, borderRadius: 12, backgroundColor: C.surface,
+    alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.border,
+  },
+  quickQtyActive: { backgroundColor: C.amber, borderColor: C.amber },
+  quickQtyText: { color: C.white, fontWeight: '900', fontSize: 15 },
+  quickQtyTextActive: { color: '#000' },
   quantityRow: { flexDirection: 'row', alignItems: 'center', gap: 20, marginBottom: 20 },
   qtyBtn: {
     width: 44, height: 44, borderRadius: 22, backgroundColor: C.surface,

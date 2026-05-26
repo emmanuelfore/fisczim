@@ -1,8 +1,9 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import {
-  View, Text, TouchableOpacity, TextInput,
+  View, Text, TouchableOpacity,
   StyleSheet, ActivityIndicator, Alert, ScrollView, Modal,
   KeyboardAvoidingView, Platform, FlatList, Switch,
+  TextInput as RNTextInput,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Menu, Search, Package, ChevronDown, Plus, X, Users, Trash2, ClipboardList, CheckCircle2, Clock } from "lucide-react-native";
@@ -10,6 +11,7 @@ import { StatusBar } from "expo-status-bar";
 import { useProducts, useSuppliers } from "../hooks/usePosData";
 import { apiFetch } from "../lib/api";
 import { useTheme, hexAlpha } from "../ui/PremiumColors";
+import { DoneTextInput as TextInput } from "../ui/DoneTextInput";
 
 interface Props { onOpenDrawer: () => void; onClose?: () => void; companyId: number; userRole?: string; userName?: string; }
 
@@ -59,7 +61,7 @@ type ReceiveMode = "gdn" | "pending" | "grv";
 export function StockInScreen({ onOpenDrawer, onClose, companyId, userRole = "member", userName = "" }: Props) {
   const insets = useSafeAreaInsets();
   const { theme: C, isDark } = useTheme();
-  const quantityInputRef = useRef<TextInput>(null);
+  const quantityInputRef = useRef<RNTextInput>(null);
   
   const { data: products, isLoading, refresh: refreshProducts } = useProducts(companyId);
   const { data: suppliers, isLoading: loadingSuppliers } = useSuppliers(companyId);

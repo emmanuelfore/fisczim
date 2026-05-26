@@ -131,7 +131,7 @@ export default function CreateQuotationPage() {
                 let taxRate = company?.vatRegistered ? Number(product.taxRate ?? 15) : 0;
 
                 if (company?.vatRegistered && product.taxCategoryId && taxTypes.data) {
-                    const category = taxTypes.data.find(t => t.id === product.taxCategoryId);
+                    const category = taxTypes.data.find((t: any) => t.id === product.taxCategoryId);
                     if (category) {
                         taxRate = Number(category.rate);
                     }

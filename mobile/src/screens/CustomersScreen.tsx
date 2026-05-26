@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback } from "react";
 import {
-  View, Text, FlatList, TouchableOpacity, TextInput,
+  View, Text, FlatList, TouchableOpacity,
   StyleSheet, SafeAreaView, ActivityIndicator, Modal, Alert, ScrollView,
   KeyboardAvoidingView, Platform,
 } from "react-native";
@@ -11,6 +11,7 @@ import { useCustomers } from "../hooks/usePosData";
 import { apiFetch } from "../lib/api";
 
 import { useTheme, hexAlpha, Theme } from "../ui/PremiumColors";
+import { DoneTextInput as TextInput } from "../ui/DoneTextInput";
 
 const CUSTOMER_TYPES = [
   { value: "individual", label: "Individual" },

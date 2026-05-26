@@ -1,0 +1,7 @@
+
+> fiscal-stack@1.0.1 dev
+> cross-env NODE_ENV=development tsx watch server/index.ts
+
+Swagger UI configured for Integration API (v1)
+[Job] Starting Fiscal Day Closing Worker (Targeting Zimbabwe Midnight CAT/UTC+2)
+[Job] Next Zimbabwe midnight closure scheduled in 14h 40m (Target: 2026-05-25T22:05:00.000Z)

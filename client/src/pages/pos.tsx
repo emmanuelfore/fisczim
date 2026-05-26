@@ -138,7 +138,7 @@ export default function POSPage() {
         if (typeof window !== "undefined" && "requestIdleCallback" in window) {
             (window as any).requestIdleCallback(() => fn(), { timeout });
         } else {
-            window.setTimeout(fn, 0);
+            globalThis.setTimeout(fn, 0);
         }
     }, []);
 
@@ -307,6 +307,7 @@ export default function POSPage() {
         paperSize: localStorage.getItem("pos_paper_size") || "",
         printServerUrl: localStorage.getItem("pos_print_server") || "http://localhost:3001",
         nativeEscPos: true,
+        simulationMode: localStorage.getItem("pos_simulation_mode") === "true",
         printerWidth: parseInt(localStorage.getItem("pos_printer_width") || "32"),
         cashDrawerEnabled: localStorage.getItem("pos_cash_drawer") === "true",
         autoCut: localStorage.getItem("pos_auto_cut") !== "false",
@@ -1960,6 +1961,7 @@ export default function POSPage() {
                 return;
             }
 
+            const endpoint = `/api/invoices/${cnActiveInvoice?.id}/${cnType === "credit" ? "credit-note" : "debit-note"}`;
             const res = await apiFetch(endpoint, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },

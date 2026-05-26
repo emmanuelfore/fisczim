@@ -897,7 +897,18 @@ export const api = {
           reconciliations: z.array(insertBusReconciliationSchema)
         }),
         responses: {
-          200: z.object({ success: z.boolean(), synced: z.object({ tickets: z.number(), shifts: z.number(), reconciliations: z.number() }) }),
+          200: z.object({
+            success: z.boolean(),
+            synced: z.object({ tickets: z.number(), shifts: z.number(), reconciliations: z.number() }),
+            skipped: z.object({ tickets: z.number() }).optional(),
+            rejected: z.object({
+              tickets: z.array(z.object({
+                ticketNumber: z.string().optional(),
+                localTicketId: z.string().nullable().optional(),
+                reason: z.string(),
+              })),
+            }).optional(),
+          }),
         }
       }
     }

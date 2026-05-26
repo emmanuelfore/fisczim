@@ -40,7 +40,9 @@ import {
   Clock,
   ClipboardCheck,
   UserRoundCheck,
-  BarChart2
+  BarChart2,
+  Scale,
+  Palette,
 } from "lucide-react";
 import { useBranding } from "@/hooks/use-branding";
 import {
@@ -72,7 +74,7 @@ type NavItem = {
   children?: {
     icon: any;
     label: string;
-    href: string;
+    href?: string;
     children?: {
       icon: any;
       label: string;
@@ -102,6 +104,7 @@ export function Layout({
   const { toast } = useToast();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [openNavGroups, setOpenNavGroups] = useState<Record<string, boolean>>({});
   const seenPendingGdnCountRef = useRef<number | null>(null);
 
   // Close mobile menu on location change
@@ -159,6 +162,7 @@ export function Layout({
       label: "Invoices & Billing",
       children: [
         { icon: FileText, label: "Invoices", href: "/invoices" },
+        { icon: Palette, label: "Invoice Templates", href: "/invoice-templates" },
         { icon: RefreshCw, label: "Recurring Invoices", href: "/recurring" },
         { icon: CreditCard, label: "Payments Received", href: "/payments-received" },
       ]
@@ -190,27 +194,57 @@ export function Layout({
       icon: Calculator,
       label: "Accounting",
       children: [
-        { icon: ClipboardList, label: "Chart of Accounts", href: "/accounting/coa" },
-        { icon: CreditCard, label: "Cashbook", href: "/accounting/cashbook" },
-        { icon: Settings, label: "System Postings", href: "/settings?tab=accounting" },
-        { icon: Receipt, label: "Supplier Bills", href: "/supplier-invoices" },
-        { icon: History, label: "General Journal", href: "/accounting/journal" },
-        { icon: FileText, label: "General Ledger", href: "/accounting/reports/ledger" },
-        { icon: ArrowRightLeft, label: "Bank Reconciliation", href: "/accounting/reconciliation" },
-        { icon: Briefcase, label: "Fixed Assets", href: "/accounting/fixed-assets" },
-        { icon: CalendarDays, label: "Open / Close Periods", href: "/accounting/periods" },
-        { icon: BarChart3, label: "Trial Balance", href: "/accounting/reports/trial-balance" },
-        { icon: TrendingUp, label: "Financial Statements", href: "/accounting/reports/financial" },
-        { icon: FileText, label: "Balance Sheet", href: "/accounting/reports/balance-sheet" },
-        { icon: Activity, label: "Cash Flow", href: "/accounting/reports/cash-flow" },
-        { icon: Users, label: "Accounts Receivable", href: "/accounting/accounts-receivable" },
-        { icon: TrendingUp, label: "Debtors Analysis", href: "/accounting/accounts-receivable" },
-        { icon: Receipt, label: "Accounts Payable", href: "/accounting/accounts-payable" },
-        { icon: TrendingDown, label: "Creditors Analysis", href: "/accounting/accounts-payable" },
-        { icon: Users, label: "Aging Reports", href: "/accounting/reports/aging" },
-        { icon: Coins, label: "VAT Returns", href: "/accounting/reports/vat-return" },
-        { icon: Building2, label: "Cost Centers", href: "/accounting/reports/cost-centers" },
-        { icon: Settings, label: "Cost Center Setup", href: "/settings?tab=branches" },
+        { icon: LayoutDashboard, label: "Dashboard", href: "/accounting/dashboard" },
+        {
+          icon: Settings,
+          label: "Setup",
+          children: [
+            { icon: ClipboardList, label: "Chart of Accounts", href: "/accounting/coa" },
+            { icon: Settings, label: "Posting Setup", href: "/settings?tab=accounting" },
+            { icon: CalendarDays, label: "Financial Periods", href: "/accounting/periods" },
+            { icon: Scale, label: "Opening Balances", href: "/accounting/opening-balances" },
+          ],
+        },
+        {
+          icon: History,
+          label: "Transactions",
+          children: [
+            { icon: History, label: "Journal Vouchers", href: "/accounting/journal" },
+            { icon: ShieldCheck, label: "Posting Audit Trail", href: "/accounting/audit-trail" },
+            { icon: ArrowRightLeft, label: "Payment Allocation", href: "/accounting/allocations" },
+            { icon: CreditCard, label: "Cashbook", href: "/accounting/cashbook" },
+            { icon: Receipt, label: "Supplier Bills", href: "/supplier-invoices" },
+            { icon: ArrowRightLeft, label: "Bank Reconciliation", href: "/accounting/reconciliation" },
+            { icon: Briefcase, label: "Fixed Assets", href: "/accounting/fixed-assets" },
+          ],
+        },
+        {
+          icon: Users,
+          label: "Receivables",
+          children: [
+            { icon: Users, label: "Customer Balances", href: "/accounting/accounts-receivable" },
+            { icon: TrendingUp, label: "Receivables Aging", href: "/accounting/reports/aging?tab=ar" },
+          ],
+        },
+        {
+          icon: Receipt,
+          label: "Payables",
+          children: [
+            { icon: Receipt, label: "Supplier Balances", href: "/accounting/accounts-payable" },
+            { icon: TrendingDown, label: "Payables Aging", href: "/accounting/reports/aging?tab=ap" },
+          ],
+        },
+        {
+          icon: BarChart3,
+          label: "Reports",
+          children: [
+            { icon: FileText, label: "General Ledger", href: "/accounting/reports/ledger" },
+            { icon: BarChart3, label: "Trial Balance", href: "/accounting/reports/trial-balance" },
+            { icon: TrendingUp, label: "Financial Statements", href: "/accounting/reports/financial" },
+            { icon: Coins, label: "VAT Returns", href: "/accounting/reports/vat-return" },
+            { icon: Building2, label: "Cost Centers", href: "/accounting/reports/cost-centers" },
+          ],
+        },
       ]
     },
     { icon: Calculator, label: "Expenses", href: "/expenses" },
@@ -353,6 +387,7 @@ export function Layout({
 
     if (location.startsWith("/dashboard")) return { title: "Dashboard", subtitle: "" };
     if (location.startsWith("/invoices/new")) return { title: "Create Invoice", subtitle: "Prepare, validate, and fiscalise a customer invoice." };
+    if (location.startsWith("/invoice-templates")) return { title: "Invoice Templates", subtitle: "Design branded invoice layouts and set your default template." };
     if (location.match(/^\/invoices\/\d+/)) return { title: "Invoice Details", subtitle: "Review, print, fiscalise, and manage invoice payments." };
     if (location.startsWith("/invoices")) return { title: "Invoices", subtitle: "Manage, track, and fiscalise customer invoices." };
     if (location.startsWith("/quotations/new")) return { title: "Create Quotation", subtitle: "Prepare a customer quotation before invoicing." };
@@ -394,6 +429,10 @@ export function Layout({
     if (location.startsWith("/zimra-settings")) return { title: "ZIMRA Settings", subtitle: "Manage fiscal device and ZIMRA configuration." };
     if (location.startsWith("/fdms-test")) return { title: "FDMS Test", subtitle: "Test fiscal device connectivity and FDMS responses." };
     if (location.startsWith("/accounting/coa")) return { title: "Chart of Accounts", subtitle: "Manage your business accounts and financial structure." };
+    if (location.startsWith("/accounting/dashboard")) return { title: "Accounting Dashboard", subtitle: "Review accounting position, period status, allocations, and alerts." };
+    if (location.startsWith("/accounting/opening-balances")) return { title: "Opening Balances", subtitle: "Post and lock migration balances from a previous accounting system." };
+    if (location.startsWith("/accounting/audit-trail")) return { title: "Posting Audit Trail", subtitle: "Review journal source documents, debit and credit lines, actors, and reversals." };
+    if (location.startsWith("/accounting/allocations")) return { title: "Payment Allocation", subtitle: "Allocate receipts and payments across invoices and bills." };
     if (location.startsWith("/accounting/ledger/")) return { title: "Account Ledger", subtitle: "Drill into the transaction history for an individual account." };
     if (location.startsWith("/accounting/cashbook")) return { title: "Cashbook", subtitle: "Record and review cash and bank movements." };
     if (location.startsWith("/accounting/reconciliation")) return { title: "Bank Reconciliation", subtitle: "Match bank statement lines to ledger transactions." };
@@ -434,6 +473,31 @@ export function Layout({
   }, [location]);
   const pageTitle = headerTitle || pageMeta.title;
   const pageSubtitle = headerSubtitle !== undefined ? headerSubtitle : pageMeta.subtitle;
+
+  const currentPathWithSearch = typeof window !== "undefined" ? location + window.location.search : location;
+  const isHrefActive = (href?: string) => !!href && (currentPathWithSearch === href || (location === href && !href.includes("?")));
+  const isChildGroupActive = (child: NonNullable<NavItem["children"]>[number]) =>
+    isHrefActive(child.href) || !!child.children?.some((grandchild) => isHrefActive(grandchild.href));
+
+  useEffect(() => {
+    const activeGroups = navItems
+      .filter((item) => item.children?.some(isChildGroupActive))
+      .map((item) => item.label);
+
+    if (activeGroups.length === 0) return;
+
+    setOpenNavGroups((current) => {
+      let changed = false;
+      const next = { ...current };
+      for (const label of activeGroups) {
+        if (!next[label]) {
+          next[label] = true;
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [navItems, currentPathWithSearch]);
 
   if (!user) return null;
 
@@ -586,15 +650,11 @@ export function Layout({
               {navItems.map((item) => {
 
                 if (item.children) {
-                  const isActiveGroup = item.children.some(child =>
-                    location + window.location.search === child.href || (location === child.href && !child.href.includes("?"))
-                  );
-
-                  const [isOpen, setIsOpen] = useState(isActiveGroup);
-
-                  useEffect(() => {
-                    if (isActiveGroup) setIsOpen(true);
-                  }, [isActiveGroup]);
+                  const isActiveGroup = item.children.some(isChildGroupActive);
+                  const isOpen = openNavGroups[item.label] ?? isActiveGroup;
+                  const setIsOpen = (open: boolean) => {
+                    setOpenNavGroups((current) => ({ ...current, [item.label]: open }));
+                  };
 
                   if (isSidebarCollapsed) {
                     return (
@@ -611,8 +671,35 @@ export function Layout({
                         <DropdownMenuContent side="right" align="start" className="w-56 bg-white border-slate-200 rounded-xl shadow-2xl p-1 ml-4 animate-in fade-in slide-in-from-left-2 duration-200">
                           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-3 py-2 border-b border-slate-50 mb-1">{item.label}</p>
                           {item.children.map((child) => {
-                            const isChildActive = location + window.location.search === child.href || (location === child.href && !child.href.includes("?"));
-                            return (
+                            if (child.children?.length) {
+                              return (
+                                <div key={child.label} className="mb-2">
+                                  <p className="flex items-center gap-2 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                                    <child.icon className="w-3.5 h-3.5" />
+                                    <span>{child.label}</span>
+                                  </p>
+                                  <div className="space-y-1">
+                                    {child.children.map((grandchild) => {
+                                      const isGrandchildActive = isHrefActive(grandchild.href);
+                                      return (
+                                        <Link key={grandchild.label} href={grandchild.href}>
+                                          <div className={cn(
+                                            "flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-all text-sm font-medium nav-sub-item",
+                                            isGrandchildActive ? "bg-[#F8FAFC] text-[#0F172A]" : "text-[#64748B] hover:bg-slate-50 hover:text-[#0F172A]"
+                                          )}>
+                                            <grandchild.icon className="w-[18px] h-[18px]" />
+                                            <span>{grandchild.label}</span>
+                                          </div>
+                                        </Link>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              );
+                            }
+
+                            const isChildActive = isHrefActive(child.href);
+                            return child.href ? (
                               <Link key={child.label} href={child.href}>
                                 <div className={cn(
                                   "flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-all text-sm font-medium mb-1 nav-sub-item",
@@ -622,7 +709,7 @@ export function Layout({
                                   <span>{child.label}</span>
                                 </div>
                               </Link>
-                            );
+                            ) : null;
                           })}
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -658,8 +745,41 @@ export function Layout({
                         <CollapsibleContent className="pb-1 transition-all">
                           <div className="ml-5 pl-3 border-l-2 border-slate-100 space-y-1 mt-1 nav-dropdown">
                             {item.children.map((child) => {
-                              const isChildActive = location + window.location.search === child.href || (location === child.href && !child.href.includes("?"));
-                              return (
+                              if (child.children?.length) {
+                                const isNestedActive = child.children.some((grandchild) => isHrefActive(grandchild.href));
+                                return (
+                                  <div key={child.label} className="pt-2 first:pt-0">
+                                    <div className={cn(
+                                      "flex items-center gap-2 px-2.5 pb-1 text-[11px] font-black uppercase tracking-wider",
+                                      isNestedActive ? "text-[#0F172A]" : "text-slate-400"
+                                    )}>
+                                      <child.icon className="w-3.5 h-3.5 shrink-0" />
+                                      <span className="truncate">{child.label}</span>
+                                    </div>
+                                    <div className="space-y-1">
+                                      {child.children.map((grandchild) => {
+                                        const isGrandchildActive = isHrefActive(grandchild.href);
+                                        return (
+                                          <Link key={grandchild.label} href={grandchild.href}>
+                                            <div className={cn(
+                                              "flex items-center gap-3 px-2.5 py-2 rounded-lg text-sm font-semibold transition-all duration-150 cursor-pointer nav-sub-item",
+                                              isGrandchildActive
+                                                ? "bg-[#F8FAFC] text-[#0F172A]"
+                                                : "text-[#64748B] hover:text-[#0F172A] hover:bg-slate-50/50"
+                                            )}>
+                                              <grandchild.icon className={cn("w-[18px] h-[18px] shrink-0", isGrandchildActive ? "text-[#0F172A]" : "text-[#94A3B8]")} />
+                                              <span className="truncate">{grandchild.label}</span>
+                                            </div>
+                                          </Link>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                );
+                              }
+
+                              const isChildActive = isHrefActive(child.href);
+                              return child.href ? (
                                 <Link key={child.label} href={child.href}>
                                   <div className={cn(
                                     "flex items-center gap-3 px-2.5 py-2 rounded-lg text-sm font-semibold transition-all duration-150 cursor-pointer nav-sub-item",
@@ -671,7 +791,7 @@ export function Layout({
                                     <span className="truncate">{child.label}</span>
                                   </div>
                                 </Link>
-                              );
+                              ) : null;
                             })}
                           </div>
                         </CollapsibleContent>

@@ -4,7 +4,6 @@ import {
   Modal,
   ScrollView,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
   FlatList,
@@ -63,6 +62,7 @@ import { useFrequentItems } from "../hooks/useFrequentItems";
 import { Swipeable } from "react-native-gesture-handler";
 import { useProducts, useCreateInvoice, useCustomers, useCompany, useCurrencies, useTaxTypes, useBranches } from "../hooks/usePosData";
 import { apiFetch } from "../lib/api";
+import { DoneTextInput as TextInput } from "../ui/DoneTextInput";
 import { getSelectedBranchId, setSelectedBranchId } from "../lib/storage";
 import { supabase } from "../lib/supabase";
 import { ManagerPinModal } from "../ui/ManagerPinModal";

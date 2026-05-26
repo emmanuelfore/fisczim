@@ -1,6 +1,7 @@
 
 import { Document, Page, Text, View, StyleSheet, Image, Font } from "@react-pdf/renderer";
 import { format } from "date-fns";
+import { getInvoiceTemplate, getStoredInvoiceTemplateSettings, type InvoiceTemplateDesignerSettings } from "@/lib/invoice-templates";
 
 const styles = StyleSheet.create({
     page: {
@@ -205,16 +206,25 @@ interface InvoicePDFProps {
     customer: any;
     qrCodeUrl?: string;
     taxTypes?: any[];
+    templateSettings?: InvoiceTemplateDesignerSettings;
 }
 
-export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes }: InvoicePDFProps) => {
+export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, templateSettings }: InvoicePDFProps) => {
+
+    const designerSettings = templateSettings || getStoredInvoiceTemplateSettings(company?.id || invoice?.companyId);
+    const template = getInvoiceTemplate(designerSettings.defaultTemplateId || company?.invoiceTemplate || invoice.invoiceTemplate);
+    const accentColor = designerSettings.accentColor || company?.primaryColor || template.accent || '#2563eb';
+    const compact = designerSettings.density === 'compact' || template.density === 'compact';
+    const sectionBg = template.surface || '#f8fafc';
+    const borderColor = template.border || '#e5e7eb';
+    const showHeaderQr = qrCodeUrl && designerSettings.qrPlacement !== "footer";
+    const showFooterQr = qrCodeUrl && designerSettings.qrPlacement === "footer";
 
     // Extract Verification Code logic same as frontend
     const verificationCodeRaw = invoice.qrCodeData ? invoice.qrCodeData.slice(-16) : "";
     const verificationCode = verificationCodeRaw.match(/.{1,4}/g)?.join("-") || "";
 
     const isExclusive = !invoice.taxInclusive;
-    const accentColor = company?.primaryColor || '#2563eb';
     const documentTitle = invoice.status === 'quote'
         ? "OFFICIAL QUOTATION"
         : (invoice.transactionType === 'CreditNote'
@@ -227,9 +237,9 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes }: 
 
     return (
         <Document>
-            <Page size="A4" style={styles.page}>
+            <Page size="A4" style={[styles.page, { backgroundColor: template.page, color: template.text, padding: compact ? 18 : 24 }]}>
                 {/* 0. Header: Logo (Left) - Verification (Center) - QR (Right) */}
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#e5e7eb' }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: compact ? 7 : 10, padding: template.headerMode === 'band' ? 10 : 0, paddingBottom: template.headerMode === 'band' ? 10 : 10, borderBottomWidth: 1, borderBottomColor: borderColor, backgroundColor: template.headerMode === 'band' ? template.secondary : 'transparent' }}>
                     {/* Left: Logo */}
                     <View style={{ width: '28%' }}>
                         {company?.logoUrl ? (
@@ -239,6 +249,9 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes }: 
 
                     {/* Center: Verification Text */}
                     <View style={{ width: '44%', alignItems: 'center' }}>
+                        {showHeaderQr && designerSettings.qrPlacement === "header-center" ? (
+                            <Image style={{ width: 62, height: 62, marginBottom: 3 }} src={qrCodeUrl} />
+                        ) : null}
                         {invoice.fiscalCode && invoice.status !== 'quote' ? (
                             <>
                                 <Text style={{ fontSize: 9, fontWeight: 700, color: '#1e293b', marginBottom: 1 }}>
@@ -253,7 +266,7 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes }: 
 
                     {/* Right: QR Code */}
                     <View style={{ width: '28%', alignItems: 'flex-end' }}>
-                        {qrCodeUrl ? (
+                        {showHeaderQr && designerSettings.qrPlacement === "header-right" ? (
                             <Image style={{ width: 68, height: 68 }} src={qrCodeUrl} />
                         ) : invoice.status === 'quote' ? (
                             <View style={{ alignItems: 'flex-end' }}>
@@ -270,7 +283,7 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes }: 
 
                 {/* Title */}
                 <View style={{ alignItems: 'center', marginBottom: 12 }}>
-                    <Text style={{ textAlign: 'center', fontSize: 16, fontWeight: 'bold', textTransform: 'uppercase', color: '#0f172a' }}>
+                    <Text style={{ textAlign: 'center', fontSize: compact ? 14 : 16, fontWeight: 'bold', textTransform: 'uppercase', color: template.text }}>
                         {documentTitle}
                     </Text>
                     <View style={{ width: 60, height: 2, backgroundColor: accentColor, marginTop: 5, marginBottom: 3 }} />
@@ -286,7 +299,7 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes }: 
 
                 {/* 2. Header (Seller & Buyer) */}
                 <View style={styles.columns}>
-                    <View style={styles.column}>
+                    <View style={[styles.column, { borderColor, backgroundColor: sectionBg, borderRadius: template.radius }]}>
                         <View style={{ marginBottom: 10 }}>
                             {/* Logo removed (moved to header) */}
                             <View>
@@ -303,7 +316,7 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes }: 
                             {company?.email ? <Text>Email: {company?.email}</Text> : null}
                         </View>
                     </View>
-                    <View style={styles.column}>
+                    <View style={[styles.column, { borderColor, backgroundColor: sectionBg, borderRadius: template.radius }]}>
                         <Text style={[styles.sectionTitle, { color: accentColor }]}>BUYER</Text>
                         <View style={styles.infoText}>
                             {customer ? (
@@ -324,7 +337,7 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes }: 
                 </View>
 
                 {/* 3. Fiscal Info Grid */}
-                <View style={[styles.fiscalBox, { borderLeftWidth: 3, borderLeftColor: accentColor }]}>
+                <View style={[styles.fiscalBox, { borderLeftWidth: 3, borderLeftColor: accentColor, borderColor, backgroundColor: sectionBg, borderRadius: template.radius }]}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                         <View style={{ width: '48%' }}>
                             <View style={styles.fiscalRow}>
@@ -346,6 +359,12 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes }: 
                                     <Text style={styles.fiscalValue}>{invoice.fiscalDayNo || "N/A"}</Text>
                                 </View>
                             )}
+                            {invoice.poNumber ? (
+                                <View style={styles.fiscalRow}>
+                                    <Text style={styles.fiscalLabel}>PO Number:</Text>
+                                    <Text style={styles.fiscalValue}>{invoice.poNumber}</Text>
+                                </View>
+                            ) : null}
                         </View>
                         <View style={{ width: '48%' }}>
                             <View style={styles.fiscalRow}>
@@ -418,7 +437,7 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes }: 
 
                 {/* 4. Items Table */}
                 <View style={styles.table}>
-                    <View style={styles.tableHeader}>
+                    <View style={[styles.tableHeader, { backgroundColor: accentColor, borderRadius: template.radius }]}>
                         {company?.vatRegistered ? (
                             isExclusive ? (
                                 <>
@@ -488,7 +507,7 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes }: 
                         const isZeroRated = matchingTax?.zimraTaxId == 2 || matchingTax?.zimraTaxId == "2" || matchingTax?.name?.toLowerCase().includes('zero rated') || (!isExempt && taxRate === 0);
 
                         return (
-                            <View key={i} style={[styles.tableRow, i % 2 === 1 ? { backgroundColor: '#fbfdff' } : {}]}>
+                            <View key={i} style={[styles.tableRow, { borderBottomColor: borderColor }, i % 2 === 1 ? { backgroundColor: sectionBg } : {}]}>
                                 {company?.vatRegistered ? (
                                     isExclusive ? (
                                         <>
@@ -542,7 +561,7 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes }: 
                 <View style={styles.summarySection}>
                     {/* Tax Analysis */}
                     {company?.vatRegistered ? (
-                        <View style={styles.taxTable}>
+                        <View style={[styles.taxTable, { borderColor, borderRadius: template.radius }]}>
                             <Text style={[styles.sectionTitle, { marginBottom: 6, color: accentColor }]}>Tax Analysis</Text>
                             <View style={{ flexDirection: 'row', borderBottomWidth: 1, borderColor: '#e2e8f0', paddingBottom: 2 }}>
                                 <Text style={{ fontSize: 8, width: '25%', color: '#64748b' }}>VAT %</Text>
@@ -603,11 +622,11 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes }: 
                             })()}
                         </View>
                     ) : (
-                        <View style={styles.taxTable} />
+                        <View style={[styles.taxTable, { borderColor: 'transparent' }]} />
                     )}
 
                     {/* Totals */}
-                    <View style={styles.totalsBox}>
+                    <View style={[styles.totalsBox, { borderColor, backgroundColor: sectionBg, borderRadius: template.radius }]}>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2, paddingBottom: 2, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
                             <Text style={{ color: '#64748b' }}>Number of Items</Text>
                             <Text style={{ fontWeight: 700, color: '#1e293b' }}>
@@ -645,7 +664,7 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes }: 
 
                 {/* Notes Section */}
                 {invoice.notes ? (
-                    <View style={{ marginTop: 18, padding: 10, borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 6, backgroundColor: '#fbfdff' }}>
+                    <View style={{ marginTop: 18, padding: 10, borderWidth: 1, borderColor, borderRadius: template.radius, backgroundColor: sectionBg }}>
                         <Text style={{ fontSize: 8, fontWeight: 700, color: accentColor, marginBottom: 4, textTransform: 'uppercase' }}>
                             {invoice.transactionType === 'CreditNote' || invoice.transactionType === 'DebitNote' 
                                 ? "REASON" 
@@ -657,7 +676,7 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes }: 
 
                 {/* Banking Details Section (Compact) */}
                 {(company?.bankName || company?.accountNumber) ? (
-                    <View style={{ marginTop: 10, padding: 8, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 6 }}>
+                    <View style={{ marginTop: 10, padding: 8, backgroundColor: sectionBg, borderWidth: 1, borderColor, borderRadius: template.radius }}>
                         <Text style={{ fontSize: 8, fontWeight: 700, color: accentColor, textAlign: 'center', marginBottom: 3 }}>PAYMENT DETAILS</Text>
                         <View style={{ flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap' }}>
                             {company.bankName ? (
@@ -693,6 +712,17 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes }: 
                         <Text style={{ fontSize: 6, color: '#94a3b8', textAlign: 'center', fontStyle: 'italic', marginTop: 2 }}>
                             Please use Invoice Number as payment reference
                         </Text>
+                    </View>
+                ) : null}
+
+                {showFooterQr ? (
+                    <View style={{ marginTop: 12, padding: 9, borderWidth: 1, borderColor, borderRadius: template.radius, backgroundColor: sectionBg, flexDirection: 'row', justifyContent: 'center', alignItems: 'center' }}>
+                        <Image style={{ width: 70, height: 70, marginRight: 12 }} src={qrCodeUrl} />
+                        <View>
+                            <Text style={{ fontSize: 9, fontWeight: 700, color: accentColor, marginBottom: 2 }}>ZIMRA Verification QR</Text>
+                            <Text style={{ fontSize: 7, color: '#64748b' }}>Scan to verify this fiscal document.</Text>
+                            {verificationCode ? <Text style={{ fontSize: 7, color: '#64748b', marginTop: 2 }}>Code: {verificationCode}</Text> : null}
+                        </View>
                     </View>
                 ) : null}
 

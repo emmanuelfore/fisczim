@@ -2,7 +2,7 @@
 import {
   users, companies, customers, products, invoices, invoiceItems, companyUsers,
   type User, type InsertUser, type Company, type InsertCompany,
-  type Customer, type Product, type Invoice, type InvoiceItem,
+  type Customer, type Product, type Invoice, type InvoiceItem, type InsertInvoiceItem,
   type InsertCustomer, type InsertProduct, type CreateInvoiceRequest, type InsertInvoice,
   taxTypes, taxCategories, type TaxType, type TaxCategory, type InsertTaxCategory, type InsertTaxType,
   currencies, type Currency, type InsertCurrency,
@@ -202,7 +202,9 @@ export interface IStorage {
   getInvoicesPaginated(companyId: number, page?: number, limit?: number, search?: string, status?: string, type?: string, dateFrom?: Date, dateTo?: Date, isPos?: boolean, branchId?: number): Promise<{ data: (Invoice & { customer?: Customer; latestError?: { message: string, color: string } })[]; total: number; pages: number }>;
   getInvoices(companyId: number, branchId?: number): Promise<(Invoice & { customer?: Customer })[]>;
   getInvoice(id: number): Promise<(Invoice & { items: (InvoiceItem & { product?: Product })[]; customer?: Customer; validationErrors?: any[]; relatedInvoiceNumber?: string; relatedInvoiceDate?: Date | null; relatedFiscalCode?: string; relatedReceiptGlobalNo?: number; relatedReceiptCounter?: number }) | undefined>;
+  getInvoiceWithItems(id: number): Promise<(Invoice & { items: (InvoiceItem & { product?: Product })[]; customer?: Customer; validationErrors?: any[]; relatedInvoiceNumber?: string; relatedInvoiceDate?: Date | null; relatedFiscalCode?: string; relatedReceiptGlobalNo?: number; relatedReceiptCounter?: number }) | undefined>;
   createInvoice(invoice: CreateInvoiceRequest): Promise<Invoice>;
+  createInvoiceItem(item: InsertInvoiceItem): Promise<InvoiceItem>;
   updateInvoice(id: number, data: Partial<InsertInvoice>): Promise<Invoice>;
   deleteInvoice(id: number): Promise<void>;
   fiscalizeInvoice(id: number, fiscalData: { fiscalCode: string; qrCodeData: string; fiscalSignature?: string; fiscalDayNo?: number; receiptCounter?: number; receiptGlobalNo?: number; syncedWithFdms?: boolean; fdmsStatus?: string; validationStatus?: string; lastValidationAttempt?: Date }): Promise<Invoice>;
@@ -1308,6 +1310,14 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
+  async getInvoiceWithItems(id: number): Promise<(Invoice & { items: (InvoiceItem & { product?: Product })[]; customer?: Customer; validationErrors?: any[]; relatedInvoiceNumber?: string; relatedInvoiceDate?: Date | null; relatedFiscalCode?: string; relatedReceiptGlobalNo?: number; relatedReceiptCounter?: number }) | undefined> {
+    return this.getInvoice(id);
+  }
+
+  async createInvoiceItem(item: InsertInvoiceItem & { invoiceId: number }): Promise<InvoiceItem> {
+    const [created] = await db.insert(invoiceItems).values(item).returning();
+    return created;
+  }
 
   async deleteInvoice(id: number): Promise<void> {
     await db.transaction(async (tx) => {
@@ -3192,7 +3202,7 @@ export class DatabaseStorage implements IStorage {
         eq(invoices.companyId, companyId),
         ne(invoices.status, 'paid'),
         ne(invoices.status, 'cancelled'),
-        eq(invoices.transactionType, 'FiscalInvoice')
+        inArray(invoices.transactionType, ['FiscalInvoice', 'OpeningBalance'])
       ));
     
     const byCustomer = new Map<number, any>();
@@ -6365,6 +6375,8 @@ export class DatabaseStorage implements IStorage {
         { code: "1010", name: "Cash at Bank - USD", type: "ASSET", category: "Current Assets", isSystem: true },
         { code: "1020", name: "Cash at Bank - ZiG", type: "ASSET", category: "Current Assets", isSystem: true },
         { code: "1050", name: "Petty Cash", type: "ASSET", category: "Current Assets", isSystem: true },
+        { code: "1060", name: "Conductor Cash Clearing", type: "ASSET", category: "Current Assets", isSystem: true },
+        { code: "1070", name: "Mobile Money Clearing", type: "ASSET", category: "Current Assets", isSystem: true },
         { code: "1100", name: "Short-term Investments", type: "ASSET", category: "Current Assets", isSystem: true },
         { code: "1200", name: "Trade Receivables", type: "ASSET", category: "Current Assets", isSystem: true },
         { code: "1210", name: "Allowance for Expected Credit Losses", type: "ASSET", category: "Current Assets", isSystem: true },
@@ -6395,8 +6407,10 @@ export class DatabaseStorage implements IStorage {
         // --- INCOME ---
         { code: "4000", name: "Revenue from Contracts with Customers", type: "REVENUE", category: "Revenue", isSystem: true },
         { code: "4100", name: "Service Revenue", type: "REVENUE", category: "Revenue", isSystem: true },
+        { code: "4110", name: "Passenger Transport Revenue", type: "REVENUE", category: "Revenue", isSystem: true },
         { code: "4200", name: "Finance Income", type: "REVENUE", category: "Other Income", isSystem: true },
         { code: "4900", name: "Foreign Exchange Gains", type: "REVENUE", category: "Other Income", isSystem: true },
+        { code: "4920", name: "Cash Overage Income", type: "REVENUE", category: "Other Income", isSystem: true },
 
         // --- EXPENSES ---
         { code: "5000", name: "Cost of Sales", type: "EXPENSE", category: "Cost of Sales", isSystem: true },
@@ -6411,6 +6425,7 @@ export class DatabaseStorage implements IStorage {
         { code: "5180", name: "Depreciation and Amortisation", type: "EXPENSE", category: "Operating Expenses", isSystem: true },
         { code: "5190", name: "Impairment Losses", type: "EXPENSE", category: "Operating Expenses", isSystem: true },
         { code: "5900", name: "Foreign Exchange Losses", type: "EXPENSE", category: "Other Expenses", isSystem: true },
+        { code: "5920", name: "Cash Shortage Expense", type: "EXPENSE", category: "Other Expenses", isSystem: true },
       ];
 
       for (const acc of defaultAccounts) {
@@ -6646,22 +6661,29 @@ export class DatabaseStorage implements IStorage {
       .innerJoin(journalEntries, eq(ledgerEntries.journalEntryId, journalEntries.id))
       .where(and(eq(ledgerEntries.accountId, acc.id), ...entriesFilters));
 
-      let debit = 0;
-      let credit = 0;
+      let debitMovement = 0;
+      let creditMovement = 0;
       entries.forEach(e => {
-        if (e.type === 'DEBIT') debit += Number(e.amount);
-        else credit += Number(e.amount);
+        if (e.type === 'DEBIT') debitMovement += Number(e.amount);
+        else creditMovement += Number(e.amount);
       });
 
-      if (debit !== 0 || credit !== 0) {
+      const signedBalance = debitMovement - creditMovement;
+      const debit = signedBalance > 0 ? signedBalance : 0;
+      const credit = signedBalance < 0 ? Math.abs(signedBalance) : 0;
+
+      if (debitMovement !== 0 || creditMovement !== 0) {
         result.push({
           accountId: acc.id,
           accountCode: acc.code,
           accountName: acc.name,
           accountType: acc.type,
+          accountCategory: acc.category,
           debit,
           credit,
-          balance: debit - credit
+          balance: signedBalance,
+          debitMovement,
+          creditMovement
         });
       }
     }

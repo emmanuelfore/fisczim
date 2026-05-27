@@ -2387,7 +2387,7 @@ export async function registerRoutes(
   app.post("/api/companies/:id/zimra/register", requireAuth, async (req, res) => {
     try {
       const companyId = Number(req.params.id);
-      const { deviceId, activationKey, deviceSerialNo } = req.body;
+      const { deviceId, activationKey, deviceSerialNo, environment: envOverride } = req.body;
 
       if (!deviceId || !activationKey || !deviceSerialNo) {
         return res.status(400).json({ message: "Missing required ZIMRA fields: deviceId, activationKey, deviceSerialNo" });
@@ -2396,10 +2396,17 @@ export async function registerRoutes(
       const company = await storage.getCompany(companyId);
       if (!company) return res.status(404).json({ message: "Company not found" });
 
-      // Determine Base URL based on Company Environment
-      const baseUrl = company.zimraEnvironment === 'production'
+      // Allow environment override from request body; fallback to DB value, then 'test'
+      const resolvedEnv: 'test' | 'production' =
+        (envOverride === 'production' || envOverride === 'test')
+          ? envOverride
+          : ((company.zimraEnvironment as 'test' | 'production') || 'test');
+
+      const baseUrl = resolvedEnv === 'production'
         ? 'https://fdmsapi.zimra.co.zw'
         : 'https://fdmsapitest.zimra.co.zw';
+
+      console.log(`[ZIMRA] Register device ${deviceId} against ${resolvedEnv} environment: ${baseUrl}`);
 
       // Instantiate device just for registration (no keys yet)
       const device = new ZimraDevice({
@@ -2411,13 +2418,14 @@ export async function registerRoutes(
 
       const keys = await device.registerDevice();
 
-      // Save keys and device info to DB
+      // Save keys, device info, and confirmed environment to DB
       await storage.updateCompany(companyId, {
         fdmsDeviceId: deviceId,
         fdmsDeviceSerialNo: deviceSerialNo, // ZIMRA Field [21]
         fdmsApiKey: activationKey,
         zimraPrivateKey: keys.privateKey,
-        zimraCertificate: keys.certificate
+        zimraCertificate: keys.certificate,
+        zimraEnvironment: resolvedEnv  // persist the environment used for registration
       });
 
       // Auto-sync tax configuration
@@ -2458,7 +2466,7 @@ export async function registerRoutes(
   app.post("/api/companies/:id/zimra/verify-taxpayer", requireAuth, async (req, res) => {
     try {
       const companyId = Number(req.params.id);
-      const { deviceId, activationKey, deviceSerialNo } = req.body;
+      const { deviceId, activationKey, deviceSerialNo, environment: envOverride } = req.body;
 
       if (!deviceId || !activationKey || !deviceSerialNo) {
         return res.status(400).json({ message: "Missing required ZIMRA fields: deviceId, activationKey, deviceSerialNo" });
@@ -2467,9 +2475,17 @@ export async function registerRoutes(
       const company = await storage.getCompany(companyId);
       if (!company) return res.status(404).json({ message: "Company not found" });
 
-      const baseUrl = company.zimraEnvironment === 'production'
+      // Allow environment override from request body; fallback to DB value, then 'test'
+      const resolvedEnv: 'test' | 'production' =
+        (envOverride === 'production' || envOverride === 'test')
+          ? envOverride
+          : ((company.zimraEnvironment as 'test' | 'production') || 'test');
+
+      const baseUrl = resolvedEnv === 'production'
         ? 'https://fdmsapi.zimra.co.zw'
         : 'https://fdmsapitest.zimra.co.zw';
+
+      console.log(`[ZIMRA] Verify taxpayer for device ${deviceId} against ${resolvedEnv} environment: ${baseUrl}`);
 
       // Instantiate device with provided credentials (not yet saved)
       const device = new ZimraDevice({
@@ -2480,12 +2496,12 @@ export async function registerRoutes(
       }, getZimraLogger(companyId));
 
       const taxpayerInfo = await device.verifyTaxpayerInformation();
-      res.json(taxpayerInfo);
+      res.json({ ...taxpayerInfo, _environment: resolvedEnv }); // echo back which env was used
 
     } catch (err: any) {
       console.error("Zimra Verification Error:", err);
       if (err instanceof ZimraApiError) {
-        return res.status(err.statusCode).json({ message: err.message, details: err.details });
+        return res.status(err.statusCode).json({ message: err.message, details: err.details, _environment: req.body.environment || 'check-db' });
       }
       res.status(500).json({ message: err.message || "Verification failed" });
     }

@@ -405,6 +405,16 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
                 <AdvancedResetControls company={company} />
               </AccordionContent>
             </AccordionItem>
+            <AccordionItem value="logs" className="border-t border-slate-100">
+              <AccordionTrigger className="px-6 py-4 hover:no-underline bg-slate-50/50 text-slate-700 font-bold text-xs uppercase tracking-widest">
+                <div className="flex items-center gap-3">
+                  <Activity className="w-4 h-4" /> Registration & Activity Logs
+                </div>
+              </AccordionTrigger>
+              <AccordionContent className="p-6 bg-white space-y-4">
+                <RegistrationLogs company={company} />
+              </AccordionContent>
+            </AccordionItem>
           </Accordion>
         </div>
       )}
@@ -491,6 +501,45 @@ function AdvancedResetControls({ company }: { company: any }) {
         <Label className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Chain Validation Hash (Fiscal Hash)</Label>
         <Input value={previousHash} onChange={(e) => setPreviousHash(e.target.value)} placeholder="Leave empty to clear starting state" className="h-10 text-xs font-mono bg-slate-50 border-slate-200" />
       </div>
+    </div>
+  );
+}
+
+function RegistrationLogs({ company }: { company: any }) {
+  const { data: logs = [], isLoading } = useQuery({
+    queryKey: [`/api/companies/${company.id}/zimra/logs`],
+    queryFn: async () => {
+      const res = await apiFetch(`/api/companies/${company.id}/zimra/logs?limit=50`);
+      return res.json();
+    }
+  });
+
+  const registrationLogs = logs.filter((l: any) => 
+    l.endpoint === 'Device Registration' || l.endpoint === 'Verify Taxpayer'
+  );
+
+  if (isLoading) return <div className="p-4 flex justify-center"><Loader2 className="w-6 h-6 animate-spin text-slate-300" /></div>;
+
+  if (registrationLogs.length === 0) return <p className="text-xs text-slate-500 italic p-4 text-center border border-slate-100 rounded-xl bg-slate-50">No registration logs found recently.</p>;
+
+  return (
+    <div className="space-y-3">
+      {registrationLogs.map((log: any) => (
+        <div key={log.id} className="p-3 bg-slate-50 border border-slate-100 rounded-xl text-sm">
+          <div className="flex justify-between items-start mb-2">
+            <Badge variant="outline" className={log.statusCode === 200 ? "bg-green-50 text-green-700 border-green-200" : "bg-red-50 text-red-700 border-red-200"}>
+              {log.endpoint}
+            </Badge>
+            <span className="text-[10px] text-slate-400 font-bold uppercase">{new Date(log.createdAt).toLocaleString()}</span>
+          </div>
+          <div className="text-xs font-mono bg-white p-2 rounded-lg border border-slate-100 overflow-x-auto text-slate-600">
+            <div><strong>Request:</strong> {log.requestPayload?.deviceSerialNo ? `Serial: "${log.requestPayload.deviceSerialNo}"` : JSON.stringify(log.requestPayload).substring(0, 50) + "..."}</div>
+            <div className="mt-1">
+              {log.statusCode === 200 ? <span className="text-green-600 font-bold">Status: SUCCESS</span> : <span className="text-red-600 font-bold">Error: {log.errorMessage || "Failed"}</span>}
+            </div>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

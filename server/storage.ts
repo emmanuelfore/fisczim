@@ -540,11 +540,12 @@ export class DatabaseStorage implements IStorage {
     if (user?.isSuperAdmin) {
       let allCompanies = await db.select().from(companies);
       
-      // Hardcoded restriction: Hide "Goosehill Trading" from other Super Admins
+      // Hardcoded restriction: Hide certain companies from other Super Admins
       if (!isSystemAdmin) {
+        const hiddenNames = ['goosehill trading', 'glorious tire services', 'spares arena'];
         allCompanies = allCompanies.filter(c => 
-          (c.name || "").toLowerCase() !== 'goosehill trading' && 
-          (c.tradingName || "").toLowerCase() !== 'goosehill trading'
+          !hiddenNames.includes((c.name || "").toLowerCase()) && 
+          !hiddenNames.includes((c.tradingName || "").toLowerCase())
         );
       }
 

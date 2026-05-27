@@ -46,6 +46,7 @@ export default function InventoryReportsPage() {
     const companyId = parseInt(localStorage.getItem("selectedCompanyId") || "0");
     const [searchTerm, setSearchTerm] = useState("");
     const { data: products, isLoading } = useStockValuation(companyId);
+    const valuationMethod = products?.find((p: any) => p.valuationMethod)?.valuationMethod || "WAC";
     const [adjustmentSearch, setAdjustmentSearch] = useState("");
     const [adjustmentTypeFilter, setAdjustmentTypeFilter] = useState("all");
     const [adjustmentStartDate, setAdjustmentStartDate] = useState(format(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), "yyyy-MM-dd"));
@@ -75,10 +76,11 @@ export default function InventoryReportsPage() {
     const handleExportCsv = () => {
         if (!products || products.length === 0) return;
 
-        const headers = ["Name", "SKU", "Stock Level", "Unit Cost", "Total Value"];
+        const headers = ["Name", "SKU", "Valuation Method", "Stock Level", "Unit Cost", "Total Value"];
         const rows = products.map((p: any) => [
             p.name,
             p.sku || "-",
+            p.valuationMethod || valuationMethod,
             p.stockLevel,
             p.unitCost,
             p.totalValuation.toFixed(2)
@@ -163,7 +165,7 @@ export default function InventoryReportsPage() {
                 {/* Stats Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                     <SummaryStatCard
-                        label="Total Value (Cost)"
+                        label={`Total Value (${valuationMethod})`}
                         value={`$${totalCostValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
                         icon={DollarSign}
                         tone="emerald"
@@ -274,7 +276,7 @@ export default function InventoryReportsPage() {
                     <CardHeader className="p-8 border-b border-slate-50 flex flex-row items-center justify-between bg-slate-50/30">
                         <div>
                             <CardTitle className="text-xl font-black text-slate-900 font-display uppercase tracking-tight">Full Asset Inventory</CardTitle>
-                            <CardDescription className="text-slate-400 font-medium">Detailed cost-based valuation list</CardDescription>
+                            <CardDescription className="text-slate-400 font-medium">Detailed cost-based valuation list using {valuationMethod}</CardDescription>
                         </div>
                         <div className="relative w-72 group">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 group-hover:text-primary transition-colors duration-200" />
@@ -293,13 +295,14 @@ export default function InventoryReportsPage() {
                                     <TableHead className="p-6 font-bold text-slate-400 uppercase tracking-widest text-[10px]">Product</TableHead>
                                     <TableHead className="p-6 font-bold text-slate-400 uppercase tracking-widest text-[10px] text-right">Quantity</TableHead>
                                     <TableHead className="p-6 font-bold text-slate-400 uppercase tracking-widest text-[10px] text-right">Unit Cost</TableHead>
+                                    <TableHead className="p-6 font-bold text-slate-400 uppercase tracking-widest text-[10px] text-right">Method</TableHead>
                                     <TableHead className="p-6 font-bold text-slate-400 uppercase tracking-widest text-[10px] text-right">Total Valuation</TableHead>
                                     <TableHead className="p-6 font-bold text-slate-400 uppercase tracking-widest text-[10px]">Status</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody className="divide-y divide-slate-50">
                                 {isLoading ? (
-                                    <tr><td colSpan={5} className="p-12 text-center text-slate-400">
+                                    <tr><td colSpan={6} className="p-12 text-center text-slate-400">
                                         <div className="flex flex-col items-center justify-center gap-4">
                                             <div className="w-8 h-8 border-4 border-emerald-400 border-t-transparent rounded-full animate-spin" />
                                             <span className="font-bold text-slate-400 uppercase tracking-widest text-[10px]">Calculating stock assets...</span>
@@ -313,6 +316,7 @@ export default function InventoryReportsPage() {
                                         </TableCell>
                                         <TableCell className="p-6 text-right font-black text-slate-700 font-mono">{p.stockLevel}</TableCell>
                                         <TableCell className="p-6 text-right text-slate-500 font-medium">${Number(p.unitCost).toFixed(2)}</TableCell>
+                                        <TableCell className="p-6 text-right text-slate-500 font-mono text-xs">{p.valuationMethod || valuationMethod}</TableCell>
                                         <TableCell className="p-6 text-right font-black text-slate-900 text-lg font-display">${p.totalValuation.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
                                         <TableCell className="p-6">
                                             {Number(p.stockLevel) <= 0 ? (

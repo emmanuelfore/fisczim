@@ -1,7 +1,7 @@
 import { Layout } from "@/components/layout";
 import { useCustomers, useCreateCustomer } from "@/hooks/use-customers";
 import { useProducts, useCreateProduct } from "@/hooks/use-products";
-import { useCreateInvoice, useInvoice, useUpdateInvoice } from "@/hooks/use-invoices";
+import { useCreateInvoice, useFiscalizeInvoice, useInvoice, useUpdateInvoice } from "@/hooks/use-invoices";
 import { useAuth } from "@/hooks/use-auth";
 import { useCurrencies } from "@/hooks/use-currencies";
 import { useCompany } from "@/hooks/use-companies";
@@ -45,6 +45,7 @@ import { InvoicePDF } from "@/components/invoices/pdf-document";
 import { Eye, Download } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { motion, AnimatePresence } from "framer-motion";
+import { getStoredInvoiceTemplateSettings, invoiceTemplates, type InvoiceTemplateId } from "@/lib/invoice-templates";
 
 type LineItem = {
   localId: string;
@@ -83,6 +84,7 @@ export default function CreateInvoicePage() {
   const { taxTypes } = useTaxConfig(companyId);
   const { toast } = useToast();
   const updateInvoice = useUpdateInvoice();
+  const fiscalizeInvoice = useFiscalizeInvoice();
   const createProduct = useCreateProduct(companyId);
   const { user } = useAuth();
 
@@ -143,6 +145,8 @@ export default function CreateInvoicePage() {
       }
 
       setNotes(existingInvoice.notes || "");
+      setPoNumber((existingInvoice as any).poNumber || "");
+      setInvoiceTemplate((existingInvoice.invoiceTemplate as InvoiceTemplateId) || getStoredInvoiceTemplateSettings(companyId).defaultTemplateId);
       setTaxInclusive(existingInvoice.taxInclusive || false);
       setCurrencyCode(existingInvoice.currency || "USD");
       setExchangeRate(existingInvoice.exchangeRate || "1.000000"); // Ensure we copy exchange rate too
@@ -169,6 +173,8 @@ export default function CreateInvoicePage() {
   const [issueDate, setIssueDate] = useState<string>(new Date().toISOString().split('T')[0]); // Default to today
   const [dueDate, setDueDate] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
+  const [poNumber, setPoNumber] = useState<string>("");
+  const [invoiceTemplate, setInvoiceTemplate] = useState<InvoiceTemplateId>(() => getStoredInvoiceTemplateSettings(companyId).defaultTemplateId);
   const [taxInclusive, setTaxInclusive] = useState<boolean>(false);
 
   // Helper to get default tax rate based on company registration
@@ -252,6 +258,8 @@ export default function CreateInvoicePage() {
         customerId,
         items,
         notes,
+        poNumber,
+        invoiceTemplate,
         currencyCode,
         exchangeRate,
         paymentMethod,
@@ -263,7 +271,7 @@ export default function CreateInvoicePage() {
     }, 1000);
 
     return () => clearTimeout(timer);
-  }, [customerId, items, notes, currencyCode, exchangeRate, paymentMethod, taxInclusive, issueDate, dueDate, isEditing, isDuplicating, companyId]);
+  }, [customerId, items, notes, poNumber, invoiceTemplate, currencyCode, exchangeRate, paymentMethod, taxInclusive, issueDate, dueDate, isEditing, isDuplicating, companyId]);
 
   // Restore State on Mount
   useEffect(() => {
@@ -276,6 +284,8 @@ export default function CreateInvoicePage() {
         if (state.customerId) setCustomerId(state.customerId);
         if (state.items) setItems(state.items);
         if (state.notes) setNotes(state.notes);
+        if (state.poNumber) setPoNumber(state.poNumber);
+        if (state.invoiceTemplate) setInvoiceTemplate(state.invoiceTemplate);
         if (state.currencyCode) setCurrencyCode(state.currencyCode);
         if (state.exchangeRate) setExchangeRate(state.exchangeRate);
         if (state.paymentMethod) setPaymentMethod(state.paymentMethod);
@@ -310,7 +320,7 @@ export default function CreateInvoicePage() {
         let taxRate = company?.vatRegistered ? Number(product.taxRate ?? 15) : 0;
 
         if (company?.vatRegistered && product.taxCategoryId && taxTypes.data) {
-          const category = taxTypes.data.find(t => t.id === product.taxCategoryId);
+          const category = taxTypes.data.find((t: any) => t.id === product.taxCategoryId);
           if (category) {
             taxRate = Number(category.rate);
           }
@@ -413,7 +423,8 @@ export default function CreateInvoicePage() {
 
 
 
-  const [loadingAction, setLoadingAction] = useState<'draft' | 'issue' | 'quote' | null>(null);
+  type InvoiceAction = 'draft' | 'issue' | 'issueAndFiscalize' | 'quote';
+  const [loadingAction, setLoadingAction] = useState<InvoiceAction | null>(null);
 
   const handleSaveDraft = async () => {
     setLoadingAction('draft');
@@ -445,6 +456,8 @@ export default function CreateInvoicePage() {
       issueDate: issueDate ? new Date(issueDate) : new Date(),
       dueDate: new Date(dueDate),
       notes,
+      poNumber: poNumber.trim() || null,
+      invoiceTemplate,
       currency: currencyCode,
       exchangeRate: exchangeRate,
       paymentMethod,
@@ -503,6 +516,8 @@ export default function CreateInvoicePage() {
       issueDate: issueDate ? new Date(issueDate) : new Date(),
       dueDate: dueDate ? new Date(dueDate) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       notes,
+      poNumber: poNumber.trim() || null,
+      invoiceTemplate,
       currency: currencyCode,
       exchangeRate: exchangeRate,
       paymentMethod,
@@ -538,8 +553,8 @@ export default function CreateInvoicePage() {
     }
   };
 
-  const handleIssue = async () => {
-    setLoadingAction('issue');
+  const handleIssue = async (fiscalizeNow = false) => {
+    setLoadingAction(fiscalizeNow ? 'issueAndFiscalize' : 'issue');
     if (!customerId) {
       toast({ title: "Validation Error", description: "Please select a customer.", variant: "destructive" });
       setLoadingAction(null);
@@ -569,6 +584,8 @@ export default function CreateInvoicePage() {
       issueDate: new Date(issueDate),
       dueDate: new Date(dueDate),
       notes,
+      poNumber: poNumber.trim() || null,
+      invoiceTemplate,
       currency: currencyCode,
       exchangeRate: exchangeRate,
       paymentMethod,
@@ -589,15 +606,32 @@ export default function CreateInvoicePage() {
     };
 
     try {
+      let savedInvoice: any;
       if (isEditing && editId) {
-        await updateInvoice.mutateAsync({ id: parseInt(editId), data: invoiceData });
+        savedInvoice = await updateInvoice.mutateAsync({ id: parseInt(editId), data: invoiceData });
       } else {
-        await createInvoice.mutateAsync(invoiceData);
+        savedInvoice = await createInvoice.mutateAsync(invoiceData);
       }
-      toast({ title: "Invoice Issued", description: "Invoice issued successfully." });
-      setLocation("/invoices");
+
+      if (fiscalizeNow) {
+        try {
+          await fiscalizeInvoice.mutateAsync(savedInvoice.id);
+        } catch (fiscalizeError: any) {
+          toast({
+            title: "Invoice Issued, Fiscalization Failed",
+            description: fiscalizeError.message || "Open the invoice to review and retry fiscalization.",
+            variant: "destructive",
+          });
+          setLocation(`/invoices/${savedInvoice.id}`);
+          return;
+        }
+      } else {
+        toast({ title: "Invoice Issued", description: "Invoice issued successfully." });
+      }
+
+      setLocation(`/invoices/${savedInvoice.id}`);
     } catch (error: any) {
-      toast({ title: "Error", description: error.message || "Failed to issue invoice", variant: "destructive" });
+      toast({ title: "Error", description: error.message || (fiscalizeNow ? "Failed to issue and fiscalize invoice" : "Failed to issue invoice"), variant: "destructive" });
     } finally {
       setLoadingAction(null);
     }
@@ -605,9 +639,9 @@ export default function CreateInvoicePage() {
 
   const [validationWarnings, setValidationWarnings] = useState<string[]>([]);
   const [showValidationDialog, setShowValidationDialog] = useState(false);
-  const [pendingAction, setPendingAction] = useState<'draft' | 'issue' | 'quote' | null>(null);
+  const [pendingAction, setPendingAction] = useState<InvoiceAction | null>(null);
 
-  const validateInvoice = (action: 'draft' | 'issue' | 'quote'): string[] => {
+  const validateInvoice = (action: InvoiceAction): string[] => {
     const warnings: string[] = [];
     if (items.some(item => !item.hsCode || item.hsCode.length < 4)) {
       warnings.push("⚠️ Some items are missing valid HS Codes. ZIMRA requires proper classification.");
@@ -618,7 +652,7 @@ export default function CreateInvoicePage() {
     return warnings;
   };
 
-  const handleActionClick = (action: 'draft' | 'issue' | 'quote') => {
+  const handleActionClick = (action: InvoiceAction) => {
     const warnings = validateInvoice(action);
     if (warnings.length > 0) {
       setValidationWarnings(warnings);
@@ -629,9 +663,10 @@ export default function CreateInvoicePage() {
     }
   };
 
-  const executeAction = (action: 'draft' | 'issue' | 'quote') => {
+  const executeAction = (action: InvoiceAction) => {
     if (action === 'draft') handleSaveDraft();
     if (action === 'issue') handleIssue();
+    if (action === 'issueAndFiscalize') handleIssue(true);
     if (action === 'quote') handleSaveQuotation();
     setShowValidationDialog(false);
   };
@@ -719,8 +754,15 @@ export default function CreateInvoicePage() {
               {loadingAction === 'issue' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
               Issue Invoice
             </Button>
-
-
+            <Button
+              onClick={() => handleActionClick('issueAndFiscalize')}
+              disabled={loadingAction !== null || isLockedByOther || !hasFiscalDevice}
+              className="h-9 gap-2 bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 disabled:bg-slate-300"
+              title={!hasFiscalDevice ? "Connect a fiscal device before fiscalizing" : undefined}
+            >
+              {loadingAction === 'issueAndFiscalize' ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+              Issue & Fiscalize
+            </Button>
           </div>
         </div>
 
@@ -831,6 +873,30 @@ export default function CreateInvoicePage() {
                           <SelectItem value="TRANSFER">Bank</SelectItem>
                           <SelectItem value="ECOCASH">Mobile</SelectItem>
                           <SelectItem value="OTHER">Other</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#64748B]">PO Number</Label>
+                      <Input
+                        value={poNumber}
+                        onChange={(e) => setPoNumber(e.target.value)}
+                        placeholder="Optional purchase order no."
+                        className="h-11 rounded-xl bg-white px-3 py-0 font-mono text-sm"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#64748B]">Invoice Template</Label>
+                      <Select value={invoiceTemplate} onValueChange={(value: InvoiceTemplateId) => setInvoiceTemplate(value)}>
+                        <SelectTrigger className="h-11 rounded-xl bg-white px-3 py-0">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {invoiceTemplates.map(template => (
+                            <SelectItem key={template.id} value={template.id}>{template.name}</SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>
@@ -1501,6 +1567,15 @@ export default function CreateInvoicePage() {
                       {loadingAction === 'issue' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                       Review & Issue Invoice
                     </Button>
+                    <Button
+                      className="h-11 rounded-xl gap-2 bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-slate-300"
+                      onClick={() => handleActionClick('issueAndFiscalize')}
+                      disabled={loadingAction !== null || isLockedByOther || !hasFiscalDevice}
+                      title={!hasFiscalDevice ? "Connect a fiscal device before fiscalizing" : undefined}
+                    >
+                      {loadingAction === 'issueAndFiscalize' ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+                      Issue & Fiscalize Now
+                    </Button>
                   </div>
                 </div>
               </aside>
@@ -1632,6 +1707,8 @@ export default function CreateInvoicePage() {
                           currency: currencyCode,
                           taxInclusive,
                           notes,
+                          poNumber: poNumber.trim() || undefined,
+                          invoiceTemplate,
                           currencySymbol: currentSymbol
                         }}
                         company={{ ...company, bankName, accountName, accountNumber, branchCode }}

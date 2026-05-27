@@ -245,6 +245,27 @@ export const api = {
         404: errorSchemas.notFound,
       }
     },
+    bulkAdjustPrice: {
+      method: 'POST' as const,
+      path: '/api/products/bulk-adjust-price',
+      input: z.object({
+        companyId: z.number(),
+        reason: z.string().optional(),
+        effectiveFrom: z.string().optional(),
+        adjustments: z.array(z.object({
+          productId: z.number(),
+          newPrice: z.number().or(z.string()),
+        })),
+      }),
+      responses: {
+        200: z.object({
+          success: z.boolean(),
+          count: z.number(),
+          updatedProducts: z.array(z.custom<typeof products.$inferSelect>()).optional(),
+        }),
+        400: errorSchemas.validation,
+      }
+    },
     priceHistory: {
       method: 'GET' as const,
       path: '/api/products/:id/price-history',
@@ -266,7 +287,7 @@ export const api = {
       method: 'POST' as const,
       path: '/api/companies/:companyId/invoices',
       input: insertInvoiceSchema.omit({ companyId: true }).extend({
-        items: z.array(insertInvoiceItemSchema),
+        items: z.array(insertInvoiceItemSchema).min(1, "At least one invoice line is required"),
         exchangeRate: z.string().optional(), // Explicitly allow if not picked up
       }),
       responses: {
@@ -286,7 +307,7 @@ export const api = {
       method: 'PUT' as const,
       path: '/api/invoices/:id',
       input: insertInvoiceSchema.partial().extend({
-        items: z.array(insertInvoiceItemSchema).optional(),
+        items: z.array(insertInvoiceItemSchema).min(1, "At least one invoice line is required").optional(),
         exchangeRate: z.string().optional(),
       }),
       responses: {
@@ -577,8 +598,11 @@ export const api = {
           productId: z.number(),
           name: z.string(),
           sku: z.string().nullable(),
+          category: z.string().nullable().optional(),
           stockLevel: z.string(),
           unitCost: z.string(),
+          valuationMethod: z.enum(["WAC", "FIFO", "LIFO"]).optional(),
+          totalValue: z.string().optional(),
           totalValuation: z.number()
         }))
       }
@@ -873,7 +897,18 @@ export const api = {
           reconciliations: z.array(insertBusReconciliationSchema)
         }),
         responses: {
-          200: z.object({ success: z.boolean(), synced: z.object({ tickets: z.number(), shifts: z.number(), reconciliations: z.number() }) }),
+          200: z.object({
+            success: z.boolean(),
+            synced: z.object({ tickets: z.number(), shifts: z.number(), reconciliations: z.number() }),
+            skipped: z.object({ tickets: z.number() }).optional(),
+            rejected: z.object({
+              tickets: z.array(z.object({
+                ticketNumber: z.string().optional(),
+                localTicketId: z.string().nullable().optional(),
+                reason: z.string(),
+              })),
+            }).optional(),
+          }),
         }
       }
     }

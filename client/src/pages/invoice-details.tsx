@@ -11,6 +11,7 @@ import { InvoicePDF } from "@/components/invoices/pdf-document";
 import { useCompany } from "@/hooks/use-companies";
 import QRCode from "qrcode";
 import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { PaymentModal } from "@/components/invoices/payment-modal";
 import { EmailInvoiceDialog } from "@/components/invoices/email-invoice-dialog";
 import { pdf } from "@react-pdf/renderer";
@@ -23,6 +24,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Calendar as CalendarIcon } from "lucide-react";
@@ -64,6 +66,15 @@ export default function InvoiceDetailsPage() {
   const { taxTypes } = useTaxConfig(invoice?.companyId || 0);
   const fiscalize = useFiscalizeInvoice();
   const { data: payments } = usePayments(invoiceId);
+  const { data: paymentSummary } = useQuery<any>({
+    queryKey: ["/api/invoices", invoiceId, "payment-summary"],
+    queryFn: async () => {
+      const res = await apiFetch(`/api/invoices/${invoiceId}/payment-summary`);
+      if (!res.ok) throw new Error("Failed to fetch payment summary");
+      return res.json();
+    },
+    enabled: !!invoiceId,
+  });
   const updateInvoice = useUpdateInvoice();
   const createCreditNote = useCreateCreditNote();
   const createDebitNote = useCreateDebitNote();
@@ -81,7 +92,7 @@ export default function InvoiceDetailsPage() {
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
   const [pdfGenerating, setPdfGenerating] = useState(false);
 
-  const totalPaid = payments?.reduce((sum: number, p: any) => sum + Number(p.amount), 0) || 0;
+  const totalPaid = Number(paymentSummary?.allocatedTotal ?? payments?.reduce((sum: number, p: any) => sum + Number(p.amount), 0) ?? 0);
   const balanceDue = Math.max(0, Number(invoice?.total || 0) - totalPaid);
   const isPaid = balanceDue <= 0.01;
 
@@ -173,7 +184,7 @@ export default function InvoiceDetailsPage() {
       <div className="flex gap-4">
 
         {/* ── LEFT: invoice list ── */}
-        <div className="sticky top-[88px] flex h-[calc(100vh-96px)] w-[380px] shrink-0 flex-col overflow-hidden rounded-[14px] border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+        <div className="hidden">
           {/* List header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 shrink-0">
             <span className="text-sm font-black text-slate-800 uppercase tracking-tight">Invoices</span>
@@ -299,7 +310,7 @@ export default function InvoiceDetailsPage() {
         </div>
 
         {/* ── RIGHT: invoice preview ── */}
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[14px] border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+        <div className="flex min-h-[calc(100vh-104px)] min-w-0 flex-1 flex-col overflow-hidden rounded-[14px] border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
           {isLoading ? (
             <div className="flex items-center justify-center h-full"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
           ) : !invoice ? (
@@ -307,7 +318,7 @@ export default function InvoiceDetailsPage() {
           ) : (
             <>
               {/* Toolbar */}
-              <div className="z-10 flex shrink-0 flex-col gap-3 border-b border-slate-200 bg-white px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+              <div className="sticky top-0 z-30 flex shrink-0 flex-col gap-3 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex min-w-0 items-center gap-2">
                   <Button variant="ghost" size="sm" className="h-8 px-2 shrink-0" onClick={() => setLocation("/invoices")}>
                     <ArrowLeft className="w-4 h-4" />
@@ -402,26 +413,145 @@ export default function InvoiceDetailsPage() {
                 </div>
               )}
 
-              {/* PDF viewer — blob URL in plain iframe, page scroll handles everything */}
-              <div className="bg-slate-100">
-                {canPreview ? (
-                  pdfGenerating || !pdfBlobUrl ? (
-                    <div className="flex items-center justify-center h-64 gap-2 text-slate-400">
-                      <Loader2 className="w-5 h-5 animate-spin" /> Generating preview...
-                    </div>
-                  ) : (
-                    <iframe
-                      src={pdfBlobUrl}
-                      title="Invoice Preview"
-                      width="100%"
-                      style={{ height: "1400px", border: "none", display: "block" }}
-                    />
-                  )
-                ) : (
-                  <div className="flex items-center justify-center h-64 gap-2 text-slate-400">
-                    <Loader2 className="w-5 h-5 animate-spin" /> Generating preview...
+              {/* Document workspace */}
+              <div className="min-h-0 flex-1 overflow-hidden bg-slate-100">
+                <div className="grid h-full min-h-[760px] grid-cols-1 xl:grid-cols-[minmax(0,1fr)_300px]">
+                  <div className="min-h-0 overflow-auto px-3 py-4 sm:px-6">
+                    {canPreview ? (
+                      pdfGenerating || !pdfBlobUrl ? (
+                        <div className="flex h-full min-h-64 items-center justify-center gap-2 text-slate-400">
+                          <Loader2 className="w-5 h-5 animate-spin" /> Generating preview...
+                        </div>
+                      ) : (
+                        <div className="mx-auto aspect-[210/297] w-full max-w-[860px] overflow-hidden rounded-sm bg-white shadow-[0_18px_45px_rgba(15,23,42,0.18)] ring-1 ring-slate-200">
+                          <iframe
+                            src={`${pdfBlobUrl}#toolbar=0&navpanes=0&scrollbar=0&view=Fit`}
+                            title="Invoice Preview"
+                            width="100%"
+                            height="100%"
+                            className="h-full w-full"
+                            style={{ border: "none", display: "block" }}
+                          />
+                        </div>
+                      )
+                    ) : (
+                      <div className="flex h-full min-h-64 items-center justify-center gap-2 text-slate-400">
+                        <Loader2 className="w-5 h-5 animate-spin" /> Generating preview...
+                      </div>
+                    )}
                   </div>
-                )}
+
+                  <aside className="min-h-0 overflow-y-auto border-t border-slate-200 bg-white xl:border-l xl:border-t-0">
+                    <div className="space-y-4 p-4">
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Invoice total</p>
+                            <p className="mt-1 truncate text-2xl font-black text-slate-950">{invoice.currency} {Number(invoice.total || 0).toFixed(2)}</p>
+                          </div>
+                          <StatusBadge status={(invoice.fdmsStatus === "failed" || invoice.validationStatus === "red") ? "failed" : invoice.status!} />
+                        </div>
+                        <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
+                          <div className="rounded-lg bg-white p-3 ring-1 ring-slate-200">
+                            <p className="text-[10px] font-bold uppercase text-slate-400">Paid</p>
+                            <p className="mt-1 font-black text-emerald-700">{invoice.currency} {totalPaid.toFixed(2)}</p>
+                          </div>
+                          <div className="rounded-lg bg-white p-3 ring-1 ring-slate-200">
+                            <p className="text-[10px] font-bold uppercase text-slate-400">Balance</p>
+                            <p className={cn("mt-1 font-black", isPaid ? "text-emerald-700" : "text-rose-700")}>{invoice.currency} {balanceDue.toFixed(2)}</p>
+                          </div>
+                        </div>
+                        {!isPaid && ["issued", "fiscalized"].includes(invoice.status || "") && (
+                          <Button className="mt-4 h-9 w-full gap-2 bg-blue-600 text-white hover:bg-blue-700" onClick={() => setShowPaymentModal(true)}>
+                            <CreditCard className="h-4 w-4" /> Record Payment
+                          </Button>
+                        )}
+                      </div>
+
+                      <Tabs defaultValue="details" className="w-full">
+                        <TabsList className="grid h-9 w-full grid-cols-3 rounded-xl bg-slate-100 p-1">
+                          <TabsTrigger value="details" className="rounded-lg text-xs">Details</TabsTrigger>
+                          <TabsTrigger value="payments" className="rounded-lg text-xs">Payments</TabsTrigger>
+                          <TabsTrigger value="zimra" className="rounded-lg text-xs">ZIMRA</TabsTrigger>
+                        </TabsList>
+
+                        <TabsContent value="details" className="mt-3 space-y-3">
+                          <div className="rounded-xl border border-slate-200 p-4">
+                            <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Customer</p>
+                            <p className="mt-2 text-sm font-black text-slate-900">{invoice.customer?.name || "Walk-in Customer"}</p>
+                            <div className="mt-2 space-y-1 text-xs text-slate-500">
+                              {invoice.customer?.tin ? <p>TIN: <span className="font-mono text-slate-700">{invoice.customer.tin}</span></p> : null}
+                              {invoice.customer?.vatNumber ? <p>VAT: <span className="font-mono text-slate-700">{invoice.customer.vatNumber}</span></p> : null}
+                              {invoice.customer?.email ? <p className="truncate">Email: {invoice.customer.email}</p> : null}
+                              {invoice.customer?.phone ? <p>Phone: {invoice.customer.phone}</p> : null}
+                            </div>
+                          </div>
+                          <div className="rounded-xl border border-slate-200 p-4">
+                            <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Document</p>
+                            <div className="mt-3 space-y-2 text-sm">
+                              <div className="flex justify-between gap-4"><span className="text-slate-500">Date</span><span className="font-semibold">{invoice.issueDate ? format(new Date(invoice.issueDate), "dd MMM yyyy") : "-"}</span></div>
+                              <div className="flex justify-between gap-4"><span className="text-slate-500">Due</span><span className="font-semibold">{invoice.dueDate ? format(new Date(invoice.dueDate), "dd MMM yyyy") : "-"}</span></div>
+                              {invoice.poNumber ? <div className="flex justify-between gap-4"><span className="text-slate-500">PO Number</span><span className="font-mono font-semibold">{invoice.poNumber}</span></div> : null}
+                              <div className="flex justify-between gap-4"><span className="text-slate-500">Currency</span><span className="font-semibold">{invoice.currency}</span></div>
+                            </div>
+                          </div>
+                        </TabsContent>
+
+                        <TabsContent value="payments" className="mt-3 space-y-3">
+                          <div className="rounded-xl border border-slate-200 p-4">
+                            <div className="flex items-center justify-between">
+                              <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Receipt history</p>
+                              {!isPaid && ["issued", "fiscalized"].includes(invoice.status || "") && (
+                                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setShowPaymentModal(true)}>
+                                  Add
+                                </Button>
+                              )}
+                            </div>
+                            <div className="mt-3 space-y-2">
+                              {paymentSummary?.receiptHistory?.length ? paymentSummary.receiptHistory.map((payment: any) => (
+                                <div key={`${payment.paymentId}-${payment.allocationId}`} className="rounded-lg border border-slate-100 bg-slate-50 p-3">
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <p className="text-xs font-bold text-slate-900">{payment.paymentMethod || "Payment"}</p>
+                                      <p className="mt-0.5 text-[11px] text-slate-500">{payment.paymentDate ? format(new Date(payment.paymentDate), "dd MMM yyyy") : "-"}{payment.reference ? ` | ${payment.reference}` : ""}</p>
+                                    </div>
+                                    <p className="shrink-0 text-sm font-black text-emerald-700">{invoice.currency} {Number(payment.allocatedToThisInvoice || 0).toFixed(2)}</p>
+                                  </div>
+                                  {Number(payment.unallocatedAmount || 0) > 0 && (
+                                    <p className="mt-2 text-[11px] font-semibold text-amber-700">Unallocated: {invoice.currency} {Number(payment.unallocatedAmount || 0).toFixed(2)}</p>
+                                  )}
+                                </div>
+                              )) : (
+                                <div className="rounded-lg border border-dashed border-slate-200 p-4 text-center text-xs text-slate-400">No receipts allocated to this invoice yet.</div>
+                              )}
+                            </div>
+                          </div>
+                        </TabsContent>
+
+                        <TabsContent value="zimra" className="mt-3 space-y-3">
+                          <div className="rounded-xl border border-slate-200 p-4">
+                            <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Fiscal status</p>
+                            <div className="mt-3 space-y-2 text-sm">
+                              <div className="flex justify-between gap-4"><span className="text-slate-500">FDMS</span><span className="font-semibold">{invoice.fdmsStatus || "Pending"}</span></div>
+                              <div className="flex justify-between gap-4"><span className="text-slate-500">Fiscal Day</span><span className="font-semibold">{invoice.fiscalDayNo || "N/A"}</span></div>
+                              <div className="flex justify-between gap-4"><span className="text-slate-500">Receipt</span><span className="font-semibold">{invoice.receiptCounter || "N/A"}</span></div>
+                              <div className="flex justify-between gap-4"><span className="text-slate-500">Global No</span><span className="font-semibold">{invoice.receiptGlobalNo || "N/A"}</span></div>
+                            </div>
+                          </div>
+                          {(invoice as any)?.validationErrors?.length > 0 ? (
+                            <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-xs text-red-700">
+                              {(invoice as any).validationErrors.length} validation issue(s) need review.
+                            </div>
+                          ) : (
+                            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs font-semibold text-emerald-700">
+                              No validation errors recorded.
+                            </div>
+                          )}
+                        </TabsContent>
+                      </Tabs>
+                    </div>
+                  </aside>
+                </div>
               </div>
             </>
           )}

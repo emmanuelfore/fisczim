@@ -13,6 +13,7 @@ import Dashboard from "@/pages/dashboard";
 import InvoicesPage from "@/pages/invoices";
 import CreateInvoicePage from "@/pages/create-invoice";
 import InvoiceDetailsPage from "@/pages/invoice-details";
+import InvoiceTemplateDesignerPage from "@/pages/invoice-template-designer";
 import CustomersPage from "@/pages/customers";
 import CustomerDetailsPage from "@/pages/customer-details";
 import SuppliersPage from "@/pages/suppliers";
@@ -20,9 +21,13 @@ import ExpensesPage from "@/pages/expenses";
 import InventoryTransactionsPage from "@/pages/inventory-transactions";
 import InventoryAdjustmentsPage from "@/pages/inventory-adjustments";
 import InventoryStockCountsPage from "@/pages/inventory-stock-counts";
+import ProductionPage from "@/pages/production";
 import InventoryAccountPage from "@/pages/inventory-account";
+import PurchaseOrdersPage from "@/pages/purchase-orders";
 import GrvDetailsPage from "@/pages/grv-details";
 import ProductsPage from "@/pages/products";
+import BulkPriceAdjustmentPage from "@/pages/bulk-price-adjustment";
+import AutoSparesPage from "@/pages/auto-spares";
 import ServicesPage from "@/pages/services";
 import TaxConfigPage from "@/pages/tax-config";
 import SettingsPage from "@/pages/settings";
@@ -59,6 +64,9 @@ import CustomerStatementsPage from "@/pages/customer-statements";
 import CashCollectionReportPage from "@/pages/cash-collection-report-page";
 import BusFleetPage from "@/pages/bus-fleet";
 import BusTripsPage from "@/pages/bus-trips";
+import BusConductorsPage from "@/pages/bus-conductors";
+import BusReportsPage from "@/pages/bus-reports";
+import BusDashboardPage from "@/pages/bus-dashboard";
 import AccountingCOAPage from "@/pages/accounting-coa";
 import AccountingJournalPage from "@/pages/accounting-journal";
 import TrialBalancePage from "@/pages/accounting-trial-balance";
@@ -74,6 +82,10 @@ import BankReconciliationPage from "@/pages/bank-reconciliation";
 import AccountLedgerPage from "@/pages/account-drilled-ledger";
 import DebtorAnalysisPage from "@/pages/debtor-analysis";
 import CreditorAnalysisPage from "@/pages/creditor-analysis";
+import OpeningBalancesPage from "@/pages/opening-balances";
+import AccountingAuditTrailPage from "@/pages/accounting-audit-trail";
+import AllocationWorkbenchPage from "@/pages/allocation-workbench";
+import AccountingDashboardPage from "@/pages/accounting-dashboard";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
 import { useCompanies } from "@/hooks/use-companies";
@@ -206,11 +218,14 @@ function Router() {
       <Route path="/dashboard">{() => <ProtectedRoute component={Dashboard} />}</Route>
       <Route path="/invoices">{() => <ProtectedRoute component={InvoicesPage} />}</Route>
       <Route path="/invoices/new">{() => <ProtectedRoute component={CreateInvoicePage} />}</Route>
+      <Route path="/invoice-templates">{() => <ProtectedRoute component={InvoiceTemplateDesignerPage} />}</Route>
       <Route path="/invoices/:id">{() => <ProtectedRoute component={InvoiceDetailsPage} />}</Route>
       <Route path="/customers">{() => <ProtectedRoute component={CustomersPage} />}</Route>
       <Route path="/customers/:id">{() => <ProtectedRoute component={CustomerDetailsPage} />}</Route>
       <Route path="/suppliers">{() => <ProtectedRoute component={SuppliersPage} />}</Route>
       <Route path="/expenses">{() => <ProtectedRoute component={ExpensesPage} />}</Route>
+      <Route path="/inventory/production">{() => <ProtectedRoute component={ProductionPage} />}</Route>
+      <Route path="/inventory/purchase-orders">{() => <ProtectedRoute component={PurchaseOrdersPage} />}</Route>
       <Route path="/inventory">{() => <ProtectedRoute component={InventoryTransactionsPage} />}</Route>
       <Route path="/inventory/adjustments">{() => <ProtectedRoute component={InventoryAdjustmentsPage} />}</Route>
       <Route path="/inventory/stock-counts">{() => <ProtectedRoute component={InventoryStockCountsPage} />}</Route>
@@ -221,7 +236,9 @@ function Router() {
       <Route path="/reports/inventory">{() => <ProtectedRoute component={InventoryReportsPage} />}</Route>
       <Route path="/reports/financial">{() => <ProtectedRoute component={FinancialReportsPage} />}</Route>
       <Route path="/reports/daily">{() => <ProtectedRoute component={DailySalesLedgerPage} />}</Route>
+      <Route path="/products/bulk-adjust">{() => <ProtectedRoute component={BulkPriceAdjustmentPage} />}</Route>
       <Route path="/products">{() => <ProtectedRoute component={ProductsPage} />}</Route>
+      <Route path="/auto-spares">{() => <ProtectedRoute component={AutoSparesPage} />}</Route>
       <Route path="/services">{() => <ProtectedRoute component={ServicesPage} />}</Route>
       <Route path="/tax-config">{() => <ProtectedRoute component={TaxConfigPage} />}</Route>
       <Route path="/settings">{() => <ProtectedRoute component={SettingsPage} />}</Route>
@@ -251,14 +268,26 @@ function Router() {
       <Route path="/pos">{() => <ProtectedRoute component={POSPage} />}</Route>
       <Route path="/pos-settings">{() => <Redirect to="/settings?tab=pos" />}</Route>
       <Route path="/bus/fleet">{() => <ProtectedRoute component={BusFleetPage} />}</Route>
+      <Route path="/bus/dashboard">{() => <ProtectedRoute component={BusDashboardPage} />}</Route>
       <Route path="/bus/trips">{() => <ProtectedRoute component={BusTripsPage} />}</Route>
+      <Route path="/bus/conductors">{() => <ProtectedRoute component={BusConductorsPage} />}</Route>
+      <Route path="/bus/reports">{() => <ProtectedRoute component={BusReportsPage} />}</Route>
       <Route path="/restaurant/kds">{() => <ProtectedRoute component={KDSPage} />}</Route>
       <Route path="/restaurant/orders">{() => <ProtectedRoute component={LiveOrdersPage} />}</Route>
       <Route path="/order-status" component={OrderStatusPage} />
       <Route path="/accounting/coa">{() => <ProtectedRoute component={AccountingCOAPage} />}</Route>
+      <Route path="/accounting/dashboard">{() => <ProtectedRoute component={AccountingDashboardPage} />}</Route>
+      <Route path="/accounting/opening-balances">{() => <ProtectedRoute component={OpeningBalancesPage} />}</Route>
       <Route path="/accounting/journal">{() => <ProtectedRoute component={AccountingJournalPage} />}</Route>
+      <Route path="/accounting/audit-trail">{() => <ProtectedRoute component={AccountingAuditTrailPage} />}</Route>
+      <Route path="/accounting/allocations">{() => <ProtectedRoute component={AllocationWorkbenchPage} />}</Route>
       <Route path="/accounting/reports/trial-balance">{() => <ProtectedRoute component={TrialBalancePage} />}</Route>
       <Route path="/accounting/reports/ledger">{() => <ProtectedRoute component={GeneralLedgerPage} />}</Route>
+      <Route path="/accounting/reports/financial">{() => <ProtectedRoute component={FinancialReportsPage} />}</Route>
+      <Route path="/accounting/reports/balance-sheet">{() => <ProtectedRoute component={FinancialReportsPage} />}</Route>
+      <Route path="/accounting/reports/cash-flow">{() => <ProtectedRoute component={FinancialReportsPage} />}</Route>
+      <Route path="/accounting/accounts-receivable">{() => <ProtectedRoute component={AgingReportsPage} />}</Route>
+      <Route path="/accounting/accounts-payable">{() => <ProtectedRoute component={AgingReportsPage} />}</Route>
       <Route path="/accounting/reports/aging">{() => <ProtectedRoute component={AgingReportsPage} />}</Route>
       <Route path="/accounting/reports/cost-centers">{() => <ProtectedRoute component={CostCentersPage} />}</Route>
       <Route path="/accounting/reports/vat-return">{() => <ProtectedRoute component={VatReturnPage} />}</Route>

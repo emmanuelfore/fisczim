@@ -27,11 +27,15 @@ import sageOAuthRouter from "./lib/sage-oauth.js";
 import v1Router from "./api/v1/index.js";
 import busTicketingRouter from "./api/v1/bus-ticketing.js";
 import { db } from "./db";
-import { eq, and, gte, lte, ne, desc, asc, sql, or, ilike, isNull } from "drizzle-orm";
+import { eq, and, gte, lte, ne, desc, asc, sql, or, ilike, isNull, inArray } from "drizzle-orm";
 import { format } from "date-fns";
 import {
   invoices,
   invoiceItems,
+  accounts,
+  journalEntries,
+  ledgerEntries,
+  paymentAllocations,
   validationErrors,
   payments,
   posShifts,
@@ -42,9 +46,21 @@ import {
   customers,
   currencies,
   products,
+  branches,
   branchStocks,
   inventoryTransactions,
+  goodsDeliveryNotes,
+  goodsDeliveryNoteItems,
+  purchaseOrders,
+  purchaseOrderItems,
   suppliers,
+  supplierInvoices,
+  supplierInvoiceItems,
+  supplierPayments,
+  supplierPaymentAllocations,
+  financialPeriods,
+  bankStatements,
+  bankStatementLines,
   expenses,
   zimraLogs,
   auditLogs,
@@ -56,6 +72,8 @@ import {
   insertPosHoldSchema,
   insertProductCategorySchema,
   insertSupplierSchema,
+  insertPurchaseOrderSchema,
+  insertPurchaseOrderItemSchema,
   insertSupplierInvoiceSchema,
   insertSupplierPaymentSchema,
   insertExpenseSchema,
@@ -71,6 +89,11 @@ import {
   type BranchStock,
   priceAdjustments,
   insertPriceAdjustmentSchema,
+  insertProductSerialNumberSchema,
+  insertWarrantyClaimSchema,
+  insertLaybySchema,
+  insertLaybyItemSchema,
+  insertLaybyPaymentSchema,
 } from "@shared/schema";
 import { paynowService } from "./paynow.js";
 
@@ -165,19 +188,23 @@ export async function registerRoutes(
 
   const findDuplicatePosInvoice = async (input: any, companyId: number, userId: string, shiftId?: number | null, branchId?: number | null) => {
     if (!input.isPos || !input.issueDate || !input.items?.length) return null;
+    const issueDate = input.issueDate instanceof Date ? input.issueDate : new Date(input.issueDate);
+    const windowStart = new Date(issueDate.getTime() - 10 * 1000);
+    const windowEnd = new Date(issueDate.getTime() + 10 * 1000);
 
     const conditions = [
       eq(invoices.companyId, companyId),
       eq(invoices.isPos, true),
-      eq(invoices.status, "paid"),
+      or(eq(invoices.status, "paid"), eq(invoices.status, "issued")),
       eq(invoices.transactionType, input.transactionType || "FiscalInvoice"),
       eq(invoices.createdBy, userId),
-      eq(invoices.issueDate, input.issueDate),
+      gte(invoices.issueDate, windowStart),
+      lte(invoices.issueDate, windowEnd),
       eq(invoices.total, String(input.total)),
+      eq(invoices.paymentMethod, input.paymentMethod || "CASH"),
       input.customerId ? eq(invoices.customerId, input.customerId) : isNull(invoices.customerId),
       shiftId ? eq(invoices.shiftId, shiftId) : isNull(invoices.shiftId),
       branchId ? eq(invoices.branchId, branchId) : isNull(invoices.branchId),
-      input.notes ? eq(invoices.notes, input.notes) : isNull(invoices.notes),
     ];
 
     const candidates = await db
@@ -201,6 +228,25 @@ export async function registerRoutes(
     }
 
     return null;
+  };
+
+  const findOfflineSyncShift = async (companyId: number, userId: string, issueDate: Date, branchId?: number | null) => {
+    const conditions: any[] = [
+      eq(posShifts.companyId, companyId),
+      eq(posShifts.userId, userId),
+      lte(posShifts.startTime, issueDate),
+      or(isNull(posShifts.endTime), gte(posShifts.endTime, issueDate)),
+    ];
+    if (branchId) conditions.push(eq(posShifts.branchId, branchId));
+
+    const [shift] = await db
+      .select()
+      .from(posShifts)
+      .where(and(...conditions))
+      .orderBy(desc(posShifts.startTime))
+      .limit(1);
+
+    return shift || null;
   };
 
   const buildShiftSummary = async (shiftId: number) => {
@@ -516,13 +562,13 @@ export async function registerRoutes(
   // Logo Upload Configuration (Supabase Storage)
   const logoUpload = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: 2 * 1024 * 1024 }, // 2MB limit
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
     fileFilter: (_req, file, cb) => {
-      const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+      const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'];
       if (allowedTypes.includes(file.mimetype)) {
         cb(null, true);
       } else {
-        cb(new Error("Invalid file type. Only JPEG, PNG and WebP are allowed."));
+        cb(new Error("Invalid file type. Only JPEG, PNG, WebP and SVG are allowed."));
       }
     }
   });
@@ -875,6 +921,12 @@ export async function registerRoutes(
           const categoryHeader = findHeader(row, ['Category', 'Cat', 'Product Category', 'Group']);
           const trackHeader = findHeader(row, ['Track Inventory', 'Track', 'Inventory Tracking']);
           const costCenterHeader = findHeader(row, ['Cost Center', 'Cost Centre', 'Owner Group', 'Owner']);
+          const brandHeader = findHeader(row, ['Brand', 'Brand Name']);
+          const oemPartHeader = findHeader(row, ['OEM Part No', 'OEM Part Number', 'OEM', 'Original Part Number']);
+          const supplierPartHeader = findHeader(row, ['Supplier Part No', 'Supplier Part Number', 'Supplier Code']);
+          const fitmentHeader = findHeader(row, ['Vehicle Fitment', 'Fitment', 'Compatible Vehicles', 'Vehicle Compatibility']);
+          const serialTrackingHeader = findHeader(row, ['Serial Tracking', 'Track Serial', 'Serial Number Tracking']);
+          const warrantyHeader = findHeader(row, ['Warranty Months', 'Warranty']);
 
           const name = nameHeader ? (row as any)[nameHeader] : null;
           if (!name) throw new Error("Missing 'Name' column");
@@ -885,6 +937,9 @@ export async function registerRoutes(
           // Parse Track Inventory: "Yes", "True", "1" -> true
           const trackValue = trackHeader ? (row as any)[trackHeader].toString().toLowerCase() : "";
           const isTracked = ["yes", "true", "1", "on"].includes(trackValue);
+          const serialTrackingValue = serialTrackingHeader ? (row as any)[serialTrackingHeader]?.toString().toLowerCase() : "";
+          const serialTrackingEnabled = ["yes", "true", "1", "on"].includes(serialTrackingValue);
+          const warrantyMonths = warrantyHeader ? Math.max(0, Math.round(cleanNum((row as any)[warrantyHeader]))) : 0;
 
           // Resolve Tax Type ID and Rate
           let taxTypeId: number | undefined;
@@ -936,6 +991,13 @@ export async function registerRoutes(
             hsCode: hsHeader ? (row as any)[hsHeader] : "0000.00.00",
             category: categoryName || "General",
             ownerGroup: ownerGroupValue.length > 0 ? ownerGroupValue : null,
+            brandName: brandHeader ? (row as any)[brandHeader]?.toString() : undefined,
+            oemPartNumber: oemPartHeader ? (row as any)[oemPartHeader]?.toString() : undefined,
+            supplierPartNumber: supplierPartHeader ? (row as any)[supplierPartHeader]?.toString() : undefined,
+            fitmentNotes: fitmentHeader ? (row as any)[fitmentHeader]?.toString() : undefined,
+            serialTrackingEnabled,
+            warrantyTrackingEnabled: warrantyMonths > 0,
+            warrantyMonths,
             isActive: true,
             stockLevel: stockHeader ? cleanNum((row as any)[stockHeader]).toString() : "0.00",
             isTracked: trackHeader ? isTracked : (!!stockHeader && type === 'good')
@@ -1004,12 +1066,18 @@ export async function registerRoutes(
       const products = await storage.getProductsForExport(companyId);
 
       // Construct CSV
-      const headers = ["Name", "Description", "SKU", "Barcode", "Price", "Cost Price", "Tax Rate", "Tax Type", "Type", "Stock", "HS Code", "Category", "Track Inventory"];
+      const headers = ["Name", "Description", "SKU", "Barcode", "Brand", "OEM Part No", "Supplier Part No", "Vehicle Fitment", "Serial Tracking", "Warranty Months", "Price", "Cost Price", "Tax Rate", "Tax Type", "Type", "Stock", "HS Code", "Category", "Track Inventory"];
       const rows = products.map(p => [
         p.name,
         p.description || "",
         p.sku || "",
         p.barcode || "",
+        p.brandName || "",
+        p.oemPartNumber || "",
+        p.supplierPartNumber || "",
+        p.fitmentNotes || "",
+        p.serialTrackingEnabled ? "Yes" : "No",
+        p.warrantyMonths || 0,
         p.price,
         p.costPrice || "0.00",
         p.taxRate,
@@ -1094,13 +1162,15 @@ export async function registerRoutes(
 
       console.log(`[MAINTENANCE] Data cleared successfully for company ${companyId}`);
       
-      await logAction({
+      await logAction(
         companyId,
-        userId: (req.user as any).id,
-        action: "DATA_CLEAR",
-        details: { message: "Owner cleared all sales and transaction data" },
-        ipAddress: req.ip
-      });
+        (req.user as any).id,
+        "DATA_CLEAR",
+        "MAINTENANCE",
+        undefined,
+        { message: "Owner cleared all sales and transaction data" },
+        req.ip
+      );
 
       res.json({ message: "All sales and transaction data have been cleared successfully." });
     } catch (error: any) {
@@ -1250,10 +1320,11 @@ export async function registerRoutes(
     const updatedCompany = await storage.updateCompany(companyId, { apiKey });
     // Log the action for security audit
     await logAction(
-      req.user!.id,
       companyId,
+      req.user!.id,
       "UPDATE_COMPANY_SETTINGS",
       "Using Settings",
+      undefined,
       { action: "generated_api_key" }
     );
 
@@ -1401,7 +1472,7 @@ export async function registerRoutes(
     if (isNaN(branchId)) return res.status(400).json({ message: "Invalid branch ID" });
     const { productId, quantity, type } = req.body;
     try {
-      const result = await storage.updateBranchStock(branchId, productId, quantity.toString(), type);
+      const result = await storage.updateBranchStock(branchId, Number(productId), quantity.toString());
       res.json(result);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -1501,11 +1572,11 @@ export async function registerRoutes(
 
       // Log action
       await logAction(
-        req.user!.id,
         companyId,
+        req.user!.id,
         "UPDATE_USER_PIN",
         "User Management",
-        { targetUserId: userId }
+        userId
       );
 
       res.json({ message: "PIN updated successfully" });
@@ -1965,6 +2036,77 @@ export async function registerRoutes(
     }
   });
 
+  app.post(api.products.bulkAdjustPrice.path, requireAuth, async (req, res) => {
+    try {
+      const { companyId, reason, effectiveFrom, adjustments } = api.products.bulkAdjustPrice.input.parse(req.body);
+
+      if (!adjustments || adjustments.length === 0) {
+        return res.status(400).json({ message: "No adjustments provided" });
+      }
+
+      const normalizedAdjustments = adjustments.map((adjustment) => {
+        const newPrice = Number(adjustment.newPrice);
+        if (!Number.isFinite(newPrice) || newPrice < 0) {
+          throw Object.assign(new Error(`Invalid price for product ${adjustment.productId}`), { statusCode: 400 });
+        }
+
+        return {
+          productId: adjustment.productId,
+          newPrice: newPrice.toFixed(2),
+        };
+      });
+
+      const productIds = Array.from(new Set(normalizedAdjustments.map(a => a.productId)));
+      const updatedProducts: Array<typeof products.$inferSelect> = [];
+
+      // Perform transaction
+      await db.transaction(async (tx) => {
+        // Fetch all current products
+        const existingProducts = await tx
+          .select()
+          .from(products)
+          .where(and(eq(products.companyId, companyId), inArray(products.id, productIds)));
+
+        const productMap = new Map(existingProducts.map(p => [p.id, p]));
+
+        for (const adj of normalizedAdjustments) {
+          const product = productMap.get(adj.productId);
+          if (!product) {
+            throw Object.assign(new Error(`Product with ID ${adj.productId} not found or does not belong to this company`), { statusCode: 404 });
+          }
+
+          // Record adjustment history
+          await tx.insert(priceAdjustments).values({
+            companyId,
+            productId: adj.productId,
+            oldPrice: product.price.toString(),
+            newPrice: adj.newPrice,
+            reason: reason || "Bulk Price Update",
+            effectiveFrom: effectiveFrom ? new Date(effectiveFrom) : new Date(),
+            createdBy: (req.user as any).id
+          });
+
+          // Update product price
+          const [updatedProduct] = await tx
+            .update(products)
+            .set({ price: adj.newPrice })
+            .where(and(eq(products.id, adj.productId), eq(products.companyId, companyId)))
+            .returning();
+
+          if (!updatedProduct) {
+            throw Object.assign(new Error(`Product with ID ${adj.productId} was not updated`), { statusCode: 500 });
+          }
+
+          updatedProducts.push(updatedProduct);
+        }
+      });
+
+      res.json({ success: true, count: updatedProducts.length, updatedProducts });
+    } catch (error: any) {
+      res.status(error.statusCode || 500).json({ message: error.message });
+    }
+  });
+
   // --- INVENTORY ADJUSTMENTS ---
   app.post(api.inventory.adjust.path, requireAuth, async (req, res) => {
     try {
@@ -2186,6 +2328,156 @@ export async function registerRoutes(
     }
   });
 
+  const productionLineSchema = z.object({
+    productId: z.number().int().positive(),
+    quantity: z.union([z.string(), z.number()]).transform((value) => Number(value)),
+  });
+
+  const productionPostSchema = z.object({
+    branchId: z.number().int().positive().optional().nullable(),
+    reference: z.string().trim().optional().nullable(),
+    notes: z.string().trim().optional().nullable(),
+    inputs: z.array(productionLineSchema).min(1),
+    outputs: z.array(productionLineSchema).min(1),
+  });
+
+  app.post("/api/companies/:companyId/production-runs", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const parsed = productionPostSchema.parse(req.body);
+      const branchId = parsed.branchId || getBranchId(req);
+      const referenceId = parsed.reference?.trim() || `PROD-${Date.now()}`;
+      const notes = parsed.notes?.trim() || "Production run";
+      const aggregateLines = (lines: Array<{ productId: number; quantity: number }>) =>
+        Array.from(
+          lines.reduce((acc, line) => {
+            acc.set(line.productId, (acc.get(line.productId) || 0) + line.quantity);
+            return acc;
+          }, new Map<number, number>()),
+          ([productId, quantity]) => ({ productId, quantity }),
+        );
+      const inputLines = aggregateLines(parsed.inputs);
+      const outputLines = aggregateLines(parsed.outputs);
+
+      const allLines = [...inputLines, ...outputLines];
+      if (allLines.some((line) => !Number.isFinite(line.quantity) || line.quantity <= 0)) {
+        return res.status(400).json({ message: "Production quantities must be greater than zero." });
+      }
+
+      const productIds = Array.from(new Set(allLines.map((line) => line.productId)));
+      const productRows = await db
+        .select()
+        .from(products)
+        .where(and(eq(products.companyId, companyId), inArray(products.id, productIds)));
+      const productMap = new Map(productRows.map((product) => [product.id, product]));
+
+      if (productMap.size !== productIds.length) {
+        return res.status(404).json({ message: "One or more production products were not found." });
+      }
+
+      const branchStockRows = branchId
+        ? await db.select().from(branchStocks).where(eq(branchStocks.branchId, branchId))
+        : [];
+      const branchStockMap = new Map(branchStockRows.map((stock) => [stock.productId, stock]));
+
+      const getAvailableStock = (productId: number) => {
+        if (branchId) return Number(branchStockMap.get(productId)?.stockLevel || 0);
+        return Number(productMap.get(productId)?.stockLevel || 0);
+      };
+
+      const insufficient = inputLines
+        .map((line) => ({
+          ...line,
+          product: productMap.get(line.productId),
+          available: getAvailableStock(line.productId),
+        }))
+        .filter((line) => line.quantity > line.available);
+
+      if (insufficient.length > 0) {
+        return res.status(400).json({
+          message: `Insufficient input stock for ${insufficient[0].product?.name || "selected product"}. Available: ${insufficient[0].available}`,
+        });
+      }
+
+      await db.transaction(async (tx) => {
+        const updateStock = async (productId: number, delta: number) => {
+          const product = productMap.get(productId)!;
+          const currentGlobal = Number(product.stockLevel || 0);
+          const nextGlobal = currentGlobal + delta;
+          await tx
+            .update(products)
+            .set({ stockLevel: nextGlobal.toString() })
+            .where(eq(products.id, productId));
+          productMap.set(productId, { ...product, stockLevel: nextGlobal.toString() });
+
+          if (branchId) {
+            const currentBranchStock = branchStockMap.get(productId);
+            const currentBranch = Number(currentBranchStock?.stockLevel || 0);
+            const nextBranch = currentBranch + delta;
+            await tx
+              .insert(branchStocks)
+              .values({
+                branchId,
+                productId,
+                stockLevel: nextBranch.toString(),
+              })
+              .onConflictDoUpdate({
+                target: [branchStocks.branchId, branchStocks.productId],
+                set: { stockLevel: nextBranch.toString() },
+              });
+            branchStockMap.set(productId, {
+              ...(currentBranchStock || { id: 0, branchId, productId, lowStockThreshold: "10" }),
+              stockLevel: nextBranch.toString(),
+            } as any);
+          }
+        };
+
+        for (const line of inputLines) {
+          const product = productMap.get(line.productId)!;
+          const unitCost = Number(product.costPrice || 0);
+          await updateStock(line.productId, -line.quantity);
+          await tx.insert(inventoryTransactions).values({
+            companyId,
+            branchId: branchId || null,
+            productId: line.productId,
+            type: "PRODUCTION_OUT",
+            quantity: (-line.quantity).toString(),
+            unitCost: unitCost.toString(),
+            totalCost: (-line.quantity * unitCost).toString(),
+            referenceType: "PRODUCTION",
+            referenceId,
+            notes: `${notes} - input consumed`,
+            createdBy: (req.user as any).id,
+          });
+        }
+
+        for (const line of outputLines) {
+          const product = productMap.get(line.productId)!;
+          const unitCost = Number(product.costPrice || 0);
+          await updateStock(line.productId, line.quantity);
+          await tx.insert(inventoryTransactions).values({
+            companyId,
+            branchId: branchId || null,
+            productId: line.productId,
+            type: "PRODUCTION_IN",
+            quantity: line.quantity.toString(),
+            unitCost: unitCost.toString(),
+            totalCost: (line.quantity * unitCost).toString(),
+            referenceType: "PRODUCTION",
+            referenceId,
+            notes: `${notes} - output produced`,
+            createdBy: (req.user as any).id,
+          });
+        }
+      });
+
+      res.status(201).json({ message: "Production run posted successfully", referenceId });
+    } catch (error: any) {
+      console.error("[Production]", error);
+      res.status(400).json({ message: error.message || "Failed to post production run" });
+    }
+  });
+
   // ============================================================================
   // API KEY MANAGEMENT ENDPOINTS
   // ============================================================================
@@ -2326,7 +2618,7 @@ export async function registerRoutes(
         prefix: getApiKeyPrefix(company.apiKey),
         environment: company.zimraEnvironment || 'test',
         createdAt: company.apiKeyCreatedAt,
-        lastUsed: company.apiKeyLastUsed || null
+        lastUsed: null
       });
 
     } catch (err: any) {
@@ -2354,8 +2646,7 @@ export async function registerRoutes(
       // Revoke the key
       await storage.updateCompany(companyId, {
         apiKey: null,
-        apiKeyCreatedAt: null,
-        apiKeyLastUsed: null
+        apiKeyCreatedAt: null
       });
 
       // Log the action
@@ -2520,7 +2811,7 @@ export async function registerRoutes(
         activationKey: company.fdmsApiKey || "",
         privateKey: company.zimraPrivateKey || "",
         certificate: company.zimraCertificate || "",
-        baseUrl: getZimraBaseUrl(company.zimraEnvironment || 'test')
+        baseUrl: getZimraBaseUrl((company.zimraEnvironment as "test" | "production") || 'test')
       }, getZimraLogger(companyId));
 
       const keys = await device.issueCertificate();
@@ -2560,7 +2851,7 @@ export async function registerRoutes(
         deviceId: company.fdmsDeviceId || "0",
         deviceSerialNo: "UNKNOWN",
         activationKey: "",
-        baseUrl: getZimraBaseUrl(company.zimraEnvironment || 'test')
+        baseUrl: getZimraBaseUrl((company.zimraEnvironment as "test" | "production") || 'test')
       }, getZimraLogger(companyId));
 
       const certs = await device.getServerCertificate(thumbprint);
@@ -2823,10 +3114,10 @@ export async function registerRoutes(
       }
 
       const device = new ZimraDevice({
-        deviceId: company.fdmsDeviceId,
+        deviceId: company.fdmsDeviceId || "0",
         deviceSerialNo: "UNKNOWN", // Should be stored?
         activationKey: company.fdmsApiKey || "",
-        privateKey: company.zimraPrivateKey,
+        privateKey: company.zimraPrivateKey || "",
         certificate: company.zimraCertificate || "",
         baseUrl: getZimraBaseUrl((company.zimraEnvironment as "test" | "production") || 'test')
       }, getZimraLogger(companyId));
@@ -3210,8 +3501,9 @@ export async function registerRoutes(
       if (lastError) {
         console.error(`[CloseDay] ✗ All ${maxRetries} attempts failed for fiscal day ${fiscalDayNo}`);
 
-        // Update company state to reflect failed closure
+        // Preserve the open day and its dailyReceiptCount so closure can be retried.
         await storage.updateCompany(companyId, {
+          fiscalDayOpen: true,
           lastFiscalDayStatus: 'FiscalDayCloseFailed'
         });
 
@@ -3262,8 +3554,9 @@ export async function registerRoutes(
         if (status.fiscalDayStatus === 'FiscalDayCloseFailed') {
           console.error(`[CloseDay] ✗ ZIMRA reported FiscalDayCloseFailed even after API returned success.`);
 
-          // Update local state to reflect failure
+          // Preserve the open day and its dailyReceiptCount so closure can be retried.
           await storage.updateCompany(companyId, {
+            fiscalDayOpen: true,
             lastFiscalDayStatus: 'FiscalDayCloseFailed'
           });
 
@@ -3293,7 +3586,7 @@ export async function registerRoutes(
       }
 
       // Success! Update company state
-      +console.log(`[CloseDay] Updating company state after successful verified closure`);
+      console.log(`[CloseDay] Updating company state after successful verified closure`);
 
       await storage.updateCompany(companyId, {
         fiscalDayOpen: false,
@@ -3330,6 +3623,7 @@ export async function registerRoutes(
       // Try to update status even if there's an unexpected error
       try {
         await storage.updateCompany(companyId, {
+          fiscalDayOpen: true,
           lastFiscalDayStatus: 'FiscalDayCloseFailed'
         });
       } catch (updateErr) {
@@ -3698,11 +3992,11 @@ export async function registerRoutes(
         await storage.createInvoiceItem({
           invoiceId: invoice.id,
           description: item.ITEMNAME1 || item.ITEMNAME2 || "Item",
-          quantity: parseFloat(item.QTY || "1"),
-          unitPrice: parseFloat(item.PRICE || "0"),
+          quantity: String(parseFloat(item.QTY || "1")),
+          unitPrice: String(parseFloat(item.PRICE || "0")),
           taxRate: taxRate.toString(),
           taxTypeId: matchedTax?.id,
-          total: parseFloat(item.AMT || "0")
+          lineTotal: String(parseFloat(item.AMT || "0"))
         });
       }
 
@@ -3859,11 +4153,11 @@ export async function registerRoutes(
         await storage.createInvoiceItem({
           invoiceId: invoice.id,
           description: item.ITEMNAME1 || item.ITEMNAME2 || "Item",
-          quantity: parseFloat(item.QTY || "1"),
-          unitPrice: parseFloat(item.PRICE || "0"),
+          quantity: String(parseFloat(item.QTY || "1")),
+          unitPrice: String(parseFloat(item.PRICE || "0")),
           taxRate: taxRate.toString(),
           taxTypeId: matchedTax?.id,
-          total: parseFloat(item.AMT || "0")
+          lineTotal: String(parseFloat(item.AMT || "0"))
         });
       }
 
@@ -4000,6 +4294,7 @@ export async function registerRoutes(
         } else {
           console.warn(`[ZIMRA] CloseDay returned status: ${result.fiscalDayStatus}. Local counters preserved.`);
           await storage.updateCompany(companyId, {
+            fiscalDayOpen: true,
             lastFiscalDayStatus: result.fiscalDayStatus || 'FiscalDayCloseFailed'
           });
         }
@@ -4142,6 +4437,7 @@ export async function registerRoutes(
       const targetDate = new Date(fiscalDate);
 
       const unprocessed = invoices.filter(inv => {
+        if (!inv.issueDate) return false;
         const invDate = new Date(inv.issueDate);
         const sameDate = invDate.toISOString().split('T')[0] === targetDate.toISOString().split('T')[0];
         return sameDate && (inv.status === "draft" || !inv.syncedWithFdms);
@@ -4233,6 +4529,7 @@ export async function registerRoutes(
       const targetDate = new Date(fiscalDate);
 
       const toClear = invoices.filter(inv => {
+        if (!inv.issueDate) return false;
         const invDate = new Date(inv.issueDate);
         const sameDate = invDate.toISOString().split('T')[0] === targetDate.toISOString().split('T')[0];
         return sameDate && (inv.status === "draft" || !inv.syncedWithFdms);
@@ -4335,6 +4632,158 @@ export async function registerRoutes(
     res.json(updated);
   });
 
+  app.get("/api/companies/:companyId/purchase-orders", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const rows = await db
+        .select({
+          id: purchaseOrders.id,
+          companyId: purchaseOrders.companyId,
+          supplierId: purchaseOrders.supplierId,
+          supplierName: suppliers.name,
+          branchId: purchaseOrders.branchId,
+          branchName: branches.name,
+          poNumber: purchaseOrders.poNumber,
+          status: purchaseOrders.status,
+          expectedDate: purchaseOrders.expectedDate,
+          notes: purchaseOrders.notes,
+          createdAt: purchaseOrders.createdAt,
+          updatedAt: purchaseOrders.updatedAt,
+          itemId: purchaseOrderItems.id,
+          productId: purchaseOrderItems.productId,
+          productName: products.name,
+          productSku: products.sku,
+          quantity: purchaseOrderItems.quantity,
+          unitCost: purchaseOrderItems.unitCost,
+          itemNotes: purchaseOrderItems.notes,
+        })
+        .from(purchaseOrders)
+        .leftJoin(purchaseOrderItems, eq(purchaseOrderItems.purchaseOrderId, purchaseOrders.id))
+        .leftJoin(products, eq(products.id, purchaseOrderItems.productId))
+        .leftJoin(suppliers, eq(suppliers.id, purchaseOrders.supplierId))
+        .leftJoin(branches, eq(branches.id, purchaseOrders.branchId))
+        .where(eq(purchaseOrders.companyId, companyId))
+        .orderBy(desc(purchaseOrders.createdAt), asc(purchaseOrderItems.id));
+
+      const grouped = new Map<number, any>();
+      for (const row of rows) {
+        if (!grouped.has(row.id)) {
+          grouped.set(row.id, {
+            id: row.id,
+            companyId: row.companyId,
+            supplierId: row.supplierId,
+            supplierName: row.supplierName,
+            branchId: row.branchId,
+            branchName: row.branchName,
+            poNumber: row.poNumber,
+            status: row.status,
+            expectedDate: row.expectedDate,
+            notes: row.notes,
+            createdAt: row.createdAt,
+            updatedAt: row.updatedAt,
+            items: [],
+            lineCount: 0,
+            totalCost: 0,
+          });
+        }
+        if (row.itemId) {
+          const po = grouped.get(row.id);
+          const quantity = Number(row.quantity || 0);
+          const unitCost = Number(row.unitCost || 0);
+          po.items.push({
+            id: row.itemId,
+            productId: row.productId,
+            productName: row.productName,
+            productSku: row.productSku,
+            quantity,
+            unitCost,
+            notes: row.itemNotes,
+          });
+          po.lineCount += 1;
+          po.totalCost += quantity * unitCost;
+        }
+      }
+
+      res.json(Array.from(grouped.values()));
+    } catch (err: any) {
+      console.error("Get Purchase Orders Error:", err);
+      res.status(500).json({ message: "Failed to fetch purchase orders" });
+    }
+  });
+
+  app.post("/api/companies/:companyId/purchase-orders", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const payload = z.object({
+        supplierId: z.coerce.number().int().positive(),
+        branchId: z.coerce.number().int().positive().optional().nullable(),
+        poNumber: z.string().trim().optional(),
+        status: z.enum(["DRAFT", "SENT", "RECEIVED", "CANCELLED"]).optional(),
+        expectedDate: z.string().optional().nullable(),
+        notes: z.string().optional().nullable(),
+        items: z.array(z.object({
+          productId: z.coerce.number().int().positive(),
+          quantity: z.coerce.number().positive(),
+          unitCost: z.coerce.number().nonnegative(),
+          notes: z.string().optional().nullable(),
+        })).min(1),
+      }).parse(req.body);
+
+      const poNumber = payload.poNumber?.trim() || `PO-${format(new Date(), "yyyyMMdd-HHmmss")}`;
+      const order = await db.transaction(async (tx) => {
+        const [created] = await tx.insert(purchaseOrders).values(insertPurchaseOrderSchema.parse({
+          companyId,
+          supplierId: payload.supplierId,
+          branchId: payload.branchId || null,
+          poNumber,
+          status: payload.status || "DRAFT",
+          expectedDate: payload.expectedDate ? new Date(payload.expectedDate) : null,
+          notes: payload.notes || null,
+          createdBy: (req.user as any)?.id,
+        })).returning();
+
+        await tx.insert(purchaseOrderItems).values(payload.items.map((item) =>
+          insertPurchaseOrderItemSchema.parse({
+            purchaseOrderId: created.id,
+            productId: item.productId,
+            quantity: item.quantity.toFixed(2),
+            unitCost: item.unitCost.toFixed(2),
+            notes: item.notes || null,
+          })
+        ));
+
+        return created;
+      });
+
+      res.status(201).json(order);
+    } catch (err: any) {
+      console.error("Create Purchase Order Error:", err);
+      const duplicate = String(err?.message || "").includes("purchase_orders_company_po_number_idx");
+      res.status(400).json({ message: duplicate ? "Purchase order number already exists" : err.message });
+    }
+  });
+
+  app.patch("/api/purchase-orders/:id/status", requireAuth, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const { status } = z.object({
+        status: z.enum(["DRAFT", "SENT", "RECEIVED", "CANCELLED"]),
+      }).parse(req.body);
+
+      const [updated] = await db
+        .update(purchaseOrders)
+        .set({ status, updatedAt: new Date() })
+        .where(eq(purchaseOrders.id, id))
+        .returning();
+
+      if (!updated) return res.status(404).json({ message: "Purchase order not found" });
+      res.json(updated);
+    } catch (err: any) {
+      console.error("Update Purchase Order Status Error:", err);
+      res.status(400).json({ message: err.message });
+    }
+  });
+
   app.get("/api/companies/:companyId/supplier-invoices", requireAuth, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
@@ -4360,12 +4809,21 @@ export async function registerRoutes(
   app.post("/api/companies/:companyId/supplier-invoices", requireAuth, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
-      const input = insertSupplierInvoiceSchema.parse(req.body);
+      const body = {
+        ...req.body,
+        date: req.body.date ? new Date(req.body.date) : undefined,
+        dueDate: req.body.dueDate ? new Date(req.body.dueDate) : undefined,
+      };
+      await assertOpenAccountingPeriod(companyId, body.date || new Date(), "Supplier bill posting");
+      const input = insertSupplierInvoiceSchema.parse(body);
       
       const invoice = await storage.createSupplierInvoice({
         ...input,
         companyId,
-        items: req.body.items || [],
+        items: (req.body.items || []).map((item: any) => ({
+          ...item,
+          description: item.description || "Supplier bill line",
+        })),
         createdBy: (req.user as any)?.id
       });
       res.status(201).json(invoice);
@@ -4379,6 +4837,7 @@ export async function registerRoutes(
     try {
       const companyId = Number(req.params.companyId);
       const input = insertSupplierPaymentSchema.parse(req.body);
+      await assertOpenAccountingPeriod(companyId, input.paymentDate || new Date(), "Supplier payment posting");
       
       const payment = await storage.createSupplierPayment({
         ...input,
@@ -4419,19 +4878,362 @@ export async function registerRoutes(
   app.post("/api/companies/:companyId/inventory/batch-stock-in", requireAuth, async (req, res) => {
     const idempotencyKey = await sendIdempotentHit(req, res);
     if (idempotencyKey === false) return;
-    const { items, supplierId, notes, landedCosts, allocationMethod } = req.body;
+    const { items, supplierId, notes, landedCosts, allocationMethod, grvNumber } = req.body;
     const { recordBatchStockIn } = await import("./lib/inventory.js");
 
-    await recordBatchStockIn(
+    const result = await recordBatchStockIn(
       Number(req.params.companyId),
       items,
       supplierId ? Number(supplierId) : undefined,
       notes,
       landedCosts ? Number(landedCosts) : 0,
-      allocationMethod || "value"
+      allocationMethod || "value",
+      typeof grvNumber === "string" ? grvNumber : undefined,
+      (req.user as any)?.id
     );
 
-    sendIdempotent(req, res, idempotencyKey, 201, { message: "Batch stock recorded successfully" });
+    sendIdempotent(req, res, idempotencyKey, 201, { message: "Batch stock recorded successfully", ...result });
+  });
+
+  app.post("/api/accounting/receipts/customer", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const { customerId, amount, currency = "USD", paymentDate, paymentMethod = "Bank", reference, notes, allocations = [] } = req.body;
+      const receiptAmount = Number(amount || 0);
+      if (!customerId || receiptAmount <= 0) return res.status(400).json({ message: "Customer and positive receipt amount are required" });
+      await assertOpenAccountingPeriod(companyId, paymentDate || new Date(), "Customer receipt posting");
+
+      const allocatedTotal = allocations.reduce((sum: number, row: any) => sum + Number(row.amount || 0), 0);
+      if (allocatedTotal - receiptAmount > 0.005) return res.status(400).json({ message: "Allocated amount cannot exceed receipt amount" });
+
+      const result = await db.transaction(async (tx) => {
+        const primaryInvoiceId = allocations[0]?.invoiceId ? Number(allocations[0].invoiceId) : null;
+        const [receipt] = await tx.insert(payments).values({
+          companyId,
+          invoiceId: primaryInvoiceId,
+          amount: receiptAmount.toFixed(2),
+          currency,
+          paymentDate: paymentDate ? new Date(paymentDate) : new Date(),
+          paymentMethod,
+          reference,
+          notes,
+          createdBy: req.user?.id,
+        } as any).returning();
+
+        for (const allocation of allocations) {
+          const invoiceId = Number(allocation.invoiceId);
+          const allocAmount = Number(allocation.amount || 0);
+          if (!invoiceId || allocAmount <= 0) continue;
+          const [invoice] = await tx.select().from(invoices).where(and(eq(invoices.id, invoiceId), eq(invoices.companyId, companyId), eq(invoices.customerId, Number(customerId))));
+          if (!invoice) throw new Error(`Invoice ${invoiceId} was not found for this customer`);
+
+          await tx.insert(paymentAllocations).values({
+            companyId,
+            paymentId: receipt.id,
+            invoiceId,
+            amount: allocAmount.toFixed(2),
+          });
+
+          const newPaidAmount = (Number(invoice.paidAmount || 0) + allocAmount).toFixed(2);
+          await tx.update(invoices).set({
+            paidAmount: newPaidAmount,
+            status: Number(newPaidAmount) >= Number(invoice.total) ? "paid" : "partial",
+          } as any).where(eq(invoices.id, invoiceId));
+        }
+
+        const cashAccountCode = await storage.getSystemAccountCode(companyId, "cashAccountCode", tx);
+        const arAccountCode = await storage.getSystemAccountCode(companyId, "accountsReceivableCode", tx);
+        const unallocatedAccountCode = arAccountCode;
+        await storage.postToLedger(companyId, {
+          entryDate: paymentDate ? new Date(paymentDate) : new Date(),
+          description: `Customer receipt ${reference || receipt.id}`,
+          referenceType: "CUSTOMER_RECEIPT",
+          referenceId: String(receipt.id),
+          createdBy: req.user?.id,
+          lines: [
+            { accountCode: cashAccountCode, type: "DEBIT", amount: receiptAmount },
+            { accountCode: unallocatedAccountCode, type: "CREDIT", amount: receiptAmount },
+          ],
+        }, tx);
+
+        return { receipt, allocatedTotal, unallocatedAmount: receiptAmount - allocatedTotal };
+      });
+
+      res.status(201).json(result);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/payments/supplier", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const { supplierId, amount, currency = "USD", paymentDate, method = "Bank", reference, notes, allocations = [] } = req.body;
+      const paymentAmount = Number(amount || 0);
+      if (!supplierId || paymentAmount <= 0) return res.status(400).json({ message: "Supplier and positive payment amount are required" });
+      await assertOpenAccountingPeriod(companyId, paymentDate || new Date(), "Supplier payment posting");
+
+      const allocatedTotal = allocations.reduce((sum: number, row: any) => sum + Number(row.amount || 0), 0);
+      if (allocatedTotal - paymentAmount > 0.005) return res.status(400).json({ message: "Allocated amount cannot exceed payment amount" });
+
+      const result = await db.transaction(async (tx) => {
+        const primaryInvoiceId = allocations[0]?.supplierInvoiceId ? Number(allocations[0].supplierInvoiceId) : null;
+        const [payment] = await tx.insert(supplierPayments).values({
+          companyId,
+          supplierId: Number(supplierId),
+          supplierInvoiceId: primaryInvoiceId,
+          amount: paymentAmount.toFixed(2),
+          currency,
+          paymentDate: paymentDate ? new Date(paymentDate) : new Date(),
+          method,
+          reference,
+          notes,
+          createdBy: req.user?.id,
+        } as any).returning();
+
+        for (const allocation of allocations) {
+          const supplierInvoiceId = Number(allocation.supplierInvoiceId);
+          const allocAmount = Number(allocation.amount || 0);
+          if (!supplierInvoiceId || allocAmount <= 0) continue;
+          const [bill] = await tx.select().from(supplierInvoices).where(and(eq(supplierInvoices.id, supplierInvoiceId), eq(supplierInvoices.companyId, companyId), eq(supplierInvoices.supplierId, Number(supplierId))));
+          if (!bill) throw new Error(`Supplier bill ${supplierInvoiceId} was not found for this supplier`);
+
+          await tx.insert(supplierPaymentAllocations).values({
+            companyId,
+            supplierPaymentId: payment.id,
+            supplierInvoiceId,
+            amount: allocAmount.toFixed(2),
+          });
+
+          const newPaidAmount = (Number(bill.paidAmount || 0) + allocAmount).toFixed(2);
+          await tx.update(supplierInvoices).set({
+            paidAmount: newPaidAmount,
+            status: Number(newPaidAmount) >= Number(bill.totalAmount) ? "paid" : "partial",
+          } as any).where(eq(supplierInvoices.id, supplierInvoiceId));
+        }
+
+        const apAccountCode = await storage.getSystemAccountCode(companyId, "accountsPayableCode", tx);
+        const cashAccountCode = await storage.getSystemAccountCode(companyId, "cashAccountCode", tx);
+        await storage.postToLedger(companyId, {
+          entryDate: paymentDate ? new Date(paymentDate) : new Date(),
+          description: `Supplier payment ${reference || payment.id}`,
+          referenceType: "SUPPLIER_PAYMENT",
+          referenceId: String(payment.id),
+          createdBy: req.user?.id,
+          lines: [
+            { accountCode: apAccountCode, type: "DEBIT", amount: paymentAmount },
+            { accountCode: cashAccountCode, type: "CREDIT", amount: paymentAmount },
+          ],
+        }, tx);
+
+        return { payment, allocatedTotal, unallocatedAmount: paymentAmount - allocatedTotal };
+      });
+
+      res.status(201).json(result);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/companies/:companyId/gdns", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const status = typeof req.query.status === "string" ? req.query.status : undefined;
+      const whereClause = status
+        ? and(eq(goodsDeliveryNotes.companyId, companyId), eq(goodsDeliveryNotes.status, status))
+        : eq(goodsDeliveryNotes.companyId, companyId);
+
+      const rows = await db
+        .select({
+          id: goodsDeliveryNotes.id,
+          gdnNumber: goodsDeliveryNotes.gdnNumber,
+          status: goodsDeliveryNotes.status,
+          supplierId: goodsDeliveryNotes.supplierId,
+          supplierName: suppliers.name,
+          notes: goodsDeliveryNotes.notes,
+          confirmedGrvNumber: goodsDeliveryNotes.confirmedGrvNumber,
+          confirmedAt: goodsDeliveryNotes.confirmedAt,
+          createdAt: goodsDeliveryNotes.createdAt,
+          createdBy: users.username,
+          itemId: goodsDeliveryNoteItems.id,
+          productId: goodsDeliveryNoteItems.productId,
+          productName: products.name,
+          productSku: products.sku,
+          productCostPrice: products.costPrice,
+          quantityReceived: goodsDeliveryNoteItems.quantityReceived,
+          quantityAccepted: goodsDeliveryNoteItems.quantityAccepted,
+          quantityRejected: goodsDeliveryNoteItems.quantityRejected,
+        })
+        .from(goodsDeliveryNotes)
+        .leftJoin(goodsDeliveryNoteItems, eq(goodsDeliveryNoteItems.gdnId, goodsDeliveryNotes.id))
+        .leftJoin(products, eq(products.id, goodsDeliveryNoteItems.productId))
+        .leftJoin(suppliers, eq(suppliers.id, goodsDeliveryNotes.supplierId))
+        .leftJoin(users, eq(users.id, goodsDeliveryNotes.createdBy))
+        .where(whereClause)
+        .orderBy(desc(goodsDeliveryNotes.createdAt), asc(goodsDeliveryNoteItems.id));
+
+      const grouped = new Map<number, any>();
+      for (const row of rows) {
+        if (!grouped.has(row.id)) {
+          grouped.set(row.id, {
+            id: row.id,
+            gdnNumber: row.gdnNumber,
+            status: row.status,
+            supplierId: row.supplierId || null,
+            supplierName: row.supplierName || "N/A",
+            notes: row.notes || "",
+            confirmedGrvNumber: row.confirmedGrvNumber || null,
+            confirmedAt: row.confirmedAt,
+            createdAt: row.createdAt,
+            createdBy: row.createdBy || "System",
+            lineCount: 0,
+            totalQuantity: 0,
+            items: [],
+          });
+        }
+
+        const gdn = grouped.get(row.id);
+        if (row.itemId) {
+          const qty = Number(row.quantityReceived || 0);
+          gdn.lineCount += 1;
+          gdn.totalQuantity += qty;
+          gdn.items.push({
+            id: row.itemId,
+            productId: row.productId,
+            productName: row.productName || `Product ${row.productId}`,
+            sku: row.productSku || "",
+            costPrice: Number(row.productCostPrice || 0),
+            quantityReceived: qty,
+            quantityAccepted: row.quantityAccepted === null ? null : Number(row.quantityAccepted || 0),
+            quantityRejected: row.quantityRejected === null ? null : Number(row.quantityRejected || 0),
+          });
+        }
+      }
+
+      res.json(Array.from(grouped.values()));
+    } catch (error: any) {
+      console.error("Fetch GDNs Error:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch GDNs" });
+    }
+  });
+
+  app.post("/api/companies/:companyId/gdns", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const { gdnNumber, supplierId, notes, items } = req.body || {};
+      const cleanGdnNumber = String(gdnNumber || "").trim();
+
+      if (!cleanGdnNumber) return res.status(400).json({ message: "GDN number is required." });
+      if (!Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ message: "Add at least one item to the GDN." });
+      }
+
+      const result = await db.transaction(async (tx) => {
+        const [gdn] = await tx.insert(goodsDeliveryNotes).values({
+          companyId,
+          supplierId: supplierId ? Number(supplierId) : null,
+          gdnNumber: cleanGdnNumber,
+          status: "PENDING",
+          notes: notes || null,
+          createdBy: (req.user as any)?.id || null,
+        }).returning();
+
+        for (const raw of items) {
+          const productId = Number(raw.productId);
+          const quantity = Number(raw.quantity ?? raw.quantityReceived);
+          if (!productId || !Number.isFinite(quantity) || quantity <= 0) {
+            throw new Error("Each GDN line needs a product and positive quantity.");
+          }
+          await tx.insert(goodsDeliveryNoteItems).values({
+            gdnId: gdn.id,
+            productId,
+            quantityReceived: quantity.toString(),
+            notes: raw.notes || null,
+          });
+        }
+
+        return gdn;
+      });
+
+      res.status(201).json({ message: "GDN recorded for admin confirmation", gdn: result });
+    } catch (error: any) {
+      const duplicate = String(error?.message || "").includes("goods_delivery_notes_company_gdn_number_idx");
+      res.status(duplicate ? 409 : 400).json({ message: duplicate ? "A GDN with this number already exists." : error.message || "Failed to record GDN" });
+    }
+  });
+
+  app.post("/api/companies/:companyId/gdns/:gdnId/confirm", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const gdnId = Number(req.params.gdnId);
+      const role = await storage.getCompanyUserRole((req.user as any)?.id, companyId);
+      if (role !== "owner" && role !== "admin" && !(req.user as any)?.isSuperAdmin) {
+        return res.status(403).json({ message: "Only owner/admin can confirm GDN stock." });
+      }
+
+      const { items, notes, landedCosts, allocationMethod, grvNumber } = req.body || {};
+      if (!Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ message: "Add costs for at least one GDN line." });
+      }
+
+      const [gdn] = await db
+        .select()
+        .from(goodsDeliveryNotes)
+        .where(and(eq(goodsDeliveryNotes.id, gdnId), eq(goodsDeliveryNotes.companyId, companyId)))
+        .limit(1);
+
+      if (!gdn) return res.status(404).json({ message: "GDN not found." });
+      if (gdn.status !== "PENDING") return res.status(409).json({ message: "This GDN has already been processed." });
+
+      const stockItems = items.map((raw: any) => {
+        const productId = Number(raw.productId);
+        const quantity = Number(raw.quantity ?? raw.quantityAccepted ?? raw.quantityReceived);
+        const unitCost = Number(raw.unitCost);
+        const landedCost = raw.landedCost === undefined ? 0 : Number(raw.landedCost);
+        if (!productId || !Number.isFinite(quantity) || quantity <= 0) throw new Error("Each confirmation line needs a valid quantity.");
+        if (!Number.isFinite(unitCost) || unitCost < 0) throw new Error("Each confirmation line needs a valid unit cost.");
+        return { productId, quantity, unitCost, landedCost: Number.isFinite(landedCost) ? landedCost : 0 };
+      });
+
+      const { recordBatchStockIn } = await import("./lib/inventory.js");
+      const result = await recordBatchStockIn(
+        companyId,
+        stockItems,
+        gdn.supplierId || undefined,
+        notes || gdn.notes || `Confirmed from GDN ${gdn.gdnNumber}`,
+        landedCosts ? Number(landedCosts) : 0,
+        allocationMethod || "value",
+        typeof grvNumber === "string" && grvNumber.trim() ? grvNumber : undefined,
+        (req.user as any)?.id
+      );
+
+      await db.transaction(async (tx) => {
+        for (const item of stockItems) {
+          await tx
+            .update(goodsDeliveryNoteItems)
+            .set({
+              quantityAccepted: item.quantity.toString(),
+              quantityRejected: "0",
+            })
+            .where(and(eq(goodsDeliveryNoteItems.gdnId, gdnId), eq(goodsDeliveryNoteItems.productId, item.productId)));
+        }
+        await tx
+          .update(goodsDeliveryNotes)
+          .set({
+            status: "CONFIRMED",
+            confirmedBy: (req.user as any)?.id || null,
+            confirmedGrvNumber: result.grvNumber,
+            confirmedAt: new Date(),
+          })
+          .where(eq(goodsDeliveryNotes.id, gdnId));
+      });
+
+      res.status(200).json({ message: "GDN confirmed and stock posted", ...result });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message || "Failed to confirm GDN" });
+    }
   });
 
   app.post("/api/companies/:companyId/inventory/transfers", requireAuth, async (req, res) => {
@@ -4799,7 +5601,8 @@ export async function registerRoutes(
           errors: [] as string[]
         };
 
-        for (const [index, row] of records.entries()) {
+        for (const [index, rowRaw] of records.entries()) {
+          const row = rowRaw as Record<string, any>;
           try {
             // Map CSV columns to Schema
             // Expected: Name,Description,SKU,Price,Tax Rate,Type,Stock,HS Code,Category,Track Inventory
@@ -4828,6 +5631,13 @@ export async function registerRoutes(
               hsCode: row["HS Code"] || "0000.00.00",
               category: row["Category"] || "General",
               ownerGroup: row["Cost Center"] || row["Cost Centre"] || row["Owner Group"] || row["Owner"] || null,
+              brandName: row["Brand"] || row["Brand Name"] || undefined,
+              oemPartNumber: row["OEM Part No"] || row["OEM Part Number"] || row["OEM"] || undefined,
+              supplierPartNumber: row["Supplier Part No"] || row["Supplier Part Number"] || row["Supplier Code"] || undefined,
+              fitmentNotes: row["Vehicle Fitment"] || row["Fitment"] || row["Compatible Vehicles"] || undefined,
+              serialTrackingEnabled: String(row["Serial Tracking"] || "").toLowerCase() === "yes",
+              warrantyTrackingEnabled: Number(row["Warranty Months"] || 0) > 0,
+              warrantyMonths: Number(row["Warranty Months"] || 0),
               isTracked: isTracked
             });
 
@@ -4873,6 +5683,117 @@ export async function registerRoutes(
     } catch (err) {
       console.error(err);
       res.status(500).json({ message: "Failed to update product" });
+    }
+  });
+
+  app.get("/api/companies/:companyId/product-serials", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const productId = req.query.productId ? Number(req.query.productId) : undefined;
+      const status = req.query.status ? String(req.query.status) : undefined;
+      const serials = await storage.getProductSerialNumbers(companyId, productId, status);
+      res.json(serials);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Failed to fetch serial numbers" });
+    }
+  });
+
+  app.post("/api/companies/:companyId/product-serials", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const rows = Array.isArray(req.body) ? req.body : [req.body];
+      const serials = rows.map((row) => insertProductSerialNumberSchema.parse({
+        ...row,
+        companyId,
+        branchId: row.branchId ?? getBranchId(req) ?? undefined,
+      }));
+      const created = await storage.createProductSerialNumbers(serials as any);
+      res.status(201).json(created);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message || "Failed to create serial numbers" });
+    }
+  });
+
+  app.patch("/api/companies/:companyId/product-serials/:id", requireAuth, async (req, res) => {
+    try {
+      const updated = await storage.updateProductSerialNumber(Number(req.params.id), Number(req.params.companyId), req.body);
+      res.json(updated);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message || "Failed to update serial number" });
+    }
+  });
+
+  app.get("/api/companies/:companyId/warranty-claims", requireAuth, async (req, res) => {
+    try {
+      const claims = await storage.getWarrantyClaims(Number(req.params.companyId));
+      res.json(claims);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Failed to fetch warranty claims" });
+    }
+  });
+
+  app.post("/api/companies/:companyId/warranty-claims", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const input = insertWarrantyClaimSchema.parse({
+        ...req.body,
+        companyId,
+        branchId: req.body.branchId ?? getBranchId(req) ?? undefined,
+        createdBy: (req.user as any)?.id,
+      });
+      const claim = await storage.createWarrantyClaim(input as any);
+      res.status(201).json(claim);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message || "Failed to create warranty claim" });
+    }
+  });
+
+  app.patch("/api/companies/:companyId/warranty-claims/:id", requireAuth, async (req, res) => {
+    try {
+      const claim = await storage.updateWarrantyClaim(Number(req.params.id), Number(req.params.companyId), req.body);
+      res.json(claim);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message || "Failed to update warranty claim" });
+    }
+  });
+
+  app.get("/api/companies/:companyId/laybys", requireAuth, async (req, res) => {
+    try {
+      const laybyRows = await storage.getLaybys(Number(req.params.companyId));
+      res.json(laybyRows);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Failed to fetch lay-bys" });
+    }
+  });
+
+  app.post("/api/companies/:companyId/laybys", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const input = insertLaybySchema.extend({ items: z.array(insertLaybyItemSchema).min(1) }).parse({
+        ...req.body,
+        companyId,
+        branchId: req.body.branchId ?? getBranchId(req) ?? undefined,
+        createdBy: (req.user as any)?.id,
+      });
+      const layby = await storage.createLayby(companyId, input as any);
+      res.status(201).json(layby);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message || "Failed to create lay-by" });
+    }
+  });
+
+  app.post("/api/companies/:companyId/laybys/:id/payments", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const input = insertLaybyPaymentSchema.parse(req.body);
+      const payment = await storage.addLaybyPayment(Number(req.params.id), companyId, {
+        ...input,
+        branchId: getBranchId(req),
+        createdBy: (req.user as any)?.id,
+      } as any);
+      res.status(201).json(payment);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message || "Failed to add lay-by payment" });
     }
   });
 
@@ -5114,6 +6035,8 @@ export async function registerRoutes(
 
       const companyId = Number(req.params.companyId);
       const userId = (req.user as any)?.id;
+      const requestBranchId = getBranchId(req);
+      const isOfflineSync = req.body?.isOfflineSync === true;
 
       // 1. Parallelize initial validation and data fetching
       let activeShiftPromise: Promise<any> = Promise.resolve(null);
@@ -5124,19 +6047,31 @@ export async function registerRoutes(
         if (!userId) {
           return res.status(401).json({ message: "User authentication required for POS sales" });
         }
-        activeShiftPromise = storage.getActivePosShift(companyId, userId);
+        activeShiftPromise = storage.getActivePosShift(companyId, userId, requestBranchId || undefined);
       }
 
-      const [activeShift, company, customer] = await Promise.all([
+      let [activeShift, company, customer] = await Promise.all([
         activeShiftPromise,
         companyPromise,
         customerPromise
       ]);
       markPerf("prefetch_done");
 
+      if (input.isPos && !activeShift && isOfflineSync && userId) {
+        activeShift = await findOfflineSyncShift(
+          companyId,
+          userId,
+          input.issueDate instanceof Date ? input.issueDate : new Date(input.issueDate || Date.now()),
+          requestBranchId
+        );
+        if (activeShift) markPerf("offline_shift_recovered");
+      }
+
       if (input.isPos && !activeShift) {
         return res.status(400).json({
-          message: "No active shift found. Please open a shift before processing POS sales.",
+          message: isOfflineSync
+            ? "Offline sale could not be matched to a cashier shift. Please sync the shift first or reopen a shift for this cashier."
+            : "No active shift found. Please open a shift before processing POS sales.",
           code: "NO_ACTIVE_SHIFT"
         });
       }
@@ -5147,7 +6082,6 @@ export async function registerRoutes(
       const initialStatus = input.isPos
         ? (isCreditSale ? "issued" : "paid")
         : (input.status || "issued");
-      const requestBranchId = getBranchId(req);
 
       const duplicatePosInvoice = await findDuplicatePosInvoice(input, companyId, userId, activeShift?.id, requestBranchId);
       if (duplicatePosInvoice) {
@@ -5179,12 +6113,13 @@ export async function registerRoutes(
             companyId: invoice.companyId,
             invoiceId: invoice.id,
             amount: invoice.total.toString(),
-            currency: invoice.currency,
+            currency: invoice.currency || input.currency || "USD",
             paymentMethod: invoice.paymentMethod || "CASH",
             paymentDate: new Date(),
             createdBy: userId,
             exchangeRate: invoice.exchangeRate?.toString() || "1.000000",
-          });
+            skipLedger: true,
+          } as any);
           invoice.status = "paid";
           markPerf("payment_recorded");
         } catch (payErr) {
@@ -5290,6 +6225,174 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/companies/:companyId/zimra/sample-documents", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      if (!companyId) return res.status(400).json({ message: "Company ID is required" });
+
+      const memberRole = await storage.getCompanyUserRole((req.user as any)?.id, companyId);
+      if (!memberRole && !(req.user as any)?.isSuperAdmin) {
+        return res.status(403).json({ message: "You do not have permission to create samples for this company" });
+      }
+
+      await seedCompanyDefaults(companyId);
+
+      const [company, allProducts, allCustomers, allTaxTypes, allCurrencies] = await Promise.all([
+        storage.getCompany(companyId),
+        storage.getProducts(companyId),
+        storage.getCustomers(companyId),
+        storage.getTaxTypes(companyId),
+        storage.getCurrencies(companyId),
+      ]);
+
+      if (!company) return res.status(404).json({ message: "Company not found" });
+
+      const testCustomer = allCustomers.find((customer) => customer.name?.toUpperCase() === "TEST CUSTOMER");
+      if (!testCustomer) {
+        return res.status(400).json({ message: "TEST CUSTOMER could not be created or found" });
+      }
+
+      const requiredSkus = ["PRO-VAT", "PRO-NON", "PRO-EXE"];
+      const sampleProducts = requiredSkus
+        .map((sku) => allProducts.find((product) => product.sku === sku))
+        .filter(Boolean) as typeof allProducts;
+
+      if (sampleProducts.length !== requiredSkus.length) {
+        return res.status(400).json({ message: "Required test products could not be created or found" });
+      }
+
+      const activeCurrencies = allCurrencies.filter((currency) => currency.isActive !== false);
+      if (activeCurrencies.length === 0) {
+        return res.status(400).json({ message: "At least one active currency is required" });
+      }
+
+      const branchId = getBranchId(req);
+      const dueDate = new Date();
+      dueDate.setDate(dueDate.getDate() + 30);
+
+      const buildItems = (currencyRate: number) => {
+        const quantities = [2, 3, 4];
+        return sampleProducts.map((product, index) => {
+          const quantity = quantities[index];
+          const unitPrice = Number(product.price || 0) * currencyRate;
+          const taxType = product.taxTypeId
+            ? allTaxTypes.find((type) => type.id === product.taxTypeId)
+            : undefined;
+          const taxRate = Number(taxType?.rate ?? product.taxRate ?? 0);
+          const lineTotal = quantity * unitPrice;
+
+          return {
+            productId: product.id,
+            description: product.name,
+            quantity: quantity.toString(),
+            unitPrice: unitPrice.toFixed(2),
+            taxRate: taxRate.toFixed(2),
+            taxTypeId: product.taxTypeId || undefined,
+            lineTotal: lineTotal.toFixed(2),
+          };
+        });
+      };
+
+      const calculateTotals = (items: Array<{ lineTotal: string; taxRate: string }>) => {
+        let subtotal = 0;
+        let taxAmount = 0;
+
+        for (const item of items) {
+          const lineTotal = Number(item.lineTotal || 0);
+          const taxRate = Number(item.taxRate || 0);
+          subtotal += lineTotal;
+          taxAmount += lineTotal * (taxRate / 100);
+        }
+
+        return {
+          subtotal: subtotal.toFixed(2),
+          taxAmount: taxAmount.toFixed(2),
+          total: (subtotal + taxAmount).toFixed(2),
+        };
+      };
+
+      const created: Array<{ currency: string; invoice: any; creditNote: any; debitNote: any }> = [];
+
+      for (const currency of activeCurrencies) {
+        const exchangeRate = Number(currency.exchangeRate || 1);
+        const items = buildItems(exchangeRate);
+        const totals = calculateTotals(items);
+
+        const basePayload = {
+          companyId,
+          branchId,
+          customerId: testCustomer.id,
+          issueDate: new Date(),
+          dueDate,
+          subtotal: totals.subtotal,
+          taxAmount: totals.taxAmount,
+          total: totals.total,
+          status: "issued",
+          taxInclusive: false,
+          currency: currency.code,
+          exchangeRate: exchangeRate.toFixed(6),
+          paymentMethod: "CASH",
+          notes: null,
+          isFiscalized: true,
+          isPos: false,
+          createdBy: (req.user as any)?.id,
+          items,
+        };
+
+        let invoice = await storage.createInvoice({
+          ...basePayload,
+          transactionType: "FiscalInvoice",
+        } as any);
+
+        invoice = await processInvoiceFiscalization(
+          invoice.id,
+          companyId,
+          (req.user as any)?.id,
+          (req.user as any)?.isSuperAdmin
+        ) as any;
+
+        let creditNote = await storage.createInvoice({
+          ...basePayload,
+          transactionType: "CreditNote",
+          relatedInvoiceId: invoice.id,
+          notes: "Customer returned part of the goods after quality inspection.",
+        } as any);
+
+        creditNote = await processInvoiceFiscalization(
+          creditNote.id,
+          companyId,
+          (req.user as any)?.id,
+          (req.user as any)?.isSuperAdmin
+        ) as any;
+
+        let debitNote = await storage.createInvoice({
+          ...basePayload,
+          transactionType: "DebitNote",
+          relatedInvoiceId: invoice.id,
+          notes: "Additional quantity supplied after the original invoice was issued.",
+        } as any);
+
+        debitNote = await processInvoiceFiscalization(
+          debitNote.id,
+          companyId,
+          (req.user as any)?.id,
+          (req.user as any)?.isSuperAdmin
+        ) as any;
+
+        created.push({ currency: currency.code, invoice, creditNote, debitNote });
+      }
+
+      res.status(201).json({
+        message: `Created and fiscalized ${created.length * 3} sample documents.`,
+        currencies: created.map((entry) => entry.currency),
+        documents: created,
+      });
+    } catch (err: any) {
+      console.error("Create ZIMRA sample documents error:", err);
+      res.status(500).json({ message: err.message || "Failed to create ZIMRA approval sample documents" });
+    }
+  });
+
   app.get(api.invoices.get.path, requireAuth, async (req, res) => {
     const invoice = await storage.getInvoice(Number(req.params.id));
     if (!invoice) return res.status(404).json({ message: "Invoice not found" });
@@ -5306,6 +6409,9 @@ export async function registerRoutes(
       };
 
       const input = api.invoices.update.input.parse(body);
+      const existingInvoice = await storage.getInvoice(Number(req.params.id));
+      if (!existingInvoice) return res.status(404).json({ message: "Invoice not found" });
+      await assertOpenAccountingPeriod(existingInvoice.companyId, body.issueDate || existingInvoice.issueDate || new Date(), "Invoice editing");
       const invoice = await storage.updateInvoice(Number(req.params.id), {
         ...input,
         items: input.items as any
@@ -5797,7 +6903,7 @@ export async function registerRoutes(
       const invoice = await storage.getInvoice(Number(req.params.id));
       if (!invoice) return res.status(404).json({ message: "Invoice not found" });
 
-      if (invoice.status !== "draft" && !req.user.isSuperAdmin) {
+      if (invoice.status !== "draft" && !req.user?.isSuperAdmin) {
         return res.status(400).json({ message: "Only draft invoices can be deleted" });
       }
 
@@ -5829,6 +6935,60 @@ export async function registerRoutes(
     } catch (err: any) {
       console.error(err);
       res.status(500).json({ message: "Failed to fetch payments" });
+    }
+  });
+
+  app.get("/api/invoices/:invoiceId/payment-summary", requireAuth, async (req: any, res) => {
+    try {
+      const invoiceId = Number(req.params.invoiceId);
+      const invoice = await storage.getInvoice(invoiceId);
+      if (!invoice) return res.status(404).json({ message: "Invoice not found" });
+
+      const allocations = await db.select({
+        allocationId: paymentAllocations.id,
+        paymentId: payments.id,
+        amount: paymentAllocations.amount,
+        paymentAmount: payments.amount,
+        paymentDate: payments.paymentDate,
+        paymentMethod: payments.paymentMethod,
+        reference: payments.reference,
+        notes: payments.notes,
+        currency: payments.currency,
+        reversedAt: paymentAllocations.reversedAt,
+      })
+        .from(paymentAllocations)
+        .innerJoin(payments, eq(paymentAllocations.paymentId, payments.id))
+        .where(and(eq(paymentAllocations.invoiceId, invoiceId), isNull(paymentAllocations.reversedAt)))
+        .orderBy(desc(payments.paymentDate));
+
+      const paymentIds = Array.from(new Set(allocations.map((row: any) => Number(row.paymentId))));
+      const paymentTotals = paymentIds.length ? await db.select({
+        paymentId: paymentAllocations.paymentId,
+        allocated: sql<number>`coalesce(sum(${paymentAllocations.amount}), 0)`,
+      })
+        .from(paymentAllocations)
+        .where(and(inArray(paymentAllocations.paymentId, paymentIds), isNull(paymentAllocations.reversedAt)))
+        .groupBy(paymentAllocations.paymentId) : [];
+      const allocatedByPayment = new Map(paymentTotals.map((row: any) => [Number(row.paymentId), Number(row.allocated || 0)]));
+
+      const receiptHistory = allocations.map((row: any) => ({
+        ...row,
+        allocatedToThisInvoice: Number(row.amount || 0),
+        unallocatedAmount: Math.max(0, Number(row.paymentAmount || 0) - Number(allocatedByPayment.get(Number(row.paymentId)) || 0)),
+      }));
+
+      const allocatedTotal = allocations.reduce((sum: number, row: any) => sum + Number(row.amount || 0), 0);
+      const invoiceTotal = Number(invoice.total || 0);
+      res.json({
+        invoiceId,
+        invoiceTotal,
+        allocatedTotal,
+        balanceDue: Math.max(0, invoiceTotal - allocatedTotal),
+        overAllocated: Math.max(0, allocatedTotal - invoiceTotal),
+        receiptHistory,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
     }
   });
 
@@ -6138,25 +7298,82 @@ export async function registerRoutes(
   app.get("/api/companies/:companyId/reports/stock-valuation", requireAuth, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
-
-      // Return all tracked products with their stock level and cost value
-      const rows = await db
-        .select({
-          productId: products.id,
-          name: products.name,
-          sku: products.sku,
-          stockLevel: products.stockLevel,
-          unitCost: products.costPrice,
-        })
-        .from(products)
-        .where(and(
-          eq(products.companyId, companyId),
-          ne(products.isActive, false)
-        ));
-
-      res.json(rows);
+      const ownerGroupScope = await getUserOwnerGroupScope((req.user as any)?.id);
+      const data = await storage.getStockValuationReport(companyId, ownerGroupScope);
+      res.json(data);
     } catch (err: any) {
       console.error("Stock Valuation Error:", err);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/accounting/statements/suppliers/:id", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const supplierId = Number(req.params.id);
+      const start = req.query.startDate ? new Date(req.query.startDate as string) : new Date(0);
+      const end = req.query.endDate ? new Date(req.query.endDate as string) : new Date();
+      end.setHours(23, 59, 59, 999);
+
+      const [supplier] = await db.select().from(suppliers).where(and(eq(suppliers.id, supplierId), eq(suppliers.companyId, companyId)));
+      if (!supplier) return res.status(404).json({ message: "Supplier not found" });
+
+      const bills = await db.select().from(supplierInvoices).where(and(eq(supplierInvoices.companyId, companyId), eq(supplierInvoices.supplierId, supplierId), lte(supplierInvoices.date, end), ne(supplierInvoices.status, "cancelled")));
+      const payRows = await db.select().from(supplierPayments).where(and(eq(supplierPayments.companyId, companyId), eq(supplierPayments.supplierId, supplierId), lte(supplierPayments.paymentDate, end)));
+
+      const allTransactions = [
+        ...bills.map((bill: any) => ({
+          date: bill.date,
+          type: bill.invoiceNumber?.startsWith("OB-AP") ? "Opening Balance" : "Supplier Bill",
+          reference: bill.invoiceNumber,
+          description: bill.notes || "Supplier bill",
+          debit: 0,
+          credit: Number(bill.totalAmount || 0),
+        })),
+        ...payRows.map((payment: any) => ({
+          date: payment.paymentDate,
+          type: "Payment",
+          reference: payment.reference || `PAY-${payment.id}`,
+          description: payment.notes || payment.method,
+          debit: Number(payment.amount || 0),
+          credit: 0,
+        })),
+      ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+      let openingBalance = 0;
+      for (const tx of allTransactions.filter((tx) => new Date(tx.date) < start)) {
+        openingBalance += tx.credit - tx.debit;
+      }
+      let runningBalance = openingBalance;
+      const transactions = allTransactions
+        .filter((tx) => new Date(tx.date) >= start)
+        .map((tx) => {
+          runningBalance += tx.credit - tx.debit;
+          return { ...tx, balance: runningBalance };
+        });
+
+      res.json({ supplier, startDate: start, endDate: end, openingBalance, closingBalance: runningBalance, transactions });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/accounting/allocations/customer/:customerId", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const customerId = Number(req.params.customerId);
+      const [receiptTotals, allocationTotals] = await Promise.all([
+        db.select({ total: sql<number>`coalesce(sum(${payments.amount}), 0)` }).from(payments).leftJoin(invoices, eq(payments.invoiceId, invoices.id)).where(and(eq(payments.companyId, companyId), or(eq(invoices.customerId, customerId), isNull(payments.invoiceId)))),
+        db.select({ total: sql<number>`coalesce(sum(${paymentAllocations.amount}), 0)` }).from(paymentAllocations).innerJoin(invoices, eq(paymentAllocations.invoiceId, invoices.id)).where(and(eq(paymentAllocations.companyId, companyId), eq(invoices.customerId, customerId), isNull(paymentAllocations.reversedAt))),
+      ]);
+      res.json({
+        received: Number(receiptTotals[0]?.total || 0),
+        allocated: Number(allocationTotals[0]?.total || 0),
+        unallocated: Number(receiptTotals[0]?.total || 0) - Number(allocationTotals[0]?.total || 0),
+      });
+    } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
   });
@@ -6925,7 +8142,7 @@ export async function registerRoutes(
       
       const rows = [
         { "Category": "Revenue", "Amount": data.revenue },
-        { "Category": "Cost of Goods Sold", "Amount": -data.cogs },
+        { "Category": "Cost of Sales", "Amount": -data.cogs },
         { "Category": "Gross Profit", "Amount": data.grossProfit },
         { "Category": "Total Expenses", "Amount": -data.expenses },
         { "Category": "Net Profit", "Amount": data.netProfit },
@@ -6969,7 +8186,7 @@ export async function registerRoutes(
         )
       });
 
-      const customers = await db.query.customers.findMany({
+      const customerRows = await db.query.customers.findMany({
         where: eq(customers.companyId, companyId)
       });
 
@@ -6980,7 +8197,7 @@ export async function registerRoutes(
         totalRevenue,
         pendingAmount,
         invoicesCount: invoicesList.length,
-        customersCount: customers.length
+        customersCount: customerRows.length
       });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -7009,6 +8226,7 @@ export async function registerRoutes(
       // Group by date
       const revenueByDate: Record<string, number> = {};
       invoicesList.forEach(inv => {
+        if (!inv.issueDate) return;
         const date = format(new Date(inv.issueDate), 'MMM dd');
         revenueByDate[date] = (revenueByDate[date] || 0) + Number(inv.total);
       });
@@ -7895,31 +9113,78 @@ export async function registerRoutes(
 
   // --- ACCOUNTING ROUTES ---
 
-  app.get("/api/accounting/accounts", requireAuth, async (req: any, res: any) => {
+  const resolveAccountingCompanyId = (req: any): number | null => {
+    const rawCompanyId = req.params?.companyId ?? req.query?.companyId ?? req.body?.companyId ?? req.headers?.["x-company-id"] ?? req.user?.companyId;
+    const companyId = Number(rawCompanyId);
+    return Number.isFinite(companyId) && companyId > 0 ? companyId : null;
+  };
+
+  const normalBalance = (accountType: string) =>
+    accountType === "ASSET" || accountType === "EXPENSE" ? "DEBIT" : "CREDIT";
+
+  const presentationBalance = (line: any) => {
+    const rawBalance = Number(line.balance || 0);
+    return normalBalance(line.accountType || line.type) === "DEBIT" ? rawBalance : -rawBalance;
+  };
+
+  const getClosedPeriodForDate = async (companyId: number, value: Date | string | null | undefined) => {
+    const postingDate = value ? new Date(value) : new Date();
+    if (Number.isNaN(postingDate.getTime())) throw new Error("Posting date is invalid");
+    const periods = await db.select().from(financialPeriods).where(eq(financialPeriods.companyId, companyId));
+    return periods.find((period: any) => {
+      const start = new Date(period.startDate);
+      const end = new Date(period.endDate);
+      return postingDate >= start && postingDate <= end && period.status === "CLOSED";
+    });
+  };
+
+  const assertOpenAccountingPeriod = async (companyId: number, value: Date | string | null | undefined, action: string) => {
+    const closedPeriod = await getClosedPeriodForDate(companyId, value);
+    if (closedPeriod) {
+      throw new Error(`${action} is blocked because ${closedPeriod.name} is closed.`);
+    }
+  };
+
+  const accountingSettingsOf = (company: any) =>
+    company?.accountingSettings && typeof company.accountingSettings === "object" ? company.accountingSettings : {};
+
+  const resolveOpeningEquityAccount = async (companyId: number) => {
+    const accs = await storage.getAccounts(companyId);
+    return accs.find((account: any) => account.code === "3000")
+      || accs.find((account: any) => account.type === "EQUITY")
+      || null;
+  };
+
+  const listAccountingAccounts = async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const accs = await storage.getAccounts(companyId);
       res.json(accs);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
-  });
+  };
 
-  app.post("/api/accounting/accounts", requireAuth, async (req: any, res: any) => {
+  const createAccountingAccount = async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const account = await storage.createAccount({ ...req.body, companyId });
       res.json(account);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
-  });
+  };
+
+  app.get("/api/accounting/accounts", requireAuth, listAccountingAccounts);
+  app.post("/api/accounting/accounts", requireAuth, createAccountingAccount);
+  app.get("/api/companies/:companyId/accounting/accounts", requireAuth, listAccountingAccounts);
+  app.post("/api/companies/:companyId/accounting/accounts", requireAuth, createAccountingAccount);
 
   app.get("/api/accounting/journal", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       
       const { from, to } = req.query;
@@ -7933,31 +9198,75 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/accounting/journal", requireAuth, async (req: any, res: any) => {
+  app.get("/api/accounting/journal-drafts", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
-      
-      const entry = await storage.postToLedger(companyId, {
-        ...req.body,
-        createdBy: req.user?.displayName || req.user?.username
-      });
-      res.json(entry);
+
+      const drafts = await storage.getJournalEntryDrafts(companyId);
+      res.json(drafts);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
   });
 
+  app.post("/api/accounting/journal-drafts", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+
+      const draft = await storage.createJournalEntryDraft(companyId, {
+        ...req.body,
+        createdBy: req.user?.id,
+      });
+      res.json(draft);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/journal-drafts/:id/post", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+
+      const entry = await storage.postJournalEntryDraft(companyId, Number(req.params.id), req.user?.id);
+      res.json(entry);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/journal", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      
+      const entry = await storage.postToLedger(companyId, {
+        ...req.body,
+        createdBy: req.user?.id
+      });
+      res.json(entry);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
   app.get("/api/accounting/trial-balance", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       
       const { date } = req.query;
       const asOfDate = date ? new Date(date as string) : undefined;
       
-      const report = await storage.getTrialBalance(companyId, asOfDate);
-      res.json(report);
+      const lines = await storage.getTrialBalance(companyId, asOfDate);
+      res.json({
+        asOfDate: asOfDate || new Date(),
+        lines,
+        totalDebit: lines.reduce((sum: number, line: any) => sum + Number(line.debit || 0), 0),
+        totalCredit: lines.reduce((sum: number, line: any) => sum + Number(line.credit || 0), 0)
+      });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -7965,7 +9274,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/ledger", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       
       const { accountId, from, to } = req.query;
@@ -7982,14 +9291,14 @@ export async function registerRoutes(
 
   app.post("/api/accounting/transfer", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       
       const { fromAccountId, toAccountId, amount, reference, date, notes } = req.body;
       
       // We need to fetch account codes for the IDs provided
-      const [fromAcc] = await storage.getAccountById(Number(fromAccountId));
-      const [toAcc] = await storage.getAccountById(Number(toAccountId));
+      const fromAcc = await storage.getAccountById(Number(fromAccountId));
+      const toAcc = await storage.getAccountById(Number(toAccountId));
 
       if (!fromAcc || !toAcc) throw new Error("Source or destination account not found");
 
@@ -8002,7 +9311,7 @@ export async function registerRoutes(
           { accountCode: fromAcc.code, type: 'CREDIT', amount: Number(amount) },
           { accountCode: toAcc.code, type: 'DEBIT', amount: Number(amount) }
         ],
-        createdBy: req.user?.displayName || req.user?.username
+        createdBy: req.user?.id
       });
       res.json(entry);
     } catch (err: any) {
@@ -8012,7 +9321,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/reports/ar-aging", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const asOfDate = req.query.date ? new Date(req.query.date as string) : new Date();
       const report = await storage.getARAgingReport(companyId, asOfDate);
@@ -8024,7 +9333,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/reports/ap-aging", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const asOfDate = req.query.date ? new Date(req.query.date as string) : new Date();
       const report = await storage.getAPAgingReport(companyId, asOfDate);
@@ -8036,7 +9345,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/reports/cost-centers", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const startDate = req.query.from ? new Date(req.query.from as string) : undefined;
       const endDate = req.query.to ? new Date(req.query.to as string) : undefined;
@@ -8049,36 +9358,559 @@ export async function registerRoutes(
 
   app.get("/api/accounting/reports/balance-sheet", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const asOfDate = req.query.date ? new Date(req.query.date as string) : new Date();
       
       // Use trial balance as the base data
       const tb = await storage.getTrialBalance(companyId, asOfDate);
       
-      const assets = tb.filter(a => a.type === 'ASSET');
-      const liabilities = tb.filter(a => a.type === 'LIABILITY');
-      const equity = tb.filter(a => a.type === 'EQUITY');
-      const revenue = tb.filter(a => a.type === 'REVENUE');
-      const expenses = tb.filter(a => a.type === 'EXPENSE');
+      const reportLines = tb.map((line: any) => ({
+        ...line,
+        id: line.accountId,
+        code: line.accountCode,
+        name: line.accountName,
+        type: line.accountType,
+        category: line.accountCategory,
+        normalBalance: normalBalance(line.accountType),
+        balance: presentationBalance(line),
+      }));
+      const assets = reportLines.filter(a => a.type === 'ASSET');
+      const liabilities = reportLines.filter(a => a.type === 'LIABILITY');
+      const equity = reportLines.filter(a => a.type === 'EQUITY');
+      const revenue = reportLines.filter(a => a.type === 'REVENUE');
+      const expenses = reportLines.filter(a => a.type === 'EXPENSE');
 
       const totalAssets = assets.reduce((sum, a) => sum + Number(a.balance), 0);
       const totalLiabilities = liabilities.reduce((sum, a) => sum + Number(a.balance), 0);
-      
-      // Calculate retained earnings (Net Income)
-      const totalRevenue = revenue.reduce((sum, a) => sum + Number(a.balance), 0); // Credits are positive for revenue normally, but balance is raw
-      const totalExpenses = expenses.reduce((sum, a) => sum + Number(a.balance), 0); // Debits
-      
-      // Depending on how trial balance signs work, usually Revenue is Credit (negative balance) and Expenses Debit (positive balance)
-      // If we assume a positive balance means normal balance...
-      // Let's just output raw categories and let frontend format
+      const totalEquity = equity.reduce((sum, a) => sum + Number(a.balance), 0);
+      const totalRevenue = revenue.reduce((sum, a) => sum + Number(a.balance), 0);
+      const totalExpenses = expenses.reduce((sum, a) => sum + Number(a.balance), 0);
+      const currentYearEarnings = totalRevenue - totalExpenses;
+      const totalLiabilitiesAndEquity = totalLiabilities + totalEquity + currentYearEarnings;
+
       res.json({
         date: asOfDate,
         assets,
         liabilities,
         equity,
         revenue,
-        expenses
+        expenses,
+        currentYearEarnings,
+        totals: {
+          assets: totalAssets,
+          liabilities: totalLiabilities,
+          equity: totalEquity,
+          liabilitiesAndEquity: totalLiabilitiesAndEquity,
+          equationDifference: totalAssets - totalLiabilitiesAndEquity,
+        }
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/accounting/dashboard-alerts", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+
+      const company = await storage.getCompany(companyId);
+      const settings = accountingSettingsOf(company);
+      const tb = await storage.getTrialBalance(companyId, new Date());
+      const totalDebit = tb.reduce((sum: number, line: any) => sum + Number(line.debit || 0), 0);
+      const totalCredit = tb.reduce((sum: number, line: any) => sum + Number(line.credit || 0), 0);
+      const alerts: any[] = [];
+
+      if (Math.abs(totalDebit - totalCredit) >= 0.01) {
+        alerts.push({ type: "critical", code: "TRIAL_BALANCE_OUT", title: "Trial balance is out of balance", detail: `Difference: ${(totalDebit - totalCredit).toFixed(2)}` });
+      }
+
+      const requiredPostingKeys = ["cashAccountCode", "accountsReceivableCode", "accountsPayableCode", "salesRevenueCode", "inventoryAccountCode", "vatOutputAccountCode", "vatInputAccountCode"];
+      const missingPostingKeys = requiredPostingKeys.filter((key) => !settings?.[key]);
+      if (missingPostingKeys.length) {
+        alerts.push({ type: "warning", code: "MISSING_POSTING_SETUP", title: "Posting setup is incomplete", detail: missingPostingKeys.join(", ") });
+      }
+
+      const unreconciledBankLines = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(bankStatementLines)
+        .innerJoin(bankStatements, eq(bankStatementLines.statementId, bankStatements.id))
+        .where(and(eq(bankStatements.companyId, companyId), eq(bankStatementLines.isReconciled, false)));
+      const unreconciledCount = Number(unreconciledBankLines[0]?.count || 0);
+      if (unreconciledCount > 0) {
+        alerts.push({ type: "info", code: "UNRECONCILED_BANK", title: "Unreconciled bank lines", detail: `${unreconciledCount} statement line${unreconciledCount === 1 ? "" : "s"} are unmatched.` });
+      }
+
+      if (!settings?.vatReturns?.length) {
+        alerts.push({ type: "info", code: "VAT_NOT_REVIEWED", title: "VAT returns not reviewed", detail: "No VAT return has been marked as reviewed or submitted yet." });
+      }
+
+      const cashAccounts = (await storage.getAccounts(companyId)).filter((account: any) => account.type === "ASSET" && String(account.code).startsWith("10"));
+      const negativeCash = tb.filter((line: any) => cashAccounts.some((account: any) => account.id === line.accountId) && Number(line.balance || 0) < -0.005);
+      if (negativeCash.length) {
+        alerts.push({ type: "warning", code: "NEGATIVE_CASH", title: "Negative cash or bank balance", detail: negativeCash.map((line: any) => `${line.accountCode} ${line.accountName}`).join(", ") });
+      }
+
+      res.json({ alerts, totalDebit, totalCredit });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/accounting/dashboard", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const company = await storage.getCompany(companyId);
+      const settings = accountingSettingsOf(company);
+      const today = new Date();
+      const [tb, ar, ap, vat, periods, statements, alertsPayload] = await Promise.all([
+        storage.getTrialBalance(companyId, today),
+        storage.getARAgingReport(companyId, today),
+        storage.getAPAgingReport(companyId, today),
+        storage.getVatReturn(companyId, new Date(today.getFullYear(), today.getMonth(), 1), today),
+        storage.getFinancialPeriods(companyId),
+        storage.getBankStatements(companyId),
+        (async () => {
+          const totalDebit = (await storage.getTrialBalance(companyId, today)).reduce((sum: number, line: any) => sum + Number(line.debit || 0), 0);
+          const totalCredit = (await storage.getTrialBalance(companyId, today)).reduce((sum: number, line: any) => sum + Number(line.credit || 0), 0);
+          return { totalDebit, totalCredit };
+        })(),
+      ]);
+
+      const cashBalance = tb
+        .filter((line: any) => String(line.accountCode).startsWith("10"))
+        .reduce((sum: number, line: any) => sum + Number(line.balance || 0), 0);
+      const currentPeriod = periods.find((period: any) => today >= new Date(period.startDate) && today <= new Date(period.endDate)) || null;
+      const unreconciledBankLines = await db.select({ count: sql<number>`count(*)` })
+        .from(bankStatementLines)
+        .innerJoin(bankStatements, eq(bankStatementLines.statementId, bankStatements.id))
+        .where(and(eq(bankStatements.companyId, companyId), eq(bankStatementLines.isReconciled, false)));
+
+      const unallocatedReceipts = await db.select({
+        paymentId: payments.id,
+        amount: payments.amount,
+        allocated: sql<number>`coalesce(sum(${paymentAllocations.amount}), 0)`,
+      })
+        .from(payments)
+        .leftJoin(paymentAllocations, and(eq(paymentAllocations.paymentId, payments.id), isNull(paymentAllocations.reversedAt)))
+        .where(eq(payments.companyId, companyId))
+        .groupBy(payments.id, payments.amount);
+
+      const unallocatedSupplierPayments = await db.select({
+        paymentId: supplierPayments.id,
+        amount: supplierPayments.amount,
+        allocated: sql<number>`coalesce(sum(${supplierPaymentAllocations.amount}), 0)`,
+      })
+        .from(supplierPayments)
+        .leftJoin(supplierPaymentAllocations, and(eq(supplierPaymentAllocations.supplierPaymentId, supplierPayments.id), isNull(supplierPaymentAllocations.reversedAt)))
+        .where(eq(supplierPayments.companyId, companyId))
+        .groupBy(supplierPayments.id, supplierPayments.amount);
+
+      const alerts: any[] = [];
+      if (Math.abs(alertsPayload.totalDebit - alertsPayload.totalCredit) >= 0.01) {
+        alerts.push({ type: "critical", title: "Trial balance is out of balance" });
+      }
+      if (!settings.vatReturns?.some((row: any) => row.status === "SUBMITTED")) {
+        alerts.push({ type: "info", title: "No submitted VAT return snapshot found" });
+      }
+      const unallocatedReceiptsTotal = unallocatedReceipts.reduce((sum, row: any) => sum + Math.max(0, Number(row.amount || 0) - Number(row.allocated || 0)), 0);
+      const unallocatedSupplierTotal = unallocatedSupplierPayments.reduce((sum, row: any) => sum + Math.max(0, Number(row.amount || 0) - Number(row.allocated || 0)), 0);
+
+      res.json({
+        cashBalance,
+        receivables: ar.reduce((sum: number, row: any) => sum + Number(row.total || 0), 0),
+        payables: ap.reduce((sum: number, row: any) => sum + Number(row.total || 0), 0),
+        vatDue: vat.netVat,
+        unallocatedReceipts: unallocatedReceiptsTotal,
+        unallocatedSupplierPayments: unallocatedSupplierTotal,
+        unreconciledBankLines: Number(unreconciledBankLines[0]?.count || 0),
+        currentPeriod,
+        latestStatement: statements[0] || null,
+        alerts,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/accounting/opening-balances", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const company = await storage.getCompany(companyId);
+      const openingBalances = accountingSettingsOf(company).openingBalances || null;
+      res.json(openingBalances || { locked: false, date: null, journalEntryId: null, customerBalances: [], supplierBalances: [], inventoryValue: 0 });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/opening-balances", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+
+      const company = await storage.getCompany(companyId);
+      if (!company) return res.status(404).json({ message: "Company not found" });
+      const settings = accountingSettingsOf(company);
+      if (settings.openingBalances?.locked) {
+        return res.status(409).json({ message: "Opening balances are already locked. Reverse the opening balance journal before reposting." });
+      }
+
+      const openingDate = req.body.date ? new Date(req.body.date) : new Date();
+      await assertOpenAccountingPeriod(companyId, openingDate, "Opening balance posting");
+
+      const accountsById = new Map((await storage.getAccounts(companyId)).map((account: any) => [Number(account.id), account]));
+      const lines: any[] = [];
+      for (const line of req.body.trialBalanceLines || []) {
+        const account = accountsById.get(Number(line.accountId));
+        const debit = Number(line.debit || 0);
+        const credit = Number(line.credit || 0);
+        if (!account || (debit <= 0 && credit <= 0)) continue;
+        if (debit > 0 && credit > 0) throw new Error("An opening balance line cannot have both debit and credit.");
+        lines.push({ accountCode: account.code, type: debit > 0 ? "DEBIT" : "CREDIT", amount: debit > 0 ? debit : credit });
+      }
+
+      const customerBalances = Array.isArray(req.body.customerBalances) ? req.body.customerBalances : [];
+      const supplierBalances = Array.isArray(req.body.supplierBalances) ? req.body.supplierBalances : [];
+      const inventoryValue = Number(req.body.inventoryValue || 0);
+      const customerTotal = customerBalances.reduce((sum: number, row: any) => sum + Number(row.amount || 0), 0);
+      const supplierTotal = supplierBalances.reduce((sum: number, row: any) => sum + Number(row.amount || 0), 0);
+
+      const arAccount = settings.accountsReceivableCode ? await storage.getAccountByCode(companyId, settings.accountsReceivableCode) : await storage.getAccountByCode(companyId, "1100");
+      const apAccount = settings.accountsPayableCode ? await storage.getAccountByCode(companyId, settings.accountsPayableCode) : await storage.getAccountByCode(companyId, "2000");
+      const inventoryAccount = settings.inventoryAccountCode ? await storage.getAccountByCode(companyId, settings.inventoryAccountCode) : await storage.getAccountByCode(companyId, "1300");
+
+      if (customerTotal > 0) {
+        if (!arAccount) throw new Error("Accounts receivable control account is not configured.");
+        lines.push({ accountCode: arAccount.code, type: "DEBIT", amount: customerTotal });
+      }
+      if (supplierTotal > 0) {
+        if (!apAccount) throw new Error("Accounts payable control account is not configured.");
+        lines.push({ accountCode: apAccount.code, type: "CREDIT", amount: supplierTotal });
+      }
+      if (inventoryValue > 0) {
+        if (!inventoryAccount) throw new Error("Inventory control account is not configured.");
+        lines.push({ accountCode: inventoryAccount.code, type: "DEBIT", amount: inventoryValue });
+      }
+
+      const totalDebit = lines.filter((line) => line.type === "DEBIT").reduce((sum, line) => sum + Number(line.amount), 0);
+      const totalCredit = lines.filter((line) => line.type === "CREDIT").reduce((sum, line) => sum + Number(line.amount), 0);
+      const difference = Number((totalDebit - totalCredit).toFixed(2));
+      if (Math.abs(difference) >= 0.01) {
+        const equityAccount = await resolveOpeningEquityAccount(companyId);
+        if (!equityAccount) throw new Error("Opening balance equity account is required to balance the opening entry.");
+        lines.push({ accountCode: equityAccount.code, type: difference > 0 ? "CREDIT" : "DEBIT", amount: Math.abs(difference) });
+      }
+
+      if (lines.length < 2) throw new Error("Add at least two opening balance lines.");
+
+      const result = await db.transaction(async (tx) => {
+        const entry = await storage.postToLedger(companyId, {
+          entryDate: openingDate,
+          description: `Opening balances as of ${format(openingDate, "yyyy-MM-dd")}`,
+          referenceType: "OPENING_BALANCE",
+          referenceId: `OB-${companyId}-${format(openingDate, "yyyyMMdd")}`,
+          createdBy: req.user?.id,
+          lines,
+        }, tx);
+
+        const customerSubledgerDocs = [];
+        for (const row of customerBalances) {
+          const amount = Number(row.amount || 0);
+          const name = String(row.name || "").trim();
+          if (!name || amount <= 0) continue;
+
+          let [customer] = await tx.select().from(customers).where(and(eq(customers.companyId, companyId), ilike(customers.name, name))).limit(1);
+          if (!customer) {
+            [customer] = await tx.insert(customers).values({
+              companyId,
+              name,
+              email: row.email || null,
+              phone: row.phone || null,
+              currency: row.currency || company.currency || "USD",
+              notes: "Created from opening balance import",
+            }).returning();
+          }
+
+          const [invoice] = await tx.insert(invoices).values({
+            companyId,
+            customerId: customer.id,
+            invoiceNumber: `OB-AR-${customer.id}-${entry.id}`,
+            issueDate: openingDate,
+            dueDate: row.dueDate ? new Date(row.dueDate) : openingDate,
+            subtotal: amount.toFixed(2),
+            taxAmount: "0.00",
+            total: amount.toFixed(2),
+            status: "issued",
+            paidAmount: "0.00",
+            taxInclusive: false,
+            currency: row.currency || customer.currency || company.currency || "USD",
+            paymentMethod: "OPENING",
+            transactionType: "OpeningBalance",
+            notes: `Opening receivable balance imported on ${format(openingDate, "yyyy-MM-dd")}`,
+            isFiscalized: false,
+            syncedWithFdms: false,
+            createdBy: req.user?.id,
+          } as any).returning();
+
+          await tx.insert(invoiceItems).values({
+            invoiceId: invoice.id,
+            description: "Opening receivable balance",
+            quantity: "1.00",
+            unitPrice: amount.toFixed(2),
+            taxRate: "0.00",
+            lineTotal: amount.toFixed(2),
+          });
+
+          customerSubledgerDocs.push({ customerId: customer.id, customerName: customer.name, invoiceId: invoice.id, amount });
+        }
+
+        const supplierSubledgerDocs = [];
+        for (const row of supplierBalances) {
+          const amount = Number(row.amount || 0);
+          const name = String(row.name || "").trim();
+          if (!name || amount <= 0) continue;
+
+          let [supplier] = await tx.select().from(suppliers).where(and(eq(suppliers.companyId, companyId), ilike(suppliers.name, name))).limit(1);
+          if (!supplier) {
+            [supplier] = await tx.insert(suppliers).values({
+              companyId,
+              name,
+              email: row.email || null,
+              phone: row.phone || null,
+            }).returning();
+          }
+
+          const [supplierInvoice] = await tx.insert(supplierInvoices).values({
+            companyId,
+            supplierId: supplier.id,
+            invoiceNumber: `OB-AP-${supplier.id}-${entry.id}`,
+            date: openingDate,
+            dueDate: row.dueDate ? new Date(row.dueDate) : openingDate,
+            totalAmount: amount.toFixed(2),
+            taxAmount: "0.00",
+            currency: row.currency || company.currency || "USD",
+            status: "unpaid",
+            paidAmount: "0.00",
+            notes: `Opening payable balance imported on ${format(openingDate, "yyyy-MM-dd")}`,
+          } as any).returning();
+
+          await tx.insert(supplierInvoiceItems).values({
+            supplierInvoiceId: supplierInvoice.id,
+            description: "Opening payable balance",
+            quantity: "1.0000",
+            unitPrice: amount.toFixed(2),
+            totalPrice: amount.toFixed(2),
+            taxRate: "0.00",
+            taxAmount: "0.00",
+          });
+
+          supplierSubledgerDocs.push({ supplierId: supplier.id, supplierName: supplier.name, supplierInvoiceId: supplierInvoice.id, amount });
+        }
+
+        const nextSettings = {
+          ...settings,
+          openingBalances: {
+            locked: true,
+            date: openingDate.toISOString(),
+            journalEntryId: entry.id,
+            customerBalances,
+            supplierBalances,
+            customerSubledgerDocs,
+            supplierSubledgerDocs,
+            inventoryValue,
+            lockedAt: new Date().toISOString(),
+            lockedBy: req.user?.id || "system",
+          },
+        };
+
+        await tx.update(companies).set({ accountingSettings: nextSettings } as any).where(eq(companies.id, companyId));
+        return { entry, openingBalances: nextSettings.openingBalances };
+      });
+
+      res.json({ success: true, entry: result.entry, openingBalances: result.openingBalances });
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/accounting/audit-trail", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const entries = await storage.getJournalEntries(companyId);
+      const reversalIds = new Set(entries.filter((entry: any) => entry.referenceType === "REVERSAL").map((entry: any) => String(entry.referenceId)));
+      res.json(entries.map((entry: any) => ({
+        ...entry,
+        sourceDocument: entry.referenceType && entry.referenceId ? `${entry.referenceType} #${entry.referenceId}` : "Manual journal",
+        postingDate: entry.entryDate,
+        actor: entry.createdBy || "system",
+        reversalStatus: entry.referenceType === "REVERSAL" ? "REVERSAL" : reversalIds.has(String(entry.id)) ? "REVERSED" : "ACTIVE",
+      })));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/journal/:id/reverse", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const originalId = Number(req.params.id);
+      const reversalDate = req.body.date ? new Date(req.body.date) : new Date();
+      await assertOpenAccountingPeriod(companyId, reversalDate, "Journal reversal");
+
+      const [original] = await db.select().from(journalEntries).where(and(eq(journalEntries.id, originalId), eq(journalEntries.companyId, companyId)));
+      if (!original) return res.status(404).json({ message: "Journal entry not found" });
+      if (original.referenceType === "REVERSAL") return res.status(400).json({ message: "Reversal journals cannot be reversed again." });
+
+      const existingReversal = await db.select().from(journalEntries).where(and(eq(journalEntries.companyId, companyId), eq(journalEntries.referenceType, "REVERSAL"), eq(journalEntries.referenceId, String(originalId))));
+      if (existingReversal.length) return res.status(409).json({ message: "This journal has already been reversed." });
+
+      const originalLines = await db.select({
+        accountCode: accounts.code,
+        type: ledgerEntries.type,
+        amount: ledgerEntries.amount,
+      })
+        .from(ledgerEntries)
+        .innerJoin(accounts, eq(ledgerEntries.accountId, accounts.id))
+        .where(eq(ledgerEntries.journalEntryId, originalId));
+
+      const reversal = await storage.postToLedger(companyId, {
+        entryDate: reversalDate,
+        description: req.body.reason || `Reversal of journal ${originalId}: ${original.description}`,
+        referenceType: "REVERSAL",
+        referenceId: String(originalId),
+        createdBy: req.user?.id,
+        lines: originalLines.map((line: any) => ({
+          accountCode: line.accountCode,
+          type: line.type === "DEBIT" ? "CREDIT" : "DEBIT",
+          amount: Number(line.amount),
+        })),
+      });
+
+      const company = await storage.getCompany(companyId);
+      const settings = accountingSettingsOf(company);
+      if (settings.openingBalances?.journalEntryId === originalId) {
+        const customerDocIds = (settings.openingBalances.customerSubledgerDocs || []).map((doc: any) => Number(doc.invoiceId)).filter(Boolean);
+        const supplierDocIds = (settings.openingBalances.supplierSubledgerDocs || []).map((doc: any) => Number(doc.supplierInvoiceId)).filter(Boolean);
+        if (customerDocIds.length) {
+          await db.update(invoices)
+            .set({ status: "cancelled", notes: "Cancelled by opening balance reversal" } as any)
+            .where(and(eq(invoices.companyId, companyId), inArray(invoices.id, customerDocIds)));
+        }
+        if (supplierDocIds.length) {
+          await db.update(supplierInvoices)
+            .set({ status: "cancelled", notes: "Cancelled by opening balance reversal" } as any)
+            .where(and(eq(supplierInvoices.companyId, companyId), inArray(supplierInvoices.id, supplierDocIds)));
+        }
+        await storage.updateCompany(companyId, {
+          accountingSettings: {
+            ...settings,
+            openingBalances: {
+              ...settings.openingBalances,
+              locked: false,
+              reversedAt: new Date().toISOString(),
+              reversalJournalEntryId: reversal.id,
+            },
+          },
+        } as any);
+      }
+
+      res.json({ success: true, reversal });
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/accounting/reports/profit-and-loss", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+
+      const startDate = req.query.from ? new Date(req.query.from as string) : undefined;
+      const endDate = req.query.to ? new Date(req.query.to as string) : undefined;
+      const filters: any[] = [
+        eq(journalEntries.companyId, companyId),
+        inArray(accounts.type, ["REVENUE", "EXPENSE"]),
+      ];
+      if (startDate) filters.push(gte(journalEntries.entryDate, startDate));
+      if (endDate) filters.push(lte(journalEntries.entryDate, endDate));
+
+      const rows = await db
+        .select({
+          accountId: accounts.id,
+          accountCode: accounts.code,
+          accountName: accounts.name,
+          accountType: accounts.type,
+          accountCategory: accounts.category,
+          debit: sql<number>`sum(case when ${ledgerEntries.type} = 'DEBIT' then ${ledgerEntries.amount} else 0 end)`,
+          credit: sql<number>`sum(case when ${ledgerEntries.type} = 'CREDIT' then ${ledgerEntries.amount} else 0 end)`,
+        })
+        .from(ledgerEntries)
+        .innerJoin(journalEntries, eq(ledgerEntries.journalEntryId, journalEntries.id))
+        .innerJoin(accounts, eq(ledgerEntries.accountId, accounts.id))
+        .where(and(...filters))
+        .groupBy(accounts.id, accounts.code, accounts.name, accounts.type, accounts.category)
+        .orderBy(accounts.code);
+
+      const lines = rows.map((row) => {
+        const debit = Number(row.debit || 0);
+        const credit = Number(row.credit || 0);
+        const amount = row.accountType === "REVENUE" ? credit - debit : debit - credit;
+        return {
+          accountId: row.accountId,
+          code: row.accountCode,
+          name: row.accountName,
+          type: row.accountType,
+          category: row.accountCategory || (row.accountType === "REVENUE" ? "Revenue" : "Operating Expenses"),
+          debit,
+          credit,
+          amount,
+        };
+      }).filter((line) => Math.abs(line.amount) >= 0.005);
+
+      const revenue = lines.filter((line) => line.type === "REVENUE" && line.category !== "Other Income");
+      const otherIncome = lines.filter((line) => line.type === "REVENUE" && line.category === "Other Income");
+      const costOfSales = lines.filter((line) => line.type === "EXPENSE" && line.category === "Cost of Sales");
+      const operatingExpenses = lines.filter((line) => line.type === "EXPENSE" && !["Cost of Sales", "Finance Costs", "Other Expenses"].includes(line.category));
+      const financeCosts = lines.filter((line) => line.type === "EXPENSE" && line.category === "Finance Costs");
+      const otherExpenses = lines.filter((line) => line.type === "EXPENSE" && line.category === "Other Expenses");
+
+      const total = (items: Array<{ amount: number }>) => items.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+      const totalRevenue = total(revenue);
+      const totalOtherIncome = total(otherIncome);
+      const totalCostOfSales = total(costOfSales);
+      const totalOperatingExpenses = total(operatingExpenses);
+      const totalFinanceCosts = total(financeCosts);
+      const totalOtherExpenses = total(otherExpenses);
+      const grossProfit = totalRevenue - totalCostOfSales;
+      const netProfit = grossProfit + totalOtherIncome - totalOperatingExpenses - totalFinanceCosts - totalOtherExpenses;
+
+      res.json({
+        startDate,
+        endDate,
+        sections: {
+          revenue,
+          costOfSales,
+          otherIncome,
+          operatingExpenses,
+          financeCosts,
+          otherExpenses,
+        },
+        totals: {
+          revenue: totalRevenue,
+          costOfSales: totalCostOfSales,
+          grossProfit,
+          otherIncome: totalOtherIncome,
+          operatingExpenses: totalOperatingExpenses,
+          financeCosts: totalFinanceCosts,
+          otherExpenses: totalOtherExpenses,
+          netProfit,
+        },
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -8087,7 +9919,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/reports/cash-flow", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       
       const startDate = req.query.from ? new Date(req.query.from as string) : undefined;
@@ -8103,18 +9935,18 @@ export async function registerRoutes(
       const entriesProms = cashAccountIds.map(id => storage.getLedgerEntries(companyId, id, startDate, endDate));
       const entriesArrays = await Promise.all(entriesProms);
       
-      const allEntries = entriesArrays.flat().sort((a, b) => new Date(a.journal_entries.date).getTime() - new Date(b.journal_entries.date).getTime());
+      const allEntries = entriesArrays.flat().sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
       
       // Group by money in / money out
-      const inflows = allEntries.filter(e => Number(e.debit) > 0); // debiting cash = money in
-      const outflows = allEntries.filter(e => Number(e.credit) > 0); // crediting cash = money out
+      const inflows = allEntries.filter(e => e.type === "DEBIT"); // debiting cash = money in
+      const outflows = allEntries.filter(e => e.type === "CREDIT"); // crediting cash = money out
       
       res.json({
         startDate,
         endDate,
         inflows,
         outflows,
-        netCashFlow: inflows.reduce((s, e) => s + Number(e.debit), 0) - outflows.reduce((s, e) => s + Number(e.credit), 0)
+        netCashFlow: inflows.reduce((s, e) => s + Number(e.amount), 0) - outflows.reduce((s, e) => s + Number(e.amount), 0)
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -8123,7 +9955,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/fixed-assets", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const assets = await storage.getFixedAssets(companyId);
       res.json(assets);
@@ -8134,7 +9966,7 @@ export async function registerRoutes(
 
   app.post("/api/accounting/fixed-assets", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       
       const payload = { ...req.body, companyId };
@@ -8147,7 +9979,7 @@ export async function registerRoutes(
 
   app.post("/api/accounting/fixed-assets/depreciate", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       
       const asOfDate = req.body.date ? new Date(req.body.date) : new Date();
@@ -8163,7 +9995,7 @@ export async function registerRoutes(
   // Financial Periods
   app.get("/api/accounting/periods", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const periods = await storage.getFinancialPeriods(companyId);
       res.json(periods);
@@ -8174,14 +10006,26 @@ export async function registerRoutes(
 
   app.post("/api/accounting/periods", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
-      
-      const payload = { ...req.body, companyId };
+
+      const startDate = req.body.startDate ? new Date(req.body.startDate) : null;
+      const endDate = req.body.endDate ? new Date(req.body.endDate) : null;
+      if (!req.body.name || !startDate || !endDate || Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+        return res.status(400).json({ message: "Period name, start date, and end date are required" });
+      }
+
+      const payload = {
+        name: String(req.body.name).trim(),
+        startDate,
+        endDate,
+        status: req.body.status || "OPEN",
+        companyId,
+      };
       const period = await storage.createFinancialPeriod(payload);
       res.json(period);
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      res.status(400).json({ message: err.message });
     }
   });
 
@@ -8197,7 +10041,7 @@ export async function registerRoutes(
 
   app.post("/api/accounting/periods/year-end-close", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company selected" });
       await storage.runYearEndClose(companyId, new Date(req.body.asOfDate));
       res.json({ success: true, message: "Year-End closing sweep completed." });
@@ -8209,7 +10053,7 @@ export async function registerRoutes(
   // VAT Return
   app.get("/api/accounting/reports/vat-return", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       
       const { startDate, endDate } = req.query;
@@ -8223,10 +10067,104 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/accounting/vat-returns", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const company = await storage.getCompany(companyId);
+      res.json(accountingSettingsOf(company).vatReturns || []);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/vat-returns/draft", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const startDate = req.body.startDate ? new Date(req.body.startDate) : null;
+      const endDate = req.body.endDate ? new Date(req.body.endDate) : null;
+      if (!startDate || !endDate || Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+        return res.status(400).json({ message: "Valid startDate and endDate are required" });
+      }
+
+      const company = await storage.getCompany(companyId);
+      if (!company) return res.status(404).json({ message: "Company not found" });
+      const settings = accountingSettingsOf(company);
+      const report = await storage.getVatReturn(companyId, startDate, endDate);
+      const draft = {
+        id: `VAT-${companyId}-${format(startDate, "yyyyMMdd")}-${format(endDate, "yyyyMMdd")}`,
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString(),
+        status: "DRAFT",
+        snapshot: report,
+        reviewedAt: null,
+        submittedAt: null,
+        createdAt: new Date().toISOString(),
+        createdBy: req.user?.id || "system",
+      };
+
+      const vatReturns = [...(settings.vatReturns || []).filter((row: any) => row.id !== draft.id), draft];
+      await storage.updateCompany(companyId, { accountingSettings: { ...settings, vatReturns } } as any);
+      res.status(201).json(draft);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/vat-returns/:id/review", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const company = await storage.getCompany(companyId);
+      if (!company) return res.status(404).json({ message: "Company not found" });
+      const settings = accountingSettingsOf(company);
+      let updated: any = null;
+      const vatReturns = (settings.vatReturns || []).map((row: any) => {
+        if (row.id !== req.params.id) return row;
+        updated = { ...row, status: "REVIEWED", reviewedAt: new Date().toISOString(), reviewedBy: req.user?.id || "system" };
+        return updated;
+      });
+      if (!updated) return res.status(404).json({ message: "VAT return draft not found" });
+      await storage.updateCompany(companyId, { accountingSettings: { ...settings, vatReturns } } as any);
+      res.json(updated);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/vat-returns/:id/submit", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const company = await storage.getCompany(companyId);
+      if (!company) return res.status(404).json({ message: "Company not found" });
+      const settings = accountingSettingsOf(company);
+      let submitted: any = null;
+      const vatReturns = (settings.vatReturns || []).map((row: any) => {
+        if (row.id !== req.params.id) return row;
+        submitted = {
+          ...row,
+          status: "SUBMITTED",
+          submittedAt: new Date().toISOString(),
+          submittedBy: req.user?.id || "system",
+          submissionReference: req.body.submissionReference || null,
+          submittedSnapshot: row.snapshot,
+        };
+        return submitted;
+      });
+      if (!submitted) return res.status(404).json({ message: "VAT return not found" });
+      await storage.updateCompany(companyId, { accountingSettings: { ...settings, vatReturns } } as any);
+      res.json(submitted);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
   // Debtor/Creditor Analysis
   app.get("/api/accounting/reports/debtors/:id", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const analysis = await storage.getDebtorAnalysis(companyId, Number(req.params.id));
       res.json(analysis);
@@ -8237,7 +10175,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/reports/creditors/:id", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const analysis = await storage.getCreditorAnalysis(companyId, Number(req.params.id));
       res.json(analysis);
@@ -8249,10 +10187,11 @@ export async function registerRoutes(
   // Bank Reconciliation
   app.post("/api/accounting/reconciliation/statements", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       
       const { statementDate, closingBalance, accountId, lines } = req.body;
+      await assertOpenAccountingPeriod(companyId, statementDate, "Bank statement import");
       const stmt = await storage.uploadBankStatement({
         companyId,
         accountId: Number(accountId),
@@ -8268,7 +10207,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/reconciliation/statements", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const { accountId } = req.query;
       const stmts = await storage.getBankStatements(companyId, accountId ? Number(accountId) : undefined);
@@ -8289,7 +10228,7 @@ export async function registerRoutes(
 
   app.get("/api/accounting/reconciliation/ledger", requireAuth, async (req: any, res: any) => {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const { accountId } = req.query;
       const entries = await storage.getUnreconciledLedger(companyId, Number(accountId));
@@ -8301,7 +10240,11 @@ export async function registerRoutes(
 
   app.post("/api/accounting/reconciliation/match", requireAuth, async (req: any, res: any) => {
     try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const { lineId, ledgerEntryId } = req.body;
+      const [line] = await db.select().from(bankStatementLines).where(eq(bankStatementLines.id, Number(lineId)));
+      await assertOpenAccountingPeriod(companyId, line?.date || new Date(), "Bank reconciliation");
       await storage.reconcileBankLine(Number(lineId), Number(ledgerEntryId));
       res.json({ success: true });
     } catch (err: any) {
@@ -8311,6 +10254,10 @@ export async function registerRoutes(
 
   app.post("/api/accounting/reconciliation/statements/:id/auto-match", requireAuth, async (req: any, res: any) => {
     try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const [statement] = await db.select().from(bankStatements).where(eq(bankStatements.id, Number(req.params.id)));
+      await assertOpenAccountingPeriod(companyId, statement?.statementDate || new Date(), "Bank auto-reconciliation");
       const matched = await storage.autoReconcile(Number(req.params.id));
       res.json({ success: true, matchedCount: matched });
     } catch (err: any) {

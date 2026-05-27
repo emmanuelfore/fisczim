@@ -5,6 +5,7 @@ import {
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useBusTicketing } from '../../hooks/useBusTicketing';
+import { isBusFeatureEnabled, normalizeBusSettings, type BusFeatureKey, type BusSettings } from '../../lib/busSettings';
 
 // Sub-screens
 import { BusTicketIssueScreen } from './BusTicketIssueScreen';
@@ -17,6 +18,8 @@ import { BusRangeReportScreen } from './BusRangeReportScreen';
 import { BusConductorReportScreen } from './BusConductorReportScreen';
 import { BusFleetAdminScreen } from './BusFleetAdminScreen';
 import { BusTripStartScreen } from './BusTripStartScreen';
+import { PrinterSettingsModal } from '../../ui/PrinterSettingsModal';
+import { usePrinter } from '../../hooks/usePrinter';
 
 const C = {
   bg: '#07090C', surface: '#111318', border: '#1E2128',
@@ -39,6 +42,7 @@ type SubScreen =
 
 interface MenuCard {
   id: SubScreen;
+  feature: BusFeatureKey;
   icon: string;
   label: string;
   sub: string;
@@ -48,37 +52,66 @@ interface MenuCard {
 
 const MENU: MenuCard[] = [
   // Conductor section
-  { id: 'startTrip', icon: 'steering', label: 'Start Trip', sub: 'Select bus and route to start', color: C.success, section: 'conductor' },
-  { id: 'issueTicket', icon: 'ticket-outline', label: 'Issue Ticket', sub: 'Create a new ticket for passengers', color: C.amber, section: 'conductor' },
-  { id: 'shiftSummary', icon: 'flag-checkered', label: 'End Trip / Shift', sub: 'View today\'s totals & close shift', color: C.fire, section: 'conductor' },
-  { id: 'reconciliation', icon: 'cash-sync', label: 'Reconcile Cash', sub: 'Compare expected vs received cash', color: C.success, section: 'conductor' },
+  { id: 'startTrip', feature: 'tripSelection', icon: 'steering', label: 'Start Trip', sub: 'Select bus and route to start', color: C.success, section: 'conductor' },
+  { id: 'issueTicket', feature: 'ticketIssuing', icon: 'ticket-outline', label: 'Issue Ticket', sub: 'Create a new ticket for passengers', color: C.amber, section: 'conductor' },
+  { id: 'shiftSummary', feature: 'cashTracking', icon: 'flag-checkered', label: 'End Trip / Shift', sub: 'View today\'s totals & close shift', color: C.fire, section: 'conductor' },
+  { id: 'reconciliation', feature: 'cashTracking', icon: 'cash-sync', label: 'Reconcile Cash', sub: 'Compare expected vs received cash', color: C.success, section: 'conductor' },
   // Admin section
-  { id: 'fleet', icon: 'bus-multiple', label: 'Manage Fleet', sub: 'Add, edit vehicles', color: C.amber, section: 'admin' },
-  { id: 'routes', icon: 'bus-stop', label: 'Manage Routes', sub: 'Add, edit, and configure routes', color: C.amber, section: 'admin' },
-  { id: 'conductors', icon: 'account-tie-outline', label: 'Conductors', sub: 'Manage conductor profiles', color: C.amber, section: 'admin' },
+  { id: 'fleet', feature: 'fleetManagement', icon: 'bus-multiple', label: 'Manage Fleet', sub: 'Add, edit vehicles', color: C.amber, section: 'admin' },
+  { id: 'routes', feature: 'fareMatrix', icon: 'bus-stop', label: 'Manage Routes', sub: 'Add, edit, and configure routes', color: C.amber, section: 'admin' },
+  { id: 'conductors', feature: 'conductorManagement', icon: 'account-tie-outline', label: 'Conductors', sub: 'Manage conductor profiles', color: C.amber, section: 'admin' },
+  { id: 'reconciliation', feature: 'cashTracking', icon: 'cash-check', label: 'Cash Sign-offs', sub: 'Approve pending conductor cash-ups', color: C.success, section: 'admin' },
   // Reports section
-  { id: 'dailyReport', icon: 'chart-bar', label: 'Daily Report', sub: 'Revenue & breakdown for a day', color: C.amber, section: 'reports' },
-  { id: 'rangeReport', icon: 'chart-line', label: 'Range Report', sub: 'Multi-day trend analysis', color: C.amber, section: 'reports' },
-  { id: 'conductorReport', icon: 'account-details-outline', label: 'Conductor Report', sub: 'Per-conductor performance', color: C.amber, section: 'reports' },
+  { id: 'dailyReport', feature: 'reports', icon: 'chart-bar', label: 'Daily Report', sub: 'Revenue & breakdown for a day', color: C.amber, section: 'reports' },
+  { id: 'rangeReport', feature: 'reports', icon: 'chart-line', label: 'Range Report', sub: 'Multi-day trend analysis', color: C.amber, section: 'reports' },
+  { id: 'conductorReport', feature: 'reports', icon: 'account-details-outline', label: 'Conductor Report', sub: 'Per-conductor performance', color: C.amber, section: 'reports' },
 ];
 
 interface Props {
   onClose: () => void;
+  busSettings?: BusSettings;
+  companyId?: number | null;
+  company?: any;
+  userRole?: string;
+  userName?: string;
+  userId?: string | null;
+  view?: 'full' | 'reports';
 }
 
-export function BusTicketingHubScreen({ onClose }: Props) {
+export function BusTicketingHubScreen({ onClose, busSettings, companyId, company, userRole = 'member', userName = '', userId, view = 'full' }: Props) {
   const insets = useSafeAreaInsets();
-  const { activeConductor, activeTrip, getTodaysTickets, routes, vehicles } = useBusTicketing();
+  const {
+    activeConductor,
+    activeTrip,
+    shifts,
+    tickets,
+    reconciliations,
+    getTodaysTickets,
+    routes,
+    vehicles,
+    refreshCloudSetup,
+    syncPendingTickets,
+    isOnline,
+    syncStatus,
+    pendingTicketCount,
+    lastSyncError,
+  } = useBusTicketing(companyId);
   const [activeScreen, setActiveScreen] = useState<SubScreen>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [showPrinterSettings, setShowPrinterSettings] = useState(false);
+  const { config: printerConfig } = usePrinter();
+  const settings = normalizeBusSettings(busSettings);
+  const role = userRole.toLowerCase();
+  const isAdmin = role === 'owner' || role === 'admin' || role === 'superadmin' || userName === 'Super Admin';
 
   // Render sub-screens
-  if (activeScreen === 'startTrip') return <BusTripStartScreen onClose={() => setActiveScreen(null)} />;
-  if (activeScreen === 'issueTicket') return <BusTicketIssueScreen onClose={() => setActiveScreen(null)} />;
-  if (activeScreen === 'routes') return <BusRouteAdminScreen onClose={() => setActiveScreen(null)} />;
-  if (activeScreen === 'fleet') return <BusFleetAdminScreen onClose={() => setActiveScreen(null)} />;
-  if (activeScreen === 'conductors') return <ConductorManagementScreen onClose={() => setActiveScreen(null)} />;
-  if (activeScreen === 'shiftSummary') return <ShiftSummaryScreen onClose={() => setActiveScreen(null)} />;
-  if (activeScreen === 'reconciliation') return <ReconciliationScreen onClose={() => setActiveScreen(null)} />;
+  if (activeScreen === 'startTrip') return <BusTripStartScreen companyId={companyId} userName={userName} userRole={userRole} userId={userId} onClose={() => setActiveScreen(null)} />;
+  if (activeScreen === 'issueTicket') return <BusTicketIssueScreen companyId={companyId} company={company} onClose={() => setActiveScreen(null)} />;
+  if (activeScreen === 'routes') return <BusRouteAdminScreen companyId={companyId} onClose={() => setActiveScreen(null)} />;
+  if (activeScreen === 'fleet') return <BusFleetAdminScreen companyId={companyId} onClose={() => setActiveScreen(null)} />;
+  if (activeScreen === 'conductors') return <ConductorManagementScreen companyId={companyId} onClose={() => setActiveScreen(null)} />;
+  if (activeScreen === 'shiftSummary') return <ShiftSummaryScreen companyId={companyId} onClose={() => setActiveScreen(null)} />;
+  if (activeScreen === 'reconciliation') return <ReconciliationScreen companyId={companyId} userRole={userRole} userName={userName} onClose={() => setActiveScreen(null)} />;
   if (activeScreen === 'dailyReport') return <BusDailyReportScreen onClose={() => setActiveScreen(null)} />;
   if (activeScreen === 'rangeReport') return <BusRangeReportScreen onClose={() => setActiveScreen(null)} />;
   if (activeScreen === 'conductorReport') return <BusConductorReportScreen onClose={() => setActiveScreen(null)} />;
@@ -86,17 +119,66 @@ export function BusTicketingHubScreen({ onClose }: Props) {
   const todayTickets = getTodaysTickets();
 
   // Filter conductor actions based on whether a trip is active
-  const rawConductorSection = MENU.filter((m) => m.section === 'conductor');
-  const conductorSection = activeTrip
-    ? rawConductorSection.filter(m => m.id !== 'startTrip')
-    : rawConductorSection.filter(m => m.id === 'startTrip' || m.id === 'shiftSummary' || m.id === 'reconciliation');
+  const visibleMenu = MENU.filter((m) => isBusFeatureEnabled(settings, m.feature));
+  const rawConductorSection = visibleMenu.filter((m) => m.section === 'conductor');
+  const hasClosedShiftToday = shifts.some((shift) => {
+    const sameConductor = !activeConductor?.id || shift.conductorId === activeConductor.id;
+    return sameConductor && shift.date === new Date().toISOString().slice(0, 10);
+  });
+  const todayDate = new Date().toISOString().slice(0, 10);
+  const todaysConductorTickets = tickets.filter((ticket) => {
+    const sameDay = ticket.issuedAt.slice(0, 10) === todayDate;
+    const sameConductor = !activeConductor?.id || ticket.conductorId === activeConductor.id;
+    return sameDay && sameConductor;
+  });
+  const expectedCashToday = todaysConductorTickets.reduce((sum, ticket) => sum + ticket.totalAmount, 0);
+  const hasSubmittedReconciliationToday = reconciliations.some((record) => {
+    const sameConductor = !activeConductor?.id || record.conductorId === activeConductor.id;
+    const openOrDone = (record.status ?? 'pending') !== 'rejected';
+    return sameConductor && record.date === todayDate && openOrDone;
+  });
+  const isConductorReconciliationDisabled = hasSubmittedReconciliationToday || expectedCashToday <= 0;
+  const getMenuSub = (item: MenuCard) => {
+    if (item.id !== 'reconciliation' || item.section !== 'conductor') return item.sub;
+    if (hasSubmittedReconciliationToday) return 'Reconciliation already done today';
+    if (expectedCashToday <= 0) return 'No expected cash to reconcile';
+    return item.sub;
+  };
+  const conductorSection = isAdmin
+    ? []
+    : activeTrip
+      ? rawConductorSection.filter(m => m.id === 'issueTicket' || m.id === 'shiftSummary')
+      : rawConductorSection.filter(m => m.id === 'startTrip' || (m.id === 'reconciliation' && hasClosedShiftToday));
 
-  const adminSection = MENU.filter((m) => m.section === 'admin');
-  const reportsSection = MENU.filter((m) => m.section === 'reports');
+  const adminSection = isAdmin ? visibleMenu.filter((m) => m.section === 'admin') : [];
+  const reportsSection = visibleMenu.filter((m) => m.section === 'reports');
+  const title = view === 'reports' ? 'Trip Reports' : 'Bus Ticketing';
 
   // Helpers to display active trip details
   const activeRoute = activeTrip ? routes.find(r => r.id === activeTrip.routeId) : null;
   const activeVehicle = activeTrip ? vehicles.find(v => v.id === activeTrip.vehicleId) : null;
+  const showingSync = syncing || syncStatus === 'syncing';
+  const modeColor = showingSync ? C.amber : isOnline ? C.success : C.danger;
+  const modeIcon = showingSync ? 'sync' : isOnline ? 'wifi' : 'wifi-off';
+  const modeLabel = showingSync ? 'System syncing' : isOnline ? 'Online mode' : 'Offline mode';
+  const syncDetail = showingSync
+    ? `${pendingTicketCount} sale${pendingTicketCount === 1 ? '' : 's'} pending`
+    : pendingTicketCount > 0
+      ? `${pendingTicketCount} sale${pendingTicketCount === 1 ? '' : 's'} waiting to sync`
+      : 'All bus sales synced';
+
+  async function handleSync() {
+    if (syncing || !isOnline) return;
+    setSyncing(true);
+    try {
+      await refreshCloudSetup();
+      await syncPendingTickets();
+    } catch (e) {
+      console.warn('[BusTicketingHub] Sync failed:', e);
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
@@ -109,12 +191,40 @@ export function BusTicketingHubScreen({ onClose }: Props) {
         </TouchableOpacity>
         <View style={styles.headerCenter}>
           <MaterialCommunityIcons name="bus" size={20} color={C.amber} />
-          <Text style={styles.headerTitle}>Bus Ticketing</Text>
+          <Text style={styles.headerTitle}>{title}</Text>
         </View>
-        <View style={{ width: 40 }} />
+        <View style={styles.headerActions}>
+          <TouchableOpacity onPress={() => setShowPrinterSettings(true)} style={styles.backBtn}>
+            <MaterialCommunityIcons name="printer-outline" size={22} color={printerConfig.enabled ? C.success : C.muted} />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={handleSync} style={styles.backBtn} disabled={syncing || !isOnline}>
+            <MaterialCommunityIcons name={syncing ? "sync" : "cloud-sync-outline"} size={22} color={isOnline ? C.amber : C.muted} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+        {!settings.enabled && (
+          <View style={styles.statusBar}>
+            <Text style={styles.statusText}>Bus ticketing is hidden by admin settings.</Text>
+          </View>
+        )}
+
+        {/* Status bar */}
+        <View style={[styles.syncBar, { borderColor: `${modeColor}66` }]}>
+          <View style={styles.statusItem}>
+            <MaterialCommunityIcons name={modeIcon as any} size={18} color={modeColor} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.syncTitle, { color: modeColor }]}>{modeLabel}</Text>
+              <Text style={styles.syncSub}>{lastSyncError ? `Sync issue: ${lastSyncError}` : syncDetail}</Text>
+            </View>
+          </View>
+          <TouchableOpacity onPress={handleSync} disabled={showingSync || !isOnline} style={[styles.syncButton, (!isOnline || showingSync) && { opacity: 0.55 }]}>
+            <MaterialCommunityIcons name={showingSync ? "sync" : "cloud-sync-outline"} size={16} color="#000" />
+            <Text style={styles.syncButtonText}>{showingSync ? 'Syncing' : 'Sync'}</Text>
+          </TouchableOpacity>
+        </View>
+
         {/* Status bar */}
         <View style={styles.statusBar}>
           <View style={styles.statusItem}>
@@ -154,47 +264,67 @@ export function BusTicketingHubScreen({ onClose }: Props) {
           </View>
         </View>
 
-        {/* Conductor actions */}
-        <Text style={styles.sectionLabel}>CONDUCTOR</Text>
-        <View style={styles.grid}>
-          {conductorSection.map((item) => (
-            <TouchableOpacity
-              key={item.id}
-              style={[styles.card, item.id === 'issueTicket' && styles.cardPrimary]}
-              onPress={() => setActiveScreen(item.id)}
-              activeOpacity={0.8}
-            >
-              <View style={[styles.cardIcon, { backgroundColor: item.id === 'issueTicket' ? C.amber : 'rgba(240,165,0,0.15)' }]}>
-                <MaterialCommunityIcons
-                  name={item.icon as any}
-                  size={24}
-                  color={item.id === 'issueTicket' ? '#000' : item.color}
-                />
-              </View>
-              <Text style={styles.cardLabel}>{item.label}</Text>
-              <Text style={styles.cardSub}>{item.sub}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+        {view === 'full' && conductorSection.length > 0 && (
+          <>
+            {/* Conductor actions */}
+            <Text style={styles.sectionLabel}>CONDUCTOR</Text>
+            <View style={styles.grid}>
+              {conductorSection.map((item) => (
+                <TouchableOpacity
+                  key={item.id}
+                  style={[
+                    styles.card,
+                    item.id === 'issueTicket' && styles.cardPrimary,
+                    item.id === 'reconciliation' && isConductorReconciliationDisabled && styles.cardDisabled,
+                  ]}
+                  onPress={() => {
+                    if (item.id === 'reconciliation' && isConductorReconciliationDisabled) return;
+                    setActiveScreen(item.id);
+                  }}
+                  disabled={item.id === 'reconciliation' && isConductorReconciliationDisabled}
+                  activeOpacity={0.8}
+                >
+                  <View style={[
+                    styles.cardIcon,
+                    { backgroundColor: item.id === 'issueTicket' ? C.amber : 'rgba(240,165,0,0.15)' },
+                    item.id === 'reconciliation' && isConductorReconciliationDisabled && styles.cardIconDisabled,
+                  ]}>
+                    <MaterialCommunityIcons
+                      name={item.icon as any}
+                      size={24}
+                      color={item.id === 'reconciliation' && isConductorReconciliationDisabled ? C.muted : item.id === 'issueTicket' ? '#000' : item.color}
+                    />
+                  </View>
+                  <Text style={[styles.cardLabel, item.id === 'reconciliation' && isConductorReconciliationDisabled && { color: C.muted }]}>{item.label}</Text>
+                  <Text style={styles.cardSub}>{getMenuSub(item)}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </>
+        )}
 
-        {/* Admin */}
-        <Text style={styles.sectionLabel}>ADMIN</Text>
-        <View style={styles.grid}>
-          {adminSection.map((item) => (
-            <TouchableOpacity
-              key={item.id}
-              style={styles.card}
-              onPress={() => setActiveScreen(item.id)}
-              activeOpacity={0.8}
-            >
-              <View style={styles.cardIcon}>
-                <MaterialCommunityIcons name={item.icon as any} size={24} color={C.amber} />
-              </View>
-              <Text style={styles.cardLabel}>{item.label}</Text>
-              <Text style={styles.cardSub}>{item.sub}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+        {view === 'full' && adminSection.length > 0 && (
+          <>
+            {/* Admin */}
+            <Text style={styles.sectionLabel}>ADMIN</Text>
+            <View style={styles.grid}>
+              {adminSection.map((item) => (
+                <TouchableOpacity
+                  key={item.id}
+                  style={styles.card}
+                  onPress={() => setActiveScreen(item.id)}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.cardIcon}>
+                    <MaterialCommunityIcons name={item.icon as any} size={24} color={C.amber} />
+                  </View>
+                  <Text style={styles.cardLabel}>{item.label}</Text>
+                  <Text style={styles.cardSub}>{item.sub}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </>
+        )}
 
         {/* Reports */}
         <Text style={styles.sectionLabel}>REPORTS</Text>
@@ -216,6 +346,7 @@ export function BusTicketingHubScreen({ onClose }: Props) {
           </TouchableOpacity>
         ))}
       </ScrollView>
+      <PrinterSettingsModal visible={showPrinterSettings} onClose={() => setShowPrinterSettings(false)} />
     </View>
   );
 }
@@ -228,6 +359,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1, borderBottomColor: C.border,
   },
   backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  headerActions: { flexDirection: 'row', alignItems: 'center' },
   headerCenter: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   headerTitle: { color: C.white, fontSize: 18, fontWeight: '900' },
   statusBar: {
@@ -235,8 +367,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', padding: 14,
     marginBottom: 24, borderWidth: 1, borderColor: C.border,
   },
+  syncBar: {
+    backgroundColor: C.surface, borderRadius: 12,
+    flexDirection: 'row', alignItems: 'center', padding: 14,
+    marginBottom: 12, borderWidth: 1,
+  },
   statusItem: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 },
   statusText: { color: C.muted, fontSize: 12, fontWeight: '600', flex: 1 },
+  syncTitle: { fontSize: 12, fontWeight: '900', textTransform: 'uppercase' },
+  syncSub: { color: C.muted, fontSize: 11, fontWeight: '600', marginTop: 2 },
+  syncButton: {
+    backgroundColor: C.amber, borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 8,
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+  },
+  syncButtonText: { color: '#000', fontSize: 12, fontWeight: '900' },
   statusDivider: { width: 1, height: 20, backgroundColor: C.border, marginHorizontal: 6 },
   sectionLabel: {
     color: C.muted, fontSize: 11, fontWeight: '800', letterSpacing: 1.2,
@@ -248,12 +393,14 @@ const styles = StyleSheet.create({
     borderRadius: 16, padding: 18, gap: 10,
     borderWidth: 1, borderColor: C.border,
   },
+  cardDisabled: { opacity: 0.55, borderColor: '#2B2F38' },
   cardPrimary: { borderColor: C.amber },
   cardIcon: {
     width: 44, height: 44, borderRadius: 12,
     backgroundColor: 'rgba(240,165,0,0.15)',
     alignItems: 'center', justifyContent: 'center',
   },
+  cardIconDisabled: { backgroundColor: '#1A1D23' },
   cardLabel: { color: C.white, fontSize: 14, fontWeight: '800' },
   cardSub: { color: C.muted, fontSize: 11, lineHeight: 16 },
   listRow: {

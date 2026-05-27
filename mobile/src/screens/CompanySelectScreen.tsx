@@ -11,10 +11,14 @@ type Company = {
   name: string;
   tradingName?: string | null;
   zimraEnvironment?: string | null;
+  appMode?: string | null;
+  app_mode?: string | null;
+  busSettings?: unknown;
+  bus_settings?: unknown;
 };
 
 type Props = {
-  onSelected: (companyId: number) => void;
+  onSelected: (companyId: number, company?: Company) => void;
   onSignOut: () => void;
 };
 
@@ -107,7 +111,7 @@ export function CompanySelectScreen({ onSelected, onSignOut }: Props) {
           renderItem={({ item }) => (
             <TouchableOpacity
               activeOpacity={0.88}
-              onPress={() => onSelected(item.id)}
+              onPress={() => onSelected(item.id, item)}
               style={{
                 backgroundColor: PremiumColors.bg.hover,
                 borderWidth: 1,

@@ -24,9 +24,12 @@ export function OrganizationProfile({ company, formData, setFormData }: Organiza
     setIsUploading(true);
     try {
       const fd = new FormData();
-      fd.append("file", file);
-      const res = await apiFetch("/api/upload", { method: "POST", body: fd });
-      if (!res.ok) throw new Error("Upload failed");
+      fd.append("logo", file);
+      const res = await apiFetch(`/api/companies/${company.id}/logo`, { method: "POST", body: fd });
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.message || "Upload failed");
+      }
       const data = await res.json();
       await updateCompany.mutateAsync({ logoUrl: data.url });
       toast({ title: "Success", description: "Logo updated successfully" });
@@ -34,6 +37,7 @@ export function OrganizationProfile({ company, formData, setFormData }: Organiza
       toast({ title: "Error", description: err.message, variant: "destructive" });
     } finally {
       setIsUploading(false);
+      e.target.value = "";
     }
   };
 

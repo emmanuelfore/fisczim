@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { format, startOfMonth, endOfMonth } from "date-fns";
 import { Layout } from "@/components/layout";
 import { useCurrencies } from "@/hooks/use-currencies";
@@ -24,6 +25,7 @@ import { downloadExcel } from "@/lib/export-utils";
 export default function FinancialReportsPage() {
     const { activeCompany, isLoading: isLoadingActive } = useActiveCompany();
     const companyId = activeCompany?.id || 0;
+    const [location] = useLocation();
     
     const { data: currencies } = useCurrencies(companyId);
 
@@ -33,6 +35,11 @@ export default function FinancialReportsPage() {
         to: endOfMonth(new Date())
     });
     const [consolidatedCode, setConsolidatedCode] = useState<string>("USD");
+    const defaultStatementTab = location.includes("balance-sheet")
+        ? "bs"
+        : location.includes("cash-flow")
+            ? "cf"
+            : "pl";
 
     const consolidatedCurrency = currencies?.find(c => c.code === consolidatedCode);
     const consolidatedRate = Number(consolidatedCurrency?.exchangeRate || 1);
@@ -120,7 +127,7 @@ export default function FinancialReportsPage() {
                     </div>
                 </div>
             </div>
-            <Tabs defaultValue="pl" className="w-full">
+            <Tabs defaultValue={defaultStatementTab} className="w-full">
                 <TabsList className="mb-6 h-12 bg-slate-100 rounded-xl p-1">
                     <TabsTrigger value="pl" className="px-6 rounded-lg font-bold data-[state=active]:bg-white data-[state=active]:shadow-sm">
                         Profit & Loss

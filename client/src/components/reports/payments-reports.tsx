@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
+import { getPendingSales } from "@/lib/offline-db";
 
 interface ReportProps {
   companyId: number;
@@ -481,14 +482,63 @@ export function CashCollectionReport({ companyId, dateRange, search }: ReportPro
     },
     enabled: !!companyId,
   });
+  const { data: pendingOfflineSales = [] } = useQuery<any[]>({
+    queryKey: ["reports/local-pending-offline-sales", companyId],
+    queryFn: async () => {
+      const pending = await getPendingSales(companyId);
+      return pending.filter((sale) => sale.status === "pending" || sale.status === "failed");
+    },
+    enabled: !!companyId,
+    refetchInterval: 10_000,
+  });
 
   const filtered = filterRecords(data, search, ["cashierName", "reason", "shiftId"]);
+
+  const balancesWithPendingOffline = useMemo(() => {
+    const rows = new Map<string, any>();
+    for (const balance of balances) {
+      const key = balance.userId || balance.cashierName || "unknown";
+      rows.set(key, { ...balance, pendingOfflineCash: 0 });
+    }
+
+    for (const sale of pendingOfflineSales) {
+      const invoice = sale.invoiceData || {};
+      const userId = invoice.createdBy || "local-pending";
+      const key = userId;
+      const method = String(invoice.paymentMethod || "CASH").toUpperCase();
+      let cashAmount = 0;
+      if (method === "CASH") {
+        cashAmount = Number(invoice.total || 0);
+      } else if (method === "SPLIT" && Array.isArray(invoice.splitPayments)) {
+        cashAmount = invoice.splitPayments
+          .filter((payment: any) => String(payment.method || "").toUpperCase() === "CASH")
+          .reduce((sum: number, payment: any) => sum + Number(payment.amount || 0), 0);
+      }
+      if (cashAmount <= 0) continue;
+
+      const row = rows.get(key) || {
+        userId: userId === "local-pending" ? null : userId,
+        cashierName: "Local Pending Offline",
+        cashSales: "0.00",
+        collections: "0.00",
+        expectedCash: "0.00",
+        lastCollectionAt: null,
+        pendingOfflineCash: 0,
+      };
+      row.pendingOfflineCash = Number(row.pendingOfflineCash || 0) + cashAmount;
+      row.cashSales = (Number(row.cashSales || 0) + cashAmount).toFixed(2);
+      row.expectedCash = (Number(row.expectedCash || 0) + cashAmount).toFixed(2);
+      rows.set(key, row);
+    }
+
+    return Array.from(rows.values()).sort((a, b) => Number(b.expectedCash || 0) - Number(a.expectedCash || 0));
+  }, [balances, pendingOfflineSales]);
   
   const stats = useMemo(() => {
     const total = filtered.reduce((sum, r) => sum + Number(r.amount), 0);
-    const expected = balances.reduce((sum, r) => sum + Number(r.expectedCash || 0), 0);
+    const expected = balancesWithPendingOffline.reduce((sum, r) => sum + Number(r.expectedCash || 0), 0);
     return { total, expected };
-  }, [filtered, balances]);
+  }, [filtered, balancesWithPendingOffline]);
 
   const collectMutation = useMutation({
     mutationFn: async () => {
@@ -549,7 +599,7 @@ export function CashCollectionReport({ companyId, dateRange, search }: ReportPro
           <p className="mt-3 text-[26px] leading-none font-bold tracking-[-0.015em] text-[#0F172A]">
             ${stats.expected.toLocaleString(undefined, { minimumFractionDigits: 2 })}
           </p>
-          <p className="mt-3 text-[10px] font-bold text-[#B45309]/80 uppercase tracking-widest">{balances.length} CASHIER BALANCES</p>
+          <p className="mt-3 text-[10px] font-bold text-[#B45309]/80 uppercase tracking-widest">{balancesWithPendingOffline.length} CASHIER BALANCES</p>
         </div>
       </div>
 
@@ -568,6 +618,7 @@ export function CashCollectionReport({ companyId, dateRange, search }: ReportPro
                 <th className="px-4 py-3 font-black uppercase tracking-widest">Cashier</th>
                 <th className="px-4 py-3 font-black uppercase tracking-widest text-right">Cash Sales</th>
                 <th className="px-4 py-3 font-black uppercase tracking-widest text-right">Collected</th>
+                <th className="px-4 py-3 font-black uppercase tracking-widest text-right">Pending Offline</th>
                 <th className="px-4 py-3 font-black uppercase tracking-widest text-right">Expected</th>
                 <th className="px-4 py-3 font-black uppercase tracking-widest">Last Collection</th>
                 <th className="px-4 py-3 font-black uppercase tracking-widest text-right">Action</th>
@@ -575,12 +626,13 @@ export function CashCollectionReport({ companyId, dateRange, search }: ReportPro
             </thead>
             <tbody>
               {balancesLoading ? (
-                <tr><td colSpan={6} className="text-center py-12 text-slate-300 font-bold">Loading cashier balances...</td></tr>
-              ) : balances.map((r) => (
+                <tr><td colSpan={7} className="text-center py-12 text-slate-300 font-bold">Loading cashier balances...</td></tr>
+              ) : balancesWithPendingOffline.map((r) => (
                 <tr key={r.userId || r.cashierName} className="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
                   <td className="px-4 py-3 font-bold text-slate-800">{r.cashierName}</td>
                   <td className="px-4 py-3 text-right font-mono font-bold text-slate-700">${Number(r.cashSales).toFixed(2)}</td>
                   <td className="px-4 py-3 text-right font-mono font-bold text-slate-700">${Number(r.collections).toFixed(2)}</td>
+                  <td className="px-4 py-3 text-right font-mono font-black text-orange-600">${Number(r.pendingOfflineCash || 0).toFixed(2)}</td>
                   <td className="px-4 py-3 text-right font-black text-amber-700">${Number(r.expectedCash).toFixed(2)}</td>
                   <td className="px-4 py-3 text-slate-500">{r.lastCollectionAt ? format(new Date(r.lastCollectionAt), "dd MMM yyyy, HH:mm") : "Never"}</td>
                   <td className="px-4 py-3 text-right">
@@ -599,8 +651,8 @@ export function CashCollectionReport({ companyId, dateRange, search }: ReportPro
                   </td>
                 </tr>
               ))}
-              {!balancesLoading && balances.length === 0 && (
-                <tr><td colSpan={6} className="text-center py-16 text-slate-300 font-black uppercase tracking-widest opacity-50 italic">No cashier cash balances found</td></tr>
+              {!balancesLoading && balancesWithPendingOffline.length === 0 && (
+                <tr><td colSpan={7} className="text-center py-16 text-slate-300 font-black uppercase tracking-widest opacity-50 italic">No cashier cash balances found</td></tr>
               )}
             </tbody>
           </table>

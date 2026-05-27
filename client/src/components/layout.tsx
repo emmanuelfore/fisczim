@@ -21,6 +21,7 @@ import {
   CreditCard,
   MonitorCheck,
   TrendingUp,
+  TrendingDown,
   ShieldCheck,
   History,
   Receipt,
@@ -29,12 +30,19 @@ import {
   Utensils,
   X,
   ArrowRightLeft,
+  Factory,
   RefreshCw,
   Bell,
   Search,
   Bus,
   MapPin,
-  CalendarDays
+  CalendarDays,
+  Clock,
+  ClipboardCheck,
+  UserRoundCheck,
+  BarChart2,
+  Scale,
+  Palette,
 } from "lucide-react";
 import { useBranding } from "@/hooks/use-branding";
 import {
@@ -50,10 +58,14 @@ import {
 } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { BranchSwitcher } from "./branch-switcher";
 import { DeviceStatusWidget } from "./device-status-widget";
+import { usePendingGdns } from "@/hooks/use-grvs";
+import { useToast } from "@/hooks/use-toast";
+import { isBusFeatureEnabled, normalizeBusSettings } from "@shared/bus-settings";
+import { normalizeAppMode } from "@shared/app-mode";
 
 type NavItem = {
   icon: any;
@@ -62,7 +74,7 @@ type NavItem = {
   children?: {
     icon: any;
     label: string;
-    href: string;
+    href?: string;
     children?: {
       icon: any;
       label: string;
@@ -89,8 +101,11 @@ export function Layout({
   const { data: companies } = useCompanies(!!user, user?.id ?? null);
   const { activeCompany, activeCompanyId, setCompany } = useActiveCompany(!!user, user?.id ?? null);
   const { brand, currentBrand } = useBranding();
+  const { toast } = useToast();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [openNavGroups, setOpenNavGroups] = useState<Record<string, boolean>>({});
+  const seenPendingGdnCountRef = useRef<number | null>(null);
 
   // Close mobile menu on location change
   useEffect(() => {
@@ -105,12 +120,41 @@ export function Layout({
   const selectedCompany = activeCompany;
 
   const activeRole = (activeCompany as any)?.role;
+  const appMode = normalizeAppMode((activeCompany as any)?.appMode);
+  const busSettings = normalizeBusSettings((activeCompany as any)?.busSettings);
+  const isBusOnlyMode = busSettings.enabled || appMode === "bus_ticketing";
+  const busOperationsChildren = [
+    ...(isBusFeatureEnabled(busSettings, "tripManagement")
+      ? [{ icon: Clock, label: "Trip Scheduling", href: "/bus/trips" }]
+      : []),
+  ];
+  const busSetupChildren = [
+    ...(isBusFeatureEnabled(busSettings, "fleetManagement") || isBusFeatureEnabled(busSettings, "fareMatrix")
+      ? [{ icon: Bus, label: "Fleet & Routes", href: "/bus/fleet" }]
+      : []),
+    ...(isBusFeatureEnabled(busSettings, "conductorManagement")
+      ? [{ icon: UserRoundCheck, label: "Conductors", href: "/bus/conductors" }]
+      : []),
+  ];
+  const busReportChildren = [
+    ...(isBusFeatureEnabled(busSettings, "reports")
+      ? [
+        { icon: BarChart2, label: "Daily Report", href: "/bus/reports?mode=daily" },
+        { icon: TrendingUp, label: "Range Report", href: "/bus/reports?mode=range" },
+        { icon: UserRoundCheck, label: "Conductor Report", href: "/bus/reports?mode=conductor" },
+      ]
+      : []),
+  ];
+  const busSettingsChildren = [
+    { icon: Settings, label: "App Mode", href: "/settings?tab=app-mode" },
+    { icon: Bus, label: "Bus Module", href: "/settings?tab=bus-ticketing" },
+  ];
   const roleLabel = user?.isSuperAdmin
     ? "Super Admin"
     : activeRole
       ? String(activeRole).charAt(0).toUpperCase() + String(activeRole).slice(1)
       : "User";
-  const allNavItems: NavItem[] = [
+  const posNavItems: NavItem[] = [
     { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
     { icon: MonitorCheck, label: "POS Terminal", href: "/pos" },
     {
@@ -118,6 +162,7 @@ export function Layout({
       label: "Invoices & Billing",
       children: [
         { icon: FileText, label: "Invoices", href: "/invoices" },
+        { icon: Palette, label: "Invoice Templates", href: "/invoice-templates" },
         { icon: RefreshCw, label: "Recurring Invoices", href: "/recurring" },
         { icon: CreditCard, label: "Payments Received", href: "/payments-received" },
       ]
@@ -135,8 +180,11 @@ export function Layout({
       label: "Inventory",
       children: [
         { icon: Package, label: "Products", href: "/products" },
+        { icon: ShieldCheck, label: "Serial & Warranty Items", href: "/auto-spares" },
         { icon: Briefcase, label: "Services", href: "/services" },
+        { icon: ClipboardList, label: "Purchase Orders", href: "/inventory/purchase-orders" },
         { icon: LayoutDashboard, label: "Goods Received", href: "/inventory/account" },
+        { icon: Factory, label: "Production", href: "/inventory/production" },
         { icon: ArrowRightLeft, label: "Stock Adjustments", href: "/inventory/adjustments" },
         { icon: Package, label: "Stock Counts", href: "/inventory/stock-counts" },
         { icon: History, label: "Stock Ledger", href: "/inventory" },
@@ -146,10 +194,57 @@ export function Layout({
       icon: Calculator,
       label: "Accounting",
       children: [
-        { icon: ClipboardList, label: "Chart of Accounts", href: "/accounting/coa" },
-        { icon: History, label: "General Journal", href: "/accounting/journal" },
-        { icon: BarChart3, label: "Trial Balance", href: "/accounting/reports/trial-balance" },
-        { icon: FileText, label: "General Ledger", href: "/accounting/reports/ledger" },
+        { icon: LayoutDashboard, label: "Dashboard", href: "/accounting/dashboard" },
+        {
+          icon: Settings,
+          label: "Setup",
+          children: [
+            { icon: ClipboardList, label: "Chart of Accounts", href: "/accounting/coa" },
+            { icon: Settings, label: "Posting Setup", href: "/settings?tab=accounting" },
+            { icon: CalendarDays, label: "Financial Periods", href: "/accounting/periods" },
+            { icon: Scale, label: "Opening Balances", href: "/accounting/opening-balances" },
+          ],
+        },
+        {
+          icon: History,
+          label: "Transactions",
+          children: [
+            { icon: History, label: "Journal Vouchers", href: "/accounting/journal" },
+            { icon: ShieldCheck, label: "Posting Audit Trail", href: "/accounting/audit-trail" },
+            { icon: ArrowRightLeft, label: "Payment Allocation", href: "/accounting/allocations" },
+            { icon: CreditCard, label: "Cashbook", href: "/accounting/cashbook" },
+            { icon: Receipt, label: "Supplier Bills", href: "/supplier-invoices" },
+            { icon: ArrowRightLeft, label: "Bank Reconciliation", href: "/accounting/reconciliation" },
+            { icon: Briefcase, label: "Fixed Assets", href: "/accounting/fixed-assets" },
+          ],
+        },
+        {
+          icon: Users,
+          label: "Receivables",
+          children: [
+            { icon: Users, label: "Customer Balances", href: "/accounting/accounts-receivable" },
+            { icon: TrendingUp, label: "Receivables Aging", href: "/accounting/reports/aging?tab=ar" },
+          ],
+        },
+        {
+          icon: Receipt,
+          label: "Payables",
+          children: [
+            { icon: Receipt, label: "Supplier Balances", href: "/accounting/accounts-payable" },
+            { icon: TrendingDown, label: "Payables Aging", href: "/accounting/reports/aging?tab=ap" },
+          ],
+        },
+        {
+          icon: BarChart3,
+          label: "Reports",
+          children: [
+            { icon: FileText, label: "General Ledger", href: "/accounting/reports/ledger" },
+            { icon: BarChart3, label: "Trial Balance", href: "/accounting/reports/trial-balance" },
+            { icon: TrendingUp, label: "Financial Statements", href: "/accounting/reports/financial" },
+            { icon: Coins, label: "VAT Returns", href: "/accounting/reports/vat-return" },
+            { icon: Building2, label: "Cost Centers", href: "/accounting/reports/cost-centers" },
+          ],
+        },
       ]
     },
     { icon: Calculator, label: "Expenses", href: "/expenses" },
@@ -192,7 +287,83 @@ export function Layout({
     },
   ];
 
+  const restaurantNavItems: NavItem[] = [
+    { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
+    { icon: MonitorCheck, label: "Restaurant POS", href: "/pos" },
+    {
+      icon: Utensils,
+      label: "Restaurant",
+      children: [
+        { icon: LayoutDashboard, label: "Live Orders", href: "/restaurant/orders" },
+        { icon: MonitorCheck, label: "Kitchen Display", href: "/restaurant/kds" },
+        { icon: Building2, label: "Floor Plan", href: "/restaurant/layout" },
+      ]
+    },
+    { icon: Package, label: "Menu Items", href: "/products" },
+    { icon: Users, label: "Customers", href: "/customers" },
+    {
+      icon: BarChart3,
+      label: "Reports",
+      children: [
+        { icon: BarChart3, label: "Reports", href: "/reports" },
+        { icon: Receipt, label: "Daily Sales", href: "/reports/daily" },
+        { icon: CreditCard, label: "Cash Collection", href: "/reports/cash-collection" },
+        { icon: FileText, label: "Tax & ZIMRA", href: "/reports/tax" },
+      ]
+    },
+    { icon: Settings, label: "Settings", href: "/settings?tab=app-mode" },
+  ];
+
+  const busNavItems: NavItem[] = [
+    { icon: LayoutDashboard, label: "Bus Dashboard", href: "/bus/dashboard" },
+    ...(busOperationsChildren.length > 0
+      ? [{
+        icon: CalendarDays,
+        label: "Operations",
+        children: busOperationsChildren
+      }]
+      : []),
+    ...(busSetupChildren.length > 0
+      ? [{
+        icon: ClipboardCheck,
+        label: "Setup",
+        children: busSetupChildren
+      }]
+      : []),
+    ...(busReportChildren.length > 0
+      ? [{
+        icon: BarChart3,
+        label: "Reports",
+        children: busReportChildren
+      }]
+      : []),
+    { icon: Settings, label: "Bus Settings", children: busSettingsChildren },
+  ];
+
+  const allNavItems: NavItem[] = isBusOnlyMode
+    ? busNavItems
+    : appMode === "restaurant"
+      ? restaurantNavItems
+      : posNavItems;
+
   const isCashier = !user?.isSuperAdmin && activeRole === 'cashier';
+  const { data: pendingGdns = [] } = usePendingGdns(isCashier ? 0 : selectedCompanyId || 0);
+  const pendingGdnCount = pendingGdns.length;
+
+  useEffect(() => {
+    if (isCashier) return;
+    if (seenPendingGdnCountRef.current === null) {
+      seenPendingGdnCountRef.current = pendingGdnCount;
+      return;
+    }
+    if (pendingGdnCount > seenPendingGdnCountRef.current) {
+      toast({
+        title: "Pending GDN requires verification",
+        description: `${pendingGdnCount} GDN${pendingGdnCount === 1 ? "" : "s"} waiting for admin confirmation.`,
+      });
+    }
+    seenPendingGdnCountRef.current = pendingGdnCount;
+  }, [isCashier, pendingGdnCount, toast]);
 
   const navItems = isCashier
     ? [
@@ -216,6 +387,7 @@ export function Layout({
 
     if (location.startsWith("/dashboard")) return { title: "Dashboard", subtitle: "" };
     if (location.startsWith("/invoices/new")) return { title: "Create Invoice", subtitle: "Prepare, validate, and fiscalise a customer invoice." };
+    if (location.startsWith("/invoice-templates")) return { title: "Invoice Templates", subtitle: "Design branded invoice layouts and set your default template." };
     if (location.match(/^\/invoices\/\d+/)) return { title: "Invoice Details", subtitle: "Review, print, fiscalise, and manage invoice payments." };
     if (location.startsWith("/invoices")) return { title: "Invoices", subtitle: "Manage, track, and fiscalise customer invoices." };
     if (location.startsWith("/quotations/new")) return { title: "Create Quotation", subtitle: "Prepare a customer quotation before invoicing." };
@@ -226,11 +398,14 @@ export function Layout({
     if (location.startsWith("/customers")) return { title: "Customers", subtitle: "Manage your client base and customer records." };
     if (location.startsWith("/suppliers")) return { title: "Suppliers", subtitle: "Manage supplier records and procurement contacts." };
     if (location.startsWith("/products")) return { title: "Products", subtitle: "Manage inventory items, pricing, tax, and stock controls." };
+    if (location.startsWith("/auto-spares")) return { title: "Serial & Warranty Items", subtitle: "Manage serialized products, warranties, lay-bys, and compatibility notes." };
     if (location.startsWith("/services")) return { title: "Services", subtitle: "Manage service offerings for invoices and sales." };
     if (location.startsWith("/inventory/adjustments")) return { title: "Stock Adjustments", subtitle: "Record corrections, shrinkage, damage, and stock movements." };
+    if (location.startsWith("/inventory/production")) return { title: "Production", subtitle: "Convert raw materials into finished stock." };
     if (location.startsWith("/inventory/stock-counts")) return { title: "Stock Counts", subtitle: "Run and review physical inventory counts." };
     if (location.startsWith("/inventory/bulk-adjust")) return { title: "Bulk Adjustment", subtitle: "Apply inventory changes across multiple products." };
     if (location.startsWith("/inventory/stock-take")) return { title: "Stock Take", subtitle: "Count inventory and reconcile stock positions." };
+    if (location.startsWith("/inventory/purchase-orders")) return { title: "Purchase Orders", subtitle: "Create and track supplier purchase orders before goods are received." };
     if (location.startsWith("/inventory/account")) return { title: "Goods Received", subtitle: "Track received goods and inventory account movements." };
     if (location.startsWith("/inventory/grvs")) return { title: "Goods Received Voucher", subtitle: "Review received goods and supplier delivery details." };
     if (location.startsWith("/inventory")) return { title: "Stock Ledger", subtitle: "Review inventory transactions and stock movement history." };
@@ -240,6 +415,8 @@ export function Layout({
     if (location.startsWith("/settings")) {
       if (search.includes("tab=zimra")) return { title: "ZIMRA Device", subtitle: "Configure fiscal device credentials and FDMS connectivity." };
       if (search.includes("tab=team")) return { title: "Team Management", subtitle: "Manage users, roles, and business access." };
+      if (search.includes("tab=branches")) return { title: "Cost Center Setup", subtitle: "Manage branches used for cost center reporting." };
+      if (search.includes("tab=accounting")) return { title: "System Postings", subtitle: "Configure the default accounts used by automatic transactions." };
       if (search.includes("tab=pos")) return { title: "POS Configuration", subtitle: "Configure tills, printing, and point-of-sale preferences." };
       if (search.includes("tab=currencies")) return { title: "Currencies", subtitle: "Manage currency settings and exchange rates." };
       return { title: "Settings", subtitle: "Manage company profile, security, compliance, and system preferences." };
@@ -252,9 +429,27 @@ export function Layout({
     if (location.startsWith("/zimra-settings")) return { title: "ZIMRA Settings", subtitle: "Manage fiscal device and ZIMRA configuration." };
     if (location.startsWith("/fdms-test")) return { title: "FDMS Test", subtitle: "Test fiscal device connectivity and FDMS responses." };
     if (location.startsWith("/accounting/coa")) return { title: "Chart of Accounts", subtitle: "Manage your business accounts and financial structure." };
+    if (location.startsWith("/accounting/dashboard")) return { title: "Accounting Dashboard", subtitle: "Review accounting position, period status, allocations, and alerts." };
+    if (location.startsWith("/accounting/opening-balances")) return { title: "Opening Balances", subtitle: "Post and lock migration balances from a previous accounting system." };
+    if (location.startsWith("/accounting/audit-trail")) return { title: "Posting Audit Trail", subtitle: "Review journal source documents, debit and credit lines, actors, and reversals." };
+    if (location.startsWith("/accounting/allocations")) return { title: "Payment Allocation", subtitle: "Allocate receipts and payments across invoices and bills." };
+    if (location.startsWith("/accounting/ledger/")) return { title: "Account Ledger", subtitle: "Drill into the transaction history for an individual account." };
+    if (location.startsWith("/accounting/cashbook")) return { title: "Cashbook", subtitle: "Record and review cash and bank movements." };
+    if (location.startsWith("/accounting/reconciliation")) return { title: "Bank Reconciliation", subtitle: "Match bank statement lines to ledger transactions." };
+    if (location.startsWith("/accounting/fixed-assets")) return { title: "Fixed Assets", subtitle: "Manage PPE, depreciation, and asset registers." };
+    if (location.startsWith("/accounting/periods")) return { title: "Open / Close Financial Periods", subtitle: "Create periods, close periods, reopen periods, and run year-end close." };
     if (location.startsWith("/accounting/journal")) return { title: "General Journal", subtitle: "Review and record manual journal entries and transactions." };
     if (location.startsWith("/accounting/reports/trial-balance")) return { title: "Trial Balance", subtitle: "Review unadjusted account balances as of a specific date." };
     if (location.startsWith("/accounting/reports/ledger")) return { title: "General Ledger", subtitle: "Review detailed transaction history for specific accounts." };
+    if (location.startsWith("/accounting/reports/balance-sheet")) return { title: "Balance Sheet", subtitle: "Review assets, liabilities, and equity." };
+    if (location.startsWith("/accounting/reports/cash-flow")) return { title: "Cash Flow Statement", subtitle: "Review operating, investing, and financing cash movement." };
+    if (location.startsWith("/accounting/reports/financial")) return { title: "Financial Statements", subtitle: "Review profit or loss, financial position, and cash flows." };
+    if (location.startsWith("/accounting/reports/aging")) return { title: "Aging Reports", subtitle: "Review receivables and payables aging." };
+    if (location.startsWith("/accounting/accounts-receivable")) return { title: "Accounts Receivable", subtitle: "Review debtors, outstanding balances, and receivables aging." };
+    if (location.startsWith("/accounting/accounts-payable")) return { title: "Accounts Payable", subtitle: "Review creditors, supplier balances, and payables aging." };
+    if (location.startsWith("/accounting/reports/vat-return")) return { title: "VAT Returns", subtitle: "Review output VAT, input VAT, and net VAT payable." };
+    if (location.startsWith("/accounting/reports/cost-centers")) return { title: "Cost Centers", subtitle: "Review income and expense performance by center." };
+    if (location.startsWith("/supplier-invoices")) return { title: "Supplier Bills", subtitle: "Manage supplier invoices, payables, and payments." };
     if (location.startsWith("/reports/financial")) return { title: "Profit & Loss", subtitle: "Review revenue, expenses, and profitability." };
     if (location.startsWith("/reports/daily")) return { title: "Daily Sales", subtitle: "Review daily sales and fiscal activity." };
     if (location.startsWith("/reports/inventory")) return { title: "Stock Reports", subtitle: "Analyse inventory movement, valuation, and stock health." };
@@ -263,6 +458,11 @@ export function Layout({
     if (location.startsWith("/reports/cash-collection")) return { title: "Cash Collection", subtitle: "Track cash collection and payment activity." };
     if (location.startsWith("/reports/pos")) return { title: "POS Reports", subtitle: "Review point-of-sale performance and cashier activity." };
     if (location.startsWith("/reports")) return { title: "Reports", subtitle: "Analyse sales, customers, taxes, inventory, and financial performance." };
+    if (location.startsWith("/bus/dashboard")) return { title: "Bus Dashboard", subtitle: "Review ticketing activity, dispatch, and cash position." };
+    if (location.startsWith("/bus/conductors")) return { title: "Bus Conductors", subtitle: "Manage conductor mobile access." };
+    if (location.startsWith("/bus/reports")) return { title: "Bus Reports", subtitle: "Review ticket revenue and conductor performance." };
+    if (location.startsWith("/bus/trips")) return { title: "Bus Trips", subtitle: "Dispatch and review bus trips." };
+    if (location.startsWith("/bus/fleet")) return { title: "Bus Fleet", subtitle: "Manage buses, routes, and fares." };
     if (location.startsWith("/restaurant/orders")) return { title: "Live Orders", subtitle: "Monitor restaurant orders and service flow." };
     if (location.startsWith("/restaurant/kds")) return { title: "Kitchen Display", subtitle: "Manage kitchen order preparation and fulfilment." };
     if (location.startsWith("/restaurant/layout")) return { title: "Floor Plan", subtitle: "Manage restaurant tables and layout." };
@@ -273,6 +473,31 @@ export function Layout({
   }, [location]);
   const pageTitle = headerTitle || pageMeta.title;
   const pageSubtitle = headerSubtitle !== undefined ? headerSubtitle : pageMeta.subtitle;
+
+  const currentPathWithSearch = typeof window !== "undefined" ? location + window.location.search : location;
+  const isHrefActive = (href?: string) => !!href && (currentPathWithSearch === href || (location === href && !href.includes("?")));
+  const isChildGroupActive = (child: NonNullable<NavItem["children"]>[number]) =>
+    isHrefActive(child.href) || !!child.children?.some((grandchild) => isHrefActive(grandchild.href));
+
+  useEffect(() => {
+    const activeGroups = navItems
+      .filter((item) => item.children?.some(isChildGroupActive))
+      .map((item) => item.label);
+
+    if (activeGroups.length === 0) return;
+
+    setOpenNavGroups((current) => {
+      let changed = false;
+      const next = { ...current };
+      for (const label of activeGroups) {
+        if (!next[label]) {
+          next[label] = true;
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [navItems, currentPathWithSearch]);
 
   if (!user) return null;
 
@@ -425,15 +650,11 @@ export function Layout({
               {navItems.map((item) => {
 
                 if (item.children) {
-                  const isActiveGroup = item.children.some(child =>
-                    location + window.location.search === child.href || (location === child.href && !child.href.includes("?"))
-                  );
-
-                  const [isOpen, setIsOpen] = useState(isActiveGroup);
-
-                  useEffect(() => {
-                    if (isActiveGroup) setIsOpen(true);
-                  }, [isActiveGroup]);
+                  const isActiveGroup = item.children.some(isChildGroupActive);
+                  const isOpen = openNavGroups[item.label] ?? isActiveGroup;
+                  const setIsOpen = (open: boolean) => {
+                    setOpenNavGroups((current) => ({ ...current, [item.label]: open }));
+                  };
 
                   if (isSidebarCollapsed) {
                     return (
@@ -450,8 +671,35 @@ export function Layout({
                         <DropdownMenuContent side="right" align="start" className="w-56 bg-white border-slate-200 rounded-xl shadow-2xl p-1 ml-4 animate-in fade-in slide-in-from-left-2 duration-200">
                           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-3 py-2 border-b border-slate-50 mb-1">{item.label}</p>
                           {item.children.map((child) => {
-                            const isChildActive = location + window.location.search === child.href || (location === child.href && !child.href.includes("?"));
-                            return (
+                            if (child.children?.length) {
+                              return (
+                                <div key={child.label} className="mb-2">
+                                  <p className="flex items-center gap-2 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                                    <child.icon className="w-3.5 h-3.5" />
+                                    <span>{child.label}</span>
+                                  </p>
+                                  <div className="space-y-1">
+                                    {child.children.map((grandchild) => {
+                                      const isGrandchildActive = isHrefActive(grandchild.href);
+                                      return (
+                                        <Link key={grandchild.label} href={grandchild.href}>
+                                          <div className={cn(
+                                            "flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-all text-sm font-medium nav-sub-item",
+                                            isGrandchildActive ? "bg-[#F8FAFC] text-[#0F172A]" : "text-[#64748B] hover:bg-slate-50 hover:text-[#0F172A]"
+                                          )}>
+                                            <grandchild.icon className="w-[18px] h-[18px]" />
+                                            <span>{grandchild.label}</span>
+                                          </div>
+                                        </Link>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              );
+                            }
+
+                            const isChildActive = isHrefActive(child.href);
+                            return child.href ? (
                               <Link key={child.label} href={child.href}>
                                 <div className={cn(
                                   "flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-all text-sm font-medium mb-1 nav-sub-item",
@@ -461,7 +709,7 @@ export function Layout({
                                   <span>{child.label}</span>
                                 </div>
                               </Link>
-                            );
+                            ) : null;
                           })}
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -497,8 +745,41 @@ export function Layout({
                         <CollapsibleContent className="pb-1 transition-all">
                           <div className="ml-5 pl-3 border-l-2 border-slate-100 space-y-1 mt-1 nav-dropdown">
                             {item.children.map((child) => {
-                              const isChildActive = location + window.location.search === child.href || (location === child.href && !child.href.includes("?"));
-                              return (
+                              if (child.children?.length) {
+                                const isNestedActive = child.children.some((grandchild) => isHrefActive(grandchild.href));
+                                return (
+                                  <div key={child.label} className="pt-2 first:pt-0">
+                                    <div className={cn(
+                                      "flex items-center gap-2 px-2.5 pb-1 text-[11px] font-black uppercase tracking-wider",
+                                      isNestedActive ? "text-[#0F172A]" : "text-slate-400"
+                                    )}>
+                                      <child.icon className="w-3.5 h-3.5 shrink-0" />
+                                      <span className="truncate">{child.label}</span>
+                                    </div>
+                                    <div className="space-y-1">
+                                      {child.children.map((grandchild) => {
+                                        const isGrandchildActive = isHrefActive(grandchild.href);
+                                        return (
+                                          <Link key={grandchild.label} href={grandchild.href}>
+                                            <div className={cn(
+                                              "flex items-center gap-3 px-2.5 py-2 rounded-lg text-sm font-semibold transition-all duration-150 cursor-pointer nav-sub-item",
+                                              isGrandchildActive
+                                                ? "bg-[#F8FAFC] text-[#0F172A]"
+                                                : "text-[#64748B] hover:text-[#0F172A] hover:bg-slate-50/50"
+                                            )}>
+                                              <grandchild.icon className={cn("w-[18px] h-[18px] shrink-0", isGrandchildActive ? "text-[#0F172A]" : "text-[#94A3B8]")} />
+                                              <span className="truncate">{grandchild.label}</span>
+                                            </div>
+                                          </Link>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                );
+                              }
+
+                              const isChildActive = isHrefActive(child.href);
+                              return child.href ? (
                                 <Link key={child.label} href={child.href}>
                                   <div className={cn(
                                     "flex items-center gap-3 px-2.5 py-2 rounded-lg text-sm font-semibold transition-all duration-150 cursor-pointer nav-sub-item",
@@ -510,7 +791,7 @@ export function Layout({
                                     <span className="truncate">{child.label}</span>
                                   </div>
                                 </Link>
-                              );
+                              ) : null;
                             })}
                           </div>
                         </CollapsibleContent>
@@ -660,9 +941,45 @@ export function Layout({
                 <span className="text-[11px] font-semibold text-[#64748B] bg-[#F8FAFC] border border-[#E5E7EB] rounded px-2 py-0.5">Ctrl + K</span>
               </div>
 
-              <Button variant="ghost" size="icon" className="h-10 w-10 rounded-full border border-[#E5E7EB] bg-white text-[#64748B] shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-                <Bell className="w-4 h-4" />
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="relative h-10 w-10 rounded-full border border-[#E5E7EB] bg-white text-[#64748B] shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                    <Bell className="w-4 h-4" />
+                    {pendingGdnCount > 0 && !isCashier && (
+                      <span className="absolute -right-1 -top-1 min-w-5 h-5 rounded-full bg-amber-500 px-1.5 text-[10px] font-black leading-5 text-white shadow-sm">
+                        {pendingGdnCount > 9 ? "9+" : pendingGdnCount}
+                      </span>
+                    )}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-80 bg-white rounded-2xl shadow-2xl border-slate-200 p-2 mt-2">
+                  <div className="px-3 py-2 border-b border-slate-100 mb-1">
+                    <p className="text-sm font-black text-slate-900">System Alerts</p>
+                    <p className="text-[11px] font-semibold text-slate-500">Operational items that need attention.</p>
+                  </div>
+                  {!isCashier && pendingGdnCount > 0 ? (
+                    <DropdownMenuItem
+                      onClick={() => setLocation("/inventory/account")}
+                      className="p-3 rounded-xl cursor-pointer focus:bg-amber-50"
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="h-9 w-9 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+                          <ClipboardCheck className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-black text-slate-900">{pendingGdnCount} pending GDN{pendingGdnCount === 1 ? "" : "s"}</p>
+                          <p className="text-[11px] font-semibold text-slate-500">Review cashier delivery notes and post stock.</p>
+                        </div>
+                      </div>
+                    </DropdownMenuItem>
+                  ) : (
+                    <div className="p-5 text-center">
+                      <p className="text-sm font-black text-slate-700">No active alerts</p>
+                      <p className="text-[11px] font-semibold text-slate-500 mt-1">Pending GDNs and other system alerts will appear here.</p>
+                    </div>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
 
               <div className="hidden md:flex items-center gap-2">
                 {selectedCompany?.id && <DeviceStatusWidget companyId={selectedCompany.id} />}
@@ -717,6 +1034,20 @@ export function Layout({
               </div>
               <Button size="sm" className="h-9 px-4 text-xs font-bold bg-white text-amber-700 border border-amber-200 shadow-sm hover:bg-amber-100 hover:border-amber-300 rounded-lg" onClick={() => setLocation("/profile")}>
                 Update Password
+              </Button>
+            </div>
+          )}
+
+          {!isCashier && pendingGdnCount > 0 && !location.startsWith("/inventory/account") && (
+            <div className="mx-4 sm:mx-6 mt-3 rounded-xl bg-amber-50 border border-amber-200/70 p-3.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shadow-sm">
+              <div className="flex items-center gap-3 text-amber-900 text-sm font-medium">
+                <div className="p-2 bg-amber-100 rounded-lg text-amber-700">
+                  <Clock className="w-5 h-5" />
+                </div>
+                <span><strong>GDN Alert:</strong> {pendingGdnCount} delivery note{pendingGdnCount === 1 ? "" : "s"} waiting for admin verification.</span>
+              </div>
+              <Button size="sm" className="h-9 px-4 text-xs font-bold bg-white text-amber-700 border border-amber-200 shadow-sm hover:bg-amber-100 hover:border-amber-300 rounded-lg" onClick={() => setLocation("/inventory/account")}>
+                Review GDNs
               </Button>
             </div>
           )}

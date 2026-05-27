@@ -152,7 +152,7 @@ async function runTests() {
             }
         ],
         receiptTaxes: [],
-        receiptPayments: [{ moneyTypeCode: 'CASH', paymentAmount: 10 }],
+        receiptPayments: [{ moneyTypeCode: 'Cash', paymentAmount: 10 }],
         receiptTotal: 10,
         receiptLinesTaxInclusive: true
     };

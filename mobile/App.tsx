@@ -7,6 +7,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import * as NavigationBar from "expo-navigation-bar";
 import { AppRoot } from "./src/AppRoot";
 import { ThemeProvider, useTheme } from "./src/ui/PremiumColors";
+import { BeautifulAlertProvider } from "./src/ui/BeautifulAlertProvider";
 
 function ThemedStatusBar() {
   const { isDark } = useTheme();
@@ -26,7 +27,9 @@ export default function App() {
       <ThemeProvider>
         <SafeAreaProvider>
           <ThemedStatusBar />
-          <AppRoot />
+          <BeautifulAlertProvider>
+            <AppRoot />
+          </BeautifulAlertProvider>
         </SafeAreaProvider>
       </ThemeProvider>
     </GestureHandlerRootView>

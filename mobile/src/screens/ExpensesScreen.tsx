@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback, useEffect } from "react";
 import {
-  View, Text, FlatList, TouchableOpacity, TextInput,
+  View, Text, FlatList, TouchableOpacity,
   StyleSheet, ActivityIndicator, Alert, ScrollView, Modal,
   KeyboardAvoidingView, Platform,
 } from "react-native";
@@ -9,6 +9,7 @@ import { Menu, Search, Plus, Receipt, X, Calendar, DollarSign, Edit2 } from "luc
 import { StatusBar } from "expo-status-bar";
 import { apiJson, apiFetch } from "../lib/api";
 import { useTheme, hexAlpha } from "../ui/PremiumColors";
+import { DoneTextInput as TextInput } from "../ui/DoneTextInput";
 
 interface Props { onOpenDrawer: () => void; companyId: number; }
 

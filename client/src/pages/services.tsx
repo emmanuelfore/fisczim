@@ -1,6 +1,6 @@
 
 import { Layout } from "@/components/layout";
-import { useProducts, useUpdateProduct } from "@/hooks/use-products";
+import { refreshProductQueriesAsync, useProducts, useUpdateProduct } from "@/hooks/use-products";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useTaxConfig } from "@/hooks/use-tax-config";
 import { Card, CardContent } from "@/components/ui/card";
@@ -141,8 +141,9 @@ export default function ServicesPage() {
                     <CsvImportDialog
                         type="service"
                         companyId={companyId}
-                        onSuccess={() => {
-                            queryClient.invalidateQueries({ queryKey: ["products", companyId] });
+                        onSuccess={async () => {
+                            await refreshProductQueriesAsync(queryClient, companyId);
+                            setCurrentPage(1);
                         }}
                     />
                     <CreateProductDialog companyId={companyId} defaultType="service" triggerLabel="Add Service" />
@@ -211,7 +212,7 @@ export default function ServicesPage() {
                             <tr className="bg-slate-50 border-b border-slate-100">
                                 <th className="p-4 w-12">
                                     <Checkbox 
-                                        checked={paginatedServices?.length > 0 && selectedIds.length === paginatedServices?.length}
+                                        checked={(paginatedServices?.length || 0) > 0 && selectedIds.length === paginatedServices?.length}
                                         onCheckedChange={toggleSelectAll}
                                         className="rounded-md border-slate-300"
                                     />

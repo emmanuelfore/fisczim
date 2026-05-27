@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, AppState, AppStateStatus, Platform, ScrollView, Text, View } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -32,10 +32,43 @@ import { BottomTabs } from "./ui/BottomTabs";
 import { Button } from "./ui/Button";
 import { getSelectedCompanyId, setSelectedCompanyId } from "./lib/storage";
 import { PrinterProvider } from "./contexts/PrinterContext";
+import { normalizeBusSettings } from "./lib/busSettings";
+import { normalizeAppMode } from "./lib/appMode";
 
 type Stage = "boot" | "login" | "signup" | "forgot-password" | "onboarding" | "company" | "main";
 
 type ScreenName = "dashboard" | "pos" | "reports" | "profile" | "inventory" | "stockin" | "stockops" | "customers" | "suppliers" | "expenses" | "cashiers" | "stocktake" | "busTicketing";
+
+function getCompanyBusSettings(company: any) {
+  return company?.busSettings ?? company?.bus_settings;
+}
+
+function getCompanyAppMode(company: any) {
+  return company?.appMode ?? company?.app_mode;
+}
+
+function getEffectiveCompanyMode(company: any) {
+  const companyName = `${company?.name || ""} ${company?.tradingName || company?.trading_name || ""}`.toLowerCase();
+  if (companyName.includes("rhymy digital") || companyName.includes("rymy digital")) {
+    return "bus_ticketing";
+  }
+  const busSettings = normalizeBusSettings(getCompanyBusSettings(company));
+  const appMode = normalizeAppMode(getCompanyAppMode(company));
+  return busSettings.enabled ? "bus_ticketing" : appMode;
+}
+
+function upsertCompany(list: any[], company: any, fallbackRole = "member") {
+  if (!company?.id) return list;
+  const existing = list.find((item) => item?.id === company.id);
+  const merged = {
+    ...(existing || {}),
+    ...company,
+    role: company?.role || existing?.role || fallbackRole,
+  };
+  return list.some((item) => item?.id === company.id)
+    ? list.map((item) => item?.id === company.id ? merged : item)
+    : [...list, merged];
+}
 
 export function AppRoot() {
   const [stage, setStage] = useState<Stage>("boot");
@@ -118,6 +151,49 @@ export function AppRoot() {
   };
   
   const lastOnlineState = useRef<boolean | null | undefined>(undefined);
+  const isCashierRole = ["cashier", "member"].includes(userRole.toLowerCase());
+  const selectedCompany = useMemo(
+    () => companies.find((company) => company?.id === companyId) ?? null,
+    [companies, companyId]
+  );
+  const selectedCompanyBusSettings = getCompanyBusSettings(selectedCompany);
+  const selectedCompanyAppMode = getCompanyAppMode(selectedCompany);
+  const busSettings = useMemo(
+    () => normalizeBusSettings(selectedCompanyBusSettings),
+    [selectedCompanyBusSettings]
+  );
+  const appMode = useMemo(
+    () => normalizeAppMode(selectedCompanyAppMode),
+    [selectedCompanyAppMode]
+  );
+  const forceRhymyBusMode = companyId === 2;
+  const effectiveAppMode = forceRhymyBusMode || busSettings.enabled ? "bus_ticketing" : appMode;
+  const effectiveBusSettings = useMemo(
+    () => effectiveAppMode === "bus_ticketing" ? { ...busSettings, enabled: true } : busSettings,
+    [busSettings, effectiveAppMode]
+  );
+
+  useEffect(() => {
+    if (stage !== "main") return;
+    const allowedScreens: Record<typeof effectiveAppMode, ScreenName[]> = {
+      pos: isCashierRole
+        ? ["pos", "stockin", "customers", "reports", "profile"]
+        : ["dashboard", "pos", "reports", "profile", "inventory", "stockin", "stockops", "customers", "suppliers", "expenses", "cashiers", "stocktake"],
+      restaurant: isCashierRole
+        ? ["pos", "reports", "profile"]
+        : ["dashboard", "pos", "reports", "profile", "inventory", "customers", "expenses", "cashiers"],
+      bus_ticketing: ["busTicketing", "reports", "profile"],
+    };
+    if (!allowedScreens[effectiveAppMode].includes(currentScreen)) {
+      setCurrentScreen(effectiveAppMode === "bus_ticketing" ? "busTicketing" : "pos");
+    }
+  }, [effectiveAppMode, currentScreen, isCashierRole, stage]);
+
+  useEffect(() => {
+    if (stage === "main" && currentScreen === "busTicketing" && effectiveAppMode !== "bus_ticketing") {
+      setCurrentScreen("pos");
+    }
+  }, [effectiveAppMode, currentScreen, stage]);
 
   // Monitor connectivity status
   useEffect(() => {
@@ -223,6 +299,28 @@ export function AppRoot() {
     }
   };
 
+  const refreshSelectedCompany = useCallback(async (id: number) => {
+    const freshCompany = await apiJson<any>(`/api/companies/${id}`, { timeout: 12000 });
+    let nextCompanies: any[] = [];
+    let mergedCompany: any = freshCompany;
+
+    setCompanies((previous) => {
+      const existing = previous.find((company) => company?.id === id);
+      mergedCompany = {
+        ...(existing || {}),
+        ...(freshCompany || {}),
+        role: freshCompany?.role || existing?.role || "member",
+      };
+      nextCompanies = upsertCompany(previous, mergedCompany);
+      return nextCompanies;
+    });
+
+    if (nextCompanies.length > 0) {
+      await AsyncStorage.setItem("cached_companies", JSON.stringify(nextCompanies));
+    }
+    return mergedCompany;
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     let initialized = false;
@@ -315,9 +413,14 @@ export function AppRoot() {
             const cachedId = await getSelectedCompanyId().catch(() => null);
             const validCompany = list.find(c => (c && c.id === cachedId));
 
-            if (validCompany) {
+            if (validCompany && cachedId) {
               if (validCompany.role) setUserRole(validCompany.role);
               setCompanyId(cachedId);
+              refreshSelectedCompany(cachedId).then((company) => {
+                setCurrentScreen(getEffectiveCompanyMode(company) === "bus_ticketing" ? "busTicketing" : "dashboard");
+              }).catch((error) => {
+                console.warn("[Company] Selected company refresh failed:", error?.message || error);
+              });
               setStage("main");
             } else if (list.length > 0) {
               setStage("company");
@@ -366,7 +469,14 @@ export function AppRoot() {
       cancelled = true;
       data.subscription.unsubscribe();
     };
-  }, [retryCount]);
+  }, [retryCount, refreshSelectedCompany]);
+
+  useEffect(() => {
+    if (stage !== "main" || !companyId || isOnline === false) return;
+    refreshSelectedCompany(companyId).catch((error) => {
+      console.warn("[Company] Background company refresh failed:", error?.message || error);
+    });
+  }, [stage, companyId, isOnline, refreshSelectedCompany]);
 
   const handleLogout = async () => {
     setShowDrawer(false);
@@ -465,11 +575,18 @@ export function AppRoot() {
               const cachedId = await getSelectedCompanyId();
               const validCompany = companies.find((c: any) => c.id === cachedId);
 
-              if (validCompany) {
-                if (validCompany.role) setUserRole(validCompany.role);
-                setCompanyId(cachedId);
-                setStage("main");
-              } else {
+            if (validCompany && cachedId) {
+              if (validCompany.role) setUserRole(validCompany.role);
+              setCompanyId(cachedId);
+              refreshSelectedCompany(cachedId).then((company) => {
+                if (getEffectiveCompanyMode(company) === "bus_ticketing") {
+                  setCurrentScreen("busTicketing");
+                }
+              }).catch((error) => {
+                console.warn("[Company] Login company refresh failed:", error?.message || error);
+              });
+              setStage("main");
+            } else {
                 await setSelectedCompanyId(null);
                 setCompanyId(null);
                 setStage(companies.length > 0 ? "company" : "onboarding");
@@ -517,17 +634,25 @@ export function AppRoot() {
     if (stage === "company") {
       return (
         <CompanySelectScreen
-          onSelected={async (id) => {
+          onSelected={async (id, pickedCompany) => {
             if (id === -1) {
               setStage("onboarding");
               return;
             }
             
             // Re-sync role for the newly selected company
-            const selected = companies.find(c => c.id === id);
+            const selected = pickedCompany || companies.find(c => c.id === id);
             if (selected?.role) setUserRole(selected.role);
+            if (pickedCompany) {
+              setCompanies((previous) => upsertCompany(previous, pickedCompany));
+            }
             
             await setSelectedCompanyId(id);
+            const freshCompany = await refreshSelectedCompany(id).catch((error) => {
+              console.warn("[Company] Selected company refresh failed:", error?.message || error);
+              return selected;
+            });
+            setCurrentScreen(getEffectiveCompanyMode(freshCompany || selected) === "bus_ticketing" ? "busTicketing" : "dashboard");
             setCompanyId(id);
             setStage("main");
           }}
@@ -565,14 +690,26 @@ export function AppRoot() {
           />
         )}
         {currentScreen === "reports" && (
-          <ReportsScreen 
-            onOpenDrawer={() => setShowDrawer(true)} 
-            companyId={companyId}
-            userRole={userRole}
-            userId={userId || undefined}
-            userName={userName}
-            onNavigate={(screen) => setCurrentScreen(screen)}
-          />
+          effectiveAppMode === "bus_ticketing" ? (
+            <BusTicketingHubScreen
+              companyId={companyId}
+              busSettings={effectiveBusSettings}
+              userRole={userRole}
+              userName={userName}
+              userId={userId}
+              view="reports"
+              onClose={() => setCurrentScreen("busTicketing")}
+            />
+          ) : (
+            <ReportsScreen 
+              onOpenDrawer={() => setShowDrawer(true)} 
+              companyId={companyId}
+              userRole={userRole}
+              userId={userId || undefined}
+              userName={userName}
+              onNavigate={(screen) => setCurrentScreen(screen)}
+            />
+          )
         )}
         {currentScreen === "profile" && (
           <ProfileScreen 
@@ -590,8 +727,10 @@ export function AppRoot() {
         {currentScreen === "stockin" && (
           <StockInScreen 
             onOpenDrawer={() => setShowDrawer(true)} 
-            onClose={() => setCurrentScreen("inventory")}
+            onClose={() => setCurrentScreen(isCashierRole ? "pos" : "inventory")}
             companyId={companyId}
+            userRole={userRole}
+            userName={userName}
           />
         )}
         {currentScreen === "stockops" && (
@@ -632,6 +771,12 @@ export function AppRoot() {
         )}
         {currentScreen === "busTicketing" && (
           <BusTicketingHubScreen
+            companyId={companyId}
+            company={selectedCompany}
+            busSettings={effectiveBusSettings}
+            userRole={userRole}
+            userName={userName}
+            userId={userId}
             onClose={() => setCurrentScreen("pos")}
           />
         )}
@@ -644,6 +789,8 @@ export function AppRoot() {
           onLogout={handleLogout}
           userName={userName}
           userRole={userRole}
+          busSettings={effectiveBusSettings}
+          appMode={effectiveAppMode}
         />
         
         <BottomTabs
@@ -652,10 +799,12 @@ export function AppRoot() {
           onOpenDrawer={() => setShowDrawer(true)}
           userRole={userRole}
           userName={userName}
+          busSettings={effectiveBusSettings}
+          appMode={effectiveAppMode}
         />
       </View>
     );
-  }, [bootError, stage, companyId, currentScreen, openCashCollectionSignal, showDrawer, userName, userRole, companies, diagResults, diagRunning]);
+  }, [bootError, stage, companyId, currentScreen, openCashCollectionSignal, showDrawer, userName, userRole, isCashierRole, busSettings, effectiveBusSettings, appMode, effectiveAppMode, companies, diagResults, diagRunning]);
 
   return (
     <PrinterProvider>

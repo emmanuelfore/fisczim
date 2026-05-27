@@ -1,13 +1,14 @@
 
 import { Document, Page, Text, View, StyleSheet, Image, Font } from "@react-pdf/renderer";
 import { format } from "date-fns";
+import { getInvoiceTemplate, getStoredInvoiceTemplateSettings, type InvoiceTemplateDesignerSettings } from "@/lib/invoice-templates";
 
 const styles = StyleSheet.create({
     page: {
-        padding: 20,
+        padding: 24,
         fontFamily: 'Helvetica',
         fontSize: 9,
-        color: '#333333',
+        color: '#0f172a',
         backgroundColor: '#FFFFFF',
     },
     verificationBlock: {
@@ -39,19 +40,21 @@ const styles = StyleSheet.create({
     columns: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        marginBottom: 15,
+        marginBottom: 12,
     },
     column: {
         width: '48%',
         flexDirection: 'column',
         borderWidth: 1,
-        borderColor: '#e2e8f0',
-        padding: 8,
+        borderColor: '#cbd5e1',
+        backgroundColor: '#ffffff',
+        padding: 9,
     },
     sectionTitle: {
         fontSize: 9,
         fontWeight: 700,
         textTransform: 'uppercase',
+        color: '#0f172a',
         borderBottomWidth: 1,
         borderBottomColor: '#cbd5e1',
         paddingBottom: 4,
@@ -69,9 +72,10 @@ const styles = StyleSheet.create({
     fiscalBox: {
         backgroundColor: '#f8fafc',
         borderWidth: 1,
-        borderColor: '#e2e8f0',
+        borderColor: '#e5e7eb',
+        borderRadius: 6,
         padding: 10,
-        marginBottom: 20,
+        marginBottom: 16,
     },
     fiscalRow: {
         flexDirection: 'row',
@@ -89,20 +93,22 @@ const styles = StyleSheet.create({
     },
     table: {
         width: '100%',
-        marginBottom: 15,
+        marginBottom: 14,
     },
     tableHeader: {
         flexDirection: 'row',
-        borderBottomWidth: 1,
-        borderBottomColor: '#1e293b',
-        paddingBottom: 4,
-        marginBottom: 4,
+        backgroundColor: '#0f172a',
+        borderRadius: 4,
+        paddingVertical: 6,
+        paddingHorizontal: 4,
+        marginBottom: 3,
     },
     tableRow: {
         flexDirection: 'row',
         borderBottomWidth: 1,
         borderBottomColor: '#f1f5f9',
-        paddingVertical: 4,
+        paddingVertical: 5,
+        paddingHorizontal: 4,
     },
     // Column widths for Inclusive (Total 100%)
     colCode: { width: '10%', color: '#64748b' },
@@ -124,6 +130,7 @@ const styles = StyleSheet.create({
     headerText: {
         fontSize: 8,
         fontWeight: 700,
+        color: '#ffffff',
         textTransform: 'none', // Spec uses Mixed Case often (Title Case)
     },
     // ... rest of styles
@@ -131,15 +138,22 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'space-between',
         marginTop: 10,
-        borderTopWidth: 2,
-        borderTopColor: '#1e293b',
-        paddingTop: 10,
+        paddingTop: 4,
     },
     taxTable: {
-        width: '45%',
+        width: '46%',
+        borderWidth: 1,
+        borderColor: '#e5e7eb',
+        borderRadius: 6,
+        padding: 8,
     },
     totalsBox: {
-        width: '45%',
+        width: '46%',
+        borderWidth: 1,
+        borderColor: '#e5e7eb',
+        borderRadius: 6,
+        padding: 8,
+        backgroundColor: '#fbfdff',
     },
     totalRow: {
         flexDirection: 'row',
@@ -149,21 +163,21 @@ const styles = StyleSheet.create({
     grandTotal: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        borderTopWidth: 1,
-        borderTopColor: '#e2e8f0',
-        paddingTop: 6,
-        marginTop: 4,
+        borderTopWidth: 1.5,
+        borderTopColor: '#0f172a',
+        paddingTop: 7,
+        marginTop: 5,
         fontSize: 12,
         fontWeight: 700,
     },
     footerSection: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
+        flexDirection: 'column',
+        justifyContent: 'center',
         alignItems: 'center',
-        marginTop: 30,
+        marginTop: 22,
         borderTopWidth: 1,
         borderTopColor: '#e2e8f0',
-        paddingTop: 20,
+        paddingTop: 10,
     },
     footerLabel: {
         fontSize: 10,
@@ -192,30 +206,52 @@ interface InvoicePDFProps {
     customer: any;
     qrCodeUrl?: string;
     taxTypes?: any[];
+    templateSettings?: InvoiceTemplateDesignerSettings;
 }
 
-export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes }: InvoicePDFProps) => {
+export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, templateSettings }: InvoicePDFProps) => {
+
+    const designerSettings = templateSettings || getStoredInvoiceTemplateSettings(company?.id || invoice?.companyId);
+    const template = getInvoiceTemplate(designerSettings.defaultTemplateId || company?.invoiceTemplate || invoice.invoiceTemplate);
+    const accentColor = designerSettings.accentColor || company?.primaryColor || template.accent || '#2563eb';
+    const compact = designerSettings.density === 'compact' || template.density === 'compact';
+    const sectionBg = template.surface || '#f8fafc';
+    const borderColor = template.border || '#e5e7eb';
+    const showHeaderQr = qrCodeUrl && designerSettings.qrPlacement !== "footer";
+    const showFooterQr = qrCodeUrl && designerSettings.qrPlacement === "footer";
 
     // Extract Verification Code logic same as frontend
     const verificationCodeRaw = invoice.qrCodeData ? invoice.qrCodeData.slice(-16) : "";
     const verificationCode = verificationCodeRaw.match(/.{1,4}/g)?.join("-") || "";
 
     const isExclusive = !invoice.taxInclusive;
+    const documentTitle = invoice.status === 'quote'
+        ? "OFFICIAL QUOTATION"
+        : (invoice.transactionType === 'CreditNote'
+            ? "CREDIT NOTE"
+            : (invoice.transactionType === 'DebitNote'
+                ? "DEBIT NOTE"
+                : (invoice.fiscalCode
+                    ? (company?.vatRegistered ? "FISCAL TAX INVOICE" : "FISCAL INVOICE")
+                    : (invoice.status === 'draft' ? "DRAFT INVOICE" : "PROFORMA INVOICE"))));
 
     return (
         <Document>
-            <Page size="A4" style={styles.page}>
+            <Page size="A4" style={[styles.page, { backgroundColor: template.page, color: template.text, padding: compact ? 18 : 24 }]}>
                 {/* 0. Header: Logo (Left) - Verification (Center) - QR (Right) */}
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: compact ? 7 : 10, padding: template.headerMode === 'band' ? 10 : 0, paddingBottom: template.headerMode === 'band' ? 10 : 10, borderBottomWidth: 1, borderBottomColor: borderColor, backgroundColor: template.headerMode === 'band' ? template.secondary : 'transparent' }}>
                     {/* Left: Logo */}
-                    <View style={{ width: '25%' }}>
+                    <View style={{ width: '28%' }}>
                         {company?.logoUrl ? (
-                            <Image src={company.logoUrl} style={{ width: 80, height: 40, objectFit: 'contain' }} />
+                            <Image src={company.logoUrl} style={{ width: 108, height: 50, objectFit: 'contain' }} />
                         ) : null}
                     </View>
 
                     {/* Center: Verification Text */}
-                    <View style={{ width: '50%', alignItems: 'center' }}>
+                    <View style={{ width: '44%', alignItems: 'center' }}>
+                        {showHeaderQr && designerSettings.qrPlacement === "header-center" ? (
+                            <Image style={{ width: 62, height: 62, marginBottom: 3 }} src={qrCodeUrl} />
+                        ) : null}
                         {invoice.fiscalCode && invoice.status !== 'quote' ? (
                             <>
                                 <Text style={{ fontSize: 9, fontWeight: 700, color: '#1e293b', marginBottom: 1 }}>
@@ -229,25 +265,32 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes }: 
                     </View>
 
                     {/* Right: QR Code */}
-                    <View style={{ width: '25%', alignItems: 'flex-end' }}>
-                        {qrCodeUrl ? (
-                            <Image style={{ width: 60, height: 60 }} src={qrCodeUrl} />
+                    <View style={{ width: '28%', alignItems: 'flex-end' }}>
+                        {showHeaderQr && designerSettings.qrPlacement === "header-right" ? (
+                            <Image style={{ width: 68, height: 68 }} src={qrCodeUrl} />
+                        ) : invoice.status === 'quote' ? (
+                            <View style={{ alignItems: 'flex-end' }}>
+                                <Text style={{ fontSize: 8, color: '#64748b', textTransform: 'uppercase', marginBottom: 2 }}>Quote No.</Text>
+                                <Text style={{ fontSize: 11, fontWeight: 700, color: '#1e293b', marginBottom: 4 }}>{invoice.invoiceNumber}</Text>
+                                <Text style={{ fontSize: 8, color: '#64748b' }}>Date: {format(new Date(invoice.issueDate), "dd/MM/yyyy")}</Text>
+                                {invoice.expiryDate ? (
+                                    <Text style={{ fontSize: 8, color: '#64748b' }}>Valid Until: {format(new Date(invoice.expiryDate), "dd/MM/yyyy")}</Text>
+                                ) : null}
+                            </View>
                         ) : null}
                     </View>
                 </View>
 
                 {/* Title */}
-                <Text style={{ textAlign: 'center', fontSize: 14, fontWeight: 'bold', marginVertical: 6, textTransform: 'uppercase' }}>
-                    {invoice.status === 'quote'
-                        ? "OFFICIAL QUOTATION"
-                        : (invoice.transactionType === 'CreditNote'
-                            ? "CREDIT NOTE"
-                            : (invoice.transactionType === 'DebitNote'
-                                ? "DEBIT NOTE"
-                                : (invoice.fiscalCode
-                                    ? (company?.vatRegistered ? "FISCAL TAX INVOICE" : "FISCAL INVOICE")
-                                    : (invoice.status === 'draft' ? "DRAFT INVOICE" : "PROFORMA INVOICE"))))}
-                </Text>
+                <View style={{ alignItems: 'center', marginBottom: 12 }}>
+                    <Text style={{ textAlign: 'center', fontSize: compact ? 14 : 16, fontWeight: 'bold', textTransform: 'uppercase', color: template.text }}>
+                        {documentTitle}
+                    </Text>
+                    <View style={{ width: 60, height: 2, backgroundColor: accentColor, marginTop: 5, marginBottom: 3 }} />
+                    <Text style={{ fontSize: 8, color: '#64748b' }}>
+                        {invoice.status === 'quote' ? "Prepared quotation" : (invoice.fiscalCode ? "ZIMRA fiscal document" : "Customer document")}
+                    </Text>
+                </View>
                 
                 {invoice.status === 'paid' && (
                     <Text style={styles.paidLabel}>PAID</Text>
@@ -256,11 +299,11 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes }: 
 
                 {/* 2. Header (Seller & Buyer) */}
                 <View style={styles.columns}>
-                    <View style={styles.column}>
+                    <View style={[styles.column, { borderColor, backgroundColor: sectionBg, borderRadius: template.radius }]}>
                         <View style={{ marginBottom: 10 }}>
                             {/* Logo removed (moved to header) */}
                             <View>
-                                <Text style={styles.sectionTitle}>SELLER</Text>
+                                <Text style={[styles.sectionTitle, { color: accentColor }]}>SELLER</Text>
                                 <Text style={[styles.bold, { fontSize: 10, marginBottom: 2 }]}>{company?.tradingName || company?.name}</Text>
                             </View>
                         </View>
@@ -273,8 +316,8 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes }: 
                             {company?.email ? <Text>Email: {company?.email}</Text> : null}
                         </View>
                     </View>
-                    <View style={styles.column}>
-                        <Text style={styles.sectionTitle}>BUYER</Text>
+                    <View style={[styles.column, { borderColor, backgroundColor: sectionBg, borderRadius: template.radius }]}>
+                        <Text style={[styles.sectionTitle, { color: accentColor }]}>BUYER</Text>
                         <View style={styles.infoText}>
                             {customer ? (
                                 <>
@@ -294,7 +337,7 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes }: 
                 </View>
 
                 {/* 3. Fiscal Info Grid */}
-                <View style={styles.fiscalBox}>
+                <View style={[styles.fiscalBox, { borderLeftWidth: 3, borderLeftColor: accentColor, borderColor, backgroundColor: sectionBg, borderRadius: template.radius }]}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                         <View style={{ width: '48%' }}>
                             <View style={styles.fiscalRow}>
@@ -316,6 +359,12 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes }: 
                                     <Text style={styles.fiscalValue}>{invoice.fiscalDayNo || "N/A"}</Text>
                                 </View>
                             )}
+                            {invoice.poNumber ? (
+                                <View style={styles.fiscalRow}>
+                                    <Text style={styles.fiscalLabel}>PO Number:</Text>
+                                    <Text style={styles.fiscalValue}>{invoice.poNumber}</Text>
+                                </View>
+                            ) : null}
                         </View>
                         <View style={{ width: '48%' }}>
                             <View style={styles.fiscalRow}>
@@ -388,7 +437,7 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes }: 
 
                 {/* 4. Items Table */}
                 <View style={styles.table}>
-                    <View style={styles.tableHeader}>
+                    <View style={[styles.tableHeader, { backgroundColor: accentColor, borderRadius: template.radius }]}>
                         {company?.vatRegistered ? (
                             isExclusive ? (
                                 <>
@@ -458,7 +507,7 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes }: 
                         const isZeroRated = matchingTax?.zimraTaxId == 2 || matchingTax?.zimraTaxId == "2" || matchingTax?.name?.toLowerCase().includes('zero rated') || (!isExempt && taxRate === 0);
 
                         return (
-                            <View key={i} style={styles.tableRow}>
+                            <View key={i} style={[styles.tableRow, { borderBottomColor: borderColor }, i % 2 === 1 ? { backgroundColor: sectionBg } : {}]}>
                                 {company?.vatRegistered ? (
                                     isExclusive ? (
                                         <>
@@ -512,8 +561,8 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes }: 
                 <View style={styles.summarySection}>
                     {/* Tax Analysis */}
                     {company?.vatRegistered ? (
-                        <View style={styles.taxTable}>
-                            <Text style={[styles.sectionTitle, { marginBottom: 4, borderBottomWidth: 0 }]}>Tax Analysis</Text>
+                        <View style={[styles.taxTable, { borderColor, borderRadius: template.radius }]}>
+                            <Text style={[styles.sectionTitle, { marginBottom: 6, color: accentColor }]}>Tax Analysis</Text>
                             <View style={{ flexDirection: 'row', borderBottomWidth: 1, borderColor: '#e2e8f0', paddingBottom: 2 }}>
                                 <Text style={{ fontSize: 8, width: '25%', color: '#64748b' }}>VAT %</Text>
                                 <Text style={{ fontSize: 8, width: '25%', textAlign: 'right', color: '#64748b' }}>Net.Amt</Text>
@@ -573,11 +622,11 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes }: 
                             })()}
                         </View>
                     ) : (
-                        <View style={styles.taxTable} />
+                        <View style={[styles.taxTable, { borderColor: 'transparent' }]} />
                     )}
 
                     {/* Totals */}
-                    <View style={styles.totalsBox}>
+                    <View style={[styles.totalsBox, { borderColor, backgroundColor: sectionBg, borderRadius: template.radius }]}>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2, paddingBottom: 2, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }}>
                             <Text style={{ color: '#64748b' }}>Number of Items</Text>
                             <Text style={{ fontWeight: 700, color: '#1e293b' }}>
@@ -606,17 +655,17 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes }: 
                             </View>
                         )}
 
-                        <View style={styles.grandTotal}>
+                        <View style={[styles.grandTotal, { borderTopColor: accentColor }]}>
                             <Text>Total amount {company?.vatRegistered ? "(incl. tax)" : ""}</Text>
-                            <Text>{Number(invoice.total).toFixed(2)}</Text>
+                            <Text>{invoice.currency} {Number(invoice.total).toFixed(2)}</Text>
                         </View>
                     </View>
                 </View>
 
                 {/* Notes Section */}
                 {invoice.notes ? (
-                    <View style={{ marginTop: 20, padding: 10, borderWidth: 1, borderColor: '#e2e8f0', backgroundColor: '#f8fafc' }}>
-                        <Text style={{ fontSize: 9, fontWeight: 700, color: '#1e293b', marginBottom: 4, textTransform: 'uppercase' }}>
+                    <View style={{ marginTop: 18, padding: 10, borderWidth: 1, borderColor, borderRadius: template.radius, backgroundColor: sectionBg }}>
+                        <Text style={{ fontSize: 8, fontWeight: 700, color: accentColor, marginBottom: 4, textTransform: 'uppercase' }}>
                             {invoice.transactionType === 'CreditNote' || invoice.transactionType === 'DebitNote' 
                                 ? "REASON" 
                                 : (invoice.status === 'quote' ? "Terms & Conditions" : "Notes")}
@@ -627,8 +676,8 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes }: 
 
                 {/* Banking Details Section (Compact) */}
                 {(company?.bankName || company?.accountNumber) ? (
-                    <View style={{ marginTop: 10, padding: 6, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 4 }}>
-                        <Text style={{ fontSize: 8, fontWeight: 700, color: '#1e293b', textAlign: 'center', marginBottom: 2 }}>PAYMENT DETAILS</Text>
+                    <View style={{ marginTop: 10, padding: 8, backgroundColor: sectionBg, borderWidth: 1, borderColor, borderRadius: template.radius }}>
+                        <Text style={{ fontSize: 8, fontWeight: 700, color: accentColor, textAlign: 'center', marginBottom: 3 }}>PAYMENT DETAILS</Text>
                         <View style={{ flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap' }}>
                             {company.bankName ? (
                                 <Text style={{ fontSize: 8, color: '#475569', marginRight: 8 }}>
@@ -666,13 +715,27 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes }: 
                     </View>
                 ) : null}
 
+                {showFooterQr ? (
+                    <View style={{ marginTop: 12, padding: 9, borderWidth: 1, borderColor, borderRadius: template.radius, backgroundColor: sectionBg, flexDirection: 'row', justifyContent: 'center', alignItems: 'center' }}>
+                        <Image style={{ width: 70, height: 70, marginRight: 12 }} src={qrCodeUrl} />
+                        <View>
+                            <Text style={{ fontSize: 9, fontWeight: 700, color: accentColor, marginBottom: 2 }}>ZIMRA Verification QR</Text>
+                            <Text style={{ fontSize: 7, color: '#64748b' }}>Scan to verify this fiscal document.</Text>
+                            {verificationCode ? <Text style={{ fontSize: 7, color: '#64748b', marginTop: 2 }}>Code: {verificationCode}</Text> : null}
+                        </View>
+                    </View>
+                ) : null}
+
                 {/* 6. Footer */}
                 <View style={styles.footerSection}>
-                    <View style={{ flex: 1, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Text style={{ fontSize: 8, color: '#64748b' }}>
-                            {!invoice.fiscalCode && "PROFORMA - NOT VALID FOR TAX PURPOSES"}
-                        </Text>
-                    </View>
+                    <Text style={{ fontSize: 8, color: '#64748b', textAlign: 'center', marginBottom: 3 }}>
+                        {company?.tradingName || company?.name}
+                        {company?.phone ? ` | ${company.phone}` : ""}
+                        {company?.email ? ` | ${company.email}` : ""}
+                    </Text>
+                    <Text style={{ fontSize: 7, color: invoice.fiscalCode ? '#94a3b8' : '#b45309', textAlign: 'center' }}>
+                        {invoice.fiscalCode ? "Thank you for your business." : "PROFORMA - NOT VALID FOR TAX PURPOSES"}
+                    </Text>
                 </View>
 
             </Page>

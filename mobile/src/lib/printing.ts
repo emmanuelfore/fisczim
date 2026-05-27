@@ -34,6 +34,7 @@ export interface TicketData {
   paperWidth?: number;
   noteType?: "credit" | "debit";
   originalInvoiceNumber?: string;
+  suppressTaxDetails?: boolean;
 }
 
 /** True when the company is VAT-registered and can issue fiscal receipts */
@@ -59,15 +60,17 @@ function getNoteLabels(noteType: "credit" | "debit" | undefined, fiscal: boolean
 }
 
 export const generateReceiptHtml = (data: TicketData) => {
-  const { invoice, company, items, customer, currencySymbol, cashierName, paidAmount, paperWidth, noteType, originalInvoiceNumber } = data;
+  const { invoice, company, items, customer, currencySymbol, cashierName, paidAmount, paperWidth, noteType, originalInvoiceNumber, suppressTaxDetails } = data;
   const symbol = currencySymbol || '$';
   const receiptItems = items || invoice.items || [];
   const width = paperWidth || 58;
   const isA4 = width >= 210;
   const receiptWidth = isA4 ? '210mm' : `${width}mm`;
   
-  const fiscal = isFiscal(company);
-  const { title, footerMarker } = getNoteLabels(noteType, fiscal);
+  const fiscal = !suppressTaxDetails && isFiscal(company);
+  const noteLabels = getNoteLabels(noteType, fiscal);
+  const title = suppressTaxDetails ? (invoice.receiptTitle || "BUS TICKET") : noteLabels.title;
+  const footerMarker = suppressTaxDetails ? null : noteLabels.footerMarker;
 
   // Group taxes
   const taxGroups = receiptItems.reduce((acc: any, item: any) => {
@@ -159,8 +162,8 @@ export const generateReceiptHtml = (data: TicketData) => {
         <h1 class="text-center font-bold uppercase text-xs mb-1">${company.name}</h1>
         
         <div class="text-center mb-1">
-          <p>TIN: ${company.tin}</p>
-          ${company.vatNumber ? `<p>VAT No: ${company.vatNumber}</p>` : ''}
+          ${!suppressTaxDetails && company.tin ? `<p>TIN: ${company.tin}</p>` : ''}
+          ${!suppressTaxDetails && company.vatNumber ? `<p>VAT No: ${company.vatNumber}</p>` : ''}
         </div>
         
         <div class="text-center mb-1">
@@ -213,7 +216,7 @@ export const generateReceiptHtml = (data: TicketData) => {
         <div class="flex justify-between font-bold mb-1 border-b-dashed pb-1">
           <span class="w-45">Description</span>
           <span class="w-25 text-right">Amount</span>
-          <span class="w-10 text-right">Tax</span>
+          ${suppressTaxDetails ? '' : '<span class="w-10 text-right">Tax</span>'}
         </div>
 
         <div class="mb-2 pb-2 border-b-dashed">
@@ -222,7 +225,7 @@ export const generateReceiptHtml = (data: TicketData) => {
               <div class="flex justify-between">
                 <span class="w-60 font-bold">${item.description || item.name || ""}</span>
                 <span class="w-30 text-right font-bold">${Number(item.lineTotal || (item.price * item.quantity)).toFixed(2)}</span>
-                <span class="w-10 text-right">${item.taxCode || (item.taxRate > 0 ? "VT" : "ZE")}</span>
+                ${suppressTaxDetails ? '' : `<span class="w-10 text-right">${item.taxCode || (item.taxRate > 0 ? "VT" : "ZE")}</span>`}
               </div>
               <div class="text-9xs pl-2">${Number(item.quantity)} x ${Number(item.unitPrice || item.price).toFixed(2)}</div>
             </div>
@@ -248,7 +251,7 @@ export const generateReceiptHtml = (data: TicketData) => {
           <p>Number of Items: ${receiptItems.length}</p>
         </div>
 
-        <div class="mb-2 pb-2 border-b-dashed">
+        ${suppressTaxDetails ? '' : `<div class="mb-2 pb-2 border-b-dashed">
           <p class="font-bold text-center mb-1">Tax Table</p>
           ${Object.values(taxGroups).map((group: any) => `
             <div class="mb-1">
@@ -257,7 +260,7 @@ export const generateReceiptHtml = (data: TicketData) => {
               <div class="flex justify-between font-bold border-b-dotted pb-1"><span>Gross Amount</span><span>${group.gross.toFixed(2)}</span></div>
             </div>
           `).join('')}
-        </div>
+        </div>`}
 
         <div class="text-center mb-2">
           <p>${invoice.notes || "Invoice is issued after purchasing goods"}</p>
@@ -299,7 +302,7 @@ export const printToBluetooth = async (data: TicketData, address?: string) => {
     throw new Error("Bluetooth printing is not available in this build. Please use a custom dev client.");
   }
 
-  const { invoice, company, items, customer, cashierName, paidAmount, paperWidth } = data;
+  const { invoice, company, items, customer, cashierName, paperWidth, suppressTaxDetails } = data;
   
   // Use the new unified template for mobile
   const payloadStr = ReceiptTemplate.formatFiscalReceipt({
@@ -308,7 +311,8 @@ export const printToBluetooth = async (data: TicketData, address?: string) => {
     items: items || invoice.items || [],
     customer,
     user: { name: cashierName },
-    paperWidth: paperWidth || 58
+    paperWidth: paperWidth || 58,
+    suppressTaxDetails,
   });
 
   await ThermalPrinterModule.printBluetooth({ 
@@ -325,7 +329,7 @@ export const printToZ100 = async (data: TicketData) => {
     throw new Error("Z100 Printer module is not included in this build.");
   }
 
-  const { invoice, company, customer, items, cashierName, paidAmount } = data;
+  const { invoice, company, customer, items, cashierName, paidAmount, suppressTaxDetails } = data;
   const zlog = async (message: string) => {
     console.log(`[Printing][Z100] ${message}`);
     try {
@@ -366,7 +370,7 @@ export const printToZ100 = async (data: TicketData) => {
     const width = 48;
     const branch = (data as any).branch;
     const activeCompany = branch || company;
-    const isVatPayer = !!company?.vatNumber;
+    const isVatPayer = !suppressTaxDetails && !!company?.vatNumber;
     const separator = "-".repeat(width);
     const clean = (value: unknown) => String(value ?? "").replace(/\s+/g, " ").trim();
     const money = (value: unknown) => Number(value || 0).toFixed(2);
@@ -460,6 +464,9 @@ export const printToZ100 = async (data: TicketData) => {
     if (invoice._offline || invoice._simulation || invoice.fiscalCode) {
       documentTitle = isVatPayer ? `FISCAL ${documentTitle === "INVOICE" ? "TAX INVOICE" : documentTitle}` : `FISCAL ${documentTitle}`;
     }
+    if (suppressTaxDetails) {
+      documentTitle = invoice.receiptTitle || "BUS TICKET";
+    }
 
     await zlog(`printer font set to 16x24 plain; copied fiscal receipt template for ${width} columns; receiptItems=${receiptItems.length}`);
 
@@ -472,7 +479,7 @@ export const printToZ100 = async (data: TicketData) => {
     if (activeCompany?.email) await centerWrapped(`EMAIL: ${activeCompany.email}`);
 
     await line(separator);
-    if (company?.tin) await centerWrapped(`TIN: ${company.tin}`);
+    if (!suppressTaxDetails && company?.tin) await centerWrapped(`TIN: ${company.tin}`);
     if (isVatPayer) await centerWrapped(`VAT No: ${company.vatNumber}`);
     await line(separator);
     await centerWrapped(documentTitle);
@@ -502,7 +509,7 @@ export const printToZ100 = async (data: TicketData) => {
 
     await line(separator);
     await line("ITEMS");
-    await line("QTY        VAT       TOTAL");
+    await line(suppressTaxDetails ? "QTY                  TOTAL" : "QTY        VAT       TOTAL");
     await line(separator);
 
     if (receiptItems.length === 0) {
@@ -519,12 +526,16 @@ export const printToZ100 = async (data: TicketData) => {
       const desc = item.description || item.product?.name || item.name || "Item";
       await zlog(`itemLine desc="${clean(desc).slice(0, 40)}" qty=${qty} price=${price} vat=${vatAmount.toFixed(2)} total=${total.toFixed(2)}`);
       await lines(desc);
-      await line(`${qty.toFixed(2).padEnd(10)}${vatAmount.toFixed(2).padEnd(10)}${total.toFixed(2)}`.slice(0, width));
+      await line((
+        suppressTaxDetails
+          ? `${qty.toFixed(2).padEnd(20)}${total.toFixed(2)}`
+          : `${qty.toFixed(2).padEnd(10)}${vatAmount.toFixed(2).padEnd(10)}${total.toFixed(2)}`
+      ).slice(0, width));
       await line(".".repeat(width));
     }
 
     await line(separator);
-    await row("GRAND TOTAL (Incl. VAT):", `${invoice.currency || "USD"} ${money(invoice.total || invoice.receiptTotal)}`);
+    await row(suppressTaxDetails ? "GRAND TOTAL:" : "GRAND TOTAL (Incl. VAT):", `${invoice.currency || "USD"} ${money(invoice.total || invoice.receiptTotal)}`);
     await row("AMT TENDERED:", `${invoice.currency || "USD"} ${money(invoice.paymentAmount || paidAmount || invoice.total)}`);
     await row("CHANGE:", `${invoice.currency || "USD"} ${money(invoice.change || 0)}`);
     await line(separator);

@@ -1,6 +1,6 @@
 import { Layout } from "@/components/layout";
 import { useQuery } from "@tanstack/react-query";
-import { type LedgerEntry, type Account, type JournalEntry } from "@shared/schema";
+import { type Account } from "@shared/schema";
 import { 
   Table, 
   TableBody, 
@@ -11,18 +11,22 @@ import {
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileText, Search, Calendar, Landmark, ArrowUpRight, ArrowDownLeft } from "lucide-react";
+import { Landmark, ArrowUpRight, ArrowDownLeft } from "lucide-react";
 import { useState } from "react";
-import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
-import { cn } from "@/lib/utils";
 import { useLocation } from "wouter";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ChevronRight, ExternalLink } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 
-type FullLedgerEntry = LedgerEntry & {
+type FullLedgerEntry = {
+  id: number;
+  date: string;
+  description: string;
+  type: "DEBIT" | "CREDIT";
+  amount: string;
+  referenceType?: string;
+  referenceId?: string;
   account: Account;
-  journalEntry: JournalEntry;
 };
 
 export default function GeneralLedgerPage() {
@@ -34,15 +38,9 @@ export default function GeneralLedgerPage() {
   });
 
   const { data: ledgerEntries, isLoading } = useQuery<FullLedgerEntry[]>({
-    queryKey: ["/api/accounting/ledger", selectedAccountId],
+    queryKey: ["/api/accounting/ledger", { accountId: selectedAccountId }],
     enabled: !!selectedAccountId
   });
-
-  // Since I haven't implemented the specific /api/accounting/ledger endpoint yet,
-  // I should probably fetch journal entries and flatten them or use the journal API.
-  // Actually, I defined getLedgerEntries in storage.ts, I just need a route for it.
-  
-  // For now, I'll assume the route works or I'll add it.
   
   const totalDebit = ledgerEntries?.filter(e => e.type === "DEBIT").reduce((sum, e) => sum + Number(e.amount), 0) || 0;
   const totalCredit = ledgerEntries?.filter(e => e.type === "CREDIT").reduce((sum, e) => sum + Number(e.amount), 0) || 0;
@@ -77,9 +75,6 @@ export default function GeneralLedgerPage() {
                  </SelectContent>
                </Select>
              </div>
-             <Button variant="outline" className="h-11 w-11 p-0 rounded-xl border-slate-200 hover:bg-slate-50 transition-all">
-               <Calendar className="h-4 w-4 text-slate-500" />
-             </Button>
           </div>
         </div>
 
@@ -161,7 +156,7 @@ export default function GeneralLedgerPage() {
                       onClick={() => setLocation(`/accounting/ledger/${entry.account.id}`)}
                     >
                       <TableCell className="text-slate-500 font-medium pl-8 text-[13px]">
-                        {format(new Date(entry.createdAt || new Date()), "dd MMM yyyy")}
+                        {format(new Date(entry.date), "dd MMM yyyy")}
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col">
@@ -174,8 +169,8 @@ export default function GeneralLedgerPage() {
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col">
-                          <span className="font-bold text-slate-700 text-[13px]">{entry.journalEntry.description}</span>
-                          <span className="text-[11px] text-slate-400 font-medium">Ref: {entry.journalEntry.referenceType} #{entry.journalEntry.referenceId}</span>
+                          <span className="font-bold text-slate-700 text-[13px]">{entry.description}</span>
+                          <span className="text-[11px] text-slate-400 font-medium">Ref: {entry.referenceType || "-"} {entry.referenceId || ""}</span>
                         </div>
                       </TableCell>
                       <TableCell className="text-right font-bold text-slate-800 text-[14px]">

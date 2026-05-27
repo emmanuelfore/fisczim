@@ -61,8 +61,10 @@ export class ReceiptTemplate {
     if (invoice.transactionType === 'CreditNote' || invoice.type === 'credit_note') documentTitle = "CREDIT NOTE";
     else if (invoice.transactionType === 'DebitNote' || invoice.type === 'debit_note') documentTitle = "DEBIT NOTE";
 
-    if (invoice._offline || invoice._simulation) {
-      documentTitle = isVatPayer ? "FISCAL TAX INVOICE" : "FISCAL INVOICE";
+    if (invoice._offline) {
+      documentTitle = "OFFLINE RECEIPT";
+    } else if (invoice._simulation) {
+      documentTitle = "SIMULATION RECEIPT";
     }
 
     const formatVerificationCode = (code: string) => {
@@ -124,6 +126,10 @@ export class ReceiptTemplate {
     encoder.bold(true);
     encoder.line(documentTitle.trim());
     encoder.bold(false);
+    if (invoice._offline) {
+      encoder.line("PENDING SYNC - NOT FISCALIZED");
+      encoder.line("KEEP FOR CASH HANDOVER");
+    }
     encoder.align(TextAlignment.Left);
     encoder.separator(width);
 
@@ -222,7 +228,7 @@ export class ReceiptTemplate {
     // 7. Fiscal Section
     encoder.align(TextAlignment.Center);
     let verificationCode = invoice.verificationCode || "";
-    if (!verificationCode && (invoice._simulation || invoice._offline || invoice.status === 'draft')) {
+    if (!verificationCode && (invoice._simulation || invoice.status === 'draft')) {
       verificationCode = "9A2B-C48D-80FE-12A5-99BF";
     }
 

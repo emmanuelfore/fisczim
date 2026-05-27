@@ -30,6 +30,13 @@ import { useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 import * as XLSX from "xlsx";
 
+type StockTakeProduct = Product & {
+  branchStock?: number | string | null;
+  unit?: string | null;
+  unitCost?: number | string | null;
+  isService?: boolean | null;
+};
+
 export default function StockTakePage() {
   const [, setLocation] = useLocation();
   const { activeCompanyId } = useActiveCompany();
@@ -43,13 +50,14 @@ export default function StockTakePage() {
 
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedProducts, setSelectedProducts] = useState<Map<number, Product>>(new Map());
+  const [selectedProducts, setSelectedProducts] = useState<Map<number, StockTakeProduct>>(new Map());
   const [counts, setCounts] = useState<Map<number, number>>(new Map());
   const [isProcessing, setIsProcessing] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const trackedProducts = useMemo(() => allProducts?.filter((p) => p.isTracked && !p.isService) || [], [allProducts]);
+  const stockTakeProducts = (allProducts || []) as StockTakeProduct[];
+  const trackedProducts = useMemo(() => stockTakeProducts.filter((p) => p.isTracked && !p.isService), [stockTakeProducts]);
 
   const filteredProducts = useMemo(
     () =>
@@ -67,7 +75,7 @@ export default function StockTakePage() {
     [counts, selectedProducts],
   );
 
-  const toggleProduct = (product: Product) => {
+  const toggleProduct = (product: StockTakeProduct) => {
     const newSelected = new Map(selectedProducts);
     if (newSelected.has(product.id)) {
       newSelected.delete(product.id);
@@ -78,7 +86,7 @@ export default function StockTakePage() {
   };
 
   const addAll = () => {
-    const newSelected = new Map<number, Product>();
+    const newSelected = new Map<number, StockTakeProduct>();
     trackedProducts.forEach((p) => newSelected.set(p.id, p));
     setSelectedProducts(newSelected);
   };

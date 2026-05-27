@@ -20,6 +20,13 @@ import { CommunicationSettings } from "@/components/settings/communication-setti
 import { MaintenanceSettings } from "@/components/settings/maintenance-settings";
 import { RestaurantSettings } from "@/components/settings/restaurant-settings";
 import { BranchManagement } from "@/components/settings/branch-management";
+import { AccountingSystemSettings } from "@/components/settings/accounting-system-settings";
+import { InventorySettings } from "@/components/settings/inventory-settings";
+import { BusTicketingSettings } from "@/components/settings/bus-ticketing-settings";
+import { DEFAULT_BUS_SETTINGS } from "@shared/bus-settings";
+import { AppModeSettings } from "@/components/settings/app-mode-settings";
+import { normalizeAppMode } from "@shared/app-mode";
+import { normalizeBusSettings } from "@shared/bus-settings";
 
 export default function SettingsPage() {
   const { toast } = useToast();
@@ -83,8 +90,12 @@ export default function SettingsPage() {
           printerName: "",
           secondaryPrinterName: ""
         },
+        accountingSettings: activeCompany.accountingSettings || {},
+        inventoryValuationMethod: (activeCompany as any).inventoryValuationMethod || "WAC",
         restaurantSettings: activeCompany.restaurantSettings || { enabled: false },
         pharmacySettings: activeCompany.pharmacySettings || { enabled: false },
+        busSettings: activeCompany.busSettings || DEFAULT_BUS_SETTINGS,
+        appMode: normalizeAppMode((activeCompany as any).appMode),
         primaryColor: activeCompany.primaryColor || "#4f46e5",
       });
     }
@@ -116,7 +127,11 @@ export default function SettingsPage() {
   if (isLoadingActive) return <Layout><div className="flex items-center justify-center h-[60vh]"><RefreshCw className="animate-spin w-8 h-8 text-slate-300" /></div></Layout>;
   if (!activeCompany) return <Layout><div className="p-8">No company details available. Please select a company from the sidebar.</div></Layout>;
 
-  const menuGroups = [
+  const appMode = normalizeAppMode((activeCompany as any).appMode);
+  const busSettings = normalizeBusSettings((activeCompany as any).busSettings);
+  const isBusOnlyMode = busSettings.enabled || appMode === "bus_ticketing";
+
+  const standardMenuGroups = [
     {
       title: "Organization",
       items: [
@@ -130,6 +145,8 @@ export default function SettingsPage() {
       title: "Financial",
       items: [
         { id: "banking", label: "Banking" },
+        { id: "accounting", label: "Accounting" },
+        { id: "inventory", label: "Inventory" },
         { id: "currencies", label: "Currencies" },
       ]
     },
@@ -143,8 +160,10 @@ export default function SettingsPage() {
     {
       title: "Point of Sale",
       items: [
+        { id: "app-mode", label: "App Mode" },
         { id: "pos", label: "POS Terminal" },
         { id: "restaurant", label: "Restaurant" },
+        { id: "bus-ticketing", label: "Bus Ticketing" },
       ]
     },
     {
@@ -155,27 +174,50 @@ export default function SettingsPage() {
       ]
     }
   ];
+  const busOnlyMenuGroups = [
+    {
+      title: "Bus Ticketing",
+      items: [
+        { id: "app-mode", label: "App Mode" },
+        { id: "bus-ticketing", label: "Bus Ticketing" },
+      ]
+    }
+  ];
+  const menuGroups = isBusOnlyMode ? busOnlyMenuGroups : standardMenuGroups;
+  const settingsTabs = menuGroups.flatMap((group) => group.items);
+  const activeTabAllowed = settingsTabs.some((item) => item.id === activeTab);
+  const visibleActiveTab = activeTabAllowed ? activeTab : "bus-ticketing";
 
   const renderContent = () => {
-    switch (activeTab) {
+    switch (visibleActiveTab) {
       case 'profile': return <OrganizationProfile company={activeCompany} formData={formData} setFormData={setFormData} />;
       case 'branches': return <BranchManagement companyId={activeCompany.id} />;
       case 'team': return <TeamManagement companyId={activeCompany.id} />;
       case 'security': return <SecuritySettings company={activeCompany} />;
       case 'banking': return <BankingSettings formData={formData} setFormData={setFormData} />;
+      case 'accounting': return <AccountingSystemSettings companyId={activeCompany.id} formData={formData} setFormData={setFormData} />;
+      case 'inventory': return <InventorySettings formData={formData} setFormData={setFormData} />;
       case 'currencies': return <CurrencySettings companyId={activeCompany.id} />;
       case 'tax': return <TaxComplianceSettings companyId={activeCompany.id} formData={formData} setFormData={setFormData} />;
       case 'zimra': return <ZimraDeviceSettings company={activeCompany} />;
+      case 'app-mode': return <AppModeSettings formData={formData} setFormData={setFormData} onSave={async (data) => {
+        await updateCompany.mutateAsync(data);
+        toast({
+          title: "App mode saved",
+          description: "Mobile and admin menus will update after refresh.",
+          className: "bg-slate-900 text-white border-none rounded-2xl"
+        });
+      }} />;
       case 'pos': return <PosTerminalSettings companyId={activeCompany.id} formData={formData} setFormData={setFormData} />;
       case 'restaurant': return <RestaurantSettings company={activeCompany} onUpdate={async (data) => { await updateCompany.mutateAsync(data); }} />;
+      case 'bus-ticketing': return <BusTicketingSettings formData={formData} setFormData={setFormData} />;
       case 'communication': return <CommunicationSettings formData={formData} setFormData={setFormData} />;
       case 'maintenance': return <MaintenanceSettings company={activeCompany} />;
       default: return <OrganizationProfile company={activeCompany} formData={formData} setFormData={setFormData} />;
     }
   };
 
-  const showGlobalSave = ['profile', 'banking', 'tax', 'pos', 'communication', 'restaurant', 'maintenance'].includes(activeTab);
-  const settingsTabs = menuGroups.flatMap((group) => group.items);
+  const showGlobalSave = ['profile', 'banking', 'accounting', 'inventory', 'tax', 'app-mode', 'pos', 'communication', 'restaurant', 'bus-ticketing', 'maintenance'].includes(visibleActiveTab);
 
   return (
     <Layout>
@@ -200,7 +242,7 @@ export default function SettingsPage() {
                 key={item.id}
                 onClick={() => setActiveTab(item.id)}
                 className={`relative h-10 shrink-0 whitespace-nowrap text-sm font-semibold transition-colors ${
-                  activeTab === item.id
+                  visibleActiveTab === item.id
                     ? "text-[#2563EB] after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:rounded-full after:bg-[#2563EB]"
                     : "text-[#64748B] hover:text-[#0F172A]"
                 }`}
@@ -214,7 +256,7 @@ export default function SettingsPage() {
         <div className="relative min-h-[600px]">
           <AnimatePresence mode="wait">
             <motion.div
-              key={activeTab}
+              key={visibleActiveTab}
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}

@@ -148,7 +148,7 @@ export function ExpenseDialog({ companyId, expense, trigger }: Props) {
                                         <FormLabel className="text-slate-700 font-semibold">Category</FormLabel>
                                         <Select
                                             onValueChange={field.onChange}
-                                            value={field.value}
+                                            value={field.value ?? "Other"}
                                         >
                                             <FormControl>
                                                 <SelectTrigger className="rounded-xl bg-slate-50 border-slate-200 focus:ring-amber-500/20">
@@ -189,7 +189,7 @@ export function ExpenseDialog({ companyId, expense, trigger }: Props) {
                                         <FormLabel className="text-slate-700 font-semibold">Currency</FormLabel>
                                         <Select
                                             onValueChange={field.onChange}
-                                            value={field.value}
+                                            value={field.value ?? "USD"}
                                         >
                                             <FormControl>
                                                 <SelectTrigger className="rounded-xl bg-slate-50 border-slate-200 focus:ring-amber-500/20">
@@ -214,7 +214,7 @@ export function ExpenseDialog({ companyId, expense, trigger }: Props) {
                                         <FormLabel className="text-slate-700 font-semibold">Status</FormLabel>
                                         <Select
                                             onValueChange={field.onChange}
-                                            value={field.value}
+                                            value={field.value ?? "paid"}
                                         >
                                             <FormControl>
                                                 <SelectTrigger className="rounded-xl bg-slate-50 border-slate-200 focus:ring-amber-500/20">
@@ -258,8 +258,8 @@ export function ExpenseDialog({ companyId, expense, trigger }: Props) {
                                     <FormItem>
                                         <FormLabel className="text-slate-700 font-semibold">Vendor / Supplier</FormLabel>
                                         <Select
-                                            onValueChange={(v) => field.onChange(v ? parseInt(v) : undefined)}
-                                            value={field.value?.toString() || ""}
+                                            onValueChange={(v) => field.onChange(v === "none" ? undefined : parseInt(v))}
+                                            value={field.value?.toString() || "none"}
                                         >
                                             <FormControl>
                                                 <SelectTrigger className="rounded-xl bg-slate-50 border-slate-200 focus:ring-amber-500/20">
@@ -288,7 +288,7 @@ export function ExpenseDialog({ companyId, expense, trigger }: Props) {
                                         <FormLabel className="text-slate-700 font-semibold">Payment Method</FormLabel>
                                         <Select
                                             onValueChange={field.onChange}
-                                            value={field.value || "Cash"}
+                                            value={field.value ?? "Cash"}
                                         >
                                             <FormControl>
                                                 <SelectTrigger className="rounded-xl bg-slate-50 border-slate-200 focus:ring-amber-500/20">

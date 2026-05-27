@@ -37,7 +37,7 @@ export default function BankReconciliationPage() {
   const bankAccounts = accounts?.filter(a => a.type === "ASSET") || [];
 
   const { data: statements } = useQuery<any[]>({
-    queryKey: ["/api/accounting/reconciliation/statements", selectedAccountId],
+    queryKey: ["/api/accounting/reconciliation/statements", { accountId: selectedAccountId }],
     enabled: !!selectedAccountId
   });
 
@@ -47,7 +47,7 @@ export default function BankReconciliationPage() {
   });
 
   const { data: ledgerLines } = useQuery<any[]>({
-    queryKey: ["/api/accounting/reconciliation/ledger", selectedAccountId],
+    queryKey: ["/api/accounting/reconciliation/ledger", { accountId: selectedAccountId }],
     enabled: !!selectedAccountId
   });
 
@@ -93,7 +93,7 @@ export default function BankReconciliationPage() {
     onSuccess: (data) => {
       toast({ title: "Auto-Match Complete", description: `Successfully automatically matched ${data.matchedCount} transactions.` });
       queryClient.invalidateQueries({ queryKey: [`/api/accounting/reconciliation/statements/${selectedStatementId}/lines`] });
-      queryClient.invalidateQueries({ queryKey: ["/api/accounting/reconciliation/ledger", selectedAccountId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/accounting/reconciliation/ledger"] });
     }
   });
 
@@ -111,7 +111,7 @@ export default function BankReconciliationPage() {
       setSelectedBankLine(null);
       setSelectedLedgerLine(null);
       queryClient.invalidateQueries({ queryKey: [`/api/accounting/reconciliation/statements/${selectedStatementId}/lines`] });
-      queryClient.invalidateQueries({ queryKey: ["/api/accounting/reconciliation/ledger", selectedAccountId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/accounting/reconciliation/ledger"] });
     }
   });
 

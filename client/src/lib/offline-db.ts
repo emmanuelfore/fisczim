@@ -383,7 +383,7 @@ export async function removeOfflineHold(id: string): Promise<void> {
 
 export async function addPendingSale(companyId: number, invoiceData: any, branchId?: number | null): Promise<string> {
     const db = await getDb();
-    const id = `offline-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const id = invoiceData?.idempotencyKey || `offline-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const sale: PendingSale = {
         id,
         companyId,

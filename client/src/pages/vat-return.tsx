@@ -1,15 +1,21 @@
 import { useState } from "react";
 import { format, startOfMonth, endOfMonth } from "date-fns";
 import { Layout } from "@/components/layout";
-import { useQuery } from "@tanstack/react-query";
-import { FileText, Calculator, Calendar as CalendarIcon, ArrowUpRight, ArrowDownRight, Scale } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { FileText, Calculator, Calendar as CalendarIcon, ArrowUpRight, ArrowDownRight, Scale, CheckCircle2, Send } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { formatCurrency } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { apiFetch } from "@/lib/api";
+import { apiRequest } from "@/lib/queryClient";
+import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/hooks/use-toast";
 
 export default function VatReturnPage() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
   const [dateRange, setDateRange] = useState({
     from: format(startOfMonth(new Date()), "yyyy-MM-dd"),
     to: format(endOfMonth(new Date()), "yyyy-MM-dd")
@@ -18,10 +24,54 @@ export default function VatReturnPage() {
   const { data: report, isLoading } = useQuery<any>({
     queryKey: ["/api/accounting/reports/vat-return", dateRange.from, dateRange.to],
     queryFn: async () => {
-      const res = await fetch(`/api/accounting/reports/vat-return?startDate=${dateRange.from}&endDate=${dateRange.to}`);
+      const res = await apiFetch(`/api/accounting/reports/vat-return?startDate=${dateRange.from}&endDate=${dateRange.to}`);
       if (!res.ok) throw new Error("Failed to fetch VAT report");
       return res.json();
     }
+  });
+
+  const { data: vatReturns = [] } = useQuery<any[]>({
+    queryKey: ["/api/accounting/vat-returns"],
+  });
+
+  const currentReturnId = `VAT-${localStorage.getItem("selectedCompanyId") || ""}-${dateRange.from.replace(/-/g, "")}-${dateRange.to.replace(/-/g, "")}`;
+  const currentLifecycle = vatReturns.find((row) => row.id === currentReturnId);
+
+  const draftMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/accounting/vat-returns/draft", { startDate: dateRange.from, endDate: dateRange.to });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "VAT return draft created", description: "The current VAT calculation has been snapshotted." });
+      queryClient.invalidateQueries({ queryKey: ["/api/accounting/vat-returns"] });
+    },
+    onError: (error: any) => toast({ title: "Could not create draft", description: error.message, variant: "destructive" }),
+  });
+
+  const reviewMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/accounting/vat-returns/${currentLifecycle?.id}/review`);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "VAT return reviewed" });
+      queryClient.invalidateQueries({ queryKey: ["/api/accounting/vat-returns"] });
+    },
+    onError: (error: any) => toast({ title: "Could not mark reviewed", description: error.message, variant: "destructive" }),
+  });
+
+  const submitMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/accounting/vat-returns/${currentLifecycle?.id}/submit`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "VAT return submitted", description: "A submitted snapshot has been preserved." });
+      queryClient.invalidateQueries({ queryKey: ["/api/accounting/vat-returns"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/accounting/dashboard"] });
+    },
+    onError: (error: any) => toast({ title: "Could not submit VAT return", description: error.message, variant: "destructive" }),
   });
 
   return (
@@ -58,6 +108,34 @@ export default function VatReturnPage() {
             />
           </div>
         </div>
+
+        <Card>
+          <CardContent className="flex flex-col gap-4 p-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-sm font-bold text-slate-800">VAT lifecycle</p>
+              <p className="text-xs text-slate-500">Draft, review, submit, and preserve the return snapshot for this period.</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge className={
+                currentLifecycle?.status === "SUBMITTED" ? "bg-emerald-50 text-emerald-700" :
+                currentLifecycle?.status === "REVIEWED" ? "bg-blue-50 text-blue-700" :
+                currentLifecycle?.status === "DRAFT" ? "bg-amber-50 text-amber-700" :
+                "bg-slate-100 text-slate-600"
+              }>
+                {currentLifecycle?.status || "NOT DRAFTED"}
+              </Badge>
+              <Button variant="outline" disabled={draftMutation.isPending || currentLifecycle?.status === "SUBMITTED"} onClick={() => draftMutation.mutate()}>
+                <FileText className="mr-2 h-4 w-4" /> Draft
+              </Button>
+              <Button variant="outline" disabled={!currentLifecycle || currentLifecycle.status === "SUBMITTED" || reviewMutation.isPending} onClick={() => reviewMutation.mutate()}>
+                <CheckCircle2 className="mr-2 h-4 w-4" /> Review
+              </Button>
+              <Button disabled={!currentLifecycle || currentLifecycle.status !== "REVIEWED" || submitMutation.isPending} onClick={() => submitMutation.mutate()}>
+                <Send className="mr-2 h-4 w-4" /> Submit
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
 
         {isLoading ? (
           <div className="h-40 flex items-center justify-center border-2 border-dashed border-slate-200 rounded-2xl text-slate-500">
@@ -147,6 +225,26 @@ export default function VatReturnPage() {
                 </ul>
               </div>
             </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Return History</CardTitle>
+            <CardDescription>Saved VAT snapshots for review and submission audit.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {vatReturns.length === 0 ? (
+              <p className="text-sm text-slate-500">No VAT return snapshots yet.</p>
+            ) : vatReturns.map((row) => (
+              <div key={row.id} className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2 text-sm">
+                <span>{row.startDate ? format(new Date(row.startDate), "dd MMM yyyy") : "-"} to {row.endDate ? format(new Date(row.endDate), "dd MMM yyyy") : "-"}</span>
+                <div className="flex items-center gap-3">
+                  <span className="font-bold">{formatCurrency(Number(row.snapshot?.netVat || 0))}</span>
+                  <Badge variant="outline">{row.status}</Badge>
+                </div>
+              </div>
+            ))}
           </CardContent>
         </Card>
       </div>

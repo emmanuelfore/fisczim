@@ -151,24 +151,39 @@ export async function closeAllFiscalDays() {
 
                     console.log(`[Job] Closing Fiscal Day ${fiscalDayNo} for ${company.name} at ${fiscalDayDate}`);
                     
-                    await device.closeDay(
+                    const result = await device.closeDay(
                         fiscalDayNo,
                         fiscalDayDate,
                         company.dailyReceiptCount || status.lastReceiptCounter || 0,
                         counters
-                    );
+                    ) as any;
 
-                    // 4. Update local state
-                    await storage.updateCompany(company.id, {
-                        fiscalDayOpen: false,
-                        lastFiscalDayStatus: 'FiscalDayClosed'
-                    });
-                    
-                    console.log(`[Job] Successfully closed day for ${company.name}`);
+                    const resultStatus = (result.fiscalDayStatus || "").toLowerCase();
+
+                    // 4. Update local state only after confirmed closure.
+                    if (resultStatus === 'fiscaldayclosed') {
+                        await storage.updateCompany(company.id, {
+                            fiscalDayOpen: false,
+                            lastFiscalDayStatus: 'FiscalDayClosed'
+                        });
+
+                        console.log(`[Job] Successfully closed day for ${company.name}`);
+                    } else {
+                        await storage.updateCompany(company.id, {
+                            fiscalDayOpen: true,
+                            lastFiscalDayStatus: result.fiscalDayStatus || 'FiscalDayCloseFailed'
+                        });
+
+                        console.warn(`[Job] Close day failed for ${company.name}; daily receipt counters preserved.`);
+                    }
                 } else {
                     console.log(`[Job] Day for ${company.name} is already ${status.fiscalDayStatus}.`);
                     if (company.fiscalDayOpen) {
-                        await storage.updateCompany(company.id, { fiscalDayOpen: false, lastFiscalDayStatus: status.fiscalDayStatus });
+                        const isCloseFailed = status.fiscalDayStatus === 'FiscalDayCloseFailed';
+                        await storage.updateCompany(company.id, {
+                            fiscalDayOpen: isCloseFailed,
+                            lastFiscalDayStatus: status.fiscalDayStatus
+                        });
                     }
                 }
             } catch (err) {

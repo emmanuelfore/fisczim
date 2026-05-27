@@ -37,7 +37,7 @@ const adjustmentSchema = z.object({
     productId: z.string().min(1, "Product is required"),
     type: z.enum(["SHRINKAGE", "ADJUSTMENT"]),
     actualQuantity: z.string().min(1, "Actual quantity required").refine((val) => !isNaN(Number(val)) && Number(val) >= 0, "Must be zero or more"),
-    notes: z.string().min(1, "Notes/Reason required"),
+    notes: z.string().min(5, "Please provide a clear reason"),
 });
 
 type AdjustmentFormValues = z.infer<typeof adjustmentSchema>;

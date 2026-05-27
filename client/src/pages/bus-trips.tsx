@@ -1,10 +1,11 @@
 import { Layout } from "@/components/layout";
 import { useState } from "react";
-import { useBusTrips, useBusVehicles, useBusRoutes, useCreateBusTrip } from "@/hooks/use-bus-ticketing";
+import { useBusTrips, useBusVehicles, useBusRoutes, useCreateBusTrip, useUpdateBusTripStatus } from "@/hooks/use-bus-ticketing";
 import { Card, CardContent } from "@/components/ui/card";
-import { Calendar, Search, MapPin, Bus, Clock, Users, Plus, Loader2 } from "lucide-react";
+import { Calendar, Search, MapPin, Bus, Clock, Users, Plus, Loader2, MoreHorizontal, Play, Flag, XCircle } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
     Dialog,
     DialogContent,
@@ -30,17 +31,29 @@ import {
 } from "@/components/ui/select";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertBusTripSchema } from "@shared/schema";
+import { z } from "zod";
 import { PageHeader } from "@/components/page-header";
 import { format } from "date-fns";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
+import { useActiveCompany } from "@/hooks/use-active-company";
+import { isBusFeatureEnabled, normalizeBusSettings } from "@shared/bus-settings";
+import { useToast } from "@/hooks/use-toast";
+
+const tripFormSchema = z.object({
+    companyId: z.number(),
+    routeId: z.coerce.number().int().positive("Select a route"),
+    vehicleId: z.coerce.number().int().positive("Select a vehicle"),
+    conductorId: z.string().min(1, "Assign a conductor"),
+    scheduledDeparture: z.coerce.date(),
+    status: z.string().default("scheduled"),
+});
 
 function CreateTripDialog({ companyId }: { companyId: number }) {
     const [open, setOpen] = useState(false);
     const createTrip = useCreateBusTrip();
-    const { data: routes } = useBusRoutes();
-    const { data: vehicles } = useBusVehicles();
+    const { data: routes } = useBusRoutes(companyId);
+    const { data: vehicles } = useBusVehicles(companyId);
     const { data: usersResponse } = useQuery({
         queryKey: ["users", companyId],
         queryFn: async () => {
@@ -61,7 +74,7 @@ function CreateTripDialog({ companyId }: { companyId: number }) {
         : [];
 
     const form = useForm({
-        resolver: zodResolver(insertBusTripSchema),
+        resolver: zodResolver(tripFormSchema),
         defaultValues: {
             companyId: companyId,
             routeId: 0,
@@ -77,8 +90,9 @@ function CreateTripDialog({ companyId }: { companyId: number }) {
             await createTrip.mutateAsync(data);
             setOpen(false);
             form.reset();
-        } catch (error) {
+        } catch (error: any) {
             console.error("Failed to schedule trip:", error);
+            form.setError("root", { message: error?.message || "Failed to schedule trip" });
         }
     };
 
@@ -196,8 +210,7 @@ function CreateTripDialog({ companyId }: { companyId: number }) {
                                     <FormControl>
                                         <Input 
                                             type="datetime-local" 
-                                            {...field} 
-                                            value={field.value ? new Date(field.value.getTime() - field.value.getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ""}
+                                            value={field.value ? new Date(new Date(field.value).getTime() - new Date(field.value).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ""}
                                             onChange={e => field.onChange(new Date(e.target.value))}
                                             className="rounded-xl bg-slate-50 border-slate-200" 
                                         />
@@ -206,6 +219,12 @@ function CreateTripDialog({ companyId }: { companyId: number }) {
                                 </FormItem>
                             )}
                         />
+
+                        {form.formState.errors.root?.message && (
+                            <p className="rounded-xl bg-red-50 px-3 py-2 text-sm font-medium text-red-700">
+                                {form.formState.errors.root.message}
+                            </p>
+                        )}
 
                         <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
                             <Button type="button" variant="outline" onClick={() => setOpen(false)} className="rounded-xl border-slate-200">
@@ -225,9 +244,14 @@ function CreateTripDialog({ companyId }: { companyId: number }) {
 
 export default function BusTripsPage() {
     const companyId = parseInt(localStorage.getItem("selectedCompanyId") || "0");
-    const { data: trips, isLoading } = useBusTrips();
-    const { data: routes } = useBusRoutes();
-    const { data: vehicles } = useBusVehicles();
+    const { activeCompany } = useActiveCompany();
+    const { toast } = useToast();
+    const busSettings = normalizeBusSettings((activeCompany as any)?.busSettings);
+    const canManageTrips = isBusFeatureEnabled(busSettings, "tripManagement");
+    const { data: trips, isLoading } = useBusTrips(companyId);
+    const { data: routes } = useBusRoutes(companyId);
+    const { data: vehicles } = useBusVehicles(companyId);
+    const updateTripStatus = useUpdateBusTripStatus();
     
     const [searchTerm, setSearchTerm] = useState("");
 
@@ -254,15 +278,47 @@ export default function BusTripsPage() {
         }
     };
 
+    const updateStatus = async (tripId: number, status: string) => {
+        try {
+            await updateTripStatus.mutateAsync({ companyId, tripId, status });
+            toast({ title: "Trip updated", description: `Trip #${tripId} is now ${status.replace("_", " ")}.` });
+        } catch (error: any) {
+            toast({ title: "Trip update failed", description: error.message || "Could not update trip status.", variant: "destructive" });
+        }
+    };
+
+    const statusActions = (status: string) => {
+        switch (status) {
+            case "scheduled":
+                return [{ label: "Start boarding", status: "boarding", icon: Play }];
+            case "boarding":
+                return [{ label: "Depart", status: "en_route", icon: Play }, { label: "Cancel", status: "cancelled", icon: XCircle }];
+            case "en_route":
+                return [{ label: "Pause trip", status: "in_progress", icon: Clock }, { label: "Complete trip", status: "completed", icon: Flag }];
+            case "in_progress":
+                return [{ label: "Resume trip", status: "en_route", icon: Play }, { label: "Complete trip", status: "completed", icon: Flag }];
+            default:
+                return [];
+        }
+    };
+
     return (
         <Layout>
             <PageHeader
                 title="Trip Scheduling"
                 subtitle="Manage and track active bus trips"
-                actions={<CreateTripDialog companyId={companyId} />}
+                actions={canManageTrips ? <CreateTripDialog companyId={companyId} /> : null}
             />
 
-            <div className="admin-panel mb-4 flex flex-col gap-3 p-4 md:flex-row md:items-center">
+            {!canManageTrips && (
+                <Card className="border-dashed border-slate-200 shadow-sm">
+                    <CardContent className="p-8 text-center text-sm text-slate-500">
+                        Bus trip management is hidden by the current bus-ticketing settings.
+                    </CardContent>
+                </Card>
+            )}
+
+            {canManageTrips && <div className="admin-panel mb-4 flex flex-col gap-3 p-4 md:flex-row md:items-center">
                 <div className="relative flex-1 w-full sm:max-w-sm group">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#64748B] transition-colors duration-200" />
                     <Input
@@ -272,9 +328,9 @@ export default function BusTripsPage() {
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />
                 </div>
-            </div>
+            </div>}
 
-            <Card className="overflow-hidden border-none shadow-sm">
+            {canManageTrips && <Card className="overflow-hidden border-none shadow-sm">
                 <CardContent className="p-0">
                     <table className="w-full text-left border-collapse">
                         <thead>
@@ -341,7 +397,26 @@ export default function BusTripsPage() {
                                             </span>
                                         </td>
                                         <td className="px-6 py-4 text-right">
-                                            <Button variant="ghost" size="sm" className="rounded-xl text-slate-400 hover:text-orange-600 hover:bg-orange-50">Manage</Button>
+                                            <DropdownMenu>
+                                                <DropdownMenuTrigger asChild>
+                                                    <Button variant="ghost" size="icon" className="h-9 w-9 rounded-xl text-slate-400 hover:text-orange-600 hover:bg-orange-50" disabled={updateTripStatus.isPending}>
+                                                        <MoreHorizontal className="h-4 w-4" />
+                                                    </Button>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent align="end">
+                                                    {statusActions(t.status).length === 0 ? (
+                                                        <DropdownMenuItem disabled>No available actions</DropdownMenuItem>
+                                                    ) : statusActions(t.status).map((action) => {
+                                                        const Icon = action.icon;
+                                                        return (
+                                                            <DropdownMenuItem key={action.status} onClick={() => updateStatus(t.id, action.status)}>
+                                                                <Icon className="h-4 w-4" />
+                                                                {action.label}
+                                                            </DropdownMenuItem>
+                                                        );
+                                                    })}
+                                                </DropdownMenuContent>
+                                            </DropdownMenu>
                                         </td>
                                     </tr>
                                 );
@@ -349,7 +424,7 @@ export default function BusTripsPage() {
                         </tbody>
                     </table>
                 </CardContent>
-            </Card>
+            </Card>}
         </Layout>
     );
 }

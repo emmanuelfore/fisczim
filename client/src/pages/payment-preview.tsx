@@ -1,9 +1,8 @@
 import { useRoute, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "@shared/routes";
-import { useCompany } from "@/hooks/use-companies";
 import { useInvoice } from "@/hooks/use-invoices";
 import { useTaxConfig } from "@/hooks/use-tax-config";
+import { apiFetch } from "@/lib/api";
 import { PaymentReceiptPDF } from "@/components/invoices/payment-receipt-pdf";
 import { pdf } from "@react-pdf/renderer";
 import { useState, useEffect } from "react";
@@ -16,23 +15,24 @@ export default function PaymentPreviewPage() {
   const [, setLocation] = useLocation();
   const paymentId = parseInt(params?.id || "0");
 
-  // Fetch payment details - we'll use the report endpoint or a specific one if available
-  // For now, we'll try to get it from the payments report for the specific ID
-  const { data: payments, isLoading: isLoadingPayments } = useQuery<any[]>({
-    queryKey: [api.reports.payments.path],
+  const { data: payment, isLoading: isLoadingPayment } = useQuery<any>({
+    queryKey: ["/api/payments", paymentId],
+    queryFn: async () => {
+      const res = await apiFetch(`/api/payments/${paymentId}`);
+      if (!res.ok) throw new Error("Failed to fetch payment");
+      return res.json();
+    },
     enabled: !!paymentId,
   });
 
-  const payment = payments?.find(p => p.id === paymentId);
   const { data: invoice, isLoading: isLoadingInvoice } = useInvoice(payment?.invoiceId || 0);
-  const { data: company } = useCompany(payment?.companyId || 0);
   const { taxTypes } = useTaxConfig(payment?.companyId || 0);
 
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
   const [pdfGenerating, setPdfGenerating] = useState(false);
 
   useEffect(() => {
-    if (!payment || !company || isLoadingInvoice) return;
+    if (!payment || !payment.company || isLoadingInvoice) return;
 
     let revoked = false;
     setPdfGenerating(true);
@@ -43,10 +43,13 @@ export default function PaymentPreviewPage() {
           <PaymentReceiptPDF
             payment={{
               ...payment,
+              invoiceNumber: payment.invoice?.invoiceNumber || "N/A",
+              customerName: payment.customer?.name,
+              customerEmail: payment.customer?.email,
               paymentDate: payment.paymentDate || new Date(),
             }}
-            company={company}
-            invoice={invoice}
+            company={payment.company}
+            invoice={invoice || payment.invoice}
             taxTypes={taxTypes?.data || []}
           />
         ).toBlob();
@@ -68,9 +71,9 @@ export default function PaymentPreviewPage() {
       revoked = true;
       if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl);
     };
-  }, [payment, company, invoice, taxTypes, isLoadingInvoice]);
+  }, [payment, invoice, taxTypes, isLoadingInvoice]);
 
-  const isLoading = isLoadingPayments || isLoadingInvoice || !company;
+  const isLoading = isLoadingPayment || isLoadingInvoice || !payment?.company;
 
   return (
     <Layout>

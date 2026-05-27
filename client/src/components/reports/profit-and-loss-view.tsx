@@ -1,7 +1,7 @@
 
-import { useState } from "react";
 import { format } from "date-fns";
-import { useFinancialSummary } from "@/hooks/use-reports";
+import { useQuery } from "@tanstack/react-query";
+import { apiFetch } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { 
     TrendingUp, 
@@ -20,18 +20,9 @@ import {
     Legend
 } from "recharts";
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogHeader,
-    DialogTitle,
-} from "@/components/ui/dialog";
-import {
     Table as TableUI,
     TableBody,
     TableCell,
-    TableHead,
-    TableHeader,
     TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -47,15 +38,49 @@ interface ProfitAndLossViewProps {
     consolidatedRate: number;
 }
 
+type ProfitAndLossLine = {
+    accountId: number;
+    code: string;
+    name: string;
+    type: "REVENUE" | "EXPENSE";
+    category: string;
+    amount: number;
+};
+
+type ProfitAndLossReport = {
+    sections: {
+        revenue: ProfitAndLossLine[];
+        costOfSales: ProfitAndLossLine[];
+        otherIncome: ProfitAndLossLine[];
+        operatingExpenses: ProfitAndLossLine[];
+        financeCosts: ProfitAndLossLine[];
+        otherExpenses: ProfitAndLossLine[];
+    };
+    totals: {
+        revenue: number;
+        costOfSales: number;
+        grossProfit: number;
+        otherIncome: number;
+        operatingExpenses: number;
+        financeCosts: number;
+        otherExpenses: number;
+        netProfit: number;
+    };
+};
+
 export function ProfitAndLossView({ companyId, dateRange, consolidatedSymbol, consolidatedRate }: ProfitAndLossViewProps) {
-    const [drillDownType, setDrillDownType] = useState<"revenue" | "cogs" | "expenses" | null>(null);
+    const from = format(dateRange.from, 'yyyy-MM-dd');
+    const to = format(dateRange.to, 'yyyy-MM-dd');
     
-    const { data: summary, isLoading } = useFinancialSummary(
-        companyId, 
-        format(dateRange.from, 'yyyy-MM-dd'), 
-        format(dateRange.to, 'yyyy-MM-dd'), 
-        true
-    );
+    const { data: report, isLoading } = useQuery<ProfitAndLossReport>({
+        queryKey: ["/api/accounting/reports/profit-and-loss", { from, to }],
+        enabled: !!companyId,
+        queryFn: async () => {
+            const res = await apiFetch(`/api/accounting/reports/profit-and-loss?from=${from}&to=${to}`);
+            if (!res.ok) throw new Error("Failed to load profit and loss report");
+            return res.json();
+        },
+    });
 
     if (isLoading) {
         return (
@@ -66,12 +91,53 @@ export function ProfitAndLossView({ companyId, dateRange, consolidatedSymbol, co
         );
     }
 
-    const expenseBreakdown = summary?.expenseBreakdown || [];
+    const totals = report?.totals || {
+        revenue: 0,
+        costOfSales: 0,
+        grossProfit: 0,
+        otherIncome: 0,
+        operatingExpenses: 0,
+        financeCosts: 0,
+        otherExpenses: 0,
+        netProfit: 0,
+    };
+    const sections = report?.sections || {
+        revenue: [],
+        costOfSales: [],
+        otherIncome: [],
+        operatingExpenses: [],
+        financeCosts: [],
+        otherExpenses: [],
+    };
+    const expenseBreakdown = [
+        { category: "Cost of Sales", amount: totals.costOfSales },
+        { category: "Operating Expenses", amount: totals.operatingExpenses },
+        { category: "Finance Costs", amount: totals.financeCosts },
+        { category: "Other Expenses", amount: totals.otherExpenses },
+    ].filter((item) => item.amount > 0);
+    const totalExpenses = totals.costOfSales + totals.operatingExpenses + totals.financeCosts + totals.otherExpenses;
 
-    // Apply consolidated rate if needed (Backend usually returns USD, we want to show consolidated)
     const formatValue = (val: number) => {
         return (val * consolidatedRate).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     };
+    const renderLines = (items: ProfitAndLossLine[], emptyLabel: string) => (
+        <>
+            {items.map((item) => (
+                <TableRow key={item.accountId} className="border-slate-50">
+                    <TableCell className="w-[110px] font-mono text-xs text-slate-500">{item.code}</TableCell>
+                    <TableCell className="font-semibold text-slate-700">{item.name}</TableCell>
+                    <TableCell className="text-right font-bold text-slate-900">
+                        {consolidatedSymbol}{formatValue(item.amount)}
+                    </TableCell>
+                </TableRow>
+            ))}
+            {items.length === 0 && (
+                <TableRow>
+                    <TableCell colSpan={3} className="py-4 text-center text-sm text-slate-400">{emptyLabel}</TableCell>
+                </TableRow>
+            )}
+        </>
+    );
 
     return (
         <div className="space-y-8 animate-in fade-in duration-500">
@@ -79,46 +145,88 @@ export function ProfitAndLossView({ companyId, dateRange, consolidatedSymbol, co
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
                 <SummaryStatCard
                     label="Gross Revenue"
-                    value={`${consolidatedSymbol}${formatValue(summary?.revenue || 0)}`}
+                    value={`${consolidatedSymbol}${formatValue(totals.revenue)}`}
                     icon={TrendingUp}
                     tone="violet"
-                    onClick={() => setDrillDownType("revenue")}
                 />
                 <SummaryStatCard
                     label="Cost of Sales"
-                    value={`${consolidatedSymbol}${formatValue(summary?.cogs || 0)}`}
+                    value={`${consolidatedSymbol}${formatValue(totals.costOfSales)}`}
                     icon={ShoppingBag}
                     tone="rose"
-                    onClick={() => setDrillDownType("cogs")}
                 />
                 <SummaryStatCard
                     label="Gross Profit"
-                    value={`${consolidatedSymbol}${formatValue(summary?.grossProfit || 0)}`}
+                    value={`${consolidatedSymbol}${formatValue(totals.grossProfit)}`}
                     icon={Activity}
                     tone="blue"
                     valueClassName={cn(
                         "text-2xl font-black",
-                        (summary?.grossProfit || 0) >= 0 ? "text-emerald-600" : "text-rose-600"
+                        totals.grossProfit >= 0 ? "text-emerald-600" : "text-rose-600"
                     )}
                 />
                 <SummaryStatCard
                     label="Operating Expenses"
-                    value={`${consolidatedSymbol}${formatValue(summary?.expenses || 0)}`}
+                    value={`${consolidatedSymbol}${formatValue(totals.operatingExpenses + totals.financeCosts + totals.otherExpenses)}`}
                     icon={Wallet}
                     tone="slate"
-                    onClick={() => setDrillDownType("expenses")}
                 />
                 <SummaryStatCard
                     label="Net Profit"
-                    value={`${consolidatedSymbol}${formatValue(summary?.netProfit || 0)}`}
+                    value={`${consolidatedSymbol}${formatValue(totals.netProfit)}`}
                     icon={DollarSign}
-                    tone={(summary?.netProfit || 0) >= 0 ? "emerald" : "rose"}
+                    tone={totals.netProfit >= 0 ? "emerald" : "rose"}
                     valueClassName={cn(
                         "text-2xl font-black",
-                        (summary?.netProfit || 0) >= 0 ? "text-emerald-600" : "text-rose-600"
+                        totals.netProfit >= 0 ? "text-emerald-600" : "text-rose-600"
                     )}
                 />
             </div>
+
+            <Card className="rounded-[2rem] border border-slate-100 bg-white shadow-xl">
+                <CardHeader className="border-b border-slate-50 p-8">
+                    <CardTitle className="text-xl font-black uppercase tracking-tight text-slate-900">Statement of Profit or Loss</CardTitle>
+                    <CardDescription className="font-medium text-slate-400">
+                        GL-backed report for {format(dateRange.from, "MMM d")} to {format(dateRange.to, "MMM d, yyyy")}
+                    </CardDescription>
+                </CardHeader>
+                <CardContent className="p-0">
+                    <TableUI>
+                        <TableBody>
+                            <TableRow className="bg-slate-50/70 hover:bg-slate-50/70">
+                                <TableCell colSpan={3} className="px-8 py-3 text-[11px] font-black uppercase tracking-widest text-slate-700">Revenue</TableCell>
+                            </TableRow>
+                            {renderLines(sections.revenue, "No revenue posted for this period")}
+                            <TableRow className="bg-slate-50/40">
+                                <TableCell colSpan={2} className="text-right text-xs font-black uppercase tracking-wider text-slate-700">Total Revenue</TableCell>
+                                <TableCell className="text-right font-black text-slate-900">{consolidatedSymbol}{formatValue(totals.revenue)}</TableCell>
+                            </TableRow>
+                            <TableRow className="bg-slate-50/70 hover:bg-slate-50/70">
+                                <TableCell colSpan={3} className="px-8 py-3 text-[11px] font-black uppercase tracking-widest text-slate-700">Cost of Sales</TableCell>
+                            </TableRow>
+                            {renderLines(sections.costOfSales, "No cost of sales posted for this period")}
+                            <TableRow className="bg-slate-900 hover:bg-slate-900 text-white">
+                                <TableCell colSpan={2} className="text-right text-xs font-black uppercase tracking-wider text-slate-300">Gross Profit</TableCell>
+                                <TableCell className="text-right text-lg font-black">{consolidatedSymbol}{formatValue(totals.grossProfit)}</TableCell>
+                            </TableRow>
+                            <TableRow className="bg-slate-50/70 hover:bg-slate-50/70">
+                                <TableCell colSpan={3} className="px-8 py-3 text-[11px] font-black uppercase tracking-widest text-slate-700">Other Income</TableCell>
+                            </TableRow>
+                            {renderLines(sections.otherIncome, "No other income posted for this period")}
+                            <TableRow className="bg-slate-50/70 hover:bg-slate-50/70">
+                                <TableCell colSpan={3} className="px-8 py-3 text-[11px] font-black uppercase tracking-widest text-slate-700">Operating Expenses</TableCell>
+                            </TableRow>
+                            {renderLines(sections.operatingExpenses, "No operating expenses posted for this period")}
+                            {sections.financeCosts.length > 0 && renderLines(sections.financeCosts, "")}
+                            {sections.otherExpenses.length > 0 && renderLines(sections.otherExpenses, "")}
+                            <TableRow className={cn("hover:bg-transparent", totals.netProfit >= 0 ? "bg-emerald-50 text-emerald-900" : "bg-rose-50 text-rose-900")}>
+                                <TableCell colSpan={2} className="text-right text-sm font-black uppercase tracking-wider">Net Profit / Loss</TableCell>
+                                <TableCell className="text-right text-xl font-black">{consolidatedSymbol}{formatValue(totals.netProfit)}</TableCell>
+                            </TableRow>
+                        </TableBody>
+                    </TableUI>
+                </CardContent>
+            </Card>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Expense Chart */}
@@ -198,7 +306,7 @@ export function ProfitAndLossView({ companyId, dateRange, consolidatedSymbol, co
                                         </td>
                                         <td className="p-6 text-right font-medium text-slate-400">
                                             <Badge variant="outline" className="font-black text-[10px] bg-slate-50 group-hover:bg-white">
-                                                {((item.amount / summary!.expenses) * 100).toFixed(1)}%
+                                                {totalExpenses > 0 ? ((item.amount / totalExpenses) * 100).toFixed(1) : "0.0"}%
                                             </Badge>
                                         </td>
                                     </tr>
@@ -213,113 +321,6 @@ export function ProfitAndLossView({ companyId, dateRange, consolidatedSymbol, co
                     </CardContent>
                 </Card>
             </div>
-
-            {/* Drill-down Dialog */}
-            <Dialog open={!!drillDownType} onOpenChange={(open) => !open && setDrillDownType(null)}>
-                <DialogContent className="max-w-4xl max-h-[85vh] overflow-hidden flex flex-col rounded-[2.5rem] border-none shadow-2xl p-0">
-                    <div className={cn(
-                        "p-8 text-white",
-                        drillDownType === "revenue" ? "bg-indigo-600" : 
-                        drillDownType === "cogs" ? "bg-rose-500" : "bg-slate-900"
-                    )}>
-                        <DialogHeader>
-                            <div className="flex items-center gap-4 mb-2">
-                                <div className="p-3 bg-white/20 rounded-2xl backdrop-blur-md">
-                                    {drillDownType === "revenue" ? <TrendingUp className="w-6 h-6" /> : 
-                                     drillDownType === "cogs" ? <ShoppingBag className="w-6 h-6" /> : <Wallet className="w-6 h-6" />}
-                                </div>
-                                <div>
-                                    <DialogTitle className="text-3xl font-black uppercase tracking-tight leading-none">
-                                        {drillDownType === "revenue" && "Revenue Records"}
-                                        {drillDownType === "cogs" && "Cost Breakdown"}
-                                        {drillDownType === "expenses" && "Expense Ledger"}
-                                    </DialogTitle>
-                                    <DialogDescription className="text-white/60 font-medium mt-1">
-                                        Drill-down exploration of {drillDownType} performance
-                                    </DialogDescription>
-                                </div>
-                            </div>
-                        </DialogHeader>
-                    </div>
-
-                    <div className="p-8 flex-1 overflow-y-auto">
-                        {drillDownType === "revenue" && (
-                            <TableUI>
-                                <TableHeader>
-                                    <TableRow className="hover:bg-transparent border-slate-100">
-                                        <TableHead className="font-black uppercase text-[10px] tracking-widest text-slate-400">Date</TableHead>
-                                        <TableHead className="font-black uppercase text-[10px] tracking-widest text-slate-400">Ref #</TableHead>
-                                        <TableHead className="font-black uppercase text-[10px] tracking-widest text-slate-400">Customer</TableHead>
-                                        <TableHead className="text-right font-black uppercase text-[10px] tracking-widest text-slate-400">Amount</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {summary?.drillDown?.revenueItems.map((inv: any) => (
-                                        <TableRow key={inv.id} className="hover:bg-slate-50 transition-colors border-slate-50">
-                                            <TableCell className="font-medium text-slate-500">{format(new Date(inv.issueDate || inv.createdAt), "dd MMM yyyy")}</TableCell>
-                                            <TableCell className="font-black text-indigo-600">{inv.invoiceNumber}</TableCell>
-                                            <TableCell className="font-medium text-slate-700">{inv.customerName || "Walk-in"}</TableCell>
-                                            <TableCell className="text-right font-black text-slate-900">
-                                                {consolidatedSymbol}{(Number(inv.total) * consolidatedRate).toFixed(2)}
-                                            </TableCell>
-                                        </TableRow>
-                                    ))}
-                                </TableBody>
-                            </TableUI>
-                        )}
-
-                        {drillDownType === "cogs" && (
-                            <TableUI>
-                                <TableHeader>
-                                    <TableRow className="hover:bg-transparent border-slate-100">
-                                        <TableHead className="font-black uppercase text-[10px] tracking-widest text-slate-400">Date</TableHead>
-                                        <TableHead className="font-black uppercase text-[10px] tracking-widest text-slate-400">Reference</TableHead>
-                                        <TableHead className="font-black uppercase text-[10px] tracking-widest text-slate-400">Product</TableHead>
-                                        <TableHead className="text-right font-black uppercase text-[10px] tracking-widest text-slate-400">Cost</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {summary?.drillDown?.cogsItems.map((tx: any) => (
-                                        <TableRow key={tx.id} className="hover:bg-slate-50 transition-colors border-slate-50">
-                                            <TableCell className="font-medium text-slate-500">{format(new Date(tx.createdAt), "dd MMM HH:mm")}</TableCell>
-                                            <TableCell><Badge variant="outline" className="text-[10px] font-black">{tx.referenceType} #{tx.referenceId}</Badge></TableCell>
-                                            <TableCell className="font-bold text-slate-700 truncate max-w-[200px]">{tx.productName || "Product"}</TableCell>
-                                            <TableCell className="text-right font-black text-rose-500">
-                                                {consolidatedSymbol}{(Number(tx.totalCost) * consolidatedRate).toFixed(2)}
-                                            </TableCell>
-                                        </TableRow>
-                                    ))}
-                                </TableBody>
-                            </TableUI>
-                        )}
-
-                        {drillDownType === "expenses" && (
-                            <TableUI>
-                                <TableHeader>
-                                    <TableRow className="hover:bg-transparent border-slate-100">
-                                        <TableHead className="font-black uppercase text-[10px] tracking-widest text-slate-400">Date</TableHead>
-                                        <TableHead className="font-black uppercase text-[10px] tracking-widest text-slate-400">Category</TableHead>
-                                        <TableHead className="font-black uppercase text-[10px] tracking-widest text-slate-400">Description</TableHead>
-                                        <TableHead className="text-right font-black uppercase text-[10px] tracking-widest text-slate-400">Amount</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {summary?.drillDown?.expenseItems.map((exp: any) => (
-                                        <TableRow key={exp.id} className="hover:bg-slate-50 transition-colors border-slate-50">
-                                            <TableCell className="font-medium text-slate-500">{format(new Date(exp.expenseDate || exp.date), "dd MMM yyyy")}</TableCell>
-                                            <TableCell><Badge variant="secondary" className="bg-slate-100 text-slate-600 border-none font-black text-[9px]">{exp.category}</Badge></TableCell>
-                                            <TableCell className="text-slate-700 font-medium truncate max-w-[250px]">{exp.description}</TableCell>
-                                            <TableCell className="text-right font-black text-rose-500">
-                                                {consolidatedSymbol}{(Number(exp.amount) * consolidatedRate).toFixed(2)}
-                                            </TableCell>
-                                        </TableRow>
-                                    ))}
-                                </TableBody>
-                            </TableUI>
-                        )}
-                    </div>
-                </DialogContent>
-            </Dialog>
         </div>
     );
 }

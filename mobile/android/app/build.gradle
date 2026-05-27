@@ -87,25 +87,21 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'com.emmanuelff.fieldpos'
+    namespace 'com.rhymy.fieldpos'
     defaultConfig {
-        applicationId 'com.emmanuelff.fieldpos'
+        applicationId 'com.rhymy.fieldpos'
         minSdkVersion rootProject.ext.minSdkVersion
-        // PosApiSdk's libAndroid.so uses ELF text relocations (DT_TEXTREL). Bionic
-        // refuses those for targetSdkVersion >= 23. Staying at 22 keeps legacy linker
-        // behavior for this rule so the vendor .so can load. Not acceptable for Google
-        // Play (target API policy); use sideload/enterprise POS or get a PIC rebuild.
-        targetSdkVersion 22
+        targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "0.1.0"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
 
-        // Force 32-bit mode: The Z100 printer SDK (libAndroid.so) is only available
-        // as armeabi (32-bit). An arm64-v8a device can run 32-bit apps in compat mode,
-        // but only if the APK contains NO 64-bit .so files.
+        // Include arm64 for current Android devices while keeping armeabi-v7a for
+        // legacy POS terminals. The bundled Z100 vendor SDK is still 32-bit only,
+        // so built-in Z100 printing needs a vendor arm64 SDK to work on 64-bit-only devices.
         ndk {
-            abiFilters 'armeabi-v7a'
+            abiFilters 'armeabi-v7a', 'arm64-v8a'
         }
     }
     signingConfigs {
@@ -151,10 +147,6 @@ android {
         ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:!CVS:!thumbs.db:!picasa.ini:!*~'
     }
     lint {
-        // This APK targets legacy POS devices that load PosApiSdk's non-PIC
-        // libAndroid.so. targetSdkVersion must stay below 23 or the Android
-        // linker rejects the vendor library at runtime.
-        disable 'ExpiredTargetSdkVersion'
     }
 }
 

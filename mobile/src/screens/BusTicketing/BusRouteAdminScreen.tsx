@@ -8,7 +8,6 @@ import {
   Alert,
   Modal,
   ScrollView,
-  TextInput,
   Switch,
   Animated,
   Platform,
@@ -18,6 +17,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useBusTicketing } from '../../hooks/useBusTicketing';
 import { BusRoute, TicketFieldConfig } from '../../types/busTicketing';
+import { DoneTextInput as TextInput } from '../../ui/DoneTextInput';
 
 const C = {
   bg: '#07090C',
@@ -60,11 +60,12 @@ interface RouteFormState {
 
 interface Props {
   onClose: () => void;
+  companyId?: number | null;
 }
 
-export function BusRouteAdminScreen({ onClose }: Props) {
+export function BusRouteAdminScreen({ onClose, companyId }: Props) {
   const insets = useSafeAreaInsets();
-  const { routes, saveRoute, updateRoute, deleteRoute, tickets } = useBusTicketing();
+  const { routes, saveRoute, updateRoute, deleteRoute, tickets } = useBusTicketing(companyId);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingRoute, setEditingRoute] = useState<BusRoute | null>(null);
   const [form, setForm] = useState<RouteFormState>({
@@ -119,30 +120,34 @@ export function BusRouteAdminScreen({ onClose }: Props) {
       return;
     }
     const name = `${form.origin.trim()} → ${form.destination.trim()}`;
-    if (editingRoute) {
-      await updateRoute(editingRoute.id, {
-        name,
-        origin: form.origin.trim(),
-        destination: form.destination.trim(),
-        price,
-        currency: form.currency,
-        config: form.config,
-      });
-    } else {
-      const route: BusRoute = {
-        id: uuid(),
-        name,
-        origin: form.origin.trim(),
-        destination: form.destination.trim(),
-        price,
-        currency: form.currency,
-        isActive: true,
-        config: form.config,
-        createdAt: new Date().toISOString(),
-      };
-      await saveRoute(route);
+    try {
+      if (editingRoute) {
+        await updateRoute(editingRoute.id, {
+          name,
+          origin: form.origin.trim(),
+          destination: form.destination.trim(),
+          price,
+          currency: form.currency,
+          config: form.config,
+        });
+      } else {
+        const route: BusRoute = {
+          id: uuid(),
+          name,
+          origin: form.origin.trim(),
+          destination: form.destination.trim(),
+          price,
+          currency: form.currency,
+          isActive: true,
+          config: form.config,
+          createdAt: new Date().toISOString(),
+        };
+        await saveRoute(route);
+      }
+      setModalVisible(false);
+    } catch (e: any) {
+      Alert.alert('Route not saved', e?.message || 'Could not save route to the server.');
     }
-    setModalVisible(false);
   }
 
   async function handleDelete(route: BusRoute) {

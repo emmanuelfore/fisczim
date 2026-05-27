@@ -1,6 +1,5 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertBusRouteSchema, type BusRouteCloud } from "@shared/schema";
 import { useCreateBusRoute } from "@/hooks/use-bus-ticketing";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,19 +21,32 @@ import {
 import { Input } from "@/components/ui/input";
 import { MapPin, Loader2, Route } from "lucide-react";
 import { useState } from "react";
+import { z } from "zod";
+
+const routeFormSchema = z.object({
+    companyId: z.number(),
+    name: z.string().min(1, "Route name is required"),
+    origin: z.string().min(1, "Origin is required"),
+    destination: z.string().min(1, "Destination is required"),
+    distanceKm: z.coerce.number().min(0).default(0),
+    basePrice: z.coerce.number().min(0, "Base price cannot be negative"),
+    currency: z.enum(["USD", "ZWG"]).default("USD"),
+    isActive: z.boolean().default(true),
+});
 
 export function CreateRouteDialog({ companyId }: { companyId: number }) {
     const [open, setOpen] = useState(false);
     const createRoute = useCreateBusRoute();
 
     const form = useForm({
-        resolver: zodResolver(insertBusRouteSchema),
+        resolver: zodResolver(routeFormSchema),
         defaultValues: {
             name: "",
             origin: "",
             destination: "",
             distanceKm: 0,
             basePrice: 0,
+            currency: "USD",
             companyId: companyId,
             isActive: true,
         },

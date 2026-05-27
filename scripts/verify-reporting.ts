@@ -99,8 +99,6 @@ async function verifyReporting() {
         // 6. Test PIN Functionality
         console.log("\n--- Testing PIN Functionality ---");
         const pin = "1234";
-        await storage.setUserPin(company.userId, pin); // Assuming company has userId owner
-        // Actually, companies table doesn't have userId directly, need to fetch owner
         const companyUsers = await storage.getCompanyUsers(company.id);
         const owner = companyUsers.find(u => u.role === 'owner');
 

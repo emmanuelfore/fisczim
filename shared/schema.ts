@@ -101,6 +101,7 @@ export const companies = pgTable("companies", {
   vatRegistered: boolean("vat_registered").default(true),
   emailSettings: jsonb("email_settings"),
   posSettings: jsonb("pos_settings"), // Stores receipt header/footer, auto-print defaults etc.
+  accountingSettings: jsonb("accounting_settings"), // Stores default GL accounts for automated system postings.
   lastReceiptAt: timestamp("last_receipt_at"),
 
   // Inventory Settings
@@ -111,6 +112,8 @@ export const companies = pgTable("companies", {
   registeredMacAddress: text("registered_mac_address"), // Physical device binding
   restaurantSettings: jsonb("restaurant_settings"), // Stores floor plan layout etc.
   pharmacySettings: jsonb("pharmacy_settings"), // { enabled: boolean, licenseNo: string, etc }
+  busSettings: jsonb("bus_settings"), // Controls bus-ticketing feature visibility for web and APK.
+  appMode: text("app_mode").default("pos"), // pos, restaurant, bus_ticketing
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -354,6 +357,14 @@ export const products = pgTable("products", {
   batchTrackingEnabled: boolean("batch_tracking_enabled").default(false),
   brandName: text("brand_name"),
   genericName: text("generic_name"),
+  oemPartNumber: text("oem_part_number"),
+  supplierPartNumber: text("supplier_part_number"),
+  alternatePartNumbers: jsonb("alternate_part_numbers").$type<string[]>().default([]),
+  vehicleFitment: jsonb("vehicle_fitment").$type<Array<{ make?: string; model?: string; yearFrom?: number; yearTo?: number; engine?: string; variant?: string }>>().default([]),
+  fitmentNotes: text("fitment_notes"),
+  serialTrackingEnabled: boolean("serial_tracking_enabled").default(false),
+  warrantyTrackingEnabled: boolean("warranty_tracking_enabled").default(false),
+  warrantyMonths: integer("warranty_months").default(0),
 
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => {
@@ -395,7 +406,7 @@ export type InsertProductCategory = z.infer<typeof insertProductCategorySchema>;
 // Validation Errors
 export const validationErrors = pgTable("validation_errors", {
   id: serial("id").primaryKey(),
-  invoiceId: integer("invoice_id").references(() => invoices.id).notNull(),
+  invoiceId: integer("invoice_id").references(() => invoices.id),
   errorCode: text("error_code").notNull(), // RCPT010, RCPT011, etc.
   errorMessage: text("error_message").notNull(),
   errorColor: text("error_color").notNull(), // Grey, Yellow, Red
@@ -529,6 +540,7 @@ export const invoices = pgTable("invoices", {
   relatedInvoiceId: integer("related_invoice_id"), // Self-reference for CN/DN
 
   notes: text("notes"),
+  poNumber: text("po_number"),
   invoiceTemplate: text("invoice_template").default("modern"),
   isFiscalized: boolean("is_fiscalized").default(true),
 
@@ -569,6 +581,9 @@ export const invoiceItems = pgTable("invoice_items", {
   lineTotal: decimal("line_total", { precision: 10, scale: 2 }).notNull(),
   taxTypeId: integer("tax_type_id").references(() => taxTypes.id),
   cogsAmount: decimal("cogs_amount", { precision: 10, scale: 2 }),
+  serialNumber: text("serial_number"),
+  warrantyMonths: integer("warranty_months"),
+  warrantyExpiresAt: timestamp("warranty_expires_at"),
   
   // Modifiers
   // Modifiers
@@ -590,6 +605,52 @@ export const invoiceItems = pgTable("invoice_items", {
 export const invoiceItemsRelations = relations(invoiceItems, ({ one }) => ({
   invoice: one(invoices, { fields: [invoiceItems.invoiceId], references: [invoices.id] }),
   product: one(products, { fields: [invoiceItems.productId], references: [products.id] }),
+}));
+
+export const productSerialNumbers = pgTable("product_serial_numbers", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  branchId: integer("branch_id").references(() => branches.id),
+  productId: integer("product_id").references(() => products.id).notNull(),
+  serialNumber: text("serial_number").notNull(),
+  status: text("status").notNull().default("IN_STOCK"), // IN_STOCK, SOLD, RESERVED, WARRANTY_CLAIM, RETURNED, VOID
+  supplierId: integer("supplier_id").references(() => suppliers.id),
+  receivedInventoryTransactionId: integer("received_inventory_transaction_id"),
+  soldInvoiceId: integer("sold_invoice_id").references(() => invoices.id),
+  soldInvoiceItemId: integer("sold_invoice_item_id").references(() => invoiceItems.id),
+  soldAt: timestamp("sold_at"),
+  warrantyExpiresAt: timestamp("warranty_expires_at"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  companySerialUnique: unique("product_serial_numbers_company_serial_unique").on(table.companyId, table.serialNumber),
+  companyIdx: index("product_serial_numbers_company_idx").on(table.companyId),
+  productIdx: index("product_serial_numbers_product_idx").on(table.productId),
+  statusIdx: index("product_serial_numbers_status_idx").on(table.status),
+}));
+
+export const warrantyClaims = pgTable("warranty_claims", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  branchId: integer("branch_id").references(() => branches.id),
+  customerId: integer("customer_id").references(() => customers.id),
+  productId: integer("product_id").references(() => products.id).notNull(),
+  invoiceId: integer("invoice_id").references(() => invoices.id),
+  invoiceItemId: integer("invoice_item_id").references(() => invoiceItems.id),
+  serialNumberId: integer("serial_number_id").references(() => productSerialNumbers.id),
+  claimNumber: text("claim_number").notNull(),
+  status: text("status").notNull().default("OPEN"), // OPEN, APPROVED, REJECTED, REPLACED, SENT_TO_SUPPLIER, CLOSED
+  reason: text("reason").notNull(),
+  resolution: text("resolution"),
+  receivedAt: timestamp("received_at").defaultNow(),
+  resolvedAt: timestamp("resolved_at"),
+  createdBy: uuid("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  companyIdx: index("warranty_claims_company_idx").on(table.companyId),
+  claimNumberIdx: index("warranty_claims_claim_number_idx").on(table.claimNumber),
+  statusIdx: index("warranty_claims_status_idx").on(table.status),
 }));
 
 export const validationErrorsRelations = relations(validationErrors, ({ one }) => ({
@@ -709,6 +770,27 @@ export const paymentsRelations = relations(payments, ({ one }) => ({
   user: one(users, { fields: [payments.createdBy], references: [users.id] }),
 }));
 
+export const paymentAllocations = pgTable("payment_allocations", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  paymentId: integer("payment_id").references(() => payments.id).notNull(),
+  invoiceId: integer("invoice_id").references(() => invoices.id).notNull(),
+  amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
+  allocatedAt: timestamp("allocated_at").defaultNow().notNull(),
+  reversedAt: timestamp("reversed_at"),
+  reversalReason: text("reversal_reason"),
+}, (table) => ({
+  paymentIdx: index("payment_allocations_payment_idx").on(table.paymentId),
+  invoiceIdx: index("payment_allocations_invoice_idx").on(table.invoiceId),
+  companyIdx: index("payment_allocations_company_idx").on(table.companyId),
+}));
+
+export const paymentAllocationsRelations = relations(paymentAllocations, ({ one }) => ({
+  company: one(companies, { fields: [paymentAllocations.companyId], references: [companies.id] }),
+  payment: one(payments, { fields: [paymentAllocations.paymentId], references: [payments.id] }),
+  invoice: one(invoices, { fields: [paymentAllocations.invoiceId], references: [invoices.id] }),
+}));
+
 // Also update Invoice relations to include payments
 export const invoicesRelations = relations(invoices, ({ one, many }) => ({
   company: one(companies, { fields: [invoices.companyId], references: [companies.id] }),
@@ -720,10 +802,110 @@ export const invoicesRelations = relations(invoices, ({ one, many }) => ({
   validationErrors: many(validationErrors),
 }));
 
+export const laybys = pgTable("laybys", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  branchId: integer("branch_id").references(() => branches.id),
+  customerId: integer("customer_id").references(() => customers.id).notNull(),
+  laybyNumber: text("layby_number").notNull(),
+  status: text("status").notNull().default("ACTIVE"), // ACTIVE, COMPLETED, CANCELLED, EXPIRED
+  subtotal: decimal("subtotal", { precision: 10, scale: 2 }).notNull(),
+  taxAmount: decimal("tax_amount", { precision: 10, scale: 2 }).default("0.00").notNull(),
+  total: decimal("total", { precision: 10, scale: 2 }).notNull(),
+  depositRequired: decimal("deposit_required", { precision: 10, scale: 2 }).default("0.00"),
+  paidAmount: decimal("paid_amount", { precision: 10, scale: 2 }).default("0.00").notNull(),
+  currency: text("currency").default("USD").notNull(),
+  expiryDate: timestamp("expiry_date"),
+  completedInvoiceId: integer("completed_invoice_id").references(() => invoices.id),
+  notes: text("notes"),
+  createdBy: uuid("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  companyIdx: index("laybys_company_idx").on(table.companyId),
+  customerIdx: index("laybys_customer_idx").on(table.customerId),
+  laybyNumberIdx: index("laybys_number_idx").on(table.laybyNumber),
+  statusIdx: index("laybys_status_idx").on(table.status),
+}));
+
+export const laybyItems = pgTable("layby_items", {
+  id: serial("id").primaryKey(),
+  laybyId: integer("layby_id").references(() => laybys.id).notNull(),
+  productId: integer("product_id").references(() => products.id).notNull(),
+  description: text("description").notNull(),
+  quantity: decimal("quantity", { precision: 10, scale: 2 }).notNull(),
+  unitPrice: decimal("unit_price", { precision: 10, scale: 2 }).notNull(),
+  taxRate: decimal("tax_rate", { precision: 5, scale: 2 }).default("0.00").notNull(),
+  lineTotal: decimal("line_total", { precision: 10, scale: 2 }).notNull(),
+  serialNumberId: integer("serial_number_id").references(() => productSerialNumbers.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  laybyIdx: index("layby_items_layby_idx").on(table.laybyId),
+  productIdx: index("layby_items_product_idx").on(table.productId),
+}));
+
+export const laybyPayments = pgTable("layby_payments", {
+  id: serial("id").primaryKey(),
+  laybyId: integer("layby_id").references(() => laybys.id).notNull(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  branchId: integer("branch_id").references(() => branches.id),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  currency: text("currency").default("USD").notNull(),
+  paymentMethod: text("payment_method").notNull(),
+  reference: text("reference"),
+  notes: text("notes"),
+  paymentDate: timestamp("payment_date").defaultNow().notNull(),
+  createdBy: uuid("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  laybyIdx: index("layby_payments_layby_idx").on(table.laybyId),
+  companyIdx: index("layby_payments_company_idx").on(table.companyId),
+}));
+
+export const laybysRelations = relations(laybys, ({ one, many }) => ({
+  company: one(companies, { fields: [laybys.companyId], references: [companies.id] }),
+  branch: one(branches, { fields: [laybys.branchId], references: [branches.id] }),
+  customer: one(customers, { fields: [laybys.customerId], references: [customers.id] }),
+  items: many(laybyItems),
+  payments: many(laybyPayments),
+}));
+
+export const laybyItemsRelations = relations(laybyItems, ({ one }) => ({
+  layby: one(laybys, { fields: [laybyItems.laybyId], references: [laybys.id] }),
+  product: one(products, { fields: [laybyItems.productId], references: [products.id] }),
+  serialNumber: one(productSerialNumbers, { fields: [laybyItems.serialNumberId], references: [productSerialNumbers.id] }),
+}));
+
+export const laybyPaymentsRelations = relations(laybyPayments, ({ one }) => ({
+  layby: one(laybys, { fields: [laybyPayments.laybyId], references: [laybys.id] }),
+  company: one(companies, { fields: [laybyPayments.companyId], references: [companies.id] }),
+  branch: one(branches, { fields: [laybyPayments.branchId], references: [branches.id] }),
+}));
+
 
 export const insertPaymentSchema = createInsertSchema(payments).omit({ id: true, companyId: true, createdAt: true, createdBy: true });
 export type InsertPayment = z.infer<typeof insertPaymentSchema>;
 export type Payment = typeof payments.$inferSelect;
+export const insertPaymentAllocationSchema = createInsertSchema(paymentAllocations).omit({ id: true, allocatedAt: true, reversedAt: true, reversalReason: true });
+export type PaymentAllocation = typeof paymentAllocations.$inferSelect;
+export type InsertPaymentAllocation = z.infer<typeof insertPaymentAllocationSchema>;
+
+export const insertProductSerialNumberSchema = createInsertSchema(productSerialNumbers).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertWarrantyClaimSchema = createInsertSchema(warrantyClaims).omit({ id: true, createdAt: true });
+export const insertLaybySchema = createInsertSchema(laybys).omit({ id: true, createdAt: true, updatedAt: true, laybyNumber: true, paidAmount: true, completedInvoiceId: true });
+export const insertLaybyItemSchema = createInsertSchema(laybyItems).omit({ id: true, laybyId: true, createdAt: true });
+export const insertLaybyPaymentSchema = createInsertSchema(laybyPayments).omit({ id: true, createdAt: true, companyId: true, branchId: true, createdBy: true });
+
+export type ProductSerialNumber = typeof productSerialNumbers.$inferSelect;
+export type InsertProductSerialNumber = z.infer<typeof insertProductSerialNumberSchema>;
+export type WarrantyClaim = typeof warrantyClaims.$inferSelect;
+export type InsertWarrantyClaim = z.infer<typeof insertWarrantyClaimSchema>;
+export type Layby = typeof laybys.$inferSelect;
+export type InsertLayby = z.infer<typeof insertLaybySchema>;
+export type LaybyItem = typeof laybyItems.$inferSelect;
+export type InsertLaybyItem = z.infer<typeof insertLaybyItemSchema>;
+export type LaybyPayment = typeof laybyPayments.$inferSelect;
+export type InsertLaybyPayment = z.infer<typeof insertLaybyPaymentSchema>;
 
 export const insertValidationErrorSchema = createInsertSchema(validationErrors).omit({ id: true, createdAt: true });
 export type InsertValidationError = z.infer<typeof insertValidationErrorSchema>;
@@ -1038,6 +1220,102 @@ export const inventoryTransactionsRelations = relations(inventoryTransactions, (
   supplier: one(suppliers, { fields: [inventoryTransactions.supplierId], references: [suppliers.id] }),
 }));
 
+export const goodsDeliveryNotes = pgTable("goods_delivery_notes", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  supplierId: integer("supplier_id").references(() => suppliers.id),
+  gdnNumber: text("gdn_number").notNull(),
+  status: text("status").default("PENDING").notNull(), // PENDING, CONFIRMED, CANCELLED
+  notes: text("notes"),
+  createdBy: uuid("created_by").references(() => users.id),
+  confirmedBy: uuid("confirmed_by").references(() => users.id),
+  confirmedGrvNumber: text("confirmed_grv_number"),
+  confirmedAt: timestamp("confirmed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => {
+  return {
+    companyIdIdx: index("goods_delivery_notes_company_id_idx").on(table.companyId),
+    statusIdx: index("goods_delivery_notes_status_idx").on(table.status),
+    companyGdnUnique: unique("goods_delivery_notes_company_gdn_number_idx").on(table.companyId, table.gdnNumber),
+  };
+});
+
+export const goodsDeliveryNoteItems = pgTable("goods_delivery_note_items", {
+  id: serial("id").primaryKey(),
+  gdnId: integer("gdn_id").references(() => goodsDeliveryNotes.id).notNull(),
+  productId: integer("product_id").references(() => products.id).notNull(),
+  quantityReceived: decimal("quantity_received", { precision: 10, scale: 2 }).notNull(),
+  quantityAccepted: decimal("quantity_accepted", { precision: 10, scale: 2 }),
+  quantityRejected: decimal("quantity_rejected", { precision: 10, scale: 2 }),
+  notes: text("notes"),
+}, (table) => {
+  return {
+    gdnIdIdx: index("goods_delivery_note_items_gdn_id_idx").on(table.gdnId),
+    productIdIdx: index("goods_delivery_note_items_product_id_idx").on(table.productId),
+  };
+});
+
+export const goodsDeliveryNotesRelations = relations(goodsDeliveryNotes, ({ one, many }) => ({
+  company: one(companies, { fields: [goodsDeliveryNotes.companyId], references: [companies.id] }),
+  supplier: one(suppliers, { fields: [goodsDeliveryNotes.supplierId], references: [suppliers.id] }),
+  creator: one(users, { fields: [goodsDeliveryNotes.createdBy], references: [users.id] }),
+  confirmer: one(users, { fields: [goodsDeliveryNotes.confirmedBy], references: [users.id] }),
+  items: many(goodsDeliveryNoteItems),
+}));
+
+export const goodsDeliveryNoteItemsRelations = relations(goodsDeliveryNoteItems, ({ one }) => ({
+  gdn: one(goodsDeliveryNotes, { fields: [goodsDeliveryNoteItems.gdnId], references: [goodsDeliveryNotes.id] }),
+  product: one(products, { fields: [goodsDeliveryNoteItems.productId], references: [products.id] }),
+}));
+
+export const purchaseOrders = pgTable("purchase_orders", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  supplierId: integer("supplier_id").references(() => suppliers.id).notNull(),
+  branchId: integer("branch_id").references(() => branches.id),
+  poNumber: text("po_number").notNull(),
+  status: text("status").default("DRAFT").notNull(), // DRAFT, SENT, RECEIVED, CANCELLED
+  expectedDate: timestamp("expected_date"),
+  notes: text("notes"),
+  createdBy: uuid("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => {
+  return {
+    companyIdIdx: index("purchase_orders_company_id_idx").on(table.companyId),
+    supplierIdIdx: index("purchase_orders_supplier_id_idx").on(table.supplierId),
+    statusIdx: index("purchase_orders_status_idx").on(table.status),
+    companyPoUnique: unique("purchase_orders_company_po_number_idx").on(table.companyId, table.poNumber),
+  };
+});
+
+export const purchaseOrderItems = pgTable("purchase_order_items", {
+  id: serial("id").primaryKey(),
+  purchaseOrderId: integer("purchase_order_id").references(() => purchaseOrders.id).notNull(),
+  productId: integer("product_id").references(() => products.id).notNull(),
+  quantity: decimal("quantity", { precision: 10, scale: 2 }).notNull(),
+  unitCost: decimal("unit_cost", { precision: 10, scale: 2 }).notNull(),
+  notes: text("notes"),
+}, (table) => {
+  return {
+    purchaseOrderIdIdx: index("purchase_order_items_po_id_idx").on(table.purchaseOrderId),
+    productIdIdx: index("purchase_order_items_product_id_idx").on(table.productId),
+  };
+});
+
+export const purchaseOrdersRelations = relations(purchaseOrders, ({ one, many }) => ({
+  company: one(companies, { fields: [purchaseOrders.companyId], references: [companies.id] }),
+  supplier: one(suppliers, { fields: [purchaseOrders.supplierId], references: [suppliers.id] }),
+  branch: one(branches, { fields: [purchaseOrders.branchId], references: [branches.id] }),
+  creator: one(users, { fields: [purchaseOrders.createdBy], references: [users.id] }),
+  items: many(purchaseOrderItems),
+}));
+
+export const purchaseOrderItemsRelations = relations(purchaseOrderItems, ({ one }) => ({
+  purchaseOrder: one(purchaseOrders, { fields: [purchaseOrderItems.purchaseOrderId], references: [purchaseOrders.id] }),
+  product: one(products, { fields: [purchaseOrderItems.productId], references: [products.id] }),
+}));
+
 // Expenses
 export const expenses = pgTable("expenses", {
   id: serial("id").primaryKey(),
@@ -1171,6 +1449,22 @@ export const insertInventoryTransactionSchema = createInsertSchema(inventoryTran
 export type InventoryTransaction = typeof inventoryTransactions.$inferSelect;
 export type InsertInventoryTransaction = z.infer<typeof insertInventoryTransactionSchema>;
 
+export const insertGoodsDeliveryNoteSchema = createInsertSchema(goodsDeliveryNotes).omit({ id: true, createdAt: true, confirmedAt: true });
+export type GoodsDeliveryNote = typeof goodsDeliveryNotes.$inferSelect;
+export type InsertGoodsDeliveryNote = z.infer<typeof insertGoodsDeliveryNoteSchema>;
+
+export const insertGoodsDeliveryNoteItemSchema = createInsertSchema(goodsDeliveryNoteItems).omit({ id: true });
+export type GoodsDeliveryNoteItem = typeof goodsDeliveryNoteItems.$inferSelect;
+export type InsertGoodsDeliveryNoteItem = z.infer<typeof insertGoodsDeliveryNoteItemSchema>;
+
+export const insertPurchaseOrderSchema = createInsertSchema(purchaseOrders).omit({ id: true, createdAt: true, updatedAt: true });
+export type PurchaseOrder = typeof purchaseOrders.$inferSelect;
+export type InsertPurchaseOrder = z.infer<typeof insertPurchaseOrderSchema>;
+
+export const insertPurchaseOrderItemSchema = createInsertSchema(purchaseOrderItems).omit({ id: true });
+export type PurchaseOrderItem = typeof purchaseOrderItems.$inferSelect;
+export type InsertPurchaseOrderItem = z.infer<typeof insertPurchaseOrderItemSchema>;
+
 export const insertExpenseSchema = createInsertSchema(expenses).omit({ id: true, createdAt: true });
 export type Expense = typeof expenses.$inferSelect;
 export type InsertExpense = z.infer<typeof insertExpenseSchema>;
@@ -1242,26 +1536,49 @@ export const busTrips = pgTable("bus_trips", {
   conductorId: uuid("conductor_id").references(() => users.id).notNull(),
   scheduledDeparture: timestamp("scheduled_departure").notNull(),
   actualDeparture: timestamp("actual_departure"),
-  status: text("status").default("scheduled").notNull(), // scheduled, boarding, en_route, completed, cancelled
+  actualArrival: timestamp("actual_arrival"),
+  status: text("status").default("scheduled").notNull(), // scheduled, boarding, en_route, in_progress, completed, cancelled
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => ({
+  companyStatusIdx: index("bus_trips_company_status_idx").on(table.companyId, table.status),
+  vehicleStatusIdx: index("bus_trips_vehicle_status_idx").on(table.vehicleId, table.status),
+  conductorStatusIdx: index("bus_trips_conductor_status_idx").on(table.conductorId, table.status),
+}));
 
 export const busTickets = pgTable("bus_tickets", {
   id: serial("id").primaryKey(),
   companyId: integer("company_id").references(() => companies.id).notNull(),
   tripId: integer("trip_id").references(() => busTrips.id).notNull(),
+  shiftId: integer("shift_id"),
   ticketNumber: text("ticket_number").notNull(),
+  deviceId: text("device_id"),
+  localTicketId: text("local_ticket_id"),
   passengerName: text("passenger_name"),
   boardingPoint: text("boarding_point"),
   dropOffPoint: text("drop_off_point"),
   seatNumber: text("seat_number"),
   quantity: integer("quantity").default(1),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  currency: text("currency").default("USD"),
   paymentMethod: text("payment_method"),
+  status: text("status").default("active").notNull(), // active, voided, refunded
   isSynced: boolean("is_synced").default(false),
+  accountingStatus: text("accounting_status").default("unposted").notNull(), // unposted, posted, skipped, failed
+  accountingError: text("accounting_error"),
+  postedJournalEntryId: integer("posted_journal_entry_id").references(() => journalEntries.id),
+  postedAt: timestamp("posted_at"),
   timestamp: timestamp("timestamp").notNull(),
+  voidedAt: timestamp("voided_at"),
+  voidReason: text("void_reason"),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => ({
+  companyTicketNumberUnique: unique("bus_tickets_company_ticket_number_idx").on(table.companyId, table.ticketNumber),
+  companyDeviceLocalUnique: unique("bus_tickets_company_device_local_idx").on(table.companyId, table.deviceId, table.localTicketId),
+  companyTimestampIdx: index("bus_tickets_company_timestamp_idx").on(table.companyId, table.timestamp),
+  tripIdx: index("bus_tickets_trip_id_idx").on(table.tripId),
+  shiftIdx: index("bus_tickets_shift_id_idx").on(table.shiftId),
+  postingIdx: index("bus_tickets_posting_idx").on(table.companyId, table.accountingStatus),
+}));
 
 export const busShifts = pgTable("bus_shifts", {
   id: serial("id").primaryKey(),
@@ -1285,8 +1602,18 @@ export const busReconciliations = pgTable("bus_reconciliations", {
   cashReceived: decimal("cash_received", { precision: 10, scale: 2 }).notNull(),
   gap: decimal("gap", { precision: 10, scale: 2 }).notNull(),
   notes: text("notes"),
+  status: text("status").default("pending").notNull(), // pending, approved, rejected
+  signedOffBy: uuid("signed_off_by").references(() => users.id),
+  signedOffAt: timestamp("signed_off_at"),
+  accountingStatus: text("accounting_status").default("unposted").notNull(), // unposted, posted, skipped, failed
+  accountingError: text("accounting_error"),
+  postedJournalEntryId: integer("posted_journal_entry_id").references(() => journalEntries.id),
+  postedAt: timestamp("posted_at"),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => ({
+  companyStatusIdx: index("bus_reconciliations_company_status_idx").on(table.companyId, table.status),
+  postingIdx: index("bus_reconciliations_posting_idx").on(table.companyId, table.accountingStatus),
+}));
 
 // --- BUS TICKETING RELATIONS ---
 
@@ -1311,6 +1638,7 @@ export const busTripsRelations = relations(busTrips, ({ one, many }) => ({
 export const busTicketsRelations = relations(busTickets, ({ one }) => ({
   company: one(companies, { fields: [busTickets.companyId], references: [companies.id] }),
   trip: one(busTrips, { fields: [busTickets.tripId], references: [busTrips.id] }),
+  postedJournalEntry: one(journalEntries, { fields: [busTickets.postedJournalEntryId], references: [journalEntries.id] }),
 }));
 
 export const busShiftsRelations = relations(busShifts, ({ one, many }) => ({
@@ -1323,6 +1651,7 @@ export const busReconciliationsRelations = relations(busReconciliations, ({ one 
   company: one(companies, { fields: [busReconciliations.companyId], references: [companies.id] }),
   shift: one(busShifts, { fields: [busReconciliations.shiftId], references: [busShifts.id] }),
   conductor: one(users, { fields: [busReconciliations.conductorId], references: [users.id] }),
+  postedJournalEntry: one(journalEntries, { fields: [busReconciliations.postedJournalEntryId], references: [journalEntries.id] }),
 }));
 
 // --- BUS TICKETING SCHEMAS & TYPES ---
@@ -1397,6 +1726,36 @@ export const ledgerEntries = pgTable("ledger_entries", {
   accountIdx: index("ledger_entries_account_idx").on(table.accountId),
 }));
 
+export const journalEntryDrafts = pgTable("journal_entry_drafts", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  entryDate: timestamp("entry_date").defaultNow().notNull(),
+  description: text("description").notNull(),
+  referenceType: text("reference_type").default("JOURNAL"),
+  referenceId: text("reference_id"),
+  status: text("status").default("DRAFT").notNull(),
+  createdBy: uuid("created_by").references(() => users.id),
+  postedJournalEntryId: integer("posted_journal_entry_id").references(() => journalEntries.id),
+  postedAt: timestamp("posted_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  companyStatusIdx: index("journal_entry_drafts_company_status_idx").on(table.companyId, table.status),
+}));
+
+export const journalEntryDraftLines = pgTable("journal_entry_draft_lines", {
+  id: serial("id").primaryKey(),
+  draftId: integer("draft_id").references(() => journalEntryDrafts.id).notNull(),
+  accountId: integer("account_id").references(() => accounts.id).notNull(),
+  type: text("type").notNull(),
+  amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
+  memo: text("memo"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  draftIdx: index("journal_entry_draft_lines_draft_idx").on(table.draftId),
+  accountIdx: index("journal_entry_draft_lines_account_idx").on(table.accountId),
+}));
+
 export const accountsRelations = relations(accounts, ({ one, many }) => ({
   company: one(companies, { fields: [accounts.companyId], references: [companies.id] }),
   ledgerEntries: many(ledgerEntries),
@@ -1411,6 +1770,18 @@ export const journalEntriesRelations = relations(journalEntries, ({ one, many })
 export const ledgerEntriesRelations = relations(ledgerEntries, ({ one }) => ({
   journalEntry: one(journalEntries, { fields: [ledgerEntries.journalEntryId], references: [journalEntries.id] }),
   account: one(accounts, { fields: [ledgerEntries.accountId], references: [accounts.id] }),
+}));
+
+export const journalEntryDraftsRelations = relations(journalEntryDrafts, ({ one, many }) => ({
+  company: one(companies, { fields: [journalEntryDrafts.companyId], references: [companies.id] }),
+  user: one(users, { fields: [journalEntryDrafts.createdBy], references: [users.id] }),
+  postedJournalEntry: one(journalEntries, { fields: [journalEntryDrafts.postedJournalEntryId], references: [journalEntries.id] }),
+  lines: many(journalEntryDraftLines),
+}));
+
+export const journalEntryDraftLinesRelations = relations(journalEntryDraftLines, ({ one }) => ({
+  draft: one(journalEntryDrafts, { fields: [journalEntryDraftLines.draftId], references: [journalEntryDrafts.id] }),
+  account: one(accounts, { fields: [journalEntryDraftLines.accountId], references: [accounts.id] }),
 }));
 
 // --- SUPPLIER INVOICES & PAYMENTS (AP) ---
@@ -1444,6 +1815,7 @@ export const supplierInvoiceItems = pgTable("supplier_invoice_items", {
   quantity: decimal("quantity", { precision: 15, scale: 4 }).notNull(),
   unitPrice: decimal("unit_price", { precision: 15, scale: 2 }).notNull(),
   totalPrice: decimal("total_price", { precision: 15, scale: 2 }).notNull(),
+  taxRate: decimal("tax_rate", { precision: 5, scale: 2 }).default("0.00"),
   taxAmount: decimal("tax_amount", { precision: 15, scale: 2 }).default("0.00"),
 });
 
@@ -1465,6 +1837,21 @@ export const supplierPayments = pgTable("supplier_payments", {
   supplierIdx: index("supplier_payments_supplier_idx").on(table.supplierId),
 }));
 
+export const supplierPaymentAllocations = pgTable("supplier_payment_allocations", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  supplierPaymentId: integer("supplier_payment_id").references(() => supplierPayments.id).notNull(),
+  supplierInvoiceId: integer("supplier_invoice_id").references(() => supplierInvoices.id).notNull(),
+  amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
+  allocatedAt: timestamp("allocated_at").defaultNow().notNull(),
+  reversedAt: timestamp("reversed_at"),
+  reversalReason: text("reversal_reason"),
+}, (table) => ({
+  paymentIdx: index("supplier_payment_allocations_payment_idx").on(table.supplierPaymentId),
+  invoiceIdx: index("supplier_payment_allocations_invoice_idx").on(table.supplierInvoiceId),
+  companyIdx: index("supplier_payment_allocations_company_idx").on(table.companyId),
+}));
+
 export const supplierInvoicesRelations = relations(supplierInvoices, ({ one, many }) => ({
   company: one(companies, { fields: [supplierInvoices.companyId], references: [companies.id] }),
   supplier: one(suppliers, { fields: [supplierInvoices.supplierId], references: [suppliers.id] }),
@@ -1481,13 +1868,18 @@ export const supplierPaymentsRelations = relations(supplierPayments, ({ one }) =
   supplier: one(suppliers, { fields: [supplierPayments.supplierId], references: [suppliers.id] }),
 }));
 
+export const supplierPaymentAllocationsRelations = relations(supplierPaymentAllocations, ({ one }) => ({
+  company: one(companies, { fields: [supplierPaymentAllocations.companyId], references: [companies.id] }),
+  payment: one(supplierPayments, { fields: [supplierPaymentAllocations.supplierPaymentId], references: [supplierPayments.id] }),
+  invoice: one(supplierInvoices, { fields: [supplierPaymentAllocations.supplierInvoiceId], references: [supplierInvoices.id] }),
+}));
+
 export const insertAccountSchema = createInsertSchema(accounts).omit({ id: true, createdAt: true });
 export type Account = typeof accounts.$inferSelect;
 export type InsertAccount = z.infer<typeof insertAccountSchema>;
 
 export const insertJournalEntrySchema = createInsertSchema(journalEntries).omit({ id: true, createdAt: true });
 export type JournalEntry = typeof journalEntries.$inferSelect;
-export type LedgerEntry = typeof ledgerEntries.$inferSelect;
 
 // ==========================================
 // FINANCIAL PERIODS
@@ -1623,6 +2015,20 @@ export const insertLedgerEntrySchema = createInsertSchema(ledgerEntries).omit({ 
 export type LedgerEntry = typeof ledgerEntries.$inferSelect;
 export type InsertLedgerEntry = z.infer<typeof insertLedgerEntrySchema>;
 
+export const insertJournalEntryDraftSchema = createInsertSchema(journalEntryDrafts).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  postedAt: true,
+  postedJournalEntryId: true
+});
+export type JournalEntryDraft = typeof journalEntryDrafts.$inferSelect;
+export type InsertJournalEntryDraft = z.infer<typeof insertJournalEntryDraftSchema>;
+
+export const insertJournalEntryDraftLineSchema = createInsertSchema(journalEntryDraftLines).omit({ id: true, createdAt: true });
+export type JournalEntryDraftLine = typeof journalEntryDraftLines.$inferSelect;
+export type InsertJournalEntryDraftLine = z.infer<typeof insertJournalEntryDraftLineSchema>;
+
 export const insertSupplierInvoiceSchema = createInsertSchema(supplierInvoices).omit({ id: true, createdAt: true });
 export type SupplierInvoice = typeof supplierInvoices.$inferSelect;
 export type InsertSupplierInvoice = z.infer<typeof insertSupplierInvoiceSchema>;
@@ -1634,3 +2040,6 @@ export type InsertSupplierInvoiceItem = z.infer<typeof insertSupplierInvoiceItem
 export const insertSupplierPaymentSchema = createInsertSchema(supplierPayments).omit({ id: true, createdAt: true });
 export type SupplierPayment = typeof supplierPayments.$inferSelect;
 export type InsertSupplierPayment = z.infer<typeof insertSupplierPaymentSchema>;
+export const insertSupplierPaymentAllocationSchema = createInsertSchema(supplierPaymentAllocations).omit({ id: true, allocatedAt: true, reversedAt: true, reversalReason: true });
+export type SupplierPaymentAllocation = typeof supplierPaymentAllocations.$inferSelect;
+export type InsertSupplierPaymentAllocation = z.infer<typeof insertSupplierPaymentAllocationSchema>;

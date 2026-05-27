@@ -6,7 +6,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -16,6 +15,7 @@ import { ManagerPinModal } from "../ui/ManagerPinModal";
 import { apiFetch } from "../lib/api";
 import { addPendingNote } from "../lib/offlineQueue";
 import { usePrinter } from "../hooks/usePrinter";
+import { DoneTextInput as TextInput } from "../ui/DoneTextInput";
 
 interface AdjustedItem {
   originalItem: any;

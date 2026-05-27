@@ -31,6 +31,10 @@ async function recoverProductsFromHistory() {
     let recoveredCount = 0;
 
     for (const item of allItems) {
+        if (item.productId === null || item.companyId === null) {
+            continue;
+        }
+
         // Check if product exists
         const existingProduct = await db.select().from(products).where(eq(products.id, item.productId));
 

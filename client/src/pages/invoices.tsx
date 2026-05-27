@@ -263,13 +263,13 @@ function BillingPageActions({ onExport, onSync }: { onExport: () => void; onSync
 
 function StatusPill({ status, label }: { status: "fiscalized" | "pending" | "failed" | "draft" | "paid" | "unpaid" | "partial"; label?: string }) {
   const styles: Record<typeof status, string> = {
-    fiscalized: "border-[#D1D5DB] bg-white text-[#374151]",
-    pending: "border-[#D1D5DB] bg-white text-[#4B5563]",
+    fiscalized: "border-[#BBF7D0] bg-[#F0FDF4] text-[#166534]",
+    pending: "border-[#FED7AA] bg-[#FFF7ED] text-[#9A3412]",
     failed: "border-[#FCA5A5] bg-[#FEF2F2] text-[#991B1B]",
     draft: "border-[#D1D5DB] bg-[#F8FAFC] text-[#64748B]",
-    paid: "border-[#D1D5DB] bg-white text-[#374151]",
-    unpaid: "border-[#FCA5A5] bg-[#FEF2F2] text-[#991B1B]",
-    partial: "border-[#D1D5DB] bg-white text-[#475569]",
+    paid: "border-[#BFDBFE] bg-[#EFF6FF] text-[#1D4ED8]",
+    unpaid: "border-[#E5E7EB] bg-[#F8FAFC] text-[#475569]",
+    partial: "border-[#DDD6FE] bg-[#F5F3FF] text-[#6D28D9]",
   };
 
   return (
@@ -327,12 +327,33 @@ function getSyncTime(invoice: any) {
 }
 
 function QuickChip({ label, active, tone = "default", onClick }: { label: string; active?: boolean; tone?: "default" | "green" | "amber" | "red"; onClick: () => void }) {
-  const toneClass = active
-    ? "bg-[#F8FAFC] text-[#0F172A] border-[#CBD5E1]"
-    : "bg-white text-[#64748B] border-[#E5E7EB]";
+  const toneClasses: Record<typeof tone, { active: string; idle: string; dot: string }> = {
+    default: {
+      active: "border-[#CBD5E1] bg-[#F8FAFC] text-[#0F172A]",
+      idle: "border-[#E5E7EB] bg-white text-[#64748B]",
+      dot: "bg-[#94A3B8]",
+    },
+    green: {
+      active: "border-[#86EFAC] bg-[#F0FDF4] text-[#166534]",
+      idle: "border-[#BBF7D0] bg-white text-[#15803D]",
+      dot: "bg-[#22C55E]",
+    },
+    amber: {
+      active: "border-[#FDBA74] bg-[#FFF7ED] text-[#9A3412]",
+      idle: "border-[#FED7AA] bg-white text-[#C2410C]",
+      dot: "bg-[#F97316]",
+    },
+    red: {
+      active: "border-[#FCA5A5] bg-[#FEF2F2] text-[#991B1B]",
+      idle: "border-[#FECACA] bg-white text-[#B91C1C]",
+      dot: "bg-[#EF4444]",
+    },
+  };
+  const classes = toneClasses[tone];
 
   return (
-    <button type="button" onClick={onClick} className={cn("rounded-full border px-3 py-2 text-sm font-semibold transition-colors hover:border-[#CBD5E1] hover:text-[#0F172A]", toneClass)}>
+    <button type="button" onClick={onClick} className={cn("inline-flex items-center gap-2 rounded-full border px-3 py-2 text-sm font-semibold transition-colors hover:shadow-sm", active ? classes.active : classes.idle)}>
+      <span className={cn("h-2 w-2 rounded-full", classes.dot)} aria-hidden="true" />
       {label}
     </button>
   );
@@ -390,7 +411,14 @@ export default function InvoicesPage() {
     if (quickFilter === "unpaid") return getPaymentStatus(invoice) === "unpaid";
     return true;
   });
-  const uniqueCustomers = Array.from(new Map(invoices.map((invoice: any) => [String(invoice.customerId || invoice.customer?.name || "walk-in"), invoice.customer?.name || "Walk-in"])).entries());
+  const uniqueCustomers = Array.from(
+    new Map<string, string>(
+      invoices.map((invoice: any) => [
+        String(invoice.customerId || invoice.customer?.name || "walk-in"),
+        invoice.customer?.name || "Walk-in",
+      ])
+    ).entries()
+  );
   const fiscalisedCount = displayedInvoices.filter((invoice: any) => getFiscalStatus(invoice) === "fiscalized").length;
   const pendingSyncCount = displayedInvoices.filter((invoice: any) => getFiscalStatus(invoice) === "pending").length;
   const failedFiscalisation = displayedInvoices.filter((invoice: any) => getFiscalStatus(invoice) === "failed").length;
@@ -470,11 +498,13 @@ export default function InvoicesPage() {
 
 
   return (
-    <Layout hideHeaderTitle headerTitle="Invoices" headerSubtitle="Manage fiscalised, pending, and failed invoices.">
+    <Layout>
       <SmartFixDialog isOpen={!!smartError} onClose={() => setSmartError(null)} error={smartError} onRetry={() => setSmartError(null)} />
 
       <div className="space-y-4">
-        <BillingPageActions onExport={handleExport} onSync={handleSyncFdms} />
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-end">
+          <BillingPageActions onExport={handleExport} onSync={handleSyncFdms} />
+        </div>
 
         <div className="space-y-4">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -544,7 +574,7 @@ export default function InvoicesPage() {
                   <QuickChip label="Failed" active={quickFilter === "failed"} tone="red" onClick={() => applyQuickFilter("failed")} />
                   <QuickChip label="Draft" active={quickFilter === "draft"} onClick={() => applyQuickFilter("draft")} />
                   <QuickChip label="Paid" active={quickFilter === "paid"} tone="green" onClick={() => applyQuickFilter("paid")} />
-                  <QuickChip label="Unpaid" active={quickFilter === "unpaid"} tone="red" onClick={() => applyQuickFilter("unpaid")} />
+                  <QuickChip label="Unpaid" active={quickFilter === "unpaid"} tone="amber" onClick={() => applyQuickFilter("unpaid")} />
                   <QuickChip label="Today" active={quickFilter === "today"} onClick={() => applyQuickFilter("today")} />
                   <QuickChip label="This Week" active={quickFilter === "week"} onClick={() => applyQuickFilter("week")} />
                   <QuickChip label="This Month" active={quickFilter === "month"} onClick={() => applyQuickFilter("month")} />
@@ -637,7 +667,7 @@ export default function InvoicesPage() {
                                 <StatusPill status={fiscalStatus} label={fiscalStatus === "fiscalized" ? "Fiscalised" : fiscalStatus === "pending" ? "Pending" : fiscalStatus} />
                               </TableCell>
                               <TableCell className="py-3">
-                                <StatusPill status={paymentStatus} label={paymentStatus === "paid" ? "Paid" : "Unpaid"} />
+                                <StatusPill status={paymentStatus} label={paymentStatus === "paid" ? "Paid" : "Open"} />
                               </TableCell>
                               <TableCell className="py-3 pr-5 text-right">
                                 <div className="flex items-center justify-end gap-1">

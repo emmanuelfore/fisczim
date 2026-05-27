@@ -81,7 +81,7 @@ export function EditProductDialog({ product, trigger, children }: Props) {
                 .map((p: any) => (typeof p.ownerGroup === "string" ? p.ownerGroup.trim() : ""))
                 .filter((v: string) => v.length > 0)
         )
-    ).sort((a, b) => a.localeCompare(b));
+    ).sort((a, b) => String(a).localeCompare(String(b))) as string[];
 
     const isService = product.productType === "service";
 
@@ -113,6 +113,12 @@ export function EditProductDialog({ product, trigger, children }: Props) {
             batchTrackingEnabled: product.batchTrackingEnabled ?? false,
             brandName: product.brandName || "",
             genericName: product.genericName || "",
+            oemPartNumber: (product as any).oemPartNumber || "",
+            supplierPartNumber: (product as any).supplierPartNumber || "",
+            fitmentNotes: (product as any).fitmentNotes || "",
+            serialTrackingEnabled: (product as any).serialTrackingEnabled ?? false,
+            warrantyTrackingEnabled: (product as any).warrantyTrackingEnabled ?? false,
+            warrantyMonths: (product as any).warrantyMonths || 0,
             ...(product.unitOfMeasure ? { unitOfMeasure: product.unitOfMeasure } : {}),
         },
     });
@@ -349,8 +355,8 @@ export function EditProductDialog({ product, trigger, children }: Props) {
                                     render={({ field }) => (
                                         <FormItem className="flex flex-row items-center justify-between rounded-xl border border-dashed border-amber-200 p-3 bg-amber-50/30">
                                             <div className="space-y-0.5">
-                                                <FormLabel className="text-xs font-bold text-amber-900">Is Ingredient</FormLabel>
-                                                <FormDescription className="text-[10px]">Used in other recipes</FormDescription>
+                                                <FormLabel className="text-xs font-bold text-amber-900">Ingredient / Source Stock</FormLabel>
+                                                <FormDescription className="text-[10px]">Can be used in recipes, bundles, or meat cuts</FormDescription>
                                             </div>
                                             <FormControl>
                                                 <Switch checked={field.value || false} onCheckedChange={field.onChange} />
@@ -364,8 +370,8 @@ export function EditProductDialog({ product, trigger, children }: Props) {
                                     render={({ field }) => (
                                         <FormItem className="flex flex-row items-center justify-between rounded-xl border border-dashed border-indigo-200 p-3 bg-indigo-50/30">
                                             <div className="space-y-0.5">
-                                                <FormLabel className="text-xs font-bold text-indigo-900">Has Recipe (BOM)</FormLabel>
-                                                <FormDescription className="text-[10px]">Ingredients deduct on sale</FormDescription>
+                                                <FormLabel className="text-xs font-bold text-indigo-900">Has Recipe / BOM</FormLabel>
+                                                <FormDescription className="text-[10px]">Deduct ingredients or source stock when sold</FormDescription>
                                             </div>
                                             <FormControl>
                                                 <Switch checked={field.value || false} onCheckedChange={field.onChange} />
@@ -437,7 +443,7 @@ export function EditProductDialog({ product, trigger, children }: Props) {
                             </div>
                         )}
 
-                        {/* Recipe Management */}
+                        {/* Recipe / source deduction management */}
                         {form.watch("hasRecipe") && (
                             <div className="flex justify-between items-center p-4 bg-indigo-50 border border-indigo-100 rounded-2xl animate-in slide-in-from-top-2 duration-300">
                                 <div className="flex items-center gap-3">
@@ -445,8 +451,8 @@ export function EditProductDialog({ product, trigger, children }: Props) {
                                         <ChefHat className="w-5 h-5" />
                                     </div>
                                     <div className="space-y-0.5">
-                                        <p className="text-sm font-black text-indigo-900">Manage Recipe</p>
-                                        <p className="text-[10px] text-indigo-700/70 font-bold uppercase tracking-wide">Customize BOM & Cost Analysis</p>
+                                        <p className="text-sm font-black text-indigo-900">Recipe / BOM Setup</p>
+                                        <p className="text-[10px] text-indigo-700/70 font-bold uppercase tracking-wide">Choose ingredients or source stock consumed on sale</p>
                                     </div>
                                 </div>
                                 <Dialog>
@@ -457,8 +463,8 @@ export function EditProductDialog({ product, trigger, children }: Props) {
                                     </DialogTrigger>
                                     <DialogContent className="max-w-4xl rounded-[2.5rem] p-8">
                                         <DialogHeader>
-                                            <DialogTitle className="text-3xl font-black font-display text-slate-900">Recipe: {product.name}</DialogTitle>
-                                            <DialogDescription className="text-slate-500 font-bold uppercase tracking-widest text-[10px]">Configure your bill of materials (BOM)</DialogDescription>
+                                            <DialogTitle className="text-3xl font-black font-display text-slate-900">Recipe / BOM: {product.name}</DialogTitle>
+                                            <DialogDescription className="text-slate-500 font-bold uppercase tracking-widest text-[10px]">Configure ingredients or source stock consumed on sale</DialogDescription>
                                         </DialogHeader>
                                         <RecipeManager productId={product.id} companyId={product.companyId} />
                                     </DialogContent>
@@ -479,6 +485,63 @@ export function EditProductDialog({ product, trigger, children }: Props) {
                                 </FormItem>
                             )}
                         />
+
+                        {!isService && (
+                            <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-5 space-y-4">
+                                <h4 className="text-sm font-bold text-slate-800">Product Details</h4>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <FormField control={form.control} name="brandName" render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel className="text-slate-700 font-semibold">Brand / Manufacturer</FormLabel>
+                                            <FormControl><Input placeholder="e.g. Samsung, Dairibord, Willard" value={field.value || ""} onChange={field.onChange} className="rounded-xl bg-white border-slate-200" /></FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )} />
+                                    <FormField control={form.control} name="oemPartNumber" render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel className="text-slate-700 font-semibold">Item / Model Code</FormLabel>
+                                            <FormControl><Input placeholder="Internal, model, or manufacturer code" value={field.value || ""} onChange={field.onChange} className="rounded-xl bg-white border-slate-200 font-mono" /></FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )} />
+                                    <FormField control={form.control} name="supplierPartNumber" render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel className="text-slate-700 font-semibold">Supplier Code</FormLabel>
+                                            <FormControl><Input placeholder="Supplier SKU, catalogue code, or reference" value={field.value || ""} onChange={field.onChange} className="rounded-xl bg-white border-slate-200 font-mono" /></FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )} />
+                                </div>
+                                <FormField control={form.control} name="fitmentNotes" render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel className="text-slate-700 font-semibold">Compatibility / Usage Notes</FormLabel>
+                                        <FormControl><Textarea placeholder="e.g. compatible models, sizes, ingredients, pack details, or usage notes" value={field.value || ""} onChange={field.onChange} className="resize-none rounded-xl bg-white border-slate-200" /></FormControl>
+                                        <FormMessage />
+                                    </FormItem>
+                                )} />
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <FormField control={form.control} name="serialTrackingEnabled" render={({ field }) => (
+                                        <FormItem className="flex items-center justify-between rounded-xl bg-white border border-slate-200 p-3">
+                                            <FormLabel className="text-xs font-bold text-slate-700">Serial / Batch Tracking</FormLabel>
+                                            <FormControl><Switch checked={!!field.value} onCheckedChange={field.onChange} /></FormControl>
+                                        </FormItem>
+                                    )} />
+                                    <FormField control={form.control} name="warrantyTrackingEnabled" render={({ field }) => (
+                                        <FormItem className="flex items-center justify-between rounded-xl bg-white border border-slate-200 p-3">
+                                            <FormLabel className="text-xs font-bold text-slate-700">Warranty Tracking</FormLabel>
+                                            <FormControl><Switch checked={!!field.value} onCheckedChange={field.onChange} /></FormControl>
+                                        </FormItem>
+                                    )} />
+                                    <FormField control={form.control} name="warrantyMonths" render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel className="text-slate-700 font-semibold">Warranty Period (Months)</FormLabel>
+                                            <FormControl><Input type="number" min="0" value={field.value || 0} onChange={(event) => field.onChange(Number(event.target.value || 0))} className="rounded-xl bg-white border-slate-200" /></FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )} />
+                                </div>
+                            </div>
+                        )}
 
                         {/* Tax Configuration Section */}
                         <div className="rounded-2xl bg-blue-50/50 p-5 border border-blue-100 space-y-4">

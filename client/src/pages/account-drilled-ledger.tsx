@@ -1,7 +1,7 @@
 import { Layout } from "@/components/layout";
 import { useQuery } from "@tanstack/react-query";
 import { useParams, useLocation } from "wouter";
-import { type LedgerEntry, type Account, type JournalEntry } from "@shared/schema";
+import { type Account } from "@shared/schema";
 import { 
   Table, 
   TableBody, 
@@ -12,9 +12,8 @@ import {
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Landmark, ArrowLeft, ArrowUpRight, ArrowDownLeft, FileText } from "lucide-react";
+import { Landmark, ArrowLeft, FileText } from "lucide-react";
 import { format } from "date-fns";
-import { cn } from "@/lib/utils";
 
 type FullLedgerEntry = {
   id: number;
@@ -38,7 +37,7 @@ export default function AccountDrilledLedgerPage() {
   const account = accounts?.find(a => a.id === Number(id));
 
   const { data: ledgerEntries, isLoading } = useQuery<FullLedgerEntry[]>({
-    queryKey: ["/api/accounting/ledger", id],
+    queryKey: ["/api/accounting/ledger", { accountId: id }],
     enabled: !!id
   });
 

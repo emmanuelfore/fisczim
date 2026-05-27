@@ -13,7 +13,7 @@ type ImportType = "customer" | "product" | "service";
 interface CsvImportDialogProps {
     type: ImportType;
     companyId: number;
-    onSuccess: () => void;
+    onSuccess: () => void | Promise<void>;
     trigger?: React.ReactNode;
 }
 
@@ -81,11 +81,14 @@ export function CsvImportDialog({ type, companyId, onSuccess, trigger }: CsvImpo
             });
 
             if (data.success > 0) {
+                await onSuccess();
                 toast({
                     title: "Import Successful",
                     description: `Successfully imported ${data.success} ${type}s.`,
                 });
-                onSuccess();
+                window.setTimeout(() => {
+                    setOpen(false);
+                }, 900);
             } else if (data.failed > 0) {
                 toast({
                     title: "Import Finished with Errors",
@@ -161,7 +164,7 @@ export function CsvImportDialog({ type, companyId, onSuccess, trigger }: CsvImpo
                                 type="file"
                                 accept=".csv"
                                 onChange={(e) => setFile(e.target.files?.[0] || null)}
-                                disabled={isUploading}
+                                disabled={isUploading || result !== null}
                                 className="cursor-pointer bg-white"
                             />
                             {file && (
@@ -211,7 +214,12 @@ export function CsvImportDialog({ type, companyId, onSuccess, trigger }: CsvImpo
                     </Button>
                     <Button onClick={handleImport} disabled={!file || isUploading || result !== null}>
                         {isUploading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        {result !== null ? "Import Complete" : "Import Data"}
+                        {result !== null ? (
+                            <>
+                                <CheckCircle className="mr-2 h-4 w-4" />
+                                Import Complete
+                            </>
+                        ) : "Import Data"}
                     </Button>
                 </DialogFooter>
             </DialogContent>

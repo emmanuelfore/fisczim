@@ -1,6 +1,7 @@
 
 import { Layout } from "@/components/layout";
-import { useProducts, useUpdateProduct } from "@/hooks/use-products";
+import { Link } from "wouter";
+import { refreshProductQueries, refreshProductQueriesAsync, useProducts, useUpdateProduct } from "@/hooks/use-products";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useTaxConfig } from "@/hooks/use-tax-config";
 import { Card, CardContent } from "@/components/ui/card";
@@ -24,7 +25,7 @@ import {
 import { CsvImportDialog } from "@/components/csv-import-dialog";
 import { ManageCategoriesDialog } from "@/components/products/manage-categories-dialog";
 import { useQueryClient, useMutation } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { 
   AlertDialog, 
   AlertDialogAction, 
@@ -68,6 +69,11 @@ export default function ProductsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const { toast } = useToast();
 
+  useEffect(() => {
+    if (!companyId) return;
+    refreshProductQueries(queryClient, companyId);
+  }, [companyId, selectedBranchId, queryClient]);
+
   const bulkDeleteMutation = useMutation({
     mutationFn: async () => {
       const response = await apiFetch(`/api/companies/${companyId}/products/bulk-delete`, {
@@ -79,7 +85,7 @@ export default function ProductsPage() {
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/companies/:companyId/products", companyId] });
+      refreshProductQueries(queryClient, companyId);
       toast({
         title: "Products Deleted",
         description: "All products have been successfully deleted.",
@@ -214,10 +220,19 @@ export default function ProductsPage() {
           <CsvImportDialog
             type="product"
             companyId={companyId}
-            onSuccess={() => {
-              queryClient.invalidateQueries({ queryKey: ["/api/companies/:companyId/products", companyId] });
+            onSuccess={async () => {
+              await refreshProductQueriesAsync(queryClient, companyId);
+              setCurrentPage(1);
             }}
           />
+          {companyId > 0 && (
+            <Link href="/products/bulk-adjust">
+              <Button variant="outline" className="rounded-xl flex-1 sm:flex-none gap-2">
+                <TrendingUp className="w-4 h-4 text-emerald-600" />
+                Bulk Adjust Prices
+              </Button>
+            </Link>
+          )}
           {companyId > 0 ? (
             <CreateProductDialog companyId={companyId} defaultType="good" triggerLabel="Add Product" />
           ) : (
@@ -470,7 +485,8 @@ export default function ProductsPage() {
                               onConfirm={async () => {
                                 await updateProduct.mutateAsync({
                                   id: p.id,
-                                  data: { isActive: false }
+                                  data: { isActive: false },
+                                  companyId
                                 });
                               }}
                               isDeleting={updateProduct.isPending}

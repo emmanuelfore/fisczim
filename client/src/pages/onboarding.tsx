@@ -25,6 +25,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import { useCreateCompany } from "@/hooks/use-companies";
 import { useLocation } from "wouter";
 import { Loader2, Building2, User, Lock, Mail, ImagePlus, ArrowRight, ArrowLeft, UploadCloud, CheckCircle, AlertCircle, Zap, ShieldCheck, Clock } from "lucide-react";
@@ -54,15 +55,24 @@ const companySchema = insertCompanySchema.pick({
     city: z.string().min(1, "City is required"),
     phone: z.string().min(1, "Phone number is required"),
     email: z.string().email("Invalid email address"),
-    tin: z.string().regex(/^\d{10}$/, "TIN must be exactly 10 digits"),
-    
+    tin: z.string().regex(/^\d{10}$/, "TIN must be exactly 10 digits").or(z.literal("")).optional(),
+
     // Optional or specialized fields
     bpNumber: z.string().optional(),
-    vatNumber: z.string().optional(),
+    vatNumber: z.string().regex(/^\d{9,10}$/, "VAT number must be 9 or 10 digits").or(z.literal("")).optional(),
+    vatRegistered: z.boolean().default(false),
     logoUrl: z.string().optional(),
     tradingName: z.string().optional(),
     fdmsDeviceId: z.string().optional(),
     fdmsApiKey: z.string().optional(),
+}).superRefine((data, ctx) => {
+    if (!data.vatRegistered) return;
+    if (!data.tin) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["tin"], message: "TIN is required for VAT registered companies" });
+    }
+    if (!data.vatNumber) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["vatNumber"], message: "VAT number is required for VAT registered companies" });
+    }
 });
 
 type CompanyFormValues = z.infer<typeof companySchema>;
@@ -86,6 +96,7 @@ export default function OnboardingPage() {
             name: "",
             tin: "",
             vatNumber: "",
+            vatRegistered: false,
             bpNumber: "",
             phone: "",
             email: "",
@@ -135,7 +146,14 @@ export default function OnboardingPage() {
     const onFinalSubmit = async (data: CompanyFormValues) => {
         setIsSubmitting(true);
         try {
-            await createCompany.mutateAsync(data);
+            const payload = {
+                ...data,
+                tin: data.vatRegistered ? data.tin || "" : "",
+                vatNumber: data.vatRegistered ? data.vatNumber || "" : "",
+                vatEnabled: data.vatRegistered,
+                vatRegistered: data.vatRegistered,
+            };
+            await createCompany.mutateAsync(payload);
             toast({
                 title: "Organization Created",
                 description: "Your business profile is now active.",
@@ -167,6 +185,8 @@ export default function OnboardingPage() {
             )}>{label}</span>
         </div>
     );
+
+    const isVatRegistered = companyForm.watch("vatRegistered");
 
     return (
         <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 sm:p-12 lg:p-20 font-jakarta">
@@ -322,9 +342,37 @@ export default function OnboardingPage() {
                                             <h4 className="text-base font-bold">Tax Compliance Info</h4>
                                         </div>
                                         <p className="text-xs text-slate-400 leading-relaxed relative z-10">
-                                            Please verify these details from your <span className="text-white font-bold italic">ZIMRA Registration Certificate</span>. Mismatched details can lead to submission errors.
+                                            If your business is not VAT registered yet, leave tax registration off. You can add TIN, VAT, and ZIMRA device details later from Settings.
                                         </p>
                                     </div>
+
+                                    <FormField
+                                        control={companyForm.control}
+                                        name="vatRegistered"
+                                        render={({ field }) => (
+                                            <FormItem className="flex items-center justify-between gap-4 rounded-2xl border border-slate-100 bg-slate-50/70 p-4">
+                                                <div className="space-y-1">
+                                                    <FormLabel className="text-sm font-black text-slate-900">Company is VAT registered</FormLabel>
+                                                    <FormDescription className="text-xs text-slate-500">
+                                                        Turn this on only if you already have a TIN and VAT registration number.
+                                                    </FormDescription>
+                                                </div>
+                                                <FormControl>
+                                                    <Switch
+                                                        checked={!!field.value}
+                                                        onCheckedChange={(checked) => {
+                                                            field.onChange(checked);
+                                                            if (!checked) {
+                                                                companyForm.setValue("tin", "");
+                                                                companyForm.setValue("vatNumber", "");
+                                                                companyForm.clearErrors(["tin", "vatNumber"]);
+                                                            }
+                                                        }}
+                                                    />
+                                                </FormControl>
+                                            </FormItem>
+                                        )}
+                                    />
 
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                                         <FormField
@@ -332,9 +380,16 @@ export default function OnboardingPage() {
                                             name="tin"
                                             render={({ field }) => (
                                                 <FormItem className="space-y-2 flex-1">
-                                                    <FormLabel className="text-[10px] font-black uppercase tracking-widest text-slate-400">Taxpayer ID (TIN)</FormLabel>
+                                                    <FormLabel className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                                                        Taxpayer ID (TIN) {isVatRegistered ? "" : "(optional)"}
+                                                    </FormLabel>
                                                     <FormControl>
-                                                        <Input placeholder="10XXXXXX" {...field} className="h-12 bg-slate-50/50 border-slate-100 rounded-xl font-bold font-mono tracking-widest" />
+                                                        <Input
+                                                            placeholder={isVatRegistered ? "10XXXXXX" : "Not registered yet"}
+                                                            {...field}
+                                                            disabled={!isVatRegistered}
+                                                            className="h-12 bg-slate-50/50 border-slate-100 rounded-xl font-bold font-mono tracking-widest disabled:opacity-60"
+                                                        />
                                                     </FormControl>
                                                     <FormMessage />
                                                 </FormItem>
@@ -345,9 +400,16 @@ export default function OnboardingPage() {
                                             name="vatNumber"
                                             render={({ field }) => (
                                                 <FormItem className="space-y-2 flex-1">
-                                                    <FormLabel className="text-[10px] font-black uppercase tracking-widest text-slate-400">VAT Number</FormLabel>
+                                                    <FormLabel className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                                                        VAT Number {isVatRegistered ? "" : "(optional)"}
+                                                    </FormLabel>
                                                     <FormControl>
-                                                        <Input placeholder="9XXXXXX" {...field} className="h-12 bg-slate-50/50 border-slate-100 rounded-xl font-bold font-mono tracking-widest" />
+                                                        <Input
+                                                            placeholder={isVatRegistered ? "9XXXXXX" : "Not registered yet"}
+                                                            {...field}
+                                                            disabled={!isVatRegistered}
+                                                            className="h-12 bg-slate-50/50 border-slate-100 rounded-xl font-bold font-mono tracking-widest disabled:opacity-60"
+                                                        />
                                                     </FormControl>
                                                     <FormMessage />
                                                 </FormItem>
@@ -375,7 +437,7 @@ export default function OnboardingPage() {
                                             render={({ field }) => (
                                                 <FormItem className="space-y-2 flex-1">
                                                   <FormLabel className="text-[10px] font-black uppercase tracking-widest text-slate-400">Reporting Currency</FormLabel>
-                                                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                                  <Select onValueChange={field.onChange} defaultValue={field.value ?? "USD"}>
                                                     <FormControl>
                                                       <SelectTrigger className="h-12 bg-slate-50/50 border-slate-100 rounded-xl font-bold">
                                                         <SelectValue placeholder="Base Currency" />

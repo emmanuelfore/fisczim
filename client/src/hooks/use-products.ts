@@ -5,6 +5,37 @@ import { apiFetch } from "@/lib/api";
 import { cacheProducts, getCachedProducts, setLastCacheTime } from "@/lib/offline-db";
 import { getIsOnline } from "@/lib/online-state";
 
+export function refreshProductQueries(queryClient: ReturnType<typeof useQueryClient>, companyId?: number) {
+  const matchesProductList = (query: { queryKey: readonly unknown[] }) => {
+    const [path, queryCompanyId] = query.queryKey;
+    return path === api.products.list.path && (!companyId || queryCompanyId === companyId);
+  };
+
+  if (!companyId) {
+    queryClient.invalidateQueries({ predicate: matchesProductList });
+    return queryClient.refetchQueries({ predicate: matchesProductList, type: "active" });
+  }
+
+  queryClient.invalidateQueries({ predicate: matchesProductList });
+  return queryClient.refetchQueries({ predicate: matchesProductList, type: "active" });
+}
+
+export async function refreshProductQueriesAsync(queryClient: ReturnType<typeof useQueryClient>, companyId?: number) {
+  const matchesProductList = (query: { queryKey: readonly unknown[] }) => {
+    const [path, queryCompanyId] = query.queryKey;
+    return path === api.products.list.path && (!companyId || queryCompanyId === companyId);
+  };
+
+  if (!companyId) {
+    await queryClient.invalidateQueries({ predicate: matchesProductList });
+    await queryClient.refetchQueries({ predicate: matchesProductList, type: "active" });
+    return;
+  }
+
+  await queryClient.invalidateQueries({ predicate: matchesProductList });
+  await queryClient.refetchQueries({ predicate: matchesProductList, type: "active" });
+}
+
 export function useProducts(companyId: number, branchId?: number) {
   return useQuery({
     queryKey: [api.products.list.path, companyId, branchId],
@@ -15,16 +46,13 @@ export function useProducts(companyId: number, branchId?: number) {
         console.log(`[useProducts] offline, cached count: ${cached?.length ?? 0}`);
         return cached && cached.length > 0 ? cached : [];
       }
-      // Online path — try API, fall back to cache on any failure or 401
+      // Online path — try API, but do not hide expired sessions behind stale cached prices.
       try {
         const url = buildUrl(api.products.list.path, { companyId });
         const finalUrl = branchId ? `${url}?branchId=${branchId}` : url;
         const res = await apiFetch(finalUrl);
         if (res.status === 401) {
-          console.warn('[useProducts] 401 — using cached products');
-          const cached = await getCachedProducts(companyId);
-          console.log(`[useProducts] cache fallback count: ${cached?.length ?? 0}`);
-          return cached ?? [];
+          throw new Error("Unauthorized. Please sign in again to refresh products.");
         }
         if (!res.ok) throw new Error(`Failed to fetch products: ${res.status}`);
         const products = api.products.list.responses[200].parse(await res.json());
@@ -34,6 +62,9 @@ export function useProducts(companyId: number, branchId?: number) {
         }
         return products;
       } catch (err) {
+        if (err instanceof Error && err.message.startsWith("Unauthorized.")) {
+          throw err;
+        }
         console.warn('[useProducts] fetch error, falling back to cache:', err);
         const cached = await getCachedProducts(companyId);
         console.log(`[useProducts] error cache fallback count: ${cached?.length ?? 0}`);
@@ -59,7 +90,7 @@ export function useCreateProduct(companyId: number) {
       return api.products.create.responses[201].parse(await res.json());
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [api.products.list.path, companyId] });
+      refreshProductQueries(queryClient, companyId);
     },
   });
 }
@@ -77,7 +108,7 @@ export function useUpdateProduct() {
       return await res.json();
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: [api.products.list.path, variables.companyId] });
+      refreshProductQueries(queryClient, variables.companyId);
     },
   });
 }
@@ -95,7 +126,7 @@ export function useAdjustPrice(companyId: number) {
       return await res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [api.products.list.path, companyId] });
+      refreshProductQueries(queryClient, companyId);
     },
   });
 }
@@ -125,7 +156,59 @@ export function useBulkConvertProducts(companyId: number) {
       return await res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [api.products.list.path, companyId] });
+      refreshProductQueries(queryClient, companyId);
+    },
+  });
+}
+
+export function useBulkAdjustPrice(companyId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: {
+      companyId: number;
+      reason?: string;
+      effectiveFrom?: string;
+      adjustments: { productId: number; newPrice: number | string }[];
+    }) => {
+      const url = api.products.bulkAdjustPrice.path;
+      const res = await apiFetch(url, {
+        method: "POST",
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) {
+        const errorBody = await res.json().catch(() => null);
+        throw new Error(errorBody?.message || "Failed to perform bulk price adjustment");
+      }
+      return await res.json();
+    },
+    onSuccess: async (data) => {
+      if (Array.isArray(data?.updatedProducts) && data.updatedProducts.length > 0) {
+        queryClient.setQueriesData(
+          {
+            predicate: (query) => {
+              const [path, queryCompanyId] = query.queryKey;
+              return path === api.products.list.path && queryCompanyId === companyId;
+            },
+          },
+          (current: unknown) => {
+            if (!Array.isArray(current)) return current;
+            const updatedById = new Map(data.updatedProducts.map((product: any) => [product.id, product]));
+            return current.map((product: any) => updatedById.get(product.id) || product);
+          }
+        );
+
+        const cached = await getCachedProducts(companyId);
+        if (cached?.length) {
+          const updatedById = new Map(data.updatedProducts.map((product: any) => [product.id, product]));
+          await cacheProducts(
+            companyId,
+            cached.map((product: any) => updatedById.get(product.id) || product)
+          );
+          await setLastCacheTime(companyId, Date.now());
+        }
+      }
+
+      await refreshProductQueriesAsync(queryClient, companyId);
     },
   });
 }

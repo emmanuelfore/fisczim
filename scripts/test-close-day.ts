@@ -14,19 +14,10 @@ const mockConfig: ZimraConfig = {
     certificate: "-----BEGIN CERTIFICATE-----\nMII...\n-----END CERTIFICATE-----"
 };
 
-// Subclass to hijack request and inspect - But now we rely on SERVER LOGS
-class TestZimraDevice extends ZimraDevice {
-    // Override makeRequest to prevent actual HTTP call
-    // @ts-ignore - Accessing protected method for testing
-    protected async makeRequest(method: string, endpoint: string, data?: any): Promise<any> {
-        // Just swallow the request, the logs happened inside closeDay()
-        return { success: true };
-    }
-}
-
 async function runTest() {
     console.log("Starting Test...");
-    const device = new TestZimraDevice(mockConfig);
+    const device = new ZimraDevice(mockConfig);
+    (device as any).makeRequest = async () => ({ success: true });
 
     // User Data
     const fiscalDayNo = 84;

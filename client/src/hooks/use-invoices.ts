@@ -48,18 +48,25 @@ export function useInvoice(id: number) {
   });
 }
 
+type CreateInvoicePayload = CreateInvoiceRequest & {
+  idempotencyKey?: string;
+};
+
 export function useCreateInvoice(companyId: number) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (data: CreateInvoiceRequest) => {
+    mutationFn: async (data: CreateInvoicePayload) => {
       // normalize any Date objects to ISO strings
       const payload: any = { ...data };
       if (payload.issueDate instanceof Date) payload.issueDate = payload.issueDate.toISOString();
       if (payload.dueDate instanceof Date) payload.dueDate = payload.dueDate.toISOString();
+      const idempotencyKey = payload.idempotencyKey;
+      delete payload.idempotencyKey;
 
       const url = buildUrl(api.invoices.create.path, { companyId });
       const res = await apiFetch(url, {
         method: "POST",
+        headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
@@ -130,15 +137,16 @@ export function useFiscalizeInvoice() {
       return api.invoices.fiscalize.responses[200].parse(await res.json());
     },
     onSuccess: (data, id) => {
+      const fiscalizedInvoice = data as typeof data & { validationErrors?: unknown[] };
       queryClient.invalidateQueries({ queryKey: [api.invoices.get.path, id] });
       // Also invalidate list if we are viewing the list
       queryClient.invalidateQueries({ queryKey: [api.invoices.list.path] });
 
       // Check if there are validation errors
-      if (data.validationErrors && data.validationErrors.length > 0) {
+      if (fiscalizedInvoice.validationErrors && fiscalizedInvoice.validationErrors.length > 0) {
         toast({
           title: "Fiscalization Completed with Errors",
-          description: `Receipt submitted but ${data.validationErrors.length} validation error(s) found. Please review and fix.`,
+          description: `Receipt submitted but ${fiscalizedInvoice.validationErrors.length} validation error(s) found. Please review and fix.`,
           variant: "destructive"
         });
       } else {

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import {
   View, Text, StyleSheet, TouchableOpacity, FlatList,
-  TextInput, ActivityIndicator, Alert, Modal
+  ActivityIndicator, Alert, Modal
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -10,6 +10,7 @@ import {
 } from "lucide-react-native";
 import { PremiumColors as C } from "../ui/PremiumColors";
 import { apiJson } from "../lib/api";
+import { DoneTextInput as TextInput } from "../ui/DoneTextInput";
 import { Button } from "../ui/Button";
 import { useProducts } from "../hooks/usePosData";
 

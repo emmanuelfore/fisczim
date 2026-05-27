@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback } from "react";
 import {
-  View, Text, FlatList, TouchableOpacity, TextInput,
+  View, Text, FlatList, TouchableOpacity,
   StyleSheet, SafeAreaView, ActivityIndicator, Alert, ScrollView, Modal,
   KeyboardAvoidingView, Platform, Image,
 } from "react-native";
@@ -10,6 +10,7 @@ import {
   Filter, ChevronDown,
 } from "lucide-react-native";
 import { StatusBar } from "expo-status-bar";
+import { DoneTextInput as TextInput } from "../ui/DoneTextInput";
 import { useProducts, useTaxTypes } from "../hooks/usePosData";
 import { apiFetch } from "../lib/api";
 import { resolveMediaUrl } from "../lib/media";

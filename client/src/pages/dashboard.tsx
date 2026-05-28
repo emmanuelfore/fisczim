@@ -46,9 +46,15 @@ function currency(v: number) {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
+    currencyDisplay: "code",
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(v || 0);
+}
+
+function usdAmount(amount: unknown, exchangeRate: unknown) {
+  const rate = Number(exchangeRate || 1) || 1;
+  return Number(amount || 0) / rate;
 }
 
 function formatStatus(invoice: any): "FISCALIZED" | "PENDING" | "FAILED" {
@@ -148,7 +154,7 @@ export default function Dashboard() {
   const paymentTotal = paymentData.reduce((acc, p) => acc + p.value, 0);
 
   const totalSales = Number(operationalMetrics?.totalRevenue || 0);
-  const vatCollected = invoices.reduce((acc, inv) => acc + Number(inv.taxAmount || 0), 0);
+  const vatCollected = invoices.reduce((acc, inv) => acc + usdAmount(inv.taxAmount, inv.exchangeRate), 0);
   const connected = Boolean(deviceStatus?.isConfigured && deviceStatus?.isOnline);
   const lowStockCount = stockAlerts.filter((x: any) => Number(x?.stockLevel || 0) > 0).length;
   const outOfStockCount = stockAlerts.filter((x: any) => Number(x?.stockLevel || 0) <= 0).length;
@@ -381,7 +387,7 @@ export default function Dashboard() {
                         <td className="px-3 py-2.5"><Link href={`/invoices/${inv.id}`} className="block truncate font-mono font-semibold text-[#2563EB]">{inv.invoiceNumber || `INV-${inv.id}`}</Link></td>
                         <td className="truncate px-3 py-2.5 font-medium text-[#334155]">{inv.customer?.name || "Walk In Customer"}</td>
                         <td className="whitespace-nowrap px-2 py-2.5 text-[#64748B]">{inv.issueDate ? new Date(inv.issueDate).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "-"}</td>
-                        <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold text-[#0F172A]">{currency(Number(inv.total || 0))}</td>
+                        <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold text-[#0F172A]">{currency(usdAmount(inv.total, inv.exchangeRate))}</td>
                         <td className="px-3 py-2.5 pr-5">
                           <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold ${status === "FISCALIZED" ? "bg-[#DCFCE7] text-[#166534] border-emerald-100" : status === "PENDING" ? "bg-[#FEF3C7] text-[#92400E] border-amber-100" : "bg-[#FEE2E2] text-[#991B1B] border-red-100"}`}>
                             {status}

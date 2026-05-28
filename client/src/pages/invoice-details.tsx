@@ -107,7 +107,7 @@ export default function InvoiceDetailsPage() {
 
   // Generate PDF blob URL for the viewer (no internal scroll)
   useEffect(() => {
-    if (!invoice || !canPreview) { setPdfBlobUrl(null); return; }
+    if (!invoice || !company || !canPreview) { setPdfBlobUrl(null); return; }
     let revoked = false;
     setPdfGenerating(true);
     pdf(<InvoicePDF invoice={invoice} company={company} customer={invoice.customer} qrCodeUrl={qrCodeDataUrl} taxTypes={taxTypes.data} />)
@@ -121,7 +121,18 @@ export default function InvoiceDetailsPage() {
       .finally(() => { if (!revoked) setPdfGenerating(false); });
     return () => { revoked = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [invoice?.id, invoice?.status, invoice?.fiscalCode, qrCodeDataUrl, company?.id]);
+  }, [
+    invoice?.id,
+    invoice?.status,
+    invoice?.fiscalCode,
+    qrCodeDataUrl,
+    company?.id,
+    company?.bankName,
+    company?.accountName,
+    company?.accountNumber,
+    company?.branchCode,
+    company?.bankDetails,
+  ]);
 
   const handleIssue = async () => {
     if (isIssuing || !invoice) return;

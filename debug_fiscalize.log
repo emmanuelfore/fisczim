@@ -1414,3 +1414,24 @@
         Calculated NextGlobalNo: 6
         Calculated NextReceiptCounter: 6
         --------------------------------
+[2026-05-26T10:17:10.503Z] Invoice 4061
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 1
+        Calculated NextReceiptCounter: 1
+        --------------------------------
+[2026-05-26T10:17:29.502Z] Invoice 4062
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 2
+        Calculated NextReceiptCounter: 2
+        --------------------------------
+[2026-05-28T05:39:44.364Z] Invoice 4708
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 2
+        Calculated NextReceiptCounter: 2
+        --------------------------------

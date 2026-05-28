@@ -3810,7 +3810,8 @@ export class DatabaseStorage implements IStorage {
     const result = await db
       .select({
         date: sql`date_trunc('day', ${invoices.issueDate})`,
-        total: sql<number>`sum(${invoices.total})`
+        total: invoices.total,
+        exchangeRate: invoices.exchangeRate,
       })
       .from(invoices)
       .where(and(
@@ -3820,12 +3821,18 @@ export class DatabaseStorage implements IStorage {
         ne(invoices.status, 'cancelled'),
         ne(invoices.status, 'draft')
       ))
-      .groupBy(sql`date_trunc('day', ${invoices.issueDate})`)
       .orderBy(sql`date_trunc('day', ${invoices.issueDate})`);
 
-    return result.map(r => ({
-      name: format(new Date(r.date as string), 'MMM dd'),
-      total: Number(r.total || 0)
+    const dailyTotals = new Map<string, number>();
+    for (const row of result) {
+      const key = format(new Date(row.date as string), 'MMM dd');
+      const rate = Number(row.exchangeRate || 1) || 1;
+      dailyTotals.set(key, (dailyTotals.get(key) || 0) + Number(row.total || 0) / rate);
+    }
+
+    return Array.from(dailyTotals.entries()).map(([name, total]) => ({
+      name,
+      total: Math.round(total * 100) / 100
     }));
   }
 
@@ -3833,8 +3840,8 @@ export class DatabaseStorage implements IStorage {
     const result = await db
       .select({
         method: invoices.paymentMethod,
-        total: sql<number>`sum(${invoices.total})`,
-        count: count(invoices.id)
+        total: invoices.total,
+        exchangeRate: invoices.exchangeRate,
       })
       .from(invoices)
       .where(and(
@@ -3843,13 +3850,21 @@ export class DatabaseStorage implements IStorage {
         lte(invoices.issueDate, endDate),
         ne(invoices.status, 'cancelled'),
         ne(invoices.status, 'draft')
-      ))
-      .groupBy(invoices.paymentMethod);
+      ));
 
-    return result.map(r => ({
-      method: r.method || "CASH",
-      total: Number(r.total || 0),
-      count: Number(r.count || 0)
+    const byMethod = new Map<string, { method: string; total: number; count: number }>();
+    for (const row of result) {
+      const method = row.method || "CASH";
+      const rate = Number(row.exchangeRate || 1) || 1;
+      const existing = byMethod.get(method) || { method, total: 0, count: 0 };
+      existing.total += Number(row.total || 0) / rate;
+      existing.count += 1;
+      byMethod.set(method, existing);
+    }
+
+    return Array.from(byMethod.values()).map(row => ({
+      ...row,
+      total: Math.round(row.total * 100) / 100
     }));
   }
 
@@ -3985,8 +4000,8 @@ export class DatabaseStorage implements IStorage {
     const result = await db
       .select({
         category: products.category,
-        totalSales: sql<number>`sum(${invoiceItems.lineTotal})`,
-        count: count(invoiceItems.id)
+        lineTotal: invoiceItems.lineTotal,
+        exchangeRate: invoices.exchangeRate,
       })
       .from(invoiceItems)
       .innerJoin(invoices, eq(invoiceItems.invoiceId, invoices.id))
@@ -3997,15 +4012,21 @@ export class DatabaseStorage implements IStorage {
         lte(invoices.issueDate, endDate),
         ne(invoices.status, 'cancelled'),
         ne(invoices.status, 'draft')
-      ))
-      .groupBy(products.category)
-      .orderBy(desc(sql`sum(${invoiceItems.lineTotal})`));
+      ));
 
-    return result.map(r => ({
-      category: r.category || "Uncategorized",
-      totalSales: Number(r.totalSales || 0),
-      count: Number(r.count || 0)
-    }));
+    const byCategory = new Map<string, { category: string; totalSales: number; count: number }>();
+    for (const row of result) {
+      const category = row.category || "Uncategorized";
+      const rate = Number(row.exchangeRate || 1) || 1;
+      const existing = byCategory.get(category) || { category, totalSales: 0, count: 0 };
+      existing.totalSales += Number(row.lineTotal || 0) / rate;
+      existing.count += 1;
+      byCategory.set(category, existing);
+    }
+
+    return Array.from(byCategory.values())
+      .map(row => ({ ...row, totalSales: Math.round(row.totalSales * 100) / 100 }))
+      .sort((a, b) => b.totalSales - a.totalSales);
   }
 
   async getSalesByUser(companyId: number, startDate: Date, endDate: Date): Promise<{ userId: string; userName: string; totalSales: number; count: number }[]> {
@@ -4014,6 +4035,7 @@ export class DatabaseStorage implements IStorage {
         createdBy: invoices.createdBy,
         shiftId: invoices.shiftId,
         total: invoices.total,
+        exchangeRate: invoices.exchangeRate,
         directName: users.name,
         directUsername: users.username,
         directEmail: users.email
@@ -4079,12 +4101,15 @@ export class DatabaseStorage implements IStorage {
         totalSales: 0,
         count: 0
       };
-      existing.totalSales += Number(row.total || 0);
+      const rate = Number(row.exchangeRate || 1) || 1;
+      existing.totalSales += Number(row.total || 0) / rate;
       existing.count += 1;
       byCashier.set(resolvedUserId, existing);
     }
 
-    return Array.from(byCashier.values()).sort((a, b) => b.totalSales - a.totalSales);
+    return Array.from(byCashier.values())
+      .map(row => ({ ...row, totalSales: Math.round(row.totalSales * 100) / 100 }))
+      .sort((a, b) => b.totalSales - a.totalSales);
   }
 
   async getProductPerformance(companyId: number, startDate: Date, endDate: Date, isPosOnly?: boolean): Promise<{ productId: number; productName: string; quantity: number; revenue: number }[]> {
@@ -5825,7 +5850,10 @@ export class DatabaseStorage implements IStorage {
       .from(invoiceItems)
       .where(inArray(invoiceItems.invoiceId, invoiceIds));
 
-    const totalRevenue = periodInvoices.reduce((sum, inv) => sum + Number(inv.total), 0);
+    const totalRevenue = periodInvoices.reduce((sum, inv) => {
+      const rate = Number(inv.exchangeRate || 1) || 1;
+      return sum + Number(inv.total || 0) / rate;
+    }, 0);
     const totalCogs = items.reduce((sum, item) => sum + Number(item.cogsAmount || 0), 0);
     const totalItems = items.reduce((sum, item) => sum + Number(item.quantity), 0);
 
@@ -5908,21 +5936,37 @@ export class DatabaseStorage implements IStorage {
         productId: products.id,
         name: products.name,
         sku: products.sku,
-        revenue: sql<number>`SUM(${invoiceItems.lineTotal})`
+        lineTotal: invoiceItems.lineTotal,
+        exchangeRate: invoices.exchangeRate,
       })
       .from(invoiceItems)
       .innerJoin(invoices, eq(invoiceItems.invoiceId, invoices.id))
       .innerJoin(products, eq(invoiceItems.productId, products.id))
-      .where(and(...filters))
-      .groupBy(products.id, products.name, products.sku)
-      .orderBy(desc(sql`SUM(${invoiceItems.lineTotal})`));
+      .where(and(...filters));
 
-    const totalRevenue = productRevenue.reduce((sum, p) => sum + Number(p.revenue), 0);
+    const byProduct = new Map<number, { productId: number; name: string; sku: string | null; revenue: number }>();
+    for (const row of productRevenue) {
+      const rate = Number(row.exchangeRate || 1) || 1;
+      const existing = byProduct.get(row.productId) || {
+        productId: row.productId,
+        name: row.name,
+        sku: row.sku,
+        revenue: 0,
+      };
+      existing.revenue += Number(row.lineTotal || 0) / rate;
+      byProduct.set(row.productId, existing);
+    }
+
+    const productRevenueUsd = Array.from(byProduct.values())
+      .map(row => ({ ...row, revenue: Math.round(row.revenue * 100) / 100 }))
+      .sort((a, b) => b.revenue - a.revenue);
+
+    const totalRevenue = productRevenueUsd.reduce((sum, p) => sum + Number(p.revenue), 0);
 
     if (totalRevenue === 0) return [];
 
     let currentCumulative = 0;
-    return productRevenue.map(p => {
+    return productRevenueUsd.map(p => {
       const revenue = Number(p.revenue);
       const share = (revenue / totalRevenue) * 100;
       currentCumulative += share;

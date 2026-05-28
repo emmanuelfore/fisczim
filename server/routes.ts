@@ -1383,12 +1383,25 @@ export async function registerRoutes(
     res.json(company);
   });
 
+  const normalizeCompanyUpdatePayload = (payload: Record<string, any>) => {
+    const normalized = { ...payload };
+    for (const field of ["id", "createdAt", "role"]) {
+      delete normalized[field];
+    }
+    for (const field of ["tin", "vatNumber", "bpNumber"]) {
+      if (typeof normalized[field] === "string" && normalized[field].trim() === "") {
+        normalized[field] = null;
+      }
+    }
+    return normalized;
+  };
+
   app.patch("/api/companies/:id", requireAuth, async (req, res) => {
     try {
       const companyId = Number(req.params.id);
       console.log(`[STORAGE] PATCH /api/companies/${companyId} Body:`, JSON.stringify(req.body, null, 2));
       // Ideally verify user owns this company
-      const updated = await storage.updateCompany(companyId, req.body);
+      const updated = await storage.updateCompany(companyId, normalizeCompanyUpdatePayload(req.body));
       res.json(updated);
     } catch (err) {
       console.error("Update Company Error:", err);
@@ -7514,6 +7527,7 @@ export async function registerRoutes(
           userId: invoices.createdBy,
           cashierName: users.name,
           total: invoices.total,
+          exchangeRate: invoices.exchangeRate,
           paymentMethod: invoices.paymentMethod,
           splitPayments: invoices.splitPayments,
           transactionType: invoices.transactionType,
@@ -7573,13 +7587,14 @@ export async function registerRoutes(
         if (!isOwner && sale.userId !== currentUserId) continue;
         const method = String(sale.paymentMethod || "CASH").toUpperCase();
         const sign = sale.transactionType === "CreditNote" ? -1 : 1;
+        const rate = Number(sale.exchangeRate || 1) || 1;
         let cashAmount = 0;
         if (method === "CASH") {
-          cashAmount = Number(sale.total || 0);
+          cashAmount = Number(sale.total || 0) / rate;
         } else if (method === "SPLIT" && Array.isArray(sale.splitPayments)) {
           cashAmount = sale.splitPayments
             .filter((payment: any) => String(payment.method || "").toUpperCase() === "CASH")
-            .reduce((sum: number, payment: any) => sum + Number(payment.amount || 0), 0);
+            .reduce((sum: number, payment: any) => sum + Number(payment.amount || 0) / rate, 0);
         }
         if (cashAmount === 0) continue;
         const row = ensure(sale.userId, sale.cashierName);

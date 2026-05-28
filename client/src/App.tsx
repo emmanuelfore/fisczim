@@ -136,31 +136,31 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
 
   const isPosPath = location.startsWith("/pos");
   const isOffline = !isOnline || isCompaniesError;
+  const activeRole = (activeCompany as any)?.role;
+  const isCashier = activeRole === "cashier" && !user?.isSuperAdmin;
 
   const rawLoading = isLoadingAuth || (!!user && (isLoadingCompanies || isLoadingActiveCompany));
   const isLoading = useBoundedLoading(rawLoading);
 
   useEffect(() => {
-    if (isOffline && !isPosPath && !hasRedirectedToPosRef.current) {
+    if (isOffline && isCashier && !isPosPath && !hasRedirectedToPosRef.current) {
       hasRedirectedToPosRef.current = true;
       setLocation("/pos");
     }
-  }, [isOffline, isPosPath, setLocation]);
+  }, [isOffline, isCashier, isPosPath, setLocation]);
 
   if (isLoading) return <LoadingScreen />;
 
   // No user at all — if offline send to /pos (they may have cached data),
   // if online send to /auth
-  if (!user) return <Redirect to={isOffline ? "/pos" : "/auth"} />;
+  if (!user) return <Redirect to="/auth" />;
 
   // Redirect to onboarding if online and company list is definitively empty
   if (!isOffline && companies && companies.length === 0) {
     if (location !== "/onboarding") return <Redirect to="/onboarding" />;
   }
 
-  if (!isOffline && activeCompany) {
-    const role = (activeCompany as any).role;
-    const isCashier = role === "cashier" && !user?.isSuperAdmin;
+  if (activeCompany) {
     const isAllowedPath = isPosPath || location.startsWith("/profile");
     if (isCashier && !isAllowedPath) return <Redirect to="/pos" />;
   }
@@ -180,8 +180,12 @@ function OnboardingRoute() {
   if (!user) return <Redirect to="/auth" />;
   if (!Array.isArray(companies)) return <LoadingScreen />;
   
-  // If offline, we shouldn't attempt onboarding as it requires network to create companies
-  if (!isOnline || isError) return <Redirect to="/pos" />;
+  // If offline, onboarding cannot create a company. Only cashiers should be sent to POS.
+  if (!isOnline || isError) {
+    const role = Array.isArray(companies) ? (companies[0] as any)?.role : undefined;
+    const isCashier = role === "cashier" && !user?.isSuperAdmin;
+    return <Redirect to={isCashier ? "/pos" : "/dashboard"} />;
+  }
 
   // If we have companies, we shouldn't be here
   if (companies && companies.length > 0) {
@@ -207,7 +211,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/auth">
-        {user ? <Redirect to={isOnline ? "/dashboard" : "/pos"} /> : <AuthPage />}
+        {user ? <Redirect to="/dashboard" /> : <AuthPage />}
       </Route>
       <Route path="/forgot-password" component={ForgotPasswordPage} />
       <Route path="/reset-password" component={ResetPasswordPage} />
@@ -300,7 +304,7 @@ function Router() {
       <Route path="/accounting/cashbook">{() => <ProtectedRoute component={CashbookPage} />}</Route>
       <Route path="/supplier-invoices">{() => <ProtectedRoute component={SupplierInvoicesPage} />}</Route>
       <Route path="/">
-        {user ? <Redirect to={isOnline ? "/dashboard" : "/pos"} /> : <LandingPage />}
+        {user ? <Redirect to="/dashboard" /> : <LandingPage />}
       </Route>
       <Route component={NotFound} />
     </Switch>

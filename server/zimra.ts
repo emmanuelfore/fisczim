@@ -355,6 +355,33 @@ export class ZimraDevice {
                 else if (typeof d === 'string') message = d;
                 else message = JSON.stringify(d);
             }
+            
+            // LOG THE FAILED REQUEST
+            if (this.logger) {
+                let requestPayload = null;
+                try {
+                    // Try extract original payload from axios config
+                    requestPayload = error.config?.data;
+                    if (typeof requestPayload === 'string') {
+                        requestPayload = JSON.parse(requestPayload);
+                    }
+                } catch(e) {}
+                
+                // Fallback to minimal identity details if we couldn't parse the axios payload
+                if (!requestPayload) {
+                    requestPayload = { deviceId: this.config.deviceId, deviceSerialNo: this.config.deviceSerialNo };
+                }
+
+                // Friendly endpoint names mapping to match successful logs
+                const friendlyEndpointMap: Record<string, string> = {
+                    'RegisterDevice': 'Device Registration',
+                    'VerifyTaxpayerInformation': 'Verify Taxpayer',
+                    'IssueCertificate': 'Issue Certificate'
+                };
+                const friendlyName = friendlyEndpointMap[endpoint] || endpoint;
+
+                this.logger.log(this.currentInvoiceId || null, friendlyName, requestPayload, details || null, statusCode, message).catch(console.error);
+            }
 
             console.error(`ZIMRA API Error [${endpoint}]: ${message} (Status: ${statusCode})`);
             throw new ZimraApiError(message, statusCode, endpoint, details);
@@ -436,7 +463,8 @@ export class ZimraDevice {
 
         // 2. Generate CSR
         const deviceIdPadded = this.config.deviceId.padStart(10, '0');
-        const commonName = `ZIMRA-${this.config.deviceSerialNo}-${deviceIdPadded}`;
+        const serialForCN = this.config.deviceSerialNo; // spaces preserved per user request
+        const commonName = `ZIMRA-${serialForCN}-${deviceIdPadded}`;
 
         const csr = forge.pki.createCertificationRequest();
         csr.publicKey = publicKey;
@@ -481,7 +509,8 @@ export class ZimraDevice {
 
         // 2. Generate CSR
         const deviceIdPadded = this.config.deviceId.padStart(10, '0');
-        const commonName = `ZIMRA-${this.config.deviceSerialNo}-${deviceIdPadded}`;
+        const serialForCN = this.config.deviceSerialNo; // spaces preserved per user request
+        const commonName = `ZIMRA-${serialForCN}-${deviceIdPadded}`;
 
         const csr = forge.pki.createCertificationRequest();
         csr.publicKey = publicKey;

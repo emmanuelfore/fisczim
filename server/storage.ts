@@ -692,7 +692,7 @@ export class DatabaseStorage implements IStorage {
       
       // Only the system admin may see these restricted companies.
       if (!isSystemAdmin) {
-        const systemAdminOnlyCompanies = new Set(['goosehill trading', 'spares arena']);
+        const systemAdminOnlyCompanies = new Set(['goosehill trading', 'glorious tire services', 'spares arena']);
         allCompanies = allCompanies.filter(c => {
           const companyName = (c.name || "").toLowerCase();
           const tradingName = (c.tradingName || "").toLowerCase();

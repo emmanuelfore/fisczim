@@ -54,7 +54,7 @@ export default function ZimraLogs() {
         queryKey: ['/api/companies', companyId, 'zimra/logs'],
         queryFn: async () => {
             if (!companyId) return [];
-            const res = await fetch(`/api/companies/${companyId}/zimra/logs`, { credentials: 'include' });
+            const res = await fetch(`/api/companies/${companyId}/zimra/logs?limit=500`, { credentials: 'include' });
             if (!res.ok) throw new Error("Failed to fetch logs");
             return res.json();
         },
@@ -177,7 +177,22 @@ export default function ZimraLogs() {
                                             ) : filteredLogs.map((log: any) => (
                                                 <TableRow key={log.id}>
                                                     <TableCell className="font-mono text-xs">{format(new Date(log.createdAt), "MMM d, HH:mm:ss")}</TableCell>
-                                                    <TableCell>{log.endpoint || "Unknown Request"}</TableCell>
+                                                    <TableCell>
+                                                        <div className="font-medium text-sm mb-1">{log.endpoint || "Unknown Request"}</div>
+                                                        <details className="text-[10px] bg-slate-50 border border-slate-100 rounded p-1.5 max-w-xs mt-1">
+                                                            <summary className="cursor-pointer text-slate-500 hover:text-slate-700">View Data</summary>
+                                                            <div className="mt-2 space-y-2 pb-1">
+                                                                <div>
+                                                                    <span className="font-bold text-slate-700 block mb-0.5">Request:</span>
+                                                                    <span className="font-mono text-slate-500 break-all">{log.requestPayload ? JSON.stringify(log.requestPayload).substring(0, 150) + (JSON.stringify(log.requestPayload).length > 150 ? '...' : '') : "None"}</span>
+                                                                </div>
+                                                                <div>
+                                                                    <span className="font-bold text-slate-700 block mb-0.5">Response:</span>
+                                                                    <span className="font-mono text-[9px] text-slate-500 break-all">{log.responsePayload ? JSON.stringify(log.responsePayload).substring(0, 150) + (JSON.stringify(log.responsePayload).length > 150 ? '...' : '') : "None"}</span>
+                                                                </div>
+                                                            </div>
+                                                        </details>
+                                                    </TableCell>
                                                     <TableCell>
                                                         {log.statusCode >= 200 && log.statusCode < 300 ? (
                                                             <Badge variant="outline" className="text-green-600 border-green-200 bg-green-50">

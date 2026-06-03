@@ -100,6 +100,7 @@ export function useInventoryAdjust(companyId: number) {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: [api.inventory.transactions.path, companyId] });
             refreshProductQueries(queryClient, companyId);
+            queryClient.invalidateQueries({ queryKey: [api.reports.stockAdjustments.path, companyId] });
             queryClient.invalidateQueries({ queryKey: ["grvs", companyId] });
         },
     });

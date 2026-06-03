@@ -20,6 +20,7 @@ import SuppliersPage from "@/pages/suppliers";
 import ExpensesPage from "@/pages/expenses";
 import InventoryTransactionsPage from "@/pages/inventory-transactions";
 import InventoryAdjustmentsPage from "@/pages/inventory-adjustments";
+import StockAdjustmentsReportPage from "@/pages/stock-adjustments-report";
 import InventoryStockCountsPage from "@/pages/inventory-stock-counts";
 import ProductionPage from "@/pages/production";
 import InventoryAccountPage from "@/pages/inventory-account";
@@ -86,6 +87,7 @@ import OpeningBalancesPage from "@/pages/opening-balances";
 import AccountingAuditTrailPage from "@/pages/accounting-audit-trail";
 import AllocationWorkbenchPage from "@/pages/allocation-workbench";
 import AccountingDashboardPage from "@/pages/accounting-dashboard";
+import PayrollPage from "@/pages/payroll";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
 import { useCompanies } from "@/hooks/use-companies";
@@ -98,6 +100,7 @@ import { getPwaLaunchRedirect } from "@/hooks/use-pwa-install";
 import { useIsOnline } from "@/hooks/use-is-online";
 import { useBranding } from "@/hooks/use-branding";
 import { ThemeManager } from "@/components/theme-manager";
+import { getCompanyHomeRoute } from "@/lib/company-home-route";
 function useBoundedLoading(loading: boolean, maxMs = 5000): boolean {
   const [timedOut, setTimedOut] = useState(false);
 
@@ -122,14 +125,21 @@ function LoadingScreen() {
   );
 }
 
-function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
+function ProtectedRoute({
+  component: Component,
+}: {
+  component: React.ComponentType;
+}) {
   const { user, isLoading: isLoadingAuth } = useAuth();
   const {
     data: companies,
     isLoading: isLoadingCompanies,
     isError: isCompaniesError,
   } = useCompanies(!!user, user?.id ?? null);
-  const { activeCompany, isLoading: isLoadingActiveCompany } = useActiveCompany(!!user, user?.id ?? null);
+  const { activeCompany, isLoading: isLoadingActiveCompany } = useActiveCompany(
+    !!user,
+    user?.id ?? null,
+  );
   const [location, setLocation] = useLocation();
   const isOnline = useIsOnline();
   const hasRedirectedToPosRef = useRef(false);
@@ -139,11 +149,17 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
   const activeRole = (activeCompany as any)?.role;
   const isCashier = activeRole === "cashier" && !user?.isSuperAdmin;
 
-  const rawLoading = isLoadingAuth || (!!user && (isLoadingCompanies || isLoadingActiveCompany));
+  const rawLoading =
+    isLoadingAuth || (!!user && (isLoadingCompanies || isLoadingActiveCompany));
   const isLoading = useBoundedLoading(rawLoading);
 
   useEffect(() => {
-    if (isOffline && isCashier && !isPosPath && !hasRedirectedToPosRef.current) {
+    if (
+      isOffline &&
+      isCashier &&
+      !isPosPath &&
+      !hasRedirectedToPosRef.current
+    ) {
       hasRedirectedToPosRef.current = true;
       setLocation("/pos");
     }
@@ -163,6 +179,11 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
   if (activeCompany) {
     const isAllowedPath = isPosPath || location.startsWith("/profile");
     if (isCashier && !isAllowedPath) return <Redirect to="/pos" />;
+
+    if (location === "/dashboard") {
+      const homeRoute = getCompanyHomeRoute(companies, user);
+      if (homeRoute !== "/dashboard") return <Redirect to={homeRoute} />;
+    }
   }
 
   return <Component />;
@@ -170,7 +191,11 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
 
 function OnboardingRoute() {
   const { user, isLoading: isLoadingAuth } = useAuth();
-  const { data: companies, isLoading: isLoadingCompanies, isError } = useCompanies(!!user, user?.id ?? null);
+  const {
+    data: companies,
+    isLoading: isLoadingCompanies,
+    isError,
+  } = useCompanies(!!user, user?.id ?? null);
   const isOnline = useIsOnline();
 
   const rawLoading = isLoadingAuth || (!!user && isLoadingCompanies);
@@ -179,22 +204,47 @@ function OnboardingRoute() {
   if (isLoading) return <LoadingScreen />;
   if (!user) return <Redirect to="/auth" />;
   if (!Array.isArray(companies)) return <LoadingScreen />;
-  
+
   // If offline, onboarding cannot create a company. Only cashiers should be sent to POS.
   if (!isOnline || isError) {
-    const role = Array.isArray(companies) ? (companies[0] as any)?.role : undefined;
+    const role = Array.isArray(companies)
+      ? (companies[0] as any)?.role
+      : undefined;
     const isCashier = role === "cashier" && !user?.isSuperAdmin;
-    return <Redirect to={isCashier ? "/pos" : "/dashboard"} />;
+    return (
+      <Redirect
+        to={isCashier ? "/pos" : getCompanyHomeRoute(companies, user)}
+      />
+    );
   }
 
   // If we have companies, we shouldn't be here
   if (companies && companies.length > 0) {
-    const role = (companies[0] as any).role;
-    const isCashier = role === "cashier" && !user?.isSuperAdmin;
-    return <Redirect to={isCashier ? "/pos" : "/dashboard"} />;
+    return <Redirect to={getCompanyHomeRoute(companies, user)} />;
   }
 
   return <OnboardingPage />;
+}
+
+function AuthRedirect() {
+  const { user, isLoading: isLoadingAuth } = useAuth();
+  const {
+    data: companies,
+    isLoading: isLoadingCompanies,
+    isError,
+  } = useCompanies(!!user, user?.id ?? null);
+  const isOnline = useIsOnline();
+
+  const rawLoading = isLoadingAuth || (!!user && isLoadingCompanies);
+  const isLoading = useBoundedLoading(rawLoading);
+
+  if (isLoading) return <LoadingScreen />;
+  if (!user) return <Redirect to="/auth" />;
+  if (!isOnline || isError)
+    return <Redirect to={getCompanyHomeRoute(companies, user)} />;
+  if (!Array.isArray(companies)) return <LoadingScreen />;
+
+  return <Redirect to={getCompanyHomeRoute(companies, user)} />;
 }
 
 function Router() {
@@ -210,102 +260,267 @@ function Router() {
 
   return (
     <Switch>
-      <Route path="/auth">
-        {user ? <Redirect to="/dashboard" /> : <AuthPage />}
-      </Route>
+      <Route path="/auth">{user ? <AuthRedirect /> : <AuthPage />}</Route>
       <Route path="/forgot-password" component={ForgotPasswordPage} />
       <Route path="/reset-password" component={ResetPasswordPage} />
       <Route path="/pos-login" component={PosLoginPage} />
 
       <Route path="/onboarding" component={OnboardingRoute} />
 
-      <Route path="/dashboard">{() => <ProtectedRoute component={Dashboard} />}</Route>
-      <Route path="/invoices">{() => <ProtectedRoute component={InvoicesPage} />}</Route>
-      <Route path="/invoices/new">{() => <ProtectedRoute component={CreateInvoicePage} />}</Route>
-      <Route path="/invoice-templates">{() => <ProtectedRoute component={InvoiceTemplateDesignerPage} />}</Route>
-      <Route path="/invoices/:id">{() => <ProtectedRoute component={InvoiceDetailsPage} />}</Route>
-      <Route path="/customers">{() => <ProtectedRoute component={CustomersPage} />}</Route>
-      <Route path="/customers/:id">{() => <ProtectedRoute component={CustomerDetailsPage} />}</Route>
-      <Route path="/suppliers">{() => <ProtectedRoute component={SuppliersPage} />}</Route>
-      <Route path="/expenses">{() => <ProtectedRoute component={ExpensesPage} />}</Route>
-      <Route path="/inventory/production">{() => <ProtectedRoute component={ProductionPage} />}</Route>
-      <Route path="/inventory/purchase-orders">{() => <ProtectedRoute component={PurchaseOrdersPage} />}</Route>
-      <Route path="/inventory">{() => <ProtectedRoute component={InventoryTransactionsPage} />}</Route>
-      <Route path="/inventory/adjustments">{() => <ProtectedRoute component={InventoryAdjustmentsPage} />}</Route>
-      <Route path="/inventory/stock-counts">{() => <ProtectedRoute component={InventoryStockCountsPage} />}</Route>
-      <Route path="/inventory/bulk-adjust">{() => <ProtectedRoute component={BulkAdjustmentPage} />}</Route>
-      <Route path="/inventory/stock-take">{() => <ProtectedRoute component={StockTakePage} />}</Route>
-      <Route path="/inventory/account">{() => <ProtectedRoute component={InventoryAccountPage} />}</Route>
-      <Route path="/inventory/grvs/:id">{() => <ProtectedRoute component={GrvDetailsPage} />}</Route>
-      <Route path="/reports/inventory">{() => <ProtectedRoute component={InventoryReportsPage} />}</Route>
-      <Route path="/reports/financial">{() => <ProtectedRoute component={FinancialReportsPage} />}</Route>
-      <Route path="/reports/daily">{() => <ProtectedRoute component={DailySalesLedgerPage} />}</Route>
-      <Route path="/products/bulk-adjust">{() => <ProtectedRoute component={BulkPriceAdjustmentPage} />}</Route>
-      <Route path="/products">{() => <ProtectedRoute component={ProductsPage} />}</Route>
-      <Route path="/auto-spares">{() => <ProtectedRoute component={AutoSparesPage} />}</Route>
-      <Route path="/services">{() => <ProtectedRoute component={ServicesPage} />}</Route>
-      <Route path="/tax-config">{() => <ProtectedRoute component={TaxConfigPage} />}</Route>
-      <Route path="/settings">{() => <ProtectedRoute component={SettingsPage} />}</Route>
-      <Route path="/currencies">{() => <ProtectedRoute component={CurrencySettingsPage} />}</Route>
-      <Route path="/team-settings">{() => <ProtectedRoute component={TeamSettingsPage} />}</Route>
-      <Route path="/reports/pos">{() => <ProtectedRoute component={PosReportsPage} />}</Route>
-      <Route path="/reports/tax">{() => <ProtectedRoute component={TaxReportsPage} />}</Route>
-      <Route path="/reports-module">{() => <Redirect to="/reports" />}</Route>
-      <Route path="/reports">{() => <ProtectedRoute component={ReportsPage} />}</Route>
-      <Route path="/payments-received/:id?">{() => <ProtectedRoute component={PaymentsReceivedPage} />}</Route>
-      <Route path="/payments/:id/preview">{() => <ProtectedRoute component={PaymentPreviewPage} />}</Route>
-      <Route path="/reports/customer-statements">{() => <ProtectedRoute component={CustomerStatementsPage} />}</Route>
-      <Route path="/reports/cash-collection">{() => <ProtectedRoute component={CashCollectionReportPage} />}</Route>
-      <Route path="/profile">{() => <ProtectedRoute component={UserProfilePage} />}</Route>
-      <Route path="/restaurant/layout">{() => <ProtectedRoute component={RestaurantLayoutPage} />}</Route>
-      <Route path="/zimra-settings">{() => <ProtectedRoute component={ZimraSettingsPage} />}</Route>
-      <Route path="/zimra-logs">{() => <ProtectedRoute component={ZimraLogsPage} />}</Route>
-      <Route path="/fdms-test">{() => <ProtectedRoute component={FdmsTestPage} />}</Route>
-      <Route path="/restaurant/layout">{() => <ProtectedRoute component={RestaurantLayoutPage} />}</Route>
-      <Route path="/quotations">{() => <ProtectedRoute component={QuotationsPage} />}</Route>
-      <Route path="/quotations/new">{() => <ProtectedRoute component={CreateQuotationPage} />}</Route>
-      <Route path="/recurring">{() => <ProtectedRoute component={RecurringInvoicesPage} />}</Route>
-      <Route path="/subscription">{() => <ProtectedRoute component={SubscriptionPage} />}</Route>
-      <Route path="/pos/my-sales">{() => <ProtectedRoute component={MySalesPage} />}</Route>
-      <Route path="/pos/reports">{() => <Redirect to="/reports/pos" />}</Route>
-      <Route path="/pos/all-sales">{() => <ProtectedRoute component={RecentSalesPage} />}</Route>
-      <Route path="/pos">{() => <ProtectedRoute component={POSPage} />}</Route>
-      <Route path="/pos-settings">{() => <Redirect to="/settings?tab=pos" />}</Route>
-      <Route path="/bus/fleet">{() => <ProtectedRoute component={BusFleetPage} />}</Route>
-      <Route path="/bus/dashboard">{() => <ProtectedRoute component={BusDashboardPage} />}</Route>
-      <Route path="/bus/trips">{() => <ProtectedRoute component={BusTripsPage} />}</Route>
-      <Route path="/bus/conductors">{() => <ProtectedRoute component={BusConductorsPage} />}</Route>
-      <Route path="/bus/reports">{() => <ProtectedRoute component={BusReportsPage} />}</Route>
-      <Route path="/restaurant/kds">{() => <ProtectedRoute component={KDSPage} />}</Route>
-      <Route path="/restaurant/orders">{() => <ProtectedRoute component={LiveOrdersPage} />}</Route>
-      <Route path="/order-status" component={OrderStatusPage} />
-      <Route path="/accounting/coa">{() => <ProtectedRoute component={AccountingCOAPage} />}</Route>
-      <Route path="/accounting/dashboard">{() => <ProtectedRoute component={AccountingDashboardPage} />}</Route>
-      <Route path="/accounting/opening-balances">{() => <ProtectedRoute component={OpeningBalancesPage} />}</Route>
-      <Route path="/accounting/journal">{() => <ProtectedRoute component={AccountingJournalPage} />}</Route>
-      <Route path="/accounting/audit-trail">{() => <ProtectedRoute component={AccountingAuditTrailPage} />}</Route>
-      <Route path="/accounting/allocations">{() => <ProtectedRoute component={AllocationWorkbenchPage} />}</Route>
-      <Route path="/accounting/reports/trial-balance">{() => <ProtectedRoute component={TrialBalancePage} />}</Route>
-      <Route path="/accounting/reports/ledger">{() => <ProtectedRoute component={GeneralLedgerPage} />}</Route>
-      <Route path="/accounting/reports/financial">{() => <ProtectedRoute component={FinancialReportsPage} />}</Route>
-      <Route path="/accounting/reports/balance-sheet">{() => <ProtectedRoute component={FinancialReportsPage} />}</Route>
-      <Route path="/accounting/reports/cash-flow">{() => <ProtectedRoute component={FinancialReportsPage} />}</Route>
-      <Route path="/accounting/accounts-receivable">{() => <ProtectedRoute component={AgingReportsPage} />}</Route>
-      <Route path="/accounting/accounts-payable">{() => <ProtectedRoute component={AgingReportsPage} />}</Route>
-      <Route path="/accounting/reports/aging">{() => <ProtectedRoute component={AgingReportsPage} />}</Route>
-      <Route path="/accounting/reports/cost-centers">{() => <ProtectedRoute component={CostCentersPage} />}</Route>
-      <Route path="/accounting/reports/vat-return">{() => <ProtectedRoute component={VatReturnPage} />}</Route>
-      <Route path="/accounting/fixed-assets">{() => <ProtectedRoute component={FixedAssetsPage} />}</Route>
-      <Route path="/accounting/reconciliation">{() => <ProtectedRoute component={BankReconciliationPage} />}</Route>
-      <Route path="/accounting/periods">{() => <ProtectedRoute component={FinancialPeriodsPage} />}</Route>
-      <Route path="/accounting/ledger/:id">{() => <ProtectedRoute component={AccountLedgerPage} />}</Route>
-      <Route path="/accounting/debtors/:id">{() => <ProtectedRoute component={DebtorAnalysisPage} />}</Route>
-      <Route path="/accounting/creditors/:id">{() => <ProtectedRoute component={CreditorAnalysisPage} />}</Route>
-      <Route path="/accounting/cashbook">{() => <ProtectedRoute component={CashbookPage} />}</Route>
-      <Route path="/supplier-invoices">{() => <ProtectedRoute component={SupplierInvoicesPage} />}</Route>
-      <Route path="/">
-        {user ? <Redirect to="/dashboard" /> : <LandingPage />}
+      <Route path="/dashboard">
+        {() => <ProtectedRoute component={Dashboard} />}
       </Route>
+      <Route path="/invoices">
+        {() => <ProtectedRoute component={InvoicesPage} />}
+      </Route>
+      <Route path="/invoices/new">
+        {() => <ProtectedRoute component={CreateInvoicePage} />}
+      </Route>
+      <Route path="/invoice-templates">
+        {() => <ProtectedRoute component={InvoiceTemplateDesignerPage} />}
+      </Route>
+      <Route path="/invoices/:id">
+        {() => <ProtectedRoute component={InvoiceDetailsPage} />}
+      </Route>
+      <Route path="/customers">
+        {() => <ProtectedRoute component={CustomersPage} />}
+      </Route>
+      <Route path="/customers/:id">
+        {() => <ProtectedRoute component={CustomerDetailsPage} />}
+      </Route>
+      <Route path="/suppliers">
+        {() => <ProtectedRoute component={SuppliersPage} />}
+      </Route>
+      <Route path="/expenses">
+        {() => <ProtectedRoute component={ExpensesPage} />}
+      </Route>
+      <Route path="/inventory/production">
+        {() => <ProtectedRoute component={ProductionPage} />}
+      </Route>
+      <Route path="/inventory/purchase-orders">
+        {() => <ProtectedRoute component={PurchaseOrdersPage} />}
+      </Route>
+      <Route path="/inventory">
+        {() => <ProtectedRoute component={InventoryTransactionsPage} />}
+      </Route>
+      <Route path="/inventory/adjustments">
+        {() => <ProtectedRoute component={InventoryAdjustmentsPage} />}
+      </Route>
+      <Route path="/inventory/adjustments/report">
+        {() => <ProtectedRoute component={StockAdjustmentsReportPage} />}
+      </Route>
+      <Route path="/inventory/stock-counts">
+        {() => <ProtectedRoute component={InventoryStockCountsPage} />}
+      </Route>
+      <Route path="/inventory/bulk-adjust">
+        {() => <ProtectedRoute component={BulkAdjustmentPage} />}
+      </Route>
+      <Route path="/inventory/stock-take">
+        {() => <ProtectedRoute component={StockTakePage} />}
+      </Route>
+      <Route path="/inventory/account">
+        {() => <ProtectedRoute component={InventoryAccountPage} />}
+      </Route>
+      <Route path="/inventory/grvs/:id">
+        {() => <ProtectedRoute component={GrvDetailsPage} />}
+      </Route>
+      <Route path="/reports/inventory">
+        {() => <ProtectedRoute component={InventoryReportsPage} />}
+      </Route>
+      <Route path="/reports/financial">
+        {() => <ProtectedRoute component={FinancialReportsPage} />}
+      </Route>
+      <Route path="/reports/daily">
+        {() => <ProtectedRoute component={DailySalesLedgerPage} />}
+      </Route>
+      <Route path="/products/bulk-adjust">
+        {() => <ProtectedRoute component={BulkPriceAdjustmentPage} />}
+      </Route>
+      <Route path="/products">
+        {() => <ProtectedRoute component={ProductsPage} />}
+      </Route>
+      <Route path="/auto-spares">
+        {() => <ProtectedRoute component={AutoSparesPage} />}
+      </Route>
+      <Route path="/services">
+        {() => <ProtectedRoute component={ServicesPage} />}
+      </Route>
+      <Route path="/tax-config">
+        {() => <ProtectedRoute component={TaxConfigPage} />}
+      </Route>
+      <Route path="/settings">
+        {() => <ProtectedRoute component={SettingsPage} />}
+      </Route>
+      <Route path="/currencies">
+        {() => <ProtectedRoute component={CurrencySettingsPage} />}
+      </Route>
+      <Route path="/team-settings">
+        {() => <ProtectedRoute component={TeamSettingsPage} />}
+      </Route>
+      <Route path="/reports/pos">
+        {() => <ProtectedRoute component={PosReportsPage} />}
+      </Route>
+      <Route path="/reports/tax">
+        {() => <ProtectedRoute component={TaxReportsPage} />}
+      </Route>
+      <Route path="/reports-module">{() => <Redirect to="/reports" />}</Route>
+      <Route path="/reports">
+        {() => <ProtectedRoute component={ReportsPage} />}
+      </Route>
+      <Route path="/payments-received/:id?">
+        {() => <ProtectedRoute component={PaymentsReceivedPage} />}
+      </Route>
+      <Route path="/payments/:id/preview">
+        {() => <ProtectedRoute component={PaymentPreviewPage} />}
+      </Route>
+      <Route path="/reports/customer-statements">
+        {() => <ProtectedRoute component={CustomerStatementsPage} />}
+      </Route>
+      <Route path="/reports/cash-collection">
+        {() => <ProtectedRoute component={CashCollectionReportPage} />}
+      </Route>
+      <Route path="/profile">
+        {() => <ProtectedRoute component={UserProfilePage} />}
+      </Route>
+      <Route path="/restaurant/layout">
+        {() => <ProtectedRoute component={RestaurantLayoutPage} />}
+      </Route>
+      <Route path="/zimra-settings">
+        {() => <ProtectedRoute component={ZimraSettingsPage} />}
+      </Route>
+      <Route path="/zimra-logs">
+        {() => <ProtectedRoute component={ZimraLogsPage} />}
+      </Route>
+      <Route path="/fdms-test">
+        {() => <ProtectedRoute component={FdmsTestPage} />}
+      </Route>
+      <Route path="/restaurant/layout">
+        {() => <ProtectedRoute component={RestaurantLayoutPage} />}
+      </Route>
+      <Route path="/quotations">
+        {() => <ProtectedRoute component={QuotationsPage} />}
+      </Route>
+      <Route path="/quotations/new">
+        {() => <ProtectedRoute component={CreateQuotationPage} />}
+      </Route>
+      <Route path="/recurring">
+        {() => <ProtectedRoute component={RecurringInvoicesPage} />}
+      </Route>
+      <Route path="/subscription">
+        {() => <ProtectedRoute component={SubscriptionPage} />}
+      </Route>
+      <Route path="/pos/my-sales">
+        {() => <ProtectedRoute component={MySalesPage} />}
+      </Route>
+      <Route path="/pos/reports">{() => <Redirect to="/reports/pos" />}</Route>
+      <Route path="/pos/all-sales">
+        {() => <ProtectedRoute component={RecentSalesPage} />}
+      </Route>
+      <Route path="/pos">{() => <ProtectedRoute component={POSPage} />}</Route>
+      <Route path="/pos-settings">
+        {() => <Redirect to="/settings?tab=pos" />}
+      </Route>
+      <Route path="/bus/fleet">
+        {() => <ProtectedRoute component={BusFleetPage} />}
+      </Route>
+      <Route path="/bus/dashboard">
+        {() => <ProtectedRoute component={BusDashboardPage} />}
+      </Route>
+      <Route path="/bus/trips">
+        {() => <ProtectedRoute component={BusTripsPage} />}
+      </Route>
+      <Route path="/bus/conductors">
+        {() => <ProtectedRoute component={BusConductorsPage} />}
+      </Route>
+      <Route path="/bus/reports/:reportMode">
+        {() => <ProtectedRoute component={BusReportsPage} />}
+      </Route>
+      <Route path="/bus/reports">
+        {() => <ProtectedRoute component={BusReportsPage} />}
+      </Route>
+      <Route path="/restaurant/kds">
+        {() => <ProtectedRoute component={KDSPage} />}
+      </Route>
+      <Route path="/restaurant/orders">
+        {() => <ProtectedRoute component={LiveOrdersPage} />}
+      </Route>
+      <Route path="/order-status" component={OrderStatusPage} />
+      <Route path="/accounting/coa">
+        {() => <ProtectedRoute component={AccountingCOAPage} />}
+      </Route>
+      <Route path="/accounting/dashboard">
+        {() => <ProtectedRoute component={AccountingDashboardPage} />}
+      </Route>
+      <Route path="/accounting/opening-balances">
+        {() => <ProtectedRoute component={OpeningBalancesPage} />}
+      </Route>
+      <Route path="/accounting/journal">
+        {() => <ProtectedRoute component={AccountingJournalPage} />}
+      </Route>
+      <Route path="/accounting/audit-trail">
+        {() => <ProtectedRoute component={AccountingAuditTrailPage} />}
+      </Route>
+      <Route path="/accounting/allocations">
+        {() => <ProtectedRoute component={AllocationWorkbenchPage} />}
+      </Route>
+      <Route path="/accounting/reports/trial-balance">
+        {() => <ProtectedRoute component={TrialBalancePage} />}
+      </Route>
+      <Route path="/accounting/reports/ledger">
+        {() => <ProtectedRoute component={GeneralLedgerPage} />}
+      </Route>
+      <Route path="/accounting/reports/financial">
+        {() => <ProtectedRoute component={FinancialReportsPage} />}
+      </Route>
+      <Route path="/accounting/reports/balance-sheet">
+        {() => <ProtectedRoute component={FinancialReportsPage} />}
+      </Route>
+      <Route path="/accounting/reports/cash-flow">
+        {() => <ProtectedRoute component={FinancialReportsPage} />}
+      </Route>
+      <Route path="/accounting/accounts-receivable">
+        {() => <ProtectedRoute component={AgingReportsPage} />}
+      </Route>
+      <Route path="/accounting/accounts-payable">
+        {() => <ProtectedRoute component={AgingReportsPage} />}
+      </Route>
+      <Route path="/accounting/reports/aging">
+        {() => <ProtectedRoute component={AgingReportsPage} />}
+      </Route>
+      <Route path="/accounting/reports/cost-centers">
+        {() => <ProtectedRoute component={CostCentersPage} />}
+      </Route>
+      <Route path="/accounting/reports/vat-return">
+        {() => <ProtectedRoute component={VatReturnPage} />}
+      </Route>
+      <Route path="/accounting/fixed-assets">
+        {() => <ProtectedRoute component={FixedAssetsPage} />}
+      </Route>
+      <Route path="/accounting/reconciliation">
+        {() => <ProtectedRoute component={BankReconciliationPage} />}
+      </Route>
+      <Route path="/accounting/periods">
+        {() => <ProtectedRoute component={FinancialPeriodsPage} />}
+      </Route>
+      <Route path="/accounting/ledger/:id">
+        {() => <ProtectedRoute component={AccountLedgerPage} />}
+      </Route>
+      <Route path="/accounting/debtors/:id">
+        {() => <ProtectedRoute component={DebtorAnalysisPage} />}
+      </Route>
+      <Route path="/accounting/creditors/:id">
+        {() => <ProtectedRoute component={CreditorAnalysisPage} />}
+      </Route>
+      <Route path="/accounting/cashbook">
+        {() => <ProtectedRoute component={CashbookPage} />}
+      </Route>
+      <Route path="/supplier-invoices">
+        {() => <ProtectedRoute component={SupplierInvoicesPage} />}
+      </Route>
+      <Route path="/payroll">
+        {() => <ProtectedRoute component={PayrollPage} />}
+      </Route>
+      <Route path="/">{user ? <AuthRedirect /> : <LandingPage />}</Route>
       <Route component={NotFound} />
     </Switch>
   );
@@ -317,7 +532,7 @@ function useSwAuthBridge() {
     if (!navigator.serviceWorker) return;
 
     const handler = async (event: MessageEvent) => {
-      if (event.data?.type !== 'GET_AUTH_TOKEN') return;
+      if (event.data?.type !== "GET_AUTH_TOKEN") return;
       try {
         const { data } = await supabase.auth.getSession();
         const token = data.session?.access_token ?? null;
@@ -327,25 +542,26 @@ function useSwAuthBridge() {
       }
     };
 
-    navigator.serviceWorker.addEventListener('message', handler);
-    return () => navigator.serviceWorker.removeEventListener('message', handler);
+    navigator.serviceWorker.addEventListener("message", handler);
+    return () =>
+      navigator.serviceWorker.removeEventListener("message", handler);
   }, []);
 }
 
 function BrandingMeta() {
   const { brand } = useBranding();
-  
+
   useEffect(() => {
     document.title = brand.name + " | ZIMRA Compliant Fiscalization";
-    
+
     // Update favicon dynamically
     let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
     if (!link) {
-      link = document.createElement('link');
-      link.rel = 'icon';
-      document.getElementsByTagName('head')[0].appendChild(link);
+      link = document.createElement("link");
+      link.rel = "icon";
+      document.getElementsByTagName("head")[0].appendChild(link);
     }
-    // Note: We use the same favicon path for simplicity in development, 
+    // Note: We use the same favicon path for simplicity in development,
     // but in production these would be different assets in the build folder.
     // However, the logo is definitely different.
   }, [brand]);

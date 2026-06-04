@@ -2523,29 +2523,66 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getNextInvoiceNumber(companyId: number, prefix: string = 'INV'): Promise<string> {
-    // We strictly use client-side filtering for simplicity and safety against mixed formats
-    // Get all invoice numbers for the company
-    const allInvoices = await db
-      .select({ invoiceNumber: invoices.invoiceNumber })
-      .from(invoices)
-      .where(eq(invoices.companyId, companyId));
+    const normalizedPrefix = String(prefix || 'INV').trim().toUpperCase();
+    const [counter] = await db.transaction(async (tx) => {
+      await tx.execute(sql`
+        CREATE TABLE IF NOT EXISTS document_number_counters (
+          company_id integer NOT NULL,
+          prefix text NOT NULL,
+          last_number integer NOT NULL DEFAULT 0,
+          updated_at timestamp DEFAULT now() NOT NULL,
+          PRIMARY KEY (company_id, prefix)
+        )
+      `);
 
-    // Filter and parse
-    const relevant = allInvoices
-      .filter(i => i.invoiceNumber.startsWith(`${prefix}-`))
-      .map(i => {
-        const parts = i.invoiceNumber.split('-');
-        // handle cases like INV-123, INV-001
-        const numPart = parts[1];
-        return numPart ? parseInt(numPart) : 0;
-      })
-      .filter(n => !isNaN(n))
-      .sort((a, b) => b - a);
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(${companyId}, hashtext(${normalizedPrefix}))`);
 
-    const nextNum = relevant.length > 0 ? relevant[0] + 1 : 1;
+      await tx.execute(sql`
+        WITH historical_numbers AS (
+          SELECT invoice_number AS document_number
+          FROM invoices
+          WHERE company_id = ${companyId}
 
-    // Pad with leading zeros, e.g., 001
-    return `${prefix}-${nextNum.toString().padStart(3, '0')}`;
+          UNION ALL
+
+          SELECT coalesce(
+            request_payload #>> '{receipt,invoiceNo}',
+            request_payload #>> '{receiptData,invoiceNo}',
+            request_payload ->> 'invoiceNo',
+            response_payload #>> '{receipt,invoiceNo}',
+            response_payload #>> '{receiptData,invoiceNo}',
+            response_payload ->> 'invoiceNo'
+          ) AS document_number
+          FROM zimra_logs
+          WHERE company_id = ${companyId}
+        ),
+        seed AS (
+          SELECT coalesce(max(substring(document_number from ${`^${normalizedPrefix}-([0-9]+)$`})::integer), 0) AS last_number
+          FROM historical_numbers
+          WHERE document_number ~ ${`^${normalizedPrefix}-[0-9]+$`}
+        )
+        INSERT INTO document_number_counters (company_id, prefix, last_number)
+        SELECT ${companyId}, ${normalizedPrefix}, last_number
+        FROM seed
+        ON CONFLICT (company_id, prefix) DO UPDATE
+        SET last_number = greatest(document_number_counters.last_number, excluded.last_number),
+            updated_at = now()
+      `);
+
+      const result = await tx.execute(sql`
+        UPDATE document_number_counters
+        SET last_number = last_number + 1,
+            updated_at = now()
+        WHERE company_id = ${companyId}
+          AND prefix = ${normalizedPrefix}
+        RETURNING last_number
+      `);
+
+      return result.rows as Array<{ last_number: number }>;
+    });
+
+    const nextNum = Number(counter?.last_number || 1);
+    return `${normalizedPrefix}-${nextNum.toString().padStart(3, '0')}`;
   }
 
   // Payments

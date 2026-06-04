@@ -5,6 +5,7 @@ import { useBranchContext } from "@/lib/branch-context";
 import { useInvoices } from "@/hooks/use-invoices";
 import { useProducts } from "@/hooks/use-products";
 import { useCustomers } from "@/hooks/use-customers";
+import { useCurrencies } from "@/hooks/use-currencies";
 import { useDeviceStatus } from "@/hooks/use-device-status";
 import { apiFetch } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
@@ -18,7 +19,6 @@ import {
   TriangleAlert,
   Users,
   ArrowRight,
-  Banknote,
 } from "lucide-react";
 import { Link } from "wouter";
 import {
@@ -42,19 +42,49 @@ const PAYMENT_COLORS: Record<string, string> = {
   OTHER: "#8B5CF6",
 };
 
-function currency(v: number) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    currencyDisplay: "code",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(v || 0);
+type CurrencyAmounts = Record<string, number>;
+
+const SERIES_COLORS = ["#2563EB", "#0EA5B7", "#F59E0B", "#84CC16", "#8B5CF6", "#EF4444"];
+
+function currency(v: number, code = "USD") {
+  const currencyCode = String(code || "USD").toUpperCase();
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: currencyCode,
+      currencyDisplay: "code",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(v || 0);
+  } catch {
+    return `${currencyCode} ${Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
 }
 
-function usdAmount(amount: unknown, exchangeRate: unknown) {
-  const rate = Number(exchangeRate || 1) || 1;
-  return Number(amount || 0) / rate;
+function addCurrencyAmount(totals: CurrencyAmounts, code: unknown, amount: unknown) {
+  const currencyCode = String(code || "USD").toUpperCase();
+  totals[currencyCode] = (totals[currencyCode] || 0) + Number(amount || 0);
+  return totals;
+}
+
+function amountLines(amounts: CurrencyAmounts, empty = "No sales yet", includeCodes: string[] = []) {
+  const normalizedAmounts = Object.entries(amounts || {}).reduce((acc, [code, amount]) => {
+    acc[String(code || "USD").toUpperCase()] = Number(amount || 0);
+    return acc;
+  }, {} as CurrencyAmounts);
+  includeCodes.forEach((code) => {
+    const currencyCode = String(code || "").toUpperCase();
+    if (currencyCode && normalizedAmounts[currencyCode] == null) normalizedAmounts[currencyCode] = 0;
+  });
+  const entries = Object.entries(normalizedAmounts).filter(([, amount]) => includeCodes.length > 0 || Math.abs(Number(amount || 0)) > 0.004);
+  if (entries.length === 0) return <span>{empty}</span>;
+  return (
+    <span className="flex flex-col gap-1">
+      {entries.map(([code, amount]) => (
+        <span key={code} className="whitespace-nowrap">{currency(Number(amount), code)}</span>
+      ))}
+    </span>
+  );
 }
 
 function formatStatus(invoice: any): "FISCALIZED" | "PENDING" | "FAILED" {
@@ -87,6 +117,7 @@ export default function Dashboard() {
     selectedBranchId || undefined,
   );
   const { data: customers = [] } = useCustomers(companyId);
+  const { data: currencies = [] } = useCurrencies(companyId);
   const { data: deviceStatus } = useDeviceStatus(companyId);
 
   const { data: operationalMetrics } = useQuery<any>({
@@ -155,32 +186,26 @@ export default function Dashboard() {
     },
     enabled: !!companyId,
   });
-  const { data: cashCollectionBalances = [] } = useQuery<any[]>({
-    queryKey: ["dashboard-cash-collection-balances", companyId],
-    queryFn: async () => {
-      const res = await apiFetch(
-        `/api/companies/${companyId}/reports/cash-collection-balances`,
-      );
-      if (!res.ok) return [];
-      return await res.json();
-    },
-    enabled: !!companyId,
-  });
-
   const paymentData = paymentDataRaw.map((row: any) => {
     const rawName = String(row.method || "OTHER").toUpperCase();
     return {
       name: rawName.replace(/\s+/g, "_"),
       label: rawName.replace(/_/g, " "),
-      value: Number(row.total || 0),
+      value: Number(row.count || 0),
+      byCurrency: row.byCurrency || {},
     };
   });
   const paymentTotal = paymentData.reduce((acc, p) => acc + p.value, 0);
+  const configuredCurrencyCodes = (currencies || [])
+    .filter((c: any) => c.isActive !== false)
+    .map((c: any) => String(c.code || "").toUpperCase())
+    .filter(Boolean);
+  const visibleCurrencyCodes = Array.from(new Set(["USD", ...configuredCurrencyCodes, configuredCurrencyCodes.includes("ZIG") ? "ZIG" : "ZWG"]));
 
-  const totalSales = Number(operationalMetrics?.totalRevenue || 0);
-  const vatCollected = invoices.reduce(
-    (acc, inv) => acc + usdAmount(inv.taxAmount, inv.exchangeRate),
-    0,
+  const totalSalesByCurrency = (operationalMetrics?.totalRevenueByCurrency || {}) as CurrencyAmounts;
+  const vatCollectedByCurrency = invoices.reduce(
+    (acc, inv) => addCurrencyAmount(acc, inv.currency, inv.taxAmount),
+    {} as CurrencyAmounts,
   );
   const connected = Boolean(
     deviceStatus?.isConfigured && deviceStatus?.isOnline,
@@ -191,10 +216,13 @@ export default function Dashboard() {
   const outOfStockCount = stockAlerts.filter(
     (x: any) => Number(x?.stockLevel || 0) <= 0,
   ).length;
-  const expectedCashCollections = cashCollectionBalances.reduce(
-    (sum: number, row: any) => sum + Number(row.expectedCash || 0),
-    0,
-  );
+  const revenueCurrencies = Array.from(new Set(
+    revenueData.flatMap((row: any) => Object.keys(row.byCurrency || {}))
+  ));
+  const revenueChartData = revenueData.map((row: any) => ({
+    name: row.name,
+    ...(row.byCurrency || {}),
+  }));
 
   if (!activeCompany) {
     return (
@@ -255,8 +283,8 @@ export default function Dashboard() {
                   </div>
                 </div>
               </div>
-              <p className="mt-3 text-[26px] leading-none font-bold tracking-[-0.015em] text-[#0F172A]">
-                {currency(totalSales)}
+              <p className="mt-3 text-[23px] leading-tight font-bold tracking-[-0.015em] text-[#0F172A]">
+                {amountLines(totalSalesByCurrency, "No sales yet", visibleCurrencyCodes)}
               </p>
               <p className="mt-3  text-[#16A34A] font-semibold inline-flex items-center gap-1">
                 <ArrowUp className="w-3 h-3" /> 18.7% vs last week
@@ -302,8 +330,8 @@ export default function Dashboard() {
                   %
                 </div>
               </div>
-              <p className="mt-3 text-[26px] leading-none font-bold tracking-[-0.015em] text-[#0F172A]">
-                {currency(vatCollected)}
+              <p className="mt-3 text-[23px] leading-tight font-bold tracking-[-0.015em] text-[#0F172A]">
+                {amountLines(vatCollectedByCurrency, "No VAT yet", visibleCurrencyCodes)}
               </p>
               <p className="mt-3  text-[#16A34A] font-semibold inline-flex items-center gap-1">
                 <ArrowUp className="w-3 h-3" /> 12.5% vs last week
@@ -344,7 +372,7 @@ export default function Dashboard() {
             </div>
             <div className="h-[280px]">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={revenueData}>
+                <AreaChart data={revenueChartData}>
                   <defs>
                     <linearGradient
                       id="salesAreaBlue"
@@ -391,32 +419,36 @@ export default function Dashboard() {
                     labelFormatter={(label: any) =>
                       `Date: ${String(label ?? "-")}`
                     }
-                    formatter={(value: any) => [
-                      currency(Number(value)),
+                    formatter={(value: any, name: any) => [
+                      currency(Number(value), String(name || "USD")),
                       "Sales",
                     ]}
                   />
-                  <Area
-                    type="linear"
-                    dataKey="total"
-                    stroke="#2563EB"
-                    strokeWidth={2.5}
-                    fillOpacity={1}
-                    fill="url(#salesAreaBlue)"
-                    dot={{
-                      r: 4,
-                      fill: "#2563EB",
-                      stroke: "#FFFFFF",
-                      strokeWidth: 2,
-                    }}
-                    activeDot={{
-                      r: 6,
-                      fill: "#1D4ED8",
-                      stroke: "#FFFFFF",
-                      strokeWidth: 2,
-                    }}
-                    isAnimationActive={false}
-                  />
+                  {revenueCurrencies.map((code, idx) => (
+                    <Area
+                      key={code}
+                      type="linear"
+                      dataKey={code}
+                      name={code}
+                      stroke={SERIES_COLORS[idx % SERIES_COLORS.length]}
+                      strokeWidth={2.5}
+                      fillOpacity={0.12}
+                      fill={SERIES_COLORS[idx % SERIES_COLORS.length]}
+                      dot={{
+                        r: 4,
+                        fill: SERIES_COLORS[idx % SERIES_COLORS.length],
+                        stroke: "#FFFFFF",
+                        strokeWidth: 2,
+                      }}
+                      activeDot={{
+                        r: 6,
+                        fill: SERIES_COLORS[idx % SERIES_COLORS.length],
+                        stroke: "#FFFFFF",
+                        strokeWidth: 2,
+                      }}
+                      isAnimationActive={false}
+                    />
+                  ))}
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -465,11 +497,11 @@ export default function Dashboard() {
                     </div>
                     <div className="text-right leading-tight">
                       <p className="whitespace-nowrap text-[11px] font-semibold text-[#071437]">
-                        {currency(p.value)}
+                        {amountLines(p.byCurrency)}
                       </p>
                       <p className="text-[10px] text-[#64748B]">
                         {paymentTotal > 0
-                          ? `${((p.value / paymentTotal) * 100).toFixed(1)}%`
+                          ? `${((p.value / paymentTotal) * 100).toFixed(1)}% of receipts`
                           : "0.0%"}
                       </p>
                     </div>
@@ -480,69 +512,10 @@ export default function Dashboard() {
                     Total
                   </span>
                   <span className=" font-semibold text-[#111827]">
-                    {currency(paymentTotal)}
+                    {paymentTotal.toLocaleString()} receipts
                   </span>
                 </div>
               </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="rounded-[14px] border border-[#E5E7EB] bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-          <div className="mb-5 flex items-center justify-between">
-            <div>
-              <h3 className="text-[16px] font-bold text-[#0F172A]">
-                Cash Collections
-              </h3>
-              <p className="mt-1  text-[#64748B]">
-                Expected uncollected cash by cashier
-              </p>
-            </div>
-            <Link href="/reports/cash-collection">
-              <Button
-                variant="outline"
-                className="h-9 rounded-[10px] border-[#E5E7EB] text-[#334155]"
-              >
-                Collect Cash
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Button>
-            </Link>
-          </div>
-          <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
-            <div className="rounded-[12px] bg-[#FFFBEB] border border-[#FEF3C7] p-4">
-              <p className="text-xs font-bold uppercase tracking-wide text-[#B45309]">
-                Expected Uncollected
-              </p>
-              <p className="mt-2 text-2xl font-bold text-[#0F172A]">
-                {currency(expectedCashCollections)}
-              </p>
-              <p className="mt-1 text-xs text-[#92400E]">
-                {cashCollectionBalances.length} cashier balance
-                {cashCollectionBalances.length === 1 ? "" : "s"}
-              </p>
-            </div>
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              {cashCollectionBalances.slice(0, 4).map((row: any) => (
-                <div
-                  key={row.userId || row.cashierName}
-                  className="rounded-[12px] border border-[#E5E7EB] p-4"
-                >
-                  <p className="truncate  font-semibold text-[#0F172A]">
-                    {row.cashierName}
-                  </p>
-                  <p className="mt-1 text-xs text-[#64748B]">
-                    Collected {currency(Number(row.collections || 0))}
-                  </p>
-                  <p className="mt-3 text-lg font-bold text-[#B45309]">
-                    {currency(Number(row.expectedCash || 0))}
-                  </p>
-                </div>
-              ))}
-              {cashCollectionBalances.length === 0 && (
-                <div className="rounded-[12px] border border-dashed border-[#E5E7EB] p-4  font-semibold text-[#94A3B8]">
-                  No outstanding cash balances.
-                </div>
-              )}
             </div>
           </div>
         </section>
@@ -611,7 +584,7 @@ export default function Dashboard() {
                               : "-"}
                           </td>
                           <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold text-[#0F172A]">
-                            {currency(usdAmount(inv.total, inv.exchangeRate))}
+                            {currency(Number(inv.total || 0), inv.currency || "USD")}
                           </td>
                           <td className="px-3 py-2.5 pr-5">
                             <span
@@ -665,7 +638,7 @@ export default function Dashboard() {
                         {Math.round(Number(product.share || 0))}
                       </td>
                       <td className="px-5 py-3 font-semibold text-[#0F172A]">
-                        {currency(Number(product.revenue || 0))}
+                        {amountLines(product.byCurrency || { USD: Number(product.revenue || 0) })}
                       </td>
                     </tr>
                   ))}

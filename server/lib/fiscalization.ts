@@ -4,6 +4,7 @@ import { Invoice } from "../../shared/schema.js";
 import fs from "fs";
 import path from "path";
 import { logAction } from "../audit.js";
+import { assertReceiptPreflight } from "./zimra-preflight.js";
 
 const POS_VERBOSE_LOGS = process.env.POS_VERBOSE_LOGS === "1";
 const vLog = (...args: any[]) => { if (POS_VERBOSE_LOGS) console.log(...args); };
@@ -49,6 +50,9 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
     // Retrieve full invoice with line items
     const invoice = await storage.getInvoice(invoiceId);
     if (!invoice) throw new Error("Invoice not found");
+    if (invoice.fiscalCode) {
+        throw new Error(`Invoice ${invoice.invoiceNumber} is already fiscalized and cannot be submitted to ZIMRA again.`);
+    }
 
     // Check permissions
     if (userId) {
@@ -155,6 +159,7 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
                     } else {
                         await storage.updateCompany(company.id, updateData);
                     }
+                    fiscalConfig = { ...fiscalConfig, ...updateData };
                     vLog(`[ZIMRA] Fiscal Day Opened: ${openResult.fiscalDayNo} at ${openedAt.toISOString()}`);
 
                     status.fiscalDayStatus = 'FiscalDayOpened';
@@ -458,6 +463,18 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
         if (transactionType === "CreditNote") receiptType = "CreditNote";
         if (transactionType === "DebitNote") receiptType = "DebitNote";
 
+        if (receiptType === "CreditNote") {
+            payments = payments.map(p => ({
+                ...p,
+                paymentAmount: -Math.abs(Number(p.paymentAmount || 0))
+            }));
+        } else {
+            payments = payments.map(p => ({
+                ...p,
+                paymentAmount: Math.abs(Number(p.paymentAmount || 0))
+            }));
+        }
+
         // If CN/DN, we need original invoice details
         let originalInvoice = null;
         if (receiptType !== "FiscalInvoice") {
@@ -481,21 +498,19 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
             };
         }
 
-        // Construct Buyer Data - Only include fields that have actual data
-        if (invoice.customer) {
+        // ZIMRA buyerData is optional, but buyerTIN is mandatory when buyerData is sent.
+        // Keep named customers locally, but treat customers without a TIN as consumer sales for FDMS.
+        const customerTin = invoice.customer?.tin?.trim();
+        if (invoice.customer && customerTin) {
             buyerData = {
                 buyerRegisterName: invoice.customer.name,
                 buyerTradeName: invoice.customer.name,
+                buyerTIN: customerTin,
             };
 
             // Only include VAT number if it exists
             if (invoice.customer.vatNumber && invoice.customer.vatNumber.trim()) {
                 buyerData.vatNumber = invoice.customer.vatNumber.trim();
-            }
-
-            // Only include TIN if it exists
-            if (invoice.customer.tin && invoice.customer.tin.trim()) {
-                buyerData.buyerTIN = invoice.customer.tin.trim();
             }
 
             // Only include contacts if at least one field has data
@@ -545,13 +560,17 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
 
         // Ensure receiptDate is after fiscalDayOpenedAt (RCPT014) and after lastReceiptAt (RCPT030)
         let nowAtHarare = new Date();
-        const dayOpenedAt = company.fiscalDayOpenedAt ? new Date(company.fiscalDayOpenedAt) : null;
-        const lastRcptAt = company.lastReceiptAt ? new Date(company.lastReceiptAt) : null;
+        const dayOpenedAt = (fiscalConfig.fiscalDayOpenedAt || company.fiscalDayOpenedAt)
+            ? new Date(fiscalConfig.fiscalDayOpenedAt || company.fiscalDayOpenedAt)
+            : null;
+        const lastRcptAt = (fiscalConfig.lastReceiptAt || company.lastReceiptAt)
+            ? new Date(fiscalConfig.lastReceiptAt || company.lastReceiptAt)
+            : null;
 
         // Check against day opening — receipt must be after day was opened (RCPT014)
-        if (dayOpenedAt && nowAtHarare.getTime() <= dayOpenedAt.getTime()) {
+        if (dayOpenedAt && nowAtHarare.getTime() <= dayOpenedAt.getTime() + 1000) {
             vLog(`[ZIMRA] Guard: now (${nowAtHarare.toISOString()}) <= dayOpened (${dayOpenedAt.toISOString()}). Bumping by 1s.`);
-            nowAtHarare = new Date(dayOpenedAt.getTime() + 1000);
+            nowAtHarare = new Date(dayOpenedAt.getTime() + 2000);
         }
 
         // Check against last receipt — receipt must be after previous receipt (RCPT030).
@@ -562,17 +581,19 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
         if (lastRcptAt && lastRcptAt.getTime() > realNow.getTime() + fiveMinutes) {
             vLog(`[ZIMRA] Guard: lastRcptAt (${lastRcptAt.toISOString()}) is far in the future — ignoring stale value, using real now.`);
             // Don't bump — lastRcptAt is stale/wrong, just use current time
-        } else if (lastRcptAt && nowAtHarare.getTime() <= lastRcptAt.getTime()) {
+        } else if (lastRcptAt && nowAtHarare.getTime() <= lastRcptAt.getTime() + 1000) {
             vLog(`[ZIMRA] Guard: now (${nowAtHarare.toISOString()}) <= lastRcpt (${lastRcptAt.toISOString()}). Bumping by 1s.`);
-            nowAtHarare = new Date(lastRcptAt.getTime() + 1000);
+            nowAtHarare = new Date(lastRcptAt.getTime() + 2000);
         }
+
+        const activeFiscalDayNo = fiscalConfig.currentFiscalDayNo || status?.lastFiscalDayNo || company.currentFiscalDayNo;
 
         const receiptData: ReceiptData = {
             receiptType: receiptType,
             receiptCurrency: invoice.currency || 'USD',
             receiptCounter: nextReceiptCounter,
             receiptGlobalNo: nextGlobalNo,
-            fiscalDayNo: company.currentFiscalDayNo || status.lastFiscalDayNo, // Added Missing Property
+            fiscalDayNo: activeFiscalDayNo, // Use refreshed day after auto-open, not stale company state.
             invoiceNo: invoice.invoiceNumber,
             receiptDate: formatZimraDate(nowAtHarare),
             receiptLines: receiptLines as any,
@@ -594,6 +615,20 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
         let result: any;
 
         try {
+            await assertReceiptPreflight({
+                company: {
+                    ...company,
+                    ...fiscalConfig,
+                    currentFiscalDayNo: receiptData.fiscalDayNo,
+                    lastReceiptGlobalNo: receiptData.receiptGlobalNo,
+                    dailyReceiptCount: receiptData.receiptCounter
+                },
+                invoice,
+                receiptData,
+                originalInvoice,
+                zimraConfig
+            });
+
             try {
                 vTime(`[ZIMRA] submitReceipt-${companyId}-${nextGlobalNo}`);
                 result = await device.submitReceipt(receiptData, prevHash, true);
@@ -619,15 +654,38 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
                             dailyReceiptCount: 0,
                             lastFiscalHash: null
                         });
+                        fiscalConfig = {
+                            ...fiscalConfig,
+                            fiscalDayOpen: true,
+                            currentFiscalDayNo: nextDay,
+                            fiscalDayOpenedAt: new Date(),
+                            dailyReceiptCount: 0,
+                            lastFiscalHash: null
+                        };
 
                         // 3. Atomically claim fresh numbers for the new day
                         const newDayClaimed = await storage.claimNextReceiptNumbers(company.id);
                         receiptData.receiptCounter = newDayClaimed.receiptCounter;
                         nextReceiptCounter = newDayClaimed.receiptCounter;
                         receiptData.receiptGlobalNo = newDayClaimed.receiptGlobalNo;
+                        receiptData.fiscalDayNo = nextDay;
                         prevHash = null; // First receipt of new day has no previous hash
 
                         vLog(`[ZIMRA] Retry: New day ${nextDay}, claimed Counter=${nextReceiptCounter}, GlobalNo=${newDayClaimed.receiptGlobalNo}`);
+
+                        await assertReceiptPreflight({
+                            company: {
+                                ...company,
+                                ...fiscalConfig,
+                                currentFiscalDayNo: receiptData.fiscalDayNo,
+                                lastReceiptGlobalNo: receiptData.receiptGlobalNo,
+                                dailyReceiptCount: receiptData.receiptCounter
+                            },
+                            invoice,
+                            receiptData,
+                            originalInvoice,
+                            zimraConfig
+                        });
                         
                         vTime(`[ZIMRA] submitReceipt-retry-${companyId}-${nextGlobalNo}`);
                         result = await device.submitReceipt(receiptData, prevHash, true);
@@ -654,10 +712,13 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
                     receiptCounter: nextReceiptCounter
                 });
 
-                try {
-                    await storage.lockInvoice(invoiceId, userId?.toString() || "system");
-                } catch (lockError) {
-                    console.error("Failiure cleanup error:", lockError);
+                const lockUserId = userId?.toString();
+                if (lockUserId && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(lockUserId)) {
+                    try {
+                        await storage.lockInvoice(invoiceId, lockUserId);
+                    } catch (lockError) {
+                        console.error("Failure cleanup error:", lockError);
+                    }
                 }
             } catch (err2) {
                 console.error("Failure reporting error:", err2);

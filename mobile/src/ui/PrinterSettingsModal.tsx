@@ -283,13 +283,6 @@ export function PrinterSettingsModal({ visible, onClose }: Props) {
                 Enable this if you are running on an Android POS terminal with a built-in thermal printer.
               </Text>
               <ToggleRow
-                label="Use Generic Built-in Bluetooth Printer"
-                value={draft.isInternal}
-                disabled={!draft.enabled || draft.isZ100}
-                onToggle={() => setDraft(p => ({ ...p, isInternal: !p.isInternal, isZ100: false, paperWidth: !p.isInternal ? 58 : p.paperWidth }))}
-                C={C}
-              />
-              <ToggleRow
                 label="Use Z100 Native SDK Printer"
                 value={draft.isZ100}
                 disabled={false}
@@ -361,13 +354,71 @@ export function PrinterSettingsModal({ visible, onClose }: Props) {
                 {[58, 80].map(w => (
                   <TouchableOpacity
                     key={w}
-                    onPress={() => setDraft(p => ({ ...p, paperWidth: w }))}
+                    onPress={() => setDraft(p => ({ ...p, paperWidth: w, printerWidth: w === 80 ? 42 : 32 }))}
                     style={[styles.widthBtn, draft.paperWidth === w && styles.widthBtnActive]}
                   >
                     <Text style={[styles.widthBtnText, draft.paperWidth === w && { color: C.amber.primary }]}>{w}mm</Text>
                   </TouchableOpacity>
                 ))}
               </View>
+
+              <Text style={styles.inputLabel}>ESC/POS Character Width:</Text>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                {[
+                  { w: 32, label: "32ch · 58mm" },
+                  { w: 42, label: "42ch · 80mm" },
+                  { w: 48, label: "48ch" },
+                ].map(({ w, label }) => (
+                  <TouchableOpacity
+                    key={w}
+                    onPress={() => setDraft(p => ({ ...p, printerWidth: w, paperWidth: w === 32 ? 58 : p.paperWidth }))}
+                    style={[styles.widthBtn, draft.printerWidth === w && styles.widthBtnActive]}
+                  >
+                    <Text style={[styles.widthBtnText, draft.printerWidth === w && { color: C.amber.primary }]}>{label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <View style={{ marginTop: 18 }}>
+                <ToggleRow
+                  label="Auto-Cut"
+                  value={draft.autoCut}
+                  disabled={!draft.enabled}
+                  onToggle={() => setDraft(p => ({ ...p, autoCut: !p.autoCut }))}
+                  C={C}
+                />
+                <ToggleRow
+                  label="Open Cash Drawer"
+                  value={draft.openDrawerOnPrint}
+                  disabled={!draft.enabled}
+                  onToggle={() => setDraft(p => ({ ...p, openDrawerOnPrint: !p.openDrawerOnPrint }))}
+                  C={C}
+                />
+                <ToggleRow
+                  label="Large Header"
+                  value={draft.doubleHeightHeader}
+                  disabled={!draft.enabled}
+                  onToggle={() => setDraft(p => ({ ...p, doubleHeightHeader: !p.doubleHeightHeader }))}
+                  C={C}
+                />
+                <ToggleRow
+                  label="Print Logo"
+                  value={draft.receiptShowLogo}
+                  disabled={!draft.enabled}
+                  onToggle={() => setDraft(p => ({ ...p, receiptShowLogo: !p.receiptShowLogo }))}
+                  C={C}
+                />
+              </View>
+
+              <Text style={styles.inputLabel}>Feed Lines:</Text>
+              <TextInput
+                style={styles.input}
+                value={String(draft.feedLines ?? 1)}
+                onChangeText={(t) => setDraft(p => ({ ...p, feedLines: Math.max(0, parseInt(t || "0", 10) || 0) }))}
+                placeholder="1"
+                placeholderTextColor={C.text.secondary}
+                keyboardType="number-pad"
+              />
             </View>
 
             <View style={styles.section}>

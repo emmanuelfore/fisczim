@@ -4,7 +4,13 @@ import { useCompanies } from "@/hooks/use-companies";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 
 import { Redirect } from "wouter";
 import { Loader2 } from "lucide-react";
@@ -15,7 +21,8 @@ import { isElectron } from "@/lib/utils";
 import { isStorageBroken } from "@/lib/offline-db";
 
 export default function AuthPage() {
-  const { user, isLoading, loginWithPassword, registerWithPassword } = useAuth();
+  const { user, isLoading, loginWithPassword, registerWithPassword } =
+    useAuth();
   const { toast } = useToast();
   const { brand } = useBranding();
   // Gate on !!user so this never fires when unauthenticated
@@ -37,7 +44,12 @@ export default function AuthPage() {
 
   const [mode, setMode] = useState<"login" | "signup">(getInitialMode);
   const [loginData, setLoginData] = useState({ email: "", password: "" });
-  const [signupData, setSignupData] = useState({ name: "", email: "", password: "", confirmPassword: "" });
+  const [signupData, setSignupData] = useState({
+    name: "",
+    email: "",
+    password: "",
+    confirmPassword: "",
+  });
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [isBrokenStorage, setIsBrokenStorage] = useState(false);
@@ -45,14 +57,20 @@ export default function AuthPage() {
   useEffect(() => {
     if (isStorageBroken()) {
       setIsBrokenStorage(true);
-      setError("Local storage is corrupted. Some offline features and login caching may not work.");
+      setError(
+        "Local storage is corrupted. Some offline features and login caching may not work.",
+      );
     }
   }, []);
 
   const handleFixStorage = async () => {
     if (!window.electronAPI?.clearStorage) return;
     try {
-      if (confirm("This will clear your local terminal data to fix corruption. You will need to sign in again. Continue?")) {
+      if (
+        confirm(
+          "This will clear your local terminal data to fix corruption. You will need to sign in again. Continue?",
+        )
+      ) {
         await window.electronAPI.clearStorage();
         window.location.reload();
       }
@@ -66,7 +84,10 @@ export default function AuthPage() {
     try {
       setError(null);
       setIsLoggingIn(true);
-      await loginWithPassword({ email: loginData.email, password: loginData.password });
+      await loginWithPassword({
+        email: loginData.email,
+        password: loginData.password,
+      });
       setIsLoggingIn(false);
     } catch (error: any) {
       console.error("Login failed:", error);
@@ -89,7 +110,7 @@ export default function AuthPage() {
       await registerWithPassword({
         email: signupData.email,
         password: signupData.password,
-        name: signupData.name
+        name: signupData.name,
       });
       setSuccessMsg("Account created! Logging you in...");
       setIsLoggingIn(false);
@@ -106,18 +127,18 @@ export default function AuthPage() {
 
   useEffect(() => {
     if (user && !isLoading && !isLoadingCompanies) {
-      console.log("[Auth] Redirect check:", { 
-        hasUser: !!user, 
-        isError: isCompaniesError, 
+      console.log("[Auth] Redirect check:", {
+        hasUser: !!user,
+        isError: isCompaniesError,
         companiesCount: companies?.length,
-        isArray: Array.isArray(companies)
+        isArray: Array.isArray(companies),
       });
-      
+
       if (isCompaniesError) {
         toast({
           title: "Connection Issue",
           description: "Failed to load your organizations. Going to POS mode.",
-          variant: "destructive"
+          variant: "destructive",
         });
         setLocation("/pos");
         return;
@@ -132,7 +153,15 @@ export default function AuthPage() {
         }
       }
     }
-  }, [user, companies, isLoading, isLoadingCompanies, isCompaniesError, setLocation, toast]);
+  }, [
+    user,
+    companies,
+    isLoading,
+    isLoadingCompanies,
+    isCompaniesError,
+    setLocation,
+    toast,
+  ]);
 
   if (isLoading) {
     return (
@@ -146,7 +175,9 @@ export default function AuthPage() {
     return (
       <div className="flex items-center justify-center min-h-screen bg-slate-50 flex-col gap-4">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
-        <p className="text-slate-400 text-sm animate-pulse">Syncing organization profile...</p>
+        <p className="text-slate-400  animate-pulse">
+          Syncing organization profile...
+        </p>
       </div>
     );
   }
@@ -166,20 +197,24 @@ export default function AuthPage() {
 
         <div className="relative z-10 max-w-lg">
           <div className="h-16 px-6 bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl mb-8 inline-flex items-center justify-center shadow-xl w-fit">
-            <img src="/fiscalstack-full-logo.png" alt="FiscalStack logo" className="h-10 w-auto object-contain" />
+            <img
+              src="/fiscalstack-full-logo.png"
+              alt="FiscalStack logo"
+              className="h-10 w-auto object-contain"
+            />
           </div>
           <h1 className="text-4xl font-display font-bold mb-6 leading-tight text-white">
             Seamless ZIMRA Compliant Invoicing.
           </h1>
           <p className="text-lg text-slate-300 mb-8 leading-relaxed">
-            Manage customers, products, and fiscalization in one secure platform.
-            Automate your compliance and focus on growth.
+            Manage customers, products, and fiscalization in one secure
+            platform. Automate your compliance and focus on growth.
           </p>
           <div className="flex gap-4">
-            <div className="px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300">
+            <div className="px-4 py-2 rounded-lg bg-white/5 border border-white/10  text-slate-300">
               FDMS Ready
             </div>
-            <div className="px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-slate-300">
+            <div className="px-4 py-2 rounded-lg bg-white/5 border border-white/10  text-slate-300">
               Secure
             </div>
           </div>
@@ -202,13 +237,13 @@ export default function AuthPage() {
           </CardHeader>
           <CardContent>
             {error && (
-              <div className="mb-4 p-3 rounded-md bg-red-50 text-red-500 text-sm border border-red-100">
+              <div className="mb-4 p-3 rounded-md bg-red-50 text-red-500  border border-red-100">
                 {error}
               </div>
             )}
 
             {successMsg && (
-              <div className="mb-4 p-3 rounded-md bg-emerald-50 text-emerald-600 text-sm border border-emerald-100">
+              <div className="mb-4 p-3 rounded-md bg-emerald-50 text-emerald-600  border border-emerald-100">
                 {successMsg}
               </div>
             )}
@@ -216,9 +251,10 @@ export default function AuthPage() {
             {isElectron() && isBrokenStorage && (
               <div className="mb-6 p-4 rounded-lg bg-amber-50 border border-amber-200">
                 <p className="text-amber-800 text-xs font-medium mb-3">
-                  Local database access failed. This is often caused by unexpected app closure.
+                  Local database access failed. This is often caused by
+                  unexpected app closure.
                 </p>
-                <Button 
+                <Button
                   onClick={handleFixStorage}
                   variant="outline"
                   className="w-full border-amber-400 text-amber-700 hover:bg-amber-100 h-9 text-xs"
@@ -237,7 +273,9 @@ export default function AuthPage() {
                     type="email"
                     placeholder="name@company.com"
                     value={loginData.email}
-                    onChange={(e) => setLoginData({ ...loginData, email: e.target.value })}
+                    onChange={(e) =>
+                      setLoginData({ ...loginData, email: e.target.value })
+                    }
                     required
                   />
                 </div>
@@ -245,7 +283,11 @@ export default function AuthPage() {
                   <div className="flex items-center justify-between">
                     <Label htmlFor="password">Password</Label>
                     <Link href="/forgot-password">
-                      <Button variant="link" className="p-0 h-auto text-xs text-primary" type="button">
+                      <Button
+                        variant="link"
+                        className="p-0 h-auto text-xs text-primary"
+                        type="button"
+                      >
                         Forgot password?
                       </Button>
                     </Link>
@@ -254,20 +296,31 @@ export default function AuthPage() {
                     id="password"
                     type="password"
                     value={loginData.password}
-                    onChange={(e) => setLoginData({ ...loginData, password: e.target.value })}
+                    onChange={(e) =>
+                      setLoginData({ ...loginData, password: e.target.value })
+                    }
                     required
                   />
                 </div>
-                <Button type="submit" className="w-full h-11" disabled={isLoggingIn}>
-                  {isLoggingIn ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                <Button
+                  type="submit"
+                  className="w-full h-11"
+                  disabled={isLoggingIn}
+                >
+                  {isLoggingIn ? (
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  ) : null}
                   Sign In
                 </Button>
 
-                <div className="text-center text-sm text-slate-500 mt-4">
+                <div className="text-center  text-slate-500 mt-4">
                   Don't have an account?{" "}
                   <button
                     type="button"
-                    onClick={() => { setMode("signup"); setError(null); }}
+                    onClick={() => {
+                      setMode("signup");
+                      setError(null);
+                    }}
                     className="text-primary font-semibold hover:underline"
                   >
                     Sign Up
@@ -282,7 +335,9 @@ export default function AuthPage() {
                     id="name"
                     placeholder="John Doe"
                     value={signupData.name}
-                    onChange={(e) => setSignupData({ ...signupData, name: e.target.value })}
+                    onChange={(e) =>
+                      setSignupData({ ...signupData, name: e.target.value })
+                    }
                     required
                   />
                 </div>
@@ -293,7 +348,9 @@ export default function AuthPage() {
                     type="email"
                     placeholder="name@company.com"
                     value={signupData.email}
-                    onChange={(e) => setSignupData({ ...signupData, email: e.target.value })}
+                    onChange={(e) =>
+                      setSignupData({ ...signupData, email: e.target.value })
+                    }
                     required
                   />
                 </div>
@@ -303,7 +360,9 @@ export default function AuthPage() {
                     id="signup-password"
                     type="password"
                     value={signupData.password}
-                    onChange={(e) => setSignupData({ ...signupData, password: e.target.value })}
+                    onChange={(e) =>
+                      setSignupData({ ...signupData, password: e.target.value })
+                    }
                     required
                     minLength={6}
                   />
@@ -314,21 +373,35 @@ export default function AuthPage() {
                     id="confirm-password"
                     type="password"
                     value={signupData.confirmPassword}
-                    onChange={(e) => setSignupData({ ...signupData, confirmPassword: e.target.value })}
+                    onChange={(e) =>
+                      setSignupData({
+                        ...signupData,
+                        confirmPassword: e.target.value,
+                      })
+                    }
                     required
                     minLength={6}
                   />
                 </div>
-                <Button type="submit" className="w-full h-11" disabled={isLoggingIn}>
-                  {isLoggingIn ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                <Button
+                  type="submit"
+                  className="w-full h-11"
+                  disabled={isLoggingIn}
+                >
+                  {isLoggingIn ? (
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  ) : null}
                   Create Account
                 </Button>
 
-                <div className="text-center text-sm text-slate-500 mt-4">
+                <div className="text-center  text-slate-500 mt-4">
                   Already have an account?{" "}
                   <button
                     type="button"
-                    onClick={() => { setMode("login"); setError(null); }}
+                    onClick={() => {
+                      setMode("login");
+                      setError(null);
+                    }}
                     className="text-primary font-semibold hover:underline"
                   >
                     Sign In

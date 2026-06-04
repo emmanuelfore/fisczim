@@ -116,6 +116,7 @@ export function Layout({
   const [openNavGroups, setOpenNavGroups] = useState<Record<string, boolean>>(
     {},
   );
+  const autoOpenedNavGroupsRef = useRef<Set<string>>(new Set());
   const seenPendingGdnCountRef = useRef<number | null>(null);
 
   // Close mobile menu on location change
@@ -705,7 +706,10 @@ export function Layout({
     const search = typeof window !== "undefined" ? window.location.search : "";
 
     if (location.startsWith("/dashboard"))
-      return { title: "Dashboard", subtitle: "" };
+      return {
+        title: "Dashboard",
+        subtitle: "Review business performance, alerts, and daily activity.",
+      };
     if (location.startsWith("/invoices/new"))
       return {
         title: "Create Invoice",
@@ -742,6 +746,11 @@ export function Layout({
         title: "Recurring Invoices",
         subtitle: "Manage scheduled billing and repeat invoices.",
       };
+    if (location.startsWith("/payments/") && location.includes("/preview"))
+      return {
+        title: "Payment Receipt Preview",
+        subtitle: "Preview, print, and download a customer payment receipt.",
+      };
     if (location.startsWith("/payments-received"))
       return {
         title: "Payments Received",
@@ -761,6 +770,11 @@ export function Layout({
       return {
         title: "Suppliers",
         subtitle: "Manage supplier records and procurement contacts.",
+      };
+    if (location.startsWith("/products/bulk-adjust"))
+      return {
+        title: "Bulk Price Adjustment",
+        subtitle: "Review and apply price changes across product groups.",
       };
     if (location.startsWith("/products"))
       return {
@@ -1014,6 +1028,16 @@ export function Layout({
         title: "Aging Reports",
         subtitle: "Review receivables and payables aging.",
       };
+    if (location.startsWith("/accounting/debtors/"))
+      return {
+        title: "Debtor Analysis",
+        subtitle: "Review customer liquidity, balances, and payment behavior.",
+      };
+    if (location.startsWith("/accounting/creditors/"))
+      return {
+        title: "Creditor Analysis",
+        subtitle: "Review supplier liabilities, balances, and payment behavior.",
+      };
     if (location.startsWith("/accounting/accounts-receivable"))
       return {
         title: "Accounts Receivable",
@@ -1133,7 +1157,10 @@ export function Layout({
         title: "POS Terminal",
         subtitle: "Process sales, payments, and fiscal receipts.",
       };
-    return { title: "Dashboard", subtitle: "" };
+    return {
+      title: "Dashboard",
+      subtitle: "Review business performance, alerts, and daily activity.",
+    };
   }, [location]);
   const pageTitle = headerTitle || pageMeta.title;
   const pageSubtitle =
@@ -1164,8 +1191,12 @@ export function Layout({
       let changed = false;
       const next = { ...current };
       for (const label of activeGroups) {
-        if (!next[label]) {
+        if (
+          current[label] === undefined &&
+          !autoOpenedNavGroupsRef.current.has(label)
+        ) {
           next[label] = true;
+          autoOpenedNavGroupsRef.current.add(label);
           changed = true;
         }
       }
@@ -1384,7 +1415,7 @@ export function Layout({
               {navItems.map((item) => {
                 if (item.children) {
                   const isActiveGroup = item.children.some(isChildGroupActive);
-                  const isOpen = openNavGroups[item.label] ?? isActiveGroup;
+                  const isOpen = openNavGroups[item.label] ?? false;
                   const setIsOpen = (open: boolean) => {
                     setOpenNavGroups((current) => ({
                       ...current,

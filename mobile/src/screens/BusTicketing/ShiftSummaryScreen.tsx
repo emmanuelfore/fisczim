@@ -8,12 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useBusTicketing } from '../../hooks/useBusTicketing';
 import { getDailySummary, formatAsCSV, formatAsWhatsAppText } from '../../hooks/useBusReports';
 import { ShiftRecord } from '../../types/busTicketing';
-
-const C = {
-  bg: '#07090C', surface: '#111318', border: '#1E2128',
-  amber: '#F0A500', fire: '#FF6B35', white: '#FFFFFF',
-  muted: '#9CA3AF', success: '#22C55E', danger: '#EF4444',
-};
+import { type BusColors, useBusColors } from './theme';
 
 function fmtMoney(n: number) { return `$${n.toFixed(2)}`; }
 function uuid(): string {
@@ -30,6 +25,8 @@ interface Props { onClose: () => void; companyId?: number | null; shiftStartTime
 
 export function ShiftSummaryScreen({ onClose, companyId, shiftStartTime }: Props) {
   const insets = useSafeAreaInsets();
+  const C = useBusColors();
+  const styles = makeStyles(C);
   const { activeConductor, activeTrip, closeShift, getTodaysTickets } = useBusTicketing(companyId);
 
   const today = new Date();
@@ -97,7 +94,7 @@ export function ShiftSummaryScreen({ onClose, companyId, shiftStartTime }: Props
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
-      <StatusBar barStyle="light-content" backgroundColor={C.bg} />
+      <StatusBar barStyle={C.statusBarStyle} backgroundColor={C.bg} />
 
       <View style={styles.header}>
         <TouchableOpacity onPress={onClose} style={styles.backBtn}>
@@ -192,7 +189,7 @@ export function ShiftSummaryScreen({ onClose, companyId, shiftStartTime }: Props
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (C: BusColors) => StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

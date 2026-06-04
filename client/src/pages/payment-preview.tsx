@@ -25,7 +25,9 @@ export default function PaymentPreviewPage() {
     enabled: !!paymentId,
   });
 
-  const { data: invoice, isLoading: isLoadingInvoice } = useInvoice(payment?.invoiceId || 0);
+  const { data: invoice, isLoading: isLoadingInvoice } = useInvoice(
+    payment?.invoiceId || 0,
+  );
   const { taxTypes } = useTaxConfig(payment?.companyId || 0);
 
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
@@ -51,7 +53,7 @@ export default function PaymentPreviewPage() {
             company={payment.company}
             invoice={invoice || payment.invoice}
             taxTypes={taxTypes?.data || []}
-          />
+          />,
         ).toBlob();
 
         if (!revoked) {
@@ -81,7 +83,11 @@ export default function PaymentPreviewPage() {
         {/* Toolbar */}
         <div className="flex items-center justify-between px-6 py-3 bg-white border-b border-slate-200 sticky top-0 z-10">
           <div className="flex items-center gap-4">
-            <Button variant="ghost" size="sm" onClick={() => setLocation("/payments-received")}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setLocation("/payments-received")}
+            >
               <ArrowLeft className="w-4 h-4 mr-2" /> Back
             </Button>
           </div>
@@ -91,7 +97,10 @@ export default function PaymentPreviewPage() {
             </Button>
             {pdfBlobUrl && (
               <Button asChild size="sm" className="btn-gradient">
-                <a href={pdfBlobUrl} download={`Receipt-${payment?.invoiceNumber || paymentId}.pdf`}>
+                <a
+                  href={pdfBlobUrl}
+                  download={`Receipt-${payment?.invoiceNumber || paymentId}.pdf`}
+                >
                   <Download className="w-4 h-4 mr-2" /> Download
                 </a>
               </Button>

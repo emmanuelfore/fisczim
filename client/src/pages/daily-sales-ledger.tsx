@@ -6,15 +6,24 @@ import { useActiveCompany } from "@/hooks/use-active-company";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Calendar as CalendarIcon, Printer, FileDown, Receipt } from "lucide-react";
 import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
+  Calendar as CalendarIcon,
+  Printer,
+  FileDown,
+  Receipt,
+} from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
 import { DailySalesTable } from "@/components/reports/daily-sales-table";
@@ -22,227 +31,310 @@ import { User } from "@shared/schema";
 import { downloadExcel } from "@/lib/export-utils";
 
 export default function DailySalesLedgerPage() {
-    const { activeCompany, isLoading: isLoadingActive } = useActiveCompany();
-    const companyId = activeCompany?.id || 0;
-    
-    const { data: currencies } = useCurrencies(companyId);
+  const { activeCompany, isLoading: isLoadingActive } = useActiveCompany();
+  const companyId = activeCompany?.id || 0;
 
-    // State
-    const [dateRange, setDateRange] = useState<{ from: Date; to: Date }>({
-        from: startOfMonth(new Date()),
-        to: endOfMonth(new Date())
-    });
-    const [consolidatedCode, setConsolidatedCode] = useState<string>("USD");
-    const [cashierId, setCashierId] = useState<string>("all");
-    const [ownerGroup, setOwnerGroup] = useState<string>("all");
-    const [currencyMode, setCurrencyMode] = useState<"consolidated" | "original">("consolidated");
+  const { data: currencies } = useCurrencies(companyId);
 
-    const consolidatedCurrency = currencies?.find(c => c.code === consolidatedCode);
-    const consolidatedRate = Number(consolidatedCurrency?.exchangeRate || 1);
-    const consolidatedSymbol = consolidatedCurrency?.symbol || "$";
+  // State
+  const [dateRange, setDateRange] = useState<{ from: Date; to: Date }>({
+    from: startOfMonth(new Date()),
+    to: endOfMonth(new Date()),
+  });
+  const [consolidatedCode, setConsolidatedCode] = useState<string>("USD");
+  const [cashierId, setCashierId] = useState<string>("all");
+  const [ownerGroup, setOwnerGroup] = useState<string>("all");
+  const [currencyMode, setCurrencyMode] = useState<"consolidated" | "original">(
+    "consolidated",
+  );
 
-    // Queries
-    const { data: companyUsers } = useQuery<User[]>({
-        queryKey: ["company-users", companyId],
-        queryFn: async () => {
-            const res = await apiFetch(`/api/companies/${companyId}/users`);
-            if (!res.ok) return [];
-            return await res.json();
-        },
-        enabled: !!companyId
-    });
+  const consolidatedCurrency = currencies?.find(
+    (c) => c.code === consolidatedCode,
+  );
+  const consolidatedRate = Number(consolidatedCurrency?.exchangeRate || 1);
+  const consolidatedSymbol = consolidatedCurrency?.symbol || "$";
 
-    const { data: products = [] } = useQuery<any[]>({
-        queryKey: ["products-cost-centers", companyId],
-        queryFn: async () => {
-            const res = await apiFetch(`/api/companies/${companyId}/products`);
-            if (!res.ok) return [];
-            return await res.json();
-        },
-        enabled: !!companyId
-    });
+  // Queries
+  const { data: companyUsers } = useQuery<User[]>({
+    queryKey: ["company-users", companyId],
+    queryFn: async () => {
+      const res = await apiFetch(`/api/companies/${companyId}/users`);
+      if (!res.ok) return [];
+      return await res.json();
+    },
+    enabled: !!companyId,
+  });
 
-    const costCenters = Array.from(
-        new Set(
-            products
-                .map((product: any) => typeof product.ownerGroup === "string" ? product.ownerGroup.trim() : "")
-                .filter(Boolean)
+  const { data: products = [] } = useQuery<any[]>({
+    queryKey: ["products-cost-centers", companyId],
+    queryFn: async () => {
+      const res = await apiFetch(`/api/companies/${companyId}/products`);
+      if (!res.ok) return [];
+      return await res.json();
+    },
+    enabled: !!companyId,
+  });
+
+  const costCenters = Array.from(
+    new Set(
+      products
+        .map((product: any) =>
+          typeof product.ownerGroup === "string"
+            ? product.ownerGroup.trim()
+            : "",
         )
-    ).sort();
+        .filter(Boolean),
+    ),
+  ).sort();
 
-    const { data: salesReport, isLoading: isLoadingSales } = useQuery({
-        queryKey: ["reports-sales", companyId, dateRange.from, dateRange.to, cashierId, ownerGroup],
-        queryFn: async () => {
-            if (!companyId) return [];
-            const params = new URLSearchParams({
-                startDate: format(dateRange.from, 'yyyy-MM-dd'),
-                endDate: format(dateRange.to, 'yyyy-MM-dd'),
-                cashierId: cashierId,
-                ownerGroup
-            });
-            const res = await apiFetch(`/api/reports/sales/${companyId}?${params.toString()}`);
-            if (!res.ok) return [];
-            return await res.json();
-        },
-        enabled: !!companyId
+  const { data: salesReport, isLoading: isLoadingSales } = useQuery({
+    queryKey: [
+      "reports-sales",
+      companyId,
+      dateRange.from,
+      dateRange.to,
+      cashierId,
+      ownerGroup,
+    ],
+    queryFn: async () => {
+      if (!companyId) return [];
+      const params = new URLSearchParams({
+        startDate: format(dateRange.from, "yyyy-MM-dd"),
+        endDate: format(dateRange.to, "yyyy-MM-dd"),
+        cashierId: cashierId,
+        ownerGroup,
+      });
+      const res = await apiFetch(
+        `/api/reports/sales/${companyId}?${params.toString()}`,
+      );
+      if (!res.ok) return [];
+      return await res.json();
+    },
+    enabled: !!companyId,
+  });
+
+  const handleExportExcel = () => {
+    const params = new URLSearchParams({
+      startDate: format(dateRange.from, "yyyy-MM-dd"),
+      endDate: format(dateRange.to, "yyyy-MM-dd"),
+      cashierId: cashierId,
+      ownerGroup,
     });
-
-    const handleExportExcel = () => {
-        const params = new URLSearchParams({
-            startDate: format(dateRange.from, 'yyyy-MM-dd'),
-            endDate: format(dateRange.to, 'yyyy-MM-dd'),
-            cashierId: cashierId,
-            ownerGroup
-        });
-        downloadExcel(`/api/reports/export/sales/${companyId}?${params.toString()}`, `Sales_Report_${format(new Date(), "yyyyMMdd")}.xlsx`);
-    };
-
-    if (isLoadingActive) {
-        return (
-            <Layout>
-                <div className="flex items-center justify-center min-h-[60vh]">
-                    <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-                </div>
-            </Layout>
-        );
-    }
-
-    return (
-        <Layout>
-            <div className="mb-4 flex flex-col md:flex-row justify-end items-start md:items-center gap-4">
-                <div className="flex flex-wrap items-center gap-3 bg-white/50 backdrop-blur-md p-2 rounded-[1.5rem] border border-slate-100 shadow-sm">
-                    <div className="flex items-center gap-2 pl-2">
-                        <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest">Cashier:</span>
-                        <Select value={cashierId} onValueChange={setCashierId}>
-                            <SelectTrigger className="w-[120px] h-8 text-xs font-bold border-none bg-slate-100/50 rounded-xl focus:ring-0">
-                                <SelectValue placeholder="All Cashiers" />
-                            </SelectTrigger>
-                            <SelectContent className="rounded-xl border-slate-100 shadow-xl">
-                                <SelectItem value="all" className="text-xs font-bold">All Cashiers</SelectItem>
-                                {companyUsers?.map(user => (
-                                    <SelectItem key={user.id} value={user.id} className="text-xs font-bold">{user.username || user.name}</SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
-
-                    <div className="h-6 w-px bg-slate-200" />
-
-                    <div className="flex items-center gap-2 pl-2">
-                        <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest">Cost Center:</span>
-                        <Select value={ownerGroup} onValueChange={setOwnerGroup}>
-                            <SelectTrigger className="w-[150px] h-8 text-xs font-bold border-none bg-slate-100/50 rounded-xl focus:ring-0">
-                                <SelectValue placeholder="All Cost Centers" />
-                            </SelectTrigger>
-                            <SelectContent className="rounded-xl border-slate-100 shadow-xl">
-                                <SelectItem value="all" className="text-xs font-bold">All Cost Centers</SelectItem>
-                                {costCenters.map(group => (
-                                    <SelectItem key={group} value={group} className="text-xs font-bold">{group}</SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
-
-                    <div className="h-6 w-px bg-slate-200" />
-
-                    <div className="flex items-center gap-2 px-2">
-                        <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest">Mode:</span>
-                        <div className="flex bg-slate-100/50 p-0.5 rounded-xl border border-slate-200/20">
-                            <button 
-                                onClick={() => setCurrencyMode("consolidated")}
-                                className={cn(
-                                    "px-3 py-1 text-[10px] font-bold rounded-lg transition-all",
-                                    currencyMode === "consolidated" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-400 hover:text-slate-600"
-                                )}
-                            >
-                                Consolidated
-                            </button>
-                            <button 
-                                onClick={() => setCurrencyMode("original")}
-                                className={cn(
-                                    "px-3 py-1 text-[10px] font-bold rounded-lg transition-all",
-                                    currencyMode === "original" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-400 hover:text-slate-600"
-                                )}
-                            >
-                                Original
-                            </button>
-                        </div>
-                    </div>
-
-                    <div className="h-6 w-px bg-slate-200" />
-
-                    <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest">Base:</span>
-                        <Select value={consolidatedCode} onValueChange={setConsolidatedCode}>
-                            <SelectTrigger className="w-[80px] h-8 text-xs font-bold border-none bg-slate-100/50 rounded-xl focus:ring-0">
-                                <SelectValue placeholder="USD" />
-                            </SelectTrigger>
-                            <SelectContent className="rounded-xl border-slate-100 shadow-xl">
-                                <SelectItem value="USD" className="text-xs font-bold">USD</SelectItem>
-                                {currencies?.filter(c => c.code !== 'USD').map(c => (
-                                    <SelectItem key={c.id} value={c.code} className="text-xs font-bold">{c.code}</SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
-
-                    <div className="h-6 w-px bg-slate-200" />
-
-                    <Popover>
-                        <PopoverTrigger asChild>
-                            <Button variant="ghost" className={cn("h-8 px-3 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl")}>
-                                <CalendarIcon className="mr-2 h-3.5 w-3.5 text-indigo-500" />
-                                {format(dateRange.from, "MMM dd")} - {format(dateRange.to, "MMM dd, yyyy")}
-                            </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0 rounded-3xl border-none shadow-2xl" align="end">
-                            <Calendar
-                                initialFocus
-                                mode="range"
-                                defaultMonth={dateRange.from}
-                                selected={{ from: dateRange.from, to: dateRange.to }}
-                                onSelect={(range: any) => {
-                                    if (range?.from) {
-                                        setDateRange({ from: range.from, to: range.to || range.from });
-                                    }
-                                }}
-                                numberOfMonths={2}
-                                className="rounded-3xl"
-                            />
-                        </PopoverContent>
-                    </Popover>
-
-                    <div className="h-6 w-px bg-slate-200" />
-
-                    <div className="flex gap-1">
-                        <Button variant="ghost" className="h-8 px-3 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl gap-2" onClick={handleExportExcel}>
-                            <FileDown className="h-3.5 w-3.5 text-indigo-500" />
-                            Excel
-                        </Button>
-                        <Button variant="ghost" className="h-8 px-3 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl gap-2" onClick={() => window.print()}>
-                            <Printer className="h-3.5 w-3.5 text-indigo-500" />
-                            Print
-                        </Button>
-                    </div>
-                </div>
-            </div>
-
-            <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
-                {isLoadingSales ? (
-                   <div className="flex flex-col items-center justify-center min-h-[400px] bg-white/50 backdrop-blur-sm rounded-[2rem] border border-slate-100">
-                        <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mb-4" />
-                        <p className="text-slate-500 font-medium animate-pulse">Fetching sales entries...</p>
-                    </div>
-                ) : (
-                    <DailySalesTable 
-                        sales={salesReport || []} 
-                        currencies={currencies || []} 
-                        consolidatedSymbol={consolidatedSymbol} 
-                        consolidatedRate={consolidatedRate} 
-                        currencyMode={currencyMode}
-                    />
-                )}
-            </div>
-        </Layout>
+    downloadExcel(
+      `/api/reports/export/sales/${companyId}?${params.toString()}`,
+      `Sales_Report_${format(new Date(), "yyyyMMdd")}.xlsx`,
     );
+  };
+
+  if (isLoadingActive) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+        </div>
+      </Layout>
+    );
+  }
+
+  return (
+    <Layout>
+      <div className="mb-4 flex flex-col md:flex-row justify-end items-start md:items-center gap-4">
+        <div className="flex flex-wrap items-center gap-3 bg-white/50 backdrop-blur-md p-2 rounded-[1.5rem] border border-slate-100 shadow-sm">
+          <div className="flex items-center gap-2 pl-2">
+            <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest">
+              Cashier:
+            </span>
+            <Select value={cashierId} onValueChange={setCashierId}>
+              <SelectTrigger className="w-[120px] h-8 text-xs font-bold border-none bg-slate-100/50 rounded-xl focus:ring-0">
+                <SelectValue placeholder="All Cashiers" />
+              </SelectTrigger>
+              <SelectContent className="rounded-xl border-slate-100 shadow-xl">
+                <SelectItem value="all" className="text-xs font-bold">
+                  All Cashiers
+                </SelectItem>
+                {companyUsers?.map((user) => (
+                  <SelectItem
+                    key={user.id}
+                    value={user.id}
+                    className="text-xs font-bold"
+                  >
+                    {user.username || user.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="h-6 w-px bg-slate-200" />
+
+          <div className="flex items-center gap-2 pl-2">
+            <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest">
+              Cost Center:
+            </span>
+            <Select value={ownerGroup} onValueChange={setOwnerGroup}>
+              <SelectTrigger className="w-[150px] h-8 text-xs font-bold border-none bg-slate-100/50 rounded-xl focus:ring-0">
+                <SelectValue placeholder="All Cost Centers" />
+              </SelectTrigger>
+              <SelectContent className="rounded-xl border-slate-100 shadow-xl">
+                <SelectItem value="all" className="text-xs font-bold">
+                  All Cost Centers
+                </SelectItem>
+                {costCenters.map((group) => (
+                  <SelectItem
+                    key={group}
+                    value={group}
+                    className="text-xs font-bold"
+                  >
+                    {group}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="h-6 w-px bg-slate-200" />
+
+          <div className="flex items-center gap-2 px-2">
+            <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest">
+              Mode:
+            </span>
+            <div className="flex bg-slate-100/50 p-0.5 rounded-xl border border-slate-200/20">
+              <button
+                onClick={() => setCurrencyMode("consolidated")}
+                className={cn(
+                  "px-3 py-1 text-[10px] font-bold rounded-lg transition-all",
+                  currencyMode === "consolidated"
+                    ? "bg-white text-indigo-600 shadow-sm"
+                    : "text-slate-400 hover:text-slate-600",
+                )}
+              >
+                Consolidated
+              </button>
+              <button
+                onClick={() => setCurrencyMode("original")}
+                className={cn(
+                  "px-3 py-1 text-[10px] font-bold rounded-lg transition-all",
+                  currencyMode === "original"
+                    ? "bg-white text-indigo-600 shadow-sm"
+                    : "text-slate-400 hover:text-slate-600",
+                )}
+              >
+                Original
+              </button>
+            </div>
+          </div>
+
+          <div className="h-6 w-px bg-slate-200" />
+
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest">
+              Base:
+            </span>
+            <Select
+              value={consolidatedCode}
+              onValueChange={setConsolidatedCode}
+            >
+              <SelectTrigger className="w-[80px] h-8 text-xs font-bold border-none bg-slate-100/50 rounded-xl focus:ring-0">
+                <SelectValue placeholder="USD" />
+              </SelectTrigger>
+              <SelectContent className="rounded-xl border-slate-100 shadow-xl">
+                <SelectItem value="USD" className="text-xs font-bold">
+                  USD
+                </SelectItem>
+                {currencies
+                  ?.filter((c) => c.code !== "USD")
+                  .map((c) => (
+                    <SelectItem
+                      key={c.id}
+                      value={c.code}
+                      className="text-xs font-bold"
+                    >
+                      {c.code}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="h-6 w-px bg-slate-200" />
+
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="ghost"
+                className={cn(
+                  "h-8 px-3 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl",
+                )}
+              >
+                <CalendarIcon className="mr-2 h-3.5 w-3.5 text-indigo-500" />
+                {format(dateRange.from, "MMM dd")} -{" "}
+                {format(dateRange.to, "MMM dd, yyyy")}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent
+              className="w-auto p-0 rounded-3xl border-none shadow-2xl"
+              align="end"
+            >
+              <Calendar
+                initialFocus
+                mode="range"
+                defaultMonth={dateRange.from}
+                selected={{ from: dateRange.from, to: dateRange.to }}
+                onSelect={(range: any) => {
+                  if (range?.from) {
+                    setDateRange({
+                      from: range.from,
+                      to: range.to || range.from,
+                    });
+                  }
+                }}
+                numberOfMonths={2}
+                className="rounded-3xl"
+              />
+            </PopoverContent>
+          </Popover>
+
+          <div className="h-6 w-px bg-slate-200" />
+
+          <div className="flex gap-1">
+            <Button
+              variant="ghost"
+              className="h-8 px-3 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl gap-2"
+              onClick={handleExportExcel}
+            >
+              <FileDown className="h-3.5 w-3.5 text-indigo-500" />
+              Excel
+            </Button>
+            <Button
+              variant="ghost"
+              className="h-8 px-3 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl gap-2"
+              onClick={() => window.print()}
+            >
+              <Printer className="h-3.5 w-3.5 text-indigo-500" />
+              Print
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
+        {isLoadingSales ? (
+          <div className="flex flex-col items-center justify-center min-h-[400px] bg-white/50 backdrop-blur-sm rounded-[2rem] border border-slate-100">
+            <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mb-4" />
+            <p className="text-slate-500 font-medium animate-pulse">
+              Fetching sales entries...
+            </p>
+          </div>
+        ) : (
+          <DailySalesTable
+            sales={salesReport || []}
+            currencies={currencies || []}
+            consolidatedSymbol={consolidatedSymbol}
+            consolidatedRate={consolidatedRate}
+            currencyMode={currencyMode}
+          />
+        )}
+      </div>
+    </Layout>
+  );
 }

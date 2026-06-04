@@ -64,10 +64,10 @@ export default function SettingsPage() {
         currency: activeCompany.currency || "USD",
         branchName: activeCompany.branchName || "",
         emailSettings: activeCompany.emailSettings || {
-          provider: 'resend',
-          apiKey: '',
-          fromEmail: '',
-          fromName: activeCompany.name || ''
+          provider: "resend",
+          apiKey: "",
+          fromEmail: "",
+          fromName: activeCompany.name || "",
         },
         posSettings: activeCompany.posSettings || {
           terminalId: "",
@@ -88,11 +88,14 @@ export default function SettingsPage() {
           silentPrinting: true,
           printServerUrl: "http://localhost:12312",
           printerName: "",
-          secondaryPrinterName: ""
+          secondaryPrinterName: "",
         },
         accountingSettings: activeCompany.accountingSettings || {},
-        inventoryValuationMethod: (activeCompany as any).inventoryValuationMethod || "WAC",
-        restaurantSettings: activeCompany.restaurantSettings || { enabled: false },
+        inventoryValuationMethod:
+          (activeCompany as any).inventoryValuationMethod || "WAC",
+        restaurantSettings: activeCompany.restaurantSettings || {
+          enabled: false,
+        },
         pharmacySettings: activeCompany.pharmacySettings || { enabled: false },
         busSettings: activeCompany.busSettings || DEFAULT_BUS_SETTINGS,
         appMode: normalizeAppMode((activeCompany as any).appMode),
@@ -104,7 +107,11 @@ export default function SettingsPage() {
   // Update URL when tabs change.
   useEffect(() => {
     const newUrl = `${window.location.pathname}?tab=${activeTab}`;
-    window.history.replaceState({ ...window.history.state, as: newUrl, url: newUrl }, '', newUrl);
+    window.history.replaceState(
+      { ...window.history.state, as: newUrl, url: newUrl },
+      "",
+      newUrl,
+    );
   }, [activeTab]);
 
   const handleGlobalSave = async () => {
@@ -112,20 +119,36 @@ export default function SettingsPage() {
       await updateCompany.mutateAsync(formData);
       toast({
         title: "Configuration Saved",
-        description: "Your organization settings have been updated successfully.",
-        className: "bg-slate-900 text-white border-none rounded-2xl"
+        description:
+          "Your organization settings have been updated successfully.",
+        className: "bg-slate-900 text-white border-none rounded-2xl",
       });
     } catch (err: any) {
       toast({
         title: "Save Failed",
         description: err.message || "An unexpected error occurred",
-        variant: "destructive"
+        variant: "destructive",
       });
     }
   };
 
-  if (isLoadingActive) return <Layout><div className="flex items-center justify-center h-[60vh]"><RefreshCw className="animate-spin w-8 h-8 text-slate-300" /></div></Layout>;
-  if (!activeCompany) return <Layout><div className="p-8">No company details available. Please select a company from the sidebar.</div></Layout>;
+  if (isLoadingActive)
+    return (
+      <Layout>
+        <div className="flex items-center justify-center h-[60vh]">
+          <RefreshCw className="animate-spin w-8 h-8 text-slate-300" />
+        </div>
+      </Layout>
+    );
+  if (!activeCompany)
+    return (
+      <Layout>
+        <div className="p-8">
+          No company details available. Please select a company from the
+          sidebar.
+        </div>
+      </Layout>
+    );
 
   const appMode = normalizeAppMode((activeCompany as any).appMode);
   const busSettings = normalizeBusSettings((activeCompany as any).busSettings);
@@ -139,7 +162,7 @@ export default function SettingsPage() {
         { id: "branches", label: "Branches" },
         { id: "team", label: "Team" },
         { id: "security", label: "Security" },
-      ]
+      ],
     },
     {
       title: "Financial",
@@ -148,14 +171,14 @@ export default function SettingsPage() {
         { id: "accounting", label: "Accounting" },
         { id: "inventory", label: "Inventory" },
         { id: "currencies", label: "Currencies" },
-      ]
+      ],
     },
     {
       title: "Fiscal (Tax)",
       items: [
         { id: "zimra", label: "ZIMRA Device" },
         { id: "tax", label: "Tax Config" },
-      ]
+      ],
     },
     {
       title: "Point of Sale",
@@ -164,15 +187,17 @@ export default function SettingsPage() {
         { id: "pos", label: "POS Terminal" },
         { id: "restaurant", label: "Restaurant" },
         { id: "bus-ticketing", label: "Bus Ticketing" },
-      ]
+      ],
     },
     {
       title: "System",
       items: [
         { id: "communication", label: "Communication" },
-        ...(activeCompany?.role === 'owner' ? [{ id: "maintenance", label: "Maintenance" }] : [])
-      ]
-    }
+        ...(activeCompany?.role === "owner"
+          ? [{ id: "maintenance", label: "Maintenance" }]
+          : []),
+      ],
+    },
   ];
   const busOnlyMenuGroups = [
     {
@@ -180,8 +205,8 @@ export default function SettingsPage() {
       items: [
         { id: "app-mode", label: "App Mode" },
         { id: "bus-ticketing", label: "Bus Ticketing" },
-      ]
-    }
+      ],
+    },
   ];
   const menuGroups = isBusOnlyMode ? busOnlyMenuGroups : standardMenuGroups;
   const settingsTabs = menuGroups.flatMap((group) => group.items);
@@ -190,34 +215,118 @@ export default function SettingsPage() {
 
   const renderContent = () => {
     switch (visibleActiveTab) {
-      case 'profile': return <OrganizationProfile company={activeCompany} formData={formData} setFormData={setFormData} />;
-      case 'branches': return <BranchManagement companyId={activeCompany.id} />;
-      case 'team': return <TeamManagement companyId={activeCompany.id} />;
-      case 'security': return <SecuritySettings company={activeCompany} />;
-      case 'banking': return <BankingSettings formData={formData} setFormData={setFormData} />;
-      case 'accounting': return <AccountingSystemSettings companyId={activeCompany.id} formData={formData} setFormData={setFormData} />;
-      case 'inventory': return <InventorySettings formData={formData} setFormData={setFormData} />;
-      case 'currencies': return <CurrencySettings companyId={activeCompany.id} />;
-      case 'tax': return <TaxComplianceSettings companyId={activeCompany.id} formData={formData} setFormData={setFormData} />;
-      case 'zimra': return <ZimraDeviceSettings company={activeCompany} />;
-      case 'app-mode': return <AppModeSettings formData={formData} setFormData={setFormData} onSave={async (data) => {
-        await updateCompany.mutateAsync(data);
-        toast({
-          title: "App mode saved",
-          description: "Mobile and admin menus will update after refresh.",
-          className: "bg-slate-900 text-white border-none rounded-2xl"
-        });
-      }} />;
-      case 'pos': return <PosTerminalSettings companyId={activeCompany.id} formData={formData} setFormData={setFormData} />;
-      case 'restaurant': return <RestaurantSettings company={activeCompany} onUpdate={async (data) => { await updateCompany.mutateAsync(data); }} />;
-      case 'bus-ticketing': return <BusTicketingSettings formData={formData} setFormData={setFormData} />;
-      case 'communication': return <CommunicationSettings formData={formData} setFormData={setFormData} />;
-      case 'maintenance': return <MaintenanceSettings company={activeCompany} />;
-      default: return <OrganizationProfile company={activeCompany} formData={formData} setFormData={setFormData} />;
+      case "profile":
+        return (
+          <OrganizationProfile
+            company={activeCompany}
+            formData={formData}
+            setFormData={setFormData}
+          />
+        );
+      case "branches":
+        return <BranchManagement companyId={activeCompany.id} />;
+      case "team":
+        return <TeamManagement companyId={activeCompany.id} />;
+      case "security":
+        return <SecuritySettings company={activeCompany} />;
+      case "banking":
+        return (
+          <BankingSettings formData={formData} setFormData={setFormData} />
+        );
+      case "accounting":
+        return (
+          <AccountingSystemSettings
+            companyId={activeCompany.id}
+            formData={formData}
+            setFormData={setFormData}
+          />
+        );
+      case "inventory":
+        return (
+          <InventorySettings formData={formData} setFormData={setFormData} />
+        );
+      case "currencies":
+        return <CurrencySettings companyId={activeCompany.id} />;
+      case "tax":
+        return (
+          <TaxComplianceSettings
+            companyId={activeCompany.id}
+            formData={formData}
+            setFormData={setFormData}
+          />
+        );
+      case "zimra":
+        return <ZimraDeviceSettings company={activeCompany} />;
+      case "app-mode":
+        return (
+          <AppModeSettings
+            formData={formData}
+            setFormData={setFormData}
+            onSave={async (data) => {
+              await updateCompany.mutateAsync(data);
+              toast({
+                title: "App mode saved",
+                description:
+                  "Mobile and admin menus will update after refresh.",
+                className: "bg-slate-900 text-white border-none rounded-2xl",
+              });
+            }}
+          />
+        );
+      case "pos":
+        return (
+          <PosTerminalSettings
+            companyId={activeCompany.id}
+            formData={formData}
+            setFormData={setFormData}
+          />
+        );
+      case "restaurant":
+        return (
+          <RestaurantSettings
+            company={activeCompany}
+            onUpdate={async (data) => {
+              await updateCompany.mutateAsync(data);
+            }}
+          />
+        );
+      case "bus-ticketing":
+        return (
+          <BusTicketingSettings formData={formData} setFormData={setFormData} />
+        );
+      case "communication":
+        return (
+          <CommunicationSettings
+            formData={formData}
+            setFormData={setFormData}
+          />
+        );
+      case "maintenance":
+        return <MaintenanceSettings company={activeCompany} />;
+      default:
+        return (
+          <OrganizationProfile
+            company={activeCompany}
+            formData={formData}
+            setFormData={setFormData}
+          />
+        );
     }
   };
 
-  const showGlobalSave = ['profile', 'banking', 'accounting', 'inventory', 'tax', 'app-mode', 'pos', 'communication', 'restaurant', 'bus-ticketing', 'maintenance'].includes(visibleActiveTab);
+  const showGlobalSave = [
+    "profile",
+    "banking",
+    "accounting",
+    "inventory",
+    "tax",
+    "app-mode",
+    "pos",
+    "communication",
+    "restaurant",
+    "bus-ticketing",
+    "maintenance",
+  ].includes(visibleActiveTab);
 
   return (
     <Layout>
@@ -227,9 +336,13 @@ export default function SettingsPage() {
             <Button
               onClick={handleGlobalSave}
               disabled={updateCompany.isPending}
-              className="h-9 rounded-[10px] bg-[#2563EB] px-3.5 text-sm font-semibold text-white hover:bg-[#1D4ED8]"
+              className="h-9 rounded-[10px] bg-[#2563EB] px-3.5  font-semibold text-white hover:bg-[#1D4ED8]"
             >
-              {updateCompany.isPending ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+              {updateCompany.isPending ? (
+                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="mr-2 h-4 w-4" />
+              )}
               Save Changes
             </Button>
           )}
@@ -241,7 +354,7 @@ export default function SettingsPage() {
               <button
                 key={item.id}
                 onClick={() => setActiveTab(item.id)}
-                className={`relative h-10 shrink-0 whitespace-nowrap text-sm font-semibold transition-colors ${
+                className={`relative h-10 shrink-0 whitespace-nowrap  font-semibold transition-colors ${
                   visibleActiveTab === item.id
                     ? "text-[#2563EB] after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:rounded-full after:bg-[#2563EB]"
                     : "text-[#64748B] hover:text-[#0F172A]"
@@ -271,4 +384,3 @@ export default function SettingsPage() {
     </Layout>
   );
 }
-

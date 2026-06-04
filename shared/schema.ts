@@ -2043,3 +2043,1075 @@ export type InsertSupplierPayment = z.infer<typeof insertSupplierPaymentSchema>;
 export const insertSupplierPaymentAllocationSchema = createInsertSchema(supplierPaymentAllocations).omit({ id: true, allocatedAt: true, reversedAt: true, reversalReason: true });
 export type SupplierPaymentAllocation = typeof supplierPaymentAllocations.$inferSelect;
 export type InsertSupplierPaymentAllocation = z.infer<typeof insertSupplierPaymentAllocationSchema>;
+
+// ==========================================
+// --- HR AND PAYROLL SYSTEM SCHEMAS ---
+// ==========================================
+
+// 1. National Employment Council (NEC) Sectors Configuration
+export const necSectorsConfig = pgTable("nec_sectors_config", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id), // Nullable for system-wide presets
+  name: text("name").notNull(), // e.g. NEC Commercial Sector, NEC Construction, NEC Catering
+  code: text("code").notNull(),
+  employeeRate: decimal("employee_rate", { precision: 5, scale: 4 }).default("0.0000").notNull(), // e.g. 0.0100 for 1%
+  employerRate: decimal("employer_rate", { precision: 5, scale: 4 }).default("0.0000").notNull(),
+  fixedAmount: decimal("fixed_amount", { precision: 15, scale: 2 }).default("0.00").notNull(), // For flat fees
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  companyNecIdx: index("nec_sectors_company_idx").on(table.companyId),
+}));
+
+// 2. Departments Configuration
+export const departments = pgTable("departments", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  name: text("name").notNull(),
+  code: text("code"),
+  glAccountId: integer("gl_account_id").references(() => accounts.id), // Direct payroll expense mapping
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  companyDeptIdx: index("departments_company_idx").on(table.companyId),
+}));
+
+// 3. Positions Configuration
+export const positions = pgTable("positions", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  title: text("title").notNull(),
+  grade: text("grade"), // e.g. D1, C3 (used for Grade-based/NEC payslips)
+  necCategory: text("nec_category"), // National Employment Council classification
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  companyPosIdx: index("positions_company_idx").on(table.companyId),
+}));
+
+// 3B. Pay Grades / NEC Bands
+export const payrollPayGrades = pgTable("payroll_pay_grades", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  salaryStructureId: integer("salary_structure_id"),
+  code: text("code").notNull(),
+  name: text("name").notNull(),
+  currency: text("currency").default("USD").notNull(),
+  payFrequency: text("pay_frequency").default("MONTHLY").notNull(),
+  minSalary: decimal("min_salary", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  midpointSalary: decimal("midpoint_salary", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  maxSalary: decimal("max_salary", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  necSectorId: integer("nec_sector_id").references(() => necSectorsConfig.id),
+  effectiveFrom: date("effective_from").notNull(),
+  effectiveTo: date("effective_to"),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  companyGradeUnique: unique("payroll_pay_grades_company_code_unique").on(table.companyId, table.code),
+  companyGradeIdx: index("payroll_pay_grades_company_idx").on(table.companyId),
+}));
+
+// 4. Employee Directory
+export const employees = pgTable("employees", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  branchId: integer("branch_id").references(() => branches.id).notNull(),
+  departmentId: integer("department_id").references(() => departments.id),
+  positionId: integer("position_id").references(() => positions.id),
+  
+  employeeNumber: text("employee_number").notNull(), // User-facing identifier
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name").notNull(),
+  email: text("email"),
+  phone: text("phone"),
+  
+  // Compliance identifiers
+  nationalId: text("national_id").notNull(), // ID number in format: 12-345678X90
+  nssaNumber: text("nssa_number"),
+  zimraTaxNumber: text("zimra_tax_number"),
+  
+  // Banking details
+  bankName: text("bank_name"),
+  bankBranch: text("bank_branch"),
+  bankAccountNumber: text("bank_account_number"),
+  ecocashNumber: text("ecocash_number"), // Wallet details
+  
+  // Personal Details
+  emergencyContactName: text("emergency_contact_name"),
+  emergencyContactPhone: text("emergency_contact_phone"),
+  status: text("status").default("ACTIVE").notNull(), // ACTIVE, INACTIVE, SUSPENDED, TERMINATED
+  joiningDate: date("joining_date").notNull(),
+  terminationDate: date("termination_date"),
+  
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  companyEmpUnique: unique("employees_company_emp_no_unique").on(table.companyId, table.employeeNumber),
+  companyIdx: index("employees_company_idx").on(table.companyId),
+  branchIdx: index("employees_branch_idx").on(table.branchId),
+  statusIdx: index("employees_status_idx").on(table.status),
+}));
+
+// 5. Employee Contracts (Finance Act Compliant Split-Currency Configuration)
+export const employeeContracts = pgTable("employee_contracts", {
+  id: serial("id").primaryKey(),
+  employeeId: integer("employee_id").references(() => employees.id).notNull(),
+  contractType: text("contract_type").default("PERMANENT").notNull(), // PERMANENT, FIXED_TERM, CASUAL
+  startDate: date("start_date").notNull(),
+  endDate: date("end_date"),
+  payFrequency: text("pay_frequency").default("MONTHLY").notNull(), // MONTHLY, WEEKLY, FORTNIGHTLY, DAILY
+  baseSalary: decimal("base_salary", { precision: 15, scale: 2 }).notNull(), // Total base salary in base contract currency
+  currency: text("currency").default("USD").notNull(), // USD, ZiG, or SPLIT
+  
+  // Split Currency Multi-Currency Ratio Allocations
+  usdPercentage: decimal("usd_percentage", { precision: 5, scale: 2 }).default("100.00").notNull(), // e.g. 70.00
+  zigPercentage: decimal("zig_percentage", { precision: 5, scale: 2 }).default("0.00").notNull(),   // e.g. 30.00
+  
+  payGradeId: integer("pay_grade_id").references(() => payrollPayGrades.id),
+  necSectorId: integer("nec_sector_id").references(() => necSectorsConfig.id), // Link to selected NEC config
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  employeeContractIdx: index("employee_contracts_employee_idx").on(table.employeeId),
+}));
+
+// 6. Statutory Configurations (Administratively configurable tax tables)
+export const taxTablesConfig = pgTable("tax_tables_config", {
+  id: serial("id").primaryKey(),
+  currency: text("currency").default("USD").notNull(), // USD or ZiG
+  effectiveFrom: date("effective_from").notNull(),
+  effectiveTo: date("effective_to"),
+  
+  // Tax bracket definitions stored as JSONB array of objects:
+  // [{ min: 0, max: 100, rate: 0, deduction: 0 }, { min: 101, max: 500, rate: 20, deduction: 20.20 }]
+  brackets: jsonb("brackets").notNull(), 
+  
+  // NSSA configurations
+  nssaRateEmployee: decimal("nssa_rate_employee", { precision: 5, scale: 4 }).default("0.0450").notNull(), // 4.5%
+  nssaRateEmployer: decimal("nssa_rate_employer", { precision: 5, scale: 4 }).default("0.0450").notNull(), // 4.5%
+  nssaCeilingLimit: decimal("nssa_ceiling_limit", { precision: 15, scale: 2 }).notNull(), // Max monthly salary base subject to NSSA
+  
+  // AIDS Levy
+  aidsLevyRate: decimal("aids_levy_rate", { precision: 5, scale: 4 }).default("0.0300").notNull(), // 3.0% of PAYE
+  
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  currencyPeriodIdx: index("tax_tables_currency_period_idx").on(table.currency, table.effectiveFrom),
+}));
+
+// 6B. Normalized PAYE tables and tax bands
+export const payrollTaxTables = pgTable("payroll_tax_tables", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id),
+  countryCode: text("country_code").default("ZW").notNull(),
+  currency: text("currency").default("USD").notNull(),
+  taxYear: integer("tax_year").notNull(),
+  payFrequency: text("pay_frequency").default("MONTHLY").notNull(),
+  effectiveFrom: date("effective_from").notNull(),
+  effectiveTo: date("effective_to"),
+  version: integer("version").default(1).notNull(),
+  sourceReference: text("source_reference"),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  companyTaxTableIdx: index("payroll_tax_tables_company_idx").on(table.companyId),
+  taxTableLookupIdx: index("payroll_tax_tables_lookup_idx").on(table.countryCode, table.currency, table.payFrequency, table.effectiveFrom),
+}));
+
+export const payrollTaxBrackets = pgTable("payroll_tax_brackets", {
+  id: serial("id").primaryKey(),
+  taxTableId: integer("tax_table_id").references(() => payrollTaxTables.id).notNull(),
+  bracketOrder: integer("bracket_order").notNull(),
+  minIncome: decimal("min_income", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  maxIncome: decimal("max_income", { precision: 15, scale: 2 }),
+  rate: decimal("rate", { precision: 8, scale: 6 }).default("0.000000").notNull(),
+  deduction: decimal("deduction", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  baseTax: decimal("base_tax", { precision: 15, scale: 2 }).default("0.00").notNull(),
+}, (table) => ({
+  taxTableBracketIdx: index("payroll_tax_brackets_table_idx").on(table.taxTableId, table.bracketOrder),
+}));
+
+// 6C. Statutory rule registry for NSSA, AIDS levy, NEC and future Zimbabwe rules
+export const payrollStatutoryRules = pgTable("payroll_statutory_rules", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id),
+  countryCode: text("country_code").default("ZW").notNull(),
+  ruleCode: text("rule_code").notNull(), // PAYE, AIDS_LEVY, NSSA_POBS, NEC, APWCS, PENSION
+  name: text("name").notNull(),
+  currency: text("currency").default("USD").notNull(),
+  payFrequency: text("pay_frequency").default("MONTHLY").notNull(),
+  employeeRate: decimal("employee_rate", { precision: 8, scale: 6 }).default("0.000000").notNull(),
+  employerRate: decimal("employer_rate", { precision: 8, scale: 6 }).default("0.000000").notNull(),
+  ceilingAmount: decimal("ceiling_amount", { precision: 15, scale: 2 }),
+  floorAmount: decimal("floor_amount", { precision: 15, scale: 2 }),
+  calculationBasis: text("calculation_basis").default("TAXABLE_INCOME").notNull(),
+  formula: text("formula"),
+  metadata: jsonb("metadata").default({}).notNull(),
+  effectiveFrom: date("effective_from").notNull(),
+  effectiveTo: date("effective_to"),
+  version: integer("version").default(1).notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  statutoryRuleLookupIdx: index("payroll_statutory_rules_lookup_idx").on(table.countryCode, table.ruleCode, table.currency, table.payFrequency, table.effectiveFrom),
+  statutoryRuleCompanyIdx: index("payroll_statutory_rules_company_idx").on(table.companyId),
+}));
+
+// 6D. Configurable earning and deduction definitions
+export const payrollEarningTypes = pgTable("payroll_earning_types", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id),
+  countryCode: text("country_code").default("ZW").notNull(),
+  code: text("code").notNull(),
+  name: text("name").notNull(),
+  category: text("category").default("ALLOWANCE").notNull(), // BASIC, ALLOWANCE, BENEFIT, OVERTIME, BONUS, COMMISSION, BACK_PAY, LEAVE_PAY
+  taxTreatment: text("tax_treatment").default("TAXABLE").notNull(), // TAXABLE, NON_TAXABLE, PARTIAL
+  taxablePercentage: decimal("taxable_percentage", { precision: 5, scale: 2 }).default("100.00").notNull(),
+  isPensionable: boolean("is_pensionable").default(false).notNull(),
+  isNssaApplicable: boolean("is_nssa_applicable").default(false).notNull(),
+  isRecurring: boolean("is_recurring").default(false).notNull(),
+  calculationMethod: text("calculation_method").default("FIXED").notNull(), // FIXED, PERCENTAGE, FORMULA
+  formula: text("formula"),
+  glAccountId: integer("gl_account_id").references(() => accounts.id),
+  effectiveFrom: date("effective_from").notNull(),
+  effectiveTo: date("effective_to"),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  earningTypeCompanyCodeIdx: index("payroll_earning_types_company_code_idx").on(table.companyId, table.code),
+}));
+
+export const payrollDeductionTypes = pgTable("payroll_deduction_types", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id),
+  countryCode: text("country_code").default("ZW").notNull(),
+  code: text("code").notNull(),
+  name: text("name").notNull(),
+  category: text("category").default("COMPANY").notNull(), // STATUTORY, COMPANY, PENSION, LOAN, GARNISHEE
+  timing: text("timing").default("POST_TAX").notNull(), // PRE_TAX, POST_TAX, STATUTORY
+  contributionSide: text("contribution_side").default("EMPLOYEE").notNull(), // EMPLOYEE, EMPLOYER, BOTH
+  calculationMethod: text("calculation_method").default("FIXED").notNull(), // FIXED, PERCENTAGE, FORMULA
+  formula: text("formula"),
+  employeeRate: decimal("employee_rate", { precision: 8, scale: 6 }).default("0.000000").notNull(),
+  employerRate: decimal("employer_rate", { precision: 8, scale: 6 }).default("0.000000").notNull(),
+  maxAmount: decimal("max_amount", { precision: 15, scale: 2 }),
+  priorityOrder: integer("priority_order").default(100).notNull(),
+  glAccountId: integer("gl_account_id").references(() => accounts.id),
+  effectiveFrom: date("effective_from").notNull(),
+  effectiveTo: date("effective_to"),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  deductionTypeCompanyCodeIdx: index("payroll_deduction_types_company_code_idx").on(table.companyId, table.code),
+  deductionTypePriorityIdx: index("payroll_deduction_types_priority_idx").on(table.priorityOrder),
+}));
+
+export const payrollSalaryStructures = pgTable("payroll_salary_structures", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  code: text("code").notNull(),
+  name: text("name").notNull(),
+  currency: text("currency").default("USD").notNull(),
+  payFrequency: text("pay_frequency").default("MONTHLY").notNull(),
+  defaultEarningTypeIds: jsonb("default_earning_type_ids").default([]).notNull(),
+  defaultDeductionTypeIds: jsonb("default_deduction_type_ids").default([]).notNull(),
+  effectiveFrom: date("effective_from").notNull(),
+  effectiveTo: date("effective_to"),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  salaryStructureUnique: unique("payroll_salary_structures_company_code_unique").on(table.companyId, table.code),
+}));
+
+export const payrollPayGradeSteps = pgTable("payroll_pay_grade_steps", {
+  id: serial("id").primaryKey(),
+  payGradeId: integer("pay_grade_id").references(() => payrollPayGrades.id).notNull(),
+  stepCode: text("step_code").notNull(),
+  stepName: text("step_name").notNull(),
+  salaryAmount: decimal("salary_amount", { precision: 15, scale: 2 }).notNull(),
+  progressionMonths: integer("progression_months"),
+  isActive: boolean("is_active").default(true).notNull(),
+}, (table) => ({
+  payGradeStepIdx: index("payroll_pay_grade_steps_grade_idx").on(table.payGradeId),
+}));
+
+export const employeePayrollProfiles = pgTable("employee_payroll_profiles", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  employeeId: integer("employee_id").references(() => employees.id).notNull(),
+  salaryStructureId: integer("salary_structure_id").references(() => payrollSalaryStructures.id),
+  payGradeId: integer("pay_grade_id").references(() => payrollPayGrades.id),
+  payGradeStepId: integer("pay_grade_step_id").references(() => payrollPayGradeSteps.id),
+  payFrequency: text("pay_frequency").default("MONTHLY").notNull(),
+  currency: text("currency").default("USD").notNull(),
+  isNssaExempt: boolean("is_nssa_exempt").default(false).notNull(),
+  isPayeExempt: boolean("is_paye_exempt").default(false).notNull(),
+  taxCreditAmount: decimal("tax_credit_amount", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  effectiveFrom: date("effective_from").notNull(),
+  effectiveTo: date("effective_to"),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  employeePayrollProfileIdx: index("employee_payroll_profiles_employee_idx").on(table.employeeId),
+  companyPayrollProfileIdx: index("employee_payroll_profiles_company_idx").on(table.companyId),
+}));
+
+// 7. Recurring Earnings and Deductions (Salary templates per employee)
+export const payrollRecurringItems = pgTable("payroll_recurring_items", {
+  id: serial("id").primaryKey(),
+  employeeId: integer("employee_id").references(() => employees.id).notNull(),
+  type: text("type").notNull(), // ALLOWANCE, DEDUCTION
+  name: text("name").notNull(), // e.g. Transport Allowance, Pension Scheme
+  amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
+  isTaxable: boolean("is_taxable").default(true).notNull(), // Relevant for Allowances
+  isTaxDeductible: boolean("is_tax_deductible").default(false).notNull(), // Relevant for Deductions (e.g. Pension)
+  startDate: date("start_date").notNull(),
+  endDate: date("end_date"),
+  isActive: boolean("is_active").default(true).notNull(),
+}, (table) => ({
+  employeeRecurIdx: index("payroll_recurring_employee_idx").on(table.employeeId),
+}));
+
+// 8. Payroll Processing Runs (The monthly or weekly batch container)
+export const payrollRuns = pgTable("payroll_runs", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  branchId: integer("branch_id").references(() => branches.id), // Nullable for global run
+  periodStart: date("period_start").notNull(),
+  periodEnd: date("period_end").notNull(),
+  payFrequency: text("pay_frequency").default("MONTHLY").notNull(), // MONTHLY, WEEKLY
+  currency: text("currency").default("USD").notNull(),
+  exchangeRate: decimal("exchange_rate", { precision: 15, scale: 6 }).default("1.000000").notNull(), // Target exchange rate USD->ZiG for this run
+  
+  status: text("status").default("DRAFT").notNull(), // DRAFT, REVIEW, APPROVED, LOCKED, REVERSED
+  version: integer("version").default(1).notNull(),
+  reversalOfRunId: integer("reversal_of_run_id"), // Points to run being reversed
+  
+  // Aggregate calculation metrics
+  totalBasic: decimal("total_basic", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  totalGross: decimal("total_gross", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  totalDeductions: decimal("total_deductions", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  totalNet: decimal("total_net", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  
+  approvedBy: uuid("approved_by").references(() => users.id),
+  approvedAt: timestamp("approved_at"),
+  lockedBy: uuid("locked_by").references(() => users.id),
+  lockedAt: timestamp("locked_at"),
+  journalEntryId: integer("journal_entry_id").references(() => journalEntries.id),
+  
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  companyPeriodIdx: index("payroll_runs_company_period_idx").on(table.companyId, table.periodStart, table.periodEnd),
+  statusIdx: index("payroll_runs_status_idx").on(table.status),
+}));
+
+// 9. Payroll Run Employee Lines (The calculated payslip data)
+export const payrollRunEmployees = pgTable("payroll_run_employees", {
+  id: serial("id").primaryKey(),
+  payrollRunId: integer("payroll_run_id").references(() => payrollRuns.id).notNull(),
+  employeeId: integer("employee_id").references(() => employees.id).notNull(),
+  
+  // Calculated financial data (expressed in base run currency)
+  basicSalary: decimal("basic_salary", { precision: 15, scale: 2 }).notNull(),
+  grossSalary: decimal("gross_salary", { precision: 15, scale: 2 }).notNull(),
+  netSalary: decimal("net_salary", { precision: 15, scale: 2 }).notNull(),
+  
+  // Statutory deductions breakdowns
+  paye: decimal("paye", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  aidsLevy: decimal("aids_levy", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  nssaEmployee: decimal("nssa_employee", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  nssaEmployer: decimal("nssa_employer", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  necEmployee: decimal("nec_employee", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  necEmployer: decimal("nec_employer", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  pensionEmployee: decimal("pension_employee", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  pensionEmployer: decimal("pension_employer", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  
+  // Finance Act Compliant Multi-Currency Split Allocations
+  usdPercentage: decimal("usd_percentage", { precision: 5, scale: 2 }).default("100.00").notNull(),
+  zigPercentage: decimal("zig_percentage", { precision: 5, scale: 2 }).default("0.00").notNull(),
+  
+  netSalaryUsd: decimal("net_salary_usd", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  netSalaryZig: decimal("net_salary_zig", { precision: 15, scale: 2 }).default("0.00").notNull(), // Split net in ZiG
+  payeUsd: decimal("paye_usd", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  payeZig: decimal("paye_zig", { precision: 15, scale: 2 }).default("0.00").notNull(), // Split PAYE remittable in ZiG
+  nssaEmployeeUsd: decimal("nssa_employee_usd", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  nssaEmployeeZig: decimal("nssa_employee_zig", { precision: 15, scale: 2 }).default("0.00").notNull(), // Split NSSA in ZiG
+  
+  totalAllowances: decimal("total_allowances", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  totalDeductions: decimal("total_deductions", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  
+  // Payment status
+  isPaid: boolean("is_paid").default(false).notNull(),
+  paidAt: timestamp("paid_at"),
+  paymentReference: text("payment_reference"),
+  
+  // Snapshot Data for audit trail - Stores formulas, rates, tax tables used, and custom variances
+  snapshotData: jsonb("snapshot_data").notNull(), 
+  
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  runIdx: index("payroll_run_employees_run_idx").on(table.payrollRunId),
+  employeeIdx: index("payroll_run_employees_employee_idx").on(table.employeeId),
+}));
+
+// 10. Payroll Allowances (Individual line details per payslip)
+export const payrollAllowances = pgTable("payroll_allowances", {
+  id: serial("id").primaryKey(),
+  payrollRunEmployeeId: integer("payroll_run_employee_id").references(() => payrollRunEmployees.id).notNull(),
+  name: text("name").notNull(), // e.g. Transport Allowance
+  amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
+  isTaxable: boolean("is_taxable").default(true).notNull(),
+  isCash: boolean("is_cash").default(true).notNull(), // fringe benefits vs monetary payments
+  allowanceType: text("allowance_type").default("OTHER").notNull(), // TRANSPORT, HOUSING, AIRTIME, BONUS, COMMISSION, OVERTIME, OTHER
+}, (table) => ({
+  payrollEmployeeIdx: index("payroll_allowances_employee_line_idx").on(table.payrollRunEmployeeId),
+}));
+
+// 11. Payroll Deductions (Individual deduction lines per payslip)
+export const payrollDeductions = pgTable("payroll_deductions", {
+  id: serial("id").primaryKey(),
+  payrollRunEmployeeId: integer("payroll_run_employee_id").references(() => payrollRunEmployees.id).notNull(),
+  name: text("name").notNull(),
+  amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
+  isTaxDeductible: boolean("is_tax_deductible").default(false).notNull(),
+  deductionType: text("deduction_type").default("OTHER").notNull(), // NSSA, PAYE, AIDS_LEVY, PENSION, NEC, LOAN_REPAYMENT, GARNISHEE, OTHER
+}, (table) => ({
+  payrollEmployeeIdx: index("payroll_deductions_employee_line_idx").on(table.payrollRunEmployeeId),
+}));
+
+// 12. Leave Requests & Encashment
+export const leaveRequests = pgTable("leave_requests", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  employeeId: integer("employee_id").references(() => employees.id).notNull(),
+  leaveType: text("leave_type").default("ANNUAL").notNull(), // ANNUAL, SICK, MATERNITY, COMPASSIONATE, UNPAID, CUSTOM
+  startDate: date("start_date").notNull(),
+  endDate: date("end_date").notNull(),
+  totalDays: integer("total_days").notNull(),
+  reason: text("reason"),
+  attachmentUrl: text("attachment_url"), // For sick sheets / medical certificates
+  status: text("status").default("PENDING").notNull(), // PENDING, APPROVED, REJECTED, CANCELLED
+  
+  // Encashment properties
+  encashmentDays: integer("encashment_days").default(0).notNull(),
+  encashmentAmount: decimal("encashment_amount", { precision: 15, scale: 2 }),
+  
+  approvedBy: uuid("approved_by").references(() => users.id),
+  approvedAt: timestamp("approved_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  companyLeaveIdx: index("leave_requests_company_idx").on(table.companyId),
+  employeeLeaveIdx: index("leave_requests_employee_idx").on(table.employeeId),
+}));
+
+// 13. Leave Balances Tracker
+export const leaveBalances = pgTable("leave_balances", {
+  id: serial("id").primaryKey(),
+  employeeId: integer("employee_id").references(() => employees.id).notNull(),
+  leaveType: text("leave_type").default("ANNUAL").notNull(),
+  accruedDays: decimal("accrued_days", { precision: 5, scale: 2 }).default("0.00").notNull(),
+  usedDays: decimal("used_days", { precision: 5, scale: 2 }).default("0.00").notNull(),
+  pendingDays: decimal("pending_days", { precision: 5, scale: 2 }).default("0.00").notNull(),
+  availableDays: decimal("available_days", { precision: 5, scale: 2 }).default("0.00").notNull(),
+  lastAccruedAt: timestamp("last_accrued_at").defaultNow(),
+}, (table) => ({
+  employeeLeaveTypeIdx: index("leave_balances_employee_type_idx").on(table.employeeId, table.leaveType),
+}));
+
+// 14. Loans & Advances Registry
+export const employeeLoans = pgTable("employee_loans", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  employeeId: integer("employee_id").references(() => employees.id).notNull(),
+  principalAmount: decimal("principal_amount", { precision: 15, scale: 2 }).notNull(),
+  interestRate: decimal("interest_rate", { precision: 5, scale: 2 }).default("0.00").notNull(), // Annual interest rate
+  repaymentTermMonths: integer("repayment_term_months").notNull(),
+  monthlyRepaymentAmount: decimal("monthly_repayment_amount", { precision: 15, scale: 2 }).notNull(),
+  remainingBalance: decimal("remaining_balance", { precision: 15, scale: 2 }).notNull(),
+  status: text("status").default("PENDING").notNull(), // PENDING, APPROVED, DISBURSED, ACTIVE, COMPLETED, WRITTEN_OFF
+  
+  disbursedDate: date("disbursed_date"),
+  approvedBy: uuid("approved_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  companyLoanIdx: index("employee_loans_company_idx").on(table.companyId),
+  employeeLoanIdx: index("employee_loans_employee_idx").on(table.employeeId),
+}));
+
+// 15. Loan Installments (Audit ledger of repayments)
+export const loanInstallments = pgTable("loan_installments", {
+  id: serial("id").primaryKey(),
+  loanId: integer("loan_id").references(() => employeeLoans.id).notNull(),
+  payrollRunEmployeeId: integer("payroll_run_employee_id").references(() => payrollRunEmployees.id), // Nullable if manual deposit
+  amountPaid: decimal("amount_paid", { precision: 15, scale: 2 }).notNull(),
+  principalPaid: decimal("principal_paid", { precision: 15, scale: 2 }).notNull(),
+  interestPaid: decimal("interest_paid", { precision: 15, scale: 2 }).notNull(),
+  remainingBalanceAfter: decimal("remaining_balance_after", { precision: 15, scale: 2 }).notNull(),
+  repaymentDate: timestamp("repayment_date").defaultNow(),
+}, (table) => ({
+  loanIdx: index("loan_installments_loan_idx").on(table.loanId),
+}));
+
+// 16. HR Disciplinary Records
+export const disciplinaryRecords = pgTable("disciplinary_records", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  employeeId: integer("employee_id").references(() => employees.id).notNull(),
+  incidentDate: date("incident_date").notNull(),
+  offenseType: text("offense_type").notNull(), // e.g. Absenteeism, Negligence
+  description: text("description").notNull(),
+  actionTaken: text("action_taken").notNull(), // WARNING, SUSPENSION, WRITTEN_WARNING, TERMINATION
+  status: text("status").default("ACTIVE").notNull(), // ACTIVE, APPEALED, RESOLVED
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  companyDiscIdx: index("disciplinary_records_company_idx").on(table.companyId),
+}));
+
+// 17. HR Employee Assigned Assets
+export const assignedAssets = pgTable("assigned_assets", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  employeeId: integer("employee_id").references(() => employees.id), // Nullable when in pool
+  assetName: text("asset_name").notNull(),
+  serialNumber: text("serial_number"),
+  value: decimal("value", { precision: 15, scale: 2 }),
+  assignedDate: date("assigned_date"),
+  returnedDate: date("returned_date"),
+  condition: text("condition").default("GOOD").notNull(), // GOOD, FAIR, DAMAGED
+}, (table) => ({
+  companyAssetIdx: index("assigned_assets_company_idx").on(table.companyId),
+}));
+
+// 18. Payment Batches (Compilation for bank export files)
+export const paymentBatches = pgTable("payment_batches", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  name: text("name").notNull(), // e.g. May 2026 Salary Batch
+  paymentMethod: text("payment_method").default("BANK_TRANSFER").notNull(), // BANK_TRANSFER, ECOCASH, ZIPIT
+  currency: text("currency").default("USD").notNull(),
+  totalAmount: decimal("total_amount", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  status: text("status").default("DRAFT").notNull(), // DRAFT, COMPILED, TRANSMITTED, PAID, FAILED
+  exportedAt: timestamp("exported_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  companyBatchIdx: index("payment_batches_company_idx").on(table.companyId),
+}));
+
+// 19. Payment Batch Details (Mapping payslips to batches)
+export const paymentBatchDetails = pgTable("payment_batch_details", {
+  id: serial("id").primaryKey(),
+  batchId: integer("batch_id").references(() => paymentBatches.id).notNull(),
+  payrollRunEmployeeId: integer("payroll_run_employee_id").references(() => payrollRunEmployees.id).notNull(),
+  amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
+  status: text("status").default("PENDING").notNull(), // PENDING, SUCCESS, FAILED
+  failureReason: text("failure_reason"),
+}, (table) => ({
+  batchIdx: index("payment_batch_details_batch_idx").on(table.batchId),
+}));
+
+// 20. Tenant Integration Credentials Vault (Secure encrypted settings)
+export const tenantIntegrationCredentials = pgTable("tenant_integration_credentials", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  integrationType: text("integration_type").notNull(), // ECOCASH_BULK_PAYOUT, ZIPIT_GATEWAY, BANK_API
+  credentialData: text("credential_data").notNull(), // AES-256-GBC encrypted JSON config string containing keys, pins, certificates
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  companyIntegrationUnique: unique("company_integration_unique").on(table.companyId, table.integrationType),
+}));
+
+// 21. Attendance Import Batches (future biometric/time-clock/mobile integrations)
+export const payrollAttendanceImports = pgTable("payroll_attendance_imports", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  branchId: integer("branch_id").references(() => branches.id),
+  source: text("source").default("MANUAL").notNull(), // MANUAL, CSV, BIOMETRIC, MOBILE_APP, API
+  provider: text("provider"), // e.g. ZKTeco, Hikvision, Custom API
+  periodStart: date("period_start").notNull(),
+  periodEnd: date("period_end").notNull(),
+  status: text("status").default("IMPORTED").notNull(), // IMPORTED, VALIDATED, APPLIED, REJECTED
+  rowCount: integer("row_count").default(0).notNull(),
+  summaryData: jsonb("summary_data").default({}).notNull(),
+  importedBy: uuid("imported_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  companyAttendanceIdx: index("payroll_attendance_imports_company_idx").on(table.companyId),
+  periodAttendanceIdx: index("payroll_attendance_imports_period_idx").on(table.periodStart, table.periodEnd),
+}));
+
+// 22. Employee Document Registry (storage-provider agnostic)
+export const employeeDocuments = pgTable("employee_documents", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  employeeId: integer("employee_id").references(() => employees.id).notNull(),
+  documentType: text("document_type").notNull(), // CONTRACT, ID_COPY, NSSA, MEDICAL, CERTIFICATE, OTHER
+  fileName: text("file_name").notNull(),
+  fileUrl: text("file_url").notNull(),
+  mimeType: text("mime_type"),
+  fileHash: text("file_hash"),
+  uploadedBy: uuid("uploaded_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  employeeDocumentIdx: index("employee_documents_employee_idx").on(table.employeeId),
+  companyDocumentIdx: index("employee_documents_company_idx").on(table.companyId),
+}));
+
+// 23. Generated Payslip Artifacts (PDF/email/WhatsApp delivery readiness)
+export const payslipDocuments = pgTable("payslip_documents", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  payrollRunId: integer("payroll_run_id").references(() => payrollRuns.id).notNull(),
+  payrollRunEmployeeId: integer("payroll_run_employee_id").references(() => payrollRunEmployees.id).notNull(),
+  employeeId: integer("employee_id").references(() => employees.id).notNull(),
+  documentUrl: text("document_url"),
+  documentHash: text("document_hash"),
+  deliveryChannel: text("delivery_channel").default("DOWNLOAD").notNull(), // DOWNLOAD, EMAIL, WHATSAPP, MOBILE_APP
+  deliveryStatus: text("delivery_status").default("GENERATED").notNull(), // GENERATED, QUEUED, SENT, FAILED
+  passwordProtected: boolean("password_protected").default(false).notNull(),
+  generatedBy: uuid("generated_by").references(() => users.id),
+  generatedAt: timestamp("generated_at").defaultNow(),
+}, (table) => ({
+  payslipRunIdx: index("payslip_documents_run_idx").on(table.payrollRunId),
+  payslipEmployeeIdx: index("payslip_documents_employee_idx").on(table.employeeId),
+}));
+
+// 24. Payroll Integration Events (banking, EcoCash, ZIPIT, WhatsApp, AI assistant hooks)
+export const payrollIntegrationEvents = pgTable("payroll_integration_events", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  integrationType: text("integration_type").notNull(), // BANK_CSV, ECOCASH, ZIPIT, WHATSAPP, BIOMETRIC, AI_ASSISTANT
+  entityType: text("entity_type").notNull(),
+  entityId: text("entity_id").notNull(),
+  direction: text("direction").default("OUTBOUND").notNull(), // INBOUND, OUTBOUND
+  status: text("status").default("PENDING").notNull(),
+  requestPayload: jsonb("request_payload").default({}).notNull(),
+  responsePayload: jsonb("response_payload").default({}).notNull(),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  payrollIntegrationCompanyIdx: index("payroll_integration_events_company_idx").on(table.companyId),
+  payrollIntegrationEntityIdx: index("payroll_integration_events_entity_idx").on(table.entityType, table.entityId),
+}));
+
+// 25. Immutable statutory report snapshots and export history
+export const payrollStatutoryReports = pgTable("payroll_statutory_reports", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  reportType: text("report_type").notNull(), // P2, P6, ITF16, NSSA, NEC, PAYROLL_SUMMARY, PAYE_RECON, etc.
+  periodStart: date("period_start").notNull(),
+  periodEnd: date("period_end").notNull(),
+  taxYear: integer("tax_year"),
+  currency: text("currency").default("USD").notNull(),
+  version: integer("version").default(1).notNull(),
+  payrollRunIds: jsonb("payroll_run_ids").default([]).notNull(),
+  taxTablesUsed: jsonb("tax_tables_used").default([]).notNull(),
+  statutoryRatesUsed: jsonb("statutory_rates_used").default([]).notNull(),
+  validationSummary: jsonb("validation_summary").default({}).notNull(),
+  reportData: jsonb("report_data").notNull(),
+  snapshotHash: text("snapshot_hash").notNull(),
+  status: text("status").default("GENERATED").notNull(), // GENERATED, APPROVED, SUBMITTED, AMENDED, REVERSED
+  approvalStatus: text("approval_status").default("PENDING").notNull(), // PENDING, APPROVED, REJECTED
+  approvedBy: uuid("approved_by").references(() => users.id),
+  approvedAt: timestamp("approved_at"),
+  submissionStatus: text("submission_status").default("NOT_SUBMITTED").notNull(),
+  submissionReference: text("submission_reference"),
+  amendmentOfReportId: integer("amendment_of_report_id"),
+  generatedBy: uuid("generated_by").references(() => users.id),
+  generatedAt: timestamp("generated_at").defaultNow(),
+  submittedAt: timestamp("submitted_at"),
+}, (table) => ({
+  statutoryReportsCompanyIdx: index("payroll_statutory_reports_company_idx").on(table.companyId),
+  statutoryReportsTypePeriodIdx: index("payroll_statutory_reports_type_period_idx").on(table.reportType, table.periodStart, table.periodEnd),
+}));
+
+export const payrollReportExports = pgTable("payroll_report_exports", {
+  id: serial("id").primaryKey(),
+  reportId: integer("report_id").references(() => payrollStatutoryReports.id).notNull(),
+  format: text("format").notNull(), // PDF, CSV, EXCEL, ZIMRA_EFILE
+  version: integer("version").default(1).notNull(),
+  fileName: text("file_name").notNull(),
+  fileUrl: text("file_url"),
+  fileHash: text("file_hash").notNull(),
+  metadata: jsonb("metadata").default({}).notNull(),
+  generatedBy: uuid("generated_by").references(() => users.id),
+  generatedAt: timestamp("generated_at").defaultNow(),
+}, (table) => ({
+  payrollReportExportsReportIdx: index("payroll_report_exports_report_idx").on(table.reportId),
+}));
+
+export const payrollReportValidationIssues = pgTable("payroll_report_validation_issues", {
+  id: serial("id").primaryKey(),
+  reportId: integer("report_id").references(() => payrollStatutoryReports.id),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  reportType: text("report_type").notNull(),
+  severity: text("severity").default("ERROR").notNull(), // ERROR, WARNING
+  code: text("code").notNull(),
+  message: text("message").notNull(),
+  entityType: text("entity_type"),
+  entityId: text("entity_id"),
+  details: jsonb("details").default({}).notNull(),
+  isResolved: boolean("is_resolved").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  payrollReportValidationCompanyIdx: index("payroll_report_validation_company_idx").on(table.companyId),
+  payrollReportValidationReportIdx: index("payroll_report_validation_report_idx").on(table.reportId),
+}));
+
+export const payrollStatutoryDeadlines = pgTable("payroll_statutory_deadlines", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id),
+  countryCode: text("country_code").default("ZW").notNull(),
+  authority: text("authority").notNull(), // ZIMRA, NSSA, NEC
+  reportType: text("report_type").notNull(),
+  name: text("name").notNull(),
+  dueDay: integer("due_day"),
+  dueMonth: integer("due_month"),
+  frequency: text("frequency").default("MONTHLY").notNull(), // MONTHLY, ANNUAL, EVENT
+  reminderDaysBefore: integer("reminder_days_before").default(7).notNull(),
+  effectiveFrom: date("effective_from").notNull(),
+  effectiveTo: date("effective_to"),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  payrollDeadlineLookupIdx: index("payroll_deadline_lookup_idx").on(table.countryCode, table.authority, table.reportType),
+  payrollDeadlineCompanyIdx: index("payroll_deadline_company_idx").on(table.companyId),
+}));
+
+// 26. Payroll data import batches with row-level validation history
+export const payrollImportBatches = pgTable("payroll_import_batches", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  importType: text("import_type").notNull(), // EMPLOYEES, PAY_GRADES, EARNING_TYPES, DEDUCTION_TYPES, etc.
+  sourceFileName: text("source_file_name"),
+  status: text("status").default("PENDING").notNull(), // PENDING, VALIDATED, PARTIAL, COMPLETED, FAILED
+  rowCount: integer("row_count").default(0).notNull(),
+  successCount: integer("success_count").default(0).notNull(),
+  errorCount: integer("error_count").default(0).notNull(),
+  validationSummary: jsonb("validation_summary").default({}).notNull(),
+  createdBy: uuid("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+}, (table) => ({
+  payrollImportBatchesCompanyIdx: index("payroll_import_batches_company_idx").on(table.companyId),
+  payrollImportBatchesTypeIdx: index("payroll_import_batches_type_idx").on(table.importType, table.createdAt),
+}));
+
+export const payrollImportRows = pgTable("payroll_import_rows", {
+  id: serial("id").primaryKey(),
+  batchId: integer("batch_id").references(() => payrollImportBatches.id).notNull(),
+  rowNumber: integer("row_number").notNull(),
+  status: text("status").default("PENDING").notNull(), // PENDING, SUCCESS, ERROR
+  entityType: text("entity_type"),
+  entityId: text("entity_id"),
+  rawData: jsonb("raw_data").default({}).notNull(),
+  errors: jsonb("errors").default([]).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  payrollImportRowsBatchIdx: index("payroll_import_rows_batch_idx").on(table.batchId),
+  payrollImportRowsStatusIdx: index("payroll_import_rows_status_idx").on(table.status),
+}));
+
+// Relations Definitions
+export const employeesRelations = relations(employees, ({ one, many }) => ({
+  company: one(companies, { fields: [employees.companyId], references: [companies.id] }),
+  branch: one(branches, { fields: [employees.branchId], references: [branches.id] }),
+  department: one(departments, { fields: [employees.departmentId], references: [departments.id] }),
+  position: one(positions, { fields: [employees.positionId], references: [positions.id] }),
+  contracts: many(employeeContracts),
+  leaveRequests: many(leaveRequests),
+  leaveBalances: many(leaveBalances),
+  loans: many(employeeLoans),
+  disciplinaryRecords: many(disciplinaryRecords),
+  assignedAssets: many(assignedAssets),
+  documents: many(employeeDocuments),
+  payrollRunEmployees: many(payrollRunEmployees),
+}));
+
+export const employeeContractsRelations = relations(employeeContracts, ({ one }) => ({
+  employee: one(employees, { fields: [employeeContracts.employeeId], references: [employees.id] }),
+  necSector: one(necSectorsConfig, { fields: [employeeContracts.necSectorId], references: [necSectorsConfig.id] }),
+  payGrade: one(payrollPayGrades, { fields: [employeeContracts.payGradeId], references: [payrollPayGrades.id] }),
+}));
+
+export const departmentsRelations = relations(departments, ({ one, many }) => ({
+  company: one(companies, { fields: [departments.companyId], references: [companies.id] }),
+  glAccount: one(accounts, { fields: [departments.glAccountId], references: [accounts.id] }),
+  employees: many(employees),
+}));
+
+export const positionsRelations = relations(positions, ({ one, many }) => ({
+  company: one(companies, { fields: [positions.companyId], references: [companies.id] }),
+  employees: many(employees),
+}));
+
+export const payrollPayGradesRelations = relations(payrollPayGrades, ({ one, many }) => ({
+  company: one(companies, { fields: [payrollPayGrades.companyId], references: [companies.id] }),
+  necSector: one(necSectorsConfig, { fields: [payrollPayGrades.necSectorId], references: [necSectorsConfig.id] }),
+  contracts: many(employeeContracts),
+}));
+
+export const payrollRunsRelations = relations(payrollRuns, ({ one, many }) => ({
+  company: one(companies, { fields: [payrollRuns.companyId], references: [companies.id] }),
+  branch: one(branches, { fields: [payrollRuns.branchId], references: [branches.id] }),
+  approvedByUser: one(users, { fields: [payrollRuns.approvedBy], references: [users.id] }),
+  lockedByUser: one(users, { fields: [payrollRuns.lockedBy], references: [users.id] }),
+  journalEntry: one(journalEntries, { fields: [payrollRuns.journalEntryId], references: [journalEntries.id] }),
+  runEmployees: many(payrollRunEmployees),
+}));
+
+export const payrollRunEmployeesRelations = relations(payrollRunEmployees, ({ one, many }) => ({
+  payrollRun: one(payrollRuns, { fields: [payrollRunEmployees.payrollRunId], references: [payrollRuns.id] }),
+  employee: one(employees, { fields: [payrollRunEmployees.employeeId], references: [employees.id] }),
+  allowances: many(payrollAllowances),
+  deductions: many(payrollDeductions),
+}));
+
+export const payrollAllowancesRelations = relations(payrollAllowances, ({ one }) => ({
+  runEmployee: one(payrollRunEmployees, { fields: [payrollAllowances.payrollRunEmployeeId], references: [payrollRunEmployees.id] }),
+}));
+
+export const payrollDeductionsRelations = relations(payrollDeductions, ({ one }) => ({
+  runEmployee: one(payrollRunEmployees, { fields: [payrollDeductions.payrollRunEmployeeId], references: [payrollRunEmployees.id] }),
+}));
+
+export const leaveRequestsRelations = relations(leaveRequests, ({ one }) => ({
+  company: one(companies, { fields: [leaveRequests.companyId], references: [companies.id] }),
+  employee: one(employees, { fields: [leaveRequests.employeeId], references: [employees.id] }),
+  approvedByUser: one(users, { fields: [leaveRequests.approvedBy], references: [users.id] }),
+}));
+
+export const leaveBalancesRelations = relations(leaveBalances, ({ one }) => ({
+  employee: one(employees, { fields: [leaveBalances.employeeId], references: [employees.id] }),
+}));
+
+export const employeeLoansRelations = relations(employeeLoans, ({ one, many }) => ({
+  company: one(companies, { fields: [employeeLoans.companyId], references: [companies.id] }),
+  employee: one(employees, { fields: [employeeLoans.employeeId], references: [employees.id] }),
+  approvedByUser: one(users, { fields: [employeeLoans.approvedBy], references: [users.id] }),
+  installments: many(loanInstallments),
+}));
+
+export const loanInstallmentsRelations = relations(loanInstallments, ({ one }) => ({
+  loan: one(employeeLoans, { fields: [loanInstallments.loanId], references: [employeeLoans.id] }),
+  runEmployee: one(payrollRunEmployees, { fields: [loanInstallments.payrollRunEmployeeId], references: [payrollRunEmployees.id] }),
+}));
+
+export const necSectorsConfigRelations = relations(necSectorsConfig, ({ one }) => ({
+  company: one(companies, { fields: [necSectorsConfig.companyId], references: [companies.id] }),
+}));
+
+export const tenantIntegrationCredentialsRelations = relations(tenantIntegrationCredentials, ({ one }) => ({
+  company: one(companies, { fields: [tenantIntegrationCredentials.companyId], references: [companies.id] }),
+}));
+
+export const paymentBatchesRelations = relations(paymentBatches, ({ one, many }) => ({
+  company: one(companies, { fields: [paymentBatches.companyId], references: [companies.id] }),
+  details: many(paymentBatchDetails),
+}));
+
+export const paymentBatchDetailsRelations = relations(paymentBatchDetails, ({ one }) => ({
+  batch: one(paymentBatches, { fields: [paymentBatchDetails.batchId], references: [paymentBatches.id] }),
+  runEmployee: one(payrollRunEmployees, { fields: [paymentBatchDetails.payrollRunEmployeeId], references: [payrollRunEmployees.id] }),
+}));
+
+export const payrollAttendanceImportsRelations = relations(payrollAttendanceImports, ({ one }) => ({
+  company: one(companies, { fields: [payrollAttendanceImports.companyId], references: [companies.id] }),
+  branch: one(branches, { fields: [payrollAttendanceImports.branchId], references: [branches.id] }),
+  importedByUser: one(users, { fields: [payrollAttendanceImports.importedBy], references: [users.id] }),
+}));
+
+export const employeeDocumentsRelations = relations(employeeDocuments, ({ one }) => ({
+  company: one(companies, { fields: [employeeDocuments.companyId], references: [companies.id] }),
+  employee: one(employees, { fields: [employeeDocuments.employeeId], references: [employees.id] }),
+  uploadedByUser: one(users, { fields: [employeeDocuments.uploadedBy], references: [users.id] }),
+}));
+
+export const payslipDocumentsRelations = relations(payslipDocuments, ({ one }) => ({
+  company: one(companies, { fields: [payslipDocuments.companyId], references: [companies.id] }),
+  payrollRun: one(payrollRuns, { fields: [payslipDocuments.payrollRunId], references: [payrollRuns.id] }),
+  runEmployee: one(payrollRunEmployees, { fields: [payslipDocuments.payrollRunEmployeeId], references: [payrollRunEmployees.id] }),
+  employee: one(employees, { fields: [payslipDocuments.employeeId], references: [employees.id] }),
+  generatedByUser: one(users, { fields: [payslipDocuments.generatedBy], references: [users.id] }),
+}));
+
+export const payrollIntegrationEventsRelations = relations(payrollIntegrationEvents, ({ one }) => ({
+  company: one(companies, { fields: [payrollIntegrationEvents.companyId], references: [companies.id] }),
+}));
+
+export const payrollStatutoryReportsRelations = relations(payrollStatutoryReports, ({ one, many }) => ({
+  company: one(companies, { fields: [payrollStatutoryReports.companyId], references: [companies.id] }),
+  generatedByUser: one(users, { fields: [payrollStatutoryReports.generatedBy], references: [users.id] }),
+  approvedByUser: one(users, { fields: [payrollStatutoryReports.approvedBy], references: [users.id] }),
+  exports: many(payrollReportExports),
+  validationIssues: many(payrollReportValidationIssues),
+}));
+
+export const payrollReportExportsRelations = relations(payrollReportExports, ({ one }) => ({
+  report: one(payrollStatutoryReports, { fields: [payrollReportExports.reportId], references: [payrollStatutoryReports.id] }),
+  generatedByUser: one(users, { fields: [payrollReportExports.generatedBy], references: [users.id] }),
+}));
+
+export const payrollReportValidationIssuesRelations = relations(payrollReportValidationIssues, ({ one }) => ({
+  report: one(payrollStatutoryReports, { fields: [payrollReportValidationIssues.reportId], references: [payrollStatutoryReports.id] }),
+  company: one(companies, { fields: [payrollReportValidationIssues.companyId], references: [companies.id] }),
+}));
+
+export const payrollStatutoryDeadlinesRelations = relations(payrollStatutoryDeadlines, ({ one }) => ({
+  company: one(companies, { fields: [payrollStatutoryDeadlines.companyId], references: [companies.id] }),
+}));
+
+export const payrollImportBatchesRelations = relations(payrollImportBatches, ({ one, many }) => ({
+  company: one(companies, { fields: [payrollImportBatches.companyId], references: [companies.id] }),
+  createdByUser: one(users, { fields: [payrollImportBatches.createdBy], references: [users.id] }),
+  rows: many(payrollImportRows),
+}));
+
+export const payrollImportRowsRelations = relations(payrollImportRows, ({ one }) => ({
+  batch: one(payrollImportBatches, { fields: [payrollImportRows.batchId], references: [payrollImportBatches.id] }),
+}));
+
+// Insert Schemas & Type Exports
+export const insertNecSectorConfigSchema = createInsertSchema(necSectorsConfig).omit({ id: true, createdAt: true });
+export type NecSectorConfig = typeof necSectorsConfig.$inferSelect;
+export type InsertNecSectorConfig = z.infer<typeof insertNecSectorConfigSchema>;
+
+export const insertDepartmentSchema = createInsertSchema(departments).omit({ id: true, createdAt: true });
+export type Department = typeof departments.$inferSelect;
+export type InsertDepartment = z.infer<typeof insertDepartmentSchema>;
+
+export const insertPositionSchema = createInsertSchema(positions).omit({ id: true, createdAt: true });
+export type Position = typeof positions.$inferSelect;
+export type InsertPosition = z.infer<typeof insertPositionSchema>;
+
+export const insertPayrollPayGradeSchema = createInsertSchema(payrollPayGrades).omit({ id: true, createdAt: true, updatedAt: true });
+export type PayrollPayGrade = typeof payrollPayGrades.$inferSelect;
+export type InsertPayrollPayGrade = z.infer<typeof insertPayrollPayGradeSchema>;
+
+export const insertEmployeeSchema = createInsertSchema(employees).omit({ id: true, createdAt: true, updatedAt: true });
+export type Employee = typeof employees.$inferSelect;
+export type InsertEmployee = z.infer<typeof insertEmployeeSchema>;
+
+export const insertEmployeeContractSchema = createInsertSchema(employeeContracts).omit({ id: true, createdAt: true });
+export type EmployeeContract = typeof employeeContracts.$inferSelect;
+export type InsertEmployeeContract = z.infer<typeof insertEmployeeContractSchema>;
+
+export const insertTaxTablesConfigSchema = createInsertSchema(taxTablesConfig).omit({ id: true, createdAt: true });
+export type TaxTablesConfig = typeof taxTablesConfig.$inferSelect;
+export type InsertTaxTablesConfig = z.infer<typeof insertTaxTablesConfigSchema>;
+
+export const insertPayrollTaxTableSchema = createInsertSchema(payrollTaxTables).omit({ id: true, createdAt: true });
+export type PayrollTaxTable = typeof payrollTaxTables.$inferSelect;
+export type InsertPayrollTaxTable = z.infer<typeof insertPayrollTaxTableSchema>;
+
+export const insertPayrollTaxBracketSchema = createInsertSchema(payrollTaxBrackets).omit({ id: true });
+export type PayrollTaxBracket = typeof payrollTaxBrackets.$inferSelect;
+export type InsertPayrollTaxBracket = z.infer<typeof insertPayrollTaxBracketSchema>;
+
+export const insertPayrollStatutoryRuleSchema = createInsertSchema(payrollStatutoryRules).omit({ id: true, createdAt: true });
+export type PayrollStatutoryRule = typeof payrollStatutoryRules.$inferSelect;
+export type InsertPayrollStatutoryRule = z.infer<typeof insertPayrollStatutoryRuleSchema>;
+
+export const insertPayrollEarningTypeSchema = createInsertSchema(payrollEarningTypes).omit({ id: true, createdAt: true });
+export type PayrollEarningType = typeof payrollEarningTypes.$inferSelect;
+export type InsertPayrollEarningType = z.infer<typeof insertPayrollEarningTypeSchema>;
+
+export const insertPayrollDeductionTypeSchema = createInsertSchema(payrollDeductionTypes).omit({ id: true, createdAt: true });
+export type PayrollDeductionType = typeof payrollDeductionTypes.$inferSelect;
+export type InsertPayrollDeductionType = z.infer<typeof insertPayrollDeductionTypeSchema>;
+
+export const insertPayrollSalaryStructureSchema = createInsertSchema(payrollSalaryStructures).omit({ id: true, createdAt: true });
+export type PayrollSalaryStructure = typeof payrollSalaryStructures.$inferSelect;
+export type InsertPayrollSalaryStructure = z.infer<typeof insertPayrollSalaryStructureSchema>;
+
+export const insertPayrollPayGradeStepSchema = createInsertSchema(payrollPayGradeSteps).omit({ id: true });
+export type PayrollPayGradeStep = typeof payrollPayGradeSteps.$inferSelect;
+export type InsertPayrollPayGradeStep = z.infer<typeof insertPayrollPayGradeStepSchema>;
+
+export const insertEmployeePayrollProfileSchema = createInsertSchema(employeePayrollProfiles).omit({ id: true, createdAt: true });
+export type EmployeePayrollProfile = typeof employeePayrollProfiles.$inferSelect;
+export type InsertEmployeePayrollProfile = z.infer<typeof insertEmployeePayrollProfileSchema>;
+
+export const insertPayrollRecurringItemSchema = createInsertSchema(payrollRecurringItems).omit({ id: true });
+export type PayrollRecurringItem = typeof payrollRecurringItems.$inferSelect;
+export type InsertPayrollRecurringItem = z.infer<typeof insertPayrollRecurringItemSchema>;
+
+export const insertPayrollRunSchema = createInsertSchema(payrollRuns).omit({ id: true, createdAt: true, updatedAt: true });
+export type PayrollRun = typeof payrollRuns.$inferSelect;
+export type InsertPayrollRun = z.infer<typeof insertPayrollRunSchema>;
+
+export const insertPayrollRunEmployeeSchema = createInsertSchema(payrollRunEmployees).omit({ id: true, createdAt: true });
+export type PayrollRunEmployee = typeof payrollRunEmployees.$inferSelect;
+export type InsertPayrollRunEmployee = z.infer<typeof insertPayrollRunEmployeeSchema>;
+
+export const insertPayrollAllowanceSchema = createInsertSchema(payrollAllowances).omit({ id: true });
+export type PayrollAllowance = typeof payrollAllowances.$inferSelect;
+export type InsertPayrollAllowance = z.infer<typeof insertPayrollAllowanceSchema>;
+
+export const insertPayrollDeductionSchema = createInsertSchema(payrollDeductions).omit({ id: true });
+export type PayrollDeduction = typeof payrollDeductions.$inferSelect;
+export type InsertPayrollDeduction = z.infer<typeof insertPayrollDeductionSchema>;
+
+export const insertLeaveRequestSchema = createInsertSchema(leaveRequests).omit({ id: true, createdAt: true });
+export type LeaveRequest = typeof leaveRequests.$inferSelect;
+export type InsertLeaveRequest = z.infer<typeof insertLeaveRequestSchema>;
+
+export const insertLeaveBalanceSchema = createInsertSchema(leaveBalances).omit({ id: true });
+export type LeaveBalance = typeof leaveBalances.$inferSelect;
+export type InsertLeaveBalance = z.infer<typeof insertLeaveBalanceSchema>;
+
+export const insertEmployeeLoanSchema = createInsertSchema(employeeLoans).omit({ id: true, createdAt: true });
+export type EmployeeLoan = typeof employeeLoans.$inferSelect;
+export type InsertEmployeeLoan = z.infer<typeof insertEmployeeLoanSchema>;
+
+export const insertLoanInstallmentSchema = createInsertSchema(loanInstallments).omit({ id: true, repaymentDate: true });
+export type LoanInstallment = typeof loanInstallments.$inferSelect;
+export type InsertLoanInstallment = z.infer<typeof insertLoanInstallmentSchema>;
+
+export const insertTenantIntegrationCredentialSchema = createInsertSchema(tenantIntegrationCredentials).omit({ id: true, createdAt: true, updatedAt: true });
+export type TenantIntegrationCredential = typeof tenantIntegrationCredentials.$inferSelect;
+export type InsertTenantIntegrationCredential = z.infer<typeof insertTenantIntegrationCredentialSchema>;
+
+export const insertPayrollAttendanceImportSchema = createInsertSchema(payrollAttendanceImports).omit({ id: true, createdAt: true });
+export type PayrollAttendanceImport = typeof payrollAttendanceImports.$inferSelect;
+export type InsertPayrollAttendanceImport = z.infer<typeof insertPayrollAttendanceImportSchema>;
+
+export const insertEmployeeDocumentSchema = createInsertSchema(employeeDocuments).omit({ id: true, createdAt: true });
+export type EmployeeDocument = typeof employeeDocuments.$inferSelect;
+export type InsertEmployeeDocument = z.infer<typeof insertEmployeeDocumentSchema>;
+
+export const insertPayslipDocumentSchema = createInsertSchema(payslipDocuments).omit({ id: true, generatedAt: true });
+export type PayslipDocument = typeof payslipDocuments.$inferSelect;
+export type InsertPayslipDocument = z.infer<typeof insertPayslipDocumentSchema>;
+
+export const insertPayrollIntegrationEventSchema = createInsertSchema(payrollIntegrationEvents).omit({ id: true, createdAt: true });
+export type PayrollIntegrationEvent = typeof payrollIntegrationEvents.$inferSelect;
+export type InsertPayrollIntegrationEvent = z.infer<typeof insertPayrollIntegrationEventSchema>;
+
+export const insertPayrollStatutoryReportSchema = createInsertSchema(payrollStatutoryReports).omit({ id: true, generatedAt: true });
+export type PayrollStatutoryReport = typeof payrollStatutoryReports.$inferSelect;
+export type InsertPayrollStatutoryReport = z.infer<typeof insertPayrollStatutoryReportSchema>;
+
+export const insertPayrollReportExportSchema = createInsertSchema(payrollReportExports).omit({ id: true, generatedAt: true });
+export type PayrollReportExport = typeof payrollReportExports.$inferSelect;
+export type InsertPayrollReportExport = z.infer<typeof insertPayrollReportExportSchema>;
+
+export const insertPayrollReportValidationIssueSchema = createInsertSchema(payrollReportValidationIssues).omit({ id: true, createdAt: true });
+export type PayrollReportValidationIssue = typeof payrollReportValidationIssues.$inferSelect;
+export type InsertPayrollReportValidationIssue = z.infer<typeof insertPayrollReportValidationIssueSchema>;
+
+export const insertPayrollStatutoryDeadlineSchema = createInsertSchema(payrollStatutoryDeadlines).omit({ id: true, createdAt: true });
+export type PayrollStatutoryDeadline = typeof payrollStatutoryDeadlines.$inferSelect;
+export type InsertPayrollStatutoryDeadline = z.infer<typeof insertPayrollStatutoryDeadlineSchema>;
+
+export const insertPayrollImportBatchSchema = createInsertSchema(payrollImportBatches).omit({ id: true, createdAt: true, completedAt: true });
+export type PayrollImportBatch = typeof payrollImportBatches.$inferSelect;
+export type InsertPayrollImportBatch = z.infer<typeof insertPayrollImportBatchSchema>;
+
+export const insertPayrollImportRowSchema = createInsertSchema(payrollImportRows).omit({ id: true, createdAt: true });
+export type PayrollImportRow = typeof payrollImportRows.$inferSelect;
+export type InsertPayrollImportRow = z.infer<typeof insertPayrollImportRowSchema>;

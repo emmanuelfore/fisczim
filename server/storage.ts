@@ -19,7 +19,7 @@ import {
   type Branch, type InsertBranch, type BranchUser, type BranchStock,
   productCategories, type ProductCategory, type InsertProductCategory,
   resetTokens, insertResetTokenSchema,
-  suppliers, inventoryTransactions, expenses,
+  suppliers, inventoryTransactions, expenses, purchaseOrders, purchaseOrderItems,
   type Supplier, type InsertSupplier,
   type InventoryTransaction, type InsertInventoryTransaction,
   type Expense, type InsertExpense,
@@ -199,7 +199,7 @@ export interface IStorage {
   addLaybyPayment(laybyId: number, companyId: number, data: InsertLaybyPayment & { createdBy?: string | null; branchId?: number | null }): Promise<LaybyPayment>;
 
   // Invoices
-  getInvoicesPaginated(companyId: number, page?: number, limit?: number, search?: string, status?: string, type?: string, dateFrom?: Date, dateTo?: Date, isPos?: boolean, branchId?: number): Promise<{ data: (Invoice & { customer?: Customer; latestError?: { message: string, color: string } })[]; total: number; pages: number }>;
+  getInvoicesPaginated(companyId: number, page?: number, limit?: number, search?: string, status?: string, type?: string, dateFrom?: Date, dateTo?: Date, isPos?: boolean, branchId?: number): Promise<{ data: (Invoice & { customer?: Customer; latestError?: { message: string, color: string }; relatedInvoiceNumber?: string | null; linkedDocuments?: Array<{ id: number; invoiceNumber: string; transactionType: string | null }> })[]; total: number; pages: number }>;
   getInvoices(companyId: number, branchId?: number): Promise<(Invoice & { customer?: Customer })[]>;
   getInvoice(id: number): Promise<(Invoice & { items: (InvoiceItem & { product?: Product })[]; customer?: Customer; validationErrors?: any[]; relatedInvoiceNumber?: string; relatedInvoiceDate?: Date | null; relatedFiscalCode?: string; relatedReceiptGlobalNo?: number; relatedReceiptCounter?: number }) | undefined>;
   getInvoiceWithItems(id: number): Promise<(Invoice & { items: (InvoiceItem & { product?: Product })[]; customer?: Customer; validationErrors?: any[]; relatedInvoiceNumber?: string; relatedInvoiceDate?: Date | null; relatedFiscalCode?: string; relatedReceiptGlobalNo?: number; relatedReceiptCounter?: number }) | undefined>;
@@ -350,8 +350,8 @@ export interface IStorage {
   deleteProductCategory(id: number, companyId: number): Promise<void>;
 
   // Reports
-  getSalesByCategory(companyId: number, startDate: Date, endDate: Date): Promise<{ category: string; totalSales: number; count: number }[]>;
-  getSalesByUser(companyId: number, startDate: Date, endDate: Date): Promise<{ userId: string; userName: string; totalSales: number; count: number }[]>;
+  getSalesByCategory(companyId: number, startDate: Date, endDate: Date): Promise<{ category: string; totalSales: number; count: number; byCurrency?: Record<string, number> }[]>;
+  getSalesByUser(companyId: number, startDate: Date, endDate: Date): Promise<{ userId: string; userName: string; totalSales: number; count: number; byCurrency?: Record<string, number> }[]>;
   getProductPerformance(companyId: number, startDate: Date, endDate: Date, isPosOnly?: boolean): Promise<{ productId: number; productName: string; quantity: number; revenue: number }[]>;
 
   // Maintenance
@@ -403,12 +403,23 @@ export interface IStorage {
   getReportBillableExpenseDetails(companyId: number, start: Date, end: Date): Promise<{ expenseId: number; expenseDate: string; category: string; description: string; amount: string; status: string }[]>;
   getReportTaxSummary(companyId: number, start: Date, end: Date): Promise<{ taxCode: string; taxName: string; taxRate: string; taxableAmount: string; outputTax: string; inputTax: string; netVat: string }[]>;
   getHourlySalesDistribution(companyId: number, startDate: Date, endDate: Date): Promise<{ hour: number; count: number; total: number }[]>;
-  getOperationalMetrics(companyId: number, startDate: Date, endDate: Date): Promise<{ atv: number; profitMargin: number; itemsPerReceipt: number; totalRevenue: number; totalCogs: number }>;
+  getOperationalMetrics(companyId: number, startDate: Date, endDate: Date): Promise<{ atv: number; profitMargin: number; itemsPerReceipt: number; totalRevenue: number; totalCogs: number; totalRevenueByCurrency?: Record<string, number> }>;
   getLowStockItems(companyId: number): Promise<(Product & { categoryName?: string })[]>;
   getReportStockOnHand(companyId: number, ownerGroup?: string): Promise<{ productId: number; name: string; sku: string | null; category: string | null; stockLevel: string; unitCost: string; totalValue: string }[]>;
   getReportInventoryMovements(companyId: number, start: Date, end: Date, ownerGroup?: string): Promise<{ transactionId: number; date: string; productName: string; type: string; quantity: string; unitCost: string | null; reference: string | null; notes: string | null }[]>;
   getReportStockAdjustments(companyId: number, start: Date, end: Date, ownerGroup?: string): Promise<{ transactionId: number; date: string; productName: string; sku: string | null; type: string; quantity: string; unitCost: string | null; totalCost: string | null; referenceType: string | null; reference: string | null; notes: string | null; userName: string | null }[]>;
   getReportPurchaseHistory(companyId: number, start: Date, end: Date, ownerGroup?: string): Promise<{ transactionId: number; date: string; productName: string; supplierName: string | null; quantity: string; unitCost: string; totalCost: string; reference: string | null }[]>;
+  getReportAutoSparesDailySales(companyId: number, start: Date, end: Date): Promise<any[]>;
+  getReportTopSellingParts(companyId: number, start: Date, end: Date): Promise<any[]>;
+  getReportDeadStock(companyId: number, start: Date, end: Date): Promise<any[]>;
+  getReportProfitMargins(companyId: number, start: Date, end: Date): Promise<any[]>;
+  getReportSupplierPerformance(companyId: number, start: Date, end: Date): Promise<any[]>;
+  getReportCustomerCredit(companyId: number, start: Date, end: Date): Promise<any[]>;
+  getReportSalespersonPerformance(companyId: number, start: Date, end: Date): Promise<any[]>;
+  getReportCategoryBrandPerformance(companyId: number, start: Date, end: Date): Promise<any[]>;
+  getReportReturnWarranty(companyId: number, start: Date, end: Date): Promise<any[]>;
+  getReportReorderSuggestions(companyId: number, start: Date, end: Date): Promise<any[]>;
+  getReportPriceChanges(companyId: number, start: Date, end: Date): Promise<any[]>;
 
   // Stock Takes
   getStockTakes(companyId: number): Promise<StockTake[]>;
@@ -485,6 +496,10 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
+  private roundMoney(value: number): number {
+    return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+  }
+
   private async normalizeLedgerLines(companyId: number, lines: LedgerPostLine[], tx: any = db): Promise<Array<{
     accountId: number;
     accountCode: string;
@@ -1142,7 +1157,7 @@ export class DatabaseStorage implements IStorage {
     dateTo?: Date,
     isPos?: boolean,
     branchId?: number
-  ): Promise<{ data: (Invoice & { customer?: Customer; latestError?: { message: string, color: string } })[]; total: number; pages: number }> {
+  ): Promise<{ data: (Invoice & { customer?: Customer; latestError?: { message: string, color: string }; relatedInvoiceNumber?: string | null; linkedDocuments?: Array<{ id: number; invoiceNumber: string; transactionType: string | null }> })[]; total: number; pages: number }> {
     const offset = (page - 1) * limit;
 
     const filters: any[] = [eq(invoices.companyId, companyId)];
@@ -1235,7 +1250,12 @@ export class DatabaseStorage implements IStorage {
       .offset(offset)
       .orderBy(desc(invoices.createdAt));
 
-    const data = rows.map(r => ({
+    const data: Array<Invoice & {
+      customer?: Customer;
+      latestError?: { message: string; color: string };
+      relatedInvoiceNumber?: string | null;
+      linkedDocuments?: Array<{ id: number; invoiceNumber: string; transactionType: string | null }>;
+    }> = rows.map(r => ({
       ...r.invoice,
       customer: r.customer || undefined,
       latestError: r.latestErrorMsg ? {
@@ -1243,6 +1263,54 @@ export class DatabaseStorage implements IStorage {
         color: r.latestErrorColor || 'Red'
       } : undefined
     }));
+
+    const invoiceIds = data.map(inv => inv.id);
+    const relatedIds = Array.from(
+      new Set(data.map(inv => inv.relatedInvoiceId).filter((id): id is number => typeof id === "number"))
+    );
+    const linkLookupIds = Array.from(new Set([...invoiceIds, ...relatedIds]));
+
+    if (linkLookupIds.length > 0) {
+      const linkRows = await db
+        .select({
+          id: invoices.id,
+          invoiceNumber: invoices.invoiceNumber,
+          transactionType: invoices.transactionType,
+          relatedInvoiceId: invoices.relatedInvoiceId,
+        })
+        .from(invoices)
+        .where(and(
+          eq(invoices.companyId, companyId),
+          or(
+            inArray(invoices.id, linkLookupIds),
+            inArray(invoices.relatedInvoiceId, linkLookupIds)
+          )
+        ));
+
+      const numberById = new Map(linkRows.map(row => [row.id, row.invoiceNumber]));
+      const linkedByOriginalId = new Map<number, Array<{ id: number; invoiceNumber: string; transactionType: string | null }>>();
+
+      for (const row of linkRows) {
+        if (!row.relatedInvoiceId) continue;
+        const links = linkedByOriginalId.get(row.relatedInvoiceId) || [];
+        links.push({
+          id: row.id,
+          invoiceNumber: row.invoiceNumber,
+          transactionType: row.transactionType,
+        });
+        linkedByOriginalId.set(row.relatedInvoiceId, links);
+      }
+
+      for (const inv of data) {
+        inv.relatedInvoiceNumber = inv.relatedInvoiceId ? (numberById.get(inv.relatedInvoiceId) ?? null) : null;
+        inv.linkedDocuments = linkedByOriginalId.get(inv.id) || [];
+      }
+    } else {
+      for (const inv of data) {
+        inv.relatedInvoiceNumber = null;
+        inv.linkedDocuments = [];
+      }
+    }
 
     return { data, total, pages };
   }
@@ -1612,7 +1680,6 @@ export class DatabaseStorage implements IStorage {
 
       // --- LEDGER POSTING ---
       const total = Number(invoice.total);
-      const subtotal = Number(invoice.subtotal);
       const taxAmount = Number(invoice.taxAmount);
       const totalCogs = fullItems.reduce((sum, item) => sum + Number(item.cogsAmount || 0), 0);
 
@@ -1625,6 +1692,9 @@ export class DatabaseStorage implements IStorage {
       const cogsAccountCode = await this.getSystemAccountCode(invoice.companyId, "cogsAccountCode", tx);
       const inventoryAccountCode = await this.getSystemAccountCode(invoice.companyId, "inventoryAccountCode", tx);
       const isImmediateCashSale = invoice.isPos && invoice.paymentMethod !== "CREDIT";
+      const ledgerTotal = this.roundMoney(total);
+      const ledgerTaxAmount = this.roundMoney(taxAmount);
+      const ledgerSubtotal = this.roundMoney(ledgerTotal - ledgerTaxAmount);
 
       await this.postToLedger(invoice.companyId, {
         entryDate: invoice.issueDate || new Date(),
@@ -1633,9 +1703,9 @@ export class DatabaseStorage implements IStorage {
         referenceId: invoice.id.toString(),
         createdBy: invoice.createdBy || undefined,
         lines: ([
-          { accountCode: isImmediateCashSale ? cashAccountCode : arAccountCode, type: isCreditNote ? "CREDIT" : "DEBIT", amount: total },
-          { accountCode: salesAccountCode, type: isCreditNote ? "DEBIT" : "CREDIT", amount: subtotal },
-          { accountCode: vatOutputAccountCode, type: isCreditNote ? "DEBIT" : "CREDIT", amount: taxAmount },
+          { accountCode: isImmediateCashSale ? cashAccountCode : arAccountCode, type: isCreditNote ? "CREDIT" : "DEBIT", amount: ledgerTotal },
+          { accountCode: salesAccountCode, type: isCreditNote ? "DEBIT" : "CREDIT", amount: ledgerSubtotal },
+          { accountCode: vatOutputAccountCode, type: isCreditNote ? "DEBIT" : "CREDIT", amount: ledgerTaxAmount },
         ] as LedgerPostLine[]).filter(line => Number(line.amount) > 0)
       }, tx);
 
@@ -2199,19 +2269,11 @@ export class DatabaseStorage implements IStorage {
     // Pre-fetch tax types for the company once
     const dbTaxTypes = await this.getTaxTypes(companyId);
 
-    for (const row of dayInvoicesInfo) {
-      if (!row.invoice || !row.item) continue;
-
-      const inv = row.invoice;
-      const item = row.item;
-      const currency = inv.currency || "USD";
-      const taxPercent = Number(item.taxRate);
-
-      // Look up taxID from database taxTypes using strict ID match first
+    const resolveCounterTaxID = (taxPercent: number, taxTypeId?: number | null, description = '') => {
       let matchingTax: TaxType | undefined;
 
-      if (item.taxTypeId) {
-        matchingTax = dbTaxTypes.find(t => t.id === item.taxTypeId);
+      if (taxTypeId) {
+        matchingTax = dbTaxTypes.find(t => t.id === taxTypeId);
       }
 
       // Fallback to rate matching if not found by ID
@@ -2221,7 +2283,6 @@ export class DatabaseStorage implements IStorage {
         );
       }
 
-      // ZIMRA Tax ID Mapping - Dynamic Lookup
       let taxID = 0;
 
       if (matchingTax?.zimraTaxId) {
@@ -2229,7 +2290,7 @@ export class DatabaseStorage implements IStorage {
 
         // Refined check for 0% ambiguity (if matchedTax is not ID 1 but item might be exempt)
         if (taxPercent === 0 && taxID !== 1) {
-          const isExemptIntent = (item.description || '').toLowerCase().includes('exempt');
+          const isExemptIntent = description.toLowerCase().includes('exempt');
           if (isExemptIntent) {
             const realExempt = dbTaxTypes.find(t => t.zimraTaxId === "1" || t.name.toLowerCase().includes('exempt'));
             if (realExempt && realExempt.zimraTaxId) {
@@ -2240,7 +2301,7 @@ export class DatabaseStorage implements IStorage {
       } else {
         // Fallback by Name if ID is missing from matchingTax or matchingTax itself is missing
         const name = matchingTax?.name?.toLowerCase() || '';
-        const desc = (item.description || '').toLowerCase();
+        const desc = description.toLowerCase();
 
         if (name.includes('exempt') || desc.includes('exempt')) {
           const exemptTax = dbTaxTypes.find(t => t.name.toLowerCase().includes('exempt') && t.zimraTaxId);
@@ -2264,6 +2325,70 @@ export class DatabaseStorage implements IStorage {
         else taxID = 3;
       }
 
+      return taxID;
+    };
+
+    const inferFallbackTaxPercent = (subtotal: number, taxAmt: number) => {
+      if (subtotal <= 0 || taxAmt <= 0) return 0;
+
+      const impliedRate = Math.round((taxAmt / subtotal) * 10000) / 100;
+      const closestTaxType = dbTaxTypes
+        .map(t => ({ rate: Number(t.rate), diff: Math.abs(Number(t.rate) - impliedRate) }))
+        .filter(t => Number.isFinite(t.rate))
+        .sort((a, b) => a.diff - b.diff)[0];
+
+      // Small inclusive receipts can round subtotal/tax enough to produce rates like 14.94 for a 15.50% tax.
+      return closestTaxType && closestTaxType.diff <= 1 ? closestTaxType.rate : impliedRate;
+    };
+
+    const addTaxCounters = (type: string, currency: string, taxPercent: number, taxID: number, amountWithTax: number, taxAmt: number) => {
+      let signedAmountWithTax = Math.abs(amountWithTax);
+      let signedTaxAmt = Math.abs(taxAmt);
+
+      if (type === 'CreditNote') {
+        signedAmountWithTax = -signedAmountWithTax;
+        signedTaxAmt = -signedTaxAmt;
+      }
+
+      if (type === 'FiscalInvoice' || type === 'Invoice') {
+        const keySale = `SaleByTax-${currency}-${taxPercent}-${taxID}`;
+        const cSale = getCounter(keySale, 'SaleByTax', currency, taxPercent, taxID);
+        cSale.fiscalCounterValue += signedAmountWithTax;
+
+        const keyTax = `SaleTaxByTax-${currency}-${taxPercent}-${taxID}`;
+        const cTax = getCounter(keyTax, 'SaleTaxByTax', currency, taxPercent, taxID);
+        cTax.fiscalCounterValue += signedTaxAmt;
+      } else if (type === 'CreditNote') {
+        const keySale = `CreditNoteByTax-${currency}-${taxPercent}-${taxID}`;
+        const cSale = getCounter(keySale, 'CreditNoteByTax', currency, taxPercent, taxID);
+        cSale.fiscalCounterValue += signedAmountWithTax;
+
+        const keyTax = `CreditNoteTaxByTax-${currency}-${taxPercent}-${taxID}`;
+        const cTax = getCounter(keyTax, 'CreditNoteTaxByTax', currency, taxPercent, taxID);
+        cTax.fiscalCounterValue += signedTaxAmt;
+      } else if (type === 'DebitNote') {
+        const keySale = `DebitNoteByTax-${currency}-${taxPercent}-${taxID}`;
+        const cSale = getCounter(keySale, 'DebitNoteByTax', currency, taxPercent, taxID);
+        cSale.fiscalCounterValue += signedAmountWithTax;
+
+        const keyTax = `DebitNoteTaxByTax-${currency}-${taxPercent}-${taxID}`;
+        const cTax = getCounter(keyTax, 'DebitNoteTaxByTax', currency, taxPercent, taxID);
+        cTax.fiscalCounterValue += signedTaxAmt;
+      }
+    };
+
+    const invoicesWithItems = new Set<number>();
+
+    for (const row of dayInvoicesInfo) {
+      if (!row.invoice || !row.item) continue;
+
+      const inv = row.invoice;
+      const item = row.item;
+      invoicesWithItems.add(inv.id);
+      const currency = inv.currency || "USD";
+      const taxPercent = Number(item.taxRate);
+      const taxID = resolveCounterTaxID(taxPercent, item.taxTypeId, item.description || '');
+
       const type = inv.transactionType || "FiscalInvoice";
       const valLineTotal = Number(item.lineTotal);
       let amountWithTax = valLineTotal;
@@ -2283,37 +2408,7 @@ export class DatabaseStorage implements IStorage {
       taxAmt = Math.round(taxAmt * 100) / 100;
       amountWithTax = Math.round(amountWithTax * 100) / 100;
 
-      // Handle sign based on transaction type
-      // ZIMRA counters should ALWAYS BE POSITIVE ACCUMULATORS!
-      // Even Credit/Debit notes are reported as positive quantities of those types.
-      amountWithTax = Math.abs(amountWithTax);
-      taxAmt = Math.abs(taxAmt);
-
-      if (type === 'FiscalInvoice' || type === 'Invoice') {
-        const keySale = `SaleByTax-${currency}-${taxPercent}-${taxID}`;
-        const cSale = getCounter(keySale, 'SaleByTax', currency, taxPercent, taxID);
-        cSale.fiscalCounterValue += amountWithTax;
-
-        const keyTax = `SaleTaxByTax-${currency}-${taxPercent}-${taxID}`;
-        const cTax = getCounter(keyTax, 'SaleTaxByTax', currency, taxPercent, taxID);
-        cTax.fiscalCounterValue += taxAmt;
-      } else if (type === 'CreditNote') {
-        const keySale = `CreditNoteByTax-${currency}-${taxPercent}-${taxID}`;
-        const cSale = getCounter(keySale, 'CreditNoteByTax', currency, taxPercent, taxID);
-        cSale.fiscalCounterValue += amountWithTax;
-
-        const keyTax = `CreditNoteTaxByTax-${currency}-${taxPercent}-${taxID}`;
-        const cTax = getCounter(keyTax, 'CreditNoteTaxByTax', currency, taxPercent, taxID);
-        cTax.fiscalCounterValue += taxAmt;
-      } else if (type === 'DebitNote') {
-        const keySale = `DebitNoteByTax-${currency}-${taxPercent}-${taxID}`;
-        const cSale = getCounter(keySale, 'DebitNoteByTax', currency, taxPercent, taxID);
-        cSale.fiscalCounterValue += amountWithTax;
-
-        const keyTax = `DebitNoteTaxByTax-${currency}-${taxPercent}-${taxID}`;
-        const cTax = getCounter(keyTax, 'DebitNoteTaxByTax', currency, taxPercent, taxID);
-        cTax.fiscalCounterValue += taxAmt;
-      }
+      addTaxCounters(type, currency, taxPercent, taxID, amountWithTax, taxAmt);
     }
 
     const uniqueInvoices = new Map();
@@ -2323,6 +2418,18 @@ export class DatabaseStorage implements IStorage {
 
     for (const inv of uniqueInvoices.values()) {
       const currency = inv.currency || "USD";
+      const type = inv.transactionType || "FiscalInvoice";
+
+      if (!invoicesWithItems.has(inv.id)) {
+        const amountWithTax = Number(inv.total);
+        const taxAmt = Number(inv.taxAmount || 0);
+        const subtotal = Number(inv.subtotal || 0);
+        const taxPercent = inferFallbackTaxPercent(subtotal, taxAmt);
+        const taxID = resolveCounterTaxID(taxPercent, null, inv.notes || '');
+
+        addTaxCounters(type, currency, taxPercent, taxID, amountWithTax, taxAmt);
+      }
+
       const method = (inv.paymentMethod || "CASH").toUpperCase();
       let moneyType = "Other"; // Default to Other
 
@@ -3806,12 +3913,12 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
-  async getRevenueChart(companyId: number, startDate: Date, endDate: Date): Promise<{ name: string; total: number }[]> {
+  async getRevenueChart(companyId: number, startDate: Date, endDate: Date): Promise<{ name: string; total: number; byCurrency: Record<string, number> }[]> {
     const result = await db
       .select({
         date: sql`date_trunc('day', ${invoices.issueDate})`,
         total: invoices.total,
-        exchangeRate: invoices.exchangeRate,
+        currency: invoices.currency,
       })
       .from(invoices)
       .where(and(
@@ -3823,25 +3930,30 @@ export class DatabaseStorage implements IStorage {
       ))
       .orderBy(sql`date_trunc('day', ${invoices.issueDate})`);
 
-    const dailyTotals = new Map<string, number>();
+    const dailyTotals = new Map<string, Record<string, number>>();
     for (const row of result) {
       const key = format(new Date(row.date as string), 'MMM dd');
-      const rate = Number(row.exchangeRate || 1) || 1;
-      dailyTotals.set(key, (dailyTotals.get(key) || 0) + Number(row.total || 0) / rate);
+      const currency = row.currency || "USD";
+      const totals = dailyTotals.get(key) || {};
+      totals[currency] = (totals[currency] || 0) + Number(row.total || 0);
+      dailyTotals.set(key, totals);
     }
 
-    return Array.from(dailyTotals.entries()).map(([name, total]) => ({
+    return Array.from(dailyTotals.entries()).map(([name, byCurrency]) => ({
       name,
-      total: Math.round(total * 100) / 100
+      total: Math.round(Object.values(byCurrency).reduce((sum, amount) => sum + amount, 0) * 100) / 100,
+      byCurrency: Object.fromEntries(
+        Object.entries(byCurrency).map(([currency, amount]) => [currency, Math.round(amount * 100) / 100])
+      )
     }));
   }
 
-  async getSalesByPaymentMethod(companyId: number, startDate: Date, endDate: Date): Promise<{ method: string; total: number; count: number }[]> {
+  async getSalesByPaymentMethod(companyId: number, startDate: Date, endDate: Date): Promise<{ method: string; total: number; count: number; byCurrency: Record<string, number> }[]> {
     const result = await db
       .select({
         method: invoices.paymentMethod,
         total: invoices.total,
-        exchangeRate: invoices.exchangeRate,
+        currency: invoices.currency,
       })
       .from(invoices)
       .where(and(
@@ -3852,19 +3964,24 @@ export class DatabaseStorage implements IStorage {
         ne(invoices.status, 'draft')
       ));
 
-    const byMethod = new Map<string, { method: string; total: number; count: number }>();
+    const byMethod = new Map<string, { method: string; total: number; count: number; byCurrency: Record<string, number> }>();
     for (const row of result) {
       const method = row.method || "CASH";
-      const rate = Number(row.exchangeRate || 1) || 1;
-      const existing = byMethod.get(method) || { method, total: 0, count: 0 };
-      existing.total += Number(row.total || 0) / rate;
+      const currency = row.currency || "USD";
+      const existing = byMethod.get(method) || { method, total: 0, count: 0, byCurrency: {} };
+      const amount = Number(row.total || 0);
+      existing.total += amount;
+      existing.byCurrency[currency] = (existing.byCurrency[currency] || 0) + amount;
       existing.count += 1;
       byMethod.set(method, existing);
     }
 
     return Array.from(byMethod.values()).map(row => ({
       ...row,
-      total: Math.round(row.total * 100) / 100
+      total: Math.round(row.total * 100) / 100,
+      byCurrency: Object.fromEntries(
+        Object.entries(row.byCurrency).map(([currency, amount]) => [currency, Math.round(amount * 100) / 100])
+      )
     }));
   }
 
@@ -3996,12 +4113,12 @@ export class DatabaseStorage implements IStorage {
 
 
   // Reporting Implementations
-  async getSalesByCategory(companyId: number, startDate: Date, endDate: Date): Promise<{ category: string; totalSales: number; count: number }[]> {
+  async getSalesByCategory(companyId: number, startDate: Date, endDate: Date): Promise<{ category: string; totalSales: number; count: number; byCurrency: Record<string, number> }[]> {
     const result = await db
       .select({
         category: products.category,
         lineTotal: invoiceItems.lineTotal,
-        exchangeRate: invoices.exchangeRate,
+        currency: invoices.currency,
       })
       .from(invoiceItems)
       .innerJoin(invoices, eq(invoiceItems.invoiceId, invoices.id))
@@ -4014,28 +4131,36 @@ export class DatabaseStorage implements IStorage {
         ne(invoices.status, 'draft')
       ));
 
-    const byCategory = new Map<string, { category: string; totalSales: number; count: number }>();
+    const byCategory = new Map<string, { category: string; totalSales: number; count: number; byCurrency: Record<string, number> }>();
     for (const row of result) {
       const category = row.category || "Uncategorized";
-      const rate = Number(row.exchangeRate || 1) || 1;
-      const existing = byCategory.get(category) || { category, totalSales: 0, count: 0 };
-      existing.totalSales += Number(row.lineTotal || 0) / rate;
+      const currency = row.currency || "USD";
+      const existing = byCategory.get(category) || { category, totalSales: 0, count: 0, byCurrency: {} };
+      const amount = Number(row.lineTotal || 0);
+      existing.totalSales += amount;
+      existing.byCurrency[currency] = (existing.byCurrency[currency] || 0) + amount;
       existing.count += 1;
       byCategory.set(category, existing);
     }
 
     return Array.from(byCategory.values())
-      .map(row => ({ ...row, totalSales: Math.round(row.totalSales * 100) / 100 }))
+      .map(row => ({
+        ...row,
+        totalSales: Math.round(row.totalSales * 100) / 100,
+        byCurrency: Object.fromEntries(
+          Object.entries(row.byCurrency).map(([currency, amount]) => [currency, Math.round(amount * 100) / 100])
+        )
+      }))
       .sort((a, b) => b.totalSales - a.totalSales);
   }
 
-  async getSalesByUser(companyId: number, startDate: Date, endDate: Date): Promise<{ userId: string; userName: string; totalSales: number; count: number }[]> {
+  async getSalesByUser(companyId: number, startDate: Date, endDate: Date): Promise<{ userId: string; userName: string; totalSales: number; count: number; byCurrency: Record<string, number> }[]> {
     const rows = await db
       .select({
         createdBy: invoices.createdBy,
         shiftId: invoices.shiftId,
         total: invoices.total,
-        exchangeRate: invoices.exchangeRate,
+        currency: invoices.currency,
         directName: users.name,
         directUsername: users.username,
         directEmail: users.email
@@ -4082,7 +4207,7 @@ export class DatabaseStorage implements IStorage {
       });
     }
 
-    const byCashier = new Map<string, { userId: string; userName: string; totalSales: number; count: number }>();
+    const byCashier = new Map<string, { userId: string; userName: string; totalSales: number; count: number; byCurrency: Record<string, number> }>();
     for (const row of rows) {
       const shiftCashier = row.shiftId ? shiftCashierMap.get(Number(row.shiftId)) : undefined;
       const resolvedUserId = row.createdBy || shiftCashier?.userId || "system";
@@ -4099,16 +4224,25 @@ export class DatabaseStorage implements IStorage {
         userId: resolvedUserId,
         userName: resolvedUserName,
         totalSales: 0,
-        count: 0
+        count: 0,
+        byCurrency: {}
       };
-      const rate = Number(row.exchangeRate || 1) || 1;
-      existing.totalSales += Number(row.total || 0) / rate;
+      const currency = row.currency || "USD";
+      const amount = Number(row.total || 0);
+      existing.totalSales += amount;
+      existing.byCurrency[currency] = (existing.byCurrency[currency] || 0) + amount;
       existing.count += 1;
       byCashier.set(resolvedUserId, existing);
     }
 
     return Array.from(byCashier.values())
-      .map(row => ({ ...row, totalSales: Math.round(row.totalSales * 100) / 100 }))
+      .map(row => ({
+        ...row,
+        totalSales: Math.round(row.totalSales * 100) / 100,
+        byCurrency: Object.fromEntries(
+          Object.entries(row.byCurrency).map(([currency, amount]) => [currency, Math.round(amount * 100) / 100])
+        )
+      }))
       .sort((a, b) => b.totalSales - a.totalSales);
   }
 
@@ -5830,7 +5964,7 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getOperationalMetrics(companyId: number, startDate: Date, endDate: Date): Promise<{ atv: number; profitMargin: number; itemsPerReceipt: number; totalRevenue: number; totalCogs: number }> {
+  async getOperationalMetrics(companyId: number, startDate: Date, endDate: Date): Promise<{ atv: number; profitMargin: number; itemsPerReceipt: number; totalRevenue: number; totalCogs: number; totalRevenueByCurrency: Record<string, number> }> {
     const periodInvoices = await db.select()
       .from(invoices)
       .where(and(
@@ -5842,7 +5976,7 @@ export class DatabaseStorage implements IStorage {
       ));
 
     if (periodInvoices.length === 0) {
-      return { atv: 0, profitMargin: 0, itemsPerReceipt: 0, totalRevenue: 0, totalCogs: 0 };
+      return { atv: 0, profitMargin: 0, itemsPerReceipt: 0, totalRevenue: 0, totalCogs: 0, totalRevenueByCurrency: {} };
     }
 
     const invoiceIds = periodInvoices.map(inv => inv.id);
@@ -5850,10 +5984,15 @@ export class DatabaseStorage implements IStorage {
       .from(invoiceItems)
       .where(inArray(invoiceItems.invoiceId, invoiceIds));
 
-    const totalRevenue = periodInvoices.reduce((sum, inv) => {
-      const rate = Number(inv.exchangeRate || 1) || 1;
-      return sum + Number(inv.total || 0) / rate;
-    }, 0);
+    const totalRevenueByCurrency = periodInvoices.reduce((totals: Record<string, number>, inv) => {
+      const currency = inv.currency || "USD";
+      totals[currency] = (totals[currency] || 0) + Number(inv.total || 0);
+      return totals;
+    }, {});
+    const roundedRevenueByCurrency = Object.fromEntries(
+      Object.entries(totalRevenueByCurrency).map(([currency, amount]) => [currency, Math.round(amount * 100) / 100])
+    );
+    const totalRevenue = Object.values(totalRevenueByCurrency).reduce((sum, amount) => sum + amount, 0);
     const totalCogs = items.reduce((sum, item) => sum + Number(item.cogsAmount || 0), 0);
     const totalItems = items.reduce((sum, item) => sum + Number(item.quantity), 0);
 
@@ -5866,7 +6005,8 @@ export class DatabaseStorage implements IStorage {
       profitMargin,
       itemsPerReceipt,
       totalRevenue,
-      totalCogs
+      totalCogs,
+      totalRevenueByCurrency: roundedRevenueByCurrency
     };
   }
 
@@ -6102,6 +6242,648 @@ export class DatabaseStorage implements IStorage {
       unitCost: String(r.unitCost || "0"),
       totalCost: String(r.totalCost || "0")
     }));
+  }
+
+  async getReportAutoSparesDailySales(companyId: number, start: Date, end: Date): Promise<any[]> {
+    const saleRows = await db.select()
+      .from(invoices)
+      .where(and(
+        eq(invoices.companyId, companyId),
+        gte(invoices.issueDate, start),
+        lte(invoices.issueDate, end),
+        ne(invoices.status, "draft"),
+        ne(invoices.status, "quote")
+      ));
+
+    const invoiceIds = saleRows.map(inv => inv.id);
+    const paymentRows = invoiceIds.length
+      ? await db.select().from(payments).where(inArray(payments.invoiceId, invoiceIds))
+      : [];
+
+    const paymentsByInvoice = new Map<number, typeof paymentRows>();
+    for (const pmt of paymentRows) {
+      const list = paymentsByInvoice.get(pmt.invoiceId) || [];
+      list.push(pmt);
+      paymentsByInvoice.set(pmt.invoiceId, list);
+    }
+
+    const byDate = new Map<string, any>();
+    const classifyPayment = (method?: string | null) => {
+      const value = (method || "CASH").toLowerCase();
+      if (value.includes("card") || value.includes("visa") || value.includes("master")) return "card";
+      if (value.includes("mobile") || value.includes("eco") || value.includes("innbucks") || value.includes("wallet")) return "mobileMoney";
+      if (value.includes("cash")) return "cash";
+      return "other";
+    };
+
+    for (const inv of saleRows) {
+      const date = inv.issueDate ? inv.issueDate.toISOString().slice(0, 10) : "unknown";
+      const existing = byDate.get(date) || {
+        date,
+        invoiceCount: 0,
+        returnCount: 0,
+        totalSales: 0,
+        returns: 0,
+        cash: 0,
+        card: 0,
+        mobileMoney: 0,
+        other: 0,
+        netSales: 0,
+      };
+
+      const total = Number(inv.total || 0);
+      const isReturn = inv.transactionType === "CreditNote" || inv.status === "cancelled";
+      if (isReturn) {
+        existing.returnCount += 1;
+        existing.returns += Math.abs(total);
+      } else {
+        existing.invoiceCount += 1;
+        existing.totalSales += total;
+      }
+
+      const invoicePayments = paymentsByInvoice.get(inv.id) || [];
+      if (invoicePayments.length > 0) {
+        for (const pmt of invoicePayments) {
+          const bucket = classifyPayment(pmt.paymentMethod);
+          existing[bucket] += Number(pmt.amount || 0);
+        }
+      } else if (!isReturn) {
+        const bucket = classifyPayment(inv.paymentMethod);
+        existing[bucket] += total;
+      }
+
+      existing.netSales = existing.totalSales - existing.returns;
+      byDate.set(date, existing);
+    }
+
+    return Array.from(byDate.values())
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map(row => ({
+        ...row,
+        totalSales: row.totalSales.toFixed(2),
+        returns: row.returns.toFixed(2),
+        cash: row.cash.toFixed(2),
+        card: row.card.toFixed(2),
+        mobileMoney: row.mobileMoney.toFixed(2),
+        other: row.other.toFixed(2),
+        netSales: row.netSales.toFixed(2),
+      }));
+  }
+
+  async getReportTopSellingParts(companyId: number, start: Date, end: Date): Promise<any[]> {
+    const rows = await db.select({
+      item: invoiceItems,
+      invoice: invoices,
+      product: products,
+    })
+      .from(invoiceItems)
+      .innerJoin(invoices, eq(invoiceItems.invoiceId, invoices.id))
+      .leftJoin(products, eq(invoiceItems.productId, products.id))
+      .where(and(
+        eq(invoices.companyId, companyId),
+        gte(invoices.issueDate, start),
+        lte(invoices.issueDate, end),
+        ne(invoices.transactionType, "CreditNote"),
+        ne(invoices.status, "cancelled"),
+        ne(invoices.status, "draft")
+      ));
+
+    const byPart = new Map<string, any>();
+    for (const row of rows) {
+      const key = row.item.productId ? `product:${row.item.productId}` : `desc:${row.item.description}`;
+      const existing = byPart.get(key) || {
+        productId: row.item.productId,
+        part: row.product?.name || row.item.description,
+        sku: row.product?.sku || null,
+        category: row.product?.category || "Uncategorized",
+        brand: row.product?.brandName || null,
+        quantitySold: 0,
+        revenue: 0,
+      };
+      existing.quantitySold += Number(row.item.quantity || 0);
+      existing.revenue += Number(row.item.lineTotal || 0);
+      byPart.set(key, existing);
+    }
+
+    return Array.from(byPart.values())
+      .sort((a, b) => b.revenue - a.revenue)
+      .map(row => ({
+        ...row,
+        quantitySold: row.quantitySold.toFixed(2),
+        revenue: row.revenue.toFixed(2),
+      }));
+  }
+
+  async getReportDeadStock(companyId: number, start: Date, end: Date): Promise<any[]> {
+    const productRows = await db.select().from(products).where(eq(products.companyId, companyId));
+    const salesRows = await db.select({
+      productId: invoiceItems.productId,
+      issueDate: invoices.issueDate,
+      quantity: invoiceItems.quantity,
+    })
+      .from(invoiceItems)
+      .innerJoin(invoices, eq(invoiceItems.invoiceId, invoices.id))
+      .where(and(
+        eq(invoices.companyId, companyId),
+        lte(invoices.issueDate, end),
+        ne(invoices.transactionType, "CreditNote"),
+        ne(invoices.status, "cancelled"),
+        ne(invoices.status, "draft")
+      ));
+
+    const salesByProduct = new Map<number, { lastSoldAt: Date; quantitySold: number }>();
+    for (const row of salesRows) {
+      if (!row.productId || !row.issueDate) continue;
+      const existing = salesByProduct.get(row.productId);
+      const issueDate = new Date(row.issueDate);
+      if (!existing || issueDate > existing.lastSoldAt) {
+        salesByProduct.set(row.productId, {
+          lastSoldAt: issueDate,
+          quantitySold: (existing?.quantitySold || 0) + Number(row.quantity || 0),
+        });
+      } else {
+        existing.quantitySold += Number(row.quantity || 0);
+      }
+    }
+
+    const asOf = end || new Date();
+    return productRows
+      .map(product => {
+        const sale = salesByProduct.get(product.id);
+        const daysSinceLastSale = sale
+          ? Math.floor((asOf.getTime() - sale.lastSoldAt.getTime()) / 86400000)
+          : 9999;
+        const stockLevel = Number(product.stockLevel || 0);
+        return {
+          productId: product.id,
+          part: product.name,
+          sku: product.sku,
+          category: product.category || "Uncategorized",
+          brand: product.brandName,
+          stockLevel: stockLevel.toFixed(2),
+          stockValue: (stockLevel * Number(product.costPrice || 0)).toFixed(2),
+          lastSoldAt: sale?.lastSoldAt.toISOString().slice(0, 10) || "Never",
+          daysSinceLastSale,
+          ageingBucket: daysSinceLastSale >= 90 ? "90+ days" : daysSinceLastSale >= 60 ? "60-89 days" : daysSinceLastSale >= 30 ? "30-59 days" : "Active",
+        };
+      })
+      .filter(row => Number(row.stockLevel) > 0 && row.daysSinceLastSale >= 30)
+      .sort((a, b) => b.daysSinceLastSale - a.daysSinceLastSale);
+  }
+
+  async getReportProfitMargins(companyId: number, start: Date, end: Date): Promise<any[]> {
+    const rows = await db.select({
+      item: invoiceItems,
+      invoice: invoices,
+      product: products,
+      userName: users.name,
+      username: users.username,
+      userEmail: users.email,
+    })
+      .from(invoiceItems)
+      .innerJoin(invoices, eq(invoiceItems.invoiceId, invoices.id))
+      .leftJoin(products, eq(invoiceItems.productId, products.id))
+      .leftJoin(users, eq(invoices.createdBy, users.id))
+      .where(and(
+        eq(invoices.companyId, companyId),
+        gte(invoices.issueDate, start),
+        lte(invoices.issueDate, end),
+        ne(invoices.transactionType, "CreditNote"),
+        ne(invoices.status, "cancelled"),
+        ne(invoices.status, "draft")
+      ));
+
+    const latestSuppliers = await db.select({
+      productId: inventoryTransactions.productId,
+      supplierName: suppliers.name,
+      createdAt: inventoryTransactions.createdAt,
+    })
+      .from(inventoryTransactions)
+      .leftJoin(suppliers, eq(inventoryTransactions.supplierId, suppliers.id))
+      .where(and(eq(inventoryTransactions.companyId, companyId), eq(inventoryTransactions.type, "STOCK_IN")))
+      .orderBy(desc(inventoryTransactions.createdAt));
+
+    const supplierByProduct = new Map<number, string>();
+    for (const row of latestSuppliers) {
+      if (!supplierByProduct.has(row.productId) && row.supplierName) {
+        supplierByProduct.set(row.productId, row.supplierName);
+      }
+    }
+
+    const buckets = new Map<string, any>();
+    const addBucket = (dimensionType: string, dimension: string, revenue: number, cogs: number, quantity: number) => {
+      const key = `${dimensionType}:${dimension}`;
+      const existing = buckets.get(key) || { dimensionType, dimension, quantitySold: 0, revenue: 0, cogs: 0, grossProfit: 0, marginPercent: 0 };
+      existing.quantitySold += quantity;
+      existing.revenue += revenue;
+      existing.cogs += cogs;
+      existing.grossProfit = existing.revenue - existing.cogs;
+      existing.marginPercent = existing.revenue > 0 ? (existing.grossProfit / existing.revenue) * 100 : 0;
+      buckets.set(key, existing);
+    };
+
+    for (const row of rows) {
+      const quantity = Number(row.item.quantity || 0);
+      const revenue = Number(row.item.lineTotal || 0);
+      const cogs = Number(row.item.cogsAmount ?? (Number(row.product?.costPrice || 0) * quantity));
+      const salesperson = row.userName || row.username || row.userEmail || "System";
+      const supplier = row.item.productId ? supplierByProduct.get(row.item.productId) || "No Supplier" : "No Supplier";
+
+      addBucket("Item", row.product?.name || row.item.description, revenue, cogs, quantity);
+      addBucket("Category", row.product?.category || "Uncategorized", revenue, cogs, quantity);
+      addBucket("Brand", row.product?.brandName || "No Brand", revenue, cogs, quantity);
+      addBucket("Supplier", supplier, revenue, cogs, quantity);
+      addBucket("Salesperson", salesperson, revenue, cogs, quantity);
+    }
+
+    return Array.from(buckets.values())
+      .sort((a, b) => b.grossProfit - a.grossProfit)
+      .map(row => ({
+        ...row,
+        quantitySold: row.quantitySold.toFixed(2),
+        revenue: row.revenue.toFixed(2),
+        cogs: row.cogs.toFixed(2),
+        grossProfit: row.grossProfit.toFixed(2),
+        marginPercent: row.marginPercent.toFixed(2),
+      }));
+  }
+
+  async getReportSupplierPerformance(companyId: number, start: Date, end: Date): Promise<any[]> {
+    const poRows = await db.select({
+      po: purchaseOrders,
+      supplier: suppliers,
+    })
+      .from(purchaseOrders)
+      .leftJoin(suppliers, eq(purchaseOrders.supplierId, suppliers.id))
+      .where(and(eq(purchaseOrders.companyId, companyId), gte(purchaseOrders.createdAt, start), lte(purchaseOrders.createdAt, end)));
+
+    const stockRows = await db.select({
+      supplierId: inventoryTransactions.supplierId,
+      supplierName: suppliers.name,
+      quantity: inventoryTransactions.quantity,
+      totalCost: inventoryTransactions.totalCost,
+      unitCost: inventoryTransactions.unitCost,
+    })
+      .from(inventoryTransactions)
+      .leftJoin(suppliers, eq(inventoryTransactions.supplierId, suppliers.id))
+      .where(and(
+        eq(inventoryTransactions.companyId, companyId),
+        eq(inventoryTransactions.type, "STOCK_IN"),
+        gte(inventoryTransactions.createdAt, start),
+        lte(inventoryTransactions.createdAt, end)
+      ));
+
+    const claimRows = await db.select({
+      supplierId: productSerialNumbers.supplierId,
+      supplierName: suppliers.name,
+      claimId: warrantyClaims.id,
+    })
+      .from(warrantyClaims)
+      .leftJoin(productSerialNumbers, eq(warrantyClaims.serialNumberId, productSerialNumbers.id))
+      .leftJoin(suppliers, eq(productSerialNumbers.supplierId, suppliers.id))
+      .where(and(eq(warrantyClaims.companyId, companyId), gte(warrantyClaims.receivedAt, start), lte(warrantyClaims.receivedAt, end)));
+
+    const bySupplier = new Map<string, any>();
+    const ensure = (supplierId: number | null | undefined, supplierName: string | null | undefined) => {
+      const key = supplierId ? String(supplierId) : supplierName || "No Supplier";
+      const existing = bySupplier.get(key) || {
+        supplierId: supplierId || null,
+        supplierName: supplierName || "No Supplier",
+        purchaseOrders: 0,
+        receivedOrders: 0,
+        lateOrders: 0,
+        quantityReceived: 0,
+        purchaseValue: 0,
+        minUnitCost: null as number | null,
+        maxUnitCost: null as number | null,
+        warrantyReturns: 0,
+      };
+      bySupplier.set(key, existing);
+      return existing;
+    };
+
+    for (const row of poRows) {
+      const supplier = ensure(row.po.supplierId, row.supplier?.name);
+      supplier.purchaseOrders += 1;
+      if (row.po.status === "RECEIVED") supplier.receivedOrders += 1;
+      if (row.po.status === "RECEIVED" && row.po.expectedDate && row.po.updatedAt && new Date(row.po.updatedAt) > new Date(row.po.expectedDate)) {
+        supplier.lateOrders += 1;
+      }
+    }
+
+    for (const row of stockRows) {
+      const supplier = ensure(row.supplierId, row.supplierName);
+      const unitCost = Number(row.unitCost || 0);
+      supplier.quantityReceived += Number(row.quantity || 0);
+      supplier.purchaseValue += Number(row.totalCost || 0);
+      supplier.minUnitCost = supplier.minUnitCost === null ? unitCost : Math.min(supplier.minUnitCost, unitCost);
+      supplier.maxUnitCost = supplier.maxUnitCost === null ? unitCost : Math.max(supplier.maxUnitCost, unitCost);
+    }
+
+    for (const row of claimRows) {
+      ensure(row.supplierId, row.supplierName).warrantyReturns += 1;
+    }
+
+    return Array.from(bySupplier.values()).map(row => ({
+      ...row,
+      onTimeRate: row.receivedOrders > 0 ? (((row.receivedOrders - row.lateOrders) / row.receivedOrders) * 100).toFixed(2) : "0.00",
+      quantityReceived: row.quantityReceived.toFixed(2),
+      purchaseValue: row.purchaseValue.toFixed(2),
+      priceRange: row.minUnitCost === null ? "N/A" : `${row.minUnitCost.toFixed(2)} - ${row.maxUnitCost.toFixed(2)}`,
+    })).sort((a, b) => Number(b.purchaseValue) - Number(a.purchaseValue));
+  }
+
+  async getReportCustomerCredit(companyId: number, start: Date, end: Date): Promise<any[]> {
+    const rows = await db.select({
+      invoice: invoices,
+      customer: customers,
+      payment: payments,
+    })
+      .from(invoices)
+      .leftJoin(customers, eq(invoices.customerId, customers.id))
+      .leftJoin(payments, eq(payments.invoiceId, invoices.id))
+      .where(and(
+        eq(invoices.companyId, companyId),
+        lte(invoices.issueDate, end),
+        ne(invoices.transactionType, "CreditNote"),
+        ne(invoices.status, "cancelled"),
+        ne(invoices.status, "draft")
+      ));
+
+    const paidByInvoice = new Map<number, number>();
+    for (const row of rows) {
+      if (row.payment) paidByInvoice.set(row.invoice.id, (paidByInvoice.get(row.invoice.id) || 0) + Number(row.payment.amount || 0));
+    }
+
+    const byCustomer = new Map<number, any>();
+    const seenInvoices = new Set<number>();
+    for (const row of rows) {
+      if (seenInvoices.has(row.invoice.id)) continue;
+      seenInvoices.add(row.invoice.id);
+      const paid = paidByInvoice.get(row.invoice.id) || 0;
+      const total = Number(row.invoice.total || 0);
+      const balance = Math.max(0, total - paid);
+      const daysOverdue = row.invoice.dueDate ? Math.max(0, Math.floor((end.getTime() - new Date(row.invoice.dueDate).getTime()) / 86400000)) : 0;
+      const existing = byCustomer.get(row.invoice.customerId) || {
+        customerId: row.invoice.customerId,
+        customerName: row.customer?.name || row.invoice.customerName || "Walk-in Customer",
+        invoices: 0,
+        totalInvoiced: 0,
+        totalPaid: 0,
+        balance: 0,
+        overdueInvoices: 0,
+        overdueBalance: 0,
+        lastPaymentAt: null as string | null,
+      };
+      existing.invoices += 1;
+      existing.totalInvoiced += total;
+      existing.totalPaid += paid;
+      existing.balance += balance;
+      if (balance > 0 && daysOverdue > 0) {
+        existing.overdueInvoices += 1;
+        existing.overdueBalance += balance;
+      }
+      byCustomer.set(row.invoice.customerId, existing);
+    }
+
+    for (const row of rows) {
+      if (!row.payment) continue;
+      const existing = byCustomer.get(row.invoice.customerId);
+      const paidAt = row.payment.paymentDate?.toISOString().slice(0, 10) || null;
+      if (existing && paidAt && (!existing.lastPaymentAt || paidAt > existing.lastPaymentAt)) {
+        existing.lastPaymentAt = paidAt;
+      }
+    }
+
+    return Array.from(byCustomer.values()).map(row => ({
+      ...row,
+      totalInvoiced: row.totalInvoiced.toFixed(2),
+      totalPaid: row.totalPaid.toFixed(2),
+      balance: row.balance.toFixed(2),
+      overdueBalance: row.overdueBalance.toFixed(2),
+      lastPaymentAt: row.lastPaymentAt || "No payments",
+    })).sort((a, b) => Number(b.balance) - Number(a.balance));
+  }
+
+  async getReportSalespersonPerformance(companyId: number, start: Date, end: Date): Promise<any[]> {
+    const rows = await db.select({
+      invoice: invoices,
+      item: invoiceItems,
+      userName: users.name,
+      username: users.username,
+      userEmail: users.email,
+    })
+      .from(invoices)
+      .leftJoin(invoiceItems, eq(invoiceItems.invoiceId, invoices.id))
+      .leftJoin(users, eq(invoices.createdBy, users.id))
+      .where(and(eq(invoices.companyId, companyId), gte(invoices.issueDate, start), lte(invoices.issueDate, end), ne(invoices.status, "draft")));
+
+    const byUser = new Map<string, any>();
+    const seenInvoicesByUser = new Set<string>();
+    for (const row of rows) {
+      const userId = row.invoice.createdBy || "system";
+      const existing = byUser.get(userId) || {
+        userId,
+        userName: row.userName || row.username || row.userEmail || "System",
+        invoices: 0,
+        returns: 0,
+        revenue: 0,
+        discounts: 0,
+        cogs: 0,
+        profit: 0,
+      };
+
+      const invoiceKey = `${userId}:${row.invoice.id}`;
+      if (!seenInvoicesByUser.has(invoiceKey)) {
+        seenInvoicesByUser.add(invoiceKey);
+        if (row.invoice.transactionType === "CreditNote" || row.invoice.status === "cancelled") {
+          existing.returns += Math.abs(Number(row.invoice.total || 0));
+        } else {
+          existing.invoices += 1;
+          existing.revenue += Number(row.invoice.total || 0);
+          existing.discounts += Number(row.invoice.discountAmount || 0);
+        }
+      }
+      if (row.item && row.invoice.transactionType !== "CreditNote" && row.invoice.status !== "cancelled") {
+        existing.cogs += Number(row.item.cogsAmount || 0);
+      }
+      existing.profit = existing.revenue - existing.cogs;
+      byUser.set(userId, existing);
+    }
+
+    return Array.from(byUser.values()).map(row => ({
+      ...row,
+      revenue: row.revenue.toFixed(2),
+      profit: row.profit.toFixed(2),
+      discounts: row.discounts.toFixed(2),
+      returns: row.returns.toFixed(2),
+      marginPercent: row.revenue > 0 ? ((row.profit / row.revenue) * 100).toFixed(2) : "0.00",
+    })).sort((a, b) => Number(b.revenue) - Number(a.revenue));
+  }
+
+  async getReportCategoryBrandPerformance(companyId: number, start: Date, end: Date): Promise<any[]> {
+    const rows = await db.select({
+      item: invoiceItems,
+      invoice: invoices,
+      product: products,
+    })
+      .from(invoiceItems)
+      .innerJoin(invoices, eq(invoiceItems.invoiceId, invoices.id))
+      .leftJoin(products, eq(invoiceItems.productId, products.id))
+      .where(and(
+        eq(invoices.companyId, companyId),
+        gte(invoices.issueDate, start),
+        lte(invoices.issueDate, end),
+        ne(invoices.transactionType, "CreditNote"),
+        ne(invoices.status, "cancelled"),
+        ne(invoices.status, "draft")
+      ));
+
+    const buckets = new Map<string, any>();
+    const add = (type: string, name: string, qty: number, revenue: number) => {
+      const key = `${type}:${name}`;
+      const existing = buckets.get(key) || { type, name, quantitySold: 0, revenue: 0, lineCount: 0 };
+      existing.quantitySold += qty;
+      existing.revenue += revenue;
+      existing.lineCount += 1;
+      buckets.set(key, existing);
+    };
+
+    for (const row of rows) {
+      add("Category", row.product?.category || "Uncategorized", Number(row.item.quantity || 0), Number(row.item.lineTotal || 0));
+      add("Brand", row.product?.brandName || "No Brand", Number(row.item.quantity || 0), Number(row.item.lineTotal || 0));
+    }
+
+    return Array.from(buckets.values()).map(row => ({
+      ...row,
+      quantitySold: row.quantitySold.toFixed(2),
+      revenue: row.revenue.toFixed(2),
+    })).sort((a, b) => Number(b.revenue) - Number(a.revenue));
+  }
+
+  async getReportReturnWarranty(companyId: number, start: Date, end: Date): Promise<any[]> {
+    const creditNotes = await db.select({
+      invoice: invoices,
+      customer: customers,
+    })
+      .from(invoices)
+      .leftJoin(customers, eq(invoices.customerId, customers.id))
+      .where(and(eq(invoices.companyId, companyId), gte(invoices.issueDate, start), lte(invoices.issueDate, end), eq(invoices.transactionType, "CreditNote")));
+
+    const claims = await db.select({
+      claim: warrantyClaims,
+      product: products,
+      customer: customers,
+    })
+      .from(warrantyClaims)
+      .leftJoin(products, eq(warrantyClaims.productId, products.id))
+      .leftJoin(customers, eq(warrantyClaims.customerId, customers.id))
+      .where(and(eq(warrantyClaims.companyId, companyId), gte(warrantyClaims.receivedAt, start), lte(warrantyClaims.receivedAt, end)));
+
+    const rows = [
+      ...creditNotes.map(row => ({
+        type: "Return",
+        reference: row.invoice.invoiceNumber,
+        date: row.invoice.issueDate?.toISOString().slice(0, 10) || "",
+        customerName: row.customer?.name || row.invoice.customerName || "Walk-in Customer",
+        part: "Credit note",
+        reason: row.invoice.notes || "Returned sale",
+        status: row.invoice.status || "issued",
+        amount: Number(row.invoice.total || 0).toFixed(2),
+      })),
+      ...claims.map(row => ({
+        type: "Warranty",
+        reference: row.claim.claimNumber,
+        date: row.claim.receivedAt?.toISOString().slice(0, 10) || "",
+        customerName: row.customer?.name || "Unknown",
+        part: row.product?.name || `Product #${row.claim.productId}`,
+        reason: row.claim.reason,
+        status: row.claim.status,
+        amount: "0.00",
+      })),
+    ];
+
+    return rows.sort((a, b) => b.date.localeCompare(a.date));
+  }
+
+  async getReportReorderSuggestions(companyId: number, start: Date, end: Date): Promise<any[]> {
+    const productRows = await db.select().from(products).where(and(eq(products.companyId, companyId), eq(products.isTracked, true)));
+    const salesRows = await db.select({
+      productId: invoiceItems.productId,
+      quantity: invoiceItems.quantity,
+    })
+      .from(invoiceItems)
+      .innerJoin(invoices, eq(invoiceItems.invoiceId, invoices.id))
+      .where(and(
+        eq(invoices.companyId, companyId),
+        gte(invoices.issueDate, start),
+        lte(invoices.issueDate, end),
+        ne(invoices.transactionType, "CreditNote"),
+        ne(invoices.status, "cancelled"),
+        ne(invoices.status, "draft")
+      ));
+
+    const soldByProduct = new Map<number, number>();
+    for (const row of salesRows) {
+      if (!row.productId) continue;
+      soldByProduct.set(row.productId, (soldByProduct.get(row.productId) || 0) + Number(row.quantity || 0));
+    }
+
+    const periodDays = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / 86400000));
+    const coverDays = 30;
+    return productRows.map(product => {
+      const sold = soldByProduct.get(product.id) || 0;
+      const dailyVelocity = sold / periodDays;
+      const stockLevel = Number(product.stockLevel || 0);
+      const lowStockThreshold = Number(product.lowStockThreshold || 0);
+      const suggestedQty = Math.max(0, Math.ceil((dailyVelocity * coverDays + lowStockThreshold) - stockLevel));
+      return {
+        productId: product.id,
+        part: product.name,
+        sku: product.sku,
+        category: product.category || "Uncategorized",
+        stockLevel: stockLevel.toFixed(2),
+        lowStockThreshold: lowStockThreshold.toFixed(2),
+        soldInPeriod: sold.toFixed(2),
+        dailyVelocity: dailyVelocity.toFixed(2),
+        suggestedQty,
+        estimatedCost: (suggestedQty * Number(product.costPrice || 0)).toFixed(2),
+      };
+    }).filter(row => row.suggestedQty > 0).sort((a, b) => b.suggestedQty - a.suggestedQty);
+  }
+
+  async getReportPriceChanges(companyId: number, start: Date, end: Date): Promise<any[]> {
+    const rows = await db.select({
+      adjustment: priceAdjustments,
+      product: products,
+      userName: users.name,
+      username: users.username,
+      userEmail: users.email,
+    })
+      .from(priceAdjustments)
+      .innerJoin(products, eq(priceAdjustments.productId, products.id))
+      .leftJoin(users, eq(priceAdjustments.createdBy, users.id))
+      .where(and(eq(priceAdjustments.companyId, companyId), gte(priceAdjustments.createdAt, start), lte(priceAdjustments.createdAt, end)))
+      .orderBy(desc(priceAdjustments.createdAt));
+
+    return rows.map(row => {
+      const oldPrice = Number(row.adjustment.oldPrice || 0);
+      const newPrice = Number(row.adjustment.newPrice || 0);
+      const change = newPrice - oldPrice;
+      return {
+        adjustmentId: row.adjustment.id,
+        date: row.adjustment.createdAt?.toISOString().slice(0, 10) || "",
+        part: row.product.name,
+        sku: row.product.sku,
+        category: row.product.category || "Uncategorized",
+        oldPrice: oldPrice.toFixed(2),
+        newPrice: newPrice.toFixed(2),
+        change: change.toFixed(2),
+        changePercent: oldPrice > 0 ? ((change / oldPrice) * 100).toFixed(2) : "0.00",
+        reason: row.adjustment.reason || "",
+        changedBy: row.userName || row.username || row.userEmail || "System",
+      };
+    });
   }
 
   // Stock Takes Implementation

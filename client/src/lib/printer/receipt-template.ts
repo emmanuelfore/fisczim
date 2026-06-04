@@ -1,5 +1,6 @@
 import { EscPosEncoder, TextAlignment, TextSize } from "./esc-pos-encoder";
 import { format } from "date-fns";
+import { resolveMediaUrl } from "@/lib/media";
 
 export interface ReceiptData {
   company: any;
@@ -11,6 +12,101 @@ export interface ReceiptData {
 }
 
 export class ReceiptTemplate {
+  private static wrapText(text: string, width: number): string[] {
+    const clean = String(text || "").replace(/\s+/g, " ").trim();
+    if (!clean) return [];
+
+    const lines: string[] = [];
+    let current = "";
+    for (const word of clean.split(" ")) {
+      if (word.length > width) {
+        if (current) {
+          lines.push(current);
+          current = "";
+        }
+        for (let i = 0; i < word.length; i += width) {
+          lines.push(word.slice(i, i + width));
+        }
+        continue;
+      }
+      const next = current ? `${current} ${word}` : word;
+      if (next.length > width) {
+        if (current) lines.push(current);
+        current = word;
+      } else {
+        current = next;
+      }
+    }
+    if (current) lines.push(current);
+    return lines;
+  }
+
+  private static fitAmount(value: number, width: number): string {
+    const text = Number(value || 0).toFixed(2);
+    return text.length > width ? text.slice(text.length - width) : text;
+  }
+
+  private static async loadLogoRaster(logoUrl: string, paperChars: number): Promise<{ width: number; height: number; data: Uint8Array } | null> {
+    if (typeof window === "undefined" || typeof document === "undefined" || !logoUrl) return null;
+
+    const url = resolveMediaUrl(logoUrl);
+    const maxDots = paperChars <= 32 ? 256 : 320;
+    const maxHeight = paperChars <= 32 ? 96 : 128;
+
+    try {
+      const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error("Logo image failed to load"));
+        img.src = url;
+      });
+
+      const scale = Math.min(maxDots / image.naturalWidth, maxHeight / image.naturalHeight, 1);
+      const width = Math.max(8, Math.floor(image.naturalWidth * scale));
+      const height = Math.max(8, Math.floor(image.naturalHeight * scale));
+      const paddedWidth = Math.ceil(width / 8) * 8;
+
+      const canvas = document.createElement("canvas");
+      canvas.width = paddedWidth;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return null;
+
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, paddedWidth, height);
+      ctx.drawImage(image, Math.floor((paddedWidth - width) / 2), 0, width, height);
+
+      const pixels = ctx.getImageData(0, 0, paddedWidth, height).data;
+      const bytesPerRow = paddedWidth / 8;
+      const data = new Uint8Array(bytesPerRow * height);
+
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < paddedWidth; x++) {
+          const offset = (y * paddedWidth + x) * 4;
+          const alpha = pixels[offset + 3] / 255;
+          const luminance = ((pixels[offset] * 0.299) + (pixels[offset + 1] * 0.587) + (pixels[offset + 2] * 0.114));
+          const isBlack = alpha > 0.35 && luminance < 180;
+          if (isBlack) {
+            data[y * bytesPerRow + (x >> 3)] |= 0x80 >> (x & 7);
+          }
+        }
+      }
+
+      return { width: paddedWidth, height, data };
+    } catch (error) {
+      console.warn("[ReceiptTemplate] Skipping logo print:", error);
+      return null;
+    }
+  }
+
+  static async formatFiscalReceiptAsync(data: ReceiptData, options: any = {}): Promise<Uint8Array> {
+    const logo = options.logoUrl
+      ? await ReceiptTemplate.loadLogoRaster(options.logoUrl, options.width || 32)
+      : null;
+    return ReceiptTemplate.formatFiscalReceipt(data, { ...options, logoRaster: logo });
+  }
+
   /**
    * Formats a Standard Fiscal Receipt for ZIMRA Compliance
    * @param data The combination of company, branch, invoice and customer data
@@ -96,6 +192,10 @@ export class ReceiptTemplate {
 
     // 2. Header Section
     encoder.align(TextAlignment.Center);
+    if (options.logoRaster) {
+      encoder.rasterImage(options.logoRaster.width, options.logoRaster.height, options.logoRaster.data);
+      encoder.feed(1);
+    }
     encoder.bold(true);
     if (doubleHeightHeader) encoder.size(TextSize.DoubleHeight);
     encoder.line(company.name.toUpperCase().trim());
@@ -170,7 +270,8 @@ export class ReceiptTemplate {
     if (width >= 42) {
       encoder.line("QTY   DESCRIPTION             VAT    TOTAL");
     } else {
-      encoder.line("QTY   DESCRIPTION    VAT     TOTAL");
+      encoder.line("DESCRIPTION");
+      encoder.line("QTY x PRICE      VAT     TOTAL");
     }
     encoder.bold(false);
     encoder.separator(width);
@@ -184,11 +285,11 @@ export class ReceiptTemplate {
       const desc = item.description || item.product?.name || "Item";
 
       if (width <= 32) {
-        encoder.line(desc);
-        const qtyS = qty.toFixed(2);
-        const vatS = vatAmount.toFixed(2);
-        const totalS = total.toFixed(2);
-        encoder.line(`  ${qtyS.padEnd(5)} x ${price.toFixed(2).padEnd(6)} ${vatS.padStart(6)} ${totalS.padStart(8)}`);
+        ReceiptTemplate.wrapText(desc, width).forEach(line => encoder.line(line));
+        const qtyPrice = `${qty.toFixed(2)} x ${ReceiptTemplate.fitAmount(price, 7)}`.slice(0, 15);
+        const vatS = ReceiptTemplate.fitAmount(vatAmount, 6);
+        const totalS = ReceiptTemplate.fitAmount(total, 8);
+        encoder.line(`${qtyPrice.padEnd(width - 15)}${vatS.padStart(6)} ${totalS.padStart(8)}`);
       } else {
         const qtyS = qty.toFixed(2).padEnd(6);
         const totalS = total.toFixed(2).padStart(8);
@@ -196,7 +297,9 @@ export class ReceiptTemplate {
         const descMax = width - 6 - 8 - 6 - 3;
         const descRow = desc.substring(0, descMax).padEnd(descMax);
         encoder.line(`${qtyS}${descRow} ${vatS} ${totalS}`);
-        if (desc.length > descMax) encoder.line(`      ${desc.substring(descMax)}`);
+        if (desc.length > descMax) {
+          ReceiptTemplate.wrapText(desc.substring(descMax), width - 6).forEach(line => encoder.line(`      ${line}`));
+        }
         if (qty !== 1) encoder.line(`      Price: ${price.toFixed(2)} each`);
       }
     });

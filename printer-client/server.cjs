@@ -106,7 +106,7 @@ app.post('/print', async (req, res) => {
 
 app.post('/print-raw', rawParser, async (req, res) => {
     const data = req.body;
-    const printerName = req.query.printerName || req.headers['x-printer-name'];
+    const printerName = req.query.printer || req.query.printerName || req.headers['x-printer-name'];
 
     if (!data || data.length === 0) {
         console.error('Print-Raw: No data received');

@@ -7,7 +7,7 @@ import {
   insertBusVehicleSchema, insertBusRouteSchema, insertBusTripSchema,
   insertBusTicketSchema, insertBusShiftSchema, insertBusReconciliationSchema
 } from "../../../shared/schema.js";
-import { eq, and, desc, gte, lte, inArray } from "drizzle-orm";
+import { eq, and, desc, gte, lte, inArray, sql } from "drizzle-orm";
 import { postBusReconciliationAccounting, postBusTicketAccounting } from "../../lib/bus-accounting.js";
 
 const router = Router({ mergeParams: true });
@@ -99,6 +99,67 @@ const reconciliationSyncSchema = insertBusReconciliationSchema.omit({
 });
 const ONGOING_TRIP_STATUSES = ["boarding", "en_route", "in_progress"] as const;
 const ACTIVE_TICKET_STATUS = "active";
+let busTicketingSchemaReady: Promise<void> | null = null;
+
+async function ensureBusTicketingSchema() {
+  if (!busTicketingSchemaReady) {
+    busTicketingSchemaReady = db.execute(sql`
+      ALTER TABLE "bus_trips"
+      ADD COLUMN IF NOT EXISTS "actual_arrival" timestamp;
+
+      ALTER TABLE "bus_tickets" ADD COLUMN IF NOT EXISTS "shift_id" integer;
+      ALTER TABLE "bus_tickets" ADD COLUMN IF NOT EXISTS "device_id" text;
+      ALTER TABLE "bus_tickets" ADD COLUMN IF NOT EXISTS "local_ticket_id" text;
+      ALTER TABLE "bus_tickets" ADD COLUMN IF NOT EXISTS "currency" text DEFAULT 'USD';
+      ALTER TABLE "bus_tickets" ADD COLUMN IF NOT EXISTS "status" text DEFAULT 'active';
+      ALTER TABLE "bus_tickets" ADD COLUMN IF NOT EXISTS "accounting_status" text DEFAULT 'unposted';
+      ALTER TABLE "bus_tickets" ADD COLUMN IF NOT EXISTS "accounting_error" text;
+      ALTER TABLE "bus_tickets" ADD COLUMN IF NOT EXISTS "posted_journal_entry_id" integer REFERENCES "journal_entries"("id");
+      ALTER TABLE "bus_tickets" ADD COLUMN IF NOT EXISTS "posted_at" timestamp;
+      ALTER TABLE "bus_tickets" ADD COLUMN IF NOT EXISTS "voided_at" timestamp;
+      ALTER TABLE "bus_tickets" ADD COLUMN IF NOT EXISTS "void_reason" text;
+
+      ALTER TABLE "bus_reconciliations" ADD COLUMN IF NOT EXISTS "status" text DEFAULT 'pending';
+      ALTER TABLE "bus_reconciliations" ADD COLUMN IF NOT EXISTS "signed_off_by" uuid REFERENCES "users"("id");
+      ALTER TABLE "bus_reconciliations" ADD COLUMN IF NOT EXISTS "signed_off_at" timestamp;
+      ALTER TABLE "bus_reconciliations" ADD COLUMN IF NOT EXISTS "accounting_status" text DEFAULT 'unposted';
+      ALTER TABLE "bus_reconciliations" ADD COLUMN IF NOT EXISTS "accounting_error" text;
+      ALTER TABLE "bus_reconciliations" ADD COLUMN IF NOT EXISTS "posted_journal_entry_id" integer REFERENCES "journal_entries"("id");
+      ALTER TABLE "bus_reconciliations" ADD COLUMN IF NOT EXISTS "posted_at" timestamp;
+
+      UPDATE "bus_tickets" SET "currency" = 'USD' WHERE "currency" IS NULL;
+      UPDATE "bus_tickets" SET "status" = 'active' WHERE "status" IS NULL;
+      UPDATE "bus_tickets" SET "accounting_status" = 'unposted' WHERE "accounting_status" IS NULL;
+      UPDATE "bus_reconciliations" SET "status" = 'pending' WHERE "status" IS NULL;
+      UPDATE "bus_reconciliations" SET "accounting_status" = 'unposted' WHERE "accounting_status" IS NULL;
+
+      ALTER TABLE "bus_tickets" ALTER COLUMN "currency" SET DEFAULT 'USD';
+      ALTER TABLE "bus_tickets" ALTER COLUMN "status" SET DEFAULT 'active';
+      ALTER TABLE "bus_tickets" ALTER COLUMN "status" SET NOT NULL;
+      ALTER TABLE "bus_tickets" ALTER COLUMN "accounting_status" SET DEFAULT 'unposted';
+      ALTER TABLE "bus_tickets" ALTER COLUMN "accounting_status" SET NOT NULL;
+      ALTER TABLE "bus_reconciliations" ALTER COLUMN "status" SET DEFAULT 'pending';
+      ALTER TABLE "bus_reconciliations" ALTER COLUMN "status" SET NOT NULL;
+      ALTER TABLE "bus_reconciliations" ALTER COLUMN "accounting_status" SET DEFAULT 'unposted';
+      ALTER TABLE "bus_reconciliations" ALTER COLUMN "accounting_status" SET NOT NULL;
+    `).then(() => undefined).catch((err) => {
+      busTicketingSchemaReady = null;
+      throw err;
+    });
+  }
+
+  return busTicketingSchemaReady;
+}
+
+router.use(async (_req, res, next) => {
+  try {
+    await ensureBusTicketingSchema();
+    next();
+  } catch (err: any) {
+    console.error("[BusTicketing] Schema readiness check failed:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
 
 function canonicalLocation(value: string) {
   return value.trim().replace(/\s+/g, " ").toLowerCase();

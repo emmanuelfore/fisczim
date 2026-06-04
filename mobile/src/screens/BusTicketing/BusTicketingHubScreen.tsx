@@ -20,12 +20,7 @@ import { BusFleetAdminScreen } from './BusFleetAdminScreen';
 import { BusTripStartScreen } from './BusTripStartScreen';
 import { PrinterSettingsModal } from '../../ui/PrinterSettingsModal';
 import { usePrinter } from '../../hooks/usePrinter';
-
-const C = {
-  bg: '#07090C', surface: '#111318', border: '#1E2128',
-  amber: '#F0A500', fire: '#FF6B35', white: '#FFFFFF',
-  muted: '#9CA3AF', success: '#22C55E', danger: '#EF4444',
-};
+import { type BusColors, useBusColors } from './theme';
 
 type SubScreen =
   | null
@@ -46,25 +41,25 @@ interface MenuCard {
   icon: string;
   label: string;
   sub: string;
-  color: string;
+  tone: 'amber' | 'fire' | 'success';
   section: 'conductor' | 'admin' | 'reports';
 }
 
 const MENU: MenuCard[] = [
   // Conductor section
-  { id: 'startTrip', feature: 'tripSelection', icon: 'steering', label: 'Start Trip', sub: 'Select bus and route to start', color: C.success, section: 'conductor' },
-  { id: 'issueTicket', feature: 'ticketIssuing', icon: 'ticket-outline', label: 'Issue Ticket', sub: 'Create a new ticket for passengers', color: C.amber, section: 'conductor' },
-  { id: 'shiftSummary', feature: 'cashTracking', icon: 'flag-checkered', label: 'End Trip / Shift', sub: 'View today\'s totals & close shift', color: C.fire, section: 'conductor' },
-  { id: 'reconciliation', feature: 'cashTracking', icon: 'cash-sync', label: 'Reconcile Cash', sub: 'Compare expected vs received cash', color: C.success, section: 'conductor' },
+  { id: 'startTrip', feature: 'tripSelection', icon: 'steering', label: 'Start Trip', sub: 'Select bus and route to start', tone: 'success', section: 'conductor' },
+  { id: 'issueTicket', feature: 'ticketIssuing', icon: 'ticket-outline', label: 'Issue Ticket', sub: 'Create a new ticket for passengers', tone: 'amber', section: 'conductor' },
+  { id: 'shiftSummary', feature: 'cashTracking', icon: 'flag-checkered', label: 'End Trip / Shift', sub: 'View today\'s totals & close shift', tone: 'fire', section: 'conductor' },
+  { id: 'reconciliation', feature: 'cashTracking', icon: 'cash-sync', label: 'Reconcile Cash', sub: 'Compare expected vs received cash', tone: 'success', section: 'conductor' },
   // Admin section
-  { id: 'fleet', feature: 'fleetManagement', icon: 'bus-multiple', label: 'Manage Fleet', sub: 'Add, edit vehicles', color: C.amber, section: 'admin' },
-  { id: 'routes', feature: 'fareMatrix', icon: 'bus-stop', label: 'Manage Routes', sub: 'Add, edit, and configure routes', color: C.amber, section: 'admin' },
-  { id: 'conductors', feature: 'conductorManagement', icon: 'account-tie-outline', label: 'Conductors', sub: 'Manage conductor profiles', color: C.amber, section: 'admin' },
-  { id: 'reconciliation', feature: 'cashTracking', icon: 'cash-check', label: 'Cash Sign-offs', sub: 'Approve pending conductor cash-ups', color: C.success, section: 'admin' },
+  { id: 'fleet', feature: 'fleetManagement', icon: 'bus-multiple', label: 'Manage Fleet', sub: 'Add, edit vehicles', tone: 'amber', section: 'admin' },
+  { id: 'routes', feature: 'fareMatrix', icon: 'bus-stop', label: 'Manage Routes', sub: 'Add, edit, and configure routes', tone: 'amber', section: 'admin' },
+  { id: 'conductors', feature: 'conductorManagement', icon: 'account-tie-outline', label: 'Conductors', sub: 'Manage conductor profiles', tone: 'amber', section: 'admin' },
+  { id: 'reconciliation', feature: 'cashTracking', icon: 'cash-check', label: 'Cash Sign-offs', sub: 'Approve pending conductor cash-ups', tone: 'success', section: 'admin' },
   // Reports section
-  { id: 'dailyReport', feature: 'reports', icon: 'chart-bar', label: 'Daily Report', sub: 'Revenue & breakdown for a day', color: C.amber, section: 'reports' },
-  { id: 'rangeReport', feature: 'reports', icon: 'chart-line', label: 'Range Report', sub: 'Multi-day trend analysis', color: C.amber, section: 'reports' },
-  { id: 'conductorReport', feature: 'reports', icon: 'account-details-outline', label: 'Conductor Report', sub: 'Per-conductor performance', color: C.amber, section: 'reports' },
+  { id: 'dailyReport', feature: 'reports', icon: 'chart-bar', label: 'Daily Report', sub: 'Revenue & breakdown for a day', tone: 'amber', section: 'reports' },
+  { id: 'rangeReport', feature: 'reports', icon: 'chart-line', label: 'Range Report', sub: 'Multi-day trend analysis', tone: 'amber', section: 'reports' },
+  { id: 'conductorReport', feature: 'reports', icon: 'account-details-outline', label: 'Conductor Report', sub: 'Per-conductor performance', tone: 'amber', section: 'reports' },
 ];
 
 interface Props {
@@ -80,6 +75,8 @@ interface Props {
 
 export function BusTicketingHubScreen({ onClose, busSettings, companyId, company, userRole = 'member', userName = '', userId, view = 'full' }: Props) {
   const insets = useSafeAreaInsets();
+  const C = useBusColors();
+  const styles = makeStyles(C);
   const {
     activeConductor,
     activeTrip,
@@ -182,7 +179,7 @@ export function BusTicketingHubScreen({ onClose, busSettings, companyId, company
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
-      <StatusBar barStyle="light-content" backgroundColor={C.bg} />
+      <StatusBar barStyle={C.statusBarStyle} backgroundColor={C.bg} />
 
       {/* Header */}
       <View style={styles.header}>
@@ -269,36 +266,39 @@ export function BusTicketingHubScreen({ onClose, busSettings, companyId, company
             {/* Conductor actions */}
             <Text style={styles.sectionLabel}>CONDUCTOR</Text>
             <View style={styles.grid}>
-              {conductorSection.map((item) => (
-                <TouchableOpacity
-                  key={item.id}
-                  style={[
-                    styles.card,
-                    item.id === 'issueTicket' && styles.cardPrimary,
-                    item.id === 'reconciliation' && isConductorReconciliationDisabled && styles.cardDisabled,
-                  ]}
-                  onPress={() => {
-                    if (item.id === 'reconciliation' && isConductorReconciliationDisabled) return;
-                    setActiveScreen(item.id);
-                  }}
-                  disabled={item.id === 'reconciliation' && isConductorReconciliationDisabled}
-                  activeOpacity={0.8}
-                >
-                  <View style={[
-                    styles.cardIcon,
-                    { backgroundColor: item.id === 'issueTicket' ? C.amber : 'rgba(240,165,0,0.15)' },
-                    item.id === 'reconciliation' && isConductorReconciliationDisabled && styles.cardIconDisabled,
-                  ]}>
-                    <MaterialCommunityIcons
-                      name={item.icon as any}
-                      size={24}
-                      color={item.id === 'reconciliation' && isConductorReconciliationDisabled ? C.muted : item.id === 'issueTicket' ? '#000' : item.color}
-                    />
-                  </View>
-                  <Text style={[styles.cardLabel, item.id === 'reconciliation' && isConductorReconciliationDisabled && { color: C.muted }]}>{item.label}</Text>
-                  <Text style={styles.cardSub}>{getMenuSub(item)}</Text>
-                </TouchableOpacity>
-              ))}
+              {conductorSection.map((item) => {
+                const itemColor = C[item.tone];
+                return (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={[
+                      styles.card,
+                      item.id === 'issueTicket' && styles.cardPrimary,
+                      item.id === 'reconciliation' && isConductorReconciliationDisabled && styles.cardDisabled,
+                    ]}
+                    onPress={() => {
+                      if (item.id === 'reconciliation' && isConductorReconciliationDisabled) return;
+                      setActiveScreen(item.id);
+                    }}
+                    disabled={item.id === 'reconciliation' && isConductorReconciliationDisabled}
+                    activeOpacity={0.8}
+                  >
+                    <View style={[
+                      styles.cardIcon,
+                      { backgroundColor: item.id === 'issueTicket' ? C.amber : C.amberSoft },
+                      item.id === 'reconciliation' && isConductorReconciliationDisabled && styles.cardIconDisabled,
+                    ]}>
+                      <MaterialCommunityIcons
+                        name={item.icon as any}
+                        size={24}
+                        color={item.id === 'reconciliation' && isConductorReconciliationDisabled ? C.muted : item.id === 'issueTicket' ? '#000' : itemColor}
+                      />
+                    </View>
+                    <Text style={[styles.cardLabel, item.id === 'reconciliation' && isConductorReconciliationDisabled && { color: C.muted }]}>{item.label}</Text>
+                    <Text style={styles.cardSub}>{getMenuSub(item)}</Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           </>
         )}
@@ -351,7 +351,7 @@ export function BusTicketingHubScreen({ onClose, busSettings, companyId, company
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (C: BusColors) => StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
@@ -393,14 +393,14 @@ const styles = StyleSheet.create({
     borderRadius: 16, padding: 18, gap: 10,
     borderWidth: 1, borderColor: C.border,
   },
-  cardDisabled: { opacity: 0.55, borderColor: '#2B2F38' },
+  cardDisabled: { opacity: 0.55, borderColor: C.border },
   cardPrimary: { borderColor: C.amber },
   cardIcon: {
     width: 44, height: 44, borderRadius: 12,
-    backgroundColor: 'rgba(240,165,0,0.15)',
+    backgroundColor: C.amberSoft,
     alignItems: 'center', justifyContent: 'center',
   },
-  cardIconDisabled: { backgroundColor: '#1A1D23' },
+  cardIconDisabled: { backgroundColor: C.surfaceAlt },
   cardLabel: { color: C.white, fontSize: 14, fontWeight: '800' },
   cardSub: { color: C.muted, fontSize: 11, lineHeight: 16 },
   listRow: {
@@ -410,7 +410,7 @@ const styles = StyleSheet.create({
   },
   listIcon: {
     width: 40, height: 40, borderRadius: 10,
-    backgroundColor: 'rgba(240,165,0,0.12)',
+    backgroundColor: C.amberSoft,
     alignItems: 'center', justifyContent: 'center',
   },
   listLabel: { color: C.white, fontSize: 14, fontWeight: '700' },

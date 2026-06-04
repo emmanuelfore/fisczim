@@ -1,38 +1,109 @@
 // FiscalZone Logo — faithful SVG recreation of the bar-chart + orbit-ring + arrow mark
-function FZLogo({ size = 36, mono = false }: { size?: number; mono?: boolean }) {
+function FZLogo({
+  size = 36,
+  mono = false,
+}: {
+  size?: number;
+  mono?: boolean;
+}) {
   const g1s = mono ? "#ffffff" : "#1260EA";
   const g1e = mono ? "#cccccc" : "#00D4FF";
   const g2s = mono ? "#dddddd" : "#0A3FC0";
   const g2e = mono ? "#ffffff" : "#5B9BFF";
   const id = mono ? "fzm" : "fzc";
   return (
-    <svg width={size} height={size} viewBox="0 0 110 110" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 110 110"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
       <defs>
-        <linearGradient id={`${id}1`} x1="10" y1="90" x2="90" y2="10" gradientUnits="userSpaceOnUse">
+        <linearGradient
+          id={`${id}1`}
+          x1="10"
+          y1="90"
+          x2="90"
+          y2="10"
+          gradientUnits="userSpaceOnUse"
+        >
           <stop offset="0%" stopColor={g1s} />
           <stop offset="100%" stopColor={g1e} />
         </linearGradient>
-        <linearGradient id={`${id}2`} x1="10" y1="90" x2="90" y2="10" gradientUnits="userSpaceOnUse">
+        <linearGradient
+          id={`${id}2`}
+          x1="10"
+          y1="90"
+          x2="90"
+          y2="10"
+          gradientUnits="userSpaceOnUse"
+        >
           <stop offset="0%" stopColor={g2s} />
           <stop offset="100%" stopColor={g2e} />
         </linearGradient>
       </defs>
 
       {/* Outer orbit ring — large ellipse tilted, sweeping around the chart */}
-      <ellipse cx="52" cy="62" rx="44" ry="17" stroke={`url(#${id}1)`} strokeWidth="4.5" fill="none"
-        strokeLinecap="round" strokeDasharray="180 40" strokeDashoffset="30"
-        transform="rotate(-8 52 62)" />
+      <ellipse
+        cx="52"
+        cy="62"
+        rx="44"
+        ry="17"
+        stroke={`url(#${id}1)`}
+        strokeWidth="4.5"
+        fill="none"
+        strokeLinecap="round"
+        strokeDasharray="180 40"
+        strokeDashoffset="30"
+        transform="rotate(-8 52 62)"
+      />
       {/* Inner orbit tail on bottom */}
-      <path d="M18 68 Q30 82 52 78 Q74 74 86 62" stroke={`url(#${id}2)`} strokeWidth="3" fill="none"
-        strokeLinecap="round" opacity="0.55" />
+      <path
+        d="M18 68 Q30 82 52 78 Q74 74 86 62"
+        stroke={`url(#${id}2)`}
+        strokeWidth="3"
+        fill="none"
+        strokeLinecap="round"
+        opacity="0.55"
+      />
 
       {/* Bar chart — 3 ascending columns */}
-      <rect x="26" y="50" width="11" height="22" rx="2.5" fill={`url(#${id}2)`} />
-      <rect x="40" y="38" width="11" height="34" rx="2.5" fill={`url(#${id}1)`} />
-      <rect x="54" y="26" width="11" height="46" rx="2.5" fill={`url(#${id}1)`} />
+      <rect
+        x="26"
+        y="50"
+        width="11"
+        height="22"
+        rx="2.5"
+        fill={`url(#${id}2)`}
+      />
+      <rect
+        x="40"
+        y="38"
+        width="11"
+        height="34"
+        rx="2.5"
+        fill={`url(#${id}1)`}
+      />
+      <rect
+        x="54"
+        y="26"
+        width="11"
+        height="46"
+        rx="2.5"
+        fill={`url(#${id}1)`}
+      />
 
       {/* Growth arrow — diagonal line + arrowhead pointing upper-right */}
-      <line x1="52" y1="65" x2="74" y2="18" stroke={`url(#${id}1)`} strokeWidth="5" strokeLinecap="round" />
+      <line
+        x1="52"
+        y1="65"
+        x2="74"
+        y2="18"
+        stroke={`url(#${id}1)`}
+        strokeWidth="5"
+        strokeLinecap="round"
+      />
       <polygon points="74,8 82,22 66,22" fill={`url(#${id}1)`} />
     </svg>
   );
@@ -382,29 +453,46 @@ export default function FiscalZoneLanding() {
         <div className="bg-orb bg-o2"></div>
         <div className="bg-orb bg-o3"></div>
         <div className="bg-grid"></div>
-        <div className="bg-shape"></div><div className="bg-shape"></div>
-        <div className="bg-shape"></div><div className="bg-shape"></div>
+        <div className="bg-shape"></div>
+        <div className="bg-shape"></div>
+        <div className="bg-shape"></div>
+        <div className="bg-shape"></div>
         <div className="bg-shape"></div>
       </div>
 
       <div style={{ position: "relative", zIndex: 1 }}>
-
         {/* NAV */}
         <nav className="nav">
           <a href="/" className="nav-logo">
             <FZLogo size={36} mono={false} />
-            <div className="nav-logo-txt">Fiscal<span>Zone</span></div>
+            <div className="nav-logo-txt">
+              Fiscal<span>Zone</span>
+            </div>
           </a>
           <ul className="nav-links">
-            <li><a href="#features">Features</a></li>
-            <li><a href="#invoices">Invoicing</a></li>
-            <li><a href="#pos">Smart POS</a></li>
-            <li><a href="#pricing">Pricing</a></li>
-            <li><a href="#faq">FAQ</a></li>
+            <li>
+              <a href="#features">Features</a>
+            </li>
+            <li>
+              <a href="#invoices">Invoicing</a>
+            </li>
+            <li>
+              <a href="#pos">Smart POS</a>
+            </li>
+            <li>
+              <a href="#pricing">Pricing</a>
+            </li>
+            <li>
+              <a href="#faq">FAQ</a>
+            </li>
           </ul>
           <div className="nav-cta">
-            <a href="/auth" className="btn-ghost">Sign In</a>
-            <a href="/auth?mode=signup" className="btn-cta">Get Started →</a>
+            <a href="/auth" className="btn-ghost">
+              Sign In
+            </a>
+            <a href="/auth?mode=signup" className="btn-cta">
+              Get Started →
+            </a>
           </div>
         </nav>
 
@@ -413,18 +501,36 @@ export default function FiscalZoneLanding() {
           <div>
             <div className="eyebrow">ZIMRA Compliant · Zimbabwe</div>
             <h1 className="hero-title">
-              Streamline Your<br />
-              <span className="grad">POS &amp; Fiscal</span><br />
+              Streamline Your
+              <br />
+              <span className="grad">POS &amp; Fiscal</span>
+              <br />
               System.
             </h1>
             <p className="hero-sub">
-              The all-in-one fiscalization platform for Zimbabwe's modern businesses.
-              Real-time FDMS sync, A4 &amp; receipt invoicing, offline POS, and smart analytics — fully virtual, zero hardware.
+              The all-in-one fiscalization platform for Zimbabwe's modern
+              businesses. Real-time FDMS sync, A4 &amp; receipt invoicing,
+              offline POS, and smart analytics — fully virtual, zero hardware.
             </p>
             <div className="hero-actions">
-              <a href="/auth?mode=signup" className="btn-hero">Start Free Trial →</a>
-              <a href="https://wa.me/263779532012" target="_blank" rel="noreferrer" className="btn-hero-ghost">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z" /><path d="M12 0C5.373 0 0 5.373 0 12c0 2.025.507 3.936 1.397 5.617L0 24l6.544-1.374A11.944 11.944 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.885 0-3.652-.493-5.188-1.357l-.372-.22-3.884.816.825-3.793-.242-.39A9.946 9.946 0 012 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z" /></svg>
+              <a href="/auth?mode=signup" className="btn-hero">
+                Start Free Trial →
+              </a>
+              <a
+                href="https://wa.me/263779532012"
+                target="_blank"
+                rel="noreferrer"
+                className="btn-hero-ghost"
+              >
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                >
+                  <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z" />
+                  <path d="M12 0C5.373 0 0 5.373 0 12c0 2.025.507 3.936 1.397 5.617L0 24l6.544-1.374A11.944 11.944 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.885 0-3.652-.493-5.188-1.357l-.372-.22-3.884.816.825-3.793-.242-.39A9.946 9.946 0 012 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z" />
+                </svg>
                 Book a Demo
               </a>
             </div>
@@ -442,7 +548,9 @@ export default function FiscalZoneLanding() {
             <div className="hg-glow"></div>
             <div className="hg-ring"></div>
             <div className="hg-ring2"></div>
-            <div className="hg-fdms"><div className="hg-fdms-dot"></div>FDMS Connected</div>
+            <div className="hg-fdms">
+              <div className="hg-fdms-dot"></div>FDMS Connected
+            </div>
 
             {/* Invoice card */}
             <div className="hg-card">
@@ -459,43 +567,107 @@ export default function FiscalZoneLanding() {
                 <div className="hg-fiscal">FISCALIZED</div>
               </div>
               <div className="hg-invnum">#INV-2025-0174</div>
-              {[["Office Furniture", "$2,800.00"], ["IT Equipment", "$4,500.00"], ["Delivery & Setup", "$350.00"]].map(([l, v], i) => (
-                <div key={i} className="hg-row"><span className="hg-lbl">{l}</span><span className="hg-val">{v}</span></div>
+              {[
+                ["Office Furniture", "$2,800.00"],
+                ["IT Equipment", "$4,500.00"],
+                ["Delivery & Setup", "$350.00"],
+              ].map(([l, v], i) => (
+                <div key={i} className="hg-row">
+                  <span className="hg-lbl">{l}</span>
+                  <span className="hg-val">{v}</span>
+                </div>
               ))}
               <hr className="hg-div" />
-              <div className="hg-row"><span className="hg-lbl">Subtotal</span><span className="hg-val">$7,650.00</span></div>
-              <div className="hg-row"><span className="hg-lbl">VAT (15%)</span><span className="hg-val">$1,147.50</span></div>
+              <div className="hg-row">
+                <span className="hg-lbl">Subtotal</span>
+                <span className="hg-val">$7,650.00</span>
+              </div>
+              <div className="hg-row">
+                <span className="hg-lbl">VAT (15%)</span>
+                <span className="hg-val">$1,147.50</span>
+              </div>
               <hr className="hg-div" />
-              <div className="hg-total"><span className="hg-tlbl">Total</span><span className="hg-tval">$8,797.50</span></div>
+              <div className="hg-total">
+                <span className="hg-tlbl">Total</span>
+                <span className="hg-tval">$8,797.50</span>
+              </div>
               <div className="hg-qr">
                 <div className="hg-qr-box">⬡</div>
-                <div className="hg-qr-txt"><span>Fiscal QR Verified</span><br />Scan to confirm with ZIMRA</div>
+                <div className="hg-qr-txt">
+                  <span>Fiscal QR Verified</span>
+                  <br />
+                  Scan to confirm with ZIMRA
+                </div>
               </div>
             </div>
 
             {/* Pills */}
-            <div className="hg-pill hg-p1"><div className="hg-pill-ico">📄</div><div className="hg-pill-val">A4 + Receipt</div><div className="hg-pill-lbl">Invoice Formats</div></div>
-            <div className="hg-pill hg-p2"><div className="hg-pill-ico">⚡</div><div className="hg-pill-val">&lt;1s</div><div className="hg-pill-lbl">Sync Latency</div></div>
-            <div className="hg-pill hg-p3"><div className="hg-pill-ico">🧾</div><div className="hg-pill-val">$12M+</div><div className="hg-pill-lbl">Processed</div></div>
-            <div className="hg-pill hg-p4"><div className="hg-pill-ico">🔐</div><div className="hg-pill-val">99.9%</div><div className="hg-pill-lbl">Uptime</div></div>
-            <div className="hg-pill hg-p5"><div className="hg-pill-ico">🏛️</div><div className="hg-pill-val">Certified</div><div className="hg-pill-lbl">ZIMRA Approved</div></div>
-            <div className="hg-bars">{[0, 0, 0, 0, 0, 0, 0].map((_, i) => <div key={i} className="hg-bar"></div>)}</div>
+            <div className="hg-pill hg-p1">
+              <div className="hg-pill-ico">📄</div>
+              <div className="hg-pill-val">A4 + Receipt</div>
+              <div className="hg-pill-lbl">Invoice Formats</div>
+            </div>
+            <div className="hg-pill hg-p2">
+              <div className="hg-pill-ico">⚡</div>
+              <div className="hg-pill-val">&lt;1s</div>
+              <div className="hg-pill-lbl">Sync Latency</div>
+            </div>
+            <div className="hg-pill hg-p3">
+              <div className="hg-pill-ico">🧾</div>
+              <div className="hg-pill-val">$12M+</div>
+              <div className="hg-pill-lbl">Processed</div>
+            </div>
+            <div className="hg-pill hg-p4">
+              <div className="hg-pill-ico">🔐</div>
+              <div className="hg-pill-val">99.9%</div>
+              <div className="hg-pill-lbl">Uptime</div>
+            </div>
+            <div className="hg-pill hg-p5">
+              <div className="hg-pill-ico">🏛️</div>
+              <div className="hg-pill-val">Certified</div>
+              <div className="hg-pill-lbl">ZIMRA Approved</div>
+            </div>
+            <div className="hg-bars">
+              {[0, 0, 0, 0, 0, 0, 0].map((_, i) => (
+                <div key={i} className="hg-bar"></div>
+              ))}
+            </div>
           </div>
         </section>
 
         {/* STATS */}
         <div className="stats">
-          <div><div className="stat-val">500+</div><div className="stat-lbl">Businesses Active</div></div>
-          <div><div className="stat-val">$12M+</div><div className="stat-lbl">Invoices Processed</div></div>
-          <div><div className="stat-val">99.9%</div><div className="stat-lbl">FDMS Uptime</div></div>
-          <div><div className="stat-val">&lt;1s</div><div className="stat-lbl">Sync Latency</div></div>
+          <div>
+            <div className="stat-val">500+</div>
+            <div className="stat-lbl">Businesses Active</div>
+          </div>
+          <div>
+            <div className="stat-val">$12M+</div>
+            <div className="stat-lbl">Invoices Processed</div>
+          </div>
+          <div>
+            <div className="stat-val">99.9%</div>
+            <div className="stat-lbl">FDMS Uptime</div>
+          </div>
+          <div>
+            <div className="stat-val">&lt;1s</div>
+            <div className="stat-lbl">Sync Latency</div>
+          </div>
         </div>
 
         {/* INVOICE & RECEIPT FEATURE */}
         <section className="inv-section" id="invoices">
           <div className="sec-eye">Invoicing</div>
-          <h2 className="sec-title">A4 invoices &amp; thermal<br />receipts — beautifully done.</h2>
-          <p className="sec-sub">Every transaction produces a ZIMRA-fiscalized document in the format you need — a professional A4 PDF, a compact receipt, or both simultaneously.</p>
+          <h2 className="sec-title">
+            A4 invoices &amp; thermal
+            <br />
+            receipts — beautifully done.
+          </h2>
+          <p className="sec-sub">
+            Every transaction produces a ZIMRA-fiscalized document in the format
+            you need — a professional A4 PDF, a compact receipt, or both
+            simultaneously.
+          </p>
           <div className="inv-grid">
             {/* Left: A4 mock */}
             <div className="inv-preview-wrap">
@@ -506,8 +678,12 @@ export default function FiscalZoneLanding() {
               <div className="inv-a4">
                 <div className="inv-a4-head">
                   <div className="inv-a4-brand">
-                    <div className="inv-a4-logo"><FZLogo size={28} mono={false} /></div>
-                    <div className="inv-a4-bname">Fiscal<span>Zone</span></div>
+                    <div className="inv-a4-logo">
+                      <FZLogo size={28} mono={false} />
+                    </div>
+                    <div className="inv-a4-bname">
+                      Fiscal<span>Zone</span>
+                    </div>
                   </div>
                   <div className="inv-a4-tag">
                     <div className="inv-a4-invlbl">FISCAL INVOICE</div>
@@ -517,21 +693,41 @@ export default function FiscalZoneLanding() {
                 <div className="inv-a4-parties">
                   <div>
                     <div className="inv-a4-party-lbl">From</div>
-                    <div className="inv-a4-party-name">Pinnacle Supplies (Pvt)</div>
-                    <div className="inv-a4-party-detail">BP: 40098712<br />Harare, Zimbabwe</div>
+                    <div className="inv-a4-party-name">
+                      Pinnacle Supplies (Pvt)
+                    </div>
+                    <div className="inv-a4-party-detail">
+                      BP: 40098712
+                      <br />
+                      Harare, Zimbabwe
+                    </div>
                   </div>
                   <div>
                     <div className="inv-a4-party-lbl">To</div>
-                    <div className="inv-a4-party-name">Mvura Engineering Ltd</div>
-                    <div className="inv-a4-party-detail">BP: 40012345<br />Bulawayo, Zimbabwe</div>
+                    <div className="inv-a4-party-name">
+                      Mvura Engineering Ltd
+                    </div>
+                    <div className="inv-a4-party-detail">
+                      BP: 40012345
+                      <br />
+                      Bulawayo, Zimbabwe
+                    </div>
                   </div>
                 </div>
                 <div className="inv-a4-table-head">
                   <div className="inv-a4-th">Description</div>
-                  <div className="inv-a4-th" style={{ textAlign: "right" }}>Qty</div>
-                  <div className="inv-a4-th" style={{ textAlign: "right" }}>Amount</div>
+                  <div className="inv-a4-th" style={{ textAlign: "right" }}>
+                    Qty
+                  </div>
+                  <div className="inv-a4-th" style={{ textAlign: "right" }}>
+                    Amount
+                  </div>
                 </div>
-                {[["Office Furniture", "1", "$2,800.00"], ["IT Equipment", "3", "$4,500.00"], ["Delivery & Setup", "1", "$350.00"]].map(([d, q, a], i) => (
+                {[
+                  ["Office Furniture", "1", "$2,800.00"],
+                  ["IT Equipment", "3", "$4,500.00"],
+                  ["Delivery & Setup", "1", "$350.00"],
+                ].map(([d, q, a], i) => (
                   <div key={i} className="inv-a4-tr">
                     <div className="inv-a4-td">{d}</div>
                     <div className="inv-a4-td muted">{q}</div>
@@ -539,14 +735,27 @@ export default function FiscalZoneLanding() {
                   </div>
                 ))}
                 <div className="inv-a4-totals">
-                  <div className="inv-a4-tot-row"><span className="inv-a4-tot-lbl">Subtotal</span><span className="inv-a4-tot-val">$7,650.00</span></div>
-                  <div className="inv-a4-tot-row"><span className="inv-a4-tot-lbl">VAT (15%)</span><span className="inv-a4-tot-val">$1,147.50</span></div>
-                  <div className="inv-a4-tot-row grand"><span className="inv-a4-tot-lbl">Total</span><span className="inv-a4-tot-val">$8,797.50</span></div>
+                  <div className="inv-a4-tot-row">
+                    <span className="inv-a4-tot-lbl">Subtotal</span>
+                    <span className="inv-a4-tot-val">$7,650.00</span>
+                  </div>
+                  <div className="inv-a4-tot-row">
+                    <span className="inv-a4-tot-lbl">VAT (15%)</span>
+                    <span className="inv-a4-tot-val">$1,147.50</span>
+                  </div>
+                  <div className="inv-a4-tot-row grand">
+                    <span className="inv-a4-tot-lbl">Total</span>
+                    <span className="inv-a4-tot-val">$8,797.50</span>
+                  </div>
                 </div>
                 <div className="inv-a4-footer">
                   <div className="inv-a4-zimra">
                     <div className="inv-a4-qr">⬡</div>
-                    <div className="inv-a4-verify"><span>Fiscal QR Verified</span><br />ZIMRA Receipt #FR-2025-00174</div>
+                    <div className="inv-a4-verify">
+                      <span>Fiscal QR Verified</span>
+                      <br />
+                      ZIMRA Receipt #FR-2025-00174
+                    </div>
                   </div>
                   <div className="inv-a4-stamp">FISCALIZED</div>
                 </div>
@@ -556,11 +765,31 @@ export default function FiscalZoneLanding() {
             {/* Right: feature points */}
             <div className="inv-points">
               {[
-                { ico: "📄", t: "Professional A4 PDF Invoices", d: "Full-page ZIMRA-compliant invoices with your branding, client details, itemized lines, VAT breakdown, and fiscal QR code. Print or email instantly." },
-                { ico: "🧾", t: "Thermal & Digital Receipts", d: "Compact receipt view for POS transactions — print via thermal printer or send as a PDF. Both formats carry the ZIMRA fiscal receipt number." },
-                { ico: "📋", t: "Credit Notes & Returns", d: "Issue ZIMRA-compliant credit notes directly from any invoice. Automatically reverses the original fiscal submission." },
-                { ico: "✉️", t: "Email Delivery & PDF Export", d: "Send invoices and receipts to clients by email straight from the dashboard. Download PDF copies at any time." },
-                { ico: "⬡", t: "Cryptographic Fiscal QR Code", d: "Every document embeds a signed QR code your clients can scan to verify authenticity with ZIMRA in real time." },
+                {
+                  ico: "📄",
+                  t: "Professional A4 PDF Invoices",
+                  d: "Full-page ZIMRA-compliant invoices with your branding, client details, itemized lines, VAT breakdown, and fiscal QR code. Print or email instantly.",
+                },
+                {
+                  ico: "🧾",
+                  t: "Thermal & Digital Receipts",
+                  d: "Compact receipt view for POS transactions — print via thermal printer or send as a PDF. Both formats carry the ZIMRA fiscal receipt number.",
+                },
+                {
+                  ico: "📋",
+                  t: "Credit Notes & Returns",
+                  d: "Issue ZIMRA-compliant credit notes directly from any invoice. Automatically reverses the original fiscal submission.",
+                },
+                {
+                  ico: "✉️",
+                  t: "Email Delivery & PDF Export",
+                  d: "Send invoices and receipts to clients by email straight from the dashboard. Download PDF copies at any time.",
+                },
+                {
+                  ico: "⬡",
+                  t: "Cryptographic Fiscal QR Code",
+                  d: "Every document embeds a signed QR code your clients can scan to verify authenticity with ZIMRA in real time.",
+                },
               ].map((p, i) => (
                 <div key={i} className="inv-point">
                   <div className="inv-point-ico">{p.ico}</div>
@@ -577,18 +806,65 @@ export default function FiscalZoneLanding() {
         {/* FEATURES */}
         <section className="section" id="features">
           <div className="sec-eye">Power Features</div>
-          <h2 className="sec-title">Everything you need<br />to succeed.</h2>
-          <p className="sec-sub">Built for speed, compliance, and growth. Every feature designed around Zimbabwe's business reality.</p>
+          <h2 className="sec-title">
+            Everything you need
+            <br />
+            to succeed.
+          </h2>
+          <p className="sec-sub">
+            Built for speed, compliance, and growth. Every feature designed
+            around Zimbabwe's business reality.
+          </p>
           <div className="feat-grid">
             {[
-              { icon: "🏛️", tag: "Compliance", title: "ZIMRA Compliant", desc: "Always up to date with the latest tax regulations. Automatic updates keep you compliant without lifting a finger." },
-              { icon: "📡", tag: "Integration", title: "FDMS Sync", desc: "Real-time fiscal device synchronization with Zimbabwe's FDMS infrastructure. Zero manual steps, zero delays." },
-              { icon: "⬡", tag: "Verification", title: "Smart QR Codes", desc: "Every invoice embeds a cryptographically signed fiscal QR code for instant ZIMRA verification." },
-              { icon: "🧮", tag: "Automation", title: "Auto-Tax Engine", desc: "VAT, withholding tax, and multiple rate tiers — calculated automatically on every transaction." },
-              { icon: "🖥️", tag: "Point of Sale", title: "Smart POS · Offline", desc: "Complete offline-capable POS for retail. Queues transactions locally, syncs the moment connectivity returns." },
-              { icon: "📦", tag: "Stock Control", title: "Inventory Management", desc: "Track stock levels, set reorder alerts, and manage products across multiple locations in real time." },
-              { icon: "✉️", tag: "Communication", title: "Email Hosting", desc: "Professional business email under your own domain — fully integrated with invoicing and client communications." },
-              { icon: "📊", tag: "Analytics", title: "Smart Analytics", desc: "Revenue trends, tax liabilities, and growth insights — presented in clear dashboards built for decisions." },
+              {
+                icon: "🏛️",
+                tag: "Compliance",
+                title: "ZIMRA Compliant",
+                desc: "Always up to date with the latest tax regulations. Automatic updates keep you compliant without lifting a finger.",
+              },
+              {
+                icon: "📡",
+                tag: "Integration",
+                title: "FDMS Sync",
+                desc: "Real-time fiscal device synchronization with Zimbabwe's FDMS infrastructure. Zero manual steps, zero delays.",
+              },
+              {
+                icon: "⬡",
+                tag: "Verification",
+                title: "Smart QR Codes",
+                desc: "Every invoice embeds a cryptographically signed fiscal QR code for instant ZIMRA verification.",
+              },
+              {
+                icon: "🧮",
+                tag: "Automation",
+                title: "Auto-Tax Engine",
+                desc: "VAT, withholding tax, and multiple rate tiers — calculated automatically on every transaction.",
+              },
+              {
+                icon: "🖥️",
+                tag: "Point of Sale",
+                title: "Smart POS · Offline",
+                desc: "Complete offline-capable POS for retail. Queues transactions locally, syncs the moment connectivity returns.",
+              },
+              {
+                icon: "📦",
+                tag: "Stock Control",
+                title: "Inventory Management",
+                desc: "Track stock levels, set reorder alerts, and manage products across multiple locations in real time.",
+              },
+              {
+                icon: "✉️",
+                tag: "Communication",
+                title: "Email Hosting",
+                desc: "Professional business email under your own domain — fully integrated with invoicing and client communications.",
+              },
+              {
+                icon: "📊",
+                tag: "Analytics",
+                title: "Smart Analytics",
+                desc: "Revenue trends, tax liabilities, and growth insights — presented in clear dashboards built for decisions.",
+              },
             ].map((f, i) => (
               <div key={i} className="feat-card">
                 <div className="feat-icon">{f.icon}</div>
@@ -603,31 +879,70 @@ export default function FiscalZoneLanding() {
         {/* POS */}
         <section className="pos-section" id="pos">
           <div className="sec-eye">Point of Sale</div>
-          <h2 className="sec-title">Works offline.<br />Syncs instantly.</h2>
-          <p className="sec-sub">Internet outages shouldn't stop your business. FiscalZone's POS operates fully offline and auto-syncs to FDMS the moment connectivity returns.</p>
+          <h2 className="sec-title">
+            Works offline.
+            <br />
+            Syncs instantly.
+          </h2>
+          <p className="sec-sub">
+            Internet outages shouldn't stop your business. FiscalZone's POS
+            operates fully offline and auto-syncs to FDMS the moment
+            connectivity returns.
+          </p>
           <div className="pos-grid">
             <div className="pos-mock">
               <div className="pos-header">
                 <div className="pos-title-mock">Smart POS Terminal</div>
                 <div className="pos-status">Offline · Queued</div>
               </div>
-              {[["Bread", "$0.80"], ["Milk 2L", "$1.20"], ["Eggs ×6", "$2.50"], ["Sugar 1kg", "$1.00"], ["Cooking Oil", "$3.40"], ["Chicken", "$5.80"]].map(([n, p], i) => (
-                <div key={i} className="pos-item"><span>{n}</span><span>{p}</span></div>
+              {[
+                ["Bread", "$0.80"],
+                ["Milk 2L", "$1.20"],
+                ["Eggs ×6", "$2.50"],
+                ["Sugar 1kg", "$1.00"],
+                ["Cooking Oil", "$3.40"],
+                ["Chicken", "$5.80"],
+              ].map(([n, p], i) => (
+                <div key={i} className="pos-item">
+                  <span>{n}</span>
+                  <span>{p}</span>
+                </div>
               ))}
-              <div className="pos-total"><span className="pos-total-lbl">Cart Total (incl. VAT)</span><span className="pos-total-val">$14.70</span></div>
+              <div className="pos-total">
+                <span className="pos-total-lbl">Cart Total (incl. VAT)</span>
+                <span className="pos-total-val">$14.70</span>
+              </div>
               <button className="pos-btn">Fiscalize &amp; Print</button>
-              <div className="pos-sync-note">⚡ 3 transactions queued — will sync when online</div>
+              <div className="pos-sync-note">
+                ⚡ 3 transactions queued — will sync when online
+              </div>
             </div>
             <div className="pos-checks">
               {[
-                { t: "Instant FDMS sync when back online", d: "All queued transactions auto-submit the moment connectivity returns." },
-                { t: "Thermal receipt + A4 invoice printing", d: "Print compact receipts at the till or send full A4 invoices by email." },
-                { t: "Barcode scanner & cash drawer support", d: "Connect your existing hardware — FiscalZone works with standard peripherals." },
-                { t: "Multi-cashier, shift management", d: "Assign cashiers, manage shifts, and review per-cashier reports at close of business." },
+                {
+                  t: "Instant FDMS sync when back online",
+                  d: "All queued transactions auto-submit the moment connectivity returns.",
+                },
+                {
+                  t: "Thermal receipt + A4 invoice printing",
+                  d: "Print compact receipts at the till or send full A4 invoices by email.",
+                },
+                {
+                  t: "Barcode scanner & cash drawer support",
+                  d: "Connect your existing hardware — FiscalZone works with standard peripherals.",
+                },
+                {
+                  t: "Multi-cashier, shift management",
+                  d: "Assign cashiers, manage shifts, and review per-cashier reports at close of business.",
+                },
               ].map((c, i) => (
                 <div key={i} className="pos-check">
                   <div className="check-ico">✓</div>
-                  <div className="check-txt"><strong>{c.t}</strong><br />{c.d}</div>
+                  <div className="check-txt">
+                    <strong>{c.t}</strong>
+                    <br />
+                    {c.d}
+                  </div>
                 </div>
               ))}
             </div>
@@ -637,13 +952,33 @@ export default function FiscalZoneLanding() {
         {/* HOW */}
         <section className="section">
           <div className="sec-eye">How It Works</div>
-          <h2 className="sec-title">Up and running<br />in minutes.</h2>
+          <h2 className="sec-title">
+            Up and running
+            <br />
+            in minutes.
+          </h2>
           <div className="how-grid">
             {[
-              { n: "01", t: "Create Your Account", d: "Sign up with your business details and ZIMRA BP number. Verification takes under 2 minutes." },
-              { n: "02", t: "Add Products & Clients", d: "Import your product catalogue and customer list. Bulk CSV import supported." },
-              { n: "03", t: "Issue Fiscal Invoices", d: "Create A4 invoices or receipts with our visual builder. ZIMRA receipt numbers generated automatically." },
-              { n: "04", t: "Stay Compliant", d: "Monitor your fiscal health from the dashboard. Automatic Fiscal Day reports every night." },
+              {
+                n: "01",
+                t: "Create Your Account",
+                d: "Sign up with your business details and ZIMRA BP number. Verification takes under 2 minutes.",
+              },
+              {
+                n: "02",
+                t: "Add Products & Clients",
+                d: "Import your product catalogue and customer list. Bulk CSV import supported.",
+              },
+              {
+                n: "03",
+                t: "Issue Fiscal Invoices",
+                d: "Create A4 invoices or receipts with our visual builder. ZIMRA receipt numbers generated automatically.",
+              },
+              {
+                n: "04",
+                t: "Stay Compliant",
+                d: "Monitor your fiscal health from the dashboard. Automatic Fiscal Day reports every night.",
+              },
             ].map((s, i) => (
               <div key={i} className="how-step">
                 <div className="step-n">{s.n}</div>
@@ -655,22 +990,94 @@ export default function FiscalZoneLanding() {
         </section>
 
         {/* PRICING */}
-        <section className="section" id="pricing" style={{ background: "rgba(0,0,0,0.1)", borderTop: "1px solid var(--border)" }}>
+        <section
+          className="section"
+          id="pricing"
+          style={{
+            background: "rgba(0,0,0,0.1)",
+            borderTop: "1px solid var(--border)",
+          }}
+        >
           <div className="sec-eye">Transparent Pricing</div>
-          <h2 className="sec-title">Start for free,<br />scale as you grow.</h2>
-          <p className="sec-sub">All paid plans include live FDMS sync, A4 &amp; receipt invoicing, ZIMRA compliance, and local support.</p>
+          <h2 className="sec-title">
+            Start for free,
+            <br />
+            scale as you grow.
+          </h2>
+          <p className="sec-sub">
+            All paid plans include live FDMS sync, A4 &amp; receipt invoicing,
+            ZIMRA compliance, and local support.
+          </p>
           <div className="price-grid">
             {[
-              { tag: "Test Mode", price: "Free", per: "For development & testing", feats: ["Unlimited Invoices (Test)", "A4 & Receipt Preview", "Sandboxed FDMS", "API Access", "Dev Support"], hot: false, cta: "Get Started" },
-              { tag: "Production", price: "150", per: "USD / device / year", feats: ["Unlimited Invoices", "A4 PDF + Thermal Receipts", "Live FDMS Sync", "ZIMRA Compliant", "Smart QR Codes", "Auto-Tax Engine", "Priority Support"], hot: true, cta: "Get Started" },
-              { tag: "Enterprise", price: "Custom", per: "For large organizations", feats: ["Unlimited Users & Devices", "Custom Invoice Templates", "Dedicated Manager", "SLA Assurance", "Custom Integration", "Email Hosting", "On-premise option"], hot: false, cta: "Contact Sales" },
+              {
+                tag: "Test Mode",
+                price: "Free",
+                per: "For development & testing",
+                feats: [
+                  "Unlimited Invoices (Test)",
+                  "A4 & Receipt Preview",
+                  "Sandboxed FDMS",
+                  "API Access",
+                  "Dev Support",
+                ],
+                hot: false,
+                cta: "Get Started",
+              },
+              {
+                tag: "Production",
+                price: "150",
+                per: "USD / device / year",
+                feats: [
+                  "Unlimited Invoices",
+                  "A4 PDF + Thermal Receipts",
+                  "Live FDMS Sync",
+                  "ZIMRA Compliant",
+                  "Smart QR Codes",
+                  "Auto-Tax Engine",
+                  "Priority Support",
+                ],
+                hot: true,
+                cta: "Get Started",
+              },
+              {
+                tag: "Enterprise",
+                price: "Custom",
+                per: "For large organizations",
+                feats: [
+                  "Unlimited Users & Devices",
+                  "Custom Invoice Templates",
+                  "Dedicated Manager",
+                  "SLA Assurance",
+                  "Custom Integration",
+                  "Email Hosting",
+                  "On-premise option",
+                ],
+                hot: false,
+                cta: "Contact Sales",
+              },
             ].map((p, i) => (
               <div key={i} className={`price-card${p.hot ? " hot" : ""}`}>
                 <div className="plan-tag">{p.tag}</div>
-                <div className="plan-price">{p.price !== "Free" && p.price !== "Custom" ? <><sup>$</sup>{p.price}</> : p.price}</div>
+                <div className="plan-price">
+                  {p.price !== "Free" && p.price !== "Custom" ? (
+                    <>
+                      <sup>$</sup>
+                      {p.price}
+                    </>
+                  ) : (
+                    p.price
+                  )}
+                </div>
                 <div className="plan-per">{p.per}</div>
-                <ul className="plan-feats">{p.feats.map((f, j) => <li key={j}>{f}</li>)}</ul>
-                <button className={`btn-plan${p.hot ? " hot-btn" : ""}`}>{p.cta}</button>
+                <ul className="plan-feats">
+                  {p.feats.map((f, j) => (
+                    <li key={j}>{f}</li>
+                  ))}
+                </ul>
+                <button className={`btn-plan${p.hot ? " hot-btn" : ""}`}>
+                  {p.cta}
+                </button>
               </div>
             ))}
           </div>
@@ -679,19 +1086,38 @@ export default function FiscalZoneLanding() {
         {/* TESTI */}
         <section className="section">
           <div className="sec-eye">What Clients Say</div>
-          <h2 className="sec-title">Trusted across<br />Zimbabwe.</h2>
+          <h2 className="sec-title">
+            Trusted across
+            <br />
+            Zimbabwe.
+          </h2>
           <div className="testi-grid">
             {[
-              { q: "FiscalZone cut our invoicing time from 30 minutes to under 2. The A4 invoices look completely professional and the FDMS integration hasn't failed once.", name: "Tendai M.", role: "CFO — Harare Retail Group" },
-              { q: "The offline POS was a game-changer. Our branch in Mutare had constant connectivity issues and those problems simply don't affect us anymore.", name: "Rudo K.", role: "Owner — Bulawayo Auto Parts" },
-              { q: "The Smart Analytics dashboard gives our finance team real-time visibility into tax liabilities. Our auditors love the clean PDF export reports.", name: "Simba C.", role: "Finance Director — Zim Logistics Ltd" },
+              {
+                q: "FiscalZone cut our invoicing time from 30 minutes to under 2. The A4 invoices look completely professional and the FDMS integration hasn't failed once.",
+                name: "Tendai M.",
+                role: "CFO — Harare Retail Group",
+              },
+              {
+                q: "The offline POS was a game-changer. Our branch in Mutare had constant connectivity issues and those problems simply don't affect us anymore.",
+                name: "Rudo K.",
+                role: "Owner — Bulawayo Auto Parts",
+              },
+              {
+                q: "The Smart Analytics dashboard gives our finance team real-time visibility into tax liabilities. Our auditors love the clean PDF export reports.",
+                name: "Simba C.",
+                role: "Finance Director — Zim Logistics Ltd",
+              },
             ].map((t, i) => (
               <div key={i} className="testi-card">
                 <div className="testi-stars">★★★★★</div>
                 <p className="testi-q">"{t.q}"</p>
                 <div className="testi-who">
                   <div className="testi-av">{t.name[0]}</div>
-                  <div><div className="testi-name">{t.name}</div><div className="testi-role">{t.role}</div></div>
+                  <div>
+                    <div className="testi-name">{t.name}</div>
+                    <div className="testi-role">{t.role}</div>
+                  </div>
                 </div>
               </div>
             ))}
@@ -699,20 +1125,52 @@ export default function FiscalZoneLanding() {
         </section>
 
         {/* FAQ */}
-        <section className="section" id="faq" style={{ background: "rgba(21,101,255,0.02)", borderTop: "1px solid var(--border)" }}>
+        <section
+          className="section"
+          id="faq"
+          style={{
+            background: "rgba(21,101,255,0.02)",
+            borderTop: "1px solid var(--border)",
+          }}
+        >
           <div className="sec-eye">FAQ</div>
-          <h2 className="sec-title">Frequently asked<br />questions.</h2>
+          <h2 className="sec-title">
+            Frequently asked
+            <br />
+            questions.
+          </h2>
           <div style={{ marginTop: 40 }}>
             {[
-              { q: "What is ZIMRA compliance and why do I need it?", a: "ZIMRA requires all VAT-registered businesses to submit invoice data to the FDMS in real time. FiscalZone handles this automatically — no physical fiscal device required." },
-              { q: "What invoice formats does FiscalZone produce?", a: "FiscalZone produces full A4 PDF invoices for professional billing, compact thermal receipts for POS transactions, and credit notes for returns. Every document carries a ZIMRA fiscal receipt number and QR code." },
-              { q: "How does the FDMS integration work?", a: "Every invoice is cryptographically signed and submitted to ZIMRA's FDMS via our certified API. You receive a fiscal receipt number in under a second." },
-              { q: "Can I try FiscalZone before committing?", a: "Yes — our Test Mode plan is completely free with unlimited test invoices, A4 and receipt previews, sandboxed FDMS, and API access. No credit card needed." },
-              { q: "Does the POS work without internet?", a: "Absolutely. The Smart POS queues all transactions locally when offline and syncs them to FDMS the moment connectivity returns. No data is ever lost." },
-              { q: "Is my financial data secure?", a: "All data is encrypted at rest and in transit using AES-256. We use role-based access controls, full audit logs, and daily backups." },
+              {
+                q: "What is ZIMRA compliance and why do I need it?",
+                a: "ZIMRA requires all VAT-registered businesses to submit invoice data to the FDMS in real time. FiscalZone handles this automatically — no physical fiscal device required.",
+              },
+              {
+                q: "What invoice formats does FiscalZone produce?",
+                a: "FiscalZone produces full A4 PDF invoices for professional billing, compact thermal receipts for POS transactions, and credit notes for returns. Every document carries a ZIMRA fiscal receipt number and QR code.",
+              },
+              {
+                q: "How does the FDMS integration work?",
+                a: "Every invoice is cryptographically signed and submitted to ZIMRA's FDMS via our certified API. You receive a fiscal receipt number in under a second.",
+              },
+              {
+                q: "Can I try FiscalZone before committing?",
+                a: "Yes — our Test Mode plan is completely free with unlimited test invoices, A4 and receipt previews, sandboxed FDMS, and API access. No credit card needed.",
+              },
+              {
+                q: "Does the POS work without internet?",
+                a: "Absolutely. The Smart POS queues all transactions locally when offline and syncs them to FDMS the moment connectivity returns. No data is ever lost.",
+              },
+              {
+                q: "Is my financial data secure?",
+                a: "All data is encrypted at rest and in transit using AES-256. We use role-based access controls, full audit logs, and daily backups.",
+              },
             ].map((item, i) => (
               <details key={i}>
-                <summary>{item.q}<span className="plus">+</span></summary>
+                <summary>
+                  {item.q}
+                  <span className="plus">+</span>
+                </summary>
                 <p>{item.a}</p>
               </details>
             ))}
@@ -721,13 +1179,37 @@ export default function FiscalZoneLanding() {
 
         {/* CTA */}
         <section className="cta-band">
-          <div className="sec-eye" style={{ justifyContent: "center" }}>Ready to Start?</div>
-          <h2 className="cta-title">Get <span className="grad">fiscal-ready</span><br />in minutes.</h2>
-          <p className="cta-sub">Join 500+ Zimbabwean businesses that trust FiscalZone for seamless, automated ZIMRA compliance.</p>
+          <div className="sec-eye" style={{ justifyContent: "center" }}>
+            Ready to Start?
+          </div>
+          <h2 className="cta-title">
+            Get <span className="grad">fiscal-ready</span>
+            <br />
+            in minutes.
+          </h2>
+          <p className="cta-sub">
+            Join 500+ Zimbabwean businesses that trust FiscalZone for seamless,
+            automated ZIMRA compliance.
+          </p>
           <div className="cta-row">
-            <a href="/auth?mode=signup" className="btn-hero">Start Free Trial →</a>
-            <a href="https://wa.me/263779532012" target="_blank" rel="noreferrer" className="wa-pill">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z" /><path d="M12 0C5.373 0 0 5.373 0 12c0 2.025.507 3.936 1.397 5.617L0 24l6.544-1.374A11.944 11.944 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.885 0-3.652-.493-5.188-1.357l-.372-.22-3.884.816.825-3.793-.242-.39A9.946 9.946 0 012 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z" /></svg>
+            <a href="/auth?mode=signup" className="btn-hero">
+              Start Free Trial →
+            </a>
+            <a
+              href="https://wa.me/263779532012"
+              target="_blank"
+              rel="noreferrer"
+              className="wa-pill"
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+              >
+                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z" />
+                <path d="M12 0C5.373 0 0 5.373 0 12c0 2.025.507 3.936 1.397 5.617L0 24l6.544-1.374A11.944 11.944 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.885 0-3.652-.493-5.188-1.357l-.372-.22-3.884.816.825-3.793-.242-.39A9.946 9.946 0 012 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z" />
+              </svg>
               +263 779 532 012
             </a>
           </div>
@@ -739,45 +1221,83 @@ export default function FiscalZoneLanding() {
             <div className="footer-brand">
               <div className="footer-logo">
                 <FZLogo size={28} mono={false} />
-                <div className="footer-logo-txt">Fiscal<span>Zone</span></div>
+                <div className="footer-logo-txt">
+                  Fiscal<span>Zone</span>
+                </div>
               </div>
-              <p className="footer-tag">Zimbabwe's intelligent fiscalization platform. Built for compliance, designed for growth.</p>
-              <div className="footer-contact">info@fiscalstack.co.zw · www.fiscalstack.co.zw</div>
+              <p className="footer-tag">
+                Zimbabwe's intelligent fiscalization platform. Built for
+                compliance, designed for growth.
+              </p>
+              <div className="footer-contact">
+                info@fiscalstack.co.zw · www.fiscalstack.co.zw
+              </div>
             </div>
             <div className="footer-col">
               <h5>Platform</h5>
               <ul>
-                <li><a href="#">A4 & Receipt Invoicing</a></li>
-                <li><a href="#">FDMS Sync</a></li>
-                <li><a href="#">Smart POS</a></li>
-                <li><a href="#">Inventory</a></li>
-                <li><a href="#">Email Hosting</a></li>
-                <li><a href="#">Analytics</a></li>
+                <li>
+                  <a href="#">A4 & Receipt Invoicing</a>
+                </li>
+                <li>
+                  <a href="#">FDMS Sync</a>
+                </li>
+                <li>
+                  <a href="#">Smart POS</a>
+                </li>
+                <li>
+                  <a href="#">Inventory</a>
+                </li>
+                <li>
+                  <a href="#">Email Hosting</a>
+                </li>
+                <li>
+                  <a href="#">Analytics</a>
+                </li>
               </ul>
             </div>
             <div className="footer-col">
               <h5>Company</h5>
               <ul>
-                <li><a href="#">About</a></li>
-                <li><a href="#">Blog</a></li>
-                <li><a href="#">Careers</a></li>
+                <li>
+                  <a href="#">About</a>
+                </li>
+                <li>
+                  <a href="#">Blog</a>
+                </li>
+                <li>
+                  <a href="#">Careers</a>
+                </li>
               </ul>
             </div>
             <div className="footer-col">
               <h5>Contact & Support</h5>
               <ul>
-                <li><a href="https://wa.me/263779532012">WhatsApp: 0779532012</a></li>
-                <li><a href="tel:0779555522">Phone: 0779555522</a></li>
-                <li><a href="mailto:info@fiscalstack.co.zw">info@fiscalstack.co.zw</a></li>
+                <li>
+                  <a href="https://wa.me/263779532012">WhatsApp: 0779532012</a>
+                </li>
+                <li>
+                  <a href="tel:0779555522">Phone: 0779555522</a>
+                </li>
+                <li>
+                  <a href="mailto:info@fiscalstack.co.zw">
+                    info@fiscalstack.co.zw
+                  </a>
+                </li>
               </ul>
             </div>
           </div>
           <div className="footer-bottom">
-            <div className="footer-copy">© {new Date().getFullYear()} FiscalZone. Made with ♥ in Zimbabwe.</div>
-            <div className="footer-legal"><a href="#">Privacy</a><a href="#">Terms</a><a href="#">Security</a></div>
+            <div className="footer-copy">
+              © {new Date().getFullYear()} FiscalZone. Made with ♥ in Zimbabwe.
+            </div>
+            <div className="footer-legal">
+              <a href="#">Privacy</a>
+              <a href="#">Terms</a>
+              <a href="#">Security</a>
+            </div>
           </div>
         </footer>
-
       </div>
     </>
   );

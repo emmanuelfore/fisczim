@@ -1,16 +1,34 @@
 import { Layout } from "@/components/layout";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useProducts } from "@/hooks/use-products";
-import { useCreateProductSerials, useLaybys, useProductSerials, useWarrantyClaims } from "@/hooks/use-auto-spares";
+import {
+  useCreateProductSerials,
+  useLaybys,
+  useProductSerials,
+  useWarrantyClaims,
+} from "@/hooks/use-auto-spares";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { useState } from "react";
 
@@ -27,7 +45,9 @@ export default function AutoSparesPage() {
   const [productId, setProductId] = useState("");
   const [serialText, setSerialText] = useState("");
 
-  const serialTrackedProducts = products.filter((product: any) => product.serialTrackingEnabled);
+  const serialTrackedProducts = products.filter(
+    (product: any) => product.serialTrackingEnabled,
+  );
 
   const addSerials = async () => {
     const serialNumbers = serialText
@@ -35,13 +55,18 @@ export default function AutoSparesPage() {
       .map((value) => value.trim())
       .filter(Boolean);
     if (!productId || serialNumbers.length === 0) return;
-    await createSerials.mutateAsync(serialNumbers.map((serialNumber) => ({
-      productId: Number(productId),
-      serialNumber,
-      status: "IN_STOCK",
-    })));
+    await createSerials.mutateAsync(
+      serialNumbers.map((serialNumber) => ({
+        productId: Number(productId),
+        serialNumber,
+        status: "IN_STOCK",
+      })),
+    );
     setSerialText("");
-    toast({ title: "Serials added", description: `${serialNumbers.length} serial number(s) recorded.` });
+    toast({
+      title: "Serials added",
+      description: `${serialNumbers.length} serial number(s) recorded.`,
+    });
   };
 
   return (
@@ -63,26 +88,42 @@ export default function AutoSparesPage() {
                 <div className="space-y-2">
                   <Label>Product</Label>
                   <Select value={productId} onValueChange={setProductId}>
-                    <SelectTrigger><SelectValue placeholder="Select serial-tracked product" /></SelectTrigger>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select serial-tracked product" />
+                    </SelectTrigger>
                     <SelectContent>
                       {serialTrackedProducts.map((product: any) => (
-                        <SelectItem key={product.id} value={String(product.id)}>{product.name} {product.sku ? `(${product.sku})` : ""}</SelectItem>
+                        <SelectItem key={product.id} value={String(product.id)}>
+                          {product.name} {product.sku ? `(${product.sku})` : ""}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-2">
                   <Label>Serial numbers</Label>
-                  <Input value={serialText} onChange={(event) => setSerialText(event.target.value)} placeholder="Comma separated, or paste one per line" />
+                  <Input
+                    value={serialText}
+                    onChange={(event) => setSerialText(event.target.value)}
+                    placeholder="Comma separated, or paste one per line"
+                  />
                 </div>
-                <Button className="self-end" onClick={addSerials} disabled={createSerials.isPending || !productId || !serialText.trim()}>
+                <Button
+                  className="self-end"
+                  onClick={addSerials}
+                  disabled={
+                    createSerials.isPending || !productId || !serialText.trim()
+                  }
+                >
                   Add
                 </Button>
               </CardContent>
             </Card>
 
             <Card>
-              <CardHeader><CardTitle>Serial Stock</CardTitle></CardHeader>
+              <CardHeader>
+                <CardTitle>Serial Stock</CardTitle>
+              </CardHeader>
               <CardContent>
                 <Table>
                   <TableHeader>
@@ -95,13 +136,27 @@ export default function AutoSparesPage() {
                   </TableHeader>
                   <TableBody>
                     {serials.map((serial: any) => {
-                      const product = products.find((p: any) => p.id === serial.productId);
+                      const product = products.find(
+                        (p: any) => p.id === serial.productId,
+                      );
                       return (
                         <TableRow key={serial.id}>
-                          <TableCell className="font-mono">{serial.serialNumber}</TableCell>
-                          <TableCell>{product?.name || serial.productId}</TableCell>
-                          <TableCell><Badge variant="outline">{serial.status}</Badge></TableCell>
-                          <TableCell>{serial.warrantyExpiresAt ? new Date(serial.warrantyExpiresAt).toLocaleDateString() : "-"}</TableCell>
+                          <TableCell className="font-mono">
+                            {serial.serialNumber}
+                          </TableCell>
+                          <TableCell>
+                            {product?.name || serial.productId}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{serial.status}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            {serial.warrantyExpiresAt
+                              ? new Date(
+                                  serial.warrantyExpiresAt,
+                                ).toLocaleDateString()
+                              : "-"}
+                          </TableCell>
                         </TableRow>
                       );
                     })}
@@ -113,7 +168,9 @@ export default function AutoSparesPage() {
 
           <TabsContent value="warranty">
             <Card>
-              <CardHeader><CardTitle>Warranty Claims</CardTitle></CardHeader>
+              <CardHeader>
+                <CardTitle>Warranty Claims</CardTitle>
+              </CardHeader>
               <CardContent>
                 <Table>
                   <TableHeader>
@@ -126,12 +183,20 @@ export default function AutoSparesPage() {
                   </TableHeader>
                   <TableBody>
                     {claims.map((claim: any) => {
-                      const product = products.find((p: any) => p.id === claim.productId);
+                      const product = products.find(
+                        (p: any) => p.id === claim.productId,
+                      );
                       return (
                         <TableRow key={claim.id}>
-                          <TableCell className="font-mono">{claim.claimNumber}</TableCell>
-                          <TableCell>{product?.name || claim.productId}</TableCell>
-                          <TableCell><Badge variant="outline">{claim.status}</Badge></TableCell>
+                          <TableCell className="font-mono">
+                            {claim.claimNumber}
+                          </TableCell>
+                          <TableCell>
+                            {product?.name || claim.productId}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{claim.status}</Badge>
+                          </TableCell>
                           <TableCell>{claim.reason}</TableCell>
                         </TableRow>
                       );
@@ -144,7 +209,9 @@ export default function AutoSparesPage() {
 
           <TabsContent value="laybys">
             <Card>
-              <CardHeader><CardTitle>Lay-bys</CardTitle></CardHeader>
+              <CardHeader>
+                <CardTitle>Lay-bys</CardTitle>
+              </CardHeader>
               <CardContent>
                 <Table>
                   <TableHeader>
@@ -159,11 +226,24 @@ export default function AutoSparesPage() {
                   <TableBody>
                     {laybys.map((layby: any) => (
                       <TableRow key={layby.id}>
-                        <TableCell className="font-mono">{layby.laybyNumber}</TableCell>
-                        <TableCell><Badge variant="outline">{layby.status}</Badge></TableCell>
-                        <TableCell>{layby.currency} {Number(layby.total || 0).toFixed(2)}</TableCell>
-                        <TableCell>{layby.currency} {Number(layby.paidAmount || 0).toFixed(2)}</TableCell>
-                        <TableCell>{layby.expiryDate ? new Date(layby.expiryDate).toLocaleDateString() : "-"}</TableCell>
+                        <TableCell className="font-mono">
+                          {layby.laybyNumber}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{layby.status}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          {layby.currency} {Number(layby.total || 0).toFixed(2)}
+                        </TableCell>
+                        <TableCell>
+                          {layby.currency}{" "}
+                          {Number(layby.paidAmount || 0).toFixed(2)}
+                        </TableCell>
+                        <TableCell>
+                          {layby.expiryDate
+                            ? new Date(layby.expiryDate).toLocaleDateString()
+                            : "-"}
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

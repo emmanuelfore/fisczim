@@ -1435,3 +1435,829 @@
         Calculated NextGlobalNo: 2
         Calculated NextReceiptCounter: 2
         --------------------------------
+[2026-05-29T09:18:14.113Z] Invoice 5043
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 59
+        Calculated NextReceiptCounter: 11
+        --------------------------------
+[2026-06-02T17:14:56.748Z] Invoice 6347
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 1
+        Calculated NextReceiptCounter: 1
+        --------------------------------
+[2026-06-02T17:15:58.921Z] Invoice 6348
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 2
+        Calculated NextReceiptCounter: 2
+        --------------------------------
+[2026-06-02T17:19:25.748Z] Invoice 6349
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 3
+        Calculated NextReceiptCounter: 3
+        --------------------------------
+[2026-06-02T17:33:44.715Z] Invoice 6350
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 172
+        Calculated NextReceiptCounter: 74
+        --------------------------------
+[2026-06-02T17:34:33.809Z] Invoice 6352
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 173
+        Calculated NextReceiptCounter: 75
+        --------------------------------
+[2026-06-02T17:34:45.512Z] Invoice 6353
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 174
+        Calculated NextReceiptCounter: 76
+        --------------------------------
+[2026-06-02T17:34:57.099Z] Invoice 6354
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 175
+        Calculated NextReceiptCounter: 77
+        --------------------------------
+[2026-06-02T17:36:38.349Z] Invoice 6355
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 4
+        Calculated NextReceiptCounter: 1
+        --------------------------------
+[2026-06-02T17:36:48.798Z] Invoice 6356
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 5
+        Calculated NextReceiptCounter: 2
+        --------------------------------
+[2026-06-02T17:37:00.081Z] Invoice 6357
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 6
+        Calculated NextReceiptCounter: 3
+        --------------------------------
+[2026-06-03T07:29:43.446Z] Invoice 6484
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 7
+        Calculated NextReceiptCounter: 1
+        --------------------------------
+[2026-06-03T07:29:53.650Z] Invoice 6485
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 8
+        Calculated NextReceiptCounter: 2
+        --------------------------------
+[2026-06-03T07:30:04.082Z] Invoice 6486
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 9
+        Calculated NextReceiptCounter: 3
+        --------------------------------
+[2026-06-03T07:30:25.627Z] Invoice 6488
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 10
+        Calculated NextReceiptCounter: 1
+        --------------------------------
+[2026-06-03T07:30:36.315Z] Invoice 6489
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 11
+        Calculated NextReceiptCounter: 2
+        --------------------------------
+[2026-06-03T07:30:52.776Z] Invoice 6490
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 12
+        Calculated NextReceiptCounter: 1
+        --------------------------------
+[2026-06-03T07:31:01.493Z] Invoice 6491
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 13
+        Calculated NextReceiptCounter: 2
+        --------------------------------
+[2026-06-03T07:31:11.471Z] Invoice 6492
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 14
+        Calculated NextReceiptCounter: 3
+        --------------------------------
+[2026-06-03T07:31:21.983Z] Invoice 6494
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 15
+        Calculated NextReceiptCounter: 4
+        --------------------------------
+[2026-06-03T07:35:36.684Z] Invoice 6499
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 16
+        Calculated NextReceiptCounter: 1
+        --------------------------------
+[2026-06-03T07:35:46.652Z] Invoice 6500
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 17
+        Calculated NextReceiptCounter: 2
+        --------------------------------
+[2026-06-03T07:35:57.890Z] Invoice 6501
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 18
+        Calculated NextReceiptCounter: 3
+        --------------------------------
+[2026-06-03T07:36:20.006Z] Invoice 6502
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 19
+        Calculated NextReceiptCounter: 1
+        --------------------------------
+[2026-06-03T07:36:29.211Z] Invoice 6504
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 20
+        Calculated NextReceiptCounter: 2
+        --------------------------------
+[2026-06-03T07:36:37.673Z] Invoice 6505
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 21
+        Calculated NextReceiptCounter: 3
+        --------------------------------
+[2026-06-03T07:36:47.017Z] Invoice 6506
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 22
+        Calculated NextReceiptCounter: 4
+        --------------------------------
+[2026-06-03T07:36:56.679Z] Invoice 6507
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 23
+        Calculated NextReceiptCounter: 5
+        --------------------------------
+[2026-06-03T07:37:07.589Z] Invoice 6508
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 24
+        Calculated NextReceiptCounter: 6
+        --------------------------------
+[2026-06-03T07:37:17.534Z] Invoice 6509
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 25
+        Calculated NextReceiptCounter: 7
+        --------------------------------
+[2026-06-03T07:37:28.399Z] Invoice 6511
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 26
+        Calculated NextReceiptCounter: 8
+        --------------------------------
+[2026-06-03T07:37:38.288Z] Invoice 6512
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 27
+        Calculated NextReceiptCounter: 9
+        --------------------------------
+[2026-06-03T07:38:00.869Z] Invoice 6513
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 28
+        Calculated NextReceiptCounter: 1
+        --------------------------------
+[2026-06-03T07:38:10.166Z] Invoice 6514
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 29
+        Calculated NextReceiptCounter: 2
+        --------------------------------
+[2026-06-03T07:38:19.981Z] Invoice 6515
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 30
+        Calculated NextReceiptCounter: 3
+        --------------------------------
+[2026-06-03T07:38:30.700Z] Invoice 6517
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 31
+        Calculated NextReceiptCounter: 4
+        --------------------------------
+[2026-06-03T07:38:40.948Z] Invoice 6518
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 32
+        Calculated NextReceiptCounter: 5
+        --------------------------------
+[2026-06-03T07:38:52.488Z] Invoice 6519
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 33
+        Calculated NextReceiptCounter: 6
+        --------------------------------
+[2026-06-03T07:39:02.727Z] Invoice 6520
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 34
+        Calculated NextReceiptCounter: 7
+        --------------------------------
+[2026-06-03T07:39:14.091Z] Invoice 6521
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 35
+        Calculated NextReceiptCounter: 8
+        --------------------------------
+[2026-06-03T07:39:35.015Z] Invoice 6523
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 36
+        Calculated NextReceiptCounter: 1
+        --------------------------------
+[2026-06-03T07:39:43.202Z] Invoice 6524
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 37
+        Calculated NextReceiptCounter: 2
+        --------------------------------
+[2026-06-03T07:39:51.917Z] Invoice 6525
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 38
+        Calculated NextReceiptCounter: 3
+        --------------------------------
+[2026-06-03T07:40:01.868Z] Invoice 6526
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 39
+        Calculated NextReceiptCounter: 4
+        --------------------------------
+[2026-06-03T07:40:12.657Z] Invoice 6527
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 40
+        Calculated NextReceiptCounter: 5
+        --------------------------------
+[2026-06-03T07:40:23.671Z] Invoice 6529
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 41
+        Calculated NextReceiptCounter: 6
+        --------------------------------
+[2026-06-03T07:40:37.760Z] Invoice 6530
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 42
+        Calculated NextReceiptCounter: 7
+        --------------------------------
+[2026-06-03T07:40:53.656Z] Invoice 6531
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 43
+        Calculated NextReceiptCounter: 1
+        --------------------------------
+[2026-06-03T07:41:05.088Z] Invoice 6532
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 44
+        Calculated NextReceiptCounter: 2
+        --------------------------------
+[2026-06-03T07:41:28.928Z] Invoice 6534
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 45
+        Calculated NextReceiptCounter: 1
+        --------------------------------
+[2026-06-03T07:41:38.393Z] Invoice 6535
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 46
+        Calculated NextReceiptCounter: 2
+        --------------------------------
+[2026-06-03T07:41:48.727Z] Invoice 6536
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 47
+        Calculated NextReceiptCounter: 3
+        --------------------------------
+[2026-06-03T07:41:59.955Z] Invoice 6537
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 48
+        Calculated NextReceiptCounter: 4
+        --------------------------------
+[2026-06-03T07:57:46.165Z] Invoice 6554
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 49
+        Calculated NextReceiptCounter: 1
+        --------------------------------
+[2026-06-03T08:01:58.119Z] Invoice 6554
+        Existing GlobalNo: 49
+        Existing ReceiptCounter: 1
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 49
+        Calculated NextReceiptCounter: 1
+        --------------------------------
+[2026-06-03T08:03:55.281Z] Invoice 6561
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 50
+        Calculated NextReceiptCounter: 2
+        --------------------------------
+[2026-06-03T08:04:10.977Z] Invoice 6563
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 51
+        Calculated NextReceiptCounter: 3
+        --------------------------------
+[2026-06-03T08:04:23.959Z] Invoice 6565
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 52
+        Calculated NextReceiptCounter: 4
+        --------------------------------
+[2026-06-03T08:04:41.943Z] Invoice 6566
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 53
+        Calculated NextReceiptCounter: 1
+        --------------------------------
+[2026-06-03T08:05:22.975Z] Invoice 6566
+        Existing GlobalNo: 53
+        Existing ReceiptCounter: 1
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 53
+        Calculated NextReceiptCounter: 1
+        --------------------------------
+[2026-06-03T08:06:20.511Z] Invoice 6570
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 54
+        Calculated NextReceiptCounter: 2
+        --------------------------------
+[2026-06-03T08:06:33.285Z] Invoice 6571
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 55
+        Calculated NextReceiptCounter: 3
+        --------------------------------
+[2026-06-03T08:06:44.806Z] Invoice 6572
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 56
+        Calculated NextReceiptCounter: 4
+        --------------------------------
+[2026-06-03T08:07:01.231Z] Invoice 6573
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 57
+        Calculated NextReceiptCounter: 1
+        --------------------------------
+[2026-06-03T08:07:10.536Z] Invoice 6574
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 58
+        Calculated NextReceiptCounter: 2
+        --------------------------------
+[2026-06-03T08:07:20.478Z] Invoice 6577
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 59
+        Calculated NextReceiptCounter: 3
+        --------------------------------
+[2026-06-03T08:07:29.564Z] Invoice 6578
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 60
+        Calculated NextReceiptCounter: 4
+        --------------------------------
+[2026-06-03T08:07:40.498Z] Invoice 6579
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 61
+        Calculated NextReceiptCounter: 5
+        --------------------------------
+[2026-06-03T08:07:51.816Z] Invoice 6580
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 62
+        Calculated NextReceiptCounter: 6
+        --------------------------------
+[2026-06-03T08:08:02.483Z] Invoice 6581
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 63
+        Calculated NextReceiptCounter: 7
+        --------------------------------
+[2026-06-03T08:08:13.287Z] Invoice 6582
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 64
+        Calculated NextReceiptCounter: 8
+        --------------------------------
+[2026-06-03T08:08:24.663Z] Invoice 6584
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 65
+        Calculated NextReceiptCounter: 9
+        --------------------------------
+[2026-06-03T08:08:41.217Z] Invoice 6585
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 66
+        Calculated NextReceiptCounter: 1
+        --------------------------------
+[2026-06-03T08:08:50.495Z] Invoice 6586
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 67
+        Calculated NextReceiptCounter: 2
+        --------------------------------
+[2026-06-03T08:09:00.999Z] Invoice 6587
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 68
+        Calculated NextReceiptCounter: 3
+        --------------------------------
+[2026-06-03T08:09:13.244Z] Invoice 6588
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 69
+        Calculated NextReceiptCounter: 4
+        --------------------------------
+[2026-06-03T08:09:24.108Z] Invoice 6590
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 70
+        Calculated NextReceiptCounter: 5
+        --------------------------------
+[2026-06-03T08:09:35.608Z] Invoice 6591
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 71
+        Calculated NextReceiptCounter: 6
+        --------------------------------
+[2026-06-03T08:09:46.697Z] Invoice 6592
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 72
+        Calculated NextReceiptCounter: 7
+        --------------------------------
+[2026-06-03T08:09:57.667Z] Invoice 6593
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 73
+        Calculated NextReceiptCounter: 8
+        --------------------------------
+[2026-06-03T08:10:13.897Z] Invoice 6594
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 74
+        Calculated NextReceiptCounter: 1
+        --------------------------------
+[2026-06-03T08:11:26.588Z] Invoice 6594
+        Existing GlobalNo: 74
+        Existing ReceiptCounter: 1
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 74
+        Calculated NextReceiptCounter: 1
+        --------------------------------
+[2026-06-03T08:12:52.130Z] Invoice 6598
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 75
+        Calculated NextReceiptCounter: 2
+        --------------------------------
+[2026-06-03T08:13:01.573Z] Invoice 6599
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 76
+        Calculated NextReceiptCounter: 3
+        --------------------------------
+[2026-06-03T08:13:10.858Z] Invoice 6600
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 77
+        Calculated NextReceiptCounter: 4
+        --------------------------------
+[2026-06-03T08:13:21.359Z] Invoice 6602
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 78
+        Calculated NextReceiptCounter: 5
+        --------------------------------
+[2026-06-03T08:13:32.395Z] Invoice 6603
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 79
+        Calculated NextReceiptCounter: 6
+        --------------------------------
+[2026-06-03T08:13:44.336Z] Invoice 6604
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 80
+        Calculated NextReceiptCounter: 7
+        --------------------------------
+[2026-06-03T08:13:56.246Z] Invoice 6605
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 81
+        Calculated NextReceiptCounter: 8
+        --------------------------------
+[2026-06-03T14:22:22.020Z] Invoice 6899
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 82
+        Calculated NextReceiptCounter: 1
+        --------------------------------
+[2026-06-03T14:22:32.401Z] Invoice 6900
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 83
+        Calculated NextReceiptCounter: 2
+        --------------------------------
+[2026-06-03T14:22:43.402Z] Invoice 6901
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 84
+        Calculated NextReceiptCounter: 3
+        --------------------------------
+[2026-06-03T14:23:00.158Z] Invoice 6902
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 85
+        Calculated NextReceiptCounter: 1
+        --------------------------------
+[2026-06-03T14:23:09.137Z] Invoice 6903
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 86
+        Calculated NextReceiptCounter: 2
+        --------------------------------
+[2026-06-03T14:23:17.994Z] Invoice 6904
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 87
+        Calculated NextReceiptCounter: 3
+        --------------------------------
+[2026-06-03T14:23:27.287Z] Invoice 6905
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 88
+        Calculated NextReceiptCounter: 4
+        --------------------------------
+[2026-06-03T14:23:37.689Z] Invoice 6906
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 89
+        Calculated NextReceiptCounter: 5
+        --------------------------------
+[2026-06-03T14:23:50.858Z] Invoice 6907
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 90
+        Calculated NextReceiptCounter: 6
+        --------------------------------
+[2026-06-03T14:24:03.965Z] Invoice 6908
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 91
+        Calculated NextReceiptCounter: 7
+        --------------------------------
+[2026-06-03T14:24:17.072Z] Invoice 6909
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 92
+        Calculated NextReceiptCounter: 8
+        --------------------------------
+[2026-06-03T14:24:29.822Z] Invoice 6910
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 93
+        Calculated NextReceiptCounter: 9
+        --------------------------------
+[2026-06-03T14:24:48.943Z] Invoice 6911
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 94
+        Calculated NextReceiptCounter: 1
+        --------------------------------
+[2026-06-03T14:25:39.248Z] Invoice 6911
+        Existing GlobalNo: 94
+        Existing ReceiptCounter: 1
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 94
+        Calculated NextReceiptCounter: 1
+        --------------------------------
+[2026-06-03T14:26:37.449Z] Invoice 6912
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 95
+        Calculated NextReceiptCounter: 2
+        --------------------------------
+[2026-06-03T14:26:47.665Z] Invoice 6913
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 96
+        Calculated NextReceiptCounter: 3
+        --------------------------------
+[2026-06-03T14:26:58.093Z] Invoice 6914
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 97
+        Calculated NextReceiptCounter: 4
+        --------------------------------
+[2026-06-03T14:27:09.221Z] Invoice 6915
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 98
+        Calculated NextReceiptCounter: 5
+        --------------------------------
+[2026-06-03T14:27:22.904Z] Invoice 6916
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 99
+        Calculated NextReceiptCounter: 6
+        --------------------------------
+[2026-06-03T14:27:36.648Z] Invoice 6917
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 100
+        Calculated NextReceiptCounter: 7
+        --------------------------------
+[2026-06-03T14:27:50.966Z] Invoice 6918
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 101
+        Calculated NextReceiptCounter: 8
+        --------------------------------
+[2026-06-03T14:28:04.482Z] Invoice 6919
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 102
+        Calculated NextReceiptCounter: 9
+        --------------------------------
+[2026-06-03T14:29:09.710Z] Invoice 6920
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 103
+        Calculated NextReceiptCounter: 1
+        --------------------------------
+[2026-06-03T14:29:20.071Z] Invoice 6921
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 104
+        Calculated NextReceiptCounter: 2
+        --------------------------------
+[2026-06-03T14:29:30.516Z] Invoice 6922
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 105
+        Calculated NextReceiptCounter: 3
+        --------------------------------
+[2026-06-03T14:29:43.068Z] Invoice 6923
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 106
+        Calculated NextReceiptCounter: 4
+        --------------------------------
+[2026-06-03T14:29:56.083Z] Invoice 6924
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 107
+        Calculated NextReceiptCounter: 5
+        --------------------------------
+[2026-06-03T14:30:08.301Z] Invoice 6925
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 108
+        Calculated NextReceiptCounter: 6
+        --------------------------------
+[2026-06-03T14:30:20.372Z] Invoice 6926
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 109
+        Calculated NextReceiptCounter: 7
+        --------------------------------

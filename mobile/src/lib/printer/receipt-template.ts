@@ -8,6 +8,10 @@ export interface ReceiptData {
   items: any[];
   user?: any;
   paperWidth?: number;
+  printerWidth?: number;
+  feedLines?: number;
+  doubleHeightHeader?: boolean;
+  receiptShowLogo?: boolean;
   suppressTaxDetails?: boolean;
 }
 
@@ -17,12 +21,41 @@ export class ReceiptTemplate {
    * Matches the desktop version exactly, but using the tagged mobile encoder
    */
   static formatFiscalReceipt(data: ReceiptData): string {
-    const { company, branch, invoice, customer, items, paperWidth, suppressTaxDetails } = data;
+    const { company, branch, invoice, customer, items, paperWidth, printerWidth, feedLines, doubleHeightHeader, receiptShowLogo, suppressTaxDetails } = data;
     const encoder = new MobileTaggedEncoder();
-    const width = paperWidth === 80 ? 42 : 32; // Default thermal widths for 80mm and 58mm
+    const width = printerWidth || (paperWidth === 80 ? 42 : 32); // 32ch = 58mm, 42ch = 80mm
 
     const activeCompany = branch || company;
     const isVatPayer = !suppressTaxDetails && !!company.vatNumber;
+    const wrapText = (text: string, max: number): string[] => {
+      const clean = String(text || "").replace(/\s+/g, " ").trim();
+      if (!clean) return [];
+      const lines: string[] = [];
+      let current = "";
+      for (const word of clean.split(" ")) {
+        if (word.length > max) {
+          if (current) {
+            lines.push(current);
+            current = "";
+          }
+          for (let i = 0; i < word.length; i += max) lines.push(word.slice(i, i + max));
+          continue;
+        }
+        const next = current ? `${current} ${word}` : word;
+        if (next.length > max) {
+          if (current) lines.push(current);
+          current = word;
+        } else {
+          current = next;
+        }
+      }
+      if (current) lines.push(current);
+      return lines;
+    };
+    const fitAmount = (value: number, max: number) => {
+      const text = Number(value || 0).toFixed(2);
+      return text.length > max ? text.slice(text.length - max) : text;
+    };
 
     // Helper for centering
     const centerText = (text: string, w: number): string => {
@@ -67,8 +100,14 @@ export class ReceiptTemplate {
 
     // 1. Header
     encoder.align(TextAlignment.Center);
+    if (receiptShowLogo !== false && company.logoUrl) {
+      encoder.line(`<img>${company.logoUrl}</img>`);
+      encoder.feed(1);
+    }
     encoder.bold(true);
+    if (doubleHeightHeader !== false) encoder.size(1);
     encoder.line(company.name.toUpperCase());
+    encoder.size(0);
     encoder.bold(false);
 
     if (branch && branch.name !== company.name) encoder.line(branch.name);
@@ -123,15 +162,43 @@ export class ReceiptTemplate {
 
     // 3. Items List
     encoder.bold(true);
-    encoder.line(suppressTaxDetails ? "QTY  DESCRIPTION       TOTAL" : "QTY  DESCRIPTION       TOTAL");
+    if (width <= 32) {
+      encoder.line("DESCRIPTION");
+      encoder.line(suppressTaxDetails ? "QTY x PRICE             TOTAL" : "QTY x PRICE      VAT     TOTAL");
+    } else {
+      encoder.line(suppressTaxDetails ? "QTY   DESCRIPTION             TOTAL" : "QTY   DESCRIPTION             VAT    TOTAL");
+    }
     encoder.bold(false);
     encoder.separator(width);
 
     items.forEach((item) => {
       const qty = Number(item.quantity || 0);
-      const total = Number(item.lineTotal || (Number(item.price) * qty));
-      const desc = (item.description || item.name || "Item").substring(0, 15);
-      encoder.tableRow(`${qty.toFixed(0)}x ${desc}`, total.toFixed(2), width);
+      const price = Number(item.unitPrice ?? item.price ?? item.sellingPrice ?? 0);
+      const total = Number(item.lineTotal || (price * qty));
+      const taxRate = parseFloat(item.taxRate || 0);
+      const vatAmount = taxRate > 0 ? (total * (taxRate / 100)) / (1 + (taxRate / 100)) : 0;
+      const desc = item.description || item.product?.name || item.name || "Item";
+
+      if (width <= 32) {
+        wrapText(desc, width).forEach(line => encoder.line(line));
+        const qtyPrice = `${qty.toFixed(2)} x ${fitAmount(price, 7)}`.slice(0, 15);
+        if (suppressTaxDetails) {
+          encoder.line(`${qtyPrice.padEnd(width - 8)}${fitAmount(total, 8).padStart(8)}`);
+        } else {
+          encoder.line(`${qtyPrice.padEnd(width - 15)}${fitAmount(vatAmount, 6).padStart(6)} ${fitAmount(total, 8).padStart(8)}`);
+        }
+      } else {
+        const qtyS = qty.toFixed(2).padEnd(6);
+        const totalS = total.toFixed(2).padStart(8);
+        const vatS = vatAmount.toFixed(2).padStart(6);
+        const descMax = suppressTaxDetails ? width - 6 - 8 - 1 : width - 6 - 8 - 6 - 3;
+        const descRow = desc.substring(0, descMax).padEnd(descMax);
+        encoder.line(suppressTaxDetails ? `${qtyS}${descRow} ${totalS}` : `${qtyS}${descRow} ${vatS} ${totalS}`);
+        if (desc.length > descMax) {
+          wrapText(desc.substring(descMax), width - 6).forEach(line => encoder.line(`      ${line}`));
+        }
+        if (qty !== 1) encoder.line(`      Price: ${price.toFixed(2)} each`);
+      }
     });
 
     encoder.separator(width);
@@ -182,7 +249,7 @@ export class ReceiptTemplate {
     encoder.feed(1);
     encoder.line(invoice.notes || "Thank you for your business!");
     encoder.line("--- End of Receipt ---");
-    encoder.feed(3);
+    encoder.feed(Math.max(0, Number(feedLines ?? 3)));
 
     return encoder.encode();
   }

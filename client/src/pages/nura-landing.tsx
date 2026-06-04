@@ -30,7 +30,7 @@ function SlidingButton({
   onClick?: () => void;
 }) {
   const base =
-    "group nura-magnetic relative overflow-hidden rounded-full px-5 py-3 text-sm font-semibold tracking-tight transition-transform duration-300";
+    "group nura-magnetic relative overflow-hidden rounded-full px-5 py-3  font-semibold tracking-tight transition-transform duration-300";
 
   if (variant === "ghost") {
     return (
@@ -38,10 +38,12 @@ function SlidingButton({
         onClick={onClick}
         className={cx(
           base,
-          "border border-white/20 bg-white/5 text-white hover:bg-white/10"
+          "border border-white/20 bg-white/5 text-white hover:bg-white/10",
         )}
       >
-        <span className="relative z-10 inline-flex items-center gap-2">{children}</span>
+        <span className="relative z-10 inline-flex items-center gap-2">
+          {children}
+        </span>
       </button>
     );
   }
@@ -55,7 +57,9 @@ function SlidingButton({
       className={cx(base, bg, fg, "shadow-[0_18px_60px_rgba(0,0,0,0.22)]")}
     >
       <span className="absolute inset-0 -translate-x-full bg-white/15 transition-transform duration-500 group-hover:translate-x-0" />
-      <span className="relative z-10 inline-flex items-center gap-2">{children}</span>
+      <span className="relative z-10 inline-flex items-center gap-2">
+        {children}
+      </span>
     </button>
   );
 }
@@ -74,19 +78,29 @@ function FloatingNavbar({
           "mx-auto flex items-center justify-between rounded-full px-5 py-3 transition-all duration-500",
           scrolled
             ? "border border-black/10 bg-white/60 text-nura-moss shadow-[0_20px_80px_rgba(0,0,0,0.14)] backdrop-blur-xl"
-            : "border border-white/10 bg-transparent text-white"
+            : "border border-white/10 bg-transparent text-white",
         )}
       >
         <div className="flex items-center gap-3">
           <div
             className={cx(
               "grid h-9 w-9 place-items-center rounded-full",
-              scrolled ? "bg-nura-moss/10" : "bg-white/10"
+              scrolled ? "bg-nura-moss/10" : "bg-white/10",
             )}
           >
-            <Sparkles className={cx("h-4 w-4", scrolled ? "text-nura-moss" : "text-white")} />
+            <Sparkles
+              className={cx(
+                "h-4 w-4",
+                scrolled ? "text-nura-moss" : "text-white",
+              )}
+            />
           </div>
-          <div className={cx("text-sm font-extrabold tracking-tight", scrolled ? "text-nura-moss" : "text-white")}>
+          <div
+            className={cx(
+              " font-extrabold tracking-tight",
+              scrolled ? "text-nura-moss" : "text-white",
+            )}
+          >
             Nura Health
           </div>
         </div>
@@ -102,8 +116,8 @@ function FloatingNavbar({
               key={l.id}
               onClick={() => onNav(l.id)}
               className={cx(
-                "text-sm font-semibold tracking-tight transition-opacity hover:opacity-100",
-                scrolled ? "text-nura-moss/80" : "text-white/80"
+                " font-semibold tracking-tight transition-opacity hover:opacity-100",
+                scrolled ? "text-nura-moss/80" : "text-white/80",
               )}
             >
               {l.label}
@@ -115,7 +129,7 @@ function FloatingNavbar({
           <span
             className={cx(
               "hidden text-xs font-semibold tracking-tight md:inline",
-              scrolled ? "text-nura-moss/70" : "text-white/70"
+              scrolled ? "text-nura-moss/70" : "text-white/70",
             )}
           >
             Clinical Boutique
@@ -123,7 +137,7 @@ function FloatingNavbar({
           <div
             className={cx(
               "h-8 w-px",
-              scrolled ? "bg-nura-moss/15" : "bg-white/20"
+              scrolled ? "bg-nura-moss/15" : "bg-white/20",
             )}
           />
           <a
@@ -132,7 +146,7 @@ function FloatingNavbar({
               "rounded-full px-4 py-2 text-xs font-bold tracking-tight transition-colors",
               scrolled
                 ? "bg-nura-moss text-nura-cream hover:bg-nura-moss/90"
-                : "bg-white/10 text-white hover:bg-white/15"
+                : "bg-white/10 text-white hover:bg-white/15",
             )}
           >
             Join
@@ -201,15 +215,16 @@ function DiagnosticShuffler() {
 
             <div className="mt-4 grid grid-cols-3 gap-3">
               {["SNR", "Range", "Bias"].map((k) => (
-                <div
-                  key={k}
-                  className="rounded-2xl bg-black/[0.03] px-3 py-2"
-                >
+                <div key={k} className="rounded-2xl bg-black/[0.03] px-3 py-2">
                   <div className="text-[10px] font-semibold tracking-[0.18em] text-black/40">
                     {k}
                   </div>
                   <div className="mt-1 font-mono text-xs font-semibold text-black/70">
-                    {k === "SNR" ? "37.2dB" : k === "Range" ? "0.14–0.91" : "±0.02"}
+                    {k === "SNR"
+                      ? "37.2dB"
+                      : k === "Range"
+                        ? "0.14–0.91"
+                        : "±0.02"}
                   </div>
                 </div>
               ))}
@@ -230,7 +245,7 @@ function TelemetryTypewriter() {
       "Stabilizing Cortisol Peaks…",
       "Aligning Training Load…",
     ],
-    []
+    [],
   );
 
   const [msgIndex, setMsgIndex] = useState(0);
@@ -282,8 +297,10 @@ function TelemetryTypewriter() {
       </div>
 
       <div className="mt-5 rounded-2xl bg-nura-charcoal px-4 py-4">
-        <div className="font-mono text-xs text-nura-cream/80">$ nura.telemetry</div>
-        <div className="mt-2 font-mono text-sm text-nura-cream">
+        <div className="font-mono text-xs text-nura-cream/80">
+          $ nura.telemetry
+        </div>
+        <div className="mt-2 font-mono  text-nura-cream">
           {messages[msgIndex]?.slice(0, cursor)}
           <span className="ml-0.5 inline-block w-2 animate-pulse text-nura-clay">
             ▍
@@ -319,7 +336,9 @@ function CursorProtocolScheduler() {
     if (!rootRef.current || !cursorRef.current) return;
 
     const days = Array.from(rootRef.current.querySelectorAll("[data-day]"));
-    const save = rootRef.current.querySelector("[data-save]") as HTMLElement | null;
+    const save = rootRef.current.querySelector(
+      "[data-save]",
+    ) as HTMLElement | null;
     if (days.length === 0 || !save) return;
 
     const ctx = gsap.context(() => {
@@ -332,10 +351,22 @@ function CursorProtocolScheduler() {
         const x = r.left - parent.left + r.width * 0.75;
         const y = r.top - parent.top + r.height * 0.9;
 
-        tl.to(cursorRef.current, { opacity: 1, duration: 0.2 }, idx === 0 ? 0 : undefined);
+        tl.to(
+          cursorRef.current,
+          { opacity: 1, duration: 0.2 },
+          idx === 0 ? 0 : undefined,
+        );
         tl.to(cursorRef.current, { x, y, duration: 0.7, ease: "power2.out" });
-        tl.to(cursorRef.current, { scale: 0.92, duration: 0.09, ease: "power2.out" });
-        tl.to(cursorRef.current, { scale: 1, duration: 0.16, ease: "power2.out" });
+        tl.to(cursorRef.current, {
+          scale: 0.92,
+          duration: 0.09,
+          ease: "power2.out",
+        });
+        tl.to(cursorRef.current, {
+          scale: 1,
+          duration: 0.16,
+          ease: "power2.out",
+        });
         tl.call(() => setActiveDay(idx));
       });
 
@@ -383,10 +414,10 @@ function CursorProtocolScheduler() {
               key={`${d}-${idx}`}
               data-day
               className={cx(
-                "grid aspect-square place-items-center rounded-2xl border text-sm font-bold transition-colors",
+                "grid aspect-square place-items-center rounded-2xl border  font-bold transition-colors",
                 idx === activeDay
                   ? "border-nura-moss bg-nura-moss text-nura-cream"
-                  : "border-black/10 bg-white text-nura-charcoal"
+                  : "border-black/10 bg-white text-nura-charcoal",
               )}
             >
               {d}
@@ -445,19 +476,22 @@ function HelixArtifact() {
   }, []);
 
   return (
-    <svg
-      ref={ref}
-      viewBox="0 0 200 200"
-      className="h-48 w-48"
-      aria-hidden
-    >
+    <svg ref={ref} viewBox="0 0 200 200" className="h-48 w-48" aria-hidden>
       <defs>
         <linearGradient id="hg" x1="0" x2="1" y1="0" y2="1">
           <stop offset="0" stopColor="#CC5833" stopOpacity="0.8" />
           <stop offset="1" stopColor="#2E4036" stopOpacity="0.8" />
         </linearGradient>
       </defs>
-      <circle cx="100" cy="100" r="64" fill="none" stroke="url(#hg)" strokeWidth="10" className="helix-gear" />
+      <circle
+        cx="100"
+        cy="100"
+        r="64"
+        fill="none"
+        stroke="url(#hg)"
+        strokeWidth="10"
+        className="helix-gear"
+      />
       <path
         d="M75 45c40 30 10 40 50 70s10 40 50 70"
         fill="none"
@@ -496,7 +530,10 @@ function LaserGridArtifact() {
   }, []);
 
   return (
-    <div ref={ref} className="relative h-56 w-full overflow-hidden rounded-3xl border border-white/10 bg-black/30">
+    <div
+      ref={ref}
+      className="relative h-56 w-full overflow-hidden rounded-3xl border border-white/10 bg-black/30"
+    >
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(204,88,51,0.35),transparent_60%),radial-gradient(circle_at_70%_70%,rgba(46,64,54,0.4),transparent_55%)]" />
       <div className="absolute inset-0 opacity-40 [background-image:linear-gradient(rgba(242,240,233,0.12)_1px,transparent_1px),linear-gradient(90deg,rgba(242,240,233,0.12)_1px,transparent_1px)] [background-size:20px_20px]" />
       <div className="laser absolute left-[-40%] top-0 h-full w-1/3 bg-gradient-to-r from-transparent via-nura-clay/70 to-transparent blur-sm" />
@@ -521,7 +558,12 @@ function EkgArtifact() {
       if (!path) return;
       const len = (path as SVGPathElement).getTotalLength();
       gsap.set(path, { strokeDasharray: len, strokeDashoffset: len });
-      gsap.to(path, { strokeDashoffset: 0, duration: 2.2, ease: "power2.inOut", repeat: -1 });
+      gsap.to(path, {
+        strokeDashoffset: 0,
+        duration: 2.2,
+        ease: "power2.inOut",
+        repeat: -1,
+      });
     }, ref);
 
     return () => ctx.revert();
@@ -561,7 +603,11 @@ function ProtocolStack() {
           scrub: true,
           animation: gsap
             .timeline()
-            .to(prev, { scale: 0.9, filter: "blur(20px)", opacity: 0.5, ease: "none" }, 0),
+            .to(
+              prev,
+              { scale: 0.9, filter: "blur(20px)", opacity: 0.5, ease: "none" },
+              0,
+            ),
         });
       });
     }, wrapRef);
@@ -620,7 +666,7 @@ function ProtocolStack() {
                       <div className="text-[10px] font-semibold tracking-[0.2em] text-white/50">
                         LATENCY
                       </div>
-                      <div className="mt-1 font-mono text-sm font-semibold text-white">
+                      <div className="mt-1 font-mono  font-semibold text-white">
                         18ms
                       </div>
                     </div>
@@ -628,7 +674,7 @@ function ProtocolStack() {
                       <div className="text-[10px] font-semibold tracking-[0.2em] text-white/50">
                         SIGNAL
                       </div>
-                      <div className="mt-1 font-mono text-sm font-semibold text-white">
+                      <div className="mt-1 font-mono  font-semibold text-white">
                         0.92
                       </div>
                     </div>
@@ -636,9 +682,7 @@ function ProtocolStack() {
                 </div>
 
                 <div className="w-full max-w-md">
-                  <div className="rounded-3xl bg-white/5 p-6">
-                    {c.media}
-                  </div>
+                  <div className="rounded-3xl bg-white/5 p-6">{c.media}</div>
                 </div>
               </div>
             </div>
@@ -703,7 +747,10 @@ export default function NuraLandingPage() {
   };
 
   return (
-    <div ref={rootRef} className="min-h-screen bg-nura-cream text-nura-charcoal">
+    <div
+      ref={rootRef}
+      className="min-h-screen bg-nura-cream text-nura-charcoal"
+    >
       <div className="nura-noise" />
       <FloatingNavbar scrolled={scrolled} onNav={scrollTo} />
 
@@ -733,22 +780,28 @@ export default function NuraLandingPage() {
                 Algorithm.
               </div>
               <div className="hero-line mt-6 text-base leading-relaxed text-white/70 sm:text-lg">
-                Nura Health is a high-fidelity protocol engine: part biological research lab,
-                part luxury instrument. We translate your signals into a weighted regimen you
-                can execute.
+                Nura Health is a high-fidelity protocol engine: part biological
+                research lab, part luxury instrument. We translate your signals
+                into a weighted regimen you can execute.
               </div>
             </div>
 
             <div className="hero-line mt-10 flex flex-wrap items-center gap-3">
-              <SlidingButton variant="clay" onClick={() => setLocation("/auth?mode=signup")}>
+              <SlidingButton
+                variant="clay"
+                onClick={() => setLocation("/auth?mode=signup")}
+              >
                 Start Membership <ArrowRight className="h-4 w-4" />
               </SlidingButton>
-              <SlidingButton variant="ghost" onClick={() => scrollTo("features")}>
+              <SlidingButton
+                variant="ghost"
+                onClick={() => scrollTo("features")}
+              >
                 Explore Artifacts <ChevronRight className="h-4 w-4" />
               </SlidingButton>
               <button
                 onClick={() => setLocation("/auth")}
-                className="nura-magnetic rounded-full border border-white/20 bg-transparent px-5 py-3 text-sm font-semibold tracking-tight text-white/80 hover:bg-white/10"
+                className="nura-magnetic rounded-full border border-white/20 bg-transparent px-5 py-3  font-semibold tracking-tight text-white/80 hover:bg-white/10"
               >
                 Sign In
               </button>
@@ -768,8 +821,8 @@ export default function NuraLandingPage() {
                 Functional artifacts.
               </div>
               <div className="mt-4 text-base leading-relaxed text-black/60">
-                These are not marketing cards. They behave like software: cycling stacks,
-                live feeds, and protocol scheduling.
+                These are not marketing cards. They behave like software:
+                cycling stacks, live feeds, and protocol scheduling.
               </div>
             </div>
 
@@ -840,8 +893,8 @@ export default function NuraLandingPage() {
             </div>
 
             <div className="mt-12 max-w-2xl text-base leading-relaxed text-white/70">
-              Our work lives in the margin between laboratory rigor and human execution.
-              Not diagnosis — design. Not fear — cadence.
+              Our work lives in the margin between laboratory rigor and human
+              execution. Not diagnosis — design. Not fear — cadence.
             </div>
           </div>
         </div>
@@ -857,8 +910,8 @@ export default function NuraLandingPage() {
               The protocol is a scroll instrument.
             </div>
             <div className="mt-4 text-base leading-relaxed text-white/70">
-              Each layer weights the one beneath it — scale, blur, and opacity behave like
-              depth-of-field.
+              Each layer weights the one beneath it — scale, blur, and opacity
+              behave like depth-of-field.
             </div>
           </div>
         </div>
@@ -909,34 +962,73 @@ export default function NuraLandingPage() {
                   "rounded-[3rem] border p-8 shadow-[0_30px_90px_rgba(0,0,0,0.08)]",
                   p.featured
                     ? "border-nura-moss bg-nura-moss text-nura-cream"
-                    : "border-black/10 bg-white"
+                    : "border-black/10 bg-white",
                 )}
               >
                 <div className="flex items-start justify-between">
                   <div>
-                    <div className={cx("text-xs font-extrabold tracking-[0.24em]", p.featured ? "text-white/70" : "text-black/40")}>
+                    <div
+                      className={cx(
+                        "text-xs font-extrabold tracking-[0.24em]",
+                        p.featured ? "text-white/70" : "text-black/40",
+                      )}
+                    >
                       {p.name.toUpperCase()}
                     </div>
                     <div className="mt-3 text-4xl font-extrabold tracking-tight">
                       {p.price}
                     </div>
-                    <div className={cx("mt-3 text-sm leading-relaxed", p.featured ? "text-white/80" : "text-black/60")}>
+                    <div
+                      className={cx(
+                        "mt-3  leading-relaxed",
+                        p.featured ? "text-white/80" : "text-black/60",
+                      )}
+                    >
                       {p.desc}
                     </div>
                   </div>
 
-                  <div className={cx("grid h-10 w-10 place-items-center rounded-2xl", p.featured ? "bg-white/10" : "bg-nura-moss/10")}>
-                    <Sparkles className={cx("h-5 w-5", p.featured ? "text-white" : "text-nura-moss")} />
+                  <div
+                    className={cx(
+                      "grid h-10 w-10 place-items-center rounded-2xl",
+                      p.featured ? "bg-white/10" : "bg-nura-moss/10",
+                    )}
+                  >
+                    <Sparkles
+                      className={cx(
+                        "h-5 w-5",
+                        p.featured ? "text-white" : "text-nura-moss",
+                      )}
+                    />
                   </div>
                 </div>
 
                 <div className="mt-8 space-y-3">
-                  {["Protocol library", "Weekly calibration", "Telemetry dashboard"].map((f) => (
+                  {[
+                    "Protocol library",
+                    "Weekly calibration",
+                    "Telemetry dashboard",
+                  ].map((f) => (
                     <div key={f} className="flex items-center gap-3">
-                      <div className={cx("grid h-7 w-7 place-items-center rounded-full", p.featured ? "bg-white/10" : "bg-black/[0.04]")}>
-                        <Check className={cx("h-4 w-4", p.featured ? "text-white" : "text-nura-moss")} />
+                      <div
+                        className={cx(
+                          "grid h-7 w-7 place-items-center rounded-full",
+                          p.featured ? "bg-white/10" : "bg-black/[0.04]",
+                        )}
+                      >
+                        <Check
+                          className={cx(
+                            "h-4 w-4",
+                            p.featured ? "text-white" : "text-nura-moss",
+                          )}
+                        />
                       </div>
-                      <div className={cx("text-sm font-semibold", p.featured ? "text-white/85" : "text-black/70")}>
+                      <div
+                        className={cx(
+                          " font-semibold",
+                          p.featured ? "text-white/85" : "text-black/70",
+                        )}
+                      >
                         {f}
                       </div>
                     </div>
@@ -947,14 +1039,14 @@ export default function NuraLandingPage() {
                   {p.featured ? (
                     <button
                       onClick={() => setLocation("/auth?mode=signup")}
-                      className="nura-magnetic w-full rounded-full bg-nura-clay px-5 py-3 text-sm font-extrabold tracking-tight text-nura-cream"
+                      className="nura-magnetic w-full rounded-full bg-nura-clay px-5 py-3  font-extrabold tracking-tight text-nura-cream"
                     >
                       Activate Performance
                     </button>
                   ) : (
                     <button
                       onClick={() => setLocation("/auth?mode=signup")}
-                      className="nura-magnetic w-full rounded-full bg-nura-moss px-5 py-3 text-sm font-extrabold tracking-tight text-nura-cream"
+                      className="nura-magnetic w-full rounded-full bg-nura-moss px-5 py-3  font-extrabold tracking-tight text-nura-cream"
                     >
                       Start
                     </button>
@@ -970,10 +1062,12 @@ export default function NuraLandingPage() {
         <div className="mx-auto w-[min(1200px,94vw)]">
           <div className="flex flex-col justify-between gap-12 md:flex-row">
             <div className="max-w-md">
-              <div className="text-lg font-extrabold tracking-tight">Nura Health</div>
-              <div className="mt-4 text-sm leading-relaxed text-white/70">
-                A digital instrument for biological optimization — designed with laboratory
-                rigor and luxury restraint.
+              <div className="text-lg font-extrabold tracking-tight">
+                Nura Health
+              </div>
+              <div className="mt-4  leading-relaxed text-white/70">
+                A digital instrument for biological optimization — designed with
+                laboratory rigor and luxury restraint.
               </div>
             </div>
 
@@ -1001,7 +1095,7 @@ export default function NuraLandingPage() {
                       <a
                         key={l}
                         href="#"
-                        className="block text-sm font-semibold text-white/70 transition-colors hover:text-white"
+                        className="block  font-semibold text-white/70 transition-colors hover:text-white"
                       >
                         {l}
                       </a>
@@ -1013,7 +1107,7 @@ export default function NuraLandingPage() {
           </div>
 
           <div className="mt-14 flex flex-col items-start justify-between gap-6 border-t border-white/10 pt-8 md:flex-row md:items-center">
-            <div className="text-sm font-semibold text-white/60">
+            <div className=" font-semibold text-white/60">
               © {new Date().getFullYear()} Nura Health. All rights reserved.
             </div>
 

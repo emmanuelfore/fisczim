@@ -2,23 +2,30 @@ import { useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { 
-  Server, 
-  RefreshCw, 
-  Activity, 
-  Wifi, 
-  WifiOff, 
-  Loader2, 
-  Zap, 
-  ShieldCheck, 
+import {
+  Server,
+  RefreshCw,
+  Activity,
+  Wifi,
+  WifiOff,
+  Loader2,
+  Zap,
+  ShieldCheck,
   AlertTriangle,
   CheckCircle2,
-  FileText
+  FileText,
+  Download,
 } from "lucide-react";
 import {
   Dialog,
@@ -50,9 +57,13 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { selectedBranch } = useBranchContext();
-  const activeDeviceId = cleanDeviceId(selectedBranch?.fdmsDeviceId) || cleanDeviceId(company.fdmsDeviceId);
-  const activeActivationKey = selectedBranch?.fdmsApiKey || company.fdmsApiKey || "";
-  const activeSerialNo = selectedBranch?.fdmsDeviceSerialNo || company.fdmsDeviceSerialNo || "";
+  const activeDeviceId =
+    cleanDeviceId(selectedBranch?.fdmsDeviceId) ||
+    cleanDeviceId(company.fdmsDeviceId);
+  const activeActivationKey =
+    selectedBranch?.fdmsApiKey || company.fdmsApiKey || "";
+  const activeSerialNo =
+    selectedBranch?.fdmsDeviceSerialNo || company.fdmsDeviceSerialNo || "";
   const [deviceId, setDeviceId] = useState(activeDeviceId);
   const [activationKey, setActivationKey] = useState(activeActivationKey);
   const [deviceSerialNo, setDeviceSerialNo] = useState(activeSerialNo);
@@ -61,7 +72,9 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
   const [showConnectivityDialog, setShowConnectivityDialog] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
 
-  const isRegistered = !!activeDeviceId && !!(selectedBranch?.zimraCertificate || company.zimraCertificate);
+  const isRegistered =
+    !!activeDeviceId &&
+    !!(selectedBranch?.zimraCertificate || company.zimraCertificate);
 
   useEffect(() => {
     if (!isEditing) {
@@ -74,64 +87,98 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
   // Verify Taxpayer
   const verifyTaxpayerMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiFetch(`/api/companies/${company.id}/zimra/verify-taxpayer`, {
-        method: "POST",
-        body: JSON.stringify({ deviceId, activationKey, deviceSerialNo })
-      });
+      const res = await apiFetch(
+        `/api/companies/${company.id}/zimra/verify-taxpayer`,
+        {
+          method: "POST",
+          body: JSON.stringify({ deviceId, activationKey, deviceSerialNo }),
+        },
+      );
       if (!res.ok) throw await res.json();
       return await res.json();
     },
     onSuccess: (data) => {
       setVerificationResult(data);
-      toast({ title: "Taxpayer Verified", description: `Name: ${data.taxPayerName}, TIN: ${data.taxPayerTIN}` });
+      toast({
+        title: "Taxpayer Verified",
+        description: `Name: ${data.taxPayerName}, TIN: ${data.taxPayerTIN}`,
+      });
     },
     onError: (err: any) => {
       const zimraErr = getZimraErrorMessage(err.zimraErrorCode);
-      toast({ title: zimraErr.title, description: err.message || zimraErr.message, variant: "destructive" });
-    }
+      toast({
+        title: zimraErr.title,
+        description: err.message || zimraErr.message,
+        variant: "destructive",
+      });
+    },
   });
 
   const registerDeviceMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiFetch(`/api/companies/${company.id}/zimra/register`, {
-        method: "POST",
-        body: JSON.stringify({ deviceId, activationKey, deviceSerialNo })
-      });
+      const res = await apiFetch(
+        `/api/companies/${company.id}/zimra/register`,
+        {
+          method: "POST",
+          body: JSON.stringify({ deviceId, activationKey, deviceSerialNo }),
+        },
+      );
       if (!res.ok) throw await res.json();
       return await res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
       setIsEditing(false);
-      toast({ title: "Device Registered Successfully!", className: "bg-green-100 text-green-900" });
+      toast({
+        title: "Device Registered Successfully!",
+        className: "bg-green-100 text-green-900",
+      });
     },
     onError: (err: any) => {
       const zimraErr = getZimraErrorMessage(err.zimraErrorCode);
-      toast({ title: zimraErr.title, description: err.message || zimraErr.message, variant: "destructive" });
-    }
+      toast({
+        title: zimraErr.title,
+        description: err.message || zimraErr.message,
+        variant: "destructive",
+      });
+    },
   });
 
   const syncConfigMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiFetch(`/api/companies/${company.id}/zimra/config/sync`, { method: "POST" });
+      const res = await apiFetch(
+        `/api/companies/${company.id}/zimra/config/sync`,
+        { method: "POST" },
+      );
       if (!res.ok) throw await res.json();
       return await res.json();
     },
     onSuccess: (data) => {
-      toast({ title: "Configuration Synced", description: `Updated ${data.taxLevels.length} tax levels.`, className: "bg-green-100 text-green-900" });
+      toast({
+        title: "Configuration Synced",
+        description: `Updated ${data.taxLevels.length} tax levels.`,
+        className: "bg-green-100 text-green-900",
+      });
     },
     onError: (err: any) => {
       const zimraErr = getZimraErrorMessage(err.zimraErrorCode);
-      toast({ title: zimraErr.title, description: err.message || zimraErr.message, variant: "destructive" });
-    }
+      toast({
+        title: zimraErr.title,
+        description: err.message || zimraErr.message,
+        variant: "destructive",
+      });
+    },
   });
 
   const switchEnvironmentMutation = useMutation({
     mutationFn: async (env: string) => {
-      const res = await apiFetch(`/api/companies/${company.id}/zimra/environment`, {
-        method: "POST",
-        body: JSON.stringify({ environment: env })
-      });
+      const res = await apiFetch(
+        `/api/companies/${company.id}/zimra/environment`,
+        {
+          method: "POST",
+          body: JSON.stringify({ environment: env }),
+        },
+      );
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.message || "Failed to switch environment");
@@ -144,58 +191,124 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
       toast({
         title: "Environment Switched",
         description: `Now using ZIMRA ${env.toUpperCase()} endpoint.`,
-        className: env === 'production' ? 'bg-red-600 text-white' : 'bg-blue-600 text-white'
+        className:
+          env === "production"
+            ? "bg-red-600 text-white"
+            : "bg-blue-600 text-white",
       });
     },
     onError: (err: Error) => {
-      toast({ title: "Switch Failed", description: err.message, variant: "destructive" });
-    }
+      toast({
+        title: "Switch Failed",
+        description: err.message,
+        variant: "destructive",
+      });
+    },
   });
 
   const testConnectivityMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiFetch(`/api/companies/${company.id}/zimra/connectivity-test`, { method: "POST" });
+      const res = await apiFetch(
+        `/api/companies/${company.id}/zimra/connectivity-test`,
+        { method: "POST" },
+      );
       if (!res.ok) throw new Error("Connectivity test failed to execute");
       return await res.json();
     },
     onSuccess: (data) => {
       setConnectivityResult(data);
       if (data.overallStatus === "Online") {
-        toast({ title: "Device Online", description: "Connection to ZIMRA is healthy.", className: "bg-green-100 text-green-900" });
+        toast({
+          title: "Device Online",
+          description: "Connection to ZIMRA is healthy.",
+          className: "bg-green-100 text-green-900",
+        });
       } else {
-        toast({ title: "Connection Issues", description: "Status: " + data.overallStatus, variant: "destructive" });
+        toast({
+          title: "Connection Issues",
+          description: "Status: " + data.overallStatus,
+          variant: "destructive",
+        });
       }
       queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
     },
     onError: (err: Error) => {
-      toast({ title: "Test Failed", description: err.message, variant: "destructive" });
-    }
+      toast({
+        title: "Test Failed",
+        description: err.message,
+        variant: "destructive",
+      });
+    },
   });
 
   const createSampleDocumentsMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiFetch(`/api/companies/${company.id}/zimra/sample-documents`, { method: "POST" });
+      const res = await apiFetch(
+        `/api/companies/${company.id}/zimra/sample-documents`,
+        { method: "POST" },
+      );
       if (!res.ok) throw await res.json();
       return await res.json();
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({
-        predicate: (query) => String(query.queryKey[0]).includes("/invoices")
+        predicate: (query) => String(query.queryKey[0]).includes("/invoices"),
       });
       queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
       toast({
         title: "Sample Documents Created",
-        description: data.message || "ZIMRA approval samples are ready in invoices.",
-        className: "bg-green-100 text-green-900"
+        description:
+          data.message || "ZIMRA approval samples are ready in invoices.",
+        className: "bg-green-100 text-green-900",
       });
     },
     onError: (err: any) => {
       toast({
         title: "Sample Creation Failed",
-        description: err.message || "Could not create ZIMRA approval sample documents.",
-        variant: "destructive"
+        description:
+          err.message || "Could not create ZIMRA approval sample documents.",
+        variant: "destructive",
       });
-    }
+    },
+  });
+
+  const downloadSampleScriptMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiFetch(
+        `/api/companies/${company.id}/zimra/sample-script`,
+      );
+      if (!res.ok) throw await res.json();
+      const blob = await res.blob();
+      const disposition = res.headers.get("Content-Disposition") || "";
+      const match = disposition.match(/filename="?([^"]+)"?/i);
+      return {
+        blob,
+        filename: match?.[1] || "zimra_test_scripts.xlsx",
+      };
+    },
+    onSuccess: ({ blob, filename }) => {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      toast({
+        title: "Script Download Ready",
+        description: "The ZIMRA workbook includes embedded sample PDFs.",
+        className: "bg-green-100 text-green-900",
+      });
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Script Download Failed",
+        description:
+          err.message || "Could not create the ZIMRA script workbook.",
+        variant: "destructive",
+      });
+    },
   });
 
   useEffect(() => {
@@ -209,46 +322,70 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
     queryFn: async () => {
       const res = await apiFetch(`/api/companies/${company.id}/subscriptions`);
       return res.json();
-    }
+    },
   });
 
-  const isOnline = testConnectivityMutation.data?.overallStatus === 'Online';
+  const isOnline = testConnectivityMutation.data?.overallStatus === "Online";
   const isPinging = testConnectivityMutation.isPending;
-  const hasActiveSub = subscriptions.some((s: any) => 
-    s.status === "paid" && new Date(s.endDate) > new Date()
-  ) || company.subscriptionStatus === 'active';
+  const hasActiveSub =
+    subscriptions.some(
+      (s: any) => s.status === "paid" && new Date(s.endDate) > new Date(),
+    ) || company.subscriptionStatus === "active";
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex justify-between items-center">
         <div>
-          <h2 className="text-xl font-bold text-slate-900">ZIMRA Fiscal Device</h2>
-          <p className="text-sm text-muted-foreground">Manage your connection to the ZIMRA fiscal gateway</p>
+          <h2 className="text-xl font-bold text-slate-900">
+            ZIMRA Fiscal Device
+          </h2>
+          <p className=" text-muted-foreground">
+            Manage your connection to the ZIMRA fiscal gateway
+          </p>
         </div>
         <div className="bg-slate-100 p-1 rounded-xl flex items-center shadow-inner border border-slate-200/50">
           <Button
-            variant={company.zimraEnvironment === 'test' ? 'default' : 'ghost'}
+            variant={company.zimraEnvironment === "test" ? "default" : "ghost"}
             size="sm"
             className="rounded-lg px-4 h-8 text-xs font-bold"
-            onClick={() => switchEnvironmentMutation.mutate('test')}
-            disabled={switchEnvironmentMutation.isPending || company.zimraEnvironment === 'test'}
+            onClick={() => switchEnvironmentMutation.mutate("test")}
+            disabled={
+              switchEnvironmentMutation.isPending ||
+              company.zimraEnvironment === "test"
+            }
           >
             TEST
           </Button>
           <Button
-            variant={company.zimraEnvironment === 'production' ? 'destructive' : 'ghost'}
+            variant={
+              company.zimraEnvironment === "production"
+                ? "destructive"
+                : "ghost"
+            }
             size="sm"
-            className={`rounded-lg px-4 h-8 text-xs font-bold ${company.zimraEnvironment === 'production' ? 'bg-red-600 hover:bg-red-700 active:scale-95' : ''}`}
+            className={`rounded-lg px-4 h-8 text-xs font-bold ${company.zimraEnvironment === "production" ? "bg-red-600 hover:bg-red-700 active:scale-95" : ""}`}
             onClick={() => {
               if (!hasActiveSub) {
-                toast({ title: "Subscription Required", description: "An active subscription is required for Production mode.", variant: "destructive" });
+                toast({
+                  title: "Subscription Required",
+                  description:
+                    "An active subscription is required for Production mode.",
+                  variant: "destructive",
+                });
                 return;
               }
-              if (confirm("⚠️ CAUTION: Real fiscal data will be submitted in PRODUCTION. Proceed?")) {
-                switchEnvironmentMutation.mutate('production');
+              if (
+                confirm(
+                  "⚠️ CAUTION: Real fiscal data will be submitted in PRODUCTION. Proceed?",
+                )
+              ) {
+                switchEnvironmentMutation.mutate("production");
               }
             }}
-            disabled={switchEnvironmentMutation.isPending || company.zimraEnvironment === 'production'}
+            disabled={
+              switchEnvironmentMutation.isPending ||
+              company.zimraEnvironment === "production"
+            }
           >
             PRODUCTION
           </Button>
@@ -257,30 +394,48 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
 
       <div className="flex items-center justify-between p-4 bg-slate-50 border border-slate-100 rounded-2xl shadow-sm">
         <div className="flex items-center gap-3">
-          <div className={`p-2.5 rounded-xl ${company.subscriptionStatus === 'active' ? 'bg-green-100' : 'bg-slate-100'}`}>
-            <Zap className={`w-5 h-5 ${company.subscriptionStatus === 'active' ? 'text-green-600' : 'text-slate-400'}`} />
+          <div
+            className={`p-2.5 rounded-xl ${company.subscriptionStatus === "active" ? "bg-green-100" : "bg-slate-100"}`}
+          >
+            <Zap
+              className={`w-5 h-5 ${company.subscriptionStatus === "active" ? "text-green-600" : "text-slate-400"}`}
+            />
           </div>
           <div>
-            <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Device License</p>
+            <p className="text-xs font-black text-slate-400 uppercase tracking-widest">
+              Device License
+            </p>
             <div className="flex items-center gap-2 mt-0.5">
-              {company.subscriptionStatus === 'active' ? (
-                <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 font-bold px-2 py-0 h-5">
+              {company.subscriptionStatus === "active" ? (
+                <Badge
+                  variant="outline"
+                  className="bg-green-50 text-green-700 border-green-200 font-bold px-2 py-0 h-5"
+                >
                   <ShieldCheck className="w-3 h-3 mr-1" /> ACTIVE
                 </Badge>
               ) : (
-                <Badge variant="outline" className="bg-slate-100 text-slate-500 border-slate-200 font-bold px-2 py-0 h-5">
+                <Badge
+                  variant="outline"
+                  className="bg-slate-100 text-slate-500 border-slate-200 font-bold px-2 py-0 h-5"
+                >
                   INACTIVE
                 </Badge>
               )}
               {company.subscriptionEndDate && (
                 <span className="text-[10px] text-slate-400 font-bold uppercase">
-                  Ends: {new Date(company.subscriptionEndDate).toLocaleDateString()}
+                  Ends:{" "}
+                  {new Date(company.subscriptionEndDate).toLocaleDateString()}
                 </span>
               )}
             </div>
           </div>
         </div>
-        <Button variant="outline" size="sm" className="h-9 px-4 rounded-xl font-bold text-xs" onClick={() => window.location.href = "/subscription"}>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-9 px-4 rounded-xl font-bold text-xs"
+          onClick={() => (window.location.href = "/subscription")}
+        >
           Upgrade License
         </Button>
       </div>
@@ -291,19 +446,25 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
             <Server className="w-5 h-5 mr-2 text-indigo-600" />
             Registration Details
           </CardTitle>
-          <CardDescription>Device ID and Keys provided by ZIMRA</CardDescription>
+          <CardDescription>
+            Device ID and Keys provided by ZIMRA
+          </CardDescription>
         </CardHeader>
         <CardContent className="pt-6 space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
-              <Label className="text-slate-700 font-bold text-xs uppercase tracking-wider">Device ID</Label>
+              <Label className="text-slate-700 font-bold text-xs uppercase tracking-wider">
+                Device ID
+              </Label>
               <Input
                 value={deviceId}
                 name="zimra-device-id"
                 autoComplete="off"
                 onChange={(e) => setDeviceId(cleanDeviceId(e.target.value))}
                 onInput={(e) => {
-                  const value = cleanDeviceId((e.currentTarget as HTMLInputElement).value);
+                  const value = cleanDeviceId(
+                    (e.currentTarget as HTMLInputElement).value,
+                  );
                   if (value !== (e.currentTarget as HTMLInputElement).value) {
                     (e.currentTarget as HTMLInputElement).value = value;
                     setDeviceId(value);
@@ -315,7 +476,9 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
               />
             </div>
             <div className="space-y-2">
-              <Label className="text-slate-700 font-bold text-xs uppercase tracking-wider">Activation Key</Label>
+              <Label className="text-slate-700 font-bold text-xs uppercase tracking-wider">
+                Activation Key
+              </Label>
               <Input
                 value={activationKey}
                 name="zimra-activation-key"
@@ -328,7 +491,9 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
               />
             </div>
             <div className="space-y-2 md:col-span-2">
-              <Label className="text-slate-700 font-bold text-xs uppercase tracking-wider">Device Serial Number (SN)</Label>
+              <Label className="text-slate-700 font-bold text-xs uppercase tracking-wider">
+                Device Serial Number (SN)
+              </Label>
               <Input
                 value={deviceSerialNo}
                 name="zimra-device-serial-number"
@@ -345,44 +510,100 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
               <Button
                 variant="outline"
                 onClick={() => verifyTaxpayerMutation.mutate()}
-                disabled={verifyTaxpayerMutation.isPending || !deviceId || !activationKey || !deviceSerialNo}
+                disabled={
+                  verifyTaxpayerMutation.isPending ||
+                  !deviceId ||
+                  !activationKey ||
+                  !deviceSerialNo
+                }
                 className="flex-1 h-11 rounded-xl font-bold"
               >
-                {verifyTaxpayerMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : "1. Verify Taxpayer"}
+                {verifyTaxpayerMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                ) : (
+                  "1. Verify Taxpayer"
+                )}
               </Button>
               <Button
                 onClick={() => registerDeviceMutation.mutate()}
-                disabled={registerDeviceMutation.isPending || !deviceId || !activationKey}
+                disabled={
+                  registerDeviceMutation.isPending ||
+                  !deviceId ||
+                  !activationKey
+                }
                 className="flex-1 h-11 rounded-xl font-bold btn-gradient"
               >
-                {registerDeviceMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : (isRegistered ? "Refresh Keys" : "2. Register Device")}
+                {registerDeviceMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                ) : isRegistered ? (
+                  "Refresh Keys"
+                ) : (
+                  "2. Register Device"
+                )}
               </Button>
               {isEditing && (
-                <Button variant="ghost" onClick={() => setIsEditing(false)} className="h-11 rounded-xl">Cancel</Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => setIsEditing(false)}
+                  className="h-11 rounded-xl"
+                >
+                  Cancel
+                </Button>
               )}
             </div>
           ) : (
             <div className="p-4 rounded-2xl border border-slate-100 bg-slate-50/50 flex items-center justify-between group transition-all">
-               <div className="flex items-center gap-4">
-                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-inner ${isOnline ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
-                  {isPinging ? <RefreshCw className="w-6 h-6 animate-spin opacity-50" /> : (isOnline ? <Wifi className="w-6 h-6" /> : <WifiOff className="w-6 h-6" />)}
+              <div className="flex items-center gap-4">
+                <div
+                  className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-inner ${isOnline ? "bg-green-100 text-green-600" : "bg-red-100 text-red-600"}`}
+                >
+                  {isPinging ? (
+                    <RefreshCw className="w-6 h-6 animate-spin opacity-50" />
+                  ) : isOnline ? (
+                    <Wifi className="w-6 h-6" />
+                  ) : (
+                    <WifiOff className="w-6 h-6" />
+                  )}
                 </div>
                 <div>
                   <h4 className="font-bold text-slate-900 leading-none mb-1">
-                    {isPinging ? "Syncing..." : (isOnline ? "Device Online" : "Connection Failed")}
+                    {isPinging
+                      ? "Syncing..."
+                      : isOnline
+                        ? "Device Online"
+                        : "Connection Failed"}
                   </h4>
                   <div className="flex items-center gap-2 text-[11px] font-bold text-slate-500 uppercase tracking-tighter">
-                    <span>SN: <span className="text-blue-600 font-mono">{activeSerialNo || "Pending"}</span></span>
+                    <span>
+                      SN:{" "}
+                      <span className="text-blue-600 font-mono">
+                        {activeSerialNo || "Pending"}
+                      </span>
+                    </span>
                     <span className="opacity-30">|</span>
-                    <span className="text-indigo-600">{company.fiscalDayOpen ? `Day ${company.currentFiscalDayNo} Open` : 'Day Closed'}</span>
+                    <span className="text-indigo-600">
+                      {company.fiscalDayOpen
+                        ? `Day ${company.currentFiscalDayNo} Open`
+                        : "Day Closed"}
+                    </span>
                   </div>
                 </div>
               </div>
               <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => setShowConnectivityDialog(true)} className="h-9 px-3 rounded-xl gap-2 font-bold text-xs">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowConnectivityDialog(true)}
+                  className="h-9 px-3 rounded-xl gap-2 font-bold text-xs"
+                >
                   <Activity className="w-3.5 h-3.5" /> Diagnostics
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => setIsEditing(true)} className="h-9 px-3 rounded-xl font-bold text-xs">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsEditing(true)}
+                  className="h-9 px-3 rounded-xl font-bold text-xs"
+                >
                   Edit Config
                 </Button>
               </div>
@@ -393,25 +614,45 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
 
       {isRegistered && (
         <div className="space-y-6 pt-4 border-t border-slate-100">
-           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="space-y-3">
-              <h4 className="text-sm font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+              <h4 className=" font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
                 <RefreshCw className="w-4 h-4" /> Day Controls
               </h4>
               <DayManagementControls company={company} variant="light" />
             </div>
-            
+
             <div className="space-y-3">
-              <h4 className="text-sm font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+              <h4 className=" font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
                 <RefreshCw className="w-4 h-4" /> Maintenance
               </h4>
               <div className="grid grid-cols-2 gap-2">
-                 <Button variant="outline" size="sm" className="h-10 rounded-xl font-bold text-xs" onClick={() => syncConfigMutation.mutate()} disabled={syncConfigMutation.isPending}>
-                  {syncConfigMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-2" /> : <RefreshCw className="w-3.5 h-3.5 mr-2" />}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-10 rounded-xl font-bold text-xs"
+                  onClick={() => syncConfigMutation.mutate()}
+                  disabled={syncConfigMutation.isPending}
+                >
+                  {syncConfigMutation.isPending ? (
+                    <Loader2 className="w-3 h-3 animate-spin mr-2" />
+                  ) : (
+                    <RefreshCw className="w-3.5 h-3.5 mr-2" />
+                  )}
                   Sync Tax Config
                 </Button>
-                <Button variant="outline" size="sm" className="h-10 rounded-xl font-bold text-xs" onClick={() => testConnectivityMutation.mutate()} disabled={testConnectivityMutation.isPending}>
-                  {testConnectivityMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-2" /> : <Activity className="w-3.5 h-3.5 mr-2" />}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-10 rounded-xl font-bold text-xs"
+                  onClick={() => testConnectivityMutation.mutate()}
+                  disabled={testConnectivityMutation.isPending}
+                >
+                  {testConnectivityMutation.isPending ? (
+                    <Loader2 className="w-3 h-3 animate-spin mr-2" />
+                  ) : (
+                    <Activity className="w-3.5 h-3.5 mr-2" />
+                  )}
                   Test Hardware
                 </Button>
                 <Button
@@ -421,23 +662,48 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
                   onClick={() => createSampleDocumentsMutation.mutate()}
                   disabled={createSampleDocumentsMutation.isPending}
                 >
-                  {createSampleDocumentsMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-2" /> : <FileText className="w-3.5 h-3.5 mr-2" />}
+                  {createSampleDocumentsMutation.isPending ? (
+                    <Loader2 className="w-3 h-3 animate-spin mr-2" />
+                  ) : (
+                    <FileText className="w-3.5 h-3.5 mr-2" />
+                  )}
                   Create ZIMRA Samples
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-10 rounded-xl font-bold text-xs col-span-2"
+                  onClick={() => downloadSampleScriptMutation.mutate()}
+                  disabled={downloadSampleScriptMutation.isPending}
+                >
+                  {downloadSampleScriptMutation.isPending ? (
+                    <Loader2 className="w-3 h-3 animate-spin mr-2" />
+                  ) : (
+                    <Download className="w-3.5 h-3.5 mr-2" />
+                  )}
+                  Download ZIMRA Script
                 </Button>
               </div>
             </div>
           </div>
 
-          <Accordion type="single" collapsible className="w-full border border-slate-100 rounded-2xl overflow-hidden shadow-sm">
+          <Accordion
+            type="single"
+            collapsible
+            className="w-full border border-slate-100 rounded-2xl overflow-hidden shadow-sm"
+          >
             <AccordionItem value="danger" className="border-none">
               <AccordionTrigger className="px-6 py-4 hover:no-underline bg-slate-50/50 text-red-600 font-bold text-xs uppercase tracking-widest">
                 <div className="flex items-center gap-3">
-                  <AlertTriangle className="w-4 h-4" /> Advanced Hardware Reset (Danger Zone)
+                  <AlertTriangle className="w-4 h-4" /> Advanced Hardware Reset
+                  (Danger Zone)
                 </div>
               </AccordionTrigger>
               <AccordionContent className="p-6 bg-white space-y-4">
                 <p className="text-xs text-slate-500 italic mb-4">
-                  Manual counter overrides are for <strong>catastrophic recovery only</strong>. Incorrect values will stop your business from fiscalizing receipts.
+                  Manual counter overrides are for{" "}
+                  <strong>catastrophic recovery only</strong>. Incorrect values
+                  will stop your business from fiscalizing receipts.
                 </p>
                 <AdvancedResetControls company={company} />
               </AccordionContent>
@@ -456,27 +722,51 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
         </div>
       )}
 
-      <Dialog open={showConnectivityDialog} onOpenChange={setShowConnectivityDialog}>
+      <Dialog
+        open={showConnectivityDialog}
+        onOpenChange={setShowConnectivityDialog}
+      >
         <DialogContent className="sm:max-w-md rounded-[2rem]">
           <DialogHeader>
-            <DialogTitle className="text-xl font-black font-display">Connectivity Diagnostics</DialogTitle>
-            <DialogDescription className="font-medium">Physical device & Gateway link assessment</DialogDescription>
+            <DialogTitle className="text-xl font-black font-display">
+              Connectivity Diagnostics
+            </DialogTitle>
+            <DialogDescription className="font-medium">
+              Physical device & Gateway link assessment
+            </DialogDescription>
           </DialogHeader>
           {connectivityResult && (
             <div className="space-y-6 pt-4">
-              <div className={`p-4 rounded-2xl border flex items-center justify-between ${connectivityResult.overallStatus === 'Online' ? 'bg-green-50/50 border-green-100' : 'bg-red-50/50 border-red-100'}`}>
-                <span className="font-black text-xs uppercase tracking-widest text-slate-500">Gateway Status</span>
-                <Badge className={`px-4 py-1 rounded-full font-black ${connectivityResult.overallStatus === 'Online' ? 'bg-green-600' : 'bg-red-600'}`}>
+              <div
+                className={`p-4 rounded-2xl border flex items-center justify-between ${connectivityResult.overallStatus === "Online" ? "bg-green-50/50 border-green-100" : "bg-red-50/50 border-red-100"}`}
+              >
+                <span className="font-black text-xs uppercase tracking-widest text-slate-500">
+                  Gateway Status
+                </span>
+                <Badge
+                  className={`px-4 py-1 rounded-full font-black ${connectivityResult.overallStatus === "Online" ? "bg-green-600" : "bg-red-600"}`}
+                >
                   {connectivityResult.overallStatus.toUpperCase()}
                 </Badge>
               </div>
               <div className="space-y-3">
                 {connectivityResult.checks.map((check: any, i: number) => (
-                  <div key={i} className="flex items-start gap-4 p-3 rounded-xl hover:bg-slate-50 transition-colors border border-transparent hover:border-slate-100">
-                    {check.status === 'success' ? <CheckCircle2 className="w-5 h-5 text-green-500 -mt-0.5 shrink-0" /> : <AlertTriangle className="w-5 h-5 text-red-500 -mt-0.5 shrink-0" />}
+                  <div
+                    key={i}
+                    className="flex items-start gap-4 p-3 rounded-xl hover:bg-slate-50 transition-colors border border-transparent hover:border-slate-100"
+                  >
+                    {check.status === "success" ? (
+                      <CheckCircle2 className="w-5 h-5 text-green-500 -mt-0.5 shrink-0" />
+                    ) : (
+                      <AlertTriangle className="w-5 h-5 text-red-500 -mt-0.5 shrink-0" />
+                    )}
                     <div>
-                      <p className="font-bold text-sm text-slate-900 leading-tight">{check.name}</p>
-                      <p className="text-[11px] text-slate-500 mt-0.5 font-medium leading-relaxed">{check.message}</p>
+                      <p className="font-bold  text-slate-900 leading-tight">
+                        {check.name}
+                      </p>
+                      <p className="text-[11px] text-slate-500 mt-0.5 font-medium leading-relaxed">
+                        {check.message}
+                      </p>
                     </div>
                   </div>
                 ))}
@@ -495,48 +785,96 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
 function AdvancedResetControls({ company }: { company: any }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [globalNumber, setGlobalNumber] = useState(company.lastReceiptGlobalNo?.toString() || "");
-  const [dailyCounter, setDailyCounter] = useState(company.dailyReceiptCount?.toString() || "");
-  const [previousHash, setPreviousHash] = useState(company.lastFiscalHash || "");
+  const [globalNumber, setGlobalNumber] = useState(
+    company.lastReceiptGlobalNo?.toString() || "",
+  );
+  const [dailyCounter, setDailyCounter] = useState(
+    company.dailyReceiptCount?.toString() || "",
+  );
+  const [previousHash, setPreviousHash] = useState(
+    company.lastFiscalHash || "",
+  );
 
   const resetMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiFetch(`/api/companies/${company.id}/zimra/config/reset`, {
-        method: "POST",
-        body: JSON.stringify({
-          globalNumber: globalNumber ? Number(globalNumber) : undefined,
-          dailyCounter: dailyCounter ? Number(dailyCounter) : undefined,
-          previousHash: previousHash === "" ? "" : previousHash
-        })
-      });
+      const res = await apiFetch(
+        `/api/companies/${company.id}/zimra/config/reset`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            globalNumber: globalNumber ? Number(globalNumber) : undefined,
+            dailyCounter: dailyCounter ? Number(dailyCounter) : undefined,
+            previousHash: previousHash === "" ? "" : previousHash,
+          }),
+        },
+      );
       if (!res.ok) throw await res.json();
       return await res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
-      toast({ title: "Counters Fixed", description: "Hardware configuration has been manualy corrected.", className: "bg-orange-100 text-orange-900" });
+      toast({
+        title: "Counters Fixed",
+        description: "Hardware configuration has been manualy corrected.",
+        className: "bg-orange-100 text-orange-900",
+      });
     },
     onError: (err: any) => {
-      toast({ title: "Update Failed", description: err.message, variant: "destructive" });
-    }
+      toast({
+        title: "Update Failed",
+        description: err.message,
+        variant: "destructive",
+      });
+    },
   });
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
       <div className="space-y-2">
-        <Label className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Last Global Receipt #</Label>
-        <Input value={globalNumber} onChange={(e) => setGlobalNumber(e.target.value)} placeholder="0" className="h-10 text-xs font-mono bg-slate-50 border-slate-200" />
+        <Label className="text-[10px] font-black uppercase text-slate-500 tracking-widest">
+          Last Global Receipt #
+        </Label>
+        <Input
+          value={globalNumber}
+          onChange={(e) => setGlobalNumber(e.target.value)}
+          placeholder="0"
+          className="h-10 text-xs font-mono bg-slate-50 border-slate-200"
+        />
       </div>
       <div className="space-y-2">
-        <Label className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Last Daily Receipt #</Label>
-        <Input value={dailyCounter} onChange={(e) => setDailyCounter(e.target.value)} placeholder="0" className="h-10 text-xs font-mono bg-slate-50 border-slate-200" />
+        <Label className="text-[10px] font-black uppercase text-slate-500 tracking-widest">
+          Last Daily Receipt #
+        </Label>
+        <Input
+          value={dailyCounter}
+          onChange={(e) => setDailyCounter(e.target.value)}
+          placeholder="0"
+          className="h-10 text-xs font-mono bg-slate-50 border-slate-200"
+        />
       </div>
-      <Button variant="destructive" size="sm" className="h-10 rounded-xl font-bold text-xs shadow-lg shadow-red-200" onClick={() => confirm("⚠️ POTENTIAL COMPLIANCE RISK: Manual reset detected. Confirm?") && resetMutation.mutate()} disabled={resetMutation.isPending}>
+      <Button
+        variant="destructive"
+        size="sm"
+        className="h-10 rounded-xl font-bold text-xs shadow-lg shadow-red-200"
+        onClick={() =>
+          confirm(
+            "⚠️ POTENTIAL COMPLIANCE RISK: Manual reset detected. Confirm?",
+          ) && resetMutation.mutate()
+        }
+        disabled={resetMutation.isPending}
+      >
         {resetMutation.isPending ? "Applying..." : "Override Counters"}
       </Button>
       <div className="md:col-span-3 space-y-2">
-        <Label className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Chain Validation Hash (Fiscal Hash)</Label>
-        <Input value={previousHash} onChange={(e) => setPreviousHash(e.target.value)} placeholder="Leave empty to clear starting state" className="h-10 text-xs font-mono bg-slate-50 border-slate-200" />
+        <Label className="text-[10px] font-black uppercase text-slate-500 tracking-widest">
+          Chain Validation Hash (Fiscal Hash)
+        </Label>
+        <Input
+          value={previousHash}
+          onChange={(e) => setPreviousHash(e.target.value)}
+          placeholder="Leave empty to clear starting state"
+          className="h-10 text-xs font-mono bg-slate-50 border-slate-200"
+        />
       </div>
     </div>
   );
@@ -546,33 +884,71 @@ function RegistrationLogs({ company }: { company: any }) {
   const { data: logs = [], isLoading } = useQuery({
     queryKey: [`/api/companies/${company.id}/zimra/logs`],
     queryFn: async () => {
-      const res = await apiFetch(`/api/companies/${company.id}/zimra/logs?limit=50`);
+      const res = await apiFetch(
+        `/api/companies/${company.id}/zimra/logs?limit=50`,
+      );
       return res.json();
-    }
+    },
   });
 
-  const registrationLogs = logs.filter((l: any) => 
-    l.endpoint === 'Device Registration' || l.endpoint === 'Verify Taxpayer'
+  const registrationLogs = logs.filter(
+    (l: any) =>
+      l.endpoint === "Device Registration" || l.endpoint === "Verify Taxpayer",
   );
 
-  if (isLoading) return <div className="p-4 flex justify-center"><Loader2 className="w-6 h-6 animate-spin text-slate-300" /></div>;
+  if (isLoading)
+    return (
+      <div className="p-4 flex justify-center">
+        <Loader2 className="w-6 h-6 animate-spin text-slate-300" />
+      </div>
+    );
 
-  if (registrationLogs.length === 0) return <p className="text-xs text-slate-500 italic p-4 text-center border border-slate-100 rounded-xl bg-slate-50">No registration logs found recently.</p>;
+  if (registrationLogs.length === 0)
+    return (
+      <p className="text-xs text-slate-500 italic p-4 text-center border border-slate-100 rounded-xl bg-slate-50">
+        No registration logs found recently.
+      </p>
+    );
 
   return (
     <div className="space-y-3">
       {registrationLogs.map((log: any) => (
-        <div key={log.id} className="p-3 bg-slate-50 border border-slate-100 rounded-xl text-sm">
+        <div
+          key={log.id}
+          className="p-3 bg-slate-50 border border-slate-100 rounded-xl "
+        >
           <div className="flex justify-between items-start mb-2">
-            <Badge variant="outline" className={log.statusCode === 200 ? "bg-green-50 text-green-700 border-green-200" : "bg-red-50 text-red-700 border-red-200"}>
+            <Badge
+              variant="outline"
+              className={
+                log.statusCode === 200
+                  ? "bg-green-50 text-green-700 border-green-200"
+                  : "bg-red-50 text-red-700 border-red-200"
+              }
+            >
               {log.endpoint}
             </Badge>
-            <span className="text-[10px] text-slate-400 font-bold uppercase">{new Date(log.createdAt).toLocaleString()}</span>
+            <span className="text-[10px] text-slate-400 font-bold uppercase">
+              {new Date(log.createdAt).toLocaleString()}
+            </span>
           </div>
           <div className="text-xs font-mono bg-white p-2 rounded-lg border border-slate-100 overflow-x-auto text-slate-600">
-            <div><strong>Request:</strong> {log.requestPayload?.deviceSerialNo ? `Serial: "${log.requestPayload.deviceSerialNo}"` : JSON.stringify(log.requestPayload).substring(0, 50) + "..."}</div>
+            <div>
+              <strong>Request:</strong>{" "}
+              {log.requestPayload?.deviceSerialNo
+                ? `Serial: "${log.requestPayload.deviceSerialNo}"`
+                : JSON.stringify(log.requestPayload).substring(0, 50) + "..."}
+            </div>
             <div className="mt-1">
-              {log.statusCode === 200 ? <span className="text-green-600 font-bold">Status: SUCCESS</span> : <span className="text-red-600 font-bold">Error: {log.errorMessage || "Failed"}</span>}
+              {log.statusCode === 200 ? (
+                <span className="text-green-600 font-bold">
+                  Status: SUCCESS
+                </span>
+              ) : (
+                <span className="text-red-600 font-bold">
+                  Error: {log.errorMessage || "Failed"}
+                </span>
+              )}
             </div>
           </div>
         </div>

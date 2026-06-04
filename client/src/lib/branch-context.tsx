@@ -1,4 +1,10 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  ReactNode,
+} from "react";
 import { type Branch } from "@shared/schema";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useBranches } from "@/hooks/use-branches";
@@ -16,9 +22,13 @@ const BranchContext = createContext<BranchContextType | undefined>(undefined);
 
 export function BranchProvider({ children }: { children: ReactNode }) {
   const { activeCompany } = useActiveCompany();
-  const { data: branches = [], isLoading } = useBranches(activeCompany?.id || 0);
-  
-  const [selectedBranchId, setInternalSelectedBranchId] = useState<number | null>(() => {
+  const { data: branches = [], isLoading } = useBranches(
+    activeCompany?.id || 0,
+  );
+
+  const [selectedBranchId, setInternalSelectedBranchId] = useState<
+    number | null
+  >(() => {
     const saved = localStorage.getItem("selectedBranchId");
     return saved ? parseInt(saved) : null;
   });
@@ -34,7 +44,8 @@ export function BranchProvider({ children }: { children: ReactNode }) {
     queryClient.invalidateQueries();
   };
 
-  const selectedBranch = branches.find((b: Branch) => b.id === selectedBranchId) || null;
+  const selectedBranch =
+    branches.find((b: Branch) => b.id === selectedBranchId) || null;
 
   // Auto-select first branch if none selected and branches exist
   useEffect(() => {
@@ -45,13 +56,15 @@ export function BranchProvider({ children }: { children: ReactNode }) {
   }, [branches, selectedBranchId]);
 
   return (
-    <BranchContext.Provider value={{
-      selectedBranchId,
-      selectedBranch,
-      setSelectedBranchId,
-      isLoading,
-      branches
-    }}>
+    <BranchContext.Provider
+      value={{
+        selectedBranchId,
+        selectedBranch,
+        setSelectedBranchId,
+        isLoading,
+        branches,
+      }}
+    >
       {children}
     </BranchContext.Provider>
   );

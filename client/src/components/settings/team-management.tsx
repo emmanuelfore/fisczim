@@ -2,12 +2,39 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Users, UserPlus, Trash2, Shield, Loader2, Save } from "lucide-react";
 
@@ -35,7 +62,7 @@ export function TeamManagement({ companyId }: TeamManagementProps) {
       if (!res.ok) throw new Error("Failed to fetch users");
       return await res.json();
     },
-    enabled: !!companyId
+    enabled: !!companyId,
   });
 
   // Add User Mutation
@@ -48,8 +75,8 @@ export function TeamManagement({ companyId }: TeamManagementProps) {
           role: newUserRole,
           name: newName,
           username: newUsername,
-          password: newUserPassword
-        })
+          password: newUserPassword,
+        }),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -59,7 +86,10 @@ export function TeamManagement({ companyId }: TeamManagementProps) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["users", companyId] });
-      toast({ title: "User Added", description: `Added ${newUserEmail} successfully.` });
+      toast({
+        title: "User Added",
+        description: `Added ${newUserEmail} successfully.`,
+      });
       setIsAddUserOpen(false);
       setNewUserEmail("");
       setNewName("");
@@ -68,16 +98,23 @@ export function TeamManagement({ companyId }: TeamManagementProps) {
       setNewUserRole("member");
     },
     onError: (err: Error) => {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-    }
+      toast({
+        title: "Error",
+        description: err.message,
+        variant: "destructive",
+      });
+    },
   });
 
   // Remove User Mutation
   const removeUserMutation = useMutation({
     mutationFn: async (userId: string) => {
-      const res = await apiFetch(`/api/companies/${companyId}/users/${userId}`, {
-        method: "DELETE"
-      });
+      const res = await apiFetch(
+        `/api/companies/${companyId}/users/${userId}`,
+        {
+          method: "DELETE",
+        },
+      );
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.message || "Failed to remove user");
@@ -85,20 +122,30 @@ export function TeamManagement({ companyId }: TeamManagementProps) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["users", companyId] });
-      toast({ title: "User Removed", description: "The user has been removed from the team." });
+      toast({
+        title: "User Removed",
+        description: "The user has been removed from the team.",
+      });
     },
     onError: (err: Error) => {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-    }
+      toast({
+        title: "Error",
+        description: err.message,
+        variant: "destructive",
+      });
+    },
   });
 
   // Update Role Mutation
   const updateRoleMutation = useMutation({
-    mutationFn: async ({ userId, role }: { userId: string, role: string }) => {
-      const res = await apiFetch(`/api/companies/${companyId}/users/${userId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ role })
-      });
+    mutationFn: async ({ userId, role }: { userId: string; role: string }) => {
+      const res = await apiFetch(
+        `/api/companies/${companyId}/users/${userId}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ role }),
+        },
+      );
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.message || "Failed to update role");
@@ -106,21 +153,40 @@ export function TeamManagement({ companyId }: TeamManagementProps) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["users", companyId] });
-      toast({ title: "Role Updated", description: "User role updated successfully." });
+      toast({
+        title: "Role Updated",
+        description: "User role updated successfully.",
+      });
     },
     onError: (err: Error) => {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-    }
+      toast({
+        title: "Error",
+        description: err.message,
+        variant: "destructive",
+      });
+    },
   });
 
   // Update Cost Center Scope Mutation
   const updateScopeMutation = useMutation({
-    mutationFn: async ({ userId, ownerGroupScope }: { userId: string; ownerGroupScope: string }) => {
+    mutationFn: async ({
+      userId,
+      ownerGroupScope,
+    }: {
+      userId: string;
+      ownerGroupScope: string;
+    }) => {
       const normalizedScope = ownerGroupScope.trim();
-      const res = await apiFetch(`/api/companies/${companyId}/users/${userId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ ownerGroupScope: normalizedScope.length > 0 ? normalizedScope : null })
-      });
+      const res = await apiFetch(
+        `/api/companies/${companyId}/users/${userId}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            ownerGroupScope:
+              normalizedScope.length > 0 ? normalizedScope : null,
+          }),
+        },
+      );
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.message || "Failed to update cost center scope");
@@ -128,11 +194,18 @@ export function TeamManagement({ companyId }: TeamManagementProps) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["users", companyId] });
-      toast({ title: "Cost Center Access Updated", description: "User visibility scope updated successfully." });
+      toast({
+        title: "Cost Center Access Updated",
+        description: "User visibility scope updated successfully.",
+      });
     },
     onError: (err: Error) => {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-    }
+      toast({
+        title: "Error",
+        description: err.message,
+        variant: "destructive",
+      });
+    },
   });
 
   return (
@@ -140,7 +213,9 @@ export function TeamManagement({ companyId }: TeamManagementProps) {
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-xl font-bold text-slate-900">Team Management</h2>
-          <p className="text-sm text-muted-foreground">Manage user access and roles for your organization</p>
+          <p className=" text-muted-foreground">
+            Manage user access and roles for your organization
+          </p>
         </div>
         <Dialog open={isAddUserOpen} onOpenChange={setIsAddUserOpen}>
           <DialogTrigger asChild>
@@ -210,13 +285,17 @@ export function TeamManagement({ companyId }: TeamManagementProps) {
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setIsAddUserOpen(false)}>Cancel</Button>
+              <Button variant="outline" onClick={() => setIsAddUserOpen(false)}>
+                Cancel
+              </Button>
               <Button
                 onClick={() => addUserMutation.mutate()}
                 disabled={addUserMutation.isPending || !newUserEmail}
                 className="btn-gradient"
               >
-                {addUserMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                {addUserMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : null}
                 Add User
               </Button>
             </DialogFooter>
@@ -239,12 +318,24 @@ export function TeamManagement({ companyId }: TeamManagementProps) {
             <Table>
               <TableHeader className="bg-slate-50/50">
                 <TableRow>
-                  <TableHead className="font-bold text-slate-700">Name</TableHead>
-                  <TableHead className="font-bold text-slate-700">Email</TableHead>
-                  <TableHead className="font-bold text-slate-700">Role</TableHead>
-                  <TableHead className="font-bold text-slate-700">Cost Center Access</TableHead>
-                  <TableHead className="font-bold text-slate-700">Joined</TableHead>
-                  <TableHead className="text-right font-bold text-slate-700">Actions</TableHead>
+                  <TableHead className="font-bold text-slate-700">
+                    Name
+                  </TableHead>
+                  <TableHead className="font-bold text-slate-700">
+                    Email
+                  </TableHead>
+                  <TableHead className="font-bold text-slate-700">
+                    Role
+                  </TableHead>
+                  <TableHead className="font-bold text-slate-700">
+                    Cost Center Access
+                  </TableHead>
+                  <TableHead className="font-bold text-slate-700">
+                    Joined
+                  </TableHead>
+                  <TableHead className="text-right font-bold text-slate-700">
+                    Actions
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -256,75 +347,119 @@ export function TeamManagement({ companyId }: TeamManagementProps) {
                   </TableRow>
                 ) : users?.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-slate-500">No users found.</TableCell>
+                    <TableCell
+                      colSpan={6}
+                      className="text-center py-8 text-slate-500"
+                    >
+                      No users found.
+                    </TableCell>
                   </TableRow>
-                ) : (users || []).map((user: any) => (
-                  <TableRow key={user.id} className="hover:bg-slate-50/50 transition-colors">
-                    <TableCell className="font-medium text-slate-900">{user.name || "N/A"}</TableCell>
-                    <TableCell className="text-slate-600">{user.email}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1">
-                        <Select
-                          defaultValue={user.role}
-                          onValueChange={(val) => updateRoleMutation.mutate({ userId: user.id, role: val })}
-                          disabled={updateRoleMutation.isPending}
+                ) : (
+                  (users || []).map((user: any) => (
+                    <TableRow
+                      key={user.id}
+                      className="hover:bg-slate-50/50 transition-colors"
+                    >
+                      <TableCell className="font-medium text-slate-900">
+                        {user.name || "N/A"}
+                      </TableCell>
+                      <TableCell className="text-slate-600">
+                        {user.email}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1">
+                          <Select
+                            defaultValue={user.role}
+                            onValueChange={(val) =>
+                              updateRoleMutation.mutate({
+                                userId: user.id,
+                                role: val,
+                              })
+                            }
+                            disabled={updateRoleMutation.isPending}
+                          >
+                            <SelectTrigger className="h-8 w-[100px] border-none shadow-none bg-transparent hover:bg-slate-100 font-medium">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="member">Member</SelectItem>
+                              <SelectItem value="cashier">Cashier</SelectItem>
+                              <SelectItem value="admin">Admin</SelectItem>
+                              <SelectItem value="owner">Owner</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </TableCell>
+                      <TableCell className="min-w-[260px]">
+                        {(() => {
+                          const currentScope = (
+                            user.ownerGroupScope || ""
+                          ).trim();
+                          const draftScope =
+                            scopeDrafts[user.id] ?? currentScope;
+                          const changed = draftScope.trim() !== currentScope;
+                          return (
+                            <div className="flex items-center gap-2">
+                              <Input
+                                value={draftScope}
+                                onChange={(e) =>
+                                  setScopeDrafts((prev) => ({
+                                    ...prev,
+                                    [user.id]: e.target.value,
+                                  }))
+                                }
+                                className="h-8 text-xs"
+                              />
+                              <Button
+                                size="sm"
+                                variant={changed ? "default" : "secondary"}
+                                className="h-8 px-2"
+                                disabled={
+                                  !changed || updateScopeMutation.isPending
+                                }
+                                onClick={() =>
+                                  updateScopeMutation.mutate({
+                                    userId: user.id,
+                                    ownerGroupScope: draftScope,
+                                  })
+                                }
+                              >
+                                {updateScopeMutation.isPending ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <Save className="w-3.5 h-3.5" />
+                                )}
+                              </Button>
+                            </div>
+                          );
+                        })()}
+                      </TableCell>
+                      <TableCell className="text-slate-500 ">
+                        {user.createdAt
+                          ? new Date(user.createdAt).toLocaleDateString()
+                          : "-"}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg"
+                          onClick={() => {
+                            if (
+                              confirm(
+                                "Are you sure you want to remove this user from the team?",
+                              )
+                            ) {
+                              removeUserMutation.mutate(user.id);
+                            }
+                          }}
                         >
-                          <SelectTrigger className="h-8 w-[100px] border-none shadow-none bg-transparent hover:bg-slate-100 font-medium">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="member">Member</SelectItem>
-                            <SelectItem value="cashier">Cashier</SelectItem>
-                            <SelectItem value="admin">Admin</SelectItem>
-                            <SelectItem value="owner">Owner</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </TableCell>
-                    <TableCell className="min-w-[260px]">
-                      {(() => {
-                        const currentScope = (user.ownerGroupScope || "").trim();
-                        const draftScope = scopeDrafts[user.id] ?? currentScope;
-                        const changed = draftScope.trim() !== currentScope;
-                        return (
-                          <div className="flex items-center gap-2">
-                            <Input
-                              value={draftScope}
-                              onChange={(e) => setScopeDrafts((prev) => ({ ...prev, [user.id]: e.target.value }))}
-                              className="h-8 text-xs"
-                            />
-                            <Button
-                              size="sm"
-                              variant={changed ? "default" : "secondary"}
-                              className="h-8 px-2"
-                              disabled={!changed || updateScopeMutation.isPending}
-                              onClick={() => updateScopeMutation.mutate({ userId: user.id, ownerGroupScope: draftScope })}
-                            >
-                              {updateScopeMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                            </Button>
-                          </div>
-                        );
-                      })()}
-                    </TableCell>
-                    <TableCell className="text-slate-500 text-sm">
-                      {user.createdAt ? new Date(user.createdAt).toLocaleDateString() : "-"}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg"
-                        onClick={() => {
-                          if (confirm("Are you sure you want to remove this user from the team?")) {
-                            removeUserMutation.mutate(user.id);
-                          }
-                        }}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
               </TableBody>
             </Table>
           </div>

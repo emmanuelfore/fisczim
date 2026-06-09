@@ -84,6 +84,21 @@ type NavItem = {
 };
 
 import { useActiveCompany } from "@/hooks/use-active-company";
+import { usePermissions, usePendingApprovalsCount } from "@/hooks/use-permissions";
+
+function filterNavItems(items: NavItem[], canAccessPath: (href: string) => boolean): NavItem[] {
+  return items
+    .map((item) => {
+      if (item.children?.length) {
+        const children = filterNavItems(item.children as NavItem[], canAccessPath) as NavItem["children"];
+        if (!children?.length) return null;
+        return { ...item, children };
+      }
+      if (item.href && !canAccessPath(item.href)) return null;
+      return item;
+    })
+    .filter(Boolean) as NavItem[];
+}
 
 export function Layout({
   children,
@@ -281,6 +296,11 @@ export function Layout({
       ]
     },
     {
+      icon: ClipboardCheck,
+      label: "Approvals",
+      href: "/approvals",
+    },
+    {
       icon: Settings,
       label: "Settings",
       href: "/settings"
@@ -346,6 +366,8 @@ export function Layout({
       ? restaurantNavItems
       : posNavItems;
 
+  const { canAccessPath, can } = usePermissions();
+  const { data: pendingApprovalCount = 0 } = usePendingApprovalsCount();
   const isCashier = !user?.isSuperAdmin && activeRole === 'cashier';
   const { data: pendingGdns = [] } = usePendingGdns(isCashier ? 0 : selectedCompanyId || 0);
   const pendingGdnCount = pendingGdns.length;
@@ -365,20 +387,10 @@ export function Layout({
     seenPendingGdnCountRef.current = pendingGdnCount;
   }, [isCashier, pendingGdnCount, toast]);
 
-  const navItems = isCashier
-    ? [
-      {
-        icon: MonitorCheck,
-        label: "POS Terminal",
-        href: "/pos"
-      },
-      {
-        icon: Receipt,
-        label: "My Sales History",
-        href: "/pos/my-sales"
-      }
-    ]
-    : allNavItems;
+  const navItems = useMemo(
+    () => filterNavItems(allNavItems, canAccessPath),
+    [allNavItems, canAccessPath]
+  );
 
   const immersiveRoutes = ["/pos", "/restaurant/kds", "/order-status"];
   const isImmersiveRoute = immersiveRoutes.some((route) => location.startsWith(route));
@@ -412,9 +424,14 @@ export function Layout({
     if (location.startsWith("/expenses")) return { title: "Expenses", subtitle: "Track operating expenses and business costs." };
     if (location.startsWith("/tax-config")) return { title: "Tax Configuration", subtitle: "Manage ZIMRA fiscalisation and tax categories." };
     if (location.startsWith("/pos-settings")) return { title: "POS Configuration", subtitle: "Configure tills, printing, receipts, and sales controls." };
+    if (location.startsWith("/approvals")) return { title: "Approvals", subtitle: "Review pending stock, GRS, journal, and invoice requests." };
     if (location.startsWith("/settings")) {
       if (search.includes("tab=zimra")) return { title: "ZIMRA Device", subtitle: "Configure fiscal device credentials and FDMS connectivity." };
       if (search.includes("tab=team")) return { title: "Team Management", subtitle: "Manage users, roles, and business access." };
+      if (search.includes("tab=roles")) return { title: "Roles & Permissions", subtitle: "Create custom roles and define what each user can do." };
+      if (search.includes("tab=approval-policies")) return { title: "Approval Policies", subtitle: "Configure company-wide approval rules for stock, GRS, postings, and invoices." };
+      if (search.includes("tab=partnerships")) return { title: "Partnerships", subtitle: "Manage co-branding partners, logos, and revenue share rules." };
+      if (location.startsWith("/reports/partnership-sales")) return { title: "Partnership Sales", subtitle: "Revenue split report for co-branded invoices." };
       if (search.includes("tab=branches")) return { title: "Cost Center Setup", subtitle: "Manage branches used for cost center reporting." };
       if (search.includes("tab=accounting")) return { title: "System Postings", subtitle: "Configure the default accounts used by automatic transactions." };
       if (search.includes("tab=pos")) return { title: "POS Configuration", subtitle: "Configure tills, printing, and point-of-sale preferences." };

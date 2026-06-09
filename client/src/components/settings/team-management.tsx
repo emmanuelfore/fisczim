@@ -26,6 +26,16 @@ export function TeamManagement({ companyId }: TeamManagementProps) {
   const [newUserRole, setNewUserRole] = useState("member");
   const [scopeDrafts, setScopeDrafts] = useState<Record<string, string>>({});
 
+  const { data: roles = [] } = useQuery({
+    queryKey: ["company-roles", companyId],
+    queryFn: async () => {
+      const res = await apiFetch(`/api/companies/${companyId}/roles`);
+      if (!res.ok) return [];
+      return await res.json();
+    },
+    enabled: !!companyId,
+  });
+
   // Fetch Users
   const { data: users, isLoading: isLoadingUsers } = useQuery({
     queryKey: ["users", companyId],
@@ -90,6 +100,25 @@ export function TeamManagement({ companyId }: TeamManagementProps) {
     onError: (err: Error) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
     }
+  });
+
+  const updateCustomRoleMutation = useMutation({
+    mutationFn: async ({ userId, companyRoleId }: { userId: string; companyRoleId: number | null }) => {
+      const res = await apiFetch(`/api/companies/${companyId}/users/${userId}/role-assignment`, {
+        method: "PATCH",
+        body: JSON.stringify({ companyRoleId }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || "Failed to update custom role");
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["users", companyId] });
+      queryClient.invalidateQueries({ queryKey: ["my-permissions", companyId] });
+      toast({ title: "Custom role updated", description: "Permission profile applied to user." });
+    },
+    onError: (err: Error) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
   // Update Role Mutation
@@ -241,7 +270,8 @@ export function TeamManagement({ companyId }: TeamManagementProps) {
                 <TableRow>
                   <TableHead className="font-bold text-slate-700">Name</TableHead>
                   <TableHead className="font-bold text-slate-700">Email</TableHead>
-                  <TableHead className="font-bold text-slate-700">Role</TableHead>
+                  <TableHead className="font-bold text-slate-700">Legacy Role</TableHead>
+                  <TableHead className="font-bold text-slate-700">Permission Role</TableHead>
                   <TableHead className="font-bold text-slate-700">Cost Center Access</TableHead>
                   <TableHead className="font-bold text-slate-700">Joined</TableHead>
                   <TableHead className="text-right font-bold text-slate-700">Actions</TableHead>
@@ -250,13 +280,13 @@ export function TeamManagement({ companyId }: TeamManagementProps) {
               <TableBody>
                 {isLoadingUsers ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8">
+                    <TableCell colSpan={7} className="text-center py-8">
                       <Loader2 className="w-6 h-6 animate-spin mx-auto text-slate-300" />
                     </TableCell>
                   </TableRow>
                 ) : users?.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-slate-500">No users found.</TableCell>
+                    <TableCell colSpan={7} className="text-center py-8 text-slate-500">No users found.</TableCell>
                   </TableRow>
                 ) : (users || []).map((user: any) => (
                   <TableRow key={user.id} className="hover:bg-slate-50/50 transition-colors">
@@ -280,6 +310,30 @@ export function TeamManagement({ companyId }: TeamManagementProps) {
                           </SelectContent>
                         </Select>
                       </div>
+                    </TableCell>
+                    <TableCell>
+                      <Select
+                        value={user.companyRoleId ? String(user.companyRoleId) : "legacy"}
+                        onValueChange={(val) =>
+                          updateCustomRoleMutation.mutate({
+                            userId: user.id,
+                            companyRoleId: val === "legacy" ? null : Number(val),
+                          })
+                        }
+                        disabled={updateCustomRoleMutation.isPending}
+                      >
+                        <SelectTrigger className="h-8 w-[180px] border-none shadow-none bg-transparent hover:bg-slate-100 font-medium">
+                          <SelectValue placeholder="Use legacy role" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="legacy">Use legacy role defaults</SelectItem>
+                          {roles.map((role: any) => (
+                            <SelectItem key={role.id} value={String(role.id)}>
+                              {role.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </TableCell>
                     <TableCell className="min-w-[260px]">
                       {(() => {

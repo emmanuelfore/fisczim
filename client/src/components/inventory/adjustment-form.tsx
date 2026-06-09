@@ -83,10 +83,12 @@ export function AdjustmentForm() {
             quantity: delta,
             notes: values.notes,
         }, {
-            onSuccess: () => {
+            onSuccess: (data: any) => {
                 toast({
-                    title: "Stock Adjusted",
-                    description: "The inventory adjustment has been recorded.",
+                    title: data?.pendingApproval ? "Submitted for Approval" : "Stock Adjusted",
+                    description: data?.pendingApproval
+                        ? "Your stock adjustment is waiting for manager approval."
+                        : "The inventory adjustment has been recorded.",
                 });
                 setOpen(false);
                 form.reset();

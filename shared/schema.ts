@@ -113,6 +113,8 @@ export const companies = pgTable("companies", {
   restaurantSettings: jsonb("restaurant_settings"), // Stores floor plan layout etc.
   pharmacySettings: jsonb("pharmacy_settings"), // { enabled: boolean, licenseNo: string, etc }
   busSettings: jsonb("bus_settings"), // Controls bus-ticketing feature visibility for web and APK.
+  approvalSettings: jsonb("approval_settings"), // Company-level approval policy per action type
+  partnershipSettings: jsonb("partnership_settings"), // Dual-logo and partnership display settings
   appMode: text("app_mode").default("pos"), // pos, restaurant, bus_ticketing
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -211,12 +213,70 @@ export const branchStocksRelations = relations(branchStocks, ({ one }) => ({
   product: one(products, { fields: [branchStocks.productId], references: [products.id] }),
 }));
 
+// Company-scoped custom roles with granular permissions
+export const companyRoles = pgTable("company_roles", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  isSystem: boolean("is_system").default(false),
+  legacyRole: text("legacy_role"), // owner, admin, member, cashier — for seeded system roles
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  companyIdIdx: index("company_roles_company_id_idx").on(table.companyId),
+  companyNameUnique: unique("company_roles_company_name_unique").on(table.companyId, table.name),
+}));
+
+export const companyRolePermissions = pgTable("company_role_permissions", {
+  roleId: integer("role_id").references(() => companyRoles.id, { onDelete: "cascade" }).notNull(),
+  permission: text("permission").notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.roleId, table.permission] }),
+}));
+
+export const approvalRequests = pgTable("approval_requests", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  type: text("type").notNull(), // stock_adjustment, grn_confirm, journal_post, invoice_issue
+  status: text("status").default("pending").notNull(), // pending, approved, rejected, cancelled
+  title: text("title").notNull(),
+  description: text("description"),
+  payload: jsonb("payload").notNull(),
+  referenceType: text("reference_type"),
+  referenceId: text("reference_id"),
+  requestedBy: uuid("requested_by").references(() => users.id).notNull(),
+  reviewedBy: uuid("reviewed_by").references(() => users.id),
+  reviewedAt: timestamp("reviewed_at"),
+  reviewNotes: text("review_notes"),
+  resultData: jsonb("result_data"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  companyStatusIdx: index("approval_requests_company_status_idx").on(table.companyId, table.status),
+  typeIdx: index("approval_requests_type_idx").on(table.type),
+}));
+
+export const companyRolesRelations = relations(companyRoles, ({ one, many }) => ({
+  company: one(companies, { fields: [companyRoles.companyId], references: [companies.id] }),
+  permissions: many(companyRolePermissions),
+}));
+
+export const companyRolePermissionsRelations = relations(companyRolePermissions, ({ one }) => ({
+  role: one(companyRoles, { fields: [companyRolePermissions.roleId], references: [companyRoles.id] }),
+}));
+
+export const approvalRequestsRelations = relations(approvalRequests, ({ one }) => ({
+  company: one(companies, { fields: [approvalRequests.companyId], references: [companies.id] }),
+  requester: one(users, { fields: [approvalRequests.requestedBy], references: [users.id] }),
+  reviewer: one(users, { fields: [approvalRequests.reviewedBy], references: [users.id] }),
+}));
+
 // Join table for Users <-> Companies
 export const companyUsers = pgTable("company_users", {
   id: serial("id").primaryKey(),
   userId: uuid("user_id").references(() => users.id).notNull(),
   companyId: integer("company_id").references(() => companies.id).notNull(),
-  role: text("role").default("member"), // owner, admin, member
+  role: text("role").default("member"), // owner, admin, member, cashier (legacy)
+  companyRoleId: integer("company_role_id").references(() => companyRoles.id),
 }, (table) => {
   return {
     userIdIdx: index("company_users_user_id_idx").on(table.userId),
@@ -227,6 +287,7 @@ export const companyUsers = pgTable("company_users", {
 export const companyUsersRelations = relations(companyUsers, ({ one }) => ({
   user: one(users, { fields: [companyUsers.userId], references: [users.id] }),
   company: one(companies, { fields: [companyUsers.companyId], references: [companies.id] }),
+  companyRole: one(companyRoles, { fields: [companyUsers.companyRoleId], references: [companyRoles.id] }),
 }));
 
 // Customers
@@ -487,6 +548,29 @@ export type InsertProductBatch = z.infer<typeof insertProductBatchSchema>;
 export type PriceAdjustment = typeof priceAdjustments.$inferSelect;
 export type InsertPriceAdjustment = z.infer<typeof insertPriceAdjustmentSchema>;
 
+// Commercial partners for co-branded / revenue-sharing invoices
+export const companyPartners = pgTable("company_partners", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  name: text("name").notNull(),
+  tradingName: text("trading_name"),
+  logoUrl: text("logo_url"),
+  tin: text("tin"),
+  vatNumber: text("vat_number"),
+  displayLabel: text("display_label").default("In partnership with"),
+  defaultRevenueSharePercent: decimal("default_revenue_share_percent", { precision: 5, scale: 2 }).default("0"),
+  ownerGroupMatch: text("owner_group_match"), // Auto-apply when invoice lines match this owner group
+  isActive: boolean("is_active").default(true),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  companyIdIdx: index("company_partners_company_id_idx").on(table.companyId),
+}));
+
+export const companyPartnersRelations = relations(companyPartners, ({ one }) => ({
+  company: one(companies, { fields: [companyPartners.companyId], references: [companies.id] }),
+}));
+
 // Invoices
 export const invoices = pgTable("invoices", {
   id: serial("id").primaryKey(),
@@ -543,6 +627,13 @@ export const invoices = pgTable("invoices", {
   poNumber: text("po_number"),
   invoiceTemplate: text("invoice_template").default("modern"),
   isFiscalized: boolean("is_fiscalized").default(true),
+
+  // Partnership / co-branding
+  partnerId: integer("partner_id").references(() => companyPartners.id),
+  partnerSnapshot: jsonb("partner_snapshot"),
+  revenueSharePercent: decimal("revenue_share_percent", { precision: 5, scale: 2 }),
+  partnerShareAmount: decimal("partner_share_amount", { precision: 10, scale: 2 }),
+  issuerShareAmount: decimal("issuer_share_amount", { precision: 10, scale: 2 }),
 
   // Restaurant & Online Orders
   tableId: integer("table_id"), // Refers to restaurant_tables
@@ -796,6 +887,7 @@ export const invoicesRelations = relations(invoices, ({ one, many }) => ({
   company: one(companies, { fields: [invoices.companyId], references: [companies.id] }),
   branch: one(branches, { fields: [invoices.branchId], references: [branches.id] }),
   customer: one(customers, { fields: [invoices.customerId], references: [customers.id] }),
+  partner: one(companyPartners, { fields: [invoices.partnerId], references: [companyPartners.id] }),
   creator: one(users, { fields: [invoices.createdBy], references: [users.id] }),
   items: many(invoiceItems),
   payments: many(payments),
@@ -2043,3 +2135,22 @@ export type InsertSupplierPayment = z.infer<typeof insertSupplierPaymentSchema>;
 export const insertSupplierPaymentAllocationSchema = createInsertSchema(supplierPaymentAllocations).omit({ id: true, allocatedAt: true, reversedAt: true, reversalReason: true });
 export type SupplierPaymentAllocation = typeof supplierPaymentAllocations.$inferSelect;
 export type InsertSupplierPaymentAllocation = z.infer<typeof insertSupplierPaymentAllocationSchema>;
+
+export const insertCompanyRoleSchema = createInsertSchema(companyRoles).omit({ id: true, createdAt: true });
+export type CompanyRole = typeof companyRoles.$inferSelect;
+export type InsertCompanyRole = z.infer<typeof insertCompanyRoleSchema>;
+
+export const insertApprovalRequestSchema = createInsertSchema(approvalRequests).omit({
+  id: true,
+  createdAt: true,
+  reviewedAt: true,
+  reviewedBy: true,
+  reviewNotes: true,
+  resultData: true,
+});
+export type ApprovalRequest = typeof approvalRequests.$inferSelect;
+export type InsertApprovalRequest = z.infer<typeof insertApprovalRequestSchema>;
+
+export const insertCompanyPartnerSchema = createInsertSchema(companyPartners).omit({ id: true, createdAt: true });
+export type CompanyPartner = typeof companyPartners.$inferSelect;
+export type InsertCompanyPartner = z.infer<typeof insertCompanyPartnerSchema>;

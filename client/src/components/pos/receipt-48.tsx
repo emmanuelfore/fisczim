@@ -74,11 +74,21 @@ export function Receipt48({ id = "receipt-48", invoice, company, customer, items
 
     return (
         <div id={id} style={{ width: receiptWidth }} className={`bg-white p-2 text-black font-mono text-[10px] leading-tight receipt-content ${isA4 ? 'mx-auto' : ''}`}>
-            {/* [1] Logo */}
-            {company.logoUrl && (
-                <div className="flex justify-center mb-2">
-                    <img src={company.logoUrl} alt="Logo" className="max-h-16 object-contain" />
+            {/* [1] Logo(s) */}
+            {(company.logoUrl || (invoice as any)?.partnerSnapshot?.logoUrl) && (
+                <div className="flex justify-center items-center gap-3 mb-2">
+                    {company.logoUrl && (
+                        <img src={company.logoUrl} alt="Logo" className="max-h-16 object-contain" />
+                    )}
+                    {(invoice as any)?.partnerSnapshot?.logoUrl && (
+                        <img src={(invoice as any).partnerSnapshot.logoUrl} alt="Partner" className="max-h-14 object-contain" />
+                    )}
                 </div>
+            )}
+            {(invoice as any)?.partnerSnapshot?.name && (
+                <p className="text-center text-[9px] mb-1 text-slate-600">
+                    {(invoice as any).partnerSnapshot.displayLabel || "In partnership with"} {(invoice as any).partnerSnapshot.tradingName || (invoice as any).partnerSnapshot.name}
+                </p>
             )}
 
             {/* [2] Taxpayer Name */}

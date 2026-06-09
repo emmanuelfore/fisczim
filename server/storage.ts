@@ -1,7 +1,10 @@
 
 import {
   users, companies, customers, products, invoices, invoiceItems, companyUsers,
+  companyRoles, companyRolePermissions, approvalRequests, companyPartners,
   type User, type InsertUser, type Company, type InsertCompany,
+  type CompanyRole, type InsertCompanyRole, type ApprovalRequest, type InsertApprovalRequest,
+  type CompanyPartner, type InsertCompanyPartner,
   type Customer, type Product, type Invoice, type InvoiceItem, type InsertInvoiceItem,
   type InsertCustomer, type InsertProduct, type CreateInvoiceRequest, type InsertInvoice,
   taxTypes, taxCategories, type TaxType, type TaxCategory, type InsertTaxCategory, type InsertTaxType,
@@ -226,11 +229,40 @@ export interface IStorage {
   deleteCurrency(id: number): Promise<void>;
 
   // User Management
-  getCompanyUsers(companyId: number): Promise<(User & { role: string })[]>;
-  addCompanyUser(userId: string, companyId: number, role: string): Promise<void>;
+  getCompanyUsers(companyId: number): Promise<(User & { role: string; companyRoleId?: number | null; companyRoleName?: string | null })[]>;
+  addUserToCompany(userId: string, companyId: number, role: string, companyRoleId?: number): Promise<void>;
   updateUserRole(userId: string, companyId: number, role: string): Promise<void>;
-  removeCompanyUser(userId: string, companyId: number): Promise<void>;
+  assignUserCompanyRole(userId: string, companyId: number, companyRoleId: number | null): Promise<void>;
+  removeUserFromCompany(userId: string, companyId: number): Promise<void>;
   getCompanyUserRole(userId: string, companyId: number): Promise<string | undefined>;
+  getCompanyMembership(userId: string, companyId: number): Promise<{ legacyRole: string; companyRoleId: number | null } | undefined>;
+
+  // Roles & Permissions
+  seedDefaultRolesForCompany(companyId: number): Promise<void>;
+  getCompanyRoles(companyId: number): Promise<(CompanyRole & { permissions: string[] })[]>;
+  getCompanyRole(roleId: number, companyId: number): Promise<(CompanyRole & { permissions: string[] }) | undefined>;
+  createCompanyRole(companyId: number, data: { name: string; description?: string; permissions: string[] }): Promise<CompanyRole & { permissions: string[] }>;
+  updateCompanyRole(roleId: number, companyId: number, data: { name?: string; description?: string; permissions?: string[] }): Promise<CompanyRole & { permissions: string[] }>;
+  deleteCompanyRole(roleId: number, companyId: number): Promise<void>;
+  getRolePermissions(roleId: number): Promise<string[]>;
+
+  // Approvals
+  createApprovalRequest(data: InsertApprovalRequest): Promise<ApprovalRequest>;
+  getApprovalRequest(id: number, companyId: number): Promise<ApprovalRequest | undefined>;
+  getApprovalRequests(companyId: number, status?: string): Promise<(ApprovalRequest & { requesterName?: string; reviewerName?: string })[]>;
+  updateApprovalRequest(id: number, companyId: number, data: Partial<ApprovalRequest>): Promise<ApprovalRequest>;
+  getPendingApprovalCount(companyId: number): Promise<number>;
+
+  // Partnerships
+  getCompanyPartners(companyId: number, includeInactive?: boolean): Promise<CompanyPartner[]>;
+  getCompanyPartner(partnerId: number, companyId: number): Promise<CompanyPartner | undefined>;
+  createCompanyPartner(companyId: number, data: Partial<InsertCompanyPartner>): Promise<CompanyPartner>;
+  updateCompanyPartner(partnerId: number, companyId: number, data: Partial<InsertCompanyPartner>): Promise<CompanyPartner>;
+  deactivateCompanyPartner(partnerId: number, companyId: number): Promise<void>;
+  getReportPartnershipSales(companyId: number, startDate: Date, endDate: Date, partnerId?: number): Promise<{
+    summary: { partnerId: number | null; partnerName: string; invoiceCount: number; grossTotal: number; partnerShare: number; issuerShare: number }[];
+    invoices: any[];
+  }>;
 
   // Analytics
   getCompanyStats(companyId: number): Promise<{ totalRevenue: number; pendingAmount: number; invoicesCount: number; customersCount: number }>;
@@ -1341,8 +1373,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createInvoice(data: CreateInvoiceRequest): Promise<Invoice> {
+    const { applyPartnershipToInvoiceData } = await import("./lib/partnerships.js");
+    const enriched = await applyPartnershipToInvoiceData(data);
+
     return await db.transaction(async (tx) => {
-      const { items, ...invoiceData } = data;
+      const { items, ...invoiceData } = enriched;
 
       if (!Array.isArray(items) || items.length === 0) {
         throw new Error("Cannot create an invoice without at least one line item.");
@@ -2043,24 +2078,33 @@ export class DatabaseStorage implements IStorage {
   }
 
   // User Management
-  async getCompanyUsers(companyId: number): Promise<(User & { role: string })[]> {
+  async getCompanyUsers(companyId: number): Promise<(User & { role: string; companyRoleId?: number | null; companyRoleName?: string | null })[]> {
     const result = await db
       .select({
         user: users,
-        role: companyUsers.role
+        role: companyUsers.role,
+        companyRoleId: companyUsers.companyRoleId,
+        companyRoleName: companyRoles.name,
       })
       .from(companyUsers)
       .innerJoin(users, eq(companyUsers.userId, users.id))
+      .leftJoin(companyRoles, eq(companyUsers.companyRoleId, companyRoles.id))
       .where(eq(companyUsers.companyId, companyId));
 
-    return result.map(({ user, role }) => ({ ...user, role: role || "member" }));
+    return result.map(({ user, role, companyRoleId, companyRoleName }) => ({
+      ...user,
+      role: role || "member",
+      companyRoleId,
+      companyRoleName,
+    }));
   }
 
-  async addUserToCompany(userId: string, companyId: number, role: string): Promise<void> {
+  async addUserToCompany(userId: string, companyId: number, role: string, companyRoleId?: number): Promise<void> {
     await db.insert(companyUsers).values({
       userId,
       companyId,
-      role
+      role,
+      companyRoleId: companyRoleId ?? null,
     });
   }
 
@@ -2068,6 +2112,13 @@ export class DatabaseStorage implements IStorage {
     await db
       .update(companyUsers)
       .set({ role })
+      .where(and(eq(companyUsers.userId, userId), eq(companyUsers.companyId, companyId)));
+  }
+
+  async assignUserCompanyRole(userId: string, companyId: number, companyRoleId: number | null): Promise<void> {
+    await db
+      .update(companyUsers)
+      .set({ companyRoleId })
       .where(and(eq(companyUsers.userId, userId), eq(companyUsers.companyId, companyId)));
   }
 
@@ -2083,6 +2134,291 @@ export class DatabaseStorage implements IStorage {
       .from(companyUsers)
       .where(and(eq(companyUsers.userId, userId), eq(companyUsers.companyId, companyId)));
     return result?.role || undefined;
+  }
+
+  async getCompanyMembership(userId: string, companyId: number): Promise<{ legacyRole: string; companyRoleId: number | null } | undefined> {
+    const [result] = await db
+      .select({ role: companyUsers.role, companyRoleId: companyUsers.companyRoleId })
+      .from(companyUsers)
+      .where(and(eq(companyUsers.userId, userId), eq(companyUsers.companyId, companyId)));
+    if (!result) return undefined;
+    return { legacyRole: result.role || "member", companyRoleId: result.companyRoleId ?? null };
+  }
+
+  async seedDefaultRolesForCompany(companyId: number): Promise<void> {
+    const existing = await db.select({ id: companyRoles.id }).from(companyRoles).where(eq(companyRoles.companyId, companyId)).limit(1);
+    if (existing.length > 0) return;
+
+    const { LEGACY_ROLE_PERMISSIONS } = await import("../shared/permissions.js");
+    const templates = [
+      { name: "Owner", legacyRole: "owner", description: "Full access to all features" },
+      { name: "Administrator", legacyRole: "admin", description: "Manage operations and settings" },
+      { name: "Staff Member", legacyRole: "member", description: "Day-to-day operations with approval workflows" },
+      { name: "Cashier", legacyRole: "cashier", description: "POS and limited stock operations" },
+    ];
+
+    for (const template of templates) {
+      const [role] = await db.insert(companyRoles).values({
+        companyId,
+        name: template.name,
+        description: template.description,
+        isSystem: true,
+        legacyRole: template.legacyRole,
+      }).returning();
+
+      const perms = LEGACY_ROLE_PERMISSIONS[template.legacyRole] || [];
+      if (perms.length > 0) {
+        await db.insert(companyRolePermissions).values(
+          perms.map((permission) => ({ roleId: role.id, permission }))
+        );
+      }
+    }
+  }
+
+  async getCompanyRoles(companyId: number): Promise<(CompanyRole & { permissions: string[] })[]> {
+    await this.seedDefaultRolesForCompany(companyId);
+    const roles = await db.select().from(companyRoles).where(eq(companyRoles.companyId, companyId)).orderBy(asc(companyRoles.name));
+    const result: (CompanyRole & { permissions: string[] })[] = [];
+    for (const role of roles) {
+      const permissions = await this.getRolePermissions(role.id);
+      result.push({ ...role, permissions });
+    }
+    return result;
+  }
+
+  async getCompanyRole(roleId: number, companyId: number): Promise<(CompanyRole & { permissions: string[] }) | undefined> {
+    const [role] = await db.select().from(companyRoles).where(and(eq(companyRoles.id, roleId), eq(companyRoles.companyId, companyId))).limit(1);
+    if (!role) return undefined;
+    const permissions = await this.getRolePermissions(roleId);
+    return { ...role, permissions };
+  }
+
+  async createCompanyRole(companyId: number, data: { name: string; description?: string; permissions: string[] }): Promise<CompanyRole & { permissions: string[] }> {
+    const [role] = await db.insert(companyRoles).values({
+      companyId,
+      name: data.name.trim(),
+      description: data.description || null,
+      isSystem: false,
+    }).returning();
+
+    if (data.permissions.length > 0) {
+      await db.insert(companyRolePermissions).values(
+        data.permissions.map((permission) => ({ roleId: role.id, permission }))
+      );
+    }
+    return { ...role, permissions: data.permissions };
+  }
+
+  async updateCompanyRole(roleId: number, companyId: number, data: { name?: string; description?: string; permissions?: string[] }): Promise<CompanyRole & { permissions: string[] }> {
+    const [existing] = await db.select().from(companyRoles).where(and(eq(companyRoles.id, roleId), eq(companyRoles.companyId, companyId))).limit(1);
+    if (!existing) throw new Error("Role not found");
+    if (existing.isSystem) throw new Error("System roles cannot be modified. Clone this role to create a custom variant.");
+
+    const updates: Partial<InsertCompanyRole> = {};
+    if (data.name) updates.name = data.name.trim();
+    if (data.description !== undefined) updates.description = data.description;
+
+    const [role] = Object.keys(updates).length > 0
+      ? await db.update(companyRoles).set(updates).where(eq(companyRoles.id, roleId)).returning()
+      : [existing];
+
+    if (data.permissions) {
+      await db.delete(companyRolePermissions).where(eq(companyRolePermissions.roleId, roleId));
+      if (data.permissions.length > 0) {
+        await db.insert(companyRolePermissions).values(
+          data.permissions.map((permission) => ({ roleId, permission }))
+        );
+      }
+    }
+
+    const permissions = await this.getRolePermissions(roleId);
+    return { ...role, permissions };
+  }
+
+  async deleteCompanyRole(roleId: number, companyId: number): Promise<void> {
+    const [existing] = await db.select().from(companyRoles).where(and(eq(companyRoles.id, roleId), eq(companyRoles.companyId, companyId))).limit(1);
+    if (!existing) throw new Error("Role not found");
+    if (existing.isSystem) throw new Error("System roles cannot be deleted");
+
+    await db.update(companyUsers).set({ companyRoleId: null }).where(eq(companyUsers.companyRoleId, roleId));
+    await db.delete(companyRoles).where(eq(companyRoles.id, roleId));
+  }
+
+  async getRolePermissions(roleId: number): Promise<string[]> {
+    const rows = await db.select({ permission: companyRolePermissions.permission }).from(companyRolePermissions).where(eq(companyRolePermissions.roleId, roleId));
+    return rows.map((r) => r.permission);
+  }
+
+  async createApprovalRequest(data: InsertApprovalRequest): Promise<ApprovalRequest> {
+    const [row] = await db.insert(approvalRequests).values(data).returning();
+    return row;
+  }
+
+  async getApprovalRequest(id: number, companyId: number): Promise<ApprovalRequest | undefined> {
+    const [row] = await db.select().from(approvalRequests).where(and(eq(approvalRequests.id, id), eq(approvalRequests.companyId, companyId))).limit(1);
+    return row;
+  }
+
+  async getApprovalRequests(companyId: number, status?: string): Promise<(ApprovalRequest & { requesterName?: string; reviewerName?: string })[]> {
+    const conditions = [eq(approvalRequests.companyId, companyId)];
+    if (status) conditions.push(eq(approvalRequests.status, status));
+
+    const rows = await db
+      .select({
+        request: approvalRequests,
+        requesterName: users.name,
+      })
+      .from(approvalRequests)
+      .innerJoin(users, eq(approvalRequests.requestedBy, users.id))
+      .where(and(...conditions))
+      .orderBy(desc(approvalRequests.createdAt));
+
+    const result: (ApprovalRequest & { requesterName?: string; reviewerName?: string })[] = [];
+    for (const row of rows) {
+      let reviewerName: string | undefined;
+      if (row.request.reviewedBy) {
+        const [reviewer] = await db.select({ name: users.name }).from(users).where(eq(users.id, row.request.reviewedBy)).limit(1);
+        reviewerName = reviewer?.name || undefined;
+      }
+      result.push({ ...row.request, requesterName: row.requesterName || undefined, reviewerName });
+    }
+    return result;
+  }
+
+  async updateApprovalRequest(id: number, companyId: number, data: Partial<ApprovalRequest>): Promise<ApprovalRequest> {
+    const [row] = await db
+      .update(approvalRequests)
+      .set(data)
+      .where(and(eq(approvalRequests.id, id), eq(approvalRequests.companyId, companyId)))
+      .returning();
+    if (!row) throw new Error("Approval request not found");
+    return row;
+  }
+
+  async getPendingApprovalCount(companyId: number): Promise<number> {
+    const [row] = await db
+      .select({ total: count() })
+      .from(approvalRequests)
+      .where(and(eq(approvalRequests.companyId, companyId), eq(approvalRequests.status, "pending")));
+    return Number(row?.total || 0);
+  }
+
+  async getCompanyPartners(companyId: number, includeInactive = false): Promise<CompanyPartner[]> {
+    const conditions = [eq(companyPartners.companyId, companyId)];
+    if (!includeInactive) conditions.push(eq(companyPartners.isActive, true));
+    return db.select().from(companyPartners).where(and(...conditions)).orderBy(asc(companyPartners.name));
+  }
+
+  async getCompanyPartner(partnerId: number, companyId: number): Promise<CompanyPartner | undefined> {
+    const [row] = await db
+      .select()
+      .from(companyPartners)
+      .where(and(eq(companyPartners.id, partnerId), eq(companyPartners.companyId, companyId)))
+      .limit(1);
+    return row;
+  }
+
+  async createCompanyPartner(companyId: number, data: Partial<InsertCompanyPartner>): Promise<CompanyPartner> {
+    const [row] = await db.insert(companyPartners).values({
+      companyId,
+      name: data.name!,
+      tradingName: data.tradingName || null,
+      logoUrl: data.logoUrl || null,
+      tin: data.tin || null,
+      vatNumber: data.vatNumber || null,
+      displayLabel: data.displayLabel || "In partnership with",
+      defaultRevenueSharePercent: String(data.defaultRevenueSharePercent ?? 0),
+      ownerGroupMatch: data.ownerGroupMatch || null,
+      notes: data.notes || null,
+      isActive: true,
+    }).returning();
+    return row;
+  }
+
+  async updateCompanyPartner(partnerId: number, companyId: number, data: Partial<InsertCompanyPartner>): Promise<CompanyPartner> {
+    const updates: Record<string, unknown> = {};
+    if (data.name) updates.name = data.name;
+    if (data.tradingName !== undefined) updates.tradingName = data.tradingName;
+    if (data.logoUrl !== undefined) updates.logoUrl = data.logoUrl;
+    if (data.tin !== undefined) updates.tin = data.tin;
+    if (data.vatNumber !== undefined) updates.vatNumber = data.vatNumber;
+    if (data.displayLabel !== undefined) updates.displayLabel = data.displayLabel;
+    if (data.defaultRevenueSharePercent !== undefined && data.defaultRevenueSharePercent !== null) {
+      updates.defaultRevenueSharePercent = String(data.defaultRevenueSharePercent);
+    }
+    if (data.ownerGroupMatch !== undefined) updates.ownerGroupMatch = data.ownerGroupMatch;
+    if (data.notes !== undefined) updates.notes = data.notes;
+    if (data.isActive !== undefined) updates.isActive = data.isActive;
+
+    const [row] = await db
+      .update(companyPartners)
+      .set(updates)
+      .where(and(eq(companyPartners.id, partnerId), eq(companyPartners.companyId, companyId)))
+      .returning();
+    if (!row) throw new Error("Partner not found");
+    return row;
+  }
+
+  async deactivateCompanyPartner(partnerId: number, companyId: number): Promise<void> {
+    await db
+      .update(companyPartners)
+      .set({ isActive: false })
+      .where(and(eq(companyPartners.id, partnerId), eq(companyPartners.companyId, companyId)));
+  }
+
+  async getReportPartnershipSales(companyId: number, startDate: Date, endDate: Date, partnerId?: number) {
+    const conditions = [
+      eq(invoices.companyId, companyId),
+      gte(invoices.issueDate, startDate),
+      lte(invoices.issueDate, endDate),
+      ne(invoices.status, "cancelled"),
+      ne(invoices.transactionType, "CreditNote"),
+    ];
+    if (partnerId) conditions.push(eq(invoices.partnerId, partnerId));
+
+    const rows = await db
+      .select({
+        invoice: invoices,
+        customerName: customers.name,
+        partnerName: companyPartners.name,
+      })
+      .from(invoices)
+      .leftJoin(customers, eq(invoices.customerId, customers.id))
+      .leftJoin(companyPartners, eq(invoices.partnerId, companyPartners.id))
+      .where(and(...conditions))
+      .orderBy(desc(invoices.issueDate));
+
+    const partnershipRows = rows.filter((r) => r.invoice.partnerId != null);
+    const summaryMap = new Map<number, { partnerId: number; partnerName: string; invoiceCount: number; grossTotal: number; partnerShare: number; issuerShare: number }>();
+
+    for (const row of partnershipRows) {
+      const pid = row.invoice.partnerId!;
+      const snapshot = row.invoice.partnerSnapshot as any;
+      const name = snapshot?.name || row.partnerName || `Partner #${pid}`;
+      const existing = summaryMap.get(pid) || { partnerId: pid, partnerName: name, invoiceCount: 0, grossTotal: 0, partnerShare: 0, issuerShare: 0 };
+      existing.invoiceCount += 1;
+      existing.grossTotal += Number(row.invoice.total || 0);
+      existing.partnerShare += Number(row.invoice.partnerShareAmount || 0);
+      existing.issuerShare += Number(row.invoice.issuerShareAmount || 0);
+      summaryMap.set(pid, existing);
+    }
+
+    return {
+      summary: Array.from(summaryMap.values()).sort((a, b) => b.grossTotal - a.grossTotal),
+      invoices: partnershipRows.map((r) => ({
+        id: r.invoice.id,
+        invoiceNumber: r.invoice.invoiceNumber,
+        issueDate: r.invoice.issueDate,
+        customerName: r.customerName,
+        status: r.invoice.status,
+        total: Number(r.invoice.total || 0),
+        partnerId: r.invoice.partnerId,
+        partnerName: (r.invoice.partnerSnapshot as any)?.name || r.partnerName,
+        revenueSharePercent: Number(r.invoice.revenueSharePercent || 0),
+        partnerShareAmount: Number(r.invoice.partnerShareAmount || 0),
+        issuerShareAmount: Number(r.invoice.issuerShareAmount || 0),
+      })),
+    };
   }
 
   // Analytics

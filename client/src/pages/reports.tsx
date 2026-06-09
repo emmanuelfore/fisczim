@@ -48,6 +48,7 @@ const REPORT_CATEGORIES: {
       { key: "sales", label: "Sales", category: "sales", endpoint: "sales-summary" },
       { key: "sales-by-customer", label: "Sales by Customer", category: "sales", endpoint: "sales-by-customer" },
       { key: "sales-by-item", label: "Sales by Item", category: "sales", endpoint: "sales-by-item" },
+      { key: "partnership-sales", label: "Partnership Sales", category: "sales", externalHref: "/reports/partnership-sales" },
     ],
   },
   {

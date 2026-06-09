@@ -10,6 +10,9 @@ import { motion, AnimatePresence } from "framer-motion";
 // Import Sub-components
 import { OrganizationProfile } from "@/components/settings/organization-profile";
 import { TeamManagement } from "@/components/settings/team-management";
+import { RoleManagement } from "@/components/settings/role-management";
+import { ApprovalPoliciesSettings } from "@/components/settings/approval-policies-settings";
+import { PartnershipManagement } from "@/components/settings/partnership-management";
 import { SecuritySettings } from "@/components/settings/security-settings";
 import { BankingSettings } from "@/components/settings/banking-settings";
 import { CurrencySettings } from "@/components/settings/currency-settings";
@@ -138,6 +141,9 @@ export default function SettingsPage() {
         { id: "profile", label: "Profile" },
         { id: "branches", label: "Branches" },
         { id: "team", label: "Team" },
+        { id: "roles", label: "Roles" },
+        { id: "approval-policies", label: "Approvals" },
+        { id: "partnerships", label: "Partnerships" },
         { id: "security", label: "Security" },
       ]
     },
@@ -193,6 +199,9 @@ export default function SettingsPage() {
       case 'profile': return <OrganizationProfile company={activeCompany} formData={formData} setFormData={setFormData} />;
       case 'branches': return <BranchManagement companyId={activeCompany.id} />;
       case 'team': return <TeamManagement companyId={activeCompany.id} />;
+      case 'roles': return <RoleManagement companyId={activeCompany.id} />;
+      case 'approval-policies': return <ApprovalPoliciesSettings companyId={activeCompany.id} />;
+      case 'partnerships': return <PartnershipManagement companyId={activeCompany.id} />;
       case 'security': return <SecuritySettings company={activeCompany} />;
       case 'banking': return <BankingSettings formData={formData} setFormData={setFormData} />;
       case 'accounting': return <AccountingSystemSettings companyId={activeCompany.id} formData={formData} setFormData={setFormData} />;

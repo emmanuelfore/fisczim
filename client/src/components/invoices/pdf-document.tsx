@@ -2,6 +2,7 @@
 import { Document, Page, Text, View, StyleSheet, Image, Font } from "@react-pdf/renderer";
 import { format } from "date-fns";
 import { getInvoiceTemplate, getStoredInvoiceTemplateSettings, type InvoiceTemplateDesignerSettings } from "@/lib/invoice-templates";
+import { normalizePartnershipSettings, type PartnerSnapshot } from "@shared/partnership";
 
 const styles = StyleSheet.create({
     page: {
@@ -225,6 +226,9 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
     const verificationCode = verificationCodeRaw.match(/.{1,4}/g)?.join("-") || "";
 
     const isExclusive = !invoice.taxInclusive;
+    const partner = (invoice.partnerSnapshot || null) as PartnerSnapshot | null;
+    const partnershipSettings = normalizePartnershipSettings(company?.partnershipSettings);
+    const showDualLogo = !!partner?.logoUrl && partnershipSettings.dualLogoEnabled !== false;
     const documentTitle = invoice.status === 'quote'
         ? "OFFICIAL QUOTATION"
         : (invoice.transactionType === 'CreditNote'
@@ -240,10 +244,13 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
             <Page size="A4" style={[styles.page, { backgroundColor: template.page, color: template.text, padding: compact ? 18 : 24 }]}>
                 {/* 0. Header: Logo (Left) - Verification (Center) - QR (Right) */}
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: compact ? 7 : 10, padding: template.headerMode === 'band' ? 10 : 0, paddingBottom: template.headerMode === 'band' ? 10 : 10, borderBottomWidth: 1, borderBottomColor: borderColor, backgroundColor: template.headerMode === 'band' ? template.secondary : 'transparent' }}>
-                    {/* Left: Logo */}
-                    <View style={{ width: '28%' }}>
+                    {/* Left: Logo(s) */}
+                    <View style={{ width: '28%', flexDirection: showDualLogo && partnershipSettings.dualLogoLayout === 'stacked' ? 'column' : 'row', alignItems: 'center', gap: 4 }}>
                         {company?.logoUrl ? (
-                            <Image src={company.logoUrl} style={{ width: 108, height: 50, objectFit: 'contain' }} />
+                            <Image src={company.logoUrl} style={{ width: showDualLogo ? 72 : 108, height: 50, objectFit: 'contain' }} />
+                        ) : null}
+                        {showDualLogo && partner?.logoUrl ? (
+                            <Image src={partner.logoUrl} style={{ width: partnershipSettings.dualLogoLayout === 'primary_secondary' ? 56 : 72, height: 44, objectFit: 'contain' }} />
                         ) : null}
                     </View>
 
@@ -723,6 +730,18 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                             <Text style={{ fontSize: 7, color: '#64748b' }}>Scan to verify this fiscal document.</Text>
                             {verificationCode ? <Text style={{ fontSize: 7, color: '#64748b', marginTop: 2 }}>Code: {verificationCode}</Text> : null}
                         </View>
+                    </View>
+                ) : null}
+
+                {partner ? (
+                    <View style={{ marginTop: 8, padding: 6, borderTopWidth: 1, borderTopColor: borderColor }}>
+                        <Text style={{ fontSize: 7, color: '#64748b', textAlign: 'center' }}>
+                            {partner.displayLabel || "In partnership with"} {partner.tradingName || partner.name}
+                            {invoice.revenueSharePercent ? ` · Partner share ${Number(invoice.revenueSharePercent).toFixed(1)}%` : ""}
+                        </Text>
+                        {partnershipSettings.partnershipFootnote ? (
+                            <Text style={{ fontSize: 6, color: '#94a3b8', textAlign: 'center', marginTop: 2 }}>{partnershipSettings.partnershipFootnote}</Text>
+                        ) : null}
                     </View>
                 ) : null}
 

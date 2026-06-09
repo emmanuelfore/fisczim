@@ -46,6 +46,8 @@ import { Eye, Download } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { motion, AnimatePresence } from "framer-motion";
 import { getStoredInvoiceTemplateSettings, invoiceTemplates, type InvoiceTemplateId } from "@/lib/invoice-templates";
+import { usePartners } from "@/hooks/use-partners";
+import { computeRevenueSplit } from "@shared/partnership";
 
 type LineItem = {
   localId: string;
@@ -76,6 +78,7 @@ export default function CreateInvoicePage() {
   const { data: customers } = useCustomers(companyId);
   const { data: products } = useProducts(companyId);
   const { data: currencies } = useCurrencies(companyId);
+  const { data: partners = [] } = usePartners(companyId);
   // Fetch existing invoice if we are editing OR duplicating
   const sourceId = editId || duplicateId;
   const { data: existingInvoice } = useInvoice(sourceId ? parseInt(sourceId) : 0);
@@ -151,6 +154,10 @@ export default function CreateInvoicePage() {
       setCurrencyCode(existingInvoice.currency || "USD");
       setExchangeRate(existingInvoice.exchangeRate || "1.000000"); // Ensure we copy exchange rate too
       setPaymentMethod(existingInvoice.paymentMethod || "CASH");
+      if ((existingInvoice as any).partnerId) {
+        setPartnerId(String((existingInvoice as any).partnerId));
+        setRevenueSharePercent(String((existingInvoice as any).revenueSharePercent || "0"));
+      }
 
       if (existingInvoice.items && existingInvoice.items.length > 0) {
         console.log("Populating items:", existingInvoice.items);
@@ -176,6 +183,8 @@ export default function CreateInvoicePage() {
   const [poNumber, setPoNumber] = useState<string>("");
   const [invoiceTemplate, setInvoiceTemplate] = useState<InvoiceTemplateId>(() => getStoredInvoiceTemplateSettings(companyId).defaultTemplateId);
   const [taxInclusive, setTaxInclusive] = useState<boolean>(false);
+  const [partnerId, setPartnerId] = useState<string>("none");
+  const [revenueSharePercent, setRevenueSharePercent] = useState<string>("0");
 
   // Helper to get default tax rate based on company registration
   const getDefaultTaxRate = () => {
@@ -421,7 +430,16 @@ export default function CreateInvoicePage() {
   ];
   const readyToIssue = readinessChecks.every(check => check.complete);
 
+  const selectedPartner = partners.find((p) => String(p.id) === partnerId);
+  const splitPreview = partnerId !== "none"
+    ? computeRevenueSplit(total, Number(revenueSharePercent || selectedPartner?.defaultRevenueSharePercent || 0))
+    : null;
 
+  const partnerPayload = () => (
+    partnerId !== "none"
+      ? { partnerId: Number(partnerId), revenueSharePercent }
+      : { partnerId: null, revenueSharePercent: null }
+  );
 
   type InvoiceAction = 'draft' | 'issue' | 'issueAndFiscalize' | 'quote';
   const [loadingAction, setLoadingAction] = useState<InvoiceAction | null>(null);
@@ -466,6 +484,7 @@ export default function CreateInvoicePage() {
       taxAmount: taxAmount.toString(),
       total: total.toString(),
       taxInclusive: taxInclusive,
+      ...partnerPayload(),
       items: items.map(item => ({
         productId: item.productId,
         description: item.description,
@@ -526,6 +545,7 @@ export default function CreateInvoicePage() {
       taxAmount: taxAmount.toString(),
       total: total.toString(),
       taxInclusive: taxInclusive,
+      ...partnerPayload(),
       items: items.map(item => ({
         productId: item.productId,
         description: item.description,
@@ -594,6 +614,7 @@ export default function CreateInvoicePage() {
       taxAmount: taxAmount.toString(),
       total: total.toString(),
       taxInclusive: taxInclusive,
+      ...partnerPayload(),
       items: items.map(item => ({
         productId: item.productId,
         description: item.description,
@@ -886,6 +907,52 @@ export default function CreateInvoicePage() {
                         className="h-11 rounded-xl bg-white px-3 py-0 font-mono text-sm"
                       />
                     </div>
+
+                    {partners.length > 0 && (
+                      <>
+                        <div className="space-y-1.5">
+                          <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#64748B]">Commercial Partner</Label>
+                          <Select
+                            value={partnerId}
+                            onValueChange={(val) => {
+                              setPartnerId(val);
+                              if (val !== "none") {
+                                const p = partners.find((x) => String(x.id) === val);
+                                if (p) setRevenueSharePercent(String(p.defaultRevenueSharePercent || 0));
+                              }
+                            }}
+                          >
+                            <SelectTrigger className="h-11 rounded-xl bg-white px-3 py-0">
+                              <SelectValue placeholder="No partner" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">No partner</SelectItem>
+                              {partners.map((p) => (
+                                <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        {partnerId !== "none" && (
+                          <div className="space-y-1.5">
+                            <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#64748B]">Partner Revenue Share %</Label>
+                            <Input
+                              type="number"
+                              min={0}
+                              max={100}
+                              value={revenueSharePercent}
+                              onChange={(e) => setRevenueSharePercent(e.target.value)}
+                              className="h-11 rounded-xl bg-white px-3 py-0"
+                            />
+                            {splitPreview && (
+                              <p className="text-xs text-slate-500">
+                                Partner: ${splitPreview.partnerShareAmount.toFixed(2)} · Issuer: ${splitPreview.issuerShareAmount.toFixed(2)}
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    )}
 
                     <div className="space-y-1.5">
                       <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#64748B]">Invoice Template</Label>

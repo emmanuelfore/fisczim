@@ -26,6 +26,12 @@ import sageWebhookRouter from "./lib/sage-webhook.js";
 import sageOAuthRouter from "./lib/sage-oauth.js";
 import v1Router from "./api/v1/index.js";
 import busTicketingRouter from "./api/v1/bus-ticketing.js";
+import { createRolesPermissionsRouter } from "./routes/roles-permissions.js";
+import { createPartnershipsRouter } from "./routes/partnerships.js";
+import { userHasPermission } from "./lib/permissions.js";
+import { resolveActionAccess } from "./lib/approval-policies.js";
+import { createApprovalRequest } from "./lib/approvals.js";
+import { APPROVAL_TYPES } from "../shared/permissions.js";
 import { db } from "./db";
 import { eq, and, gte, lte, ne, desc, asc, sql, or, ilike, isNull, inArray } from "drizzle-orm";
 import { format } from "date-fns";
@@ -2111,12 +2117,42 @@ export async function registerRoutes(
   app.post(api.inventory.adjust.path, requireAuth, async (req, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
+      const userId = (req.user as any).id;
+      const isSuperAdmin = !!(req.user as any)?.isSuperAdmin;
       const { productId, variationId, branchId, quantity, type, notes } = api.inventory.adjust.input.parse(req.body);
       if (!notes || notes.trim().length < 5) {
         return res.status(400).json({ message: "Stock adjustments require a clear reason or reference." });
       }
       if (!Number.isFinite(Number(quantity)) || Number(quantity) === 0) {
         return res.status(400).json({ message: "Adjustment quantity must be a non-zero number." });
+      }
+
+      const access = await resolveActionAccess(
+        userId,
+        companyId,
+        APPROVAL_TYPES.STOCK_ADJUSTMENT,
+        isSuperAdmin
+      );
+      if (!access.allowed) {
+        return res.status(403).json({ message: "You do not have permission to adjust stock." });
+      }
+
+      if (access.requiresApproval) {
+        const approval = await createApprovalRequest({
+          companyId,
+          type: APPROVAL_TYPES.STOCK_ADJUSTMENT,
+          title: `Stock adjustment: ${type}`,
+          description: notes,
+          payload: { productId, variationId, branchId, quantity, type, notes },
+          referenceType: "product",
+          referenceId: String(productId),
+          requestedBy: userId,
+        });
+        return res.status(202).json({
+          message: "Stock adjustment submitted for approval",
+          requiresApproval: true,
+          approvalId: approval.id,
+        });
       }
       
       await storage.adjustInventory(companyId, {
@@ -2126,7 +2162,7 @@ export async function registerRoutes(
         quantity,
         type,
         notes,
-        userId: (req.user as any).id
+        userId,
       });
 
       res.status(201).json({ message: "Inventory adjusted successfully" });
@@ -4876,9 +4912,42 @@ export async function registerRoutes(
   });
 
   app.post("/api/companies/:companyId/inventory/batch-stock-in", requireAuth, async (req, res) => {
+    const companyId = Number(req.params.companyId);
+    const userId = (req.user as any)?.id;
+    const isSuperAdmin = !!(req.user as any)?.isSuperAdmin;
+    const access = await resolveActionAccess(userId, companyId, APPROVAL_TYPES.GRN_CONFIRM, isSuperAdmin);
+    if (!access.allowed) {
+      return res.status(403).json({ message: "You do not have permission for direct goods receipt. Use the GDN workflow instead." });
+    }
     const idempotencyKey = await sendIdempotentHit(req, res);
     if (idempotencyKey === false) return;
     const { items, supplierId, notes, landedCosts, allocationMethod, grvNumber } = req.body;
+
+    if (access.requiresApproval) {
+      const approval = await createApprovalRequest({
+        companyId,
+        type: APPROVAL_TYPES.GRN_CONFIRM,
+        title: "Direct goods receipt",
+        description: notes || "Batch stock-in pending approval",
+        payload: {
+          batchStockIn: true,
+          items,
+          supplierId,
+          notes,
+          landedCosts,
+          allocationMethod,
+          grvNumber,
+        },
+        referenceType: "batch_stock_in",
+        requestedBy: userId,
+      });
+      return sendIdempotent(req, res, idempotencyKey, 202, {
+        message: "Goods receipt submitted for approval",
+        requiresApproval: true,
+        approvalId: approval.id,
+      });
+    }
+
     const { recordBatchStockIn } = await import("./lib/inventory.js");
 
     const result = await recordBatchStockIn(
@@ -5168,9 +5237,11 @@ export async function registerRoutes(
     try {
       const companyId = Number(req.params.companyId);
       const gdnId = Number(req.params.gdnId);
-      const role = await storage.getCompanyUserRole((req.user as any)?.id, companyId);
-      if (role !== "owner" && role !== "admin" && !(req.user as any)?.isSuperAdmin) {
-        return res.status(403).json({ message: "Only owner/admin can confirm GDN stock." });
+      const userId = (req.user as any)?.id;
+      const isSuperAdmin = !!(req.user as any)?.isSuperAdmin;
+      const access = await resolveActionAccess(userId, companyId, APPROVAL_TYPES.GRN_CONFIRM, isSuperAdmin);
+      if (!access.allowed) {
+        return res.status(403).json({ message: "You do not have permission to confirm goods received." });
       }
 
       const { items, notes, landedCosts, allocationMethod, grvNumber } = req.body || {};
@@ -5186,6 +5257,24 @@ export async function registerRoutes(
 
       if (!gdn) return res.status(404).json({ message: "GDN not found." });
       if (gdn.status !== "PENDING") return res.status(409).json({ message: "This GDN has already been processed." });
+
+      if (access.requiresApproval) {
+        const approval = await createApprovalRequest({
+          companyId,
+          type: APPROVAL_TYPES.GRN_CONFIRM,
+          title: `Confirm GDN ${gdn.gdnNumber}`,
+          description: notes || gdn.notes || undefined,
+          payload: { gdnId, items, notes, landedCosts, allocationMethod, grvNumber },
+          referenceType: "gdn",
+          referenceId: String(gdnId),
+          requestedBy: userId,
+        });
+        return res.status(202).json({
+          message: "GDN confirmation submitted for approval",
+          requiresApproval: true,
+          approvalId: approval.id,
+        });
+      }
 
       const stockItems = items.map((raw: any) => {
         const productId = Number(raw.productId);
@@ -6035,8 +6124,52 @@ export async function registerRoutes(
 
       const companyId = Number(req.params.companyId);
       const userId = (req.user as any)?.id;
+      const isSuperAdmin = !!(req.user as any)?.isSuperAdmin;
       const requestBranchId = getBranchId(req);
       const isOfflineSync = req.body?.isOfflineSync === true;
+
+      if (input.isPos) {
+        const canSell = isSuperAdmin || await userHasPermission(userId, companyId, "pos.sell", false);
+        if (!canSell) {
+          return res.status(403).json({ message: "You do not have permission to process POS sales." });
+        }
+      } else {
+        const targetStatus = input.status || "issued";
+        if (targetStatus === "draft") {
+          const canCreate = isSuperAdmin || await userHasPermission(userId, companyId, "invoices.create", false);
+          if (!canCreate) {
+            return res.status(403).json({ message: "You do not have permission to create invoices." });
+          }
+        } else {
+          const invoiceTotal = Number(input.total || 0);
+          const issueAccess = await resolveActionAccess(
+            userId,
+            companyId,
+            APPROVAL_TYPES.INVOICE_ISSUE,
+            isSuperAdmin,
+            { amount: invoiceTotal }
+          );
+          if (!issueAccess.allowed) {
+            return res.status(403).json({ message: "You do not have permission to issue invoices." });
+          }
+          if (issueAccess.requiresApproval) {
+            const approval = await createApprovalRequest({
+              companyId,
+              type: APPROVAL_TYPES.INVOICE_ISSUE,
+              title: `Invoice issuance${input.invoiceNumber ? `: ${input.invoiceNumber}` : ""}`,
+              description: input.notes || undefined,
+              payload: { invoiceData: { ...input, status: "issued", companyId, createdBy: userId, branchId: requestBranchId }, items: input.items },
+              referenceType: "invoice_draft",
+              requestedBy: userId,
+            });
+            return sendIdempotent(req, res, idempotencyKey, 202, {
+              message: "Invoice issuance submitted for approval",
+              requiresApproval: true,
+              approvalId: approval.id,
+            });
+          }
+        }
+      }
 
       // 1. Parallelize initial validation and data fetching
       let activeShiftPromise: Promise<any> = Promise.resolve(null);
@@ -6101,8 +6234,10 @@ export async function registerRoutes(
         companyId,
         createdBy: userId,
         shiftId: activeShift?.id || undefined,
-        branchId: requestBranchId
-      });
+        branchId: requestBranchId,
+        partnerId: input.partnerId ?? undefined,
+        revenueSharePercent: input.revenueSharePercent != null ? String(input.revenueSharePercent) : undefined,
+      } as any);
       markPerf("invoice_created");
 
       // 2. POS Payment Recording
@@ -9230,7 +9365,45 @@ export async function registerRoutes(
       const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
 
-      const entry = await storage.postJournalEntryDraft(companyId, Number(req.params.id), req.user?.id);
+      const userId = req.user?.id;
+      const isSuperAdmin = !!req.user?.isSuperAdmin;
+      const draftId = Number(req.params.id);
+      const drafts = await storage.getJournalEntryDrafts(companyId);
+      const draft = drafts.find((d) => d.id === draftId);
+      const draftAmount = (draft as any)?.lines?.reduce?.(
+        (sum: number, line: any) => sum + Math.max(Number(line.debit || 0), Number(line.credit || 0)),
+        0
+      ) ?? Number((draft as any)?.totalDebit || 0);
+      const access = await resolveActionAccess(
+        userId,
+        companyId,
+        APPROVAL_TYPES.JOURNAL_POST,
+        isSuperAdmin,
+        { amount: draftAmount }
+      );
+      if (!access.allowed) {
+        return res.status(403).json({ message: "You do not have permission to post journal entries." });
+      }
+
+      if (access.requiresApproval) {
+        const approval = await createApprovalRequest({
+          companyId,
+          type: APPROVAL_TYPES.JOURNAL_POST,
+          title: `Journal posting: ${draft?.description || `Draft #${draftId}`}`,
+          description: draft?.description || undefined,
+          payload: { draftId },
+          referenceType: "journal_draft",
+          referenceId: String(draftId),
+          requestedBy: userId,
+        });
+        return res.status(202).json({
+          message: "Journal posting submitted for approval",
+          requiresApproval: true,
+          approvalId: approval.id,
+        });
+      }
+
+      const entry = await storage.postJournalEntryDraft(companyId, draftId, userId);
       res.json(entry);
     } catch (err: any) {
       res.status(400).json({ message: err.message });
@@ -9241,10 +9414,44 @@ export async function registerRoutes(
     try {
       const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+
+      const userId = req.user?.id;
+      const isSuperAdmin = !!req.user?.isSuperAdmin;
+      const journalLines = Array.isArray(req.body?.lines) ? req.body.lines : [];
+      const journalAmount = journalLines.reduce(
+        (sum: number, line: any) => sum + Math.max(Number(line.debit || 0), Number(line.credit || 0), Number(line.amount || 0)),
+        0
+      );
+      const access = await resolveActionAccess(
+        userId,
+        companyId,
+        APPROVAL_TYPES.JOURNAL_POST,
+        isSuperAdmin,
+        { amount: journalAmount }
+      );
+      if (!access.allowed) {
+        return res.status(403).json({ message: "You do not have permission to post journal entries." });
+      }
+
+      if (access.requiresApproval) {
+        const approval = await createApprovalRequest({
+          companyId,
+          type: APPROVAL_TYPES.JOURNAL_POST,
+          title: `Journal posting: ${req.body?.description || "Manual entry"}`,
+          description: req.body?.description,
+          payload: { manualEntry: req.body },
+          requestedBy: userId,
+        });
+        return res.status(202).json({
+          message: "Journal posting submitted for approval",
+          requiresApproval: true,
+          approvalId: approval.id,
+        });
+      }
       
       const entry = await storage.postToLedger(companyId, {
         ...req.body,
-        createdBy: req.user?.id
+        createdBy: userId
       });
       res.json(entry);
     } catch (err: any) {
@@ -10264,6 +10471,9 @@ export async function registerRoutes(
       res.status(500).json({ message: err.message });
     }
   });
+
+  app.use("/api", createRolesPermissionsRouter(requireAuth));
+  app.use("/api", createPartnershipsRouter(requireAuth));
 
   app.use('/api/v1', v1Router);
 

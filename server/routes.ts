@@ -39,6 +39,19 @@ import {
   accounts,
   journalEntries,
   ledgerEntries,
+  costCenters,
+  accountingSegments,
+  cashbookEntries,
+  cashbookEntryLines,
+  withholdingTaxRates,
+  withholdingTaxCertificates,
+  inventoryValuationSnapshots,
+  approvalRequests,
+  taxObligations,
+  mobileMoneyTransactions,
+  scheduledReports,
+  provisions,
+  revenueContracts,
   paymentAllocations,
   validationErrors,
   payments,
@@ -47,14 +60,22 @@ import {
   posHolds,
   idempotencyKeys,
   companies,
+  companyUsers,
+  companyAccessRoles,
   customers,
   currencies,
+  taxTypes,
   products,
   branches,
+  branchUsers,
   branchStocks,
+  inventoryLocations,
+  inventoryLocationStocks,
   inventoryTransactions,
   goodsDeliveryNotes,
   goodsDeliveryNoteItems,
+  stockTransfers,
+  stockTransferItems,
   purchaseOrders,
   purchaseOrderItems,
   suppliers,
@@ -70,6 +91,7 @@ import {
   auditLogs,
   users,
   insertQuotationSchema,
+  insertCompanyAccessRoleSchema,
   insertQuotationItemSchema,
   insertRecurringInvoiceSchema,
   insertPosShiftSchema,
@@ -252,6 +274,214 @@ export async function registerRoutes(
 
     return shift || null;
   };
+
+  const getLocationLabel = (branchId?: number | null) =>
+    branchId ? `Branch ${branchId}` : "Warehouse";
+
+  const ensureBranchBelongsToCompany = async (
+    tx: any,
+    branchId: number | null | undefined,
+    companyId: number,
+  ) => {
+    if (!branchId) return;
+    const [branch] = await tx
+      .select({ id: branches.id })
+      .from(branches)
+      .where(and(eq(branches.id, branchId), eq(branches.companyId, companyId)))
+      .limit(1);
+    if (!branch) throw new Error(`Branch ${branchId} does not belong to this company.`);
+  };
+
+  const getStockAtLocation = async (
+    tx: any,
+    productId: number,
+    branchId?: number | null,
+  ) => {
+    if (branchId) {
+      const [stock] = await tx
+        .select()
+        .from(branchStocks)
+        .where(and(eq(branchStocks.branchId, branchId), eq(branchStocks.productId, productId)))
+        .limit(1);
+      return Number(stock?.stockLevel || 0);
+    }
+
+    const [product] = await tx
+      .select({ stockLevel: products.stockLevel })
+      .from(products)
+      .where(eq(products.id, productId))
+      .limit(1);
+    return Number(product?.stockLevel || 0);
+  };
+
+  const adjustStockAtLocation = async (
+    tx: any,
+    productId: number,
+    quantityDelta: number,
+    branchId?: number | null,
+  ) => {
+    if (branchId) {
+      const [stock] = await tx
+        .select()
+        .from(branchStocks)
+        .where(and(eq(branchStocks.branchId, branchId), eq(branchStocks.productId, productId)))
+        .limit(1);
+      const next = Number(stock?.stockLevel || 0) + quantityDelta;
+      if (stock) {
+        await tx.update(branchStocks).set({ stockLevel: next.toString() }).where(eq(branchStocks.id, stock.id));
+      } else {
+        await tx.insert(branchStocks).values({
+          branchId,
+          productId,
+          stockLevel: next.toString(),
+        });
+      }
+      return next;
+    }
+
+    const [product] = await tx
+      .select({ stockLevel: products.stockLevel })
+      .from(products)
+      .where(eq(products.id, productId))
+      .limit(1);
+    const next = Number(product?.stockLevel || 0) + quantityDelta;
+    await tx.update(products).set({ stockLevel: next.toString() }).where(eq(products.id, productId));
+    return next;
+  };
+
+  const ensureCompanyInventoryLocations = async (tx: any, companyId: number) => {
+    const existing = await tx
+      .select()
+      .from(inventoryLocations)
+      .where(eq(inventoryLocations.companyId, companyId));
+
+    const existingWarehouse = existing.find((location: any) => location.type === "WAREHOUSE" && !location.branchId);
+    if (!existingWarehouse) {
+      await tx.insert(inventoryLocations).values({
+        companyId,
+        type: "WAREHOUSE",
+        name: "Main Warehouse",
+        code: "MAIN-WAREHOUSE",
+        isDefaultReceiving: true,
+        isDefaultDispatch: true,
+        isActive: true,
+      });
+    }
+
+    const companyBranches = await tx.select().from(branches).where(eq(branches.companyId, companyId));
+    const existingBranchLocationIds = new Set(
+      existing
+        .filter((location: any) => location.branchId)
+        .map((location: any) => Number(location.branchId)),
+    );
+    for (const branch of companyBranches) {
+      if (existingBranchLocationIds.has(branch.id)) continue;
+      await tx.insert(inventoryLocations).values({
+        companyId,
+        type: "BRANCH",
+        name: branch.name,
+        code: branch.code || `BRANCH-${branch.id}`,
+        address: branch.address || null,
+        branchId: branch.id,
+        isActive: branch.isActive ?? true,
+      });
+    }
+
+    return tx
+      .select()
+      .from(inventoryLocations)
+      .where(eq(inventoryLocations.companyId, companyId));
+  };
+
+  const resolveInventoryLocation = async (
+    tx: any,
+    companyId: number,
+    input: { locationId?: number | null; branchId?: number | null; defaultWarehouse?: boolean },
+  ) => {
+    const locations = await ensureCompanyInventoryLocations(tx, companyId);
+    let location = input.locationId
+      ? locations.find((item: any) => item.id === Number(input.locationId))
+      : undefined;
+
+    if (!location && input.branchId) {
+      location = locations.find((item: any) => item.branchId === Number(input.branchId));
+    }
+
+    if (!location && input.defaultWarehouse) {
+      location =
+        locations.find((item: any) => item.type === "WAREHOUSE" && item.isDefaultDispatch) ||
+        locations.find((item: any) => item.type === "WAREHOUSE" && !item.branchId);
+    }
+
+    if (!location) throw new Error("Inventory location not found.");
+    if (location.companyId !== companyId) throw new Error("Inventory location does not belong to this company.");
+    return location;
+  };
+
+  const getStockAtInventoryLocation = async (
+    tx: any,
+    productId: number,
+    locationId: number,
+  ) => {
+    const [stock] = await tx
+      .select()
+      .from(inventoryLocationStocks)
+      .where(and(eq(inventoryLocationStocks.locationId, locationId), eq(inventoryLocationStocks.productId, productId)))
+      .limit(1);
+    return Number(stock?.stockLevel || 0);
+  };
+
+  const adjustStockAtInventoryLocation = async (
+    tx: any,
+    productId: number,
+    quantityDelta: number,
+    location: any,
+    options?: { skipGlobalUpdate?: boolean }
+  ) => {
+    const [stock] = await tx
+      .select()
+      .from(inventoryLocationStocks)
+      .where(and(eq(inventoryLocationStocks.locationId, location.id), eq(inventoryLocationStocks.productId, productId)))
+      .limit(1);
+    const next = Number(stock?.stockLevel || 0) + quantityDelta;
+    const nextText = next.toString();
+
+    if (stock) {
+      await tx
+        .update(inventoryLocationStocks)
+        .set({
+          stockLevel: nextText,
+          availableQuantity: nextText,
+          updatedAt: new Date(),
+        })
+        .where(eq(inventoryLocationStocks.id, stock.id));
+    } else {
+      await tx.insert(inventoryLocationStocks).values({
+        locationId: location.id,
+        productId,
+        stockLevel: nextText,
+        reservedQuantity: "0",
+        availableQuantity: nextText,
+      });
+    }
+
+    if (!options?.skipGlobalUpdate) {
+      if (location.branchId) {
+        await adjustStockAtLocation(tx, productId, quantityDelta, location.branchId);
+      } else if (location.type === "WAREHOUSE") {
+        await adjustStockAtLocation(tx, productId, quantityDelta, null);
+      }
+    } else {
+      if (location.branchId) {
+        await adjustStockAtLocation(tx, productId, quantityDelta, location.branchId);
+      }
+    }
+
+    return next;
+  };
+
+  const locationDisplayName = (location: any) =>
+    location?.name || (location?.branchId ? `Branch ${location.branchId}` : "Main Warehouse");
 
   const buildShiftSummary = async (shiftId: number) => {
     const shift = await db.query.posShifts.findFirst({ where: eq(posShifts.id, shiftId) });
@@ -444,6 +674,14 @@ export async function registerRoutes(
   const requireSuperAdmin = async (req: any, res: any, next: any) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     if (!req.user.isSuperAdmin) return res.status(403).json({ message: "SuperAdmin access required" });
+    next();
+  };
+
+  const requireSystemAdmin = async (req: any, res: any, next: any) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    if (String(req.user.email || "").toLowerCase() !== "admin@zimra.co.zw") {
+      return res.status(403).json({ message: "System admin access required" });
+    }
     next();
   };
 
@@ -1316,6 +1554,55 @@ export async function registerRoutes(
     res.json(companies);
   });
 
+  app.get("/api/system/superadmin-company-visibility", requireSystemAdmin, async (_req, res) => {
+    try {
+      const rows = await db
+        .select({
+          id: companies.id,
+          name: companies.name,
+          tradingName: companies.tradingName,
+          email: companies.email,
+          tin: companies.tin,
+          superadminVisible: companies.superadminVisible,
+        })
+        .from(companies)
+        .orderBy(asc(companies.name));
+
+      res.json(rows);
+    } catch (err: any) {
+      console.error("List SuperAdmin Visibility Error:", err);
+      res.status(500).json({ message: "Failed to list company visibility" });
+    }
+  });
+
+  app.patch("/api/system/superadmin-company-visibility/:companyId", requireSystemAdmin, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      if (!Number.isFinite(companyId)) return res.status(400).json({ message: "Invalid company ID" });
+
+      const visible = z.boolean().parse(req.body?.superadminVisible);
+      const [updated] = await db
+        .update(companies)
+        .set({ superadminVisible: visible })
+        .where(eq(companies.id, companyId))
+        .returning({
+          id: companies.id,
+          name: companies.name,
+          tradingName: companies.tradingName,
+          email: companies.email,
+          tin: companies.tin,
+          superadminVisible: companies.superadminVisible,
+        });
+
+      if (!updated) return res.status(404).json({ message: "Company not found" });
+      res.json(updated);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: "superadminVisible must be true or false" });
+      console.error("Update SuperAdmin Visibility Error:", err);
+      res.status(500).json({ message: "Failed to update company visibility" });
+    }
+  });
+
   app.post("/api/companies/:companyId/api-key", requireOwner, async (req, res) => {
     const companyId = parseInt(req.params.companyId);
     // Generate a secure random API key
@@ -1473,6 +1760,35 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/companies/:companyId/branches/:id", requireAuth, async (req, res) => {
+    const id = parseInt(req.params.id);
+    const companyId = Number(req.params.companyId);
+    if (isNaN(id) || isNaN(companyId)) return res.status(400).json({ message: "Invalid branch ID" });
+    try {
+      const existing = await storage.getBranch(id);
+      if (!existing || existing.companyId !== companyId) return res.status(404).json({ message: "Branch not found" });
+      const branchData = insertBranchSchema.partial().parse(req.body);
+      const branch = await storage.updateBranch(id, branchData);
+      res.json(branch);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/companies/:companyId/branches/:id", requireAuth, async (req, res) => {
+    const id = parseInt(req.params.id);
+    const companyId = Number(req.params.companyId);
+    if (isNaN(id) || isNaN(companyId)) return res.status(400).json({ message: "Invalid branch ID" });
+    try {
+      const existing = await storage.getBranch(id);
+      if (!existing || existing.companyId !== companyId) return res.status(404).json({ message: "Branch not found" });
+      await storage.deleteBranch(id);
+      res.sendStatus(204);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   app.get("/api/branches/:branchId/stock", requireAuth, async (req, res) => {
     const branchId = parseInt(req.params.branchId);
     if (isNaN(branchId)) return res.status(400).json({ message: "Invalid branch ID" });
@@ -1493,6 +1809,149 @@ export async function registerRoutes(
       res.json(result);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/companies/:companyId/inventory/locations", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const locations = await db.transaction(async (tx) =>
+        ensureCompanyInventoryLocations(tx, companyId),
+      );
+      const locationIds = locations.map((location: any) => location.id);
+      const stockRows = locationIds.length
+        ? await db
+            .select({
+              locationId: inventoryLocationStocks.locationId,
+              stockQuantity: sql<string>`coalesce(sum(${inventoryLocationStocks.stockLevel}::numeric), 0)`,
+              stockValue: sql<string>`coalesce(sum(${inventoryLocationStocks.stockLevel}::numeric * coalesce(${products.costPrice}::numeric, 0)), 0)`,
+            })
+            .from(inventoryLocationStocks)
+            .innerJoin(products, eq(products.id, inventoryLocationStocks.productId))
+            .where(inArray(inventoryLocationStocks.locationId, locationIds))
+            .groupBy(inventoryLocationStocks.locationId)
+        : [];
+      const stockByLocation = new Map(stockRows.map((row) => [row.locationId, row]));
+      res.json(
+        locations.map((location: any) => {
+          const stock = stockByLocation.get(location.id);
+          return {
+            ...location,
+            stockQuantity: Number(stock?.stockQuantity || 0),
+            stockValue: Number(stock?.stockValue || 0),
+          };
+        }),
+      );
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch inventory locations" });
+    }
+  });
+
+  app.post("/api/companies/:companyId/inventory/locations", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const role = await storage.getCompanyUserRole((req.user as any)?.id, companyId);
+      if (role !== "owner" && role !== "admin" && !(req.user as any)?.isSuperAdmin) {
+        return res.status(403).json({ message: "Only owner/admin can create inventory locations." });
+      }
+      const type = String(req.body?.type || "WAREHOUSE").toUpperCase();
+      const allowedTypes = new Set(["WAREHOUSE", "BRANCH", "VAN", "SHOP_FLOOR"]);
+      if (!allowedTypes.has(type)) return res.status(400).json({ message: "Invalid location type." });
+      const name = String(req.body?.name || "").trim();
+      if (!name) return res.status(400).json({ message: "Location name is required." });
+      const branchId = req.body?.branchId ? Number(req.body.branchId) : null;
+      if (branchId) await ensureBranchBelongsToCompany(db, branchId, companyId);
+      const [created] = await db.insert(inventoryLocations).values({
+        companyId,
+        type,
+        name,
+        code: req.body?.code ? String(req.body.code).trim() : null,
+        address: req.body?.address || null,
+        branchId,
+        isDefaultReceiving: !!req.body?.isDefaultReceiving,
+        isDefaultDispatch: !!req.body?.isDefaultDispatch,
+        isActive: req.body?.isActive !== false,
+      }).returning();
+      res.status(201).json(created);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message || "Failed to create inventory location" });
+    }
+  });
+
+  app.patch("/api/companies/:companyId/inventory/locations/:id", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const id = Number(req.params.id);
+      const role = await storage.getCompanyUserRole((req.user as any)?.id, companyId);
+      if (role !== "owner" && role !== "admin" && !(req.user as any)?.isSuperAdmin) {
+        return res.status(403).json({ message: "Only owner/admin can update inventory locations." });
+      }
+
+      const [existing] = await db
+        .select()
+        .from(inventoryLocations)
+        .where(and(eq(inventoryLocations.id, id), eq(inventoryLocations.companyId, companyId)))
+        .limit(1);
+
+      if (!existing) {
+        return res.status(404).json({ message: "Inventory location not found." });
+      }
+
+      const updates: any = {};
+      if (req.body?.type !== undefined) {
+        const type = String(req.body.type).toUpperCase();
+        const allowedTypes = new Set(["WAREHOUSE", "BRANCH", "VAN", "SHOP_FLOOR"]);
+        if (!allowedTypes.has(type)) return res.status(400).json({ message: "Invalid location type." });
+        updates.type = type;
+      }
+      if (req.body?.name !== undefined) {
+        const name = String(req.body.name).trim();
+        if (!name) return res.status(400).json({ message: "Location name is required." });
+        updates.name = name;
+      }
+      if (req.body?.code !== undefined) {
+        updates.code = req.body.code ? String(req.body.code).trim() : null;
+      }
+      if (req.body?.address !== undefined) {
+        updates.address = req.body.address || null;
+      }
+      if (req.body?.branchId !== undefined) {
+        const branchId = req.body.branchId ? Number(req.body.branchId) : null;
+        if (branchId) await ensureBranchBelongsToCompany(db, branchId, companyId);
+        updates.branchId = branchId;
+      }
+      if (req.body?.isDefaultReceiving !== undefined) {
+        updates.isDefaultReceiving = !!req.body.isDefaultReceiving;
+      }
+      if (req.body?.isDefaultDispatch !== undefined) {
+        updates.isDefaultDispatch = !!req.body.isDefaultDispatch;
+      }
+      if (req.body?.isActive !== undefined) {
+        updates.isActive = !!req.body.isActive;
+      }
+
+      if (updates.isDefaultReceiving) {
+        await db
+          .update(inventoryLocations)
+          .set({ isDefaultReceiving: false })
+          .where(eq(inventoryLocations.companyId, companyId));
+      }
+      if (updates.isDefaultDispatch) {
+        await db
+          .update(inventoryLocations)
+          .set({ isDefaultDispatch: false })
+          .where(eq(inventoryLocations.companyId, companyId));
+      }
+
+      const [updated] = await db
+        .update(inventoryLocations)
+        .set(updates)
+        .where(eq(inventoryLocations.id, id))
+        .returning();
+
+      res.json(updated);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message || "Failed to update inventory location" });
     }
   });
 
@@ -2898,7 +3357,55 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Forbidden" });
       }
 
-      res.json(args);
+      const userIds = args.map((user: any) => user.id);
+      const assignments = userIds.length
+        ? await db
+            .select({
+              userId: branchUsers.userId,
+              branchId: branchUsers.branchId,
+              branchName: branches.name,
+            })
+            .from(branchUsers)
+            .innerJoin(branches, eq(branches.id, branchUsers.branchId))
+            .where(and(inArray(branchUsers.userId, userIds), eq(branches.companyId, companyId)))
+        : [];
+      const roleAssignments = userIds.length
+        ? await db
+            .select({
+              userId: companyUsers.userId,
+              accessRoleId: companyUsers.accessRoleId,
+              accessRoleName: companyAccessRoles.name,
+              accessRolePermissions: companyAccessRoles.permissions,
+            })
+            .from(companyUsers)
+            .leftJoin(companyAccessRoles, eq(companyAccessRoles.id, companyUsers.accessRoleId))
+            .where(and(eq(companyUsers.companyId, companyId), inArray(companyUsers.userId, userIds)))
+        : [];
+      const accessRoleByUser = new Map(roleAssignments.map((row) => [row.userId, row]));
+      const branchMap = new Map<string, Array<{ id: number; name: string }>>();
+      for (const assignment of assignments) {
+        const list = branchMap.get(assignment.userId) || [];
+        list.push({ id: assignment.branchId, name: assignment.branchName });
+        branchMap.set(assignment.userId, list);
+      }
+
+      res.json(args.map((companyUser: any) => {
+        const assignedBranches = branchMap.get(companyUser.id) || [];
+        const roleAssignment = accessRoleByUser.get(companyUser.id);
+        return {
+          ...companyUser,
+          branches: assignedBranches,
+          branchIds: assignedBranches.map((branch) => branch.id),
+          accessRoleId: roleAssignment?.accessRoleId || null,
+          accessRole: roleAssignment?.accessRoleId
+            ? {
+                id: roleAssignment.accessRoleId,
+                name: roleAssignment.accessRoleName,
+                permissions: roleAssignment.accessRolePermissions || [],
+              }
+            : null,
+        };
+      }));
     } catch (err: any) {
       console.error("List Users Error:", err);
       res.status(500).json({ message: "Failed to list users" });
@@ -3016,7 +3523,7 @@ export async function registerRoutes(
       const companyId = Number(req.params.companyId);
       const targetUserId = req.params.userId;
       const userId = (req as any).user.id;
-      const { role, ownerGroupScope } = req.body;
+      const { role, ownerGroupScope, branchIds, accessRoleId } = req.body;
 
       // Validate role
       const validRoles = ['owner', 'admin', 'member', 'cashier'];
@@ -3043,6 +3550,67 @@ export async function registerRoutes(
           ? ownerGroupScope.trim()
           : null;
         await storage.updateUser(targetUserId, { ownerGroupScope: normalizedScope as any });
+      }
+
+      if (accessRoleId !== undefined) {
+        const normalizedAccessRoleId = accessRoleId ? Number(accessRoleId) : null;
+        if (normalizedAccessRoleId) {
+          const [accessRole] = await db
+            .select({ id: companyAccessRoles.id })
+            .from(companyAccessRoles)
+            .where(and(eq(companyAccessRoles.id, normalizedAccessRoleId), eq(companyAccessRoles.companyId, companyId)))
+            .limit(1);
+          if (!accessRole) return res.status(400).json({ message: "Access role does not belong to this company" });
+        }
+        await db
+          .update(companyUsers)
+          .set({ accessRoleId: normalizedAccessRoleId })
+          .where(and(eq(companyUsers.userId, targetUserId), eq(companyUsers.companyId, companyId)));
+      }
+
+      if (branchIds !== undefined) {
+        if (!Array.isArray(branchIds)) {
+          return res.status(400).json({ message: "branchIds must be an array" });
+        }
+        const normalizedBranchIds = Array.from(
+          new Set(
+            branchIds
+              .map((id: any) => Number(id))
+              .filter((id: number) => Number.isInteger(id) && id > 0),
+          ),
+        );
+
+        const companyBranchRows = await db
+          .select({ id: branches.id })
+          .from(branches)
+          .where(eq(branches.companyId, companyId));
+        const companyBranchIds = companyBranchRows.map((branch) => branch.id);
+
+        if (normalizedBranchIds.length) {
+          const validBranches = companyBranchRows.filter((branch) =>
+            normalizedBranchIds.includes(branch.id),
+          );
+          if (validBranches.length !== normalizedBranchIds.length) {
+            return res.status(400).json({ message: "One or more branches do not belong to this company" });
+          }
+        }
+
+        await db.transaction(async (tx) => {
+          if (companyBranchIds.length) {
+            await tx
+              .delete(branchUsers)
+              .where(and(eq(branchUsers.userId, targetUserId), inArray(branchUsers.branchId, companyBranchIds)));
+          }
+          if (normalizedBranchIds.length) {
+            await tx.insert(branchUsers).values(
+              normalizedBranchIds.map((branchId) => ({
+                userId: targetUserId,
+                branchId,
+                role: "staff",
+              })),
+            );
+          }
+        });
       }
 
       res.json({ message: "User access updated" });
@@ -4339,6 +4907,117 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/companies/:companyId/access-roles", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const role = await storage.getCompanyUserRole((req as any).user.id, companyId);
+      if (!role && !(req as any).user?.isSuperAdmin) return res.status(403).json({ message: "Forbidden" });
+
+      const rows = await db
+        .select({
+          role: companyAccessRoles,
+          memberCount: sql<number>`count(${companyUsers.id})::int`,
+        })
+        .from(companyAccessRoles)
+        .leftJoin(companyUsers, eq(companyUsers.accessRoleId, companyAccessRoles.id))
+        .where(eq(companyAccessRoles.companyId, companyId))
+        .groupBy(companyAccessRoles.id)
+        .orderBy(asc(companyAccessRoles.name));
+
+      res.json(rows.map((row) => ({ ...row.role, memberCount: Number(row.memberCount || 0) })));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Failed to list access roles" });
+    }
+  });
+
+  app.post("/api/companies/:companyId/access-roles", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const currentRole = await storage.getCompanyUserRole((req as any).user.id, companyId);
+      if (!(req as any).user?.isSuperAdmin && currentRole !== "owner" && currentRole !== "admin") {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+      const payload = insertCompanyAccessRoleSchema.parse({
+        ...req.body,
+        companyId,
+        permissions: Array.isArray(req.body?.permissions)
+          ? req.body.permissions.filter((permission: unknown): permission is string => typeof permission === "string")
+          : [],
+      });
+      const [created] = await db
+        .insert(companyAccessRoles)
+        .values({
+          companyId: payload.companyId,
+          name: payload.name,
+          description: payload.description || null,
+          permissions: payload.permissions as string[],
+          createdBy: (req as any).user.id,
+        })
+        .returning();
+      res.status(201).json(created);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message || "Failed to create access role" });
+    }
+  });
+
+  app.patch("/api/companies/:companyId/access-roles/:roleId", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const roleId = Number(req.params.roleId);
+      const currentRole = await storage.getCompanyUserRole((req as any).user.id, companyId);
+      if (!(req as any).user?.isSuperAdmin && currentRole !== "owner" && currentRole !== "admin") {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+      const payload = insertCompanyAccessRoleSchema.partial().parse({
+        ...req.body,
+        companyId,
+        permissions: req.body?.permissions === undefined
+          ? undefined
+          : Array.isArray(req.body.permissions)
+            ? req.body.permissions.filter((permission: unknown): permission is string => typeof permission === "string")
+            : [],
+      });
+      const updatePayload: any = {
+        updatedAt: new Date(),
+      };
+      if (payload.name !== undefined) updatePayload.name = payload.name;
+      if (payload.description !== undefined) updatePayload.description = payload.description || null;
+      if (payload.permissions !== undefined) updatePayload.permissions = payload.permissions as string[];
+      const [updated] = await db
+        .update(companyAccessRoles)
+        .set(updatePayload)
+        .where(and(eq(companyAccessRoles.id, roleId), eq(companyAccessRoles.companyId, companyId)))
+        .returning();
+      if (!updated) return res.status(404).json({ message: "Access role not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message || "Failed to update access role" });
+    }
+  });
+
+  app.delete("/api/companies/:companyId/access-roles/:roleId", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const roleId = Number(req.params.roleId);
+      const currentRole = await storage.getCompanyUserRole((req as any).user.id, companyId);
+      if (!(req as any).user?.isSuperAdmin && currentRole !== "owner" && currentRole !== "admin") {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+      await db.transaction(async (tx) => {
+        await tx
+          .update(companyUsers)
+          .set({ accessRoleId: null })
+          .where(and(eq(companyUsers.companyId, companyId), eq(companyUsers.accessRoleId, roleId)));
+        await tx
+          .delete(companyAccessRoles)
+          .where(and(eq(companyAccessRoles.id, roleId), eq(companyAccessRoles.companyId, companyId)));
+      });
+      res.sendStatus(204);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message || "Failed to delete access role" });
+    }
+  });
+
   // 6. GET /api/companies/:id/zimra/transactions/:invoiceNumber - GetTransaction
   app.get("/api/companies/:id/zimra/transactions/:invoiceNumber", requireAuthOrApiKey, async (req, res) => {
     try {
@@ -4785,6 +5464,84 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/purchase-orders/:id/create-gdn", requireAuth, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const [order] = await db
+        .select()
+        .from(purchaseOrders)
+        .where(eq(purchaseOrders.id, id))
+        .limit(1);
+
+      if (!order) return res.status(404).json({ message: "Purchase order not found" });
+      if (order.status === "CANCELLED") {
+        return res.status(409).json({ message: "Cancelled purchase orders cannot be received." });
+      }
+
+      const [existing] = await db
+        .select()
+        .from(goodsDeliveryNotes)
+        .where(and(
+          eq(goodsDeliveryNotes.purchaseOrderId, id),
+          ne(goodsDeliveryNotes.status, "CANCELLED"),
+        ))
+        .orderBy(desc(goodsDeliveryNotes.createdAt))
+        .limit(1);
+
+      if (existing) {
+        return res.status(200).json({
+          message: "A receiving document already exists for this purchase order.",
+          gdn: existing,
+        });
+      }
+
+      const orderItems = await db
+        .select()
+        .from(purchaseOrderItems)
+        .where(eq(purchaseOrderItems.purchaseOrderId, id))
+        .orderBy(asc(purchaseOrderItems.id));
+
+      if (!orderItems.length) {
+        return res.status(400).json({ message: "Purchase order has no items to receive." });
+      }
+
+      const result = await db.transaction(async (tx) => {
+        const [gdn] = await tx.insert(goodsDeliveryNotes).values({
+          companyId: order.companyId,
+          supplierId: order.supplierId,
+          purchaseOrderId: order.id,
+          gdnNumber: `GDN-${order.poNumber}`,
+          status: "PENDING",
+          notes: `Created from PO ${order.poNumber}`,
+          createdBy: (req.user as any)?.id || null,
+        }).returning();
+
+        await tx.insert(goodsDeliveryNoteItems).values(orderItems.map((item) => ({
+          gdnId: gdn.id,
+          productId: item.productId,
+          quantityReceived: item.quantity,
+          notes: item.notes || null,
+        })));
+
+        await tx
+          .update(purchaseOrders)
+          .set({ status: "SENT", updatedAt: new Date() })
+          .where(and(eq(purchaseOrders.id, order.id), eq(purchaseOrders.status, "DRAFT")));
+
+        return gdn;
+      });
+
+      res.status(201).json({ message: "Receiving document created from purchase order.", gdn: result });
+    } catch (err: any) {
+      const duplicate = String(err?.message || "").includes("goods_delivery_notes_company_gdn_number_idx");
+      res.status(duplicate ? 409 : 400).json({
+        message: duplicate
+          ? "A receiving document with this number already exists."
+          : err.message || "Failed to create receiving document",
+      });
+    }
+  });
+
   app.patch("/api/purchase-orders/:id/status", requireAuth, async (req, res) => {
     try {
       const id = Number(req.params.id);
@@ -4835,9 +5592,18 @@ export async function registerRoutes(
         ...req.body,
         date: req.body.date ? new Date(req.body.date) : undefined,
         dueDate: req.body.dueDate ? new Date(req.body.dueDate) : undefined,
+        subtotalAmount: req.body.subtotalAmount ?? (
+          req.body.totalAmount !== undefined && req.body.taxAmount !== undefined
+            ? (Number(req.body.totalAmount || 0) - Number(req.body.taxAmount || 0)).toFixed(2)
+            : undefined
+        ),
       };
       await assertOpenAccountingPeriod(companyId, body.date || new Date(), "Supplier bill posting");
-      const input = insertSupplierInvoiceSchema.parse(body);
+      const input = insertSupplierInvoiceSchema.parse({
+        ...body,
+        purchaseOrderId: body.purchaseOrderId ? Number(body.purchaseOrderId) : null,
+        grvReference: body.grvReference || null,
+      });
       
       const invoice = await storage.createSupplierInvoice({
         ...input,
@@ -5068,12 +5834,14 @@ export async function registerRoutes(
         : eq(goodsDeliveryNotes.companyId, companyId);
 
       const rows = await db
-        .select({
+      .select({
           id: goodsDeliveryNotes.id,
           gdnNumber: goodsDeliveryNotes.gdnNumber,
           status: goodsDeliveryNotes.status,
           supplierId: goodsDeliveryNotes.supplierId,
           supplierName: suppliers.name,
+          purchaseOrderId: goodsDeliveryNotes.purchaseOrderId,
+          poNumber: purchaseOrders.poNumber,
           notes: goodsDeliveryNotes.notes,
           confirmedGrvNumber: goodsDeliveryNotes.confirmedGrvNumber,
           confirmedAt: goodsDeliveryNotes.confirmedAt,
@@ -5092,6 +5860,7 @@ export async function registerRoutes(
         .leftJoin(goodsDeliveryNoteItems, eq(goodsDeliveryNoteItems.gdnId, goodsDeliveryNotes.id))
         .leftJoin(products, eq(products.id, goodsDeliveryNoteItems.productId))
         .leftJoin(suppliers, eq(suppliers.id, goodsDeliveryNotes.supplierId))
+        .leftJoin(purchaseOrders, eq(purchaseOrders.id, goodsDeliveryNotes.purchaseOrderId))
         .leftJoin(users, eq(users.id, goodsDeliveryNotes.createdBy))
         .where(whereClause)
         .orderBy(desc(goodsDeliveryNotes.createdAt), asc(goodsDeliveryNoteItems.id));
@@ -5105,6 +5874,8 @@ export async function registerRoutes(
             status: row.status,
             supplierId: row.supplierId || null,
             supplierName: row.supplierName || "N/A",
+            purchaseOrderId: row.purchaseOrderId || null,
+            poNumber: row.poNumber || null,
             notes: row.notes || "",
             confirmedGrvNumber: row.confirmedGrvNumber || null,
             confirmedAt: row.confirmedAt,
@@ -5144,7 +5915,7 @@ export async function registerRoutes(
   app.post("/api/companies/:companyId/gdns", requireAuth, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
-      const { gdnNumber, supplierId, notes, items } = req.body || {};
+      const { gdnNumber, supplierId, purchaseOrderId, notes, items } = req.body || {};
       const cleanGdnNumber = String(gdnNumber || "").trim();
 
       if (!cleanGdnNumber) return res.status(400).json({ message: "GDN number is required." });
@@ -5156,6 +5927,7 @@ export async function registerRoutes(
         const [gdn] = await tx.insert(goodsDeliveryNotes).values({
           companyId,
           supplierId: supplierId ? Number(supplierId) : null,
+          purchaseOrderId: purchaseOrderId ? Number(purchaseOrderId) : null,
           gdnNumber: cleanGdnNumber,
           status: "PENDING",
           notes: notes || null,
@@ -5250,6 +6022,13 @@ export async function registerRoutes(
             confirmedAt: new Date(),
           })
           .where(eq(goodsDeliveryNotes.id, gdnId));
+
+        if (gdn.purchaseOrderId) {
+          await tx
+            .update(purchaseOrders)
+            .set({ status: "RECEIVED", updatedAt: new Date() })
+            .where(eq(purchaseOrders.id, gdn.purchaseOrderId));
+        }
       });
 
       res.status(200).json({ message: "GDN confirmed and stock posted", ...result });
@@ -5258,71 +6037,153 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/companies/:companyId/inventory/transfers", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const status = typeof req.query.status === "string" ? req.query.status : undefined;
+      const filters = [eq(stockTransfers.companyId, companyId)];
+      if (status && status !== "all") filters.push(eq(stockTransfers.status, status));
+      const companyBranches = await storage.getBranches(companyId);
+      const branchNameById = new Map(companyBranches.map((branch) => [branch.id, branch.name]));
+      const companyLocations = await db.transaction(async (tx) =>
+        ensureCompanyInventoryLocations(tx, companyId),
+      );
+      const locationById = new Map(companyLocations.map((location: any) => [location.id, location]));
+
+      const rows = await db
+        .select({
+          transfer: stockTransfers,
+          itemId: stockTransferItems.id,
+          productId: stockTransferItems.productId,
+          productName: products.name,
+          productSku: products.sku,
+          quantity: stockTransferItems.quantity,
+          quantityReceived: stockTransferItems.quantityReceived,
+          unitCost: stockTransferItems.unitCost,
+        })
+        .from(stockTransfers)
+        .leftJoin(stockTransferItems, eq(stockTransferItems.transferId, stockTransfers.id))
+        .leftJoin(products, eq(products.id, stockTransferItems.productId))
+        .where(and(...filters))
+        .orderBy(desc(stockTransfers.createdAt), asc(stockTransferItems.id));
+
+      const grouped = new Map<number, any>();
+      for (const row of rows) {
+        if (!grouped.has(row.transfer.id)) {
+          const fromLocation = row.transfer.fromLocationId ? locationById.get(row.transfer.fromLocationId) : null;
+          const toLocation = row.transfer.toLocationId ? locationById.get(row.transfer.toLocationId) : null;
+          grouped.set(row.transfer.id, {
+            ...row.transfer,
+            fromLocationName: fromLocation
+              ? locationDisplayName(fromLocation)
+              : row.transfer.fromBranchId
+                ? branchNameById.get(row.transfer.fromBranchId) || `Branch ${row.transfer.fromBranchId}`
+                : "Main Warehouse",
+            toLocationName: toLocation
+              ? locationDisplayName(toLocation)
+              : row.transfer.toBranchId
+                ? branchNameById.get(row.transfer.toBranchId) || `Branch ${row.transfer.toBranchId}`
+                : "Main Warehouse",
+            lineCount: 0,
+            totalQuantity: 0,
+            items: [],
+          });
+        }
+        if (row.itemId) {
+          const transfer = grouped.get(row.transfer.id);
+          const qty = Number(row.quantity || 0);
+          transfer.lineCount += 1;
+          transfer.totalQuantity += qty;
+          transfer.items.push({
+            id: row.itemId,
+            productId: row.productId,
+            productName: row.productName || `Product ${row.productId}`,
+            sku: row.productSku || "",
+            quantity: qty,
+            quantityReceived: row.quantityReceived === null ? null : Number(row.quantityReceived || 0),
+            unitCost: Number(row.unitCost || 0),
+          });
+        }
+      }
+
+      res.json(Array.from(grouped.values()));
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch stock transfers" });
+    }
+  });
+
   app.post("/api/companies/:companyId/inventory/transfers", requireAuth, async (req, res) => {
     try {
       const idempotencyKey = await sendIdempotentHit(req, res);
       if (idempotencyKey === false) return;
       const companyId = Number(req.params.companyId);
-      const { fromBranchId, toBranchId, items, notes } = req.body || {};
+      const requestedFromLocationId = req.body?.fromLocationId ? Number(req.body.fromLocationId) : null;
+      const requestedToLocationId = req.body?.toLocationId ? Number(req.body.toLocationId) : null;
+      const requestedFromBranchId = req.body?.fromBranchId ? Number(req.body.fromBranchId) : null;
+      const requestedToBranchId = req.body?.toBranchId ? Number(req.body.toBranchId) : null;
+      const { items, notes } = req.body || {};
 
-      if (!fromBranchId || !toBranchId || Number(fromBranchId) === Number(toBranchId)) {
-        return res.status(400).json({ message: "Select different source and destination branches." });
-      }
       if (!Array.isArray(items) || items.length === 0) {
         return res.status(400).json({ message: "Add at least one product to transfer." });
       }
 
       const referenceId = `TRF-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+      const transfer = await db.transaction(async (tx) => {
+        const fromLocation = await resolveInventoryLocation(tx, companyId, {
+          locationId: requestedFromLocationId,
+          branchId: requestedFromBranchId,
+          defaultWarehouse: !requestedFromLocationId && !requestedFromBranchId,
+        });
+        const toLocation = await resolveInventoryLocation(tx, companyId, {
+          locationId: requestedToLocationId,
+          branchId: requestedToBranchId,
+        });
+        if (fromLocation.id === toLocation.id) {
+          throw new Error("Select different source and destination locations.");
+        }
+        const fromBranchId = fromLocation.branchId || null;
+        const toBranchId = toLocation.branchId || null;
 
-      await db.transaction(async (tx) => {
+        const [created] = await tx.insert(stockTransfers).values({
+          companyId,
+          transferNumber: referenceId,
+          fromBranchId,
+          toBranchId,
+          fromLocationId: fromLocation.id,
+          toLocationId: toLocation.id,
+          status: "IN_TRANSIT",
+          notes: notes || null,
+          dispatchedBy: (req.user as any)?.id || null,
+          dispatchedAt: new Date(),
+        }).returning();
+
         for (const raw of items) {
           const productId = Number(raw.productId);
           const quantity = Number(raw.quantity);
           if (!productId || !Number.isFinite(quantity) || quantity <= 0) {
             throw new Error("Each transfer line needs a product and positive quantity.");
           }
-
-          const [source] = await tx
-            .select()
-            .from(branchStocks)
-            .where(and(eq(branchStocks.branchId, Number(fromBranchId)), eq(branchStocks.productId, productId)))
-            .limit(1);
-          const sourceStock = Number(source?.stockLevel || 0);
-          if (sourceStock < quantity) {
-            throw new Error(`Insufficient branch stock for product ${productId}. Available ${sourceStock}, requested ${quantity}.`);
-          }
-
-          await tx
-            .update(branchStocks)
-            .set({ stockLevel: (sourceStock - quantity).toString() })
-            .where(eq(branchStocks.id, source.id));
-
-          const [destination] = await tx
-            .select()
-            .from(branchStocks)
-            .where(and(eq(branchStocks.branchId, Number(toBranchId)), eq(branchStocks.productId, productId)))
-            .limit(1);
-
-          if (destination) {
-            await tx
-              .update(branchStocks)
-              .set({ stockLevel: (Number(destination.stockLevel || 0) + quantity).toString() })
-              .where(eq(branchStocks.id, destination.id));
-          } else {
-            await tx.insert(branchStocks).values({
-              branchId: Number(toBranchId),
-              productId,
-              stockLevel: quantity.toString(),
-            });
+          const available = await getStockAtInventoryLocation(tx, productId, fromLocation.id);
+          if (available < quantity) {
+            throw new Error(`Insufficient ${locationDisplayName(fromLocation)} stock for product ${productId}. Available ${available}, requested ${quantity}.`);
           }
 
           const [product] = await tx.select({ costPrice: products.costPrice }).from(products).where(eq(products.id, productId)).limit(1);
           const unitCost = Number(raw.unitCost ?? product?.costPrice ?? 0);
-          const baseNotes = `${notes || "Branch stock transfer"}; from branch ${fromBranchId} to branch ${toBranchId}`;
+          const baseNotes = `${notes || "Stock transfer"}; ${locationDisplayName(fromLocation)} to ${locationDisplayName(toLocation)}`;
 
+          await adjustStockAtInventoryLocation(tx, productId, -quantity, fromLocation);
+          await tx.insert(stockTransferItems).values({
+            transferId: created.id,
+            productId,
+            quantity: quantity.toString(),
+            unitCost: unitCost.toString(),
+            notes: raw.notes || null,
+          });
           await tx.insert(inventoryTransactions).values({
             companyId,
-            branchId: Number(fromBranchId),
+            branchId: fromBranchId,
+            locationId: fromLocation.id,
             productId,
             type: "TRANSFER_OUT",
             quantity: (-quantity).toString(),
@@ -5334,26 +6195,120 @@ export async function registerRoutes(
             createdBy: (req.user as any)?.id,
             remainingQuantity: "0",
           });
-          await tx.insert(inventoryTransactions).values({
-            companyId,
-            branchId: Number(toBranchId),
-            productId,
-            type: "TRANSFER_IN",
-            quantity: quantity.toString(),
-            unitCost: unitCost.toString(),
-            totalCost: (quantity * unitCost).toString(),
-            referenceType: "TRANSFER",
-            referenceId,
-            notes: baseNotes,
-            createdBy: (req.user as any)?.id,
-            remainingQuantity: quantity.toString(),
-          });
         }
+
+        return created;
       });
 
-      sendIdempotent(req, res, idempotencyKey, 201, { message: "Stock transfer completed", referenceId });
+      sendIdempotent(req, res, idempotencyKey, 201, { message: "Transfer dispatched and awaiting receipt", transfer, referenceId });
     } catch (error: any) {
       res.status(400).json({ message: error.message || "Failed to transfer stock" });
+    }
+  });
+
+  app.post("/api/companies/:companyId/inventory/transfers/:transferId/receive", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const transferId = Number(req.params.transferId);
+      const { notes, items } = req.body || {};
+
+      const result = await db.transaction(async (tx) => {
+        const [transfer] = await tx
+          .select()
+          .from(stockTransfers)
+          .where(and(eq(stockTransfers.id, transferId), eq(stockTransfers.companyId, companyId)))
+          .limit(1);
+        if (!transfer) throw new Error("Transfer not found.");
+        if (transfer.status !== "IN_TRANSIT") throw new Error("Only in-transit transfers can be received.");
+        const toLocation = await resolveInventoryLocation(tx, companyId, {
+          locationId: transfer.toLocationId,
+          branchId: transfer.toBranchId,
+          defaultWarehouse: !transfer.toLocationId && !transfer.toBranchId,
+        });
+
+        const transferItems = await tx
+          .select()
+          .from(stockTransferItems)
+          .where(eq(stockTransferItems.transferId, transferId));
+        const receivedMap = new Map<number, number>(
+          Array.isArray(items)
+            ? items.map((item: any) => [Number(item.productId), Number(item.quantityReceived ?? item.quantity ?? 0)])
+            : [],
+        );
+
+        for (const item of transferItems) {
+          const expected = Number(item.quantity || 0);
+          const received = receivedMap.has(item.productId) ? Number(receivedMap.get(item.productId)) : expected;
+          if (!Number.isFinite(received) || received < 0 || received > expected) {
+            throw new Error(`Invalid received quantity for product ${item.productId}.`);
+          }
+          await adjustStockAtInventoryLocation(tx, item.productId, received, toLocation);
+          await tx.update(stockTransferItems).set({ quantityReceived: received.toString() }).where(eq(stockTransferItems.id, item.id));
+          await tx.insert(inventoryTransactions).values({
+            companyId,
+            branchId: toLocation.branchId || null,
+            locationId: toLocation.id,
+            productId: item.productId,
+            type: "TRANSFER_IN",
+            quantity: received.toString(),
+            unitCost: (item.unitCost || "0").toString(),
+            totalCost: (received * Number(item.unitCost || 0)).toString(),
+            referenceType: "TRANSFER",
+            referenceId: transfer.transferNumber,
+            notes: notes || transfer.notes || `Received transfer ${transfer.transferNumber}`,
+            createdBy: (req.user as any)?.id,
+            remainingQuantity: received.toString(),
+          });
+        }
+
+        const [updated] = await tx.update(stockTransfers).set({
+          status: "RECEIVED",
+          receivedBy: (req.user as any)?.id || null,
+          receivedAt: new Date(),
+          updatedAt: new Date(),
+        }).where(eq(stockTransfers.id, transferId)).returning();
+        return updated;
+      });
+
+      res.json({ message: "Transfer received and stock posted", transfer: result });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message || "Failed to receive transfer" });
+    }
+  });
+
+  app.post("/api/companies/:companyId/inventory/transfers/:transferId/cancel", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const transferId = Number(req.params.transferId);
+      const result = await db.transaction(async (tx) => {
+        const [transfer] = await tx
+          .select()
+          .from(stockTransfers)
+          .where(and(eq(stockTransfers.id, transferId), eq(stockTransfers.companyId, companyId)))
+          .limit(1);
+        if (!transfer) throw new Error("Transfer not found.");
+        if (transfer.status !== "IN_TRANSIT") throw new Error("Only in-transit transfers can be cancelled.");
+        const fromLocation = await resolveInventoryLocation(tx, companyId, {
+          locationId: transfer.fromLocationId,
+          branchId: transfer.fromBranchId,
+          defaultWarehouse: !transfer.fromLocationId && !transfer.fromBranchId,
+        });
+        const items = await tx.select().from(stockTransferItems).where(eq(stockTransferItems.transferId, transferId));
+        for (const item of items) {
+          await adjustStockAtInventoryLocation(tx, item.productId, Number(item.quantity || 0), fromLocation);
+        }
+        const [updated] = await tx.update(stockTransfers).set({
+          status: "CANCELLED",
+          cancelledBy: (req.user as any)?.id || null,
+          cancelledAt: new Date(),
+          updatedAt: new Date(),
+        }).where(eq(stockTransfers.id, transferId)).returning();
+        return updated;
+      });
+
+      res.json({ message: "Transfer cancelled and source stock restored", transfer: result });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message || "Failed to cancel transfer" });
     }
   });
 
@@ -5366,6 +6321,10 @@ export async function registerRoutes(
         productId: inventoryTransactions.productId,
         productName: products.name,
         productSku: products.sku,
+        productTaxRate: products.taxRate,
+        productTaxTypeId: products.taxTypeId,
+        taxTypeName: taxTypes.name,
+        taxTypeCode: taxTypes.code,
         supplierId: inventoryTransactions.supplierId,
         supplierName: suppliers.name,
         quantity: inventoryTransactions.quantity,
@@ -5378,6 +6337,7 @@ export async function registerRoutes(
       })
       .from(inventoryTransactions)
       .leftJoin(products, eq(products.id, inventoryTransactions.productId))
+      .leftJoin(taxTypes, eq(taxTypes.id, products.taxTypeId))
       .leftJoin(suppliers, eq(suppliers.id, inventoryTransactions.supplierId))
       .leftJoin(users, eq(users.id, inventoryTransactions.createdBy))
       .where(and(
@@ -5490,6 +6450,10 @@ export async function registerRoutes(
         quantity: qty,
         unitCost,
         totalCost: Number(row.totalCost || qty * unitCost),
+        taxRate: Number(row.productTaxRate || 0),
+        taxTypeId: row.productTaxTypeId || null,
+        taxTypeName: row.taxTypeName || null,
+        taxTypeCode: row.taxTypeCode || null,
       };
     });
 
@@ -6137,7 +7101,7 @@ export async function registerRoutes(
             amount: invoice.total.toString(),
             currency: invoice.currency || input.currency || "USD",
             paymentMethod: invoice.paymentMethod || "CASH",
-            paymentDate: new Date(),
+            paymentDate: invoice.issueDate || new Date(),
             createdBy: userId,
             exchangeRate: invoice.exchangeRate?.toString() || "1.000000",
             skipLedger: true,
@@ -7322,13 +8286,36 @@ export async function registerRoutes(
         .groupBy(paymentAllocations.paymentId) : [];
       const allocatedByPayment = new Map(paymentTotals.map((row: any) => [Number(row.paymentId), Number(row.allocated || 0)]));
 
-      const receiptHistory = allocations.map((row: any) => ({
+      const allocatedPaymentIds = new Set(allocations.map((row: any) => Number(row.paymentId)));
+      const directPayments = await storage.getPayments(invoiceId);
+      const legacyPayments = directPayments
+        .filter((payment: any) => !allocatedPaymentIds.has(Number(payment.id)))
+        .map((payment: any) => ({
+          allocationId: null,
+          paymentId: payment.id,
+          amount: payment.amount,
+          paymentAmount: payment.amount,
+          paymentDate: payment.paymentDate,
+          paymentMethod: payment.paymentMethod,
+          reference: payment.reference,
+          notes: payment.notes,
+          currency: payment.currency,
+          reversedAt: null,
+          isLegacyDirectPayment: true,
+        }));
+      const receiptRows = [...allocations, ...legacyPayments].sort((a: any, b: any) =>
+        new Date(b.paymentDate || 0).getTime() - new Date(a.paymentDate || 0).getTime()
+      );
+
+      const receiptHistory = receiptRows.map((row: any) => ({
         ...row,
         allocatedToThisInvoice: Number(row.amount || 0),
-        unallocatedAmount: Math.max(0, Number(row.paymentAmount || 0) - Number(allocatedByPayment.get(Number(row.paymentId)) || 0)),
+        unallocatedAmount: row.isLegacyDirectPayment
+          ? 0
+          : Math.max(0, Number(row.paymentAmount || 0) - Number(allocatedByPayment.get(Number(row.paymentId)) || 0)),
       }));
 
-      const allocatedTotal = allocations.reduce((sum: number, row: any) => sum + Number(row.amount || 0), 0);
+      const allocatedTotal = receiptRows.reduce((sum: number, row: any) => sum + Number(row.amount || 0), 0);
       const invoiceTotal = Number(invoice.total || 0);
       res.json({
         invoiceId,
@@ -9407,6 +10394,274 @@ export async function registerRoutes(
     };
   };
 
+  app.get("/api/companies/:companyId/reports/branch-performance", requireAuth, async (req: any, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      if (!companyId) return res.status(400).json({ message: "Invalid companyId" });
+
+      if (!req.user.isSuperAdmin) {
+        const userCompanies = await storage.getCompanies(req.user.id);
+        if (!userCompanies.find((company: any) => company.id === companyId)) {
+          return res.status(403).json({ message: "Forbidden" });
+        }
+      }
+
+      const now = new Date();
+      const startDate = req.query.startDate
+        ? new Date(String(req.query.startDate))
+        : new Date(now.getFullYear(), now.getMonth(), 1);
+      const endDate = req.query.endDate
+        ? new Date(String(req.query.endDate))
+        : new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      endDate.setHours(23, 59, 59, 999);
+
+      if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+        return res.status(400).json({ message: "Invalid date range" });
+      }
+
+      const role = await storage.getCompanyUserRole(req.user.id, companyId);
+      const canSeeAllBranches = req.user.isSuperAdmin || role === "owner" || role === "admin";
+      const assignedBranches = canSeeAllBranches ? [] : await storage.getUserBranches(req.user.id);
+      const assignedBranchIds = assignedBranches
+        .filter((branch: any) => Number(branch.companyId) === companyId)
+        .map((branch: any) => Number(branch.id));
+      const branchScope =
+        canSeeAllBranches
+          ? undefined
+          : assignedBranchIds.length > 0
+            ? assignedBranchIds
+            : [-1];
+
+      const companyBranches = (await storage.getBranches(companyId)).filter((branch: any) =>
+        !branchScope || branchScope.includes(Number(branch.id)),
+      );
+      const rowsByKey = new Map<string, any>();
+      const ensureRow = (branchId: number | null, name?: string | null) => {
+        const key = branchId == null ? "warehouse" : String(branchId);
+        if (!rowsByKey.has(key)) {
+          rowsByKey.set(key, {
+            branchId,
+            branchName: name || (branchId == null ? "Warehouse / Unassigned" : `Branch ${branchId}`),
+            salesTotal: 0,
+            invoiceCount: 0,
+            paymentsTotal: 0,
+            paymentCount: 0,
+            expensesTotal: 0,
+            stockValue: 0,
+            stockQuantity: 0,
+            transferOutCount: 0,
+            transferInCount: 0,
+            pendingTransferOutCount: 0,
+            pendingTransferInCount: 0,
+            adjustmentCount: 0,
+            adjustmentQuantity: 0,
+          });
+        }
+        return rowsByKey.get(key);
+      };
+
+      ensureRow(null, "Warehouse / Unassigned");
+      companyBranches.forEach((branch: any) => ensureRow(branch.id, branch.name));
+
+      const scopedBranchCondition = (column: any) =>
+        branchScope ? inArray(column, branchScope) : undefined;
+
+      const invoiceFilters: any[] = [
+        eq(invoices.companyId, companyId),
+        gte(invoices.issueDate, startDate),
+        lte(invoices.issueDate, endDate),
+        inArray(invoices.status, ["issued", "paid", "fiscalized"]),
+      ];
+      if (branchScope) invoiceFilters.push(inArray(invoices.branchId, branchScope));
+
+      const salesRows = await db
+        .select({
+          branchId: invoices.branchId,
+          total: sql<string>`coalesce(sum(case when ${invoices.transactionType} = 'CreditNote' then -1 * ${invoices.total}::numeric else ${invoices.total}::numeric end), 0)`,
+          count: sql<number>`count(*)`,
+        })
+        .from(invoices)
+        .where(and(...invoiceFilters))
+        .groupBy(invoices.branchId);
+      salesRows.forEach((row) => {
+        const item = ensureRow(row.branchId as number | null);
+        item.salesTotal = Number(row.total || 0);
+        item.invoiceCount = Number(row.count || 0);
+      });
+
+      const paymentFilters: any[] = [
+        eq(payments.companyId, companyId),
+        gte(payments.paymentDate, startDate),
+        lte(payments.paymentDate, endDate),
+      ];
+      if (branchScope) paymentFilters.push(inArray(payments.branchId, branchScope));
+      const paymentRows = await db
+        .select({
+          branchId: payments.branchId,
+          total: sql<string>`coalesce(sum(${payments.amount}::numeric), 0)`,
+          count: sql<number>`count(*)`,
+        })
+        .from(payments)
+        .where(and(...paymentFilters))
+        .groupBy(payments.branchId);
+      paymentRows.forEach((row) => {
+        const item = ensureRow(row.branchId as number | null);
+        item.paymentsTotal = Number(row.total || 0);
+        item.paymentCount = Number(row.count || 0);
+      });
+
+      const expenseFilters: any[] = [
+        eq(expenses.companyId, companyId),
+        gte(expenses.expenseDate, startDate),
+        lte(expenses.expenseDate, endDate),
+      ];
+      if (branchScope) expenseFilters.push(inArray(expenses.branchId, branchScope));
+      const expenseRows = await db
+        .select({
+          branchId: expenses.branchId,
+          total: sql<string>`coalesce(sum(${expenses.amount}::numeric), 0)`,
+        })
+        .from(expenses)
+        .where(and(...expenseFilters))
+        .groupBy(expenses.branchId);
+      expenseRows.forEach((row) => {
+        ensureRow(row.branchId as number | null).expensesTotal = Number(row.total || 0);
+      });
+
+      const branchStockRows = await db
+        .select({
+          branchId: branchStocks.branchId,
+          quantity: sql<string>`coalesce(sum(${branchStocks.stockLevel}::numeric), 0)`,
+          value: sql<string>`coalesce(sum(${branchStocks.stockLevel}::numeric * coalesce(${products.costPrice}::numeric, 0)), 0)`,
+        })
+        .from(branchStocks)
+        .innerJoin(products, eq(products.id, branchStocks.productId))
+        .innerJoin(branches, eq(branches.id, branchStocks.branchId))
+        .where(and(
+          eq(branches.companyId, companyId),
+          ...(branchScope ? [inArray(branchStocks.branchId, branchScope)] : []),
+        ))
+        .groupBy(branchStocks.branchId);
+      branchStockRows.forEach((row) => {
+        const item = ensureRow(row.branchId as number);
+        item.stockQuantity = Number(row.quantity || 0);
+        item.stockValue = Number(row.value || 0);
+      });
+
+      if (canSeeAllBranches) {
+        const [warehouseStock] = await db
+          .select({
+            quantity: sql<string>`coalesce(sum(${products.stockLevel}::numeric), 0)`,
+            value: sql<string>`coalesce(sum(${products.stockLevel}::numeric * coalesce(${products.costPrice}::numeric, 0)), 0)`,
+          })
+          .from(products)
+          .where(eq(products.companyId, companyId));
+        const warehouse = ensureRow(null, "Warehouse / Unassigned");
+        warehouse.stockQuantity = Number(warehouseStock?.quantity || 0);
+        warehouse.stockValue = Number(warehouseStock?.value || 0);
+      }
+
+      const transferRows = await db
+        .select({
+          fromBranchId: stockTransfers.fromBranchId,
+          toBranchId: stockTransfers.toBranchId,
+          status: stockTransfers.status,
+          count: sql<number>`count(*)`,
+        })
+        .from(stockTransfers)
+        .where(and(
+          eq(stockTransfers.companyId, companyId),
+          gte(stockTransfers.createdAt, startDate),
+          lte(stockTransfers.createdAt, endDate),
+        ))
+        .groupBy(stockTransfers.fromBranchId, stockTransfers.toBranchId, stockTransfers.status);
+      transferRows.forEach((row) => {
+        const fromAllowed = row.fromBranchId == null ? canSeeAllBranches : !branchScope || branchScope.includes(Number(row.fromBranchId));
+        const toAllowed = row.toBranchId == null ? canSeeAllBranches : !branchScope || branchScope.includes(Number(row.toBranchId));
+        if (fromAllowed) {
+          const from = ensureRow(row.fromBranchId as number | null);
+          from.transferOutCount += Number(row.count || 0);
+          if (row.status === "IN_TRANSIT") from.pendingTransferOutCount += Number(row.count || 0);
+        }
+        if (toAllowed) {
+          const to = ensureRow(row.toBranchId as number | null);
+          to.transferInCount += Number(row.count || 0);
+          if (row.status === "IN_TRANSIT") to.pendingTransferInCount += Number(row.count || 0);
+        }
+      });
+
+      const adjustmentRows = await db
+        .select({
+          branchId: inventoryTransactions.branchId,
+          count: sql<number>`count(*)`,
+          quantity: sql<string>`coalesce(sum(${inventoryTransactions.quantity}::numeric), 0)`,
+        })
+        .from(inventoryTransactions)
+        .where(and(
+          eq(inventoryTransactions.companyId, companyId),
+          gte(inventoryTransactions.createdAt, startDate),
+          lte(inventoryTransactions.createdAt, endDate),
+          inArray(inventoryTransactions.type, ["ADJUSTMENT", "SHRINKAGE", "CORRECTION", "DAMAGE", "EXPIRY"]),
+          ...(branchScope ? [inArray(inventoryTransactions.branchId, branchScope)] : []),
+        ))
+        .groupBy(inventoryTransactions.branchId);
+      adjustmentRows.forEach((row) => {
+        const item = ensureRow(row.branchId as number | null);
+        item.adjustmentCount = Number(row.count || 0);
+        item.adjustmentQuantity = Number(row.quantity || 0);
+      });
+
+      const [pendingGdn] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(goodsDeliveryNotes)
+        .where(and(eq(goodsDeliveryNotes.companyId, companyId), eq(goodsDeliveryNotes.status, "PENDING")));
+
+      const branchRows = Array.from(rowsByKey.values())
+        .filter((row) => canSeeAllBranches || row.branchId !== null)
+        .map((row) => ({
+          ...row,
+          grossActivity: Number(row.salesTotal || 0) - Number(row.expensesTotal || 0),
+        }))
+        .sort((a, b) => {
+          if (a.branchId === null) return -1;
+          if (b.branchId === null) return 1;
+          return String(a.branchName).localeCompare(String(b.branchName));
+        });
+
+      res.json({
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString(),
+        pendingGdnCount: Number(pendingGdn?.count || 0),
+        totals: branchRows.reduce((acc: any, row: any) => {
+          acc.salesTotal += row.salesTotal;
+          acc.invoiceCount += row.invoiceCount;
+          acc.paymentsTotal += row.paymentsTotal;
+          acc.expensesTotal += row.expensesTotal;
+          acc.stockValue += row.stockValue;
+          acc.stockQuantity += row.stockQuantity;
+          acc.pendingTransferOutCount += row.pendingTransferOutCount;
+          acc.pendingTransferInCount += row.pendingTransferInCount;
+          acc.adjustmentCount += row.adjustmentCount;
+          return acc;
+        }, {
+          salesTotal: 0,
+          invoiceCount: 0,
+          paymentsTotal: 0,
+          expensesTotal: 0,
+          stockValue: 0,
+          stockQuantity: 0,
+          pendingTransferOutCount: 0,
+          pendingTransferInCount: 0,
+          adjustmentCount: 0,
+        }),
+        branches: branchRows,
+      });
+    } catch (error: any) {
+      console.error("Branch Performance Report Error:", error);
+      res.status(500).json({ message: error.message || "Failed to build branch report" });
+    }
+  });
+
   app.get("/api/companies/:companyId/reports/sales-summary", requireAuth,
     reportRouteHandler((id, s, e) => storage.getReportSalesSummary(id, s, e)));
 
@@ -9617,6 +10872,64 @@ export async function registerRoutes(
   app.get("/api/companies/:companyId/accounting/accounts", requireAuth, listAccountingAccounts);
   app.post("/api/companies/:companyId/accounting/accounts", requireAuth, createAccountingAccount);
 
+  app.get("/api/accounting/cost-centers", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const rows = await db.select().from(costCenters).where(eq(costCenters.companyId, companyId)).orderBy(costCenters.code);
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/cost-centers", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const [row] = await db.insert(costCenters).values({
+        companyId,
+        parentId: req.body.parentId ? Number(req.body.parentId) : null,
+        code: String(req.body.code || "").trim(),
+        name: String(req.body.name || "").trim(),
+        description: req.body.description || null,
+        isActive: req.body.isActive ?? true,
+      }).returning();
+      res.status(201).json(row);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/accounting/segments", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const rows = await db.select().from(accountingSegments).where(eq(accountingSegments.companyId, companyId)).orderBy(accountingSegments.type, accountingSegments.code);
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/segments", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const [row] = await db.insert(accountingSegments).values({
+        companyId,
+        type: String(req.body.type || "CUSTOM").trim().toUpperCase(),
+        code: String(req.body.code || "").trim(),
+        name: String(req.body.name || "").trim(),
+        description: req.body.description || null,
+        isActive: req.body.isActive ?? true,
+      }).returning();
+      res.status(201).json(row);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
   app.get("/api/accounting/journal", requireAuth, async (req: any, res: any) => {
     try {
       const companyId = resolveAccountingCompanyId(req);
@@ -9751,6 +11064,47 @@ export async function registerRoutes(
       res.json(entry);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/accounting/cashbook", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const rows = await db
+        .select({
+          entry: cashbookEntries,
+          bankAccountCode: accounts.code,
+          bankAccountName: accounts.name,
+        })
+        .from(cashbookEntries)
+        .leftJoin(accounts, eq(cashbookEntries.bankAccountId, accounts.id))
+        .where(eq(cashbookEntries.companyId, companyId))
+        .orderBy(desc(cashbookEntries.entryDate));
+      res.json(rows.map((row: any) => ({ ...row.entry, bankAccountCode: row.bankAccountCode, bankAccountName: row.bankAccountName })));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/cashbook", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const entry = await storage.createCashTransaction({
+        companyId,
+        type: req.body.type === "PAYMENT" ? "PAYMENT" : "RECEIPT",
+        bankAccountId: Number(req.body.bankAccountId),
+        counterpartyAccountId: Number(req.body.counterpartyAccountId),
+        amount: Number(req.body.amount),
+        date: req.body.date ? new Date(req.body.date) : new Date(),
+        description: String(req.body.description || "Cashbook entry"),
+        reference: req.body.reference,
+        createdBy: req.user?.id,
+      });
+      res.status(201).json(entry);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
     }
   });
 
@@ -10399,6 +11753,37 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/accounting/inventory/valuation-snapshots", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const rows = await db
+        .select()
+        .from(inventoryValuationSnapshots)
+        .where(eq(inventoryValuationSnapshots.companyId, companyId))
+        .orderBy(desc(inventoryValuationSnapshots.asOfDate));
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/inventory/valuation-snapshots", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const snapshot = await storage.createInventoryValuationSnapshot(
+        companyId,
+        req.body.asOfDate ? new Date(req.body.asOfDate) : new Date(),
+        req.user?.id,
+        req.body.branchId ? Number(req.body.branchId) : undefined
+      );
+      res.status(201).json(snapshot);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
   app.post("/api/accounting/fixed-assets", requireAuth, async (req: any, res: any) => {
     try {
       const companyId = resolveAccountingCompanyId(req);
@@ -10494,6 +11879,7 @@ export async function registerRoutes(
       const { startDate, endDate } = req.query;
       const from = startDate ? new Date(startDate) : undefined;
       const to = endDate ? new Date(endDate) : undefined;
+      if (to && !Number.isNaN(to.getTime())) to.setHours(23, 59, 59, 999);
 
       const report = await storage.getVatReturn(companyId, from, to);
       res.json(report);
@@ -10522,6 +11908,7 @@ export async function registerRoutes(
       if (!startDate || !endDate || Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
         return res.status(400).json({ message: "Valid startDate and endDate are required" });
       }
+      endDate.setHours(23, 59, 59, 999);
 
       const company = await storage.getCompany(companyId);
       if (!company) return res.status(404).json({ message: "Company not found" });
@@ -10595,6 +11982,123 @@ export async function registerRoutes(
       res.status(400).json({ message: err.message });
     }
   });
+
+  app.get("/api/accounting/wht/rates", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const rows = await db
+        .select()
+        .from(withholdingTaxRates)
+        .where(or(isNull(withholdingTaxRates.companyId), eq(withholdingTaxRates.companyId, companyId)))
+        .orderBy(withholdingTaxRates.code);
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/wht/rates", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const [row] = await db.insert(withholdingTaxRates).values({
+        companyId,
+        code: String(req.body.code || "").trim(),
+        name: String(req.body.name || "").trim(),
+        rate: Number(req.body.rate || 0).toFixed(2),
+        category: String(req.body.category || "CONTRACT").trim().toUpperCase(),
+        effectiveFrom: req.body.effectiveFrom || format(new Date(), "yyyy-MM-dd"),
+        effectiveTo: req.body.effectiveTo || null,
+        isActive: req.body.isActive ?? true,
+      }).returning();
+      res.status(201).json(row);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/accounting/wht/certificates", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const rows = await db
+        .select({
+          certificate: withholdingTaxCertificates,
+          supplierName: suppliers.name,
+          invoiceNumber: supplierInvoices.invoiceNumber,
+        })
+        .from(withholdingTaxCertificates)
+        .leftJoin(suppliers, eq(withholdingTaxCertificates.supplierId, suppliers.id))
+        .leftJoin(supplierInvoices, eq(withholdingTaxCertificates.supplierInvoiceId, supplierInvoices.id))
+        .where(eq(withholdingTaxCertificates.companyId, companyId))
+        .orderBy(desc(withholdingTaxCertificates.createdAt));
+      res.json(rows.map((row: any) => ({ ...row.certificate, supplierName: row.supplierName, invoiceNumber: row.invoiceNumber })));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/wht/certificates/:id/remit", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const [row] = await db
+        .update(withholdingTaxCertificates)
+        .set({
+          status: "REMITTED",
+          remittanceReference: req.body.remittanceReference || null,
+          remittedAt: new Date(),
+        })
+        .where(and(eq(withholdingTaxCertificates.id, Number(req.params.id)), eq(withholdingTaxCertificates.companyId, companyId)))
+        .returning();
+      if (!row) return res.status(404).json({ message: "WHT certificate not found" });
+      res.json(row);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  const accountingEntityRoutes = [
+    { path: "approval-requests", table: approvalRequests, order: approvalRequests.createdAt },
+    { path: "tax-obligations", table: taxObligations, order: taxObligations.dueDate },
+    { path: "mobile-money", table: mobileMoneyTransactions, order: mobileMoneyTransactions.createdAt },
+    { path: "scheduled-reports", table: scheduledReports, order: scheduledReports.nextRunAt },
+    { path: "provisions", table: provisions, order: provisions.createdAt },
+    { path: "revenue-contracts", table: revenueContracts, order: revenueContracts.createdAt },
+  ] as const;
+
+  for (const entityRoute of accountingEntityRoutes) {
+    app.get(`/api/accounting/${entityRoute.path}`, requireAuth, async (req: any, res: any) => {
+      try {
+        const companyId = resolveAccountingCompanyId(req);
+        if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+        const rows = await db
+          .select()
+          .from(entityRoute.table as any)
+          .where(eq((entityRoute.table as any).companyId, companyId))
+          .orderBy(desc(entityRoute.order as any));
+        res.json(rows);
+      } catch (err: any) {
+        res.status(500).json({ message: err.message });
+      }
+    });
+
+    app.post(`/api/accounting/${entityRoute.path}`, requireAuth, async (req: any, res: any) => {
+      try {
+        const companyId = resolveAccountingCompanyId(req);
+        if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+        const inserted: any = await db
+          .insert(entityRoute.table as any)
+          .values({ ...req.body, companyId })
+          .returning();
+        const row = Array.isArray(inserted) ? inserted[0] : inserted?.rows?.[0];
+        res.status(201).json(row);
+      } catch (err: any) {
+        res.status(400).json({ message: err.message });
+      }
+    });
+  }
 
   // Debtor/Creditor Analysis
   app.get("/api/accounting/reports/debtors/:id", requireAuth, async (req: any, res: any) => {

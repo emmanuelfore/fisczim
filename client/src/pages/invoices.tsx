@@ -519,14 +519,16 @@ type StatCardProps = {
 
 function StatCard({ label, value, trend, trendTone = "green" }: StatCardProps) {
   return (
-    <div className="min-h-[100px] rounded-[14px] border border-[#E5E7EB] bg-white px-5 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-      <p className=" font-bold text-[#64748B]">{label}</p>
-      <p className="mt-2 text-3xl font-black leading-none tracking-tight text-[#0F172A]">
+    <div className="rounded-[12px] border border-[#E5E7EB] bg-white px-4 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+      <p className="text-[11px] font-bold uppercase tracking-wide text-[#64748B]">
+        {label}
+      </p>
+      <p className="mt-1 text-2xl font-black leading-none tracking-tight text-[#0F172A]">
         {value}
       </p>
       <p
         className={cn(
-          "mt-2 truncate  font-semibold",
+          "mt-1 truncate text-xs font-semibold",
           trendTone === "red" ? "text-[#991B1B]" : "text-[#64748B]",
         )}
       >
@@ -577,6 +579,7 @@ function StatusPill({
     | "pending"
     | "failed"
     | "draft"
+    | "issued"
     | "paid"
     | "unpaid"
     | "partial";
@@ -587,6 +590,7 @@ function StatusPill({
     pending: "border-[#FED7AA] bg-[#FFF7ED] text-[#9A3412]",
     failed: "border-[#FCA5A5] bg-[#FEF2F2] text-[#991B1B]",
     draft: "border-[#D1D5DB] bg-[#F8FAFC] text-[#64748B]",
+    issued: "border-[#BFDBFE] bg-[#EFF6FF] text-[#1D4ED8]",
     paid: "border-[#BFDBFE] bg-[#EFF6FF] text-[#1D4ED8]",
     unpaid: "border-[#E5E7EB] bg-[#F8FAFC] text-[#475569]",
     partial: "border-[#DDD6FE] bg-[#F5F3FF] text-[#6D28D9]",
@@ -638,7 +642,15 @@ function DocumentTypePill({ invoice }: { invoice: any }) {
 
 function getFiscalStatus(
   invoice: any,
-): "fiscalized" | "pending" | "failed" | "draft" {
+  useFiscalWorkflow = true,
+): "fiscalized" | "pending" | "failed" | "draft" | "issued" {
+  if (!useFiscalWorkflow) {
+    if (invoice.status === "draft") return "draft";
+    if (invoice.fiscalCode || invoice.status === "fiscalized")
+      return "fiscalized";
+    return "issued";
+  }
+
   const hasError =
     invoice.fdmsStatus?.toLowerCase() === "failed" ||
     invoice.validationStatus === "red";
@@ -689,27 +701,23 @@ function QuickChip({
 }) {
   const toneClasses: Record<
     typeof tone,
-    { active: string; idle: string; dot: string }
+    { active: string; idle: string }
   > = {
     default: {
-      active: "border-[#CBD5E1] bg-[#F8FAFC] text-[#0F172A]",
-      idle: "border-[#E5E7EB] bg-white text-[#64748B]",
-      dot: "bg-[#94A3B8]",
+      active: "border-[#CBD5E1] bg-[#0F172A] text-white",
+      idle: "border-[#E5E7EB] bg-[#F8FAFC] text-[#475569]",
     },
     green: {
       active: "border-[#86EFAC] bg-[#F0FDF4] text-[#166534]",
-      idle: "border-[#BBF7D0] bg-white text-[#15803D]",
-      dot: "bg-[#22C55E]",
+      idle: "border-[#BBF7D0] bg-[#F0FDF4] text-[#15803D]",
     },
     amber: {
       active: "border-[#FDBA74] bg-[#FFF7ED] text-[#9A3412]",
-      idle: "border-[#FED7AA] bg-white text-[#C2410C]",
-      dot: "bg-[#F97316]",
+      idle: "border-[#FED7AA] bg-[#FFF7ED] text-[#C2410C]",
     },
     red: {
       active: "border-[#FCA5A5] bg-[#FEF2F2] text-[#991B1B]",
-      idle: "border-[#FECACA] bg-white text-[#B91C1C]",
-      dot: "bg-[#EF4444]",
+      idle: "border-[#FECACA] bg-[#FEF2F2] text-[#B91C1C]",
     },
   };
   const classes = toneClasses[tone];
@@ -719,14 +727,10 @@ function QuickChip({
       type="button"
       onClick={onClick}
       className={cn(
-        "inline-flex items-center gap-2 rounded-full border px-3 py-2  font-semibold transition-colors hover:shadow-sm",
+        "inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-bold uppercase tracking-wide transition-colors hover:shadow-sm",
         active ? classes.active : classes.idle,
       )}
     >
-      <span
-        className={cn("h-2 w-2 rounded-full", classes.dot)}
-        aria-hidden="true"
-      />
       {label}
     </button>
   );
@@ -746,6 +750,10 @@ export default function InvoicesPage() {
   const { activeCompanyId } = useActiveCompany();
   const { selectedBranchId } = useBranchContext();
   const selectedCompanyId = activeCompanyId || 0;
+  const { data: company } = useCompany(selectedCompanyId);
+  const useFiscalWorkflow = Boolean(
+    company?.fdmsDeviceId && company?.vatRegistered !== false,
+  );
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -793,7 +801,8 @@ export default function InvoicesPage() {
             ) === customerFilter,
         );
   const displayedInvoices = customerFilteredInvoices.filter((invoice: any) => {
-    if (quickFilter === "failed") return getFiscalStatus(invoice) === "failed";
+    if (quickFilter === "failed")
+      return getFiscalStatus(invoice, useFiscalWorkflow) === "failed";
     if (quickFilter === "unpaid") return getPaymentStatus(invoice) === "unpaid";
     return true;
   });
@@ -806,13 +815,20 @@ export default function InvoicesPage() {
     ).entries(),
   );
   const fiscalisedCount = displayedInvoices.filter(
-    (invoice: any) => getFiscalStatus(invoice) === "fiscalized",
+    (invoice: any) =>
+      getFiscalStatus(invoice, useFiscalWorkflow) === "fiscalized",
   ).length;
   const pendingSyncCount = displayedInvoices.filter(
-    (invoice: any) => getFiscalStatus(invoice) === "pending",
+    (invoice: any) => getFiscalStatus(invoice, useFiscalWorkflow) === "pending",
   ).length;
   const failedFiscalisation = displayedInvoices.filter(
-    (invoice: any) => getFiscalStatus(invoice) === "failed",
+    (invoice: any) => getFiscalStatus(invoice, useFiscalWorkflow) === "failed",
+  ).length;
+  const issuedCount = displayedInvoices.filter((invoice: any) =>
+    ["issued", "paid"].includes(String(invoice.status || "").toLowerCase()),
+  ).length;
+  const draftCount = displayedInvoices.filter(
+    (invoice: any) => invoice.status === "draft",
   ).length;
   const totalPages = result?.pages || 0;
   const totalInvoices = result?.total || 0;
@@ -843,7 +859,8 @@ export default function InvoicesPage() {
     if (filter === "all") {
       setStatusFilter("all");
       setDateRange(undefined);
-    } else if (filter === "fiscalized") setStatusFilter("fiscalized");
+    } else if (filter === "fiscalized")
+      setStatusFilter(useFiscalWorkflow ? "fiscalized" : "issued");
     else if (filter === "pending") setStatusFilter("issued");
     else if (filter === "failed") setStatusFilter("all");
     else if (filter === "draft") setStatusFilter("draft");
@@ -930,29 +947,55 @@ export default function InvoicesPage() {
           <BillingPageActions onExport={handleExport} onSync={handleSyncFdms} />
         </div>
 
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
             <StatCard
               label="Total Invoices"
               value={totalInvoices.toLocaleString()}
               trend={`${percentOf(displayedInvoices.length, Math.max(totalInvoices, displayedInvoices.length))} visible`}
             />
-            <StatCard
-              label="Fiscalised"
-              value={fiscalisedCount.toLocaleString()}
-              trend={`${percentOf(fiscalisedCount, displayedInvoices.length)} of current view`}
-            />
-            <StatCard
-              label="Pending"
-              value={pendingSyncCount.toLocaleString()}
-              trend={`${percentOf(pendingSyncCount, displayedInvoices.length)} awaiting FDMS`}
-            />
-            <StatCard
-              label="Failed"
-              value={failedFiscalisation.toLocaleString()}
-              trend={`${percentOf(failedFiscalisation, displayedInvoices.length)} require review`}
-              trendTone="red"
-            />
+            {useFiscalWorkflow ? (
+              <>
+                <StatCard
+                  label="Fiscalised"
+                  value={fiscalisedCount.toLocaleString()}
+                  trend={`${percentOf(fiscalisedCount, displayedInvoices.length)} of current view`}
+                />
+                <StatCard
+                  label="Pending"
+                  value={pendingSyncCount.toLocaleString()}
+                  trend={`${percentOf(pendingSyncCount, displayedInvoices.length)} awaiting FDMS`}
+                />
+                <StatCard
+                  label="Failed"
+                  value={failedFiscalisation.toLocaleString()}
+                  trend={`${percentOf(failedFiscalisation, displayedInvoices.length)} require review`}
+                  trendTone="red"
+                />
+              </>
+            ) : (
+              <>
+                <StatCard
+                  label="Issued"
+                  value={issuedCount.toLocaleString()}
+                  trend="Normal issued invoices"
+                />
+                <StatCard
+                  label="Draft"
+                  value={draftCount.toLocaleString()}
+                  trend="Still being prepared"
+                />
+                <StatCard
+                  label="Open"
+                  value={displayedInvoices
+                    .filter(
+                      (invoice: any) => getPaymentStatus(invoice) === "unpaid",
+                    )
+                    .length.toLocaleString()}
+                  trend="Not fully paid"
+                />
+              </>
+            )}
           </div>
           <Card className="overflow-hidden rounded-[14px] border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
             <CardContent className="space-y-4 p-4">
@@ -1075,23 +1118,27 @@ export default function InvoicesPage() {
                   onClick={() => applyQuickFilter("all")}
                 />
                 <QuickChip
-                  label="Fiscalised"
+                  label={useFiscalWorkflow ? "Fiscalised" : "Issued"}
                   active={quickFilter === "fiscalized"}
                   tone="green"
                   onClick={() => applyQuickFilter("fiscalized")}
                 />
-                <QuickChip
-                  label="Pending"
-                  active={quickFilter === "pending"}
-                  tone="amber"
-                  onClick={() => applyQuickFilter("pending")}
-                />
-                <QuickChip
-                  label="Failed"
-                  active={quickFilter === "failed"}
-                  tone="red"
-                  onClick={() => applyQuickFilter("failed")}
-                />
+                {useFiscalWorkflow && (
+                  <>
+                    <QuickChip
+                      label="Pending"
+                      active={quickFilter === "pending"}
+                      tone="amber"
+                      onClick={() => applyQuickFilter("pending")}
+                    />
+                    <QuickChip
+                      label="Failed"
+                      active={quickFilter === "failed"}
+                      tone="red"
+                      onClick={() => applyQuickFilter("failed")}
+                    />
+                  </>
+                )}
                 <QuickChip
                   label="Draft"
                   active={quickFilter === "draft"}
@@ -1176,7 +1223,7 @@ export default function InvoicesPage() {
                           Amount
                         </TableHead>
                         <TableHead className="h-11 text-xs font-semibold uppercase tracking-wide text-[#64748B]">
-                          FDMS Status
+                          {useFiscalWorkflow ? "FDMS Status" : "Invoice Status"}
                         </TableHead>
                         <TableHead className="h-11 text-xs font-semibold uppercase tracking-wide text-[#64748B]">
                           Payment Status
@@ -1189,9 +1236,13 @@ export default function InvoicesPage() {
                     <TableBody>
                       {displayedInvoices.map((invoice: any) => {
                         const hasError =
-                          invoice.fdmsStatus?.toLowerCase() === "failed" ||
-                          invoice.validationStatus === "red";
-                        const fiscalStatus = getFiscalStatus(invoice);
+                          useFiscalWorkflow &&
+                          (invoice.fdmsStatus?.toLowerCase() === "failed" ||
+                            invoice.validationStatus === "red");
+                        const fiscalStatus = getFiscalStatus(
+                          invoice,
+                          useFiscalWorkflow,
+                        );
                         const paymentStatus = getPaymentStatus(invoice);
                         return (
                           <TableRow
@@ -1276,6 +1327,8 @@ export default function InvoicesPage() {
                                     ? "Fiscalised"
                                     : fiscalStatus === "pending"
                                       ? "Pending"
+                                      : fiscalStatus === "issued"
+                                        ? "Issued"
                                       : fiscalStatus
                                 }
                               />

@@ -28,6 +28,37 @@ import { apiRequest } from "@/lib/queryClient";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 
+type CurrencyAmounts = Record<string, number>;
+
+function formatCurrencyCode(amount: number, code = "USD") {
+  const currencyCode = String(code || "USD").toUpperCase();
+  try {
+    return formatCurrency(Number(amount || 0), currencyCode);
+  } catch {
+    return `${currencyCode} ${Number(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+}
+
+function currencyLines(amounts: CurrencyAmounts = {}, includeCodes: string[] = []) {
+  const normalized = Object.entries(amounts || {}).reduce((acc, [code, amount]) => {
+    acc[String(code || "USD").toUpperCase()] = Number(amount || 0);
+    return acc;
+  }, {} as CurrencyAmounts);
+  includeCodes.forEach((code) => {
+    const currencyCode = String(code || "").toUpperCase();
+    if (currencyCode && normalized[currencyCode] == null) normalized[currencyCode] = 0;
+  });
+  const entries = Object.entries(normalized).filter(([, amount]) => includeCodes.length > 0 || Math.abs(Number(amount || 0)) > 0.004);
+  if (entries.length === 0) return <span>{formatCurrencyCode(0, "USD")}</span>;
+  return (
+    <span className="flex flex-col gap-1 leading-tight">
+      {entries.map(([code, amount]) => (
+        <span key={code}>{formatCurrencyCode(amount, code)}</span>
+      ))}
+    </span>
+  );
+}
+
 export default function VatReturnPage() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -57,6 +88,13 @@ export default function VatReturnPage() {
 
   const currentReturnId = `VAT-${localStorage.getItem("selectedCompanyId") || ""}-${dateRange.from.replace(/-/g, "")}-${dateRange.to.replace(/-/g, "")}`;
   const currentLifecycle = vatReturns.find((row) => row.id === currentReturnId);
+  const visibleCurrencyCodes = Array.from(new Set([
+    "USD",
+    "ZWG",
+    ...Object.keys(report?.outputVatByCurrency || {}),
+    ...Object.keys(report?.inputVatByCurrency || {}),
+    ...Object.keys(report?.netVatByCurrency || {}),
+  ]));
 
   const draftMutation = useMutation({
     mutationFn: async () => {
@@ -148,7 +186,7 @@ export default function VatReturnPage() {
                 VAT Returns
               </h1>
               <p className=" text-slate-500">
-                Automated calculation of Input and Output taxes
+                Fiscalized invoices only, excluding invoices with Red validation errors.
               </p>
             </div>
           </div>
@@ -259,8 +297,11 @@ export default function VatReturnPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-3xl font-black text-slate-800">
-                  {formatCurrency(Number(report.outputVat))}
+                  {currencyLines(report.outputVatByCurrency, visibleCurrencyCodes)}
                 </div>
+                <p className="mt-2 text-xs font-semibold text-slate-500">
+                  {report.includedInvoiceCount || 0} eligible fiscal document{report.includedInvoiceCount === 1 ? "" : "s"}
+                </p>
               </CardContent>
             </Card>
 
@@ -281,7 +322,7 @@ export default function VatReturnPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-3xl font-black text-slate-800">
-                  {formatCurrency(Number(report.inputVat))}
+                  {currencyLines(report.inputVatByCurrency, visibleCurrencyCodes)}
                 </div>
               </CardContent>
             </Card>
@@ -307,7 +348,7 @@ export default function VatReturnPage() {
                 <div
                   className={`text-4xl font-black ${report.netVat > 0 ? "text-rose-600" : report.netVat < 0 ? "text-emerald-600" : "text-slate-800"}`}
                 >
-                  {formatCurrency(Number(report.netVat))}
+                  {currencyLines(report.netVatByCurrency, visibleCurrencyCodes)}
                 </div>
                 {report.netVat < 0 && (
                   <p className="text-xs text-emerald-600 font-bold mt-1">
@@ -335,13 +376,13 @@ export default function VatReturnPage() {
                   How is this calculated?
                 </h3>
                 <p className=" text-amber-800/80 mb-2">
-                  The system aggregates all validated records dynamically
-                  between the selected dates.
+                  The system aggregates compliant VAT records dynamically
+                  between the selected dates, separated by currency.
                 </p>
                 <ul className=" text-amber-800 space-y-1 list-disc list-inside">
                   <li>
-                    <strong>Output Tax:</strong> Sum of standard tax applied on
-                    issued POS/Sales Invoices (Status != Cancelled).
+                    <strong>Output Tax:</strong> Sum of tax on fiscalized
+                    sales documents that have synced to FDMS and have no Red validation errors.
                   </li>
                   <li>
                     <strong>Input Tax:</strong> Sum of explicitly recorded tax
@@ -385,7 +426,7 @@ export default function VatReturnPage() {
                   </span>
                   <div className="flex items-center gap-3">
                     <span className="font-bold">
-                      {formatCurrency(Number(row.snapshot?.netVat || 0))}
+                      {currencyLines(row.snapshot?.netVatByCurrency || { USD: Number(row.snapshot?.netVat || 0) }, visibleCurrencyCodes)}
                     </span>
                     <Badge variant="outline">{row.status}</Badge>
                   </div>

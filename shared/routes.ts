@@ -554,6 +554,7 @@ export const api = {
         productId: z.number(),
         variationId: z.number().optional(),
         branchId: z.number().optional(),
+        locationId: z.number().optional(),
         quantity: z.number().or(z.string()), // positive or negative
         type: z.enum(['ADJUSTMENT', 'SHRINKAGE', 'CORRECTION', 'DAMAGE', 'EXPIRY']).default('ADJUSTMENT'),
         notes: z.string().optional()

@@ -36,9 +36,12 @@ import {
   CreditCard,
   Banknote,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   CloudUpload,
   History,
   ScanLine,
+  CalendarDays,
   Menu,
   Printer,
   Bluetooth,
@@ -91,6 +94,47 @@ const PROD_EMOJIS = ["📦", "💼", "🏷️", "📋", "🗂️", "🔑", "⚙�
 
 /** Convert hex color + 2-digit hex alpha to rgba() — Android 7 doesn't support 8-char hex */
 // hexAlpha moved to PremiumColors.tsx for global availability
+
+const formatLocalDateInput = (date = new Date()) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const buildSaleIssueDate = (saleDate: string) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(saleDate)) return null;
+  const [year, month, day] = saleDate.split("-").map(Number);
+  const now = new Date();
+  const issueDate = new Date(
+    year,
+    month - 1,
+    day,
+    now.getHours(),
+    now.getMinutes(),
+    now.getSeconds(),
+    now.getMilliseconds()
+  );
+  if (Number.isNaN(issueDate.getTime())) return null;
+  if (
+    issueDate.getFullYear() !== year ||
+    issueDate.getMonth() !== month - 1 ||
+    issueDate.getDate() !== day
+  ) {
+    return null;
+  }
+  return issueDate;
+};
+
+const parseSaleDateOnly = (saleDate: string) => {
+  const issueDate = buildSaleIssueDate(saleDate);
+  return issueDate ? new Date(issueDate.getFullYear(), issueDate.getMonth(), issueDate.getDate()) : new Date();
+};
+
+const sameCalendarDay = (a: Date, b: Date) =>
+  a.getFullYear() === b.getFullYear() &&
+  a.getMonth() === b.getMonth() &&
+  a.getDate() === b.getDate();
 
 interface CartItem {
   productId: number;
@@ -244,6 +288,12 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
   const [showCustomerPicker, setShowCustomerPicker] = useState(false);
   const [showCart, setShowCart] = useState(false);
   const [paidAmount, setPaidAmount] = useState("");
+  const [saleDate, setSaleDate] = useState(formatLocalDateInput());
+  const [showSaleDatePicker, setShowSaleDatePicker] = useState(false);
+  const [datePickerMonth, setDatePickerMonth] = useState(() => {
+    const today = new Date();
+    return new Date(today.getFullYear(), today.getMonth(), 1);
+  });
   const [heldSales, setHeldSales] = useState<HeldSale[]>([]);
   const [showHoldsModal, setShowHoldsModal] = useState(false);
   const [holdName, setHoldName] = useState("");
@@ -466,6 +516,42 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
   const fmt = (val: number) => {
     const converted = val * currencyInfo.rate;
     return `${currencyInfo.symbol}${converted.toFixed(2)}`;
+  };
+
+  const handleSaleDateChange = (value: string) => {
+    const digits = value.replace(/\D/g, "").slice(0, 8);
+    const parts = [
+      digits.slice(0, 4),
+      digits.slice(4, 6),
+      digits.slice(6, 8),
+    ].filter(Boolean);
+    setSaleDate(parts.join("-"));
+  };
+
+  const openSaleDatePicker = () => {
+    Keyboard.dismiss();
+    const selected = parseSaleDateOnly(saleDate);
+    setDatePickerMonth(new Date(selected.getFullYear(), selected.getMonth(), 1));
+    setShowSaleDatePicker((visible) => !visible);
+  };
+
+  const saleDatePickerDays = useMemo(() => {
+    const year = datePickerMonth.getFullYear();
+    const month = datePickerMonth.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const days: Array<Date | null> = [];
+    for (let i = 0; i < firstDay.getDay(); i++) days.push(null);
+    for (let day = 1; day <= lastDay.getDate(); day++) {
+      days.push(new Date(year, month, day));
+    }
+    while (days.length % 7 !== 0) days.push(null);
+    return days;
+  }, [datePickerMonth]);
+
+  const selectSaleDate = (date: Date) => {
+    setSaleDate(formatLocalDateInput(date));
+    setShowSaleDatePicker(false);
   };
 
   useEffect(() => {
@@ -977,6 +1063,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
       if (defaultCustomerId) setSelectedCustomerId(defaultCustomerId);
       else return;
     }
+    setSaleDate(formatLocalDateInput());
     setPaidAmount((total * currencyInfo.rate).toFixed(2));
     setShowCheckout(true);
   };
@@ -991,6 +1078,18 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
       : parseFloat(paidAmount || "0");
     if (paid < total * currencyInfo.rate - 0.001) return;
     const currencyObj = resolvedCurrencies.find((c: any) => c.code === selectedCurrency) || { code: "USD", exchangeRate: "1" };
+    const issueDate = buildSaleIssueDate(saleDate);
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+    if (!issueDate) {
+      Alert.alert("Invalid sale date", "Enter the sale date in YYYY-MM-DD format.");
+      return;
+    }
+    if (issueDate > todayEnd) {
+      Alert.alert("Invalid sale date", "Backdated POS sales cannot be dated in the future.");
+      return;
+    }
+    const issueDateIso = issueDate.toISOString();
     const invoiceData = {
       customerId: selectedCustomerId,
       branchId: selectedBranchId,
@@ -1002,8 +1101,8 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
       isPos: true,
       shiftId: currentShift?.id, // Link to current shift for accurate summaries
       invoiceNumber: `POS-${Date.now()}`,
-      issueDate: new Date().toISOString(),
-      dueDate: new Date().toISOString(),
+      issueDate: issueDateIso,
+      dueDate: issueDateIso,
       items: cart.map((item: CartItem) => ({
         productId: item.productId, description: item.name,
         quantity: item.quantity.toString(), unitPrice: item.price.toString(),
@@ -1043,7 +1142,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
     // ── OPTIMISTIC UI: clear state and show success immediately ─────────────
     setLastInvoice(optimisticInvoice);
     setCart([]); setOrderDiscount(0); setOrderDiscountInput("");
-    setShowCheckout(false); setShowCart(false); setPaidAmount("");
+    setShowCheckout(false); setShowCart(false); setPaidAmount(""); setSaleDate(formatLocalDateInput());
     resetToDefaultCustomer();
     setIsSubmitting(false);
     if (printerConfig.autoShowModal) setShowSuccess(true);
@@ -2005,6 +2104,168 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                   </View>
                 </View>
               </View>
+
+              <Text style={{ color: C.text.secondary, fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>
+                Sale Date
+              </Text>
+              <View style={{
+                marginBottom: 18,
+                borderRadius: 18,
+                paddingHorizontal: 14,
+                paddingVertical: 8,
+                backgroundColor: C.bg.card,
+                borderWidth: 1,
+                borderColor: C.border.default,
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 12,
+                shadowColor: "#000",
+                shadowOpacity: 0.08,
+                shadowRadius: 8,
+                shadowOffset: { width: 0, height: 4 },
+                elevation: 2,
+              }}>
+                <TouchableOpacity activeOpacity={0.82} onPress={openSaleDatePicker} style={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: 12,
+                  backgroundColor: hexAlpha(C.amber.primary, 0.10),
+                  borderWidth: 1,
+                  borderColor: hexAlpha(C.amber.primary, 0.28),
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}>
+                  <CalendarDays size={18} color={C.amber.primary} />
+                </TouchableOpacity>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: C.text.secondary, fontSize: 10, fontWeight: "700", marginBottom: 2 }}>
+                    Invoice issue date
+                  </Text>
+                  <TextInput
+                    value={saleDate}
+                    onChangeText={handleSaleDateChange}
+                    placeholder={formatLocalDateInput()}
+                    placeholderTextColor={C.text.secondary}
+                    keyboardType={Platform.OS === "ios" ? "numbers-and-punctuation" : "numeric"}
+                    returnKeyType="done"
+                    onSubmitEditing={Keyboard.dismiss}
+                    maxLength={10}
+                    style={{ color: C.text.primary, fontSize: 18, fontWeight: "800", paddingVertical: 4 }}
+                  />
+                </View>
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={() => setSaleDate(formatLocalDateInput())}
+                  style={{
+                    paddingHorizontal: 12,
+                    paddingVertical: 8,
+                    borderRadius: 10,
+                    backgroundColor: C.bg.hover,
+                    borderWidth: 1,
+                    borderColor: C.border.default,
+                  }}>
+                  <Text style={{ color: C.text.primary, fontSize: 11, fontWeight: "800" }}>Today</Text>
+                </TouchableOpacity>
+              </View>
+
+              {showSaleDatePicker && (
+                <View style={{
+                  marginTop: -8,
+                  marginBottom: 18,
+                  borderRadius: 20,
+                  backgroundColor: C.bg.card,
+                  borderWidth: 1,
+                  borderColor: C.border.default,
+                  padding: 14,
+                  shadowColor: "#000",
+                  shadowOpacity: 0.12,
+                  shadowRadius: 10,
+                  shadowOffset: { width: 0, height: 5 },
+                  elevation: 4,
+                }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                    <TouchableOpacity
+                      activeOpacity={0.82}
+                      onPress={() => setDatePickerMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
+                      style={{
+                        width: 38,
+                        height: 38,
+                        borderRadius: 12,
+                        backgroundColor: C.bg.hover,
+                        borderWidth: 1,
+                        borderColor: C.border.default,
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}>
+                      <ChevronLeft size={18} color={C.text.primary} />
+                    </TouchableOpacity>
+                    <View style={{ alignItems: "center", flex: 1 }}>
+                      <Text style={{ color: C.text.primary, fontSize: 16, fontWeight: "900" }}>
+                        {datePickerMonth.toLocaleDateString(undefined, { month: "long", year: "numeric" })}
+                      </Text>
+                      <Text style={{ color: C.text.secondary, fontSize: 10, marginTop: 2 }}>Tap a day to select</Text>
+                    </View>
+                    <TouchableOpacity
+                      activeOpacity={0.82}
+                      disabled={datePickerMonth >= new Date(new Date().getFullYear(), new Date().getMonth(), 1)}
+                      onPress={() => setDatePickerMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
+                      style={{
+                        width: 38,
+                        height: 38,
+                        borderRadius: 12,
+                        backgroundColor: C.bg.hover,
+                        borderWidth: 1,
+                        borderColor: C.border.default,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        opacity: datePickerMonth >= new Date(new Date().getFullYear(), new Date().getMonth(), 1) ? 0.35 : 1,
+                      }}>
+                      <ChevronRight size={18} color={C.text.primary} />
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={{ flexDirection: "row", marginBottom: 8 }}>
+                    {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(day => (
+                      <Text key={day} style={{ flex: 1, textAlign: "center", color: C.text.secondary, fontSize: 9, fontWeight: "800" }}>
+                        {day}
+                      </Text>
+                    ))}
+                  </View>
+
+                  <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
+                    {saleDatePickerDays.map((day, index) => {
+                      const selected = day ? sameCalendarDay(day, parseSaleDateOnly(saleDate)) : false;
+                      const today = new Date();
+                      const disabled = !day || day > new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
+                      return (
+                        <TouchableOpacity
+                          key={`${day?.toISOString() || "blank"}-${index}`}
+                          activeOpacity={0.82}
+                          disabled={disabled}
+                          onPress={() => day && selectSaleDate(day)}
+                          style={{ width: `${100 / 7}%`, aspectRatio: 1, padding: 3 }}>
+                          <View style={{
+                            flex: 1,
+                            borderRadius: 12,
+                            alignItems: "center",
+                            justifyContent: "center",
+                            backgroundColor: selected ? C.amber.primary : "transparent",
+                            borderWidth: day ? 1 : 0,
+                            borderColor: selected ? C.amber.primary : C.border.default,
+                            opacity: disabled && day ? 0.35 : 1,
+                          }}>
+                            {!!day && (
+                              <Text style={{ color: selected ? "#000" : C.text.primary, fontSize: 12, fontWeight: selected ? "900" : "700" }}>
+                                {day.getDate()}
+                              </Text>
+                            )}
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+              )}
 
               <Text style={{ color: C.text.secondary, fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>
                 Payment Method

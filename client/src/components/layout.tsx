@@ -46,6 +46,7 @@ import {
   FileSpreadsheet,
   PanelLeftClose,
   PanelLeftOpen,
+  Eye,
 } from "lucide-react";
 import { useBranding } from "@/hooks/use-branding";
 import {
@@ -215,6 +216,7 @@ export function Layout({
     : activeRole
       ? String(activeRole).charAt(0).toUpperCase() + String(activeRole).slice(1)
       : "User";
+  const isSystemAdmin = String(user?.email || "").toLowerCase() === "admin@zimra.co.zw";
   const posNavItems: NavItem[] = [
     { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
     { icon: MonitorCheck, label: "POS Terminal", href: "/pos" },
@@ -268,6 +270,16 @@ export function Layout({
           icon: LayoutDashboard,
           label: "Goods Received",
           href: "/inventory/account",
+        },
+        {
+          icon: ArrowRightLeft,
+          label: "Stock Transfers",
+          href: "/inventory/transfers",
+        },
+        {
+          icon: MapPin,
+          label: "Locations",
+          href: "/inventory/locations",
         },
         { icon: Factory, label: "Production", href: "/inventory/production" },
         {
@@ -473,6 +485,11 @@ export function Layout({
           children: [
             { icon: Package, label: "Stock Reports", href: "/reports/inventory" },
             {
+              icon: Building2,
+              label: "Branch Performance",
+              href: "/reports/branches",
+            },
+            {
               icon: ArrowRightLeft,
               label: "Stock Adjustments",
               href: "/inventory/adjustments/report",
@@ -577,6 +594,15 @@ export function Layout({
       label: "Settings",
       href: "/settings",
     },
+    ...(isSystemAdmin
+      ? [
+          {
+            icon: Eye,
+            label: "Super Admin Visibility",
+            href: "/superadmin-visibility",
+          },
+        ]
+      : []),
   ];
 
   const restaurantNavItems: NavItem[] = [
@@ -838,6 +864,11 @@ export function Layout({
         title: "Goods Received Voucher",
         subtitle: "Review received goods and supplier delivery details.",
       };
+    if (location.startsWith("/inventory/locations"))
+      return {
+        title: "Inventory Locations",
+        subtitle: "Manage warehouses, branch stores, shop floors, and delivery vans. Stock is tracked per location.",
+      };
     if (location.startsWith("/inventory"))
       return {
         title: "Stock Ledger",
@@ -912,6 +943,11 @@ export function Layout({
       return {
         title: "Team Management",
         subtitle: "Manage users, roles, and business access.",
+      };
+    if (location.startsWith("/superadmin-visibility"))
+      return {
+        title: "Super Admin Visibility",
+        subtitle: "Control which companies other superadmins can access.",
       };
     if (location.startsWith("/subscription"))
       return {
@@ -1078,6 +1114,11 @@ export function Layout({
       return {
         title: "Stock Reports",
         subtitle: "Analyse inventory movement, valuation, and stock health.",
+      };
+    if (location.startsWith("/reports/branches"))
+      return {
+        title: "Branch Performance",
+        subtitle: "Compare branch sales, stock, transfers, and operations.",
       };
     if (location.startsWith("/reports/tax"))
       return {

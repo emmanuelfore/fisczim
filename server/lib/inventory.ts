@@ -262,7 +262,8 @@ export async function recordBatchStockIn(
     landedCosts: number = 0,
     allocationMethod: LandedCostAllocationMethod = "value",
     grvNumber?: string,
-    createdBy?: string
+    createdBy?: string,
+    locationId?: number | null
 ) {
     const grvReference = grvNumber?.trim() || generateGrvReference();
     const allocatedItems = allocateLandedCosts(items, landedCosts, allocationMethod);
@@ -308,6 +309,7 @@ export async function recordBatchStockIn(
                 remainingQuantity: quantity.toString(),
                 notes: `${notes || "Batch GRV"}\nBase cost: ${(quantity * baseUnitCost).toFixed(2)}; landed cost: ${item.landedCost.toFixed(2)}; allocation: ${allocationMethod}`,
                 createdBy: createdBy || null,
+                locationId: locationId || null,
             });
 
             // 2. Update product stock level

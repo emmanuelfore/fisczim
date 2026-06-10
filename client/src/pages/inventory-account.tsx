@@ -3,11 +3,13 @@ import { PageHeader } from "@/components/page-header";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import {
   GdnListItem,
+  useCreateGdn,
   useConfirmGdn,
   useGrvs,
   usePendingGdns,
 } from "@/hooks/use-grvs";
 import { useProducts } from "@/hooks/use-products";
+import { useSuppliers } from "@/hooks/use-suppliers";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -21,6 +23,13 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import {
   Search,
@@ -32,6 +41,9 @@ import {
   ClipboardCheck,
   Clock,
   CheckCircle2,
+  Loader2,
+  Plus,
+  XCircle,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
@@ -70,7 +82,12 @@ export default function InventoryAccountPage() {
       <PageHeader
         title="Goods Received"
         subtitle="Review pending GDNs and manage confirmed GRV stock documents"
-        actions={<GrnForm />}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <GdnForm companyId={companyId} />
+            <GrnForm />
+          </div>
+        }
       />
 
       <PendingGdnSection
@@ -244,6 +261,223 @@ export default function InventoryAccountPage() {
         </CardContent>
       </Card>
     </Layout>
+  );
+}
+
+function GdnForm({ companyId }: { companyId: number }) {
+  const { data: products = [] } = useProducts(companyId);
+  const { data: suppliers = [] } = useSuppliers(companyId);
+  const { mutate: createGdn, isPending } = useCreateGdn(companyId);
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [gdnNumber, setGdnNumber] = useState("");
+  const [supplierId, setSupplierId] = useState("");
+  const [notes, setNotes] = useState("");
+  const [items, setItems] = useState([
+    { localId: crypto.randomUUID(), productId: "", quantity: "1" },
+  ]);
+
+  const reset = () => {
+    setGdnNumber("");
+    setSupplierId("");
+    setNotes("");
+    setItems([{ localId: crypto.randomUUID(), productId: "", quantity: "1" }]);
+  };
+
+  const handleSubmit = () => {
+    const cleanNumber = gdnNumber.trim();
+    const cleanItems = items
+      .map((item) => ({
+        productId: Number(item.productId),
+        quantity: Number(item.quantity),
+      }))
+      .filter((item) => item.productId && item.quantity > 0);
+
+    if (!cleanNumber || cleanItems.length === 0) {
+      toast({
+        title: "Check GDN details",
+        description: "Enter a GDN number and at least one valid item.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    createGdn(
+      {
+        gdnNumber: cleanNumber,
+        supplierId: supplierId ? Number(supplierId) : null,
+        notes: notes.trim() || undefined,
+        items: cleanItems,
+      },
+      {
+        onSuccess: () => {
+          toast({
+            title: "GDN recorded",
+            description: "Delivery note is waiting for admin confirmation.",
+          });
+          reset();
+          setOpen(false);
+        },
+        onError: (error: any) =>
+          toast({
+            title: "Could not record GDN",
+            description: error.message || "Please try again.",
+            variant: "destructive",
+          }),
+      },
+    );
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <Button
+        variant="outline"
+        className="rounded-2xl gap-2 font-bold"
+        onClick={() => setOpen(true)}
+      >
+        <Plus className="h-4 w-4" />
+        Record GDN
+      </Button>
+      <DialogContent className="sm:max-w-[780px] rounded-[1.5rem]">
+        <DialogHeader>
+          <DialogTitle>Record Goods Delivery Note</DialogTitle>
+          <p className="text-xs font-semibold text-slate-500">
+            Capture delivered items first. Admin confirmation will post stock as
+            a GRV.
+          </p>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="grid gap-2">
+              <Label>GDN Number</Label>
+              <Input
+                value={gdnNumber}
+                onChange={(event) => setGdnNumber(event.target.value)}
+                placeholder="GDN-0001"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label>Supplier</Label>
+              <Select value={supplierId} onValueChange={setSupplierId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Optional supplier" />
+                </SelectTrigger>
+                <SelectContent>
+                  {suppliers.map((supplier: any) => (
+                    <SelectItem key={supplier.id} value={String(supplier.id)}>
+                      {supplier.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label>Notes</Label>
+              <Input
+                value={notes}
+                onChange={(event) => setNotes(event.target.value)}
+                placeholder="Vehicle, driver, delivery ref"
+              />
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-100">
+            <div className="grid grid-cols-[1fr_120px_44px] gap-3 border-b border-slate-100 bg-slate-50 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
+              <span>Product</span>
+              <span>Quantity</span>
+              <span />
+            </div>
+            {items.map((item) => (
+              <div
+                key={item.localId}
+                className="grid grid-cols-[1fr_120px_44px] gap-3 border-b border-slate-50 px-4 py-3 last:border-b-0"
+              >
+                <Select
+                  value={item.productId}
+                  onValueChange={(productId) =>
+                    setItems((prev) =>
+                      prev.map((line) =>
+                        line.localId === item.localId
+                          ? { ...line, productId }
+                          : line,
+                      ),
+                    )
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select product" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {products.map((product: any) => (
+                      <SelectItem key={product.id} value={String(product.id)}>
+                        {product.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={item.quantity}
+                  onChange={(event) =>
+                    setItems((prev) =>
+                      prev.map((line) =>
+                        line.localId === item.localId
+                          ? { ...line, quantity: event.target.value }
+                          : line,
+                      ),
+                    )
+                  }
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  disabled={items.length === 1}
+                  onClick={() =>
+                    setItems((prev) =>
+                      prev.filter((line) => line.localId !== item.localId),
+                    )
+                  }
+                >
+                  <XCircle className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
+          </div>
+
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() =>
+              setItems((prev) => [
+                ...prev,
+                { localId: crypto.randomUUID(), productId: "", quantity: "1" },
+              ])
+            }
+          >
+            <Plus className="h-4 w-4" />
+            Add item
+          </Button>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+          <Button onClick={handleSubmit} disabled={isPending}>
+            {isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <ClipboardCheck className="h-4 w-4" />
+            )}
+            Save pending GDN
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

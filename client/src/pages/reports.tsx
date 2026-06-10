@@ -228,6 +228,12 @@ const REPORT_CATEGORIES: {
         category: "retail",
         endpoint: "inventory-movements",
       },
+      {
+        key: "branch-performance",
+        label: "Branch Performance",
+        category: "retail",
+        externalHref: "/reports/branches",
+      },
     ],
   },
   {

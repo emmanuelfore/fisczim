@@ -1,0 +1,617 @@
+
+> fiscal-stack@1.0.1 dev
+> cross-env NODE_ENV=development tsx watch server/index.ts
+
+Swagger UI configured for Integration API (v1)
+[PAYROLL-SEED] Seeding global Zimbabwe statutory defaults...
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-COMM", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-COMM
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-AGRI", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-AGRI
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-MINE", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-MINE
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-MOTO", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-MOTO
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-CONS", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-CONS
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-HOSP", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-HOSP
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-FINC", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-FINC
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-HLTH", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-HLTH
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-DOME", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-DOME
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-TRNS", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-TRNS
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-COMM2", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-COMM2
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-NONE", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-NONE
+Query: select "id" from "tax_tables_config" where ("tax_tables_config"."currency" = $1 and "tax_tables_config"."is_active" = $2) limit $3 -- params: ["USD", true, 1]
+[PAYROLL-SEED] Global tax table exists: USD
+Query: select "id" from "tax_tables_config" where ("tax_tables_config"."currency" = $1 and "tax_tables_config"."is_active" = $2) limit $3 -- params: ["ZIG", true, 1]
+[PAYROLL-SEED] Global tax table exists: ZIG
+[PAYROLL-SEED] Global payroll defaults seeding complete.
+[2m7:39:04 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m Re-optimizing dependencies because vite config has changed
+[Job] Starting Fiscal Day Closing Worker (Targeting Zimbabwe Midnight CAT/UTC+2)
+[Job] Next Zimbabwe midnight closure scheduled in 4h 25m (Target: 2026-06-05T22:05:00.000Z)
+7:55:13 PM [tsx] change in ./server\routes.ts Rerunning...
+cSwagger UI configured for Integration API (v1)
+[PAYROLL-SEED] Seeding global Zimbabwe statutory defaults...
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-COMM", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-COMM
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-AGRI", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-AGRI
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-MINE", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-MINE
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-MOTO", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-MOTO
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-CONS", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-CONS
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-HOSP", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-HOSP
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-FINC", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-FINC
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-HLTH", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-HLTH
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-DOME", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-DOME
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-TRNS", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-TRNS
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-COMM2", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-COMM2
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-NONE", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-NONE
+Query: select "id" from "tax_tables_config" where ("tax_tables_config"."currency" = $1 and "tax_tables_config"."is_active" = $2) limit $3 -- params: ["USD", true, 1]
+[PAYROLL-SEED] Global tax table exists: USD
+Query: select "id" from "tax_tables_config" where ("tax_tables_config"."currency" = $1 and "tax_tables_config"."is_active" = $2) limit $3 -- params: ["ZIG", true, 1]
+[PAYROLL-SEED] Global tax table exists: ZIG
+[PAYROLL-SEED] Global payroll defaults seeding complete.
+[Job] Starting Fiscal Day Closing Worker (Targeting Zimbabwe Midnight CAT/UTC+2)
+[Job] Next Zimbabwe midnight closure scheduled in 4h 9m (Target: 2026-06-05T22:05:00.000Z)
+8:00:40 PM [tsx] change in ./server\routes.ts Rerunning...
+cSwagger UI configured for Integration API (v1)
+[PAYROLL-SEED] Seeding global Zimbabwe statutory defaults...
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-COMM", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-COMM
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-AGRI", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-AGRI
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-MINE", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-MINE
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-MOTO", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-MOTO
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-CONS", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-CONS
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-HOSP", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-HOSP
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-FINC", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-FINC
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-HLTH", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-HLTH
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-DOME", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-DOME
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-TRNS", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-TRNS
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-COMM2", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-COMM2
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-NONE", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-NONE
+Query: select "id" from "tax_tables_config" where ("tax_tables_config"."currency" = $1 and "tax_tables_config"."is_active" = $2) limit $3 -- params: ["USD", true, 1]
+8:00:51 PM [tsx] change in ./server\routes.ts Restarting...
+cSwagger UI configured for Integration API (v1)
+[PAYROLL-SEED] Seeding global Zimbabwe statutory defaults...
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-COMM", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-COMM
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-AGRI", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-AGRI
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-MINE", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-MINE
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-MOTO", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-MOTO
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-CONS", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-CONS
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-HOSP", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-HOSP
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-FINC", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-FINC
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-HLTH", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-HLTH
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-DOME", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-DOME
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-TRNS", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-TRNS
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-COMM2", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-COMM2
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-NONE", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-NONE
+Query: select "id" from "tax_tables_config" where ("tax_tables_config"."currency" = $1 and "tax_tables_config"."is_active" = $2) limit $3 -- params: ["USD", true, 1]
+[PAYROLL-SEED] Global tax table exists: USD
+Query: select "id" from "tax_tables_config" where ("tax_tables_config"."currency" = $1 and "tax_tables_config"."is_active" = $2) limit $3 -- params: ["ZIG", true, 1]
+[PAYROLL-SEED] Global tax table exists: ZIG
+[PAYROLL-SEED] Global payroll defaults seeding complete.
+[2m8:01:04 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m Re-optimizing dependencies because vite config has changed
+[Job] Starting Fiscal Day Closing Worker (Targeting Zimbabwe Midnight CAT/UTC+2)
+[Job] Next Zimbabwe midnight closure scheduled in 4h 3m (Target: 2026-06-05T22:05:00.000Z)
+8:03:48 PM [tsx] change in ./shared\schema.ts Rerunning...
+cSwagger UI configured for Integration API (v1)
+[PAYROLL-SEED] Seeding global Zimbabwe statutory defaults...
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-COMM", 1]
+8:03:53 PM [tsx] change in ./shared\schema.ts Restarting...
+cSwagger UI configured for Integration API (v1)
+[PAYROLL-SEED] Seeding global Zimbabwe statutory defaults...
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-COMM", 1]
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-AGRI", 1]
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-MINE", 1]
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-MOTO", 1]
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-CONS", 1]
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-HOSP", 1]
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-FINC", 1]
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-HLTH", 1]
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-DOME", 1]
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-TRNS", 1]
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-COMM2", 1]
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-NONE", 1]
+Query: select "id" from "tax_tables_config" where ("tax_tables_config"."currency" = $1 and "tax_tables_config"."is_active" = $2) limit $3 -- params: ["USD", true, 1]
+Query: select "id" from "tax_tables_config" where ("tax_tables_config"."currency" = $1 and "tax_tables_config"."is_active" = $2) limit $3 -- params: ["ZIG", true, 1]
+[PAYROLL-SEED] Global payroll defaults seeding complete.
+[Job] Starting Fiscal Day Closing Worker (Targeting Zimbabwe Midnight CAT/UTC+2)
+[Job] Next Zimbabwe midnight closure scheduled in 4h 0m (Target: 2026-06-05T22:05:00.000Z)
+8:23:37 PM [tsx] change in ./server\routes.ts Rerunning...
+cSwagger UI configured for Integration API (v1)
+[PAYROLL-SEED] Seeding global Zimbabwe statutory defaults...
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-COMM", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-COMM
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-AGRI", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-AGRI
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-MINE", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-MINE
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-MOTO", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-MOTO
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-CONS", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-CONS
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-HOSP", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-HOSP
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-FINC", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-FINC
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-HLTH", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-HLTH
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-DOME", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-DOME
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-TRNS", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-TRNS
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-COMM2", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-COMM2
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-NONE", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-NONE
+Query: select "id" from "tax_tables_config" where ("tax_tables_config"."currency" = $1 and "tax_tables_config"."is_active" = $2) limit $3 -- params: ["USD", true, 1]
+[PAYROLL-SEED] Global tax table exists: USD
+Query: select "id" from "tax_tables_config" where ("tax_tables_config"."currency" = $1 and "tax_tables_config"."is_active" = $2) limit $3 -- params: ["ZIG", true, 1]
+[PAYROLL-SEED] Global tax table exists: ZIG
+[PAYROLL-SEED] Global payroll defaults seeding complete.
+[2m8:23:49 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m Re-optimizing dependencies because vite config has changed
+[Job] Starting Fiscal Day Closing Worker (Targeting Zimbabwe Midnight CAT/UTC+2)
+[Job] Next Zimbabwe midnight closure scheduled in 3h 41m (Target: 2026-06-05T22:05:00.000Z)
+8:24:13 PM [tsx] change in ./server\routes.ts Rerunning...
+cSwagger UI configured for Integration API (v1)
+[PAYROLL-SEED] Seeding global Zimbabwe statutory defaults...
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-COMM", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-COMM
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-AGRI", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-AGRI
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-MINE", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-MINE
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-MOTO", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-MOTO
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-CONS", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-CONS
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-HOSP", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-HOSP
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-FINC", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-FINC
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-HLTH", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-HLTH
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-DOME", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-DOME
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-TRNS", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-TRNS
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-COMM2", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-COMM2
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-NONE", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-NONE
+Query: select "id" from "tax_tables_config" where ("tax_tables_config"."currency" = $1 and "tax_tables_config"."is_active" = $2) limit $3 -- params: ["USD", true, 1]
+[PAYROLL-SEED] Global tax table exists: USD
+Query: select "id" from "tax_tables_config" where ("tax_tables_config"."currency" = $1 and "tax_tables_config"."is_active" = $2) limit $3 -- params: ["ZIG", true, 1]
+[PAYROLL-SEED] Global tax table exists: ZIG
+[PAYROLL-SEED] Global payroll defaults seeding complete.
+8:24:23 PM [tsx] change in ./server\routes.ts Restarting...
+cSwagger UI configured for Integration API (v1)
+[PAYROLL-SEED] Seeding global Zimbabwe statutory defaults...
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-COMM", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-COMM
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-AGRI", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-AGRI
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-MINE", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-MINE
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-MOTO", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-MOTO
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-CONS", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-CONS
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-HOSP", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-HOSP
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-FINC", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-FINC
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-HLTH", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-HLTH
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-DOME", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-DOME
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-TRNS", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-TRNS
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-COMM2", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-COMM2
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-NONE", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-NONE
+Query: select "id" from "tax_tables_config" where ("tax_tables_config"."currency" = $1 and "tax_tables_config"."is_active" = $2) limit $3 -- params: ["USD", true, 1]
+[PAYROLL-SEED] Global tax table exists: USD
+Query: select "id" from "tax_tables_config" where ("tax_tables_config"."currency" = $1 and "tax_tables_config"."is_active" = $2) limit $3 -- params: ["ZIG", true, 1]
+[PAYROLL-SEED] Global tax table exists: ZIG
+[PAYROLL-SEED] Global payroll defaults seeding complete.
+[Job] Starting Fiscal Day Closing Worker (Targeting Zimbabwe Midnight CAT/UTC+2)
+[Job] Next Zimbabwe midnight closure scheduled in 3h 40m (Target: 2026-06-05T22:05:00.000Z)
+8:27:52 PM [tsx] change in ./server\routes.ts Rerunning...
+cSwagger UI configured for Integration API (v1)
+[PAYROLL-SEED] Seeding global Zimbabwe statutory defaults...
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-COMM", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-COMM
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-AGRI", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-AGRI
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-MINE", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-MINE
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-MOTO", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-MOTO
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-CONS", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-CONS
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-HOSP", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-HOSP
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-FINC", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-FINC
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-HLTH", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-HLTH
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-DOME", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-DOME
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-TRNS", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-TRNS
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-COMM2", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-COMM2
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-NONE", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-NONE
+Query: select "id" from "tax_tables_config" where ("tax_tables_config"."currency" = $1 and "tax_tables_config"."is_active" = $2) limit $3 -- params: ["USD", true, 1]
+[PAYROLL-SEED] Global tax table exists: USD
+Query: select "id" from "tax_tables_config" where ("tax_tables_config"."currency" = $1 and "tax_tables_config"."is_active" = $2) limit $3 -- params: ["ZIG", true, 1]
+[PAYROLL-SEED] Global tax table exists: ZIG
+[PAYROLL-SEED] Global payroll defaults seeding complete.
+[Job] Starting Fiscal Day Closing Worker (Targeting Zimbabwe Midnight CAT/UTC+2)
+[Job] Next Zimbabwe midnight closure scheduled in 3h 36m (Target: 2026-06-05T22:05:00.000Z)
+8:30:12 PM [tsx] change in ./shared\schema.ts Rerunning...
+cSwagger UI configured for Integration API (v1)
+[PAYROLL-SEED] Seeding global Zimbabwe statutory defaults...
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-COMM", 1]
+8:30:18 PM [tsx] change in ./shared\schema.ts Restarting...
+cSwagger UI configured for Integration API (v1)
+[PAYROLL-SEED] Seeding global Zimbabwe statutory defaults...
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-COMM", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-COMM
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-AGRI", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-AGRI
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-MINE", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-MINE
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-MOTO", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-MOTO
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-CONS", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-CONS
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-HOSP", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-HOSP
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-FINC", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-FINC
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-HLTH", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-HLTH
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-DOME", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-DOME
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-TRNS", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-TRNS
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-COMM2", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-COMM2
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-NONE", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-NONE
+Query: select "id" from "tax_tables_config" where ("tax_tables_config"."currency" = $1 and "tax_tables_config"."is_active" = $2) limit $3 -- params: ["USD", true, 1]
+[PAYROLL-SEED] Global tax table exists: USD
+Query: select "id" from "tax_tables_config" where ("tax_tables_config"."currency" = $1 and "tax_tables_config"."is_active" = $2) limit $3 -- params: ["ZIG", true, 1]
+[PAYROLL-SEED] Global tax table exists: ZIG
+[PAYROLL-SEED] Global payroll defaults seeding complete.
+[Job] Starting Fiscal Day Closing Worker (Targeting Zimbabwe Midnight CAT/UTC+2)
+[Job] Next Zimbabwe midnight closure scheduled in 3h 34m (Target: 2026-06-05T22:05:00.000Z)
+8:30:28 PM [express] serving on port 5001
+[HEALTH] Health check from 127.0.0.1
+8:30:33 PM [express] HEAD /api/health 200 in 4ms :: {"type":"object","keys":["ok"]}
+8:30:34 PM [tsx] change in ./shared\schema.ts Restarting...
+cSwagger UI configured for Integration API (v1)
+[PAYROLL-SEED] Seeding global Zimbabwe statutory defaults...
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-COMM", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-COMM
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-AGRI", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-AGRI
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-MINE", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-MINE
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-MOTO", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-MOTO
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-CONS", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-CONS
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-HOSP", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-HOSP
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-FINC", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-FINC
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-HLTH", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-HLTH
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-DOME", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-DOME
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-TRNS", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-TRNS
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-COMM2", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-COMM2
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-NONE", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-NONE
+Query: select "id" from "tax_tables_config" where ("tax_tables_config"."currency" = $1 and "tax_tables_config"."is_active" = $2) limit $3 -- params: ["USD", true, 1]
+[PAYROLL-SEED] Global tax table exists: USD
+Query: select "id" from "tax_tables_config" where ("tax_tables_config"."currency" = $1 and "tax_tables_config"."is_active" = $2) limit $3 -- params: ["ZIG", true, 1]
+[PAYROLL-SEED] Global tax table exists: ZIG
+[PAYROLL-SEED] Global payroll defaults seeding complete.
+[Job] Starting Fiscal Day Closing Worker (Targeting Zimbabwe Midnight CAT/UTC+2)
+[Job] Next Zimbabwe midnight closure scheduled in 3h 34m (Target: 2026-06-05T22:05:00.000Z)
+8:31:12 PM [tsx] change in ./server\routes.ts Rerunning...
+cSwagger UI configured for Integration API (v1)
+[PAYROLL-SEED] Seeding global Zimbabwe statutory defaults...
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-COMM", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-COMM
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-AGRI", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-AGRI
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-MINE", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-MINE
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-MOTO", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-MOTO
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-CONS", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-CONS
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-HOSP", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-HOSP
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-FINC", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-FINC
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-HLTH", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-HLTH
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-DOME", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-DOME
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-TRNS", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-TRNS
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-COMM2", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-COMM2
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-NONE", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-NONE
+Query: select "id" from "tax_tables_config" where ("tax_tables_config"."currency" = $1 and "tax_tables_config"."is_active" = $2) limit $3 -- params: ["USD", true, 1]
+[PAYROLL-SEED] Global tax table exists: USD
+Query: select "id" from "tax_tables_config" where ("tax_tables_config"."currency" = $1 and "tax_tables_config"."is_active" = $2) limit $3 -- params: ["ZIG", true, 1]
+[PAYROLL-SEED] Global tax table exists: ZIG
+[PAYROLL-SEED] Global payroll defaults seeding complete.
+[Job] Starting Fiscal Day Closing Worker (Targeting Zimbabwe Midnight CAT/UTC+2)
+[Job] Next Zimbabwe midnight closure scheduled in 3h 33m (Target: 2026-06-05T22:05:00.000Z)
+8:31:42 PM [tsx] change in ./server\routes.ts Rerunning...
+cSwagger UI configured for Integration API (v1)
+[PAYROLL-SEED] Seeding global Zimbabwe statutory defaults...
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-COMM", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-COMM
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-AGRI", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-AGRI
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-MINE", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-MINE
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-MOTO", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-MOTO
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-CONS", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-CONS
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-HOSP", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-HOSP
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-FINC", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-FINC
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-HLTH", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-HLTH
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-DOME", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-DOME
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-TRNS", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-TRNS
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-COMM2", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-COMM2
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-NONE", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-NONE
+Query: select "id" from "tax_tables_config" where ("tax_tables_config"."currency" = $1 and "tax_tables_config"."is_active" = $2) limit $3 -- params: ["USD", true, 1]
+[PAYROLL-SEED] Global tax table exists: USD
+Query: select "id" from "tax_tables_config" where ("tax_tables_config"."currency" = $1 and "tax_tables_config"."is_active" = $2) limit $3 -- params: ["ZIG", true, 1]
+[PAYROLL-SEED] Global tax table exists: ZIG
+[PAYROLL-SEED] Global payroll defaults seeding complete.
+[Job] Starting Fiscal Day Closing Worker (Targeting Zimbabwe Midnight CAT/UTC+2)
+[Job] Next Zimbabwe midnight closure scheduled in 3h 33m (Target: 2026-06-05T22:05:00.000Z)
+8:32:33 PM [tsx] change in ./server\routes.ts Rerunning...
+cSwagger UI configured for Integration API (v1)
+[PAYROLL-SEED] Seeding global Zimbabwe statutory defaults...
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-COMM", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-COMM
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-AGRI", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-AGRI
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-MINE", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-MINE
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-MOTO", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-MOTO
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-CONS", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-CONS
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-HOSP", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-HOSP
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-FINC", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-FINC
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-HLTH", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-HLTH
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-DOME", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-DOME
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-TRNS", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-TRNS
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-COMM2", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-COMM2
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-NONE", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-NONE
+Query: select "id" from "tax_tables_config" where ("tax_tables_config"."currency" = $1 and "tax_tables_config"."is_active" = $2) limit $3 -- params: ["USD", true, 1]
+[PAYROLL-SEED] Global tax table exists: USD
+Query: select "id" from "tax_tables_config" where ("tax_tables_config"."currency" = $1 and "tax_tables_config"."is_active" = $2) limit $3 -- params: ["ZIG", true, 1]
+[PAYROLL-SEED] Global tax table exists: ZIG
+[PAYROLL-SEED] Global payroll defaults seeding complete.
+[2m8:32:44 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m Re-optimizing dependencies because vite config has changed
+[Job] Starting Fiscal Day Closing Worker (Targeting Zimbabwe Midnight CAT/UTC+2)
+[Job] Next Zimbabwe midnight closure scheduled in 3h 32m (Target: 2026-06-05T22:05:00.000Z)
+8:32:44 PM [express] serving on port 5001
+[HEALTH] Health check from 127.0.0.1
+8:32:45 PM [express] HEAD /api/health 200 in 6ms :: {"type":"object","keys":["ok"]}
+8:32:45 PM [tsx] change in ./server\routes.ts Restarting...
+cSwagger UI configured for Integration API (v1)
+[PAYROLL-SEED] Seeding global Zimbabwe statutory defaults...
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-COMM", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-COMM
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-AGRI", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-AGRI
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-MINE", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-MINE
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-MOTO", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-MOTO
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-CONS", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-CONS
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-HOSP", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-HOSP
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-FINC", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-FINC
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-HLTH", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-HLTH
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-DOME", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-DOME
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-TRNS", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-TRNS
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-COMM2", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-COMM2
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-NONE", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-NONE
+Query: select "id" from "tax_tables_config" where ("tax_tables_config"."currency" = $1 and "tax_tables_config"."is_active" = $2) limit $3 -- params: ["USD", true, 1]
+[PAYROLL-SEED] Global tax table exists: USD
+Query: select "id" from "tax_tables_config" where ("tax_tables_config"."currency" = $1 and "tax_tables_config"."is_active" = $2) limit $3 -- params: ["ZIG", true, 1]
+[PAYROLL-SEED] Global tax table exists: ZIG
+[PAYROLL-SEED] Global payroll defaults seeding complete.
+[Job] Starting Fiscal Day Closing Worker (Targeting Zimbabwe Midnight CAT/UTC+2)
+[Job] Next Zimbabwe midnight closure scheduled in 3h 32m (Target: 2026-06-05T22:05:00.000Z)
+8:33:10 PM [tsx] change in ./server\routes.ts Rerunning...
+cSwagger UI configured for Integration API (v1)
+[PAYROLL-SEED] Seeding global Zimbabwe statutory defaults...
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-COMM", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-COMM
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-AGRI", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-AGRI
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-MINE", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-MINE
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-MOTO", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-MOTO
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-CONS", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-CONS
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-HOSP", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-HOSP
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-FINC", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-FINC
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-HLTH", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-HLTH
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-DOME", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-DOME
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-TRNS", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-TRNS
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-COMM2", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-COMM2
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-NONE", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-NONE
+Query: select "id" from "tax_tables_config" where ("tax_tables_config"."currency" = $1 and "tax_tables_config"."is_active" = $2) limit $3 -- params: ["USD", true, 1]
+[PAYROLL-SEED] Global tax table exists: USD
+Query: select "id" from "tax_tables_config" where ("tax_tables_config"."currency" = $1 and "tax_tables_config"."is_active" = $2) limit $3 -- params: ["ZIG", true, 1]
+[PAYROLL-SEED] Global tax table exists: ZIG
+[PAYROLL-SEED] Global payroll defaults seeding complete.
+[2m8:33:21 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m Re-optimizing dependencies because vite config has changed
+[Job] Starting Fiscal Day Closing Worker (Targeting Zimbabwe Midnight CAT/UTC+2)
+[Job] Next Zimbabwe midnight closure scheduled in 3h 31m (Target: 2026-06-05T22:05:00.000Z)
+8:33:25 PM [tsx] change in ./server\routes.ts Rerunning...
+cSwagger UI configured for Integration API (v1)
+[PAYROLL-SEED] Seeding global Zimbabwe statutory defaults...
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-COMM", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-COMM
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-AGRI", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-AGRI
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-MINE", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-MINE
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-MOTO", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-MOTO
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-CONS", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-CONS
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-HOSP", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-HOSP
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-FINC", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-FINC
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-HLTH", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-HLTH
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-DOME", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-DOME
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-TRNS", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-TRNS
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-COMM2", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-COMM2
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-NONE", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-NONE
+Query: select "id" from "tax_tables_config" where ("tax_tables_config"."currency" = $1 and "tax_tables_config"."is_active" = $2) limit $3 -- params: ["USD", true, 1]
+[PAYROLL-SEED] Global tax table exists: USD
+Query: select "id" from "tax_tables_config" where ("tax_tables_config"."currency" = $1 and "tax_tables_config"."is_active" = $2) limit $3 -- params: ["ZIG", true, 1]
+[PAYROLL-SEED] Global tax table exists: ZIG
+[PAYROLL-SEED] Global payroll defaults seeding complete.
+[Job] Starting Fiscal Day Closing Worker (Targeting Zimbabwe Midnight CAT/UTC+2)
+[Job] Next Zimbabwe midnight closure scheduled in 3h 31m (Target: 2026-06-05T22:05:00.000Z)
+8:33:37 PM [express] serving on port 5001
+[HEALTH] Health check from 127.0.0.1
+8:33:49 PM [express] HEAD /api/health 200 in 5ms :: {"type":"object","keys":["ok"]}
+[HEALTH] Health check from 127.0.0.1
+8:33:49 PM [express] HEAD /api/health 200 in 1ms :: {"type":"object","keys":["ok"]}
+8:34:30 PM [tsx] change in ./server\routes.ts Restarting...
+cSwagger UI configured for Integration API (v1)
+[PAYROLL-SEED] Seeding global Zimbabwe statutory defaults...
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-COMM", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-COMM
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-AGRI", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-AGRI
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-MINE", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-MINE
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-MOTO", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-MOTO
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-CONS", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-CONS
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-HOSP", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-HOSP
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-FINC", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-FINC
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-HLTH", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-HLTH
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-DOME", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-DOME
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-TRNS", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-TRNS
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-COMM2", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-COMM2
+Query: select "id" from "nec_sectors_config" where ("nec_sectors_config"."code" = $1 and "nec_sectors_config"."company_id" is null) limit $2 -- params: ["NEC-NONE", 1]
+[PAYROLL-SEED] NEC preset exists: NEC-NONE
+Query: select "id" from "tax_tables_config" where ("tax_tables_config"."currency" = $1 and "tax_tables_config"."is_active" = $2) limit $3 -- params: ["USD", true, 1]
+[PAYROLL-SEED] Global tax table exists: USD
+Query: select "id" from "tax_tables_config" where ("tax_tables_config"."currency" = $1 and "tax_tables_config"."is_active" = $2) limit $3 -- params: ["ZIG", true, 1]
+[PAYROLL-SEED] Global tax table exists: ZIG
+[PAYROLL-SEED] Global payroll defaults seeding complete.
+[Job] Starting Fiscal Day Closing Worker (Targeting Zimbabwe Midnight CAT/UTC+2)
+[Job] Next Zimbabwe midnight closure scheduled in 3h 30m (Target: 2026-06-05T22:05:00.000Z)

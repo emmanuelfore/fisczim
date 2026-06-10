@@ -66,6 +66,7 @@ export default function InventoryAdjustmentsPage() {
   const adjustMutation = useInventoryAdjust(companyId);
 
   const [searchTerm, setSearchTerm] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [drafts, setDrafts] = useState<Record<number, DraftAdjustment>>({});
   const [batchReason, setBatchReason] = useState("");
@@ -135,12 +136,27 @@ export default function InventoryAdjustmentsPage() {
     return target - getCurrentStock(product);
   };
 
+  const categoryOptions = useMemo(() => {
+    const categories = new Set<string>();
+
+    trackedProducts.forEach((product) => {
+      const category = product.category?.trim();
+      if (category) categories.add(category);
+    });
+
+    return Array.from(categories).sort((a, b) => a.localeCompare(b));
+  }, [trackedProducts]);
+
   const filteredProducts = useMemo(() => {
     const query = searchTerm.toLowerCase().trim();
     const matches: typeof trackedProducts = [];
     const changedNonMatches: typeof trackedProducts = [];
 
     trackedProducts.forEach((p) => {
+      const matchesCategory =
+        categoryFilter === "all"
+          ? true
+          : p.category?.trim() === categoryFilter;
       const matchesSearch =
         !query ||
         p.name.toLowerCase().includes(query) ||
@@ -149,7 +165,8 @@ export default function InventoryAdjustmentsPage() {
       const delta = getDraftDelta(p);
       const isChanged = delta !== null && delta !== 0;
 
-      if (showOnlyChanged) return isChanged;
+      if (showOnlyChanged) return isChanged && matchesCategory;
+      if (!matchesCategory) return;
       if (matchesSearch) {
         matches.push(p);
       } else if (isChanged) {
@@ -158,12 +175,16 @@ export default function InventoryAdjustmentsPage() {
     });
 
     if (showOnlyChanged) return trackedProducts.filter((p) => {
+      const matchesCategory =
+        categoryFilter === "all"
+          ? true
+          : p.category?.trim() === categoryFilter;
       const delta = getDraftDelta(p);
-      return delta !== null && delta !== 0;
+      return matchesCategory && delta !== null && delta !== 0;
     });
 
     return [...matches, ...changedNonMatches];
-  }, [trackedProducts, searchTerm, showOnlyChanged, drafts]);
+  }, [trackedProducts, searchTerm, categoryFilter, showOnlyChanged, drafts]);
 
   const totalPages = Math.ceil(
     (filteredProducts?.length || 0) / ITEMS_PER_PAGE,
@@ -366,6 +387,26 @@ export default function InventoryAdjustmentsPage() {
           />
         </div>
 
+        <Select
+          value={categoryFilter}
+          onValueChange={(value) => {
+            setCategoryFilter(value);
+            setCurrentPage(1);
+          }}
+        >
+          <SelectTrigger className="h-12 w-full rounded-xl border-slate-200 bg-white shadow-sm font-bold text-slate-700 sm:w-[220px]">
+            <SelectValue placeholder="Category" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Categories</SelectItem>
+            {categoryOptions.map((category) => (
+              <SelectItem key={category} value={category}>
+                {category}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
         <div className="flex items-center gap-3 px-4 h-12 rounded-xl bg-white border border-slate-200 shadow-sm">
           <Switch
             id="only-changed"
@@ -383,16 +424,17 @@ export default function InventoryAdjustmentsPage() {
           </label>
         </div>
 
-        {searchTerm && (
+        {(searchTerm || categoryFilter !== "all") && (
           <Button
             variant="ghost"
             onClick={() => {
               setSearchTerm("");
+              setCategoryFilter("all");
               setCurrentPage(1);
             }}
             className="text-slate-500 font-medium hover:text-slate-900 h-12 px-4 rounded-xl"
           >
-            Reset Search
+            Reset Filters
           </Button>
         )}
       </div>

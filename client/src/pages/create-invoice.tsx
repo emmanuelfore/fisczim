@@ -535,12 +535,17 @@ export default function CreateInvoicePage() {
   const hasItems = items.length > 0 && items.some((item) => item.productId);
   const hasTaxMethod = typeof taxInclusive === "boolean";
   const hasFiscalDevice = Boolean(company?.fdmsDeviceId);
+  const useFiscalWorkflow = Boolean(
+    hasFiscalDevice && company?.vatRegistered !== false,
+  );
   const readinessChecks = [
     { label: "Customer selected", complete: hasCustomer },
     { label: "Items added", complete: hasItems },
     { label: "Tax method selected", complete: hasTaxMethod },
-    { label: "Fiscal device connected", complete: hasFiscalDevice },
-  ];
+    useFiscalWorkflow
+      ? { label: "Fiscal device connected", complete: hasFiscalDevice }
+      : null,
+  ].filter(Boolean) as Array<{ label: string; complete: boolean }>;
   const readyToIssue = readinessChecks.every((check) => check.complete);
 
   type InvoiceAction = "draft" | "issue" | "issueAndFiscalize" | "quote";
@@ -924,6 +929,48 @@ export default function CreateInvoicePage() {
       });
     }
   };
+
+  const selectedCustomer = customers?.find(
+    (c) => c.id.toString() === customerId,
+  );
+  const previewInvoice = {
+    invoiceNumber:
+      isEditing && existingInvoice?.invoiceNumber
+        ? existingInvoice.invoiceNumber
+        : "DRAFT",
+    issueDate: (() => {
+      const d = new Date(issueDate);
+      return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+    })(),
+    dueDate: (() => {
+      const d = new Date(dueDate);
+      return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+    })(),
+    status: "draft",
+    items: items.map((item) => ({
+      ...item,
+      lineTotal: (item.quantity * item.unitPrice).toString(),
+      product: { hsCode: item.hsCode },
+    })),
+    subtotal: subtotal.toString(),
+    taxAmount: taxAmount.toString(),
+    total: total.toString(),
+    currency: currencyCode,
+    taxInclusive,
+    notes,
+    poNumber: poNumber.trim() || undefined,
+    invoiceTemplate,
+    currencySymbol: currentSymbol,
+  };
+  const previewCompany = company
+    ? {
+        ...company,
+        bankName,
+        accountName,
+        accountNumber,
+        branchCode,
+      }
+    : null;
 
   return (
     <Layout>
@@ -2116,7 +2163,7 @@ export default function CreateInvoicePage() {
                         Invoice Summary
                       </h3>
                       <p className=" text-muted-foreground">
-                        Live totals and fiscal readiness.
+                        Live totals and invoice readiness.
                       </p>
                     </div>
                   </div>
@@ -2239,7 +2286,9 @@ export default function CreateInvoicePage() {
                       </div>
                       <div>
                         <h4 className=" font-semibold text-slate-800">
-                          Fiscal Readiness
+                          {useFiscalWorkflow
+                            ? "Fiscal Readiness"
+                            : "Invoice Readiness"}
                         </h4>
                         <p className="text-xs text-slate-500">
                           {readyToIssue
@@ -2278,8 +2327,9 @@ export default function CreateInvoicePage() {
 
                     <div className="mt-4 rounded-xl bg-slate-50 p-3">
                       <p className="text-xs leading-relaxed text-slate-600">
-                        QR code and fiscal signature will be generated after
-                        fiscal submission.
+                        {useFiscalWorkflow
+                          ? "QR code and fiscal signature will be generated after fiscal submission."
+                          : "This invoice can be issued without fiscal submission because no fiscal device is configured for this company."}
                       </p>
                     </div>
                   </div>
@@ -2477,85 +2527,56 @@ export default function CreateInvoicePage() {
           <DialogHeader>
             <DialogTitle>Document Preview</DialogTitle>
           </DialogHeader>
-          <div className="flex-1 bg-slate-100 rounded-md overflow-hidden flex items-center justify-center p-8">
-            <div className="text-center">
-              <ClipboardList className="w-16 h-16 mx-auto text-slate-300 mb-4" />
-              <h3 className="text-lg font-medium text-slate-900 mb-2">
-                Live Preview Available Soon
-              </h3>
-              <p className=" text-slate-500 max-w-sm">
-                Generating a PDF for{" "}
-                {customers?.find((c) => c.id.toString() === customerId)?.name ||
-                  "selected customer"}
-                .
-              </p>
-              <div className="mt-6 flex flex-col gap-2">
-                {customerId && company && items.length > 0 && (
-                  <PDFDownloadLink
-                    document={
-                      <InvoicePDF
-                        invoice={{
-                          invoiceNumber: "DRAFT",
-                          issueDate: (() => {
-                            const d = new Date(issueDate);
-                            return isNaN(d.getTime())
-                              ? new Date().toISOString()
-                              : d.toISOString();
-                          })(),
-                          dueDate: (() => {
-                            const d = new Date(dueDate);
-                            return isNaN(d.getTime())
-                              ? new Date().toISOString()
-                              : d.toISOString();
-                          })(),
-                          status: "draft",
-                          items: items.map((item) => ({
-                            ...item,
-                            lineTotal: (
-                              item.quantity * item.unitPrice
-                            ).toString(),
-                            product: { hsCode: item.hsCode },
-                          })),
-                          subtotal: subtotal.toString(),
-                          taxAmount: taxAmount.toString(),
-                          total: total.toString(),
-                          currency: currencyCode,
-                          taxInclusive,
-                          notes,
-                          poNumber: poNumber.trim() || undefined,
-                          invoiceTemplate,
-                          currencySymbol: currentSymbol,
-                        }}
-                        company={{
-                          ...company,
-                          bankName,
-                          accountName,
-                          accountNumber,
-                          branchCode,
-                        }}
-                        customer={customers?.find(
-                          (c) => c.id.toString() === customerId,
-                        )}
-                        taxTypes={taxTypes.data}
-                      />
-                    }
-                    fileName={`Document-${Date.now()}.pdf`}
-                  >
-                    {({ loading }) => (
-                      <Button className="w-full gap-2" disabled={loading}>
-                        <Download className="w-4 h-4" />{" "}
-                        {loading ? "Generating..." : "Download PDF"}
-                      </Button>
-                    )}
-                  </PDFDownloadLink>
-                )}
-                <Button
-                  variant="outline"
-                  onClick={() => setIsPreviewOpen(false)}
+          <div className="flex min-h-0 flex-1 flex-col gap-3">
+            <div className="min-h-0 flex-1 overflow-hidden rounded-md border border-slate-200 bg-slate-100">
+              {previewCompany ? (
+                <PDFViewer width="100%" height="100%">
+                  <InvoicePDF
+                    invoice={previewInvoice}
+                    company={previewCompany}
+                    customer={selectedCustomer}
+                    taxTypes={taxTypes.data}
+                  />
+                </PDFViewer>
+              ) : (
+                <div className="flex h-full items-center justify-center p-8 text-center">
+                  <div>
+                    <ClipboardList className="mx-auto mb-4 h-16 w-16 text-slate-300" />
+                    <h3 className="mb-2 text-lg font-medium text-slate-900">
+                      Select a company to preview
+                    </h3>
+                    <p className="max-w-sm text-slate-500">
+                      The live invoice preview needs company details before it
+                      can render.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2">
+              {previewCompany && (
+                <PDFDownloadLink
+                  document={
+                    <InvoicePDF
+                      invoice={previewInvoice}
+                      company={previewCompany}
+                      customer={selectedCustomer}
+                      taxTypes={taxTypes.data}
+                    />
+                  }
+                  fileName={`Document-${Date.now()}.pdf`}
                 >
-                  Close Preview
-                </Button>
-              </div>
+                  {({ loading }) => (
+                    <Button className="gap-2" disabled={loading}>
+                      <Download className="h-4 w-4" />
+                      {loading ? "Generating..." : "Download PDF"}
+                    </Button>
+                  )}
+                </PDFDownloadLink>
+              )}
+              <Button variant="outline" onClick={() => setIsPreviewOpen(false)}>
+                Close
+              </Button>
             </div>
           </div>
         </DialogContent>

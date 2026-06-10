@@ -120,6 +120,27 @@ export function usePendingGdns(companyId: number) {
   });
 }
 
+export function useCreateGdn(companyId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: {
+      gdnNumber: string;
+      supplierId?: number | null;
+      notes?: string;
+      items: Array<{ productId: number; quantity: number | string; notes?: string }>;
+    }) => {
+      const res = await apiFetch(`/api/companies/${companyId}/gdns`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      });
+      return readJsonOrThrow(res, "Failed to record GDN");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["gdns", companyId, "PENDING"] });
+    },
+  });
+}
+
 export function useConfirmGdn(companyId: number) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -129,6 +150,7 @@ export function useConfirmGdn(companyId: number) {
       notes?: string;
       landedCosts?: number | string;
       allocationMethod?: "quantity" | "value" | "manual";
+      receivingLocationId?: number | null;
       items: Array<{
         productId: number;
         quantity: number | string;
@@ -143,6 +165,7 @@ export function useConfirmGdn(companyId: number) {
           notes: data.notes,
           landedCosts: data.landedCosts,
           allocationMethod: data.allocationMethod || "value",
+          receivingLocationId: data.receivingLocationId,
           items: data.items,
         }),
       });

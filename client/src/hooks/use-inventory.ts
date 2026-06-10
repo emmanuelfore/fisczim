@@ -84,6 +84,7 @@ export function useInventoryAdjust(companyId: number) {
             type: "SHRINKAGE" | "ADJUSTMENT" | "CORRECTION" | "DAMAGE" | "EXPIRY";
             quantity: number | string;
             branchId?: number;
+            locationId?: number;
             notes?: string;
         }) => {
             const url = buildUrl(api.inventory.adjust.path, { companyId });

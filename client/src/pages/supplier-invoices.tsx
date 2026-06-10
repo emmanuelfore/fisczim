@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/table";
 import { formatCurrency } from "@/lib/utils";
 import { useActiveCompany } from "@/hooks/use-active-company";
+import { usePurchaseOrders } from "@/hooks/use-purchase-orders";
 import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { type Account, type Supplier } from "@shared/schema";
@@ -54,6 +55,8 @@ export default function SupplierInvoicesPage() {
     invoiceNumber: "",
     date: new Date().toISOString().slice(0, 10),
     dueDate: "",
+    purchaseOrderId: "",
+    grvReference: "",
     totalAmount: "",
     vatRate: activeCompany?.vatRegistered ? "15" : "0",
     taxInclusive: activeCompany?.vatEnabled ?? true,
@@ -125,6 +128,29 @@ export default function SupplierInvoicesPage() {
     (account) =>
       ["ASSET", "EXPENSE"].includes(account.type) && account.isActive,
   );
+  const { data: purchaseOrders = [] } = usePurchaseOrders(companyId);
+  const openPurchaseOrders = purchaseOrders.filter(
+    (order) => !["CANCELLED", "RECEIVED"].includes(order.status),
+  );
+
+  const applyPurchaseOrder = (purchaseOrderId: string) => {
+    const order = openPurchaseOrders.find((po) => String(po.id) === purchaseOrderId);
+    setFormData((previous) => {
+      const next = {
+        ...previous,
+        purchaseOrderId,
+        supplierId: order ? String(order.supplierId) : previous.supplierId,
+        totalAmount: order ? Number(order.totalCost || 0).toFixed(2) : previous.totalAmount,
+        notes: order
+          ? `Supplier bill against PO ${order.poNumber}${previous.notes ? ` - ${previous.notes}` : ""}`
+          : previous.notes,
+      };
+      return {
+        ...next,
+        taxAmount: calculateVatAmount(next.totalAmount, next.vatRate, next.taxInclusive),
+      };
+    });
+  };
 
   const resetForm = () => {
     setFormData({
@@ -132,6 +158,8 @@ export default function SupplierInvoicesPage() {
       invoiceNumber: "",
       date: new Date().toISOString().slice(0, 10),
       dueDate: "",
+      purchaseOrderId: "",
+      grvReference: "",
       totalAmount: "",
       vatRate: activeCompany?.vatRegistered ? "15" : "0",
       taxInclusive: activeCompany?.vatEnabled ?? true,
@@ -167,8 +195,14 @@ export default function SupplierInvoicesPage() {
               ? new Date(formData.dueDate).toISOString()
               : null,
             totalAmount: total.toFixed(2),
+            subtotalAmount: subtotal.toFixed(2),
             taxAmount: tax.toFixed(2),
+            taxInclusive: formData.taxInclusive,
             currency: activeCompany?.currency || "USD",
+            purchaseOrderId: formData.purchaseOrderId
+              ? Number(formData.purchaseOrderId)
+              : undefined,
+            grvReference: formData.grvReference.trim() || undefined,
             debitAccountId: formData.debitAccountId
               ? Number(formData.debitAccountId)
               : undefined,
@@ -297,6 +331,24 @@ export default function SupplierInvoicesPage() {
                     </Select>
                   </div>
                   <div className="space-y-1">
+                    <Label className="text-xs">Purchase Order</Label>
+                    <Select
+                      value={formData.purchaseOrderId}
+                      onValueChange={applyPurchaseOrder}
+                    >
+                      <SelectTrigger className="h-9">
+                        <SelectValue placeholder="Optional PO link" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {openPurchaseOrders.map((order) => (
+                          <SelectItem key={order.id} value={String(order.id)}>
+                            {order.poNumber} - {order.supplierName || "Supplier"}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
                     <Label className="text-xs">Invoice Number</Label>
                     <Input
                       className="h-9"
@@ -330,6 +382,20 @@ export default function SupplierInvoicesPage() {
                       onChange={(e) =>
                         setFormData((p) => ({ ...p, dueDate: e.target.value }))
                       }
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">GRV Reference</Label>
+                    <Input
+                      className="h-9"
+                      value={formData.grvReference}
+                      onChange={(e) =>
+                        setFormData((p) => ({
+                          ...p,
+                          grvReference: e.target.value,
+                        }))
+                      }
+                      placeholder="Optional GRV no"
                     />
                   </div>
                   <div className="space-y-1">
@@ -503,6 +569,9 @@ export default function SupplierInvoicesPage() {
                     Supplier
                   </TableHead>
                   <TableHead className="font-bold text-slate-500 uppercase text-[11px] tracking-wider">
+                    Source
+                  </TableHead>
+                  <TableHead className="font-bold text-slate-500 uppercase text-[11px] tracking-wider">
                     Status
                   </TableHead>
                   <TableHead className="text-right font-bold text-slate-500 uppercase text-[11px] tracking-wider">
@@ -547,6 +616,11 @@ export default function SupplierInvoicesPage() {
                       </TableCell>
                       <TableCell className="font-bold text-slate-700">
                         {invoice.supplier?.name || "Unknown"}
+                      </TableCell>
+                      <TableCell className="text-slate-600 font-medium">
+                        {invoice.purchaseOrder?.poNumber ||
+                          invoice.grvReference ||
+                          "-"}
                       </TableCell>
                       <TableCell>
                         <Badge

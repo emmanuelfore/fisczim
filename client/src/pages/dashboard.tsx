@@ -87,7 +87,16 @@ function amountLines(amounts: CurrencyAmounts, empty = "No sales yet", includeCo
   );
 }
 
-function formatStatus(invoice: any): "FISCALIZED" | "PENDING" | "FAILED" {
+function formatStatus(
+  invoice: any,
+  useFiscalWorkflow = true,
+): "FISCALIZED" | "PENDING" | "FAILED" | "ISSUED" | "DRAFT" {
+  if (!useFiscalWorkflow) {
+    if (invoice?.status === "draft") return "DRAFT";
+    if (invoice?.syncedWithFdms || invoice?.fiscalCode) return "FISCALIZED";
+    return "ISSUED";
+  }
+
   const fdms = String(invoice?.fdmsStatus || "").toLowerCase();
   if (invoice?.syncedWithFdms || fdms === "fiscalized") return "FISCALIZED";
   if (fdms === "failed") return "FAILED";
@@ -119,6 +128,9 @@ export default function Dashboard() {
   const { data: customers = [] } = useCustomers(companyId);
   const { data: currencies = [] } = useCurrencies(companyId);
   const { data: deviceStatus } = useDeviceStatus(companyId);
+  const useFiscalWorkflow = Boolean(
+    deviceStatus?.isConfigured && activeCompany?.vatRegistered !== false,
+  );
 
   const { data: operationalMetrics } = useQuery<any>({
     queryKey: [api.reports.operationalMetrics.path, companyId],
@@ -552,13 +564,13 @@ export default function Dashboard() {
                   {invoices.length === 0 ? (
                     <tr>
                       <td colSpan={5} className="px-3 py-8  text-[#64748B]">
-                        No invoices yet. Create your first fiscalized invoice to
+                        No invoices yet. Create your first invoice to
                         get started.
                       </td>
                     </tr>
                   ) : (
                     invoices.map((inv) => {
-                      const status = formatStatus(inv);
+                      const status = formatStatus(inv, useFiscalWorkflow);
                       return (
                         <tr
                           key={inv.id}
@@ -588,7 +600,7 @@ export default function Dashboard() {
                           </td>
                           <td className="px-3 py-2.5 pr-5">
                             <span
-                              className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold ${status === "FISCALIZED" ? "bg-[#DCFCE7] text-[#166534] border-emerald-100" : status === "PENDING" ? "bg-[#FEF3C7] text-[#92400E] border-amber-100" : "bg-[#FEE2E2] text-[#991B1B] border-red-100"}`}
+                              className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold ${status === "FISCALIZED" ? "bg-[#DCFCE7] text-[#166534] border-emerald-100" : status === "PENDING" ? "bg-[#FEF3C7] text-[#92400E] border-amber-100" : status === "FAILED" ? "bg-[#FEE2E2] text-[#991B1B] border-red-100" : "bg-[#EFF6FF] text-[#1D4ED8] border-blue-100"}`}
                             >
                               {status}
                             </span>

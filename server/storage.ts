@@ -6,7 +6,7 @@ import {
   type InsertCustomer, type InsertProduct, type CreateInvoiceRequest, type InsertInvoice,
   taxTypes, taxCategories, type TaxType, type TaxCategory, type InsertTaxCategory, type InsertTaxType,
   currencies, type Currency, type InsertCurrency,
-  payments, type Payment, type InsertPayment,
+  payments, paymentAllocations, type Payment, type InsertPayment,
   auditLogs, type AuditLog, type InsertAuditLog,
   recurringInvoices, type RecurringInvoice, type InsertRecurringInvoice,
   quotations, quotationItems, type Quotation, type QuotationItem, type InsertQuotation, type InsertQuotationItem,
@@ -34,7 +34,11 @@ import {
   type ProductVariation, type InsertProductVariation,
   type ProductBatch, type InsertProductBatch,
   priceAdjustments, type PriceAdjustment, type InsertPriceAdjustment,
-  accounts, journalEntries, ledgerEntries, journalEntryDrafts, journalEntryDraftLines,
+  accounts, accountingSegments, cashbookEntries, cashbookEntryLines, costCenters,
+  inventoryValuationSnapshots, withholdingTaxRates, withholdingTaxCertificates,
+  taxObligations, approvalRequests, mobileMoneyTransactions, scheduledReports,
+  provisions, revenueContracts,
+  journalEntries, ledgerEntries, journalEntryDrafts, journalEntryDraftLines,
   type Account, type JournalEntry, type LedgerEntry, type JournalEntryDraft,
   type InsertAccount, type InsertJournalEntry, type InsertLedgerEntry, type InsertJournalEntryDraft,
   financialPeriods, bankStatements, bankStatementLines,
@@ -77,6 +81,7 @@ const DEFAULT_ACCOUNTING_SYSTEM_ACCOUNTS = {
   generalExpenseAccountCode: "5100",
   fxGainAccountCode: "4900",
   fxLossAccountCode: "5900",
+  withholdingTaxPayableCode: "2120",
 } as const;
 
 type AccountingSystemAccountKey = keyof typeof DEFAULT_ACCOUNTING_SYSTEM_ACCOUNTS;
@@ -138,6 +143,13 @@ type LedgerPostLine = {
   debit?: string | number;
   credit?: string | number;
   branchId?: number;
+  costCenterId?: number;
+  costCenterCode?: string;
+  segmentId?: number;
+  segmentCode?: string;
+  vatTypeId?: number;
+  vatAmount?: string | number;
+  withholdingTaxAmount?: string | number;
   memo?: string;
 };
 
@@ -148,6 +160,9 @@ type LedgerPostData = {
   referenceType?: string;
   referenceId?: string;
   reference?: string;
+  journalType?: string;
+  status?: string;
+  approvalStatus?: string;
   createdBy?: string;
   lines: LedgerPostLine[];
 };
@@ -482,7 +497,15 @@ export interface IStorage {
   postJournalEntryDraft(companyId: number, draftId: number, userId?: string): Promise<JournalEntry>;
   getLedgerEntries(companyId: number, accountId?: number, dateFrom?: Date, dateTo?: Date): Promise<any[]>;
   getTrialBalance(companyId: number, date?: Date): Promise<any[]>;
-  getVatReturn(companyId: number, fromDate?: Date, toDate?: Date): Promise<{ outputVat: number; inputVat: number; netVat: number }>;
+  getVatReturn(companyId: number, fromDate?: Date, toDate?: Date): Promise<{
+    outputVat: number;
+    inputVat: number;
+    netVat: number;
+    outputVatByCurrency: Record<string, number>;
+    inputVatByCurrency: Record<string, number>;
+    netVatByCurrency: Record<string, number>;
+    includedInvoiceCount: number;
+  }>;
   postToLedger(companyId: number, entryData: LedgerPostData, tx?: any): Promise<JournalEntry>;
   
   // Bank Reconciliation
@@ -504,8 +527,13 @@ export class DatabaseStorage implements IStorage {
     accountId: number;
     accountCode: string;
     accountName: string;
+    costCenterId?: number | null;
+    segmentId?: number | null;
     type: "DEBIT" | "CREDIT";
     amount: number;
+    vatTypeId?: number | null;
+    vatAmount?: number;
+    withholdingTaxAmount?: number;
     memo?: string;
   }>> {
     const normalized = [];
@@ -530,12 +558,35 @@ export class DatabaseStorage implements IStorage {
         throw new Error(`Account ${identifier} not found for company ${companyId}`);
       }
 
+      let costCenterId = line.costCenterId ? Number(line.costCenterId) : null;
+      if (!costCenterId && line.costCenterCode) {
+        const [costCenter] = await tx
+          .select()
+          .from(costCenters)
+          .where(and(eq(costCenters.companyId, companyId), eq(costCenters.code, line.costCenterCode)));
+        costCenterId = costCenter?.id || null;
+      }
+
+      let segmentId = line.segmentId ? Number(line.segmentId) : null;
+      if (!segmentId && line.segmentCode) {
+        const [segment] = await tx
+          .select()
+          .from(accountingSegments)
+          .where(and(eq(accountingSegments.companyId, companyId), eq(accountingSegments.code, line.segmentCode)));
+        segmentId = segment?.id || null;
+      }
+
       normalized.push({
         accountId: account.id,
         accountCode: account.code,
         accountName: account.name,
+        costCenterId,
+        segmentId,
         type,
         amount,
+        vatTypeId: line.vatTypeId ? Number(line.vatTypeId) : null,
+        vatAmount: Number(line.vatAmount || 0),
+        withholdingTaxAmount: Number(line.withholdingTaxAmount || 0),
         memo: line.memo,
       });
     }
@@ -703,17 +754,12 @@ export class DatabaseStorage implements IStorage {
     console.log(`[STORAGE] getCompanies for user: ${userId}, email: ${user?.email}, isSuper: ${user?.isSuperAdmin}, isSystemAdmin: ${isSystemAdmin}`);
 
     if (user?.isSuperAdmin) {
-      let allCompanies = await db.select().from(companies);
-      
-      // Only the system admin may see these restricted companies.
-      if (!isSystemAdmin) {
-        const systemAdminOnlyCompanies = new Set(['goosehill trading', 'glorious tire services', 'spares arena']);
-        allCompanies = allCompanies.filter(c => {
-          const companyName = (c.name || "").toLowerCase();
-          const tradingName = (c.tradingName || "").toLowerCase();
-          return !systemAdminOnlyCompanies.has(companyName) && !systemAdminOnlyCompanies.has(tradingName);
-        });
-      }
+      const allCompanies = isSystemAdmin
+        ? await db.select().from(companies)
+        : await db
+            .select()
+            .from(companies)
+            .where(eq(companies.superadminVisible, true));
 
       console.log(`[STORAGE] Superuser ${userId} found ${allCompanies.length} accessible companies`);
       return allCompanies.map(c => ({ ...c, role: "owner" }));
@@ -2593,9 +2639,22 @@ export class DatabaseStorage implements IStorage {
       
       const [invoice] = await tx.select().from(invoices).where(eq(invoices.id, newPayment.invoiceId));
       if (invoice) {
+        const paymentAmount = this.roundMoney(Number(newPayment.amount || 0));
+        const outstandingBeforePayment = this.roundMoney(Math.max(0, Number(invoice.total || 0) - Number(invoice.paidAmount || 0)));
+        if (paymentAmount - outstandingBeforePayment > 0.005) {
+          throw new Error("Invoice payment exceeds the outstanding balance. Record overpayments through customer receipts so the extra amount stays unallocated.");
+        }
+
         if (skipLedger) {
-          const newPaidAmount = (Number(invoice.paidAmount) + Number(newPayment.amount)).toFixed(2);
+          const newPaidAmount = this.roundMoney(Number(invoice.paidAmount) + paymentAmount).toFixed(2);
           const isFullyPaid = Number(newPaidAmount) >= Number(invoice.total);
+
+          await tx.insert(paymentAllocations).values({
+            companyId: invoice.companyId,
+            paymentId: newPayment.id,
+            invoiceId: invoice.id,
+            amount: paymentAmount.toFixed(2),
+          });
 
           await tx.update(invoices)
             .set({
@@ -2611,8 +2670,8 @@ export class DatabaseStorage implements IStorage {
         const currentRate = Number(newPayment.exchangeRate || 1);
         const invoiceRate = Number(invoice.exchangeRate || 1);
         
-        const originalBaseValue = Number(newPayment.amount) / invoiceRate;
-        const currentBaseValue = Number(newPayment.amount) / currentRate;
+        const originalBaseValue = paymentAmount / invoiceRate;
+        const currentBaseValue = paymentAmount / currentRate;
         fxVariance = Math.round((currentBaseValue - originalBaseValue) * 100) / 100;
         const cashAccountCode = await this.getSystemAccountCode(invoice.companyId, "cashAccountCode", tx);
         const arAccountCode = await this.getSystemAccountCode(invoice.companyId, "accountsReceivableCode", tx);
@@ -2640,8 +2699,15 @@ export class DatabaseStorage implements IStorage {
           lines
         }, tx);
 
+        await tx.insert(paymentAllocations).values({
+          companyId: invoice.companyId,
+          paymentId: newPayment.id,
+          invoiceId: invoice.id,
+          amount: paymentAmount.toFixed(2),
+        });
+
         // Update Invoice Paid Amount and Status
-        const newPaidAmount = (Number(invoice.paidAmount) + Number(newPayment.amount)).toFixed(2);
+        const newPaidAmount = this.roundMoney(Number(invoice.paidAmount) + paymentAmount).toFixed(2);
         const isFullyPaid = Number(newPaidAmount) >= Number(invoice.total);
         
         await tx.update(invoices)
@@ -3439,46 +3505,62 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getCostCenterReport(companyId: number, startDate?: Date, endDate?: Date): Promise<any[]> {
-    const allBranches = await db.select().from(branches).where(eq(branches.companyId, companyId));
-    
-    let invConditions = [eq(invoices.companyId, companyId), ne(invoices.status, 'cancelled')];
-    if (startDate) invConditions.push(gte(invoices.issueDate, startDate));
-    if (endDate) invConditions.push(lte(invoices.issueDate, endDate));
-    const allInvoices = await db.select().from(invoices).where(and(...invConditions));
-    
-    let expConditions = [eq(expenses.companyId, companyId), eq(expenses.status, 'approved')];
-    if (startDate) expConditions.push(gte(expenses.expenseDate, startDate));
-    if (endDate) expConditions.push(lte(expenses.expenseDate, endDate));
-    const allExpenses = await db.select().from(expenses).where(and(...expConditions));
-    
-    let cogsConditions = [eq(inventoryTransactions.companyId, companyId), eq(inventoryTransactions.type, 'STOCK_OUT')];
-    if (startDate) cogsConditions.push(gte(inventoryTransactions.createdAt, startDate));
-    if (endDate) cogsConditions.push(lte(inventoryTransactions.createdAt, endDate));
-    const allCogs = await db.select().from(inventoryTransactions).where(and(...cogsConditions));
-    
-    return allBranches.map(branch => {
-      const bInvoices = allInvoices.filter(i => i.branchId === branch.id);
-      const bExpenses = allExpenses.filter(e => e.branchId === branch.id);
-      const bCogs = allCogs.filter(c => c.branchId === branch.id);
-      
-      const revenue = bInvoices.reduce((sum, inv) => sum + Number(inv.subtotal || 0), 0);
-      const cogsAmount = bCogs.reduce((sum, c) => sum + Number(c.totalCost || 0), 0); 
-      const expenseAmount = bExpenses.reduce((sum, exp) => sum + Number(exp.amount || 0), 0);
-      
-      const grossProfit = revenue - cogsAmount;
-      const netProfit = grossProfit - expenseAmount;
-      
-      return {
-        id: branch.id,
-        name: branch.name,
-        revenue,
-        cogs: cogsAmount,
-        grossProfit,
-        expenses: expenseAmount,
-        netProfit,
-        transactionCount: bInvoices.length + bExpenses.length
+    const filters: any[] = [
+      eq(journalEntries.companyId, companyId),
+      sql`${ledgerEntries.costCenterId} is not null`,
+    ];
+    if (startDate) filters.push(gte(journalEntries.entryDate, startDate));
+    if (endDate) filters.push(lte(journalEntries.entryDate, endDate));
+
+    const rows = await db
+      .select({
+        id: costCenters.id,
+        code: costCenters.code,
+        name: costCenters.name,
+        accountType: accounts.type,
+        debit: sql<number>`sum(case when ${ledgerEntries.type} = 'DEBIT' then ${ledgerEntries.amount} else 0 end)`,
+        credit: sql<number>`sum(case when ${ledgerEntries.type} = 'CREDIT' then ${ledgerEntries.amount} else 0 end)`,
+        transactionCount: sql<number>`count(*)`,
+      })
+      .from(ledgerEntries)
+      .innerJoin(journalEntries, eq(ledgerEntries.journalEntryId, journalEntries.id))
+      .innerJoin(accounts, eq(ledgerEntries.accountId, accounts.id))
+      .innerJoin(costCenters, eq(ledgerEntries.costCenterId, costCenters.id))
+      .where(and(...filters))
+      .groupBy(costCenters.id, costCenters.code, costCenters.name, accounts.type)
+      .orderBy(costCenters.code);
+
+    const byCenter = new Map<number, any>();
+    for (const row of rows) {
+      const current = byCenter.get(row.id) || {
+        id: row.id,
+        code: row.code,
+        name: row.name,
+        revenue: 0,
+        cogs: 0,
+        expenses: 0,
+        assets: 0,
+        liabilities: 0,
+        transactionCount: 0,
       };
-    });
+      const debit = Number(row.debit || 0);
+      const credit = Number(row.credit || 0);
+      const signed = ["REVENUE", "LIABILITY", "EQUITY"].includes(row.accountType)
+        ? credit - debit
+        : debit - credit;
+      if (row.accountType === "REVENUE") current.revenue += signed;
+      if (row.accountType === "EXPENSE") current.expenses += signed;
+      if (row.accountType === "ASSET") current.assets += signed;
+      if (row.accountType === "LIABILITY") current.liabilities += signed;
+      current.transactionCount += Number(row.transactionCount || 0);
+      byCenter.set(row.id, current);
+    }
+
+    return Array.from(byCenter.values()).map((row) => ({
+      ...row,
+      grossProfit: row.revenue - row.cogs,
+      netProfit: row.revenue - row.cogs - row.expenses,
+    }));
   }
 
   async getAPAgingReport(companyId: number, asOfDate: Date = new Date()): Promise<any[]> {
@@ -4525,16 +4607,19 @@ export class DatabaseStorage implements IStorage {
     const rows = await db
       .select({
         invoice: supplierInvoices,
-        supplier: suppliers
+        supplier: suppliers,
+        purchaseOrder: purchaseOrders
       })
       .from(supplierInvoices)
       .leftJoin(suppliers, eq(supplierInvoices.supplierId, suppliers.id))
+      .leftJoin(purchaseOrders, eq(supplierInvoices.purchaseOrderId, purchaseOrders.id))
       .where(eq(supplierInvoices.companyId, companyId))
       .orderBy(desc(supplierInvoices.createdAt));
 
     return rows.map(r => ({
       ...r.invoice,
-      supplier: r.supplier
+      supplier: r.supplier,
+      purchaseOrder: r.purchaseOrder
     }));
   }
 
@@ -4560,14 +4645,25 @@ export class DatabaseStorage implements IStorage {
       const { items, createdBy, ...invoiceData } = data;
       const invoiceTotal = Number(invoiceData.totalAmount || 0);
       const invoiceTax = Number(invoiceData.taxAmount || 0);
+      const invoiceSubtotal = Number((invoiceData as any).subtotalAmount || (invoiceTotal - invoiceTax));
+      const whtAmount = Number((invoiceData as any).withholdingTaxAmount || 0);
       if (invoiceTotal <= 0) {
         throw new Error("Supplier invoice total must be greater than zero");
       }
       if (invoiceTax < 0 || invoiceTax > invoiceTotal) {
         throw new Error("Supplier invoice VAT cannot exceed the total amount");
       }
+      if (invoiceSubtotal < 0 || invoiceSubtotal + invoiceTax > invoiceTotal + 0.02) {
+        throw new Error("Supplier invoice subtotal and VAT do not match the total");
+      }
+      if (whtAmount < 0 || whtAmount > invoiceTotal) {
+        throw new Error("Supplier invoice WHT cannot exceed the total amount");
+      }
 
-      const [invoice] = await tx.insert(supplierInvoices).values(invoiceData).returning();
+      const [invoice] = await tx.insert(supplierInvoices).values({
+        ...invoiceData,
+        subtotalAmount: invoiceSubtotal.toFixed(2),
+      }).returning();
 
       if (items && items.length > 0) {
         const itemsToInsert = items.map(item => ({
@@ -4578,7 +4674,7 @@ export class DatabaseStorage implements IStorage {
       }
 
       // Automated Journaling: Credit Accounts Payable (2000), Debit Inventory (1300) or appropriate account
-      const subtotal = invoiceTotal - invoiceTax;
+      const subtotal = invoiceSubtotal;
       const tax = invoiceTax;
 
       // Determine the debit account (Control Account for Inventory is 1300 by default)
@@ -4591,6 +4687,7 @@ export class DatabaseStorage implements IStorage {
       }
       const vatInputAccountCode = await this.getSystemAccountCode(invoiceData.companyId, "vatInputAccountCode", tx);
       const apAccountCode = await this.getSystemAccountCode(invoiceData.companyId, "accountsPayableCode", tx);
+      const whtPayableAccountCode = await this.getSystemAccountCode(invoiceData.companyId, "withholdingTaxPayableCode", tx);
 
       const lines: { accountCode: string, type: 'DEBIT'|'CREDIT', amount: number }[] = [
         { accountCode: debitAccountCode, type: 'DEBIT', amount: subtotal }
@@ -4600,7 +4697,11 @@ export class DatabaseStorage implements IStorage {
         lines.push({ accountCode: vatInputAccountCode, type: 'DEBIT', amount: tax }); // VAT Input (VAT Receivable)
       }
 
-      lines.push({ accountCode: apAccountCode, type: 'CREDIT', amount: invoiceTotal }); // Accounts Payable
+      if (whtAmount > 0) {
+        lines.push({ accountCode: whtPayableAccountCode, type: 'CREDIT', amount: whtAmount }); // WHT payable to ZIMRA
+      }
+
+      lines.push({ accountCode: apAccountCode, type: 'CREDIT', amount: invoiceTotal - whtAmount }); // Net payable to supplier
 
       await this.postToLedger(invoiceData.companyId, {
         entryDate: invoiceData.date || new Date(),
@@ -4610,6 +4711,28 @@ export class DatabaseStorage implements IStorage {
         createdBy: createdBy,
         lines
       }, tx);
+
+      if (whtAmount > 0) {
+        const certNo = `WHT-${invoiceData.companyId}-${invoice.id}`;
+        const [certificate] = await tx.insert(withholdingTaxCertificates).values({
+          companyId: invoiceData.companyId,
+          supplierId: invoiceData.supplierId,
+          supplierInvoiceId: invoice.id,
+          rateId: (invoiceData as any).withholdingTaxRateId || null,
+          certificateNumber: certNo,
+          taxableAmount: subtotal.toFixed(2),
+          withheldAmount: whtAmount.toFixed(2),
+          currency: invoiceData.currency || "USD",
+          status: "ISSUED",
+          issuedAt: new Date(),
+          createdBy: createdBy || null,
+        }).returning();
+
+        await tx
+          .update(supplierInvoices)
+          .set({ withholdingCertificateId: certificate.id } as any)
+          .where(eq(supplierInvoices.id, invoice.id));
+      }
 
       return invoice;
     });
@@ -4910,6 +5033,41 @@ export class DatabaseStorage implements IStorage {
         totalValue: totalValuation.toFixed(2),
       };
     });
+  }
+
+  async createInventoryValuationSnapshot(companyId: number, asOfDate: Date = new Date(), createdBy?: string, branchId?: number) {
+    const valuationRows = await this.getStockValuationReport(companyId);
+    const scopedRows = branchId ? valuationRows.filter((row: any) => Number(row.branchId || 0) === branchId) : valuationRows;
+    const [company] = await db
+      .select({ method: companies.inventoryValuationMethod })
+      .from(companies)
+      .where(eq(companies.id, companyId))
+      .limit(1);
+    const valuationMethod = company?.method || "WAC";
+    const totalQuantity = scopedRows.reduce((sum: number, row: any) => sum + Number(row.stockLevel || 0), 0);
+    const totalValue = scopedRows.reduce((sum: number, row: any) => sum + Number(row.totalValuation ?? row.totalValue ?? 0), 0);
+
+    const [snapshot] = await db.insert(inventoryValuationSnapshots).values({
+      companyId,
+      branchId: branchId || null,
+      asOfDate,
+      valuationMethod,
+      totalQuantity: totalQuantity.toFixed(2),
+      totalValue: totalValue.toFixed(2),
+      lines: scopedRows.map((row: any) => ({
+        productId: row.productId,
+        productName: row.name,
+        sku: row.sku,
+        branchId: row.branchId || null,
+        quantity: Number(row.stockLevel || 0),
+        unitCost: Number(row.unitCost || 0),
+        totalValue: Number(row.totalValuation ?? row.totalValue ?? 0),
+        valuationMethod: row.valuationMethod || valuationMethod,
+      })),
+      createdBy: createdBy || null,
+    }).returning();
+
+    return snapshot;
   }
 
   async getFiscalReportData(companyId: number, date: Date, cashierId?: string) {
@@ -5728,6 +5886,35 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getReportWithholdingTax(companyId: number, start: Date, end: Date) {
+    const certificateRows = await db
+      .select({
+        certificate: withholdingTaxCertificates,
+        supplier: suppliers,
+        invoice: supplierInvoices,
+      })
+      .from(withholdingTaxCertificates)
+      .leftJoin(suppliers, eq(withholdingTaxCertificates.supplierId, suppliers.id))
+      .leftJoin(supplierInvoices, eq(withholdingTaxCertificates.supplierInvoiceId, supplierInvoices.id))
+      .where(and(
+        eq(withholdingTaxCertificates.companyId, companyId),
+        gte(withholdingTaxCertificates.createdAt, start),
+        lte(withholdingTaxCertificates.createdAt, end)
+      ));
+
+    if (certificateRows.length > 0) {
+      return certificateRows.map(({ certificate, supplier, invoice }) => ({
+        invoiceId: invoice?.id || certificate.supplierInvoiceId || certificate.id,
+        invoiceNumber: invoice?.invoiceNumber || certificate.certificateNumber,
+        customerName: supplier?.name || "Supplier",
+        issueDate: (certificate.issuedAt || certificate.createdAt || new Date()).toISOString().slice(0, 10),
+        withheldAmount: Number(certificate.withheldAmount || 0).toFixed(2),
+        total: Number(certificate.taxableAmount || 0).toFixed(2),
+        certificateNumber: certificate.certificateNumber,
+        status: certificate.status,
+        remittanceReference: certificate.remittanceReference,
+      }));
+    }
+
     const rows = await db
       .select()
       .from(invoices)
@@ -7313,6 +7500,7 @@ export class DatabaseStorage implements IStorage {
       const [cpAcc] = await tx.select().from(accounts).where(eq(accounts.id, data.counterpartyAccountId));
 
       if (!bankAcc || !cpAcc) throw new Error("Bank or Counterparty account not found");
+      if (data.bankAccountId === data.counterpartyAccountId) throw new Error("Cashbook source and counterparty accounts cannot be the same");
 
       const lines = [
         {
@@ -7327,7 +7515,7 @@ export class DatabaseStorage implements IStorage {
         }
       ];
 
-      return await this.postToLedger(data.companyId, {
+      const entry = await this.postToLedger(data.companyId, {
         entryDate: data.date,
         description: data.description,
         referenceType: "CASHBOOK",
@@ -7335,6 +7523,29 @@ export class DatabaseStorage implements IStorage {
         createdBy: data.createdBy,
         lines
       }, tx);
+
+      const [cashbook] = await tx.insert(cashbookEntries).values({
+        companyId: data.companyId,
+        bankAccountId: data.bankAccountId,
+        journalEntryId: entry.id,
+        entryDate: data.date,
+        type: data.type,
+        method: "CASH",
+        reference: data.reference,
+        description: data.description,
+        totalAmount: data.amount.toFixed(2),
+        status: "POSTED",
+        createdBy: data.createdBy || null,
+      }).returning();
+
+      await tx.insert(cashbookEntryLines).values({
+        cashbookEntryId: cashbook.id,
+        accountId: data.counterpartyAccountId,
+        amount: data.amount.toFixed(2),
+        description: data.description,
+      });
+
+      return entry;
     });
   }
 
@@ -7576,6 +7787,9 @@ export class DatabaseStorage implements IStorage {
         description: data.description,
         referenceType: data.referenceType,
         referenceId: data.referenceId ?? data.reference,
+        journalType: data.journalType || "GENERAL",
+        status: data.status || "POSTED",
+        approvalStatus: data.approvalStatus || "APPROVED",
         createdBy: data.createdBy,
       }).returning();
 
@@ -7587,8 +7801,14 @@ export class DatabaseStorage implements IStorage {
         await t.insert(ledgerEntries).values({
           journalEntryId: je.id,
           accountId: line.accountId,
+          costCenterId: line.costCenterId || null,
+          segmentId: line.segmentId || null,
           type: line.type,
           amount: line.amount.toFixed(2),
+          vatTypeId: line.vatTypeId || null,
+          vatAmount: (line.vatAmount || 0).toFixed(2),
+          withholdingTaxAmount: (line.withholdingTaxAmount || 0).toFixed(2),
+          memo: line.memo || null,
         });
       }
 
@@ -7602,33 +7822,83 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
-  async getVatReturn(companyId: number, fromDate?: Date, toDate?: Date): Promise<{ outputVat: number; inputVat: number; netVat: number }> {
-    // Output VAT: Sum of tax amount from sales invoices
-    const salesInvoices = await db.select({ tax: invoices.taxAmount })
+  async getVatReturn(companyId: number, fromDate?: Date, toDate?: Date): Promise<{
+    outputVat: number;
+    inputVat: number;
+    netVat: number;
+    outputVatByCurrency: Record<string, number>;
+    inputVatByCurrency: Record<string, number>;
+    netVatByCurrency: Record<string, number>;
+    includedInvoiceCount: number;
+  }> {
+    const round = (amount: number) => Math.round(amount * 100) / 100;
+    const addCurrency = (totals: Record<string, number>, currency: string | null | undefined, amount: unknown) => {
+      const code = String(currency || "USD").toUpperCase();
+      totals[code] = round((totals[code] || 0) + Number(amount || 0));
+    };
+
+    // Output VAT: only ZIMRA-accepted fiscal sales invoices with no Red validation errors.
+    const salesInvoices = await db.select({
+      id: invoices.id,
+      tax: invoices.taxAmount,
+      currency: invoices.currency,
+      transactionType: invoices.transactionType,
+    })
       .from(invoices)
       .where(and(
         eq(invoices.companyId, companyId),
-        ne(invoices.status, 'CANCELLED'),
-        ...(fromDate ? [gte(invoices.createdAt, fromDate)] : []),
-        ...(toDate ? [lte(invoices.createdAt, toDate)] : [])
+        ne(invoices.status, 'draft'),
+        ne(invoices.status, 'cancelled'),
+        ne(invoices.status, 'quote'),
+        eq(invoices.isFiscalized, true),
+        eq(invoices.syncedWithFdms, true),
+        sql`${invoices.fiscalCode} is not null`,
+        sql`not exists (
+          select 1
+          from ${validationErrors}
+          where ${validationErrors.invoiceId} = ${invoices.id}
+            and lower(${validationErrors.errorColor}) = 'red'
+        )`,
+        ...(fromDate ? [gte(invoices.issueDate, fromDate)] : []),
+        ...(toDate ? [lte(invoices.issueDate, toDate)] : [])
       ));
-    const outputVat = salesInvoices.reduce((sum, inv) => sum + Number(inv.tax || 0), 0);
+    const outputVatByCurrency: Record<string, number> = {};
+    salesInvoices.forEach((inv) => {
+      const sign = inv.transactionType === "CreditNote" ? -1 : 1;
+      addCurrency(outputVatByCurrency, inv.currency, sign * Number(inv.tax || 0));
+    });
 
     // Input VAT: Sum of tax amount from supplier invoices
-    const purchases = await db.select({ tax: supplierInvoices.taxAmount })
+    const purchases = await db.select({
+      tax: supplierInvoices.taxAmount,
+      currency: supplierInvoices.currency,
+    })
       .from(supplierInvoices)
       .where(and(
         eq(supplierInvoices.companyId, companyId),
-        ne(supplierInvoices.status, 'CANCELLED'),
-        ...(fromDate ? [gte(supplierInvoices.createdAt, fromDate)] : []),
-        ...(toDate ? [lte(supplierInvoices.createdAt, toDate)] : [])
+        ne(supplierInvoices.status, 'cancelled'),
+        ...(fromDate ? [gte(supplierInvoices.date, fromDate)] : []),
+        ...(toDate ? [lte(supplierInvoices.date, toDate)] : [])
       ));
-    const inputVat = purchases.reduce((sum, inv) => sum + Number(inv.tax || 0), 0);
+    const inputVatByCurrency: Record<string, number> = {};
+    purchases.forEach((inv) => addCurrency(inputVatByCurrency, inv.currency, inv.tax));
+
+    const currencies = new Set([...Object.keys(outputVatByCurrency), ...Object.keys(inputVatByCurrency)]);
+    const netVatByCurrency = Array.from(currencies).reduce((totals, currency) => {
+      totals[currency] = round(Number(outputVatByCurrency[currency] || 0) - Number(inputVatByCurrency[currency] || 0));
+      return totals;
+    }, {} as Record<string, number>);
+    const outputVat = round(Object.values(outputVatByCurrency).reduce((sum, amount) => sum + amount, 0));
+    const inputVat = round(Object.values(inputVatByCurrency).reduce((sum, amount) => sum + amount, 0));
 
     return {
       outputVat,
       inputVat,
-      netVat: outputVat - inputVat
+      netVat: round(outputVat - inputVat),
+      outputVatByCurrency,
+      inputVatByCurrency,
+      netVatByCurrency,
+      includedInvoiceCount: salesInvoices.length,
     };
   }
 }

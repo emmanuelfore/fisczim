@@ -24,6 +24,8 @@ import StockAdjustmentsReportPage from "@/pages/stock-adjustments-report";
 import InventoryStockCountsPage from "@/pages/inventory-stock-counts";
 import ProductionPage from "@/pages/production";
 import InventoryAccountPage from "@/pages/inventory-account";
+import StockTransfersPage from "@/pages/stock-transfers";
+import InventoryLocationsPage from "@/pages/inventory-locations";
 import PurchaseOrdersPage from "@/pages/purchase-orders";
 import GrvDetailsPage from "@/pages/grv-details";
 import ProductsPage from "@/pages/products";
@@ -51,6 +53,7 @@ import MySalesPage from "@/pages/my-sales";
 import PosReportsPage from "@/pages/pos-reports";
 import RecentSalesPage from "@/pages/recent-sales";
 import TaxReportsPage from "@/pages/tax-reports";
+import BranchReportsPage from "@/pages/branch-reports";
 import KDSPage from "@/pages/kds";
 import LiveOrdersPage from "@/pages/live-orders";
 import OrderStatusPage from "@/pages/order-status";
@@ -88,6 +91,7 @@ import AccountingAuditTrailPage from "@/pages/accounting-audit-trail";
 import AllocationWorkbenchPage from "@/pages/allocation-workbench";
 import AccountingDashboardPage from "@/pages/accounting-dashboard";
 import PayrollPage from "@/pages/payroll";
+import SuperadminVisibilityPage from "@/pages/superadmin-visibility";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
 import { useCompanies } from "@/hooks/use-companies";
@@ -321,6 +325,12 @@ function Router() {
       <Route path="/inventory/account">
         {() => <ProtectedRoute component={InventoryAccountPage} />}
       </Route>
+      <Route path="/inventory/transfers">
+        {() => <ProtectedRoute component={StockTransfersPage} />}
+      </Route>
+      <Route path="/inventory/locations">
+        {() => <ProtectedRoute component={InventoryLocationsPage} />}
+      </Route>
       <Route path="/inventory/grvs/:id">
         {() => <ProtectedRoute component={GrvDetailsPage} />}
       </Route>
@@ -357,11 +367,17 @@ function Router() {
       <Route path="/team-settings">
         {() => <ProtectedRoute component={TeamSettingsPage} />}
       </Route>
+      <Route path="/superadmin-visibility">
+        {() => <ProtectedRoute component={SuperadminVisibilityPage} />}
+      </Route>
       <Route path="/reports/pos">
         {() => <ProtectedRoute component={PosReportsPage} />}
       </Route>
       <Route path="/reports/tax">
         {() => <ProtectedRoute component={TaxReportsPage} />}
+      </Route>
+      <Route path="/reports/branches">
+        {() => <ProtectedRoute component={BranchReportsPage} />}
       </Route>
       <Route path="/reports-module">{() => <Redirect to="/reports" />}</Route>
       <Route path="/reports">

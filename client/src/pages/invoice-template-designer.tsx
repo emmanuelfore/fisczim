@@ -2,7 +2,13 @@ import { Layout } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { InvoicePDF } from "@/components/invoices/pdf-document";
 import { useCompany } from "@/hooks/use-companies";
 import { useUpdateCompany } from "@/hooks/use-companies";
@@ -25,12 +31,17 @@ export default function InvoiceTemplateDesignerPage() {
   const { data: company } = useCompany(companyId);
   const updateCompany = useUpdateCompany(companyId);
   const { taxTypes } = useTaxConfig(companyId);
-  const [settings, setSettings] = useState<InvoiceTemplateDesignerSettings>(defaultInvoiceTemplateSettings);
+  const [settings, setSettings] = useState<InvoiceTemplateDesignerSettings>(
+    defaultInvoiceTemplateSettings,
+  );
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const selectedTemplate = useMemo(
-    () => invoiceTemplates.find(template => template.id === settings.defaultTemplateId) || invoiceTemplates[0],
-    [settings.defaultTemplateId]
+    () =>
+      invoiceTemplates.find(
+        (template) => template.id === settings.defaultTemplateId,
+      ) || invoiceTemplates[0],
+    [settings.defaultTemplateId],
   );
   const accent = settings.accentColor || selectedTemplate.accent;
 
@@ -39,20 +50,29 @@ export default function InvoiceTemplateDesignerPage() {
   }, [companyId]);
 
   const updateSettings = (patch: Partial<InvoiceTemplateDesignerSettings>) => {
-    setSettings(current => {
+    setSettings((current) => {
       const next = { ...current, ...patch };
-      if (companyId) localStorage.setItem(`invoice_template_designer_${companyId}`, JSON.stringify(next));
+      if (companyId)
+        localStorage.setItem(
+          `invoice_template_designer_${companyId}`,
+          JSON.stringify(next),
+        );
       return next;
     });
   };
 
   const saveSettings = async () => {
-    localStorage.setItem(`invoice_template_designer_${companyId}`, JSON.stringify(settings));
+    localStorage.setItem(
+      `invoice_template_designer_${companyId}`,
+      JSON.stringify(settings),
+    );
     if (companyId) {
-      await updateCompany.mutateAsync({
-        invoiceTemplate: settings.defaultTemplateId,
-        primaryColor: accent,
-      } as any).catch(() => undefined);
+      await updateCompany
+        .mutateAsync({
+          invoiceTemplate: settings.defaultTemplateId,
+          primaryColor: accent,
+        } as any)
+        .catch(() => undefined);
     }
   };
 
@@ -62,7 +82,9 @@ export default function InvoiceTemplateDesignerPage() {
 
     async function renderPreview() {
       setPreviewLoading(true);
-      const sampleQr = await QRCode.toDataURL("https://receipt.zimra.org/sample-template-preview");
+      const sampleQr = await QRCode.toDataURL(
+        "https://receipt.zimra.org/sample-template-preview",
+      );
       const sampleCompany = {
         ...(company || {}),
         id: companyId,
@@ -79,7 +101,11 @@ export default function InvoiceTemplateDesignerPage() {
         primaryColor: accent,
         invoiceTemplate: settings.defaultTemplateId,
         bankName: company?.bankName || "CBZ Bank",
-        accountName: company?.accountName || company?.tradingName || company?.name || "Your Company",
+        accountName:
+          company?.accountName ||
+          company?.tradingName ||
+          company?.name ||
+          "Your Company",
         accountNumber: company?.accountNumber || "00123456789",
         branchCode: company?.branchCode || "6101",
         qrUrl: company?.qrUrl || "https://receipt.zimra.org",
@@ -107,9 +133,30 @@ export default function InvoiceTemplateDesignerPage() {
         poNumber: "PO-2026-118",
         invoiceTemplate: settings.defaultTemplateId,
         items: [
-          { description: "Consulting services", quantity: "1", unitPrice: "250.00", taxRate: "15", lineTotal: "250.00", product: { hsCode: "9983" } },
-          { description: "Software licence", quantity: "1", unitPrice: "250.00", taxRate: "15", lineTotal: "250.00", product: { hsCode: "8523" } },
-          { description: "Implementation support", quantity: "1", unitPrice: "250.00", taxRate: "15", lineTotal: "250.00", product: { hsCode: "9983" } },
+          {
+            description: "Consulting services",
+            quantity: "1",
+            unitPrice: "250.00",
+            taxRate: "15",
+            lineTotal: "250.00",
+            product: { hsCode: "9983" },
+          },
+          {
+            description: "Software licence",
+            quantity: "1",
+            unitPrice: "250.00",
+            taxRate: "15",
+            lineTotal: "250.00",
+            product: { hsCode: "8523" },
+          },
+          {
+            description: "Implementation support",
+            quantity: "1",
+            unitPrice: "250.00",
+            taxRate: "15",
+            lineTotal: "250.00",
+            product: { hsCode: "9983" },
+          },
         ],
       };
       const sampleCustomer = {
@@ -131,7 +178,7 @@ export default function InvoiceTemplateDesignerPage() {
           qrCodeUrl={sampleQr}
           taxTypes={taxTypes.data}
           templateSettings={settings}
-        />
+        />,
       ).toBlob();
 
       if (cancelled) return;
@@ -163,8 +210,12 @@ export default function InvoiceTemplateDesignerPage() {
                 <Palette className="h-5 w-5" />
               </div>
               <div>
-                <h2 className="text-base font-bold text-slate-950">Template Designer</h2>
-                <p className="text-sm text-slate-500">Choose a default look and tune the invoice details.</p>
+                <h2 className="text-base font-bold text-slate-950">
+                  Template Designer
+                </h2>
+                <p className=" text-slate-500">
+                  Choose a default look and tune the invoice details.
+                </p>
               </div>
             </div>
 
@@ -175,12 +226,16 @@ export default function InvoiceTemplateDesignerPage() {
                   <Input
                     type="color"
                     value={accent}
-                    onChange={event => updateSettings({ accentColor: event.target.value })}
+                    onChange={(event) =>
+                      updateSettings({ accentColor: event.target.value })
+                    }
                     className="h-11 w-16 p-1"
                   />
                   <Input
                     value={accent}
-                    onChange={event => updateSettings({ accentColor: event.target.value })}
+                    onChange={(event) =>
+                      updateSettings({ accentColor: event.target.value })
+                    }
                     className="h-11 font-mono"
                   />
                 </div>
@@ -188,8 +243,15 @@ export default function InvoiceTemplateDesignerPage() {
 
               <div className="space-y-2">
                 <Label>Logo placement</Label>
-                <Select value={settings.logoPlacement} onValueChange={(value: InvoiceTemplateDesignerSettings["logoPlacement"]) => updateSettings({ logoPlacement: value })}>
-                  <SelectTrigger className="h-11"><SelectValue /></SelectTrigger>
+                <Select
+                  value={settings.logoPlacement}
+                  onValueChange={(
+                    value: InvoiceTemplateDesignerSettings["logoPlacement"],
+                  ) => updateSettings({ logoPlacement: value })}
+                >
+                  <SelectTrigger className="h-11">
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="left">Left</SelectItem>
                     <SelectItem value="center">Center</SelectItem>
@@ -200,20 +262,36 @@ export default function InvoiceTemplateDesignerPage() {
 
               <div className="space-y-2">
                 <Label>QR code placement</Label>
-                <Select value={settings.qrPlacement} onValueChange={(value: InvoiceTemplateDesignerSettings["qrPlacement"]) => updateSettings({ qrPlacement: value })}>
-                  <SelectTrigger className="h-11"><SelectValue /></SelectTrigger>
+                <Select
+                  value={settings.qrPlacement}
+                  onValueChange={(
+                    value: InvoiceTemplateDesignerSettings["qrPlacement"],
+                  ) => updateSettings({ qrPlacement: value })}
+                >
+                  <SelectTrigger className="h-11">
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="header-right">Header right</SelectItem>
                     <SelectItem value="header-center">Header center</SelectItem>
-                    <SelectItem value="footer">Footer verification block</SelectItem>
+                    <SelectItem value="footer">
+                      Footer verification block
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
               <div className="space-y-2">
                 <Label>Density</Label>
-                <Select value={settings.density} onValueChange={(value: InvoiceTemplateDesignerSettings["density"]) => updateSettings({ density: value })}>
-                  <SelectTrigger className="h-11"><SelectValue /></SelectTrigger>
+                <Select
+                  value={settings.density}
+                  onValueChange={(
+                    value: InvoiceTemplateDesignerSettings["density"],
+                  ) => updateSettings({ density: value })}
+                >
+                  <SelectTrigger className="h-11">
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="comfortable">Comfortable</SelectItem>
                     <SelectItem value="compact">Compact</SelectItem>
@@ -221,31 +299,53 @@ export default function InvoiceTemplateDesignerPage() {
                 </Select>
               </div>
 
-              <Button className="h-11 w-full gap-2 bg-slate-950 text-white hover:bg-slate-800" onClick={saveSettings}>
+              <Button
+                className="h-11 w-full gap-2 bg-slate-950 text-white hover:bg-slate-800"
+                onClick={saveSettings}
+              >
                 <Save className="h-4 w-4" /> Save Template Settings
               </Button>
             </div>
           </div>
 
           <div className="grid gap-2">
-            {invoiceTemplates.map(template => (
+            {invoiceTemplates.map((template) => (
               <button
                 key={template.id}
                 type="button"
-                onClick={() => updateSettings({ defaultTemplateId: template.id })}
+                onClick={() =>
+                  updateSettings({ defaultTemplateId: template.id })
+                }
                 className={cn(
                   "flex items-center gap-3 rounded-xl border bg-white p-3 text-left shadow-sm transition hover:border-slate-300",
-                  settings.defaultTemplateId === template.id ? "border-slate-950 ring-2 ring-slate-950/5" : "border-slate-200"
+                  settings.defaultTemplateId === template.id
+                    ? "border-slate-950 ring-2 ring-slate-950/5"
+                    : "border-slate-200",
                 )}
               >
-                <span className="h-9 w-9 rounded-lg border" style={{ background: template.secondary, borderColor: template.border }}>
-                  <span className="block h-2 rounded-t-lg" style={{ background: template.accent }} />
+                <span
+                  className="h-9 w-9 rounded-lg border"
+                  style={{
+                    background: template.secondary,
+                    borderColor: template.border,
+                  }}
+                >
+                  <span
+                    className="block h-2 rounded-t-lg"
+                    style={{ background: template.accent }}
+                  />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-bold text-slate-900">{template.name}</span>
-                  <span className="block truncate text-xs text-slate-500">{template.description}</span>
+                  <span className="block  font-bold text-slate-900">
+                    {template.name}
+                  </span>
+                  <span className="block truncate text-xs text-slate-500">
+                    {template.description}
+                  </span>
                 </span>
-                {settings.defaultTemplateId === template.id && <Check className="h-4 w-4 text-emerald-600" />}
+                {settings.defaultTemplateId === template.id && (
+                  <Check className="h-4 w-4 text-emerald-600" />
+                )}
               </button>
             ))}
           </div>
@@ -255,7 +355,8 @@ export default function InvoiceTemplateDesignerPage() {
           <div className="flex min-h-[900px] items-start justify-center overflow-auto rounded-xl bg-slate-200/70 px-3 py-5">
             {previewLoading || !previewUrl ? (
               <div className="flex min-h-[720px] items-center justify-center gap-2 text-slate-500">
-                <Loader2 className="h-5 w-5 animate-spin" /> Rendering exact PDF preview...
+                <Loader2 className="h-5 w-5 animate-spin" /> Rendering exact PDF
+                preview...
               </div>
             ) : (
               <div className="aspect-[210/297] w-full max-w-[794px] overflow-hidden rounded-sm bg-white shadow-[0_18px_45px_rgba(15,23,42,0.18)] ring-1 ring-slate-200">

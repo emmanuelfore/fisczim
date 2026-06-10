@@ -1,13 +1,13 @@
 import { Layout } from "@/components/layout";
 import { useQuery } from "@tanstack/react-query";
 import { type Account } from "@shared/schema";
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -16,9 +16,21 @@ import { Input } from "@/components/ui/input";
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
@@ -30,20 +42,32 @@ const ACCOUNT_CATEGORIES = {
   LIABILITY: ["Current Liabilities", "Non-current Liabilities"],
   EQUITY: ["Equity"],
   REVENUE: ["Revenue", "Other Income"],
-  EXPENSE: ["Cost of Sales", "Operating Expenses", "Finance Costs", "Other Expenses"],
+  EXPENSE: [
+    "Cost of Sales",
+    "Operating Expenses",
+    "Finance Costs",
+    "Other Expenses",
+  ],
 } as const;
 
 type AccountType = keyof typeof ACCOUNT_CATEGORIES;
 
 function getAccountCodeRange(type: string, category: string) {
   if (type === "ASSET") {
-    return category === "Non-current Assets" ? { start: 1500, end: 1999 } : { start: 1000, end: 1499 };
+    return category === "Non-current Assets"
+      ? { start: 1500, end: 1999 }
+      : { start: 1000, end: 1499 };
   }
   if (type === "LIABILITY") {
-    return category === "Non-current Liabilities" ? { start: 2300, end: 2999 } : { start: 2000, end: 2299 };
+    return category === "Non-current Liabilities"
+      ? { start: 2300, end: 2999 }
+      : { start: 2000, end: 2299 };
   }
   if (type === "EQUITY") return { start: 3000, end: 3999 };
-  if (type === "REVENUE") return category === "Other Income" ? { start: 4200, end: 4999 } : { start: 4000, end: 4199 };
+  if (type === "REVENUE")
+    return category === "Other Income"
+      ? { start: 4200, end: 4999 }
+      : { start: 4000, end: 4199 };
   if (type === "EXPENSE") {
     if (category === "Cost of Sales") return { start: 5000, end: 5099 };
     if (category === "Finance Costs") return { start: 5150, end: 5899 };
@@ -53,14 +77,22 @@ function getAccountCodeRange(type: string, category: string) {
   return { start: 9000, end: 9999 };
 }
 
-function getNextAccountCode(accounts: Account[] | undefined, type: string, category: string) {
+function getNextAccountCode(
+  accounts: Account[] | undefined,
+  type: string,
+  category: string,
+) {
   const range = getAccountCodeRange(type, category);
   const usedCodes = new Set((accounts || []).map((account) => account.code));
   const codesInRange = (accounts || [])
     .map((account) => Number(account.code))
-    .filter((code) => Number.isFinite(code) && code >= range.start && code <= range.end);
+    .filter(
+      (code) =>
+        Number.isFinite(code) && code >= range.start && code <= range.end,
+    );
 
-  let nextCode = codesInRange.length > 0 ? Math.max(...codesInRange) + 10 : range.start;
+  let nextCode =
+    codesInRange.length > 0 ? Math.max(...codesInRange) + 10 : range.start;
   while (usedCodes.has(String(nextCode)) && nextCode <= range.end) {
     nextCode += 10;
   }
@@ -76,19 +108,22 @@ export default function AccountingCOAPage() {
     name: "",
     description: "",
     type: "ASSET",
-    category: "Current Assets"
+    category: "Current Assets",
   });
 
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { activeCompanyId: companyId, isLoading: isCompanyLoading } = useActiveCompany();
+  const { activeCompanyId: companyId, isLoading: isCompanyLoading } =
+    useActiveCompany();
   const [, setLocation] = useLocation();
 
   const { data: accounts, isLoading } = useQuery<Account[]>({
     queryKey: ["/api/accounting/accounts", companyId],
     enabled: !!companyId,
     queryFn: async () => {
-      const res = await apiFetch(`/api/companies/${companyId}/accounting/accounts`);
+      const res = await apiFetch(
+        `/api/companies/${companyId}/accounting/accounts`,
+      );
       if (!res.ok) {
         const err = await res.json().catch(() => ({ message: res.statusText }));
         throw new Error(err.message || "Failed to load chart of accounts");
@@ -100,10 +135,13 @@ export default function AccountingCOAPage() {
   const createMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
       if (!companyId) throw new Error("No company selected");
-      const res = await apiFetch(`/api/companies/${companyId}/accounting/accounts`, {
-        method: "POST",
-        body: JSON.stringify(data),
-      });
+      const res = await apiFetch(
+        `/api/companies/${companyId}/accounting/accounts`,
+        {
+          method: "POST",
+          body: JSON.stringify(data),
+        },
+      );
       if (!res.ok) {
         const err = await res.json().catch(() => ({ message: res.statusText }));
         throw new Error(err.message || "Failed to create account");
@@ -111,15 +149,27 @@ export default function AccountingCOAPage() {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/accounting/accounts", companyId] });
+      queryClient.invalidateQueries({
+        queryKey: ["/api/accounting/accounts", companyId],
+      });
       toast({ title: "Success", description: "Account created successfully" });
       setIsDialogOpen(false);
       setIsCodeManuallyEdited(false);
-      setFormData({ code: "", name: "", description: "", type: "ASSET", category: "Current Assets" });
+      setFormData({
+        code: "",
+        name: "",
+        description: "",
+        type: "ASSET",
+        category: "Current Assets",
+      });
     },
     onError: (error: any) => {
-      toast({ title: "Error", description: error.message || "Failed to create account", variant: "destructive" });
-    }
+      toast({
+        title: "Error",
+        description: error.message || "Failed to create account",
+        variant: "destructive",
+      });
+    },
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -127,28 +177,44 @@ export default function AccountingCOAPage() {
     createMutation.mutate(formData);
   };
 
-  const categoryOptions = ACCOUNT_CATEGORIES[formData.type as AccountType] || ACCOUNT_CATEGORIES.ASSET;
-  const suggestedCode = getNextAccountCode(accounts, formData.type, formData.category);
+  const categoryOptions =
+    ACCOUNT_CATEGORIES[formData.type as AccountType] ||
+    ACCOUNT_CATEGORIES.ASSET;
+  const suggestedCode = getNextAccountCode(
+    accounts,
+    formData.type,
+    formData.category,
+  );
 
   useEffect(() => {
     if (!isDialogOpen || isCodeManuallyEdited) return;
-    setFormData((current) => ({ ...current, code: getNextAccountCode(accounts, current.type, current.category) }));
+    setFormData((current) => ({
+      ...current,
+      code: getNextAccountCode(accounts, current.type, current.category),
+    }));
   }, [accounts, isCodeManuallyEdited, isDialogOpen]);
 
-  const filteredAccounts = accounts?.filter(acc => 
-    acc.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    acc.code.includes(searchTerm) ||
-    acc.type.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredAccounts = accounts?.filter(
+    (acc) =>
+      acc.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      acc.code.includes(searchTerm) ||
+      acc.type.toLowerCase().includes(searchTerm.toLowerCase()),
   );
 
   const getTypeBadgeColor = (type: string) => {
     switch (type) {
-      case "ASSET": return "bg-blue-100 text-blue-800 border-blue-200";
-      case "LIABILITY": return "bg-amber-100 text-amber-800 border-amber-200";
-      case "EQUITY": return "bg-purple-100 text-purple-800 border-purple-200";
-      case "REVENUE": return "bg-emerald-100 text-emerald-800 border-emerald-200";
-      case "EXPENSE": return "bg-rose-100 text-rose-800 border-rose-200";
-      default: return "bg-slate-100 text-slate-800 border-slate-200";
+      case "ASSET":
+        return "bg-blue-100 text-blue-800 border-blue-200";
+      case "LIABILITY":
+        return "bg-amber-100 text-amber-800 border-amber-200";
+      case "EQUITY":
+        return "bg-purple-100 text-purple-800 border-purple-200";
+      case "REVENUE":
+        return "bg-emerald-100 text-emerald-800 border-emerald-200";
+      case "EXPENSE":
+        return "bg-rose-100 text-rose-800 border-rose-200";
+      default:
+        return "bg-slate-100 text-slate-800 border-slate-200";
     }
   };
 
@@ -178,7 +244,11 @@ export default function AccountingCOAPage() {
                 setIsCodeManuallyEdited(false);
                 setFormData((current) => ({
                   ...current,
-                  code: getNextAccountCode(accounts, current.type, current.category),
+                  code: getNextAccountCode(
+                    accounts,
+                    current.type,
+                    current.category,
+                  ),
                 }));
               }
             }}
@@ -196,25 +266,28 @@ export default function AccountingCOAPage() {
               <form onSubmit={handleSubmit} className="space-y-4 pt-4">
                 <div className="space-y-2">
                   <Label>Account Code</Label>
-                  <Input 
-                    value={formData.code} 
-                    onChange={e => {
+                  <Input
+                    value={formData.code}
+                    onChange={(e) => {
                       setIsCodeManuallyEdited(true);
-                      setFormData(p => ({ ...p, code: e.target.value }));
+                      setFormData((p) => ({ ...p, code: e.target.value }));
                     }}
                     placeholder={suggestedCode || "Auto-generated"}
                   />
                   <p className="text-[11px] text-slate-400">
-                    Automatically assigned from the selected type/category. You can override it if needed.
+                    Automatically assigned from the selected type/category. You
+                    can override it if needed.
                   </p>
                 </div>
                 <div className="space-y-2">
                   <Label>Account Name</Label>
-                  <Input 
-                    required 
-                    value={formData.name} 
-                    onChange={e => setFormData(p => ({ ...p, name: e.target.value }))}
-                    placeholder="e.g. Cash in Bank" 
+                  <Input
+                    required
+                    value={formData.name}
+                    onChange={(e) =>
+                      setFormData((p) => ({ ...p, name: e.target.value }))
+                    }
+                    placeholder="e.g. Cash in Bank"
                   />
                 </div>
                 <div className="space-y-2">
@@ -223,15 +296,23 @@ export default function AccountingCOAPage() {
                     value={formData.type}
                     onValueChange={(v) => {
                       const type = v as AccountType;
-                      setFormData(p => ({
+                      setFormData((p) => ({
                         ...p,
                         type,
                         category: ACCOUNT_CATEGORIES[type][0],
-                        code: isCodeManuallyEdited ? p.code : getNextAccountCode(accounts, type, ACCOUNT_CATEGORIES[type][0]),
+                        code: isCodeManuallyEdited
+                          ? p.code
+                          : getNextAccountCode(
+                              accounts,
+                              type,
+                              ACCOUNT_CATEGORIES[type][0],
+                            ),
                       }));
                     }}
                   >
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="ASSET">Asset</SelectItem>
                       <SelectItem value="LIABILITY">Liability</SelectItem>
@@ -245,32 +326,57 @@ export default function AccountingCOAPage() {
                   <Label>Category</Label>
                   <Select
                     value={formData.category}
-                    onValueChange={v => setFormData(p => ({
-                      ...p,
-                      category: v,
-                      code: isCodeManuallyEdited ? p.code : getNextAccountCode(accounts, p.type, v),
-                    }))}
+                    onValueChange={(v) =>
+                      setFormData((p) => ({
+                        ...p,
+                        category: v,
+                        code: isCodeManuallyEdited
+                          ? p.code
+                          : getNextAccountCode(accounts, p.type, v),
+                      }))
+                    }
                   >
-                    <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select category" />
+                    </SelectTrigger>
                     <SelectContent>
-                      {categoryOptions.map(category => (
-                        <SelectItem key={category} value={category}>{category}</SelectItem>
+                      {categoryOptions.map((category) => (
+                        <SelectItem key={category} value={category}>
+                          {category}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-2">
                   <Label>Description (Optional)</Label>
-                  <Input 
-                    value={formData.description} 
-                    onChange={e => setFormData(p => ({ ...p, description: e.target.value }))}
-                    placeholder="Brief description of the account purpose" 
+                  <Input
+                    value={formData.description}
+                    onChange={(e) =>
+                      setFormData((p) => ({
+                        ...p,
+                        description: e.target.value,
+                      }))
+                    }
+                    placeholder="Brief description of the account purpose"
                   />
                 </div>
                 <div className="pt-4 flex justify-end gap-3">
-                  <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
-                  <Button type="submit" className="bg-primary text-white" disabled={createMutation.isPending}>
-                    {createMutation.isPending ? "Creating..." : "Create Account"}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setIsDialogOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    className="bg-primary text-white"
+                    disabled={createMutation.isPending}
+                  >
+                    {createMutation.isPending
+                      ? "Creating..."
+                      : "Create Account"}
                   </Button>
                 </div>
               </form>
@@ -281,8 +387,13 @@ export default function AccountingCOAPage() {
         <Card className="border-slate-200/60 shadow-sm overflow-hidden rounded-2xl">
           <CardHeader className="bg-white border-b border-slate-100 px-6 py-5">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-lg font-bold text-slate-800 font-display">Financial Chart of Accounts</CardTitle>
-              <Badge variant="outline" className="bg-slate-50 text-slate-500 font-bold border-slate-200 px-3 py-1 rounded-lg">
+              <CardTitle className="text-lg font-bold text-slate-800 font-display">
+                Financial Chart of Accounts
+              </CardTitle>
+              <Badge
+                variant="outline"
+                className="bg-slate-50 text-slate-500 font-bold border-slate-200 px-3 py-1 rounded-lg"
+              >
                 {filteredAccounts?.length || 0} Accounts Total
               </Badge>
             </div>
@@ -291,12 +402,24 @@ export default function AccountingCOAPage() {
             <Table>
               <TableHeader className="bg-slate-50/50">
                 <TableRow className="hover:bg-transparent border-slate-100">
-                  <TableHead className="w-[120px] font-bold text-slate-500 uppercase text-[11px] tracking-wider pl-6">Code</TableHead>
-                  <TableHead className="font-bold text-slate-500 uppercase text-[11px] tracking-wider">Account Name</TableHead>
-                  <TableHead className="font-bold text-slate-500 uppercase text-[11px] tracking-wider">Type / Category</TableHead>
-                  <TableHead className="font-bold text-slate-500 uppercase text-[11px] tracking-wider">Status</TableHead>
-                  <TableHead className="font-bold text-slate-500 uppercase text-[11px] tracking-wider">System</TableHead>
-                  <TableHead className="text-right pr-6 font-bold text-slate-500 uppercase text-[11px] tracking-wider">Actions</TableHead>
+                  <TableHead className="w-[120px] font-bold text-slate-500 uppercase text-[11px] tracking-wider pl-6">
+                    Code
+                  </TableHead>
+                  <TableHead className="font-bold text-slate-500 uppercase text-[11px] tracking-wider">
+                    Account Name
+                  </TableHead>
+                  <TableHead className="font-bold text-slate-500 uppercase text-[11px] tracking-wider">
+                    Type / Category
+                  </TableHead>
+                  <TableHead className="font-bold text-slate-500 uppercase text-[11px] tracking-wider">
+                    Status
+                  </TableHead>
+                  <TableHead className="font-bold text-slate-500 uppercase text-[11px] tracking-wider">
+                    System
+                  </TableHead>
+                  <TableHead className="text-right pr-6 font-bold text-slate-500 uppercase text-[11px] tracking-wider">
+                    Actions
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -308,40 +431,69 @@ export default function AccountingCOAPage() {
                   ))
                 ) : filteredAccounts?.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="h-32 text-center text-slate-400 font-medium">
+                    <TableCell
+                      colSpan={6}
+                      className="h-32 text-center text-slate-400 font-medium"
+                    >
                       No accounts found matching your search.
                     </TableCell>
                   </TableRow>
                 ) : (
                   filteredAccounts?.map((account) => (
-                    <TableRow key={account.id} className="hover:bg-slate-50/50 border-slate-50 transition-colors group">
+                    <TableRow
+                      key={account.id}
+                      className="hover:bg-slate-50/50 border-slate-50 transition-colors group"
+                    >
                       <TableCell className="font-bold text-slate-900 pl-6 group-hover:text-primary transition-colors">
                         {account.code}
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col">
-                          <span className="font-bold text-slate-700">{account.name}</span>
-                          <span className="text-[11px] text-slate-400 font-medium">{account.description || "No description"}</span>
+                          <span className="font-bold text-slate-700">
+                            {account.name}
+                          </span>
+                          <span className="text-[11px] text-slate-400 font-medium">
+                            {account.description || "No description"}
+                          </span>
                         </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col gap-1.5">
-                          <Badge className={cn("w-fit px-2 py-0 h-5 text-[10px] font-black border uppercase tracking-wider shadow-none", getTypeBadgeColor(account.type))}>
+                          <Badge
+                            className={cn(
+                              "w-fit px-2 py-0 h-5 text-[10px] font-black border uppercase tracking-wider shadow-none",
+                              getTypeBadgeColor(account.type),
+                            )}
+                          >
                             {account.type}
                           </Badge>
-                          <span className="text-[11px] text-slate-400 font-bold ml-1">{account.category}</span>
+                          <span className="text-[11px] text-slate-400 font-bold ml-1">
+                            {account.category}
+                          </span>
                         </div>
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline" className={cn("px-2 py-0 h-5 text-[10px] font-black border uppercase tracking-wider", account.isActive ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-slate-100 text-slate-400 border-slate-200")}>
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            "px-2 py-0 h-5 text-[10px] font-black border uppercase tracking-wider",
+                            account.isActive
+                              ? "bg-emerald-50 text-emerald-600 border-emerald-100"
+                              : "bg-slate-100 text-slate-400 border-slate-200",
+                          )}
+                        >
                           {account.isActive ? "Active" : "Archived"}
                         </Badge>
                       </TableCell>
                       <TableCell>
                         {account.isSystem ? (
-                          <Badge className="bg-amber-50 text-amber-600 border-amber-100 font-black text-[9px] uppercase px-2 py-0">Lock</Badge>
+                          <Badge className="bg-amber-50 text-amber-600 border-amber-100 font-black text-[9px] uppercase px-2 py-0">
+                            Lock
+                          </Badge>
                         ) : (
-                          <span className="text-[10px] text-slate-300 font-bold uppercase tracking-widest">Custom</span>
+                          <span className="text-[10px] text-slate-300 font-bold uppercase tracking-widest">
+                            Custom
+                          </span>
                         )}
                       </TableCell>
                       <TableCell className="text-right pr-6">
@@ -349,7 +501,9 @@ export default function AccountingCOAPage() {
                           variant="ghost"
                           size="sm"
                           className="h-8 rounded-lg px-2 text-slate-500 hover:bg-blue-50 hover:text-blue-600"
-                          onClick={() => setLocation(`/accounting/ledger/${account.id}`)}
+                          onClick={() =>
+                            setLocation(`/accounting/ledger/${account.id}`)
+                          }
                         >
                           <Eye className="mr-1.5 h-4 w-4" />
                           Ledger

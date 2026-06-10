@@ -12,18 +12,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useBusTicketing } from '../../hooks/useBusTicketing';
 import { BusTrip, Conductor } from '../../types/busTicketing';
-
-const C = {
-  bg: '#07090C',
-  surface: '#111318',
-  border: '#1E2128',
-  amber: '#F0A500',
-  fire: '#FF6B35',
-  white: '#FFFFFF',
-  muted: '#9CA3AF',
-  success: '#22C55E',
-  danger: '#EF4444',
-};
+import { type BusColors, useBusColors } from './theme';
 
 function uuid(): string {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -46,6 +35,8 @@ function isUuid(value?: string | null): boolean {
 
 export function BusTripStartScreen({ onClose, companyId, userName = 'Conductor', userRole = 'cashier', userId }: Props) {
   const insets = useSafeAreaInsets();
+  const C = useBusColors();
+  const styles = makeStyles(C);
   const { routes, vehicles, trips, activeConductor, saveConductor, setActiveConductor, startTrip, refreshCloudSetup } = useBusTicketing(companyId);
   
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
@@ -121,7 +112,7 @@ export function BusTripStartScreen({ onClose, companyId, userName = 'Conductor',
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
-      <StatusBar barStyle="light-content" backgroundColor={C.bg} />
+      <StatusBar barStyle={C.statusBarStyle} backgroundColor={C.bg} />
 
       {/* Header */}
       <View style={styles.header}>
@@ -197,7 +188,7 @@ export function BusTripStartScreen({ onClose, companyId, userName = 'Conductor',
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (C: BusColors) => StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
@@ -216,7 +207,7 @@ const styles = StyleSheet.create({
     width: '48%', backgroundColor: C.surface, borderRadius: 12, padding: 16,
     borderWidth: 2, borderColor: C.border,
   },
-  cardActive: { borderColor: C.amber, backgroundColor: 'rgba(240,165,0,0.05)' },
+  cardActive: { borderColor: C.amber, backgroundColor: C.amberSoft },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   cardTitle: { color: C.white, fontSize: 15, fontWeight: '800' },
   cardPrice: { color: C.success, fontSize: 13, fontWeight: '700' },

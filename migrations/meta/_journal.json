@@ -197,6 +197,13 @@
       "when": 1781021542000,
       "tag": "0027_company_partners",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1781028368215,
+      "tag": "0028_costing_engine_tables",
+      "breakpoints": true
     }
   ]
 }

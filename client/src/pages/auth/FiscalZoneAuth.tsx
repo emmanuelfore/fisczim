@@ -8,7 +8,8 @@ import { isElectron } from "@/lib/utils";
 import { isStorageBroken } from "@/lib/offline-db";
 
 export default function AuthPage() {
-  const { user, isLoading, loginWithPassword, registerWithPassword } = useAuth();
+  const { user, isLoading, loginWithPassword, registerWithPassword } =
+    useAuth();
   const {
     data: companies,
     isLoading: isLoadingCompanies,
@@ -27,7 +28,12 @@ export default function AuthPage() {
 
   const [mode, setMode] = useState<"login" | "signup">(getInitialMode);
   const [loginData, setLoginData] = useState({ email: "", password: "" });
-  const [signupData, setSignupData] = useState({ name: "", email: "", password: "", confirmPassword: "" });
+  const [signupData, setSignupData] = useState({
+    name: "",
+    email: "",
+    password: "",
+    confirmPassword: "",
+  });
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [isBrokenStorage, setIsBrokenStorage] = useState(false);
@@ -36,14 +42,20 @@ export default function AuthPage() {
     // Check if the offline database failed to initialize
     if (isStorageBroken()) {
       setIsBrokenStorage(true);
-      setError("Local storage is corrupted. Some offline features and login caching may not work.");
+      setError(
+        "Local storage is corrupted. Some offline features and login caching may not work.",
+      );
     }
   }, []);
 
   const handleFixStorage = async () => {
     if (!window.electronAPI?.clearStorage) return;
     try {
-      if (confirm("This will clear your local terminal data to fix corruption. You will need to sign in again. Continue?")) {
+      if (
+        confirm(
+          "This will clear your local terminal data to fix corruption. You will need to sign in again. Continue?",
+        )
+      ) {
         await window.electronAPI.clearStorage();
         window.location.reload();
       }
@@ -57,21 +69,37 @@ export default function AuthPage() {
     try {
       setError(null);
       setIsLoggingIn(true);
-      await loginWithPassword({ email: loginData.email, password: loginData.password });
+      await loginWithPassword({
+        email: loginData.email,
+        password: loginData.password,
+      });
+      setIsLoggingIn(false);
+    } catch (err: any) {
+      setError(err.message || "Invalid email or password");
       setIsLoggingIn(false);
     }
-    catch (err: any) { setError(err.message || "Invalid email or password"); setIsLoggingIn(false); }
   };
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (signupData.password !== signupData.confirmPassword) { setError("Passwords do not match"); return; }
+    if (signupData.password !== signupData.confirmPassword) {
+      setError("Passwords do not match");
+      return;
+    }
     try {
-      setError(null); setIsLoggingIn(true);
-      await registerWithPassword({ email: signupData.email, password: signupData.password, name: signupData.name });
+      setError(null);
+      setIsLoggingIn(true);
+      await registerWithPassword({
+        email: signupData.email,
+        password: signupData.password,
+        name: signupData.name,
+      });
       setSuccessMsg("Account created! Logging you in...");
       setIsLoggingIn(false);
-    } catch (err: any) { setError(err.message || "Registration failed"); setIsLoggingIn(false); }
+    } catch (err: any) {
+      setError(err.message || "Registration failed");
+      setIsLoggingIn(false);
+    }
   };
 
   useEffect(() => {
@@ -80,27 +108,61 @@ export default function AuthPage() {
 
   useEffect(() => {
     if (user && !isLoading && !isLoadingCompanies && Array.isArray(companies)) {
-      setLocation(companies && companies.length > 0 ? "/dashboard" : "/onboarding");
+      setLocation(
+        companies && companies.length > 0 ? "/dashboard" : "/onboarding",
+      );
     }
   }, [user, companies, isLoading, isLoadingCompanies, setLocation]);
 
-  if (isLoading) return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", background: "#04080f" }}>
-      <Loader2 style={{ color: "#1565FF", width: 36, height: 36 }} className="animate-spin" />
-    </div>
-  );
+  if (isLoading)
+    return (
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          minHeight: "100vh",
+          background: "#04080f",
+        }}
+      >
+        <Loader2
+          style={{ color: "#1565FF", width: 36, height: 36 }}
+          className="animate-spin"
+        />
+      </div>
+    );
   if (user && (isLoadingCompanies || !Array.isArray(companies))) {
     if (isCompaniesError) {
       return <Redirect to="/pos" />;
     }
     return (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", background: "#04080f" }}>
-        <Loader2 style={{ color: "#1565FF", width: 36, height: 36 }} className="animate-spin" />
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          minHeight: "100vh",
+          background: "#04080f",
+        }}
+      >
+        <Loader2
+          style={{ color: "#1565FF", width: 36, height: 36 }}
+          className="animate-spin"
+        />
       </div>
     );
   }
 
-  if (user) return <Redirect to={Array.isArray(companies) && companies.length > 0 ? "/dashboard" : "/onboarding"} />;
+  if (user)
+    return (
+      <Redirect
+        to={
+          Array.isArray(companies) && companies.length > 0
+            ? "/dashboard"
+            : "/onboarding"
+        }
+      />
+    );
 
   return (
     <>
@@ -210,28 +272,54 @@ export default function AuthPage() {
               Live Platform
             </div>
             <h2 className="auth-left-title">
-              Zimbabwe's<br />
-              Smartest<br />
+              Zimbabwe's
+              <br />
+              Smartest
+              <br />
               <span className="grad">Fiscal Platform.</span>
             </h2>
             <p className="auth-left-sub">
-              Automate your ZIMRA compliance, issue fiscal invoices, run your POS, and manage your business — all from one dashboard.
+              Automate your ZIMRA compliance, issue fiscal invoices, run your
+              POS, and manage your business — all from one dashboard.
             </p>
             {[
-              { t: "Instant FDMS Submission", s: "Real-time sync with ZIMRA — certified API" },
-              { t: "Fully Virtual System", s: "No hardware needed, server-to-server" },
-              { t: "Seamless POS Integration", s: "Connects to existing POS, ERP, e-commerce" },
-              { t: "Local Zimbabwe Support", s: "Call 0779532012 or 0779555522" },
+              {
+                t: "Instant FDMS Submission",
+                s: "Real-time sync with ZIMRA — certified API",
+              },
+              {
+                t: "Fully Virtual System",
+                s: "No hardware needed, server-to-server",
+              },
+              {
+                t: "Seamless POS Integration",
+                s: "Connects to existing POS, ERP, e-commerce",
+              },
+              {
+                t: "Local Zimbabwe Support",
+                s: "Call 0779532012 or 0779555522",
+              },
             ].map((f, i) => (
               <div key={i} className="auth-feat">
                 <div className="auth-feat-chk">✓</div>
-                <div className="auth-feat-txt"><strong>{f.t}</strong> — {f.s}</div>
+                <div className="auth-feat-txt">
+                  <strong>{f.t}</strong> — {f.s}
+                </div>
               </div>
             ))}
             <div className="auth-stats-row">
-              <div><div className="auth-sv">500+</div><div className="auth-sl">Businesses</div></div>
-              <div><div className="auth-sv">99.9%</div><div className="auth-sl">Uptime</div></div>
-              <div><div className="auth-sv">24/7</div><div className="auth-sl">Support</div></div>
+              <div>
+                <div className="auth-sv">500+</div>
+                <div className="auth-sl">Businesses</div>
+              </div>
+              <div>
+                <div className="auth-sv">99.9%</div>
+                <div className="auth-sl">Uptime</div>
+              </div>
+              <div>
+                <div className="auth-sv">24/7</div>
+                <div className="auth-sl">Support</div>
+              </div>
             </div>
           </div>
         </div>
@@ -246,27 +334,33 @@ export default function AuthPage() {
               </div>
             </a>
 
-            <h1 className="auth-h">{mode === "login" ? "Welcome back." : "Create account."}</h1>
-            <p className="auth-s">{mode === "login" ? "Sign in to your FiscalZone account" : "Start your free trial — no credit card needed"}</p>
+            <h1 className="auth-h">
+              {mode === "login" ? "Welcome back." : "Create account."}
+            </h1>
+            <p className="auth-s">
+              {mode === "login"
+                ? "Sign in to your FiscalZone account"
+                : "Start your free trial — no credit card needed"}
+            </p>
 
             {error && <div className="auth-err">{error}</div>}
             {successMsg && <div className="auth-ok">{successMsg}</div>}
 
             {isElectron() && isBrokenStorage && (
-              <div style={{ marginBottom: '20px' }}>
-                <button 
+              <div style={{ marginBottom: "20px" }}>
+                <button
                   onClick={handleFixStorage}
                   style={{
-                    width: '100%',
-                    padding: '10px',
-                    borderRadius: '6px',
-                    background: 'rgba(255,165,0,0.1)',
-                    border: '1px solid rgba(255,165,0,0.4)',
-                    color: '#FFA500',
-                    fontSize: '11px',
-                    cursor: 'pointer',
-                    fontFamily: 'Syne, sans-serif',
-                    fontWeight: 600
+                    width: "100%",
+                    padding: "10px",
+                    borderRadius: "6px",
+                    background: "rgba(255,165,0,0.1)",
+                    border: "1px solid rgba(255,165,0,0.4)",
+                    color: "#FFA500",
+                    fontSize: "11px",
+                    cursor: "pointer",
+                    fontFamily: "Syne, sans-serif",
+                    fontWeight: 600,
                   }}
                 >
                   ⚠ Fix Terminal Data (Storage Reset)
@@ -278,19 +372,46 @@ export default function AuthPage() {
               <form onSubmit={handleLogin} className="auth-form">
                 <div className="fg">
                   <label className="flbl">Email Address</label>
-                  <input className="finp" type="email" placeholder="name@company.com"
-                    value={loginData.email} onChange={e => setLoginData({ ...loginData, email: e.target.value })} required />
+                  <input
+                    className="finp"
+                    type="email"
+                    placeholder="name@company.com"
+                    value={loginData.email}
+                    onChange={(e) =>
+                      setLoginData({ ...loginData, email: e.target.value })
+                    }
+                    required
+                  />
                 </div>
                 <div className="fg">
                   <div className="frow">
                     <label className="flbl">Password</label>
-                    <a href="#" className="flink">Forgot?</a>
+                    <a href="#" className="flink">
+                      Forgot?
+                    </a>
                   </div>
-                  <input className="finp" type="password" placeholder="••••••••"
-                    value={loginData.password} onChange={e => setLoginData({ ...loginData, password: e.target.value })} required />
+                  <input
+                    className="finp"
+                    type="password"
+                    placeholder="••••••••"
+                    value={loginData.password}
+                    onChange={(e) =>
+                      setLoginData({ ...loginData, password: e.target.value })
+                    }
+                    required
+                  />
                 </div>
-                <button className="btn-sub" type="submit" disabled={isLoggingIn}>
-                  {isLoggingIn && <Loader2 style={{ width: 15, height: 15 }} className="animate-spin" />}
+                <button
+                  className="btn-sub"
+                  type="submit"
+                  disabled={isLoggingIn}
+                >
+                  {isLoggingIn && (
+                    <Loader2
+                      style={{ width: 15, height: 15 }}
+                      className="animate-spin"
+                    />
+                  )}
                   {isLoggingIn ? "Signing in..." : "Sign In →"}
                 </button>
               </form>
@@ -298,46 +419,127 @@ export default function AuthPage() {
               <form onSubmit={handleSignup} className="auth-form">
                 <div className="fg">
                   <label className="flbl">Full Name</label>
-                  <input className="finp" placeholder="John Doe"
-                    value={signupData.name} onChange={e => setSignupData({ ...signupData, name: e.target.value })} required />
+                  <input
+                    className="finp"
+                    placeholder="John Doe"
+                    value={signupData.name}
+                    onChange={(e) =>
+                      setSignupData({ ...signupData, name: e.target.value })
+                    }
+                    required
+                  />
                 </div>
                 <div className="fg">
                   <label className="flbl">Email Address</label>
-                  <input className="finp" type="email" placeholder="name@company.com"
-                    value={signupData.email} onChange={e => setSignupData({ ...signupData, email: e.target.value })} required />
+                  <input
+                    className="finp"
+                    type="email"
+                    placeholder="name@company.com"
+                    value={signupData.email}
+                    onChange={(e) =>
+                      setSignupData({ ...signupData, email: e.target.value })
+                    }
+                    required
+                  />
                 </div>
                 <div className="fg">
                   <label className="flbl">Password</label>
-                  <input className="finp" type="password" placeholder="Min. 6 characters"
-                    value={signupData.password} onChange={e => setSignupData({ ...signupData, password: e.target.value })} required minLength={6} />
+                  <input
+                    className="finp"
+                    type="password"
+                    placeholder="Min. 6 characters"
+                    value={signupData.password}
+                    onChange={(e) =>
+                      setSignupData({ ...signupData, password: e.target.value })
+                    }
+                    required
+                    minLength={6}
+                  />
                 </div>
                 <div className="fg">
                   <label className="flbl">Confirm Password</label>
-                  <input className="finp" type="password" placeholder="Repeat your password"
-                    value={signupData.confirmPassword} onChange={e => setSignupData({ ...signupData, confirmPassword: e.target.value })} required minLength={6} />
+                  <input
+                    className="finp"
+                    type="password"
+                    placeholder="Repeat your password"
+                    value={signupData.confirmPassword}
+                    onChange={(e) =>
+                      setSignupData({
+                        ...signupData,
+                        confirmPassword: e.target.value,
+                      })
+                    }
+                    required
+                    minLength={6}
+                  />
                 </div>
-                <button className="btn-sub" type="submit" disabled={isLoggingIn}>
-                  {isLoggingIn && <Loader2 style={{ width: 15, height: 15 }} className="animate-spin" />}
+                <button
+                  className="btn-sub"
+                  type="submit"
+                  disabled={isLoggingIn}
+                >
+                  {isLoggingIn && (
+                    <Loader2
+                      style={{ width: 15, height: 15 }}
+                      className="animate-spin"
+                    />
+                  )}
                   {isLoggingIn ? "Creating account..." : "Create Account →"}
                 </button>
               </form>
             )}
 
             <div className="auth-or">or</div>
-            <a href="https://wa.me/263779532012" target="_blank" rel="noreferrer" className="wa-btn">
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z" /><path d="M12 0C5.373 0 0 5.373 0 12c0 2.025.507 3.936 1.397 5.617L0 24l6.544-1.374A11.944 11.944 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.885 0-3.652-.493-5.188-1.357l-.372-.22-3.884.816.825-3.793-.242-.39A9.946 9.946 0 012 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z" /></svg>
+            <a
+              href="https://wa.me/263779532012"
+              target="_blank"
+              rel="noreferrer"
+              className="wa-btn"
+            >
+              <svg
+                width="17"
+                height="17"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+              >
+                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z" />
+                <path d="M12 0C5.373 0 0 5.373 0 12c0 2.025.507 3.936 1.397 5.617L0 24l6.544-1.374A11.944 11.944 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.885 0-3.652-.493-5.188-1.357l-.372-.22-3.884.816.825-3.793-.242-.39A9.946 9.946 0 012 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z" />
+              </svg>
               Need help? Chat on WhatsApp
             </a>
 
             <div className="auth-sw">
               {mode === "login" ? (
-                <>Don't have an account?{" "}<button className="auth-sw-btn" onClick={() => { setMode("signup"); setError(null); }}>Sign Up Free</button></>
+                <>
+                  Don't have an account?{" "}
+                  <button
+                    className="auth-sw-btn"
+                    onClick={() => {
+                      setMode("signup");
+                      setError(null);
+                    }}
+                  >
+                    Sign Up Free
+                  </button>
+                </>
               ) : (
-                <>Already have an account?{" "}<button className="auth-sw-btn" onClick={() => { setMode("login"); setError(null); }}>Sign In</button></>
+                <>
+                  Already have an account?{" "}
+                  <button
+                    className="auth-sw-btn"
+                    onClick={() => {
+                      setMode("login");
+                      setError(null);
+                    }}
+                  >
+                    Sign In
+                  </button>
+                </>
               )}
             </div>
             <div className="auth-tos">
-              By continuing you agree to our <a href="#">Terms</a> &amp; <a href="#">Privacy Policy</a>
+              By continuing you agree to our <a href="#">Terms</a> &amp;{" "}
+              <a href="#">Privacy Policy</a>
             </div>
           </div>
         </div>

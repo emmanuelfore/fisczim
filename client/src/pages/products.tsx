@@ -1,11 +1,22 @@
-
 import { Layout } from "@/components/layout";
 import { Link } from "wouter";
-import { refreshProductQueries, refreshProductQueriesAsync, useProducts, useUpdateProduct } from "@/hooks/use-products";
+import {
+  refreshProductQueries,
+  refreshProductQueriesAsync,
+  useProducts,
+  useUpdateProduct,
+} from "@/hooks/use-products";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useTaxConfig } from "@/hooks/use-tax-config";
 import { Card, CardContent } from "@/components/ui/card";
-import { Package, AlertCircle, Search, ChevronLeft, ChevronRight, FileDown } from "lucide-react";
+import {
+  Package,
+  AlertCircle,
+  Search,
+  ChevronLeft,
+  ChevronRight,
+  FileDown,
+} from "lucide-react";
 import { CreateProductDialog } from "@/components/products/create-product-dialog";
 import { EditProductDialog } from "@/components/products/edit-product-dialog";
 import { StockInDialog } from "@/components/products/stock-in-dialog";
@@ -25,17 +36,17 @@ import {
 import { CsvImportDialog } from "@/components/csv-import-dialog";
 import { ManageCategoriesDialog } from "@/components/products/manage-categories-dialog";
 import { useQueryClient, useMutation } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
-import { 
-  AlertDialog, 
-  AlertDialogAction, 
-  AlertDialogCancel, 
-  AlertDialogContent, 
-  AlertDialogDescription, 
-  AlertDialogFooter, 
-  AlertDialogHeader, 
-  AlertDialogTitle, 
-  AlertDialogTrigger 
+import { useEffect, useMemo, useState } from "react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -50,21 +61,31 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { MoreVertical, Edit2, History, TrendingUp, PackagePlus, AlertTriangle } from "lucide-react";
-
+import {
+  MoreVertical,
+  Edit2,
+  History,
+  TrendingUp,
+  PackagePlus,
+  AlertTriangle,
+} from "lucide-react";
 
 export default function ProductsPage() {
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const { activeCompanyId } = useActiveCompany();
   const { selectedBranchId } = useBranchContext();
   const companyId = activeCompanyId || 0;
-  const { data: allItems, isLoading } = useProducts(companyId, selectedBranchId || undefined);
+  const { data: allItems, isLoading } = useProducts(
+    companyId,
+    selectedBranchId || undefined,
+  );
   const updateProduct = useUpdateProduct();
   const { taxTypes } = useTaxConfig(companyId || undefined);
   const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [stockFilter, setStockFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
   const [taxFilter, setTaxFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const { toast } = useToast();
@@ -76,12 +97,17 @@ export default function ProductsPage() {
 
   const bulkDeleteMutation = useMutation({
     mutationFn: async () => {
-      const response = await apiFetch(`/api/companies/${companyId}/products/bulk-delete`, {
-        method: "DELETE",
-      });
+      const response = await apiFetch(
+        `/api/companies/${companyId}/products/bulk-delete`,
+        {
+          method: "DELETE",
+        },
+      );
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || errorData.detail || "Failed to delete products");
+        throw new Error(
+          errorData.message || errorData.detail || "Failed to delete products",
+        );
       }
     },
     onSuccess: () => {
@@ -98,26 +124,42 @@ export default function ProductsPage() {
         description: error.message,
         variant: "destructive",
       });
-    }
+    },
   });
 
   // Filter for products (goods)
-  const products = allItems?.filter(item => item.productType !== 'service'); // Treat undefined/'good' as product
+  const products = allItems?.filter((item) => item.productType !== "service"); // Treat undefined/'good' as product
+
+  const categoryOptions = useMemo(() => {
+    const categories = new Set<string>();
+
+    products?.forEach((product) => {
+      const category = product.category?.trim();
+      if (category) categories.add(category);
+    });
+
+    return Array.from(categories).sort((a, b) => a.localeCompare(b));
+  }, [products]);
 
   // Filter by search term
   // Filter logic
-  const filteredProducts = products?.filter(p => {
+  const filteredProducts = products?.filter((p) => {
     // 1. Search Term
     const matchesSearch =
       p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (p.sku && p.sku.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (p.description && p.description.toLowerCase().includes(searchTerm.toLowerCase()));
+      (p.description &&
+        p.description.toLowerCase().includes(searchTerm.toLowerCase()));
 
     // 2. Status Filter
     const matchesStatus =
-      statusFilter === "all" ? true :
-        statusFilter === "active" ? p.isActive :
-          statusFilter === "inactive" ? !p.isActive : true;
+      statusFilter === "all"
+        ? true
+        : statusFilter === "active"
+          ? p.isActive
+          : statusFilter === "inactive"
+            ? !p.isActive
+            : true;
 
     // 3. Stock Filter
     let matchesStock = true;
@@ -126,27 +168,43 @@ export default function ProductsPage() {
       const lowThreshold = Number(p.lowStockThreshold || 0);
 
       if (stockFilter === "in_stock") matchesStock = stock > 0; // Show everything available including low stock
-      if (stockFilter === "low_stock") matchesStock = stock <= lowThreshold && stock > 0;
+      if (stockFilter === "low_stock")
+        matchesStock = stock <= lowThreshold && stock > 0;
       if (stockFilter === "out_of_stock") matchesStock = stock <= 0;
     } else if (stockFilter !== "all" && !p.isTracked) {
       // Decide how to handle unlimited items when filtering by stock
       // Usually "In Stock" includes unlimited. Low/Out don't apply.
-      if (stockFilter === "low_stock" || stockFilter === "out_of_stock") matchesStock = false;
+      if (stockFilter === "low_stock" || stockFilter === "out_of_stock")
+        matchesStock = false;
     }
 
-    // 4. Tax Filter
+    // 4. Category Filter
+    const matchesCategory =
+      categoryFilter === "all" ? true : p.category === categoryFilter;
+
+    // 5. Tax Filter
     // We compare strings or loose equality
     const matchesTax =
-      taxFilter === "all" ? true :
-        parseFloat(p.taxRate || "0") === parseFloat(taxFilter);
+      taxFilter === "all"
+        ? true
+        : parseFloat(p.taxRate || "0") === parseFloat(taxFilter);
 
-    return matchesSearch && matchesStatus && matchesStock && matchesTax;
+    return (
+      matchesSearch &&
+      matchesStatus &&
+      matchesStock &&
+      matchesCategory &&
+      matchesTax
+    );
   });
 
   // Pagination logic
   const totalPages = Math.ceil((filteredProducts?.length || 0) / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
-  const paginatedProducts = filteredProducts?.slice(startIndex, startIndex + itemsPerPage);
+  const paginatedProducts = filteredProducts?.slice(
+    startIndex,
+    startIndex + itemsPerPage,
+  );
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchTerm(e.target.value);
@@ -160,84 +218,112 @@ export default function ProductsPage() {
         subtitle="Inventory and goods"
         actions={
           <>
-          <Button
-            variant="outline"
-            onClick={async () => {
-              try {
-                const res = await apiFetch(`/api/export/products?companyId=${companyId}`);
-                if (!res.ok) throw new Error("Export failed");
-                const blob = await res.blob();
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = `products_export_${new Date().toISOString().split('T')[0]}.csv`;
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(url);
-                document.body.removeChild(a);
-              } catch (err: any) {
-                toast({
-                  title: "Export Failed",
-                  description: err.message,
-                  variant: "destructive",
-                });
-              }
-            }}
-            disabled={!companyId}
-            className="rounded-xl"
-          >
-            <FileDown className="w-4 h-4 mr-2" />
-            Export CSV
-          </Button>
+            <Button
+              variant="outline"
+              onClick={async () => {
+                try {
+                  const res = await apiFetch(
+                    `/api/export/products?companyId=${companyId}`,
+                  );
+                  if (!res.ok) throw new Error("Export failed");
+                  const blob = await res.blob();
+                  const url = window.URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = `products_export_${new Date().toISOString().split("T")[0]}.csv`;
+                  document.body.appendChild(a);
+                  a.click();
+                  window.URL.revokeObjectURL(url);
+                  document.body.removeChild(a);
+                } catch (err: any) {
+                  toast({
+                    title: "Export Failed",
+                    description: err.message,
+                    variant: "destructive",
+                  });
+                }
+              }}
+              disabled={!companyId}
+              className="rounded-xl"
+            >
+              <FileDown className="w-4 h-4 mr-2" />
+              Export CSV
+            </Button>
 
-          {companyId > 0 && products && products.length > 0 && (
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button variant="destructive" className="rounded-xl" disabled={bulkDeleteMutation.isPending}>
-                  <Trash2 className="w-4 h-4 mr-2" />
-                  {bulkDeleteMutation.isPending ? "Deleting..." : "Delete All"}
+            {companyId > 0 && products && products.length > 0 && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="destructive"
+                    className="rounded-xl"
+                    disabled={bulkDeleteMutation.isPending}
+                  >
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    {bulkDeleteMutation.isPending
+                      ? "Deleting..."
+                      : "Delete All"}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>
+                      Are you absolutely sure?
+                    </AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will permanently delete ALL products and services
+                      from your inventory for this company. This action cannot
+                      be undone. Historical transactions (invoices, receipts)
+                      will keep standard text references.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => bulkDeleteMutation.mutate()}
+                      className="bg-red-600 hover:bg-red-700"
+                    >
+                      Yes, Delete All
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
+
+            <ManageCategoriesDialog companyId={companyId} />
+            <CsvImportDialog
+              type="product"
+              companyId={companyId}
+              onSuccess={async () => {
+                await refreshProductQueriesAsync(queryClient, companyId);
+                setCurrentPage(1);
+              }}
+            />
+            {companyId > 0 && (
+              <Link href="/products/bulk-adjust">
+                <Button
+                  variant="outline"
+                  className="rounded-xl flex-1 sm:flex-none gap-2"
+                >
+                  <TrendingUp className="w-4 h-4 text-emerald-600" />
+                  Bulk Adjust Prices
                 </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This will permanently delete ALL products and services from your inventory for this company. 
-                    This action cannot be undone. Historical transactions (invoices, receipts) will keep standard text references.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={() => bulkDeleteMutation.mutate()} className="bg-red-600 hover:bg-red-700">
-                    Yes, Delete All
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          )}
-
-          <ManageCategoriesDialog companyId={companyId} />
-          <CsvImportDialog
-            type="product"
-            companyId={companyId}
-            onSuccess={async () => {
-              await refreshProductQueriesAsync(queryClient, companyId);
-              setCurrentPage(1);
-            }}
-          />
-          {companyId > 0 && (
-            <Link href="/products/bulk-adjust">
-              <Button variant="outline" className="rounded-xl flex-1 sm:flex-none gap-2">
-                <TrendingUp className="w-4 h-4 text-emerald-600" />
-                Bulk Adjust Prices
+              </Link>
+            )}
+            {companyId > 0 ? (
+              <CreateProductDialog
+                companyId={companyId}
+                defaultType="good"
+                triggerLabel="Add Product"
+              />
+            ) : (
+              <Button
+                disabled
+                variant="outline"
+                className="rounded-xl flex-1 sm:flex-none"
+              >
+                Select a Company First
               </Button>
-            </Link>
-          )}
-          {companyId > 0 ? (
-            <CreateProductDialog companyId={companyId} defaultType="good" triggerLabel="Add Product" />
-          ) : (
-            <Button disabled variant="outline" className="rounded-xl flex-1 sm:flex-none">Select a Company First</Button>
-          )}
+            )}
           </>
         }
       />
@@ -254,7 +340,13 @@ export default function ProductsPage() {
         </div>
 
         <div className="flex gap-2 flex-wrap">
-          <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setCurrentPage(1); }}>
+          <Select
+            value={statusFilter}
+            onValueChange={(v) => {
+              setStatusFilter(v);
+              setCurrentPage(1);
+            }}
+          >
             <SelectTrigger className="w-[130px]">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
@@ -265,7 +357,13 @@ export default function ProductsPage() {
             </SelectContent>
           </Select>
 
-          <Select value={stockFilter} onValueChange={(v) => { setStockFilter(v); setCurrentPage(1); }}>
+          <Select
+            value={stockFilter}
+            onValueChange={(v) => {
+              setStockFilter(v);
+              setCurrentPage(1);
+            }}
+          >
             <SelectTrigger className="w-[140px]">
               <SelectValue placeholder="Stock Level" />
             </SelectTrigger>
@@ -277,7 +375,33 @@ export default function ProductsPage() {
             </SelectContent>
           </Select>
 
-          <Select value={taxFilter} onValueChange={(v) => { setTaxFilter(v); setCurrentPage(1); }}>
+          <Select
+            value={categoryFilter}
+            onValueChange={(v) => {
+              setCategoryFilter(v);
+              setCurrentPage(1);
+            }}
+          >
+            <SelectTrigger className="w-[170px]">
+              <SelectValue placeholder="Category" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Categories</SelectItem>
+              {categoryOptions.map((category) => (
+                <SelectItem key={category} value={category}>
+                  {category}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select
+            value={taxFilter}
+            onValueChange={(v) => {
+              setTaxFilter(v);
+              setCurrentPage(1);
+            }}
+          >
             <SelectTrigger className="w-[140px]">
               <SelectValue placeholder="Tax Class" />
             </SelectTrigger>
@@ -292,13 +416,18 @@ export default function ProductsPage() {
           </Select>
         </div>
 
-        {(searchTerm || statusFilter !== 'all' || stockFilter !== 'all' || taxFilter !== 'all') && (
+        {(searchTerm ||
+          statusFilter !== "all" ||
+          stockFilter !== "all" ||
+          categoryFilter !== "all" ||
+          taxFilter !== "all") && (
           <Button
             variant="ghost"
             onClick={() => {
               setSearchTerm("");
               setStatusFilter("all");
               setStockFilter("all");
+              setCategoryFilter("all");
               setTaxFilter("all");
               setCurrentPage(1);
             }}
@@ -314,13 +443,27 @@ export default function ProductsPage() {
           <table className="w-full text-left">
             <thead>
               <tr className="bg-[#F8FAFC] border-b border-[#E5E7EB]">
-                <th className="px-5 py-3 font-semibold text-[#64748B] uppercase tracking-wide text-[12px] w-[40%] md:w-auto">Name</th>
-                <th className="hidden lg:table-cell px-5 py-3 font-semibold text-[#64748B] uppercase tracking-wide text-[12px]">Code</th>
-                <th className="hidden xl:table-cell px-5 py-3 font-semibold text-[#64748B] uppercase tracking-wide text-[12px]">Details</th>
-                <th className="hidden sm:table-cell px-5 py-3 font-semibold text-[#64748B] uppercase tracking-wide text-[12px]">Category</th>
-                <th className="px-5 py-3 font-semibold text-[#64748B] uppercase tracking-wide text-[12px]">Price</th>
-                <th className="px-5 py-3 font-semibold text-[#64748B] uppercase tracking-wide text-[12px]">Stock</th>
-                <th className="hidden lg:table-cell px-5 py-3 font-semibold text-[#64748B] uppercase tracking-wide text-[12px]">Tax</th>
+                <th className="px-5 py-3 font-semibold text-[#64748B] uppercase tracking-wide text-[12px] w-[40%] md:w-auto">
+                  Name
+                </th>
+                <th className="hidden lg:table-cell px-5 py-3 font-semibold text-[#64748B] uppercase tracking-wide text-[12px]">
+                  Code
+                </th>
+                <th className="hidden xl:table-cell px-5 py-3 font-semibold text-[#64748B] uppercase tracking-wide text-[12px]">
+                  Details
+                </th>
+                <th className="hidden sm:table-cell px-5 py-3 font-semibold text-[#64748B] uppercase tracking-wide text-[12px]">
+                  Category
+                </th>
+                <th className="px-5 py-3 font-semibold text-[#64748B] uppercase tracking-wide text-[12px]">
+                  Price
+                </th>
+                <th className="px-5 py-3 font-semibold text-[#64748B] uppercase tracking-wide text-[12px]">
+                  Stock
+                </th>
+                <th className="hidden lg:table-cell px-5 py-3 font-semibold text-[#64748B] uppercase tracking-wide text-[12px]">
+                  Tax
+                </th>
                 <th className="p-5 w-16 text-right"></th>
               </tr>
             </thead>
@@ -340,178 +483,261 @@ export default function ProductsPage() {
                     <div className="flex flex-col items-center justify-center">
                       <Package className="w-12 h-12 text-slate-200 mb-4" />
                       <p className="font-bold text-lg">No products found</p>
-                      <p className="text-sm">Try adjusting your filters</p>
+                      <p className="">Try adjusting your filters</p>
                     </div>
                   </td>
                 </tr>
-              ) : paginatedProducts?.map((p) => {
-                // Match tax rate to a known tax type if possible
-                // We use loose comparison for string/number match on rate
-                const matchedType = taxTypes.data?.find((t: any) => {
-                  if (p.taxTypeId) return t.id === p.taxTypeId;
-                  // Fallback for legacy data
-                  if (parseFloat(t.rate) === parseFloat(p.taxRate || "0")) {
-                    if (parseFloat(p.taxRate || "0") === 0) {
-                      const isExempt = p.name.toLowerCase().includes("exempt") || p.description?.toLowerCase().includes("exempt");
-                      if (isExempt) {
-                        const zimraTaxId = t.zimraTaxId?.toString();
-                        return zimraTaxId == "1" || t.zimraCode === 'C' || t.zimraCode === 'E' || t.name.toLowerCase().includes("exempt");
+              ) : (
+                paginatedProducts?.map((p) => {
+                  // Match tax rate to a known tax type if possible
+                  // We use loose comparison for string/number match on rate
+                  const matchedType = taxTypes.data?.find((t: any) => {
+                    if (p.taxTypeId) return t.id === p.taxTypeId;
+                    // Fallback for legacy data
+                    if (parseFloat(t.rate) === parseFloat(p.taxRate || "0")) {
+                      if (parseFloat(p.taxRate || "0") === 0) {
+                        const isExempt =
+                          p.name.toLowerCase().includes("exempt") ||
+                          p.description?.toLowerCase().includes("exempt");
+                        if (isExempt) {
+                          const zimraTaxId = t.zimraTaxId?.toString();
+                          return (
+                            zimraTaxId == "1" ||
+                            t.zimraCode === "C" ||
+                            t.zimraCode === "E" ||
+                            t.name.toLowerCase().includes("exempt")
+                          );
+                        }
+                        return (
+                          t.zimraTaxId === "2" ||
+                          t.name.toLowerCase().includes("zero")
+                        );
                       }
-                      return t.zimraTaxId === "2" || t.name.toLowerCase().includes("zero");
+                      return true;
                     }
-                    return true;
-                  }
-                  return false;
-                });
+                    return false;
+                  });
 
-                return (
-                  <tr key={p.id} className={`group border-b border-[#F1F5F9] hover:bg-[#F8FAFC] transition-colors cursor-default ${!p.isActive ? 'opacity-50 grayscale' : ''}`}>
-                    <td className="px-5 py-4 font-bold text-[#0F172A] w-[50%] md:w-auto">
-                      <div className="flex items-center gap-3 overflow-hidden">
-                        {p.imageUrl ? (
-                          <img 
-                            src={resolveMediaUrl(p.imageUrl)} 
-                            alt={p.name} 
-                            className="w-8 h-8 md:w-10 md:h-10 rounded-lg object-cover shadow-sm bg-slate-100 ring-1 ring-slate-200 shrink-0" 
-                            onError={(e) => (e.currentTarget.style.display = 'none')}
-                          />
-                        ) : (
-                          <div className="w-8 h-8 md:w-10 md:h-10 rounded-lg bg-slate-100 flex items-center justify-center ring-1 ring-slate-200 shrink-0">
-                            <Package className="w-4 h-4 md:w-5 md:h-5 text-slate-300" />
-                          </div>
-                        )}
-                        <div className="flex flex-col min-w-0">
-                          <span className="font-semibold tracking-tight text-sm truncate">{p.name}</span>
-                          {!p.isActive && <span className="text-[9px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-md font-bold uppercase tracking-wider w-fit mt-0.5">Inactive</span>}
-                          {p.description && <span className="text-[10px] text-slate-400 font-medium truncate max-w-full">{p.description}</span>}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="hidden lg:table-cell px-5 py-4 font-mono text-xs font-bold text-slate-500">
-                      {p.sku || "—"}
-                    </td>
-                    <td className="hidden xl:table-cell px-5 py-4">
-                      <div className="flex flex-col gap-1">
-                        {p.hsCode && <div className="text-[10px] font-bold text-slate-400 font-mono uppercase">HS: {p.hsCode}</div>}
-                      </div>
-                    </td>
-                    <td className="hidden md:table-cell px-5 py-4">
-                      {p.category ? (
-                        <Badge variant="secondary" className="bg-slate-100 text-slate-600 font-bold text-[10px] uppercase tracking-wider px-2 py-0.5 whitespace-nowrap">
-                          {p.category}
-                        </Badge>
-                      ) : (
-                        <span className="text-slate-300 text-xs font-bold">—</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-4 font-bold text-[#0F172A] tracking-tight text-sm">${Number(p.price).toFixed(2)}</td>
-                    <td className="px-5 py-4">
-                      {p.isTracked ? (
-                        <div className="flex items-center gap-2">
-                          <span className={`${Number(p.branchStock || p.stockLevel) <= Number(p.lowStockThreshold || 0) ? "text-red-600 bg-red-50" : "text-slate-700 bg-slate-100"} px-2 py-0.5 rounded-md font-mono text-[11px] font-bold`}>
-                            {p.branchStock || p.stockLevel}
-                          </span>
-                        </div>
-                      ) : (
-                        <span className="text-[10px] text-slate-400 font-bold uppercase">∞</span>
-                      )}
-                    </td>
-                    <td className="hidden lg:table-cell px-5 py-4">
-                      {matchedType ? (
-                        <Badge variant="outline" className="bg-white text-slate-600 border-slate-200 font-bold text-[10px] uppercase tracking-wider shadow-sm whitespace-nowrap">
-                          {matchedType.name}
-                        </Badge>
-                      ) : (
-                        <span className="text-slate-400 text-[10px] font-bold">{p.taxRate}%</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-4 text-right">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-900 transition-all active:scale-90">
-                            <MoreVertical className="w-4 h-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-56 bg-white/95 backdrop-blur-xl border-slate-200 rounded-2xl shadow-2xl p-2 z-50">
-                          <div className="px-3 py-2 border-b border-slate-100 mb-1">
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Inventory Management</p>
-                          </div>
-                          
-                          {p.isTracked && (
-                            <>
-                              <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="p-0 rounded-xl mb-1 focus:bg-transparent">
-                                <StockInDialog product={p} companyId={companyId}>
-                                  <div className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-emerald-700 hover:bg-emerald-50 cursor-pointer font-bold transition-all text-xs">
-                                    <PackagePlus className="w-4 h-4" />
-                                    <span>Stock In</span>
-                                  </div>
-                                </StockInDialog>
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="p-0 rounded-xl mb-1 focus:bg-transparent">
-                                <StockAdjustmentDialog product={p} companyId={companyId} branchId={selectedBranchId || undefined}>
-                                  <div className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-amber-700 hover:bg-amber-50 cursor-pointer font-bold transition-all text-xs">
-                                    <History className="w-4 h-4" />
-                                    <span>Manual Adjust</span>
-                                  </div>
-                                </StockAdjustmentDialog>
-                              </DropdownMenuItem>
-                            </>
+                  return (
+                    <tr
+                      key={p.id}
+                      className={`group border-b border-[#F1F5F9] hover:bg-[#F8FAFC] transition-colors cursor-default ${!p.isActive ? "opacity-50 grayscale" : ""}`}
+                    >
+                      <td className="px-5 py-4 font-bold text-[#0F172A] w-[50%] md:w-auto">
+                        <div className="flex items-center gap-3 overflow-hidden">
+                          {p.imageUrl ? (
+                            <img
+                              src={resolveMediaUrl(p.imageUrl)}
+                              alt={p.name}
+                              className="w-8 h-8 md:w-10 md:h-10 rounded-lg object-cover shadow-sm bg-slate-100 ring-1 ring-slate-200 shrink-0"
+                              onError={(e) =>
+                                (e.currentTarget.style.display = "none")
+                              }
+                            />
+                          ) : (
+                            <div className="w-8 h-8 md:w-10 md:h-10 rounded-lg bg-slate-100 flex items-center justify-center ring-1 ring-slate-200 shrink-0">
+                              <Package className="w-4 h-4 md:w-5 md:h-5 text-slate-300" />
+                            </div>
                           )}
-
-                          <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="p-0 rounded-xl mb-1 focus:bg-transparent">
-                            <PriceAdjustmentDialog product={p} companyId={companyId}>
-                              <div className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-indigo-700 hover:bg-indigo-50 cursor-pointer font-bold transition-all text-xs">
-                                <TrendingUp className="w-4 h-4" />
-                                <span>Manage Price</span>
-                              </div>
-                            </PriceAdjustmentDialog>
-                          </DropdownMenuItem>
-
-                          <DropdownMenuSeparator className="my-1 bg-slate-100" />
-                          
-                          <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="p-0 rounded-xl mb-1 focus:bg-transparent">
-                            <EditProductDialog product={p}>
-                              <div className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-slate-700 hover:bg-slate-50 cursor-pointer font-bold transition-all text-xs">
-                                <Edit2 className="w-4 h-4" />
-                                <span>Edit</span>
-                              </div>
-                            </EditProductDialog>
-                          </DropdownMenuItem>
-
-                          <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="p-0 rounded-xl focus:bg-transparent">
-                            <DeleteButton
-                              title="Delete Product"
-                              description={`Are you sure you want to delete ${p.name}? This will remove it from active inventory.`}
-                              onConfirm={async () => {
-                                await updateProduct.mutateAsync({
-                                  id: p.id,
-                                  data: { isActive: false },
-                                  companyId
-                                });
-                              }}
-                              isDeleting={updateProduct.isPending}
+                          <div className="flex flex-col min-w-0">
+                            <span className="font-semibold tracking-tight  truncate">
+                              {p.name}
+                            </span>
+                            {!p.isActive && (
+                              <span className="text-[9px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-md font-bold uppercase tracking-wider w-fit mt-0.5">
+                                Inactive
+                              </span>
+                            )}
+                            {p.description && (
+                              <span className="text-[10px] text-slate-400 font-medium truncate max-w-full">
+                                {p.description}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="hidden lg:table-cell px-5 py-4 font-mono text-xs font-bold text-slate-500">
+                        {p.sku || "—"}
+                      </td>
+                      <td className="hidden xl:table-cell px-5 py-4">
+                        <div className="flex flex-col gap-1">
+                          {p.hsCode && (
+                            <div className="text-[10px] font-bold text-slate-400 font-mono uppercase">
+                              HS: {p.hsCode}
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                      <td className="hidden md:table-cell px-5 py-4">
+                        {p.category ? (
+                          <Badge
+                            variant="secondary"
+                            className="bg-slate-100 text-slate-600 font-bold text-[10px] uppercase tracking-wider px-2 py-0.5 whitespace-nowrap"
+                          >
+                            {p.category}
+                          </Badge>
+                        ) : (
+                          <span className="text-slate-300 text-xs font-bold">
+                            —
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-5 py-4 font-bold text-[#0F172A] tracking-tight ">
+                        ${Number(p.price).toFixed(2)}
+                      </td>
+                      <td className="px-5 py-4">
+                        {p.isTracked ? (
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`${Number(p.branchStock || p.stockLevel) <= Number(p.lowStockThreshold || 0) ? "text-red-600 bg-red-50" : "text-slate-700 bg-slate-100"} px-2 py-0.5 rounded-md font-mono text-[11px] font-bold`}
                             >
-                              <div className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-red-600 hover:bg-red-50 cursor-pointer font-bold transition-all text-xs">
-                                <Trash2 className="w-4 h-4" />
-                                <span>Delete</span>
-                              </div>
-                            </DeleteButton>
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </td>
-                  </tr>
-                );
-              })}
+                              {p.branchStock || p.stockLevel}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-[10px] text-slate-400 font-bold uppercase">
+                            ∞
+                          </span>
+                        )}
+                      </td>
+                      <td className="hidden lg:table-cell px-5 py-4">
+                        {matchedType ? (
+                          <Badge
+                            variant="outline"
+                            className="bg-white text-slate-600 border-slate-200 font-bold text-[10px] uppercase tracking-wider shadow-sm whitespace-nowrap"
+                          >
+                            {matchedType.name}
+                          </Badge>
+                        ) : (
+                          <span className="text-slate-400 text-[10px] font-bold">
+                            {p.taxRate}%
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-5 py-4 text-right">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-900 transition-all active:scale-90"
+                            >
+                              <MoreVertical className="w-4 h-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent
+                            align="end"
+                            className="w-56 bg-white/95 backdrop-blur-xl border-slate-200 rounded-2xl shadow-2xl p-2 z-50"
+                          >
+                            <div className="px-3 py-2 border-b border-slate-100 mb-1">
+                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                                Inventory Management
+                              </p>
+                            </div>
+
+                            {p.isTracked && (
+                              <>
+                                <DropdownMenuItem
+                                  onSelect={(e) => e.preventDefault()}
+                                  className="p-0 rounded-xl mb-1 focus:bg-transparent"
+                                >
+                                  <StockInDialog
+                                    product={p}
+                                    companyId={companyId}
+                                  >
+                                    <div className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-emerald-700 hover:bg-emerald-50 cursor-pointer font-bold transition-all text-xs">
+                                      <PackagePlus className="w-4 h-4" />
+                                      <span>Stock In</span>
+                                    </div>
+                                  </StockInDialog>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onSelect={(e) => e.preventDefault()}
+                                  className="p-0 rounded-xl mb-1 focus:bg-transparent"
+                                >
+                                  <StockAdjustmentDialog
+                                    product={p}
+                                    companyId={companyId}
+                                    branchId={selectedBranchId || undefined}
+                                  >
+                                    <div className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-amber-700 hover:bg-amber-50 cursor-pointer font-bold transition-all text-xs">
+                                      <History className="w-4 h-4" />
+                                      <span>Manual Adjust</span>
+                                    </div>
+                                  </StockAdjustmentDialog>
+                                </DropdownMenuItem>
+                              </>
+                            )}
+
+                            <DropdownMenuItem
+                              onSelect={(e) => e.preventDefault()}
+                              className="p-0 rounded-xl mb-1 focus:bg-transparent"
+                            >
+                              <PriceAdjustmentDialog
+                                product={p}
+                                companyId={companyId}
+                              >
+                                <div className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-indigo-700 hover:bg-indigo-50 cursor-pointer font-bold transition-all text-xs">
+                                  <TrendingUp className="w-4 h-4" />
+                                  <span>Manage Price</span>
+                                </div>
+                              </PriceAdjustmentDialog>
+                            </DropdownMenuItem>
+
+                            <DropdownMenuSeparator className="my-1 bg-slate-100" />
+
+                            <DropdownMenuItem
+                              onSelect={(e) => e.preventDefault()}
+                              className="p-0 rounded-xl mb-1 focus:bg-transparent"
+                            >
+                              <EditProductDialog product={p}>
+                                <div className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-slate-700 hover:bg-slate-50 cursor-pointer font-bold transition-all text-xs">
+                                  <Edit2 className="w-4 h-4" />
+                                  <span>Edit</span>
+                                </div>
+                              </EditProductDialog>
+                            </DropdownMenuItem>
+
+                            <DropdownMenuItem
+                              onSelect={(e) => e.preventDefault()}
+                              className="p-0 rounded-xl focus:bg-transparent"
+                            >
+                              <DeleteButton
+                                title="Delete Product"
+                                description={`Are you sure you want to delete ${p.name}? This will remove it from active inventory.`}
+                                onConfirm={async () => {
+                                  await updateProduct.mutateAsync({
+                                    id: p.id,
+                                    data: { isActive: false },
+                                    companyId,
+                                  });
+                                }}
+                                isDeleting={updateProduct.isPending}
+                              >
+                                <div className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-red-600 hover:bg-red-50 cursor-pointer font-bold transition-all text-xs">
+                                  <Trash2 className="w-4 h-4" />
+                                  <span>Delete</span>
+                                </div>
+                              </DeleteButton>
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
 
           {/* Pagination Controls */}
           <div className="flex flex-col sm:flex-row items-center justify-between px-5 py-4 border-t border-[#E5E7EB] bg-white gap-4">
             <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Items per page</span>
-              <Select 
-                value={itemsPerPage.toString()} 
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+                Items per page
+              </span>
+              <Select
+                value={itemsPerPage.toString()}
                 onValueChange={(v) => {
                   setItemsPerPage(parseInt(v));
                   setCurrentPage(1);
@@ -529,7 +755,9 @@ export default function ProductsPage() {
               </Select>
               {filteredProducts && (
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-2">
-                  Showing {startIndex + 1}–{Math.min(startIndex + itemsPerPage, filteredProducts.length)} of {filteredProducts.length}
+                  Showing {startIndex + 1}–
+                  {Math.min(startIndex + itemsPerPage, filteredProducts.length)}{" "}
+                  of {filteredProducts.length}
                 </span>
               )}
             </div>
@@ -541,7 +769,7 @@ export default function ProductsPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                 disabled={currentPage === 1}
                 className="rounded-xl h-8 text-[10px] font-bold border-slate-200"
               >
@@ -552,7 +780,9 @@ export default function ProductsPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                onClick={() =>
+                  setCurrentPage((p) => Math.min(totalPages, p + 1))
+                }
                 disabled={currentPage >= totalPages}
                 className="rounded-xl h-8 text-[10px] font-bold border-slate-200"
               >

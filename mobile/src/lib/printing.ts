@@ -1,12 +1,11 @@
 import * as Print from 'expo-print';
-import { Platform } from 'react-native';
 
 // Lazy-load native thermal printer to avoid crash on Expo Go / unsupported builds
 let ThermalPrinterModule: any = null;
 try {
   // Use a dynamic require within a try-catch for maximum safety
   const Printer = require('react-native-thermal-printer');
-  ThermalPrinterModule = Printer.default || Printer;
+  ThermalPrinterModule = Printer?.default || Printer || null;
 } catch (e) {
   console.warn("[Printing] Thermal printer module not available:", e);
   // Not available in this build (e.g. Expo Go) — Bluetooth printing will be disabled
@@ -18,9 +17,6 @@ try {
 } catch (e) {
   console.warn("[Printing] Z100 printer module not available", e);
 }
-
-// Well-known internal MAC for many Android POS terminals (Z100, Sunmi, etc.)
-export const INTERNAL_PRINTER_MAC = "00:11:22:33:44:55";
 
 export interface TicketData {
   invoice: any;
@@ -296,31 +292,47 @@ export const printReceipt = async (data: TicketData, printerUrl?: string, silent
 };
 
 import { ReceiptTemplate, ReceiptData } from './printer/receipt-template';
+import type { PrinterConfig } from '../contexts/PrinterContext';
 
-export const printToBluetooth = async (data: TicketData, address?: string) => {
-  if (!ThermalPrinterModule) {
+export const printToBluetooth = async (data: TicketData, address?: string, config?: PrinterConfig) => {
+  if (typeof ThermalPrinterModule?.printBluetooth !== "function") {
     throw new Error("Bluetooth printing is not available in this build. Please use a custom dev client.");
   }
 
   const { invoice, company, items, customer, cashierName, paperWidth, suppressTaxDetails } = data;
+  const configuredPaperWidth = config?.paperWidth || paperWidth || 58;
+  const configuredPrinterWidth = config?.printerWidth || (configuredPaperWidth === 80 ? 42 : 32);
+  const receiptItems = [
+    items,
+    invoice?.items,
+    invoice?.lineItems,
+    invoice?.invoiceItems,
+    invoice?._printItems,
+  ].find((candidate) => Array.isArray(candidate) && candidate.length > 0) || [];
   
   // Use the new unified template for mobile
   const payloadStr = ReceiptTemplate.formatFiscalReceipt({
     company,
     invoice,
-    items: items || invoice.items || [],
+    items: receiptItems,
     customer,
     user: { name: cashierName },
-    paperWidth: paperWidth || 58,
+    paperWidth: configuredPaperWidth,
+    printerWidth: configuredPrinterWidth,
+    feedLines: config?.feedLines,
+    doubleHeightHeader: config?.doubleHeightHeader,
+    receiptShowLogo: config?.receiptShowLogo,
     suppressTaxDetails,
   });
 
   await ThermalPrinterModule.printBluetooth({ 
     payload: payloadStr, 
     macAddress: address,
-    autoCut: true,
-    openCashbox: true,
-    printerWidth: paperWidth || 58
+    autoCut: config?.autoCut !== false,
+    openCashbox: !!config?.openDrawerOnPrint,
+    mmFeedPaper: Math.max(0, Number(config?.feedLines ?? 1)) * 4,
+    printerWidthMM: configuredPaperWidth,
+    printerNbrCharactersPerLine: configuredPrinterWidth,
   });
 };
 
@@ -602,22 +614,14 @@ export const printToZ100 = async (data: TicketData) => {
 };
 
 export const getBluetoothDevices = async (): Promise<{ deviceName: string; macAddress: string }[]> => {
-  if (!ThermalPrinterModule) return [];
+  if (typeof ThermalPrinterModule?.getBluetoothDeviceList !== "function") {
+    console.warn("[Printing] Bluetooth device scanning is not available in this build.");
+    return [];
+  }
+
   try {
     const devices = await ThermalPrinterModule.getBluetoothDeviceList();
-    // Some devices don't return the "Internal Printer" in the scan, so we inject a virtual one if on Android
-    const hasInternal = devices?.some((d: any) => 
-      d.deviceName?.toLowerCase().includes("inner") || 
-      d.deviceName?.toLowerCase().includes("internal") ||
-      d.macAddress === INTERNAL_PRINTER_MAC
-    );
-
-    const result = devices || [];
-    if (!hasInternal && Platform.OS === 'android') {
-      result.push({ deviceName: "Built-in POS Printer", macAddress: INTERNAL_PRINTER_MAC });
-    }
-
-    return result;
+    return Array.isArray(devices) ? devices : [];
   } catch (error) {
     console.error("[Printing] Failed to scan bluetooth devices:", error);
     return [];

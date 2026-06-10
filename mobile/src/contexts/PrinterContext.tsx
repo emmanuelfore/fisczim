@@ -14,6 +14,12 @@ export interface PrinterConfig {
   terminalId: string;
   targetPrinter: string;
   paperWidth: number;
+  printerWidth: number;
+  autoCut: boolean;
+  feedLines: number;
+  openDrawerOnPrint: boolean;
+  doubleHeightHeader: boolean;
+  receiptShowLogo: boolean;
   isInternal?: boolean;
   isZ100?: boolean;
   z100DefaultsApplied?: boolean;
@@ -27,7 +33,13 @@ const DEFAULT_CONFIG: PrinterConfig = {
   silentPrint: false,
   terminalId: "POS-01",
   targetPrinter: "",
-  paperWidth: 58
+  paperWidth: 58,
+  printerWidth: 32,
+  autoCut: true,
+  feedLines: 1,
+  openDrawerOnPrint: false,
+  doubleHeightHeader: true,
+  receiptShowLogo: true,
 };
 
 const Z100_DEFAULT_CONFIG: PrinterConfig = {
@@ -136,8 +148,14 @@ export function PrinterProvider({ children }: { children: ReactNode }) {
         autoPrint: newConfig.isZ100 ? true : (newConfig.enabled ? newConfig.autoPrint : false),
         autoShowModal: newConfig.isZ100 ? false : newConfig.autoShowModal,
         silentPrint: newConfig.isZ100 ? true : (newConfig.enabled ? newConfig.silentPrint : false),
-        isInternal: newConfig.isZ100 ? false : newConfig.isInternal,
+        isInternal: false,
         paperWidth: newConfig.isZ100 ? 58 : newConfig.paperWidth,
+        printerWidth: newConfig.isZ100 ? 32 : (newConfig.printerWidth || (newConfig.paperWidth === 80 ? 42 : 32)),
+        autoCut: newConfig.autoCut !== false,
+        feedLines: Number.isFinite(Number(newConfig.feedLines)) ? Math.max(0, Number(newConfig.feedLines)) : 1,
+        openDrawerOnPrint: !!newConfig.openDrawerOnPrint,
+        doubleHeightHeader: newConfig.doubleHeightHeader !== false,
+        receiptShowLogo: newConfig.receiptShowLogo !== false,
         z100DefaultsApplied: newConfig.z100DefaultsApplied || newConfig.isZ100 || false,
     };
 
@@ -200,11 +218,8 @@ export function PrinterProvider({ children }: { children: ReactNode }) {
       if (activeConfig.isZ100) {
         const { printToZ100 } = await import("../lib/printing");
         await printToZ100(ticketData);
-      } else if (activeConfig.isInternal) {
-        const { INTERNAL_PRINTER_MAC: internalMac } = await import("../lib/printing");
-        await printToBluetooth(ticketData, internalMac);
       } else if (effectiveMac) {
-        await printToBluetooth(ticketData, effectiveMac);
+        await printToBluetooth(ticketData, effectiveMac, activeConfig);
       } else {
         await printStandard(ticketData, activeConfig.targetPrinter, activeConfig.silentPrint);
       }
@@ -287,10 +302,16 @@ export function PrinterProvider({ children }: { children: ReactNode }) {
       lines.push("-- Saved printer settings --");
       lines.push(`enabled=${config.enabled}`);
       lines.push(`isZ100=${!!config.isZ100}`);
-      lines.push(`isInternal=${!!config.isInternal}`);
+      lines.push(`isInternal=false`);
       lines.push(`macAddress=${config.macAddress || "(empty)"}`);
       lines.push(`targetPrinter=${config.targetPrinter || "(empty)"}`);
       lines.push(`paperWidth=${config.paperWidth}`);
+      lines.push(`printerWidth=${config.printerWidth}`);
+      lines.push(`autoCut=${config.autoCut}`);
+      lines.push(`feedLines=${config.feedLines}`);
+      lines.push(`openDrawerOnPrint=${config.openDrawerOnPrint}`);
+      lines.push(`doubleHeightHeader=${config.doubleHeightHeader}`);
+      lines.push(`receiptShowLogo=${config.receiptShowLogo}`);
       lines.push(`autoPrint=${config.autoPrint}`);
       lines.push(`silentPrint=${config.silentPrint}`);
       lines.push(`terminalId=${config.terminalId || "(empty)"}`);

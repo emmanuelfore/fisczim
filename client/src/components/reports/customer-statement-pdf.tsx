@@ -117,7 +117,7 @@ const s = StyleSheet.create({
   colDebit: { flex: 1, textAlign: "right" },
   colCredit: { flex: 1, textAlign: "right" },
   colBalance: { flex: 1.2, textAlign: "right" },
-  
+
   colHeader: {
     fontSize: 7,
     fontWeight: 700,
@@ -134,7 +134,7 @@ const s = StyleSheet.create({
   footerText: {
     fontSize: 8,
     color: "#94a3b8",
-  }
+  },
 });
 
 interface StatementPDFProps {
@@ -171,14 +171,21 @@ export const CustomerStatementPDF = ({
         <View style={s.headerBanner}>
           <View style={s.logoBox}>
             {company?.logoUrl ? (
-              <Image src={company.logoUrl} style={{ width: 100, height: 35, objectFit: "contain" }} />
+              <Image
+                src={company.logoUrl}
+                style={{ width: 100, height: 35, objectFit: "contain" }}
+              />
             ) : (
-              <Text style={{ fontSize: 12, fontWeight: 700 }}>{company?.name}</Text>
+              <Text style={{ fontSize: 12, fontWeight: 700 }}>
+                {company?.name}
+              </Text>
             )}
           </View>
           <View style={s.headerText}>
             <Text style={s.title}>Statement of Account</Text>
-            <Text style={s.meta}>{formatDate(startDate)} - {formatDate(endDate)}</Text>
+            <Text style={s.meta}>
+              {formatDate(startDate)} - {formatDate(endDate)}
+            </Text>
           </View>
         </View>
 
@@ -186,9 +193,13 @@ export const CustomerStatementPDF = ({
           <View style={s.topSection}>
             <View style={s.addressBox}>
               <Text style={s.label}>From</Text>
-              <Text style={s.value}>{company?.tradingName || company?.name}</Text>
+              <Text style={s.value}>
+                {company?.tradingName || company?.name}
+              </Text>
               <Text style={s.meta}>{company?.address}</Text>
-              <Text style={s.meta}>{company?.city}, {company?.country}</Text>
+              <Text style={s.meta}>
+                {company?.city}, {company?.country}
+              </Text>
               <Text style={s.meta}>TIN: {company?.tin}</Text>
             </View>
             <View style={s.addressBox}>
@@ -203,23 +214,37 @@ export const CustomerStatementPDF = ({
           <View style={s.summaryGrid}>
             <View style={s.summaryItem}>
               <Text style={s.summaryLabel}>Opening Balance</Text>
-              <Text style={s.summaryValue}>{currency} {data.openingBalance.toFixed(2)}</Text>
+              <Text style={s.summaryValue}>
+                {currency} {data.openingBalance.toFixed(2)}
+              </Text>
             </View>
             <View style={s.summaryItem}>
               <Text style={s.summaryLabel}>Total Invoiced</Text>
               <Text style={s.summaryValue}>
-                {currency} {data.transactions.reduce((acc, t) => acc + (t.debit || 0), 0).toFixed(2)}
+                {currency}{" "}
+                {data.transactions
+                  .reduce((acc, t) => acc + (t.debit || 0), 0)
+                  .toFixed(2)}
               </Text>
             </View>
             <View style={s.summaryItem}>
               <Text style={s.summaryLabel}>Total Paid</Text>
               <Text style={s.summaryValue}>
-                {currency} {data.transactions.reduce((acc, t) => acc + (t.credit || 0), 0).toFixed(2)}
+                {currency}{" "}
+                {data.transactions
+                  .reduce((acc, t) => acc + (t.credit || 0), 0)
+                  .toFixed(2)}
               </Text>
             </View>
             <View style={s.summaryItem}>
-              <Text style={[s.summaryLabel, { color: "#3b82f6", fontWeight: 700 }]}>Balance Due</Text>
-              <Text style={[s.summaryValue, { color: "#3b82f6" }]}>{currency} {data.closingBalance.toFixed(2)}</Text>
+              <Text
+                style={[s.summaryLabel, { color: "#3b82f6", fontWeight: 700 }]}
+              >
+                Balance Due
+              </Text>
+              <Text style={[s.summaryValue, { color: "#3b82f6" }]}>
+                {currency} {data.closingBalance.toFixed(2)}
+              </Text>
             </View>
           </View>
 
@@ -235,29 +260,53 @@ export const CustomerStatementPDF = ({
 
             {/* Opening Balance Row */}
             <View style={[s.tableRow, { backgroundColor: "#fdfdfd" }]}>
-              <Text style={[s.colDate, { fontSize: 8 }]}>{formatDate(startDate)}</Text>
+              <Text style={[s.colDate, { fontSize: 8 }]}>
+                {formatDate(startDate)}
+              </Text>
               <Text style={[s.colRef, { fontSize: 8 }]}>-</Text>
-              <Text style={[s.colDesc, { fontSize: 8, fontWeight: 700 }]}>Opening Balance</Text>
+              <Text style={[s.colDesc, { fontSize: 8, fontWeight: 700 }]}>
+                Opening Balance
+              </Text>
               <Text style={[s.colDebit, { fontSize: 8 }]}></Text>
               <Text style={[s.colCredit, { fontSize: 8 }]}></Text>
-              <Text style={[s.colBalance, { fontSize: 8, fontWeight: 700 }]}>{data.openingBalance.toFixed(2)}</Text>
+              <Text style={[s.colBalance, { fontSize: 8, fontWeight: 700 }]}>
+                {data.openingBalance.toFixed(2)}
+              </Text>
             </View>
 
             {data.transactions.map((t, i) => (
               <View key={i} style={s.tableRow}>
-                <Text style={[s.colDate, { fontSize: 8 }]}>{formatDate(t.date)}</Text>
+                <Text style={[s.colDate, { fontSize: 8 }]}>
+                  {formatDate(t.date)}
+                </Text>
                 <Text style={[s.colRef, { fontSize: 8 }]}>{t.reference}</Text>
-                <Text style={[s.colDesc, { fontSize: 8 }]}>{t.description}</Text>
-                <Text style={[s.colDebit, { fontSize: 8 }]}>{t.debit > 0 ? t.debit.toFixed(2) : ""}</Text>
-                <Text style={[s.colCredit, { fontSize: 8 }]}>{t.credit > 0 ? t.credit.toFixed(2) : ""}</Text>
-                <Text style={[s.colBalance, { fontSize: 8, fontWeight: 700 }]}>{t.balance.toFixed(2)}</Text>
+                <Text style={[s.colDesc, { fontSize: 8 }]}>
+                  {t.description}
+                </Text>
+                <Text style={[s.colDebit, { fontSize: 8 }]}>
+                  {t.debit > 0 ? t.debit.toFixed(2) : ""}
+                </Text>
+                <Text style={[s.colCredit, { fontSize: 8 }]}>
+                  {t.credit > 0 ? t.credit.toFixed(2) : ""}
+                </Text>
+                <Text style={[s.colBalance, { fontSize: 8, fontWeight: 700 }]}>
+                  {t.balance.toFixed(2)}
+                </Text>
               </View>
             ))}
           </View>
 
           <View style={s.footer}>
-            <Text style={s.footerText}>Thank you for your business. Please contact us if you have any questions regarding this statement.</Text>
-            <Text style={[s.footerText, { marginTop: 4, fontWeight: 700, color: "#0f172a" }]}>
+            <Text style={s.footerText}>
+              Thank you for your business. Please contact us if you have any
+              questions regarding this statement.
+            </Text>
+            <Text
+              style={[
+                s.footerText,
+                { marginTop: 4, fontWeight: 700, color: "#0f172a" },
+              ]}
+            >
               {company?.name}
             </Text>
           </View>

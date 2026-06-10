@@ -232,6 +232,11 @@ function registerIpcHandlers(mainWindow) {
 
   // print-raw — receive raw ESC/POS bytes from renderer and send to printer
   ipcMain.handle('print-raw', async (_event, data, printerName) => {
+    const validationError = validateIpcInput({ printerName });
+    if (validationError) {
+      return Promise.reject(validationError.error);
+    }
+
     const bytes = Buffer.from(data);
 
     if (bytes.length === 0) {
@@ -248,9 +253,11 @@ function registerIpcHandlers(mainWindow) {
       fs.writeFileSync(binPath, bytes);
 
       // Determine the printer name — fall back to the system default via WMI
-      const resolvedPrinter = printerName
-        ? printerName
-        : '$(Get-WmiObject -Query \\"SELECT * FROM Win32_Printer WHERE Default = TRUE\\").Name';
+      const printerLine = printerName
+        ? `$printerName = ${JSON.stringify(printerName)}`
+        : `$printerName = (Get-CimInstance -ClassName Win32_Printer | Where-Object { $_.Default -eq $true } | Select-Object -First 1 -ExpandProperty Name)
+if (-not $printerName) { $printerName = (Get-WmiObject -Query "SELECT * FROM Win32_Printer WHERE Default = TRUE").Name }
+if (-not $printerName) { throw "No default printer is configured." }`;
 
       // Write a proper multi-line .ps1 file — avoids all -Command quoting/newline issues
       const psScript = `
@@ -299,8 +306,8 @@ public class RawPrint {
 }
 '@
 Add-Type -TypeDefinition $code
-$printerName = "${resolvedPrinter}"
-$binFile = "${binPath.replace(/\\/g, '\\\\')}"
+${printerLine}
+$binFile = ${JSON.stringify(binPath)}
 $result = [RawPrint]::Send($printerName, [System.IO.File]::ReadAllBytes($binFile))
 Write-Output $result
 `.trimStart();

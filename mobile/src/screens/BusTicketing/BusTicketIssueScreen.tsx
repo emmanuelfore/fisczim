@@ -10,12 +10,7 @@ import { BusRoute, IssuedTicket } from '../../types/busTicketing';
 import { usePrinter } from '../../hooks/usePrinter';
 import { buildBusTicketPrintData } from '../../lib/busTicketReceipt';
 import { DoneTextInput as TextInput } from '../../ui/DoneTextInput';
-
-const C = {
-  bg: '#07090C', surface: '#111318', border: '#1E2128',
-  amber: '#F0A500', fire: '#FF6B35', white: '#FFFFFF',
-  muted: '#9CA3AF', success: '#22C55E', danger: '#EF4444',
-};
+import { type BusColors, useBusColors } from './theme';
 
 type PaymentMethod = 'Cash' | 'EcoCash' | 'InnBucks' | 'Swipe';
 const PAYMENT_METHODS: PaymentMethod[] = ['Cash', 'EcoCash', 'InnBucks', 'Swipe'];
@@ -24,6 +19,8 @@ interface Props { onClose: () => void; companyId?: number | null; company?: any;
 
 export function BusTicketIssueScreen({ onClose, companyId, company }: Props) {
   const insets = useSafeAreaInsets();
+  const C = useBusColors();
+  const styles = makeStyles(C);
   const { routes, activeConductor, activeTrip, issueTicket, isOnline, syncStatus, pendingTicketCount } = useBusTicketing(companyId);
   const { config: printerConfig, print } = usePrinter();
 
@@ -144,7 +141,7 @@ export function BusTicketIssueScreen({ onClose, companyId, company }: Props) {
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
-      <StatusBar barStyle="light-content" backgroundColor={C.bg} />
+      <StatusBar barStyle={C.statusBarStyle} backgroundColor={C.bg} />
 
       {/* Header */}
       <View style={styles.header}>
@@ -392,7 +389,7 @@ export function BusTicketIssueScreen({ onClose, companyId, company }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (C: BusColors) => StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
@@ -414,7 +411,7 @@ const styles = StyleSheet.create({
   syncTitle: { fontSize: 11, fontWeight: '900', textTransform: 'uppercase' },
   syncSub: { color: C.muted, fontSize: 11, fontWeight: '600', marginTop: 2 },
   conductorBadge: {
-    backgroundColor: 'rgba(240,165,0,0.1)', borderRadius: 10, padding: 10,
+    backgroundColor: C.amberSoft, borderRadius: 10, padding: 10,
     flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 20,
   },
   conductorName: { color: C.amber, fontSize: 13, fontWeight: '700' },

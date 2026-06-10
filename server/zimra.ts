@@ -403,14 +403,18 @@ export class ZimraDevice {
 
     private taxCalculator(saleAmount: number, taxRate: number, isInclusive: boolean = true): number {
         const rate = taxRate / 100;
+        const sign = saleAmount < 0 ? -1 : 1;
+        const absoluteSaleAmount = Math.abs(saleAmount);
+        const roundMoney = (value: number) => sign * (Math.round(value * 100) / 100);
+
         if (isInclusive) {
             // taxAmount = (((SUM(receiptLineTotal)) * taxPercent) / (1+taxPercent))
-            const taxAmount = (saleAmount * rate) / (1 + rate);
-            return Math.round(taxAmount * 100) / 100; // Round to 2 decimals
+            const taxAmount = (absoluteSaleAmount * rate) / (1 + rate);
+            return roundMoney(taxAmount);
         } else {
             // taxAmount = SUM(receiptLineTotal) * taxPercent
-            const taxAmount = saleAmount * rate;
-            return Math.round(taxAmount * 100) / 100;
+            const taxAmount = absoluteSaleAmount * rate;
+            return roundMoney(taxAmount);
         }
     }
 

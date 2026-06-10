@@ -1,4 +1,3 @@
-
 import {
   Document,
   Page,
@@ -139,7 +138,7 @@ const s = StyleSheet.create({
   metaItem: {
     flexDirection: "row",
     gap: 4,
-  }
+  },
 });
 
 interface FiscalReportPDFProps {
@@ -156,14 +155,21 @@ export const FiscalReportPDF = ({
   const dateStr = format(new Date(data.summary.date), "dd MMM yyyy, HH:mm");
 
   return (
-    <Document title={`Fiscal ${type} Report - ${format(new Date(), "yyyy-MM-dd")}`}>
+    <Document
+      title={`Fiscal ${type} Report - ${format(new Date(), "yyyy-MM-dd")}`}
+    >
       <Page size="A4" style={s.page}>
         <View style={s.headerBanner}>
           <View style={s.logoBox}>
             {company?.logoUrl ? (
-              <Image src={company.logoUrl} style={{ width: 100, height: 35, objectFit: "contain" }} />
+              <Image
+                src={company.logoUrl}
+                style={{ width: 100, height: 35, objectFit: "contain" }}
+              />
             ) : (
-              <Text style={{ fontSize: 16, fontWeight: 700 }}>{company?.name}</Text>
+              <Text style={{ fontSize: 16, fontWeight: 700 }}>
+                {company?.name}
+              </Text>
             )}
           </View>
           <View style={s.headerText}>
@@ -176,7 +182,9 @@ export const FiscalReportPDF = ({
           <View style={s.metaSection}>
             <View>
               <Text>Report Generation: {dateStr}</Text>
-              <Text>Fiscal Day Number: {data.summary.fiscalDayNo ?? "---"}</Text>
+              <Text>
+                Fiscal Day Number: {data.summary.fiscalDayNo ?? "---"}
+              </Text>
             </View>
             <View style={{ textAlign: "right" }}>
               <Text>TIN: {company?.tin || "---"}</Text>
@@ -188,15 +196,22 @@ export const FiscalReportPDF = ({
           <View style={s.summaryGrid}>
             <View style={s.summaryCard}>
               <Text style={s.summaryLabel}>Total Sales (Net)</Text>
-              <Text style={s.summaryValue}>${(data.summary.totalRevenue - data.summary.totalTax).toFixed(2)}</Text>
+              <Text style={s.summaryValue}>
+                $
+                {(data.summary.totalRevenue - data.summary.totalTax).toFixed(2)}
+              </Text>
             </View>
             <View style={s.summaryCard}>
               <Text style={s.summaryLabel}>Total Output Tax</Text>
-              <Text style={s.summaryValue}>${data.summary.totalTax.toFixed(2)}</Text>
+              <Text style={s.summaryValue}>
+                ${data.summary.totalTax.toFixed(2)}
+              </Text>
             </View>
             <View style={s.summaryCard}>
               <Text style={s.summaryLabel}>Gross Revenue</Text>
-              <Text style={[s.summaryValue, { color: "#0f172a" }]}>${data.summary.totalRevenue.toFixed(2)}</Text>
+              <Text style={[s.summaryValue, { color: "#0f172a" }]}>
+                ${data.summary.totalRevenue.toFixed(2)}
+              </Text>
             </View>
             <View style={s.summaryCard}>
               <Text style={s.summaryLabel}>Receipt Count</Text>
@@ -215,7 +230,9 @@ export const FiscalReportPDF = ({
             </View>
             {data.currencies.map((c: any, i: number) => (
               <View key={i} style={s.tableRow}>
-                <Text style={s.col}>{c.name} ({c.code})</Text>
+                <Text style={s.col}>
+                  {c.name} ({c.code})
+                </Text>
                 <Text style={s.colRight}>{c.count}</Text>
                 <Text style={s.colRight}>{c.taxAmount.toFixed(2)}</Text>
                 <Text style={[s.colRight, s.bold]}>{c.total.toFixed(2)}</Text>
@@ -234,10 +251,14 @@ export const FiscalReportPDF = ({
             </View>
             {data.taxes.map((t: any, i: number) => (
               <View key={i} style={s.tableRow}>
-                <Text style={s.colWide}>{t.taxName} ({t.taxCode})</Text>
+                <Text style={s.colWide}>
+                  {t.taxName} ({t.taxCode})
+                </Text>
                 <Text style={s.colRight}>{t.taxPercent}%</Text>
                 <Text style={s.colRight}>{t.taxableAmount.toFixed(2)}</Text>
-                <Text style={[s.colRight, s.bold]}>{t.taxAmount.toFixed(2)}</Text>
+                <Text style={[s.colRight, s.bold]}>
+                  {t.taxAmount.toFixed(2)}
+                </Text>
               </View>
             ))}
           </View>
@@ -264,27 +285,35 @@ export const FiscalReportPDF = ({
           <Text style={s.sectionTitle}>Itemized Sales Matrix</Text>
           <View style={s.table}>
             <View style={s.tableHeader}>
-              <Text style={[s.colWide, s.colHeader]}>Product / Description</Text>
+              <Text style={[s.colWide, s.colHeader]}>
+                Product / Description
+              </Text>
               <Text style={[s.col, s.colHeader]}>SKU</Text>
               <Text style={[s.colRight, s.colHeader]}>Qty</Text>
               <Text style={[s.colRight, s.colHeader]}>Total Amount</Text>
             </View>
-            {data.items.sort((a:any, b:any) => b.total - a.total).map((item: any, i: number) => (
-              <View key={i} style={s.tableRow}>
-                <Text style={s.colWide}>{item.name}</Text>
-                <Text style={s.col}>{item.sku || "-"}</Text>
-                <Text style={s.colRight}>{item.quantity}</Text>
-                <Text style={[s.colRight, s.bold]}>${item.total.toFixed(2)}</Text>
-              </View>
-            ))}
+            {data.items
+              .sort((a: any, b: any) => b.total - a.total)
+              .map((item: any, i: number) => (
+                <View key={i} style={s.tableRow}>
+                  <Text style={s.colWide}>{item.name}</Text>
+                  <Text style={s.col}>{item.sku || "-"}</Text>
+                  <Text style={s.colRight}>{item.quantity}</Text>
+                  <Text style={[s.colRight, s.bold]}>
+                    ${item.total.toFixed(2)}
+                  </Text>
+                </View>
+              ))}
           </View>
 
           <View style={s.footer}>
             <Text style={s.footerText}>
-              FISCAL {type} REPORT | Generated by {company?.name} Compliance System | Confidential
+              FISCAL {type} REPORT | Generated by {company?.name} Compliance
+              System | Confidential
             </Text>
             <Text style={[s.footerText, { marginTop: 2 }]}>
-              ZIMRA Electronic Signature and QR Verification included in original receipts.
+              ZIMRA Electronic Signature and QR Verification included in
+              original receipts.
             </Text>
           </View>
         </View>

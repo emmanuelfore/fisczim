@@ -17,18 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useBusTicketing } from '../../hooks/useBusTicketing';
 import { BusVehicle } from '../../types/busTicketing';
 import { DoneTextInput as TextInput } from '../../ui/DoneTextInput';
-
-const C = {
-  bg: '#07090C',
-  surface: '#111318',
-  border: '#1E2128',
-  amber: '#F0A500',
-  fire: '#FF6B35',
-  white: '#FFFFFF',
-  muted: '#9CA3AF',
-  success: '#22C55E',
-  danger: '#EF4444',
-};
+import { type BusColors, useBusColors } from './theme';
 
 function uuid(): string {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -44,6 +33,8 @@ interface Props {
 
 export function BusFleetAdminScreen({ onClose, companyId }: Props) {
   const insets = useSafeAreaInsets();
+  const C = useBusColors();
+  const styles = makeStyles(C);
   const { vehicles, trips, saveVehicle, updateVehicle, deleteVehicle } = useBusTicketing(companyId);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<BusVehicle | null>(null);
@@ -136,7 +127,7 @@ export function BusFleetAdminScreen({ onClose, companyId }: Props) {
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
-      <StatusBar barStyle="light-content" backgroundColor={C.bg} />
+      <StatusBar barStyle={C.statusBarStyle} backgroundColor={C.bg} />
 
       {/* Header */}
       <View style={styles.header}>
@@ -279,7 +270,7 @@ export function BusFleetAdminScreen({ onClose, companyId }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (C: BusColors) => StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
@@ -305,7 +296,7 @@ const styles = StyleSheet.create({
   rowContent: { flexDirection: 'row', alignItems: 'center', padding: 16, gap: 14 },
   iconBox: {
     width: 44, height: 44, borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: C.surfaceAlt,
     alignItems: 'center', justifyContent: 'center',
   },
   regText: { color: C.white, fontSize: 16, fontWeight: '800', marginBottom: 4 },

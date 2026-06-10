@@ -50,19 +50,26 @@ export default function StockTakePage() {
 
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedProducts, setSelectedProducts] = useState<Map<number, StockTakeProduct>>(new Map());
+  const [selectedProducts, setSelectedProducts] = useState<
+    Map<number, StockTakeProduct>
+  >(new Map());
   const [counts, setCounts] = useState<Map<number, number>>(new Map());
   const [isProcessing, setIsProcessing] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const stockTakeProducts = (allProducts || []) as StockTakeProduct[];
-  const trackedProducts = useMemo(() => stockTakeProducts.filter((p) => p.isTracked && !p.isService), [stockTakeProducts]);
+  const trackedProducts = useMemo(
+    () => stockTakeProducts.filter((p) => p.isTracked && !p.isService),
+    [stockTakeProducts],
+  );
 
   const filteredProducts = useMemo(
     () =>
       trackedProducts.filter(
-        (p) => p.name.toLowerCase().includes(searchTerm.toLowerCase()) || p.sku?.toLowerCase().includes(searchTerm.toLowerCase()),
+        (p) =>
+          p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          p.sku?.toLowerCase().includes(searchTerm.toLowerCase()),
       ),
     [trackedProducts, searchTerm],
   );
@@ -70,7 +77,13 @@ export default function StockTakePage() {
   const discrepancyCount = useMemo(
     () =>
       Array.from(counts.entries()).filter(
-        ([id, cnt]) => cnt !== Number(selectedProducts.get(id)?.branchStock || selectedProducts.get(id)?.stockLevel || 0),
+        ([id, cnt]) =>
+          cnt !==
+          Number(
+            selectedProducts.get(id)?.branchStock ||
+              selectedProducts.get(id)?.stockLevel ||
+              0,
+          ),
       ).length,
     [counts, selectedProducts],
   );
@@ -106,7 +119,9 @@ export default function StockTakePage() {
     }
 
     const newCounts = new Map<number, number>();
-    selectedProducts.forEach((p) => newCounts.set(p.id, Number(p.branchStock || p.stockLevel || 0)));
+    selectedProducts.forEach((p) =>
+      newCounts.set(p.id, Number(p.branchStock || p.stockLevel || 0)),
+    );
     setCounts(newCounts);
     setStep(2);
   };
@@ -131,7 +146,10 @@ export default function StockTakePage() {
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Stock Take");
-    XLSX.writeFile(wb, `Stock-Take-${new Date().toISOString().split("T")[0]}.xlsx`);
+    XLSX.writeFile(
+      wb,
+      `Stock-Take-${new Date().toISOString().split("T")[0]}.xlsx`,
+    );
   };
 
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -182,7 +200,10 @@ export default function StockTakePage() {
     });
   }, [selectedProducts, counts]);
 
-  const totalVarianceValue = useMemo(() => varianceData.reduce((sum, item) => sum + item.varianceValue, 0), [varianceData]);
+  const totalVarianceValue = useMemo(
+    () => varianceData.reduce((sum, item) => sum + item.varianceValue, 0),
+    [varianceData],
+  );
 
   const handleCommit = async () => {
     setIsProcessing(true);
@@ -225,7 +246,11 @@ export default function StockTakePage() {
             <Button
               variant="outline"
               className="rounded-xl"
-              onClick={() => (step > 1 ? setStep((step - 1) as 1 | 2 | 3) : setLocation("/inventory/adjustments"))}
+              onClick={() =>
+                step > 1
+                  ? setStep((step - 1) as 1 | 2 | 3)
+                  : setLocation("/inventory/adjustments")
+              }
             >
               <ChevronLeft className="w-4 h-4 mr-2" />
               Back
@@ -242,7 +267,9 @@ export default function StockTakePage() {
                   onClick={() => setStep(m.s as 1 | 2 | 3)}
                   className={cn(
                     "px-4 h-8 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all",
-                    step === m.s ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700",
+                    step === m.s
+                      ? "bg-white text-slate-900 shadow-sm"
+                      : "text-slate-500 hover:text-slate-700",
                   )}
                 >
                   {m.label}
@@ -267,10 +294,18 @@ export default function StockTakePage() {
                 />
               </div>
               <div className="flex gap-2">
-                <Button variant="outline" className="rounded-xl" onClick={addAll}>
+                <Button
+                  variant="outline"
+                  className="rounded-xl"
+                  onClick={addAll}
+                >
                   Select All
                 </Button>
-                <Button variant="ghost" className="rounded-xl" onClick={clearAll}>
+                <Button
+                  variant="ghost"
+                  className="rounded-xl"
+                  onClick={clearAll}
+                >
                   Clear
                 </Button>
               </div>
@@ -298,17 +333,27 @@ export default function StockTakePage() {
                         onClick={() => toggleProduct(p)}
                         className={cn(
                           "text-left p-4 rounded-xl border transition-colors bg-white hover:bg-slate-50",
-                          isSelected ? "border-violet-500 ring-1 ring-violet-200" : "border-slate-200",
+                          isSelected
+                            ? "border-violet-500 ring-1 ring-violet-200"
+                            : "border-slate-200",
                         )}
                       >
                         <div className="flex items-start justify-between gap-2 mb-2">
                           <div className="min-w-0">
-                            <p className="font-bold text-sm text-slate-900 truncate">{p.name}</p>
-                            <p className="text-[10px] text-slate-400 font-mono truncate">{p.sku || "N/A"}</p>
+                            <p className="font-bold  text-slate-900 truncate">
+                              {p.name}
+                            </p>
+                            <p className="text-[10px] text-slate-400 font-mono truncate">
+                              {p.sku || "N/A"}
+                            </p>
                           </div>
-                          {isSelected ? <CheckCircle2 className="w-4 h-4 text-violet-600 shrink-0" /> : null}
+                          {isSelected ? (
+                            <CheckCircle2 className="w-4 h-4 text-violet-600 shrink-0" />
+                          ) : null}
                         </div>
-                        <p className="font-mono font-bold text-slate-700 text-sm">{p.branchStock || p.stockLevel || 0}</p>
+                        <p className="font-mono font-bold text-slate-700 ">
+                          {p.branchStock || p.stockLevel || 0}
+                        </p>
                       </button>
                     );
                   })}
@@ -317,7 +362,9 @@ export default function StockTakePage() {
             </ScrollArea>
 
             <div className="flex flex-col sm:flex-row items-center justify-between px-6 py-4 border-t border-slate-100 bg-slate-50/30 gap-4">
-              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Selected {selectedProducts.size} items</div>
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                Selected {selectedProducts.size} items
+              </div>
               <Button className="rounded-xl" onClick={handleNextToCount}>
                 Proceed to Counting
               </Button>
@@ -331,19 +378,36 @@ export default function StockTakePage() {
           <CardContent className="p-0 h-full flex flex-col">
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 p-6 border-b border-slate-100 bg-slate-50/30">
               <div>
-                <h3 className="text-lg font-black text-slate-900">Count Stock</h3>
-                <p className="text-sm text-muted-foreground">Enter physical counts for selected products.</p>
+                <h3 className="text-lg font-black text-slate-900">
+                  Count Stock
+                </h3>
+                <p className=" text-muted-foreground">
+                  Enter physical counts for selected products.
+                </p>
               </div>
               <div className="flex gap-2">
-                <Button variant="outline" className="rounded-xl" onClick={exportSheet}>
+                <Button
+                  variant="outline"
+                  className="rounded-xl"
+                  onClick={exportSheet}
+                >
                   <Download className="w-4 h-4 mr-2" />
                   Export
                 </Button>
-                <Button className="rounded-xl" onClick={() => fileInputRef.current?.click()}>
+                <Button
+                  className="rounded-xl"
+                  onClick={() => fileInputRef.current?.click()}
+                >
                   <Upload className="w-4 h-4 mr-2" />
                   Import
                 </Button>
-                <input type="file" ref={fileInputRef} onChange={handleImport} accept=".csv,.xlsx,.xls" className="hidden" />
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleImport}
+                  accept=".csv,.xlsx,.xls"
+                  className="hidden"
+                />
               </div>
             </div>
 
@@ -351,11 +415,21 @@ export default function StockTakePage() {
               <table className="w-full text-left">
                 <thead>
                   <tr className="bg-slate-50/80 border-b border-slate-100">
-                    <th className="p-4 font-black text-slate-400 uppercase tracking-widest text-[10px] w-14 text-center">#</th>
-                    <th className="p-4 font-black text-slate-400 uppercase tracking-widest text-[10px]">Product</th>
-                    <th className="p-4 font-black text-slate-400 uppercase tracking-widest text-[10px] text-center">Expected</th>
-                    <th className="p-4 font-black text-slate-400 uppercase tracking-widest text-[10px] text-center">Counted</th>
-                    <th className="p-4 font-black text-slate-400 uppercase tracking-widest text-[10px] text-right">Variance</th>
+                    <th className="p-4 font-black text-slate-400 uppercase tracking-widest text-[10px] w-14 text-center">
+                      #
+                    </th>
+                    <th className="p-4 font-black text-slate-400 uppercase tracking-widest text-[10px]">
+                      Product
+                    </th>
+                    <th className="p-4 font-black text-slate-400 uppercase tracking-widest text-[10px] text-center">
+                      Expected
+                    </th>
+                    <th className="p-4 font-black text-slate-400 uppercase tracking-widest text-[10px] text-center">
+                      Counted
+                    </th>
+                    <th className="p-4 font-black text-slate-400 uppercase tracking-widest text-[10px] text-right">
+                      Variance
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -365,16 +439,28 @@ export default function StockTakePage() {
                     const variance = counted - expected;
 
                     return (
-                      <tr key={p.id} className="group border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
-                        <td className="p-4 text-center text-[10px] font-bold text-slate-400">{idx + 1}</td>
+                      <tr
+                        key={p.id}
+                        className="group border-b border-slate-50 hover:bg-slate-50/50 transition-colors"
+                      >
+                        <td className="p-4 text-center text-[10px] font-bold text-slate-400">
+                          {idx + 1}
+                        </td>
                         <td className="p-4">
                           <div className="flex flex-col min-w-0">
-                            <span className="font-bold text-sm text-slate-900 truncate">{p.name}</span>
-                            <span className="text-[10px] text-slate-400 font-mono truncate">{p.sku || "N/A"}</span>
+                            <span className="font-bold  text-slate-900 truncate">
+                              {p.name}
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-mono truncate">
+                              {p.sku || "N/A"}
+                            </span>
                           </div>
                         </td>
                         <td className="p-4 text-center">
-                          <Badge variant="outline" className="font-mono text-xs text-slate-600">
+                          <Badge
+                            variant="outline"
+                            className="font-mono text-xs text-slate-600"
+                          >
                             {expected}
                           </Badge>
                         </td>
@@ -388,12 +474,16 @@ export default function StockTakePage() {
                         </td>
                         <td className="p-4 text-right">
                           {variance === 0 ? (
-                            <span className="text-[10px] font-bold text-slate-300 uppercase tracking-widest">Matched</span>
+                            <span className="text-[10px] font-bold text-slate-300 uppercase tracking-widest">
+                              Matched
+                            </span>
                           ) : (
                             <Badge
                               className={cn(
                                 "font-mono text-xs",
-                                variance > 0 ? "bg-emerald-50 text-emerald-700 border-emerald-100" : "bg-rose-50 text-rose-700 border-rose-100",
+                                variance > 0
+                                  ? "bg-emerald-50 text-emerald-700 border-emerald-100"
+                                  : "bg-rose-50 text-rose-700 border-rose-100",
                               )}
                             >
                               {variance > 0 ? "+" : ""}
@@ -410,7 +500,8 @@ export default function StockTakePage() {
 
             <div className="flex flex-col sm:flex-row items-center justify-between px-6 py-4 border-t border-slate-100 bg-slate-50/30 gap-4">
               <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                Audited {selectedProducts.size} | Discrepancies {discrepancyCount}
+                Audited {selectedProducts.size} | Discrepancies{" "}
+                {discrepancyCount}
               </div>
               <Button className="rounded-xl" onClick={() => setStep(3)}>
                 Review Variances
@@ -425,25 +516,40 @@ export default function StockTakePage() {
           <Card className="lg:col-span-8 border-none shadow-xl shadow-slate-200/50 bg-white/80 backdrop-blur-sm rounded-[2rem] overflow-hidden ring-1 ring-slate-100 h-[calc(100vh-220px)] flex flex-col">
             <CardContent className="p-0 h-full flex flex-col">
               <div className="p-6 border-b border-slate-100 bg-slate-50/30">
-                <h3 className="text-lg font-black text-slate-900">Variance Review</h3>
-                <p className="text-sm text-muted-foreground">Confirm variance impact before committing corrections.</p>
+                <h3 className="text-lg font-black text-slate-900">
+                  Variance Review
+                </h3>
+                <p className=" text-muted-foreground">
+                  Confirm variance impact before committing corrections.
+                </p>
               </div>
 
               <ScrollArea className="flex-1">
                 <table className="w-full text-left">
                   <thead>
                     <tr className="bg-slate-50/80 border-b border-slate-100">
-                      <th className="p-4 font-black text-slate-400 uppercase tracking-widest text-[10px]">Product</th>
-                      <th className="p-4 font-black text-slate-400 uppercase tracking-widest text-[10px] text-center">Variance</th>
-                      <th className="p-4 font-black text-slate-400 uppercase tracking-widest text-[10px] text-right">Value Impact</th>
+                      <th className="p-4 font-black text-slate-400 uppercase tracking-widest text-[10px]">
+                        Product
+                      </th>
+                      <th className="p-4 font-black text-slate-400 uppercase tracking-widest text-[10px] text-center">
+                        Variance
+                      </th>
+                      <th className="p-4 font-black text-slate-400 uppercase tracking-widest text-[10px] text-right">
+                        Value Impact
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
                     {varianceData.map((item) => (
-                      <tr key={item.id} className="group border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
+                      <tr
+                        key={item.id}
+                        className="group border-b border-slate-50 hover:bg-slate-50/50 transition-colors"
+                      >
                         <td className="p-4">
                           <div className="flex flex-col min-w-0">
-                            <span className="font-bold text-sm text-slate-900 truncate">{item.name}</span>
+                            <span className="font-bold  text-slate-900 truncate">
+                              {item.name}
+                            </span>
                             <span className="text-[10px] text-slate-400 truncate">
                               Expected {item.expected} | Counted {item.counted}
                             </span>
@@ -464,9 +570,17 @@ export default function StockTakePage() {
                             {item.variance.toFixed(2)}
                           </Badge>
                         </td>
-                        <td className="p-4 text-right font-mono font-bold text-sm text-slate-800">
-                          {item.varianceValue < 0 ? "-" : item.varianceValue > 0 ? "+" : ""}$
-                          {Math.abs(item.varianceValue).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        <td className="p-4 text-right font-mono font-bold  text-slate-800">
+                          {item.varianceValue < 0
+                            ? "-"
+                            : item.varianceValue > 0
+                              ? "+"
+                              : ""}
+                          $
+                          {Math.abs(item.varianceValue).toLocaleString(
+                            undefined,
+                            { minimumFractionDigits: 2 },
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -497,10 +611,19 @@ export default function StockTakePage() {
                     <TrendingDown className="w-7 h-7 text-rose-600" />
                   )}
                 </div>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2">Total Impact</p>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2">
+                  Total Impact
+                </p>
                 <h3 className="text-3xl font-black tracking-tight text-slate-900">
-                  {totalVarianceValue < 0 ? "-" : totalVarianceValue > 0 ? "+" : ""}$
-                  {Math.abs(totalVarianceValue).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  {totalVarianceValue < 0
+                    ? "-"
+                    : totalVarianceValue > 0
+                      ? "+"
+                      : ""}
+                  $
+                  {Math.abs(totalVarianceValue).toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                  })}
                 </h3>
               </CardContent>
             </Card>
@@ -512,20 +635,36 @@ export default function StockTakePage() {
                     <ArrowRightLeft className="w-5 h-5 text-slate-600" />
                   </div>
                   <div>
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Corrections</p>
-                    <p className="font-black text-slate-900">{varianceData.filter((v) => v.variance !== 0).length} Items</p>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                      Corrections
+                    </p>
+                    <p className="font-black text-slate-900">
+                      {varianceData.filter((v) => v.variance !== 0).length}{" "}
+                      Items
+                    </p>
                   </div>
                 </div>
 
                 <Button
                   className="w-full rounded-xl"
-                  disabled={isProcessing || varianceData.filter((v) => v.variance !== 0).length === 0}
+                  disabled={
+                    isProcessing ||
+                    varianceData.filter((v) => v.variance !== 0).length === 0
+                  }
                   onClick={handleCommit}
                 >
-                  {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : "Commit Reconciliation"}
+                  {isProcessing ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    "Commit Reconciliation"
+                  )}
                 </Button>
 
-                <Button variant="ghost" className="w-full rounded-xl" onClick={() => setStep(2)}>
+                <Button
+                  variant="ghost"
+                  className="w-full rounded-xl"
+                  onClick={() => setStep(2)}
+                >
                   Back to Counting
                 </Button>
               </CardContent>

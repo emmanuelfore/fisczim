@@ -9,12 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useBusTicketing } from '../../hooks/useBusTicketing';
 import { Conductor } from '../../types/busTicketing';
 import { apiFetch, apiJson } from '../../lib/api';
-
-const C = {
-  bg: '#07090C', surface: '#111318', border: '#1E2128',
-  amber: '#F0A500', fire: '#FF6B35', white: '#FFFFFF',
-  muted: '#9CA3AF', success: '#22C55E', danger: '#EF4444',
-};
+import { type BusColors, useBusColors } from './theme';
 
 interface Props {
   onClose: () => void;
@@ -29,6 +24,8 @@ type CashierConductor = Conductor & {
 
 export function ConductorManagementScreen({ onClose, companyId }: Props) {
   const insets = useSafeAreaInsets();
+  const C = useBusColors();
+  const styles = makeStyles(C);
   const { conductors, saveConductor, setActiveConductor, activeConductor } = useBusTicketing(companyId);
   const [cashiers, setCashiers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -168,7 +165,7 @@ export function ConductorManagementScreen({ onClose, companyId }: Props) {
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
-      <StatusBar barStyle="light-content" backgroundColor={C.bg} />
+      <StatusBar barStyle={C.statusBarStyle} backgroundColor={C.bg} />
       <View style={styles.header}>
         <TouchableOpacity onPress={onClose} style={styles.backBtn}>
           <MaterialCommunityIcons name="arrow-left" size={22} color={C.white} />
@@ -289,7 +286,7 @@ export function ConductorManagementScreen({ onClose, companyId }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (C: BusColors) => StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
@@ -321,7 +318,7 @@ const styles = StyleSheet.create({
   phone: { color: C.muted, fontSize: 12, marginTop: 2 },
   meta: { color: C.muted, fontSize: 11, marginTop: 2 },
   activeBadge: {
-    marginTop: 6, backgroundColor: 'rgba(240,165,0,0.15)',
+    marginTop: 6, backgroundColor: C.amberSoft,
     borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, alignSelf: 'flex-start',
   },
   activeBadgeText: { color: C.amber, fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },

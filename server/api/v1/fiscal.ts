@@ -2,6 +2,7 @@ import { Router } from "express";
 import { storage } from "../../storage.js";
 import { ZimraDevice, ZimraApiError, getZimraBaseUrl } from "../../zimra.js";
 import { getZimraLogger } from "../../lib/fiscalization.js";
+import { assertFiscalDayClosePreflight, ZimraPreflightError } from "../../lib/zimra-preflight.js";
 
 const router = Router();
 
@@ -158,7 +159,8 @@ router.post("/close-day", async (req, res) => {
     
     // Attempt closing without the complex retry logic here for simplicity,
     // or simulate the basic structure of a single pass
-    const receiptCount = company.dailyReceiptCount || 0;
+    const closePreflight = await assertFiscalDayClosePreflight(company.id, fiscalDayNo);
+    const receiptCount = closePreflight.dayInvoices.reduce((max, inv) => Math.max(max, inv.receiptCounter || 0), 0);
     
     // Identify opening date
     const formatHarareDateOnly = (date: Date) => {
@@ -175,7 +177,7 @@ router.post("/close-day", async (req, res) => {
       fiscalDayDate = formatHarareDateOnly(new Date(company.fiscalDayOpenedAt));
     }
 
-    const counters = await storage.calculateFiscalCounters(company.id, fiscalDayNo);
+    const counters = closePreflight.counters;
 
     let response: any;
     try {
@@ -228,6 +230,14 @@ router.post("/close-day", async (req, res) => {
         error: "ZIMRA_API_ERROR",
         message: err.message,
         details: err.details,
+      });
+    }
+    if (err instanceof ZimraPreflightError) {
+      return res.status(400).json({
+        error: "ZIMRA_PREFLIGHT_ERROR",
+        message: err.message,
+        issues: err.issues,
+        recovery: "Fix the listed local receipt/day issues, then retry closing the fiscal day.",
       });
     }
     return res.status(500).json({

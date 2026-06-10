@@ -8,12 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useBusTicketing } from '../../hooks/useBusTicketing';
 import { getDailySummary } from '../../hooks/useBusReports';
 import { ReconciliationRecord } from '../../types/busTicketing';
-
-const C = {
-  bg: '#07090C', surface: '#111318', border: '#1E2128',
-  amber: '#F0A500', fire: '#FF6B35', white: '#FFFFFF',
-  muted: '#9CA3AF', success: '#22C55E', danger: '#EF4444',
-};
+import { type BusColors, useBusColors } from './theme';
 
 function uuid(): string {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -31,6 +26,8 @@ interface Props {
 
 export function ReconciliationScreen({ onClose, companyId, userRole = 'member', userName = 'Admin' }: Props) {
   const insets = useSafeAreaInsets();
+  const C = useBusColors();
+  const styles = makeStyles(C);
   const cashInputAccessoryId = 'reconciliation-cash-actions';
   const {
     tickets: allTickets,
@@ -149,7 +146,7 @@ export function ReconciliationScreen({ onClose, companyId, userRole = 'member', 
       keyboardVerticalOffset={insets.top}
     >
     <View style={{ flex: 1, paddingTop: insets.top }}>
-      <StatusBar barStyle="light-content" backgroundColor={C.bg} />
+      <StatusBar barStyle={C.statusBarStyle} backgroundColor={C.bg} />
       <View style={styles.header}>
         <TouchableOpacity onPress={onClose} style={styles.backBtn}>
           <MaterialCommunityIcons name="arrow-left" size={22} color={C.white} />
@@ -324,7 +321,7 @@ export function ReconciliationScreen({ onClose, companyId, userRole = 'member', 
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (C: BusColors) => StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
@@ -365,9 +362,9 @@ const styles = StyleSheet.create({
   },
   signBtnText: { fontSize: 13, fontWeight: '900' },
   expectedCard: {
-    backgroundColor: 'rgba(240,165,0,0.1)', borderRadius: 12,
+    backgroundColor: C.amberSoft, borderRadius: 12,
     padding: 20, alignItems: 'center', marginBottom: 24,
-    borderWidth: 1, borderColor: 'rgba(240,165,0,0.3)',
+    borderWidth: 1, borderColor: C.amber,
   },
   expectedLabel: { color: C.muted, fontSize: 11, fontWeight: '800', letterSpacing: 1, textTransform: 'uppercase' },
   expectedAmount: { color: C.amber, fontSize: 36, fontWeight: '900', marginTop: 6 },

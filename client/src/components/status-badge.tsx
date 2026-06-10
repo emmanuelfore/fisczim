@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 export function StatusBadge({
   status,
   className,
-  children
+  children,
 }: {
   status: string;
   className?: string;
@@ -28,14 +28,14 @@ export function StatusBadge({
   const style = styles[status.toLowerCase()] || styles.draft;
 
   return (
-    <span className={
-      cn(
+    <span
+      className={cn(
         "inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase leading-none tracking-[0.04em]",
         style,
-        className
-      )
-    } >
+        className,
+      )}
+    >
       {children || status}
-    </span >
+    </span>
   );
 }

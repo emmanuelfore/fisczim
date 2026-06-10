@@ -148,7 +148,7 @@ const s = StyleSheet.create({
   colPrice: { flex: 1.2, textAlign: "right" },
   colTax: { flex: 1.2, textAlign: "right" },
   colTotal: { flex: 1.3, textAlign: "right" },
-  
+
   summarySection: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -260,7 +260,10 @@ export const PaymentReceiptPDF = ({
   const currentPaymentDate = getSafeDate(payment.paymentDate).getTime();
   const paidUntilNow = (allPayments || []).reduce((sum, p) => {
     const pDate = getSafeDate(p.paymentDate).getTime();
-    if (pDate < currentPaymentDate || (pDate === currentPaymentDate && p.id <= payment.id)) {
+    if (
+      pDate < currentPaymentDate ||
+      (pDate === currentPaymentDate && p.id <= payment.id)
+    ) {
       return sum + Number(p.amount || 0);
     }
     return sum;
@@ -273,88 +276,145 @@ export const PaymentReceiptPDF = ({
   const taxRegistered = company?.vatRegistered || false;
 
   // Calculate Tax Summary if invoice and items are available
-  const taxSummary = invoice?.items?.reduce((acc: any, item: any) => {
-    const taxRate = taxRegistered ? Number(item.taxRate || 0) : 0;
-    const lineTotal = Number(item.lineTotal);
-    let netAmount = 0;
-    let taxAmount = 0;
+  const taxSummary =
+    invoice?.items?.reduce(
+      (acc: any, item: any) => {
+        const taxRate = taxRegistered ? Number(item.taxRate || 0) : 0;
+        const lineTotal = Number(item.lineTotal);
+        let netAmount = 0;
+        let taxAmount = 0;
 
-    if (invoice.taxInclusive) {
-      netAmount = lineTotal / (1 + taxRate / 100);
-      taxAmount = lineTotal - netAmount;
-    } else {
-      const qty = Number(item.quantity);
-      const unitPrice = Number(item.unitPrice);
-      netAmount = qty * unitPrice;
-      taxAmount = netAmount * (taxRate / 100);
-    }
+        if (invoice.taxInclusive) {
+          netAmount = lineTotal / (1 + taxRate / 100);
+          taxAmount = lineTotal - netAmount;
+        } else {
+          const qty = Number(item.quantity);
+          const unitPrice = Number(item.unitPrice);
+          netAmount = qty * unitPrice;
+          taxAmount = netAmount * (taxRate / 100);
+        }
 
-    const key = `${taxRate}`;
-    if (!acc[key]) {
-      acc[key] = { taxRate, netAmount: 0, taxAmount: 0 };
-    }
-    acc[key].netAmount += netAmount;
-    acc[key].taxAmount += taxAmount;
-    return acc;
-  }, {} as Record<string, any>) || {};
+        const key = `${taxRate}`;
+        if (!acc[key]) {
+          acc[key] = { taxRate, netAmount: 0, taxAmount: 0 };
+        }
+        acc[key].netAmount += netAmount;
+        acc[key].taxAmount += taxAmount;
+        return acc;
+      },
+      {} as Record<string, any>,
+    ) || {};
 
   return (
     <Document>
       <Page size="A4" style={s.page}>
         <View style={s.headerBanner}>
           <View style={s.logoBox}>
-            {company?.logoUrl && (company.logoUrl.startsWith('http') || company.logoUrl.startsWith('/')) ? (
-              <Image src={company.logoUrl} style={{ width: 100, height: 30, objectFit: "contain" }} />
+            {company?.logoUrl &&
+            (company.logoUrl.startsWith("http") ||
+              company.logoUrl.startsWith("/")) ? (
+              <Image
+                src={company.logoUrl}
+                style={{ width: 100, height: 30, objectFit: "contain" }}
+              />
             ) : (
-              <Text style={{ fontSize: 10, fontWeight: 700, color: "#0f172a", textTransform: "uppercase" }}>{company?.name?.substring(0, 15)}</Text>
+              <Text
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  color: "#0f172a",
+                  textTransform: "uppercase",
+                }}
+              >
+                {company?.name?.substring(0, 15)}
+              </Text>
             )}
           </View>
           <View style={s.headerText}>
-            <Text style={{ fontSize: 12, fontWeight: 700 }}>PAYMENT RECEIPT</Text>
-            <Text style={{ fontSize: 8, opacity: 0.8 }}>#{payment.reference || "REC-NEW"}</Text>
+            <Text style={{ fontSize: 12, fontWeight: 700 }}>
+              PAYMENT RECEIPT
+            </Text>
+            <Text style={{ fontSize: 8, opacity: 0.8 }}>
+              #{payment.reference || "REC-NEW"}
+            </Text>
           </View>
         </View>
 
         <View style={s.content}>
           <View style={s.topSection}>
             <View style={s.companyInfo}>
-              <Text style={s.companyName}>{company?.tradingName || company?.name}</Text>
-              {company?.address ? <Text style={s.companyMeta}>{company.address}</Text> : null}
-              <Text style={s.companyMeta}>{company?.city || "Harare"}, {company?.country || "Zimbabwe"}</Text>
+              <Text style={s.companyName}>
+                {company?.tradingName || company?.name}
+              </Text>
+              {company?.address ? (
+                <Text style={s.companyMeta}>{company.address}</Text>
+              ) : null}
+              <Text style={s.companyMeta}>
+                {company?.city || "Harare"}, {company?.country || "Zimbabwe"}
+              </Text>
               <View style={{ flexDirection: "row", gap: 10, marginTop: 4 }}>
-                {company?.tin ? <Text style={[s.companyMeta, { fontWeight: 700 }]}>TIN: {company.tin}</Text> : null}
-                {company?.vatNumber ? <Text style={[s.companyMeta, { fontWeight: 700 }]}>VAT: {company.vatNumber}</Text> : null}
+                {company?.tin ? (
+                  <Text style={[s.companyMeta, { fontWeight: 700 }]}>
+                    TIN: {company.tin}
+                  </Text>
+                ) : null}
+                {company?.vatNumber ? (
+                  <Text style={[s.companyMeta, { fontWeight: 700 }]}>
+                    VAT: {company.vatNumber}
+                  </Text>
+                ) : null}
               </View>
             </View>
             <View>
               <Text style={s.receiptLabel}>Receipt</Text>
-              <Text style={[s.receiptNo, { fontSize: 12, color: "#1e293b", marginBottom: 2 }]}>Receipt No: {payment.reference || "N/A"}</Text>
+              <Text
+                style={[
+                  s.receiptNo,
+                  { fontSize: 12, color: "#1e293b", marginBottom: 2 },
+                ]}
+              >
+                Receipt No: {payment.reference || "N/A"}
+              </Text>
               <Text style={s.receiptNo}>Date: {date}</Text>
             </View>
           </View>
- 
+
           <View style={s.infoGrid}>
             <View style={s.infoCol}>
               <Text style={s.infoColLabel}>Received From</Text>
-              <Text style={s.infoColValue}>{payment.customerName || "Walk-in Customer"}</Text>
-              {payment.customerEmail ? <Text style={[s.companyMeta, { marginTop: 2 }]}>{payment.customerEmail}</Text> : null}
+              <Text style={s.infoColValue}>
+                {payment.customerName || "Walk-in Customer"}
+              </Text>
+              {payment.customerEmail ? (
+                <Text style={[s.companyMeta, { marginTop: 2 }]}>
+                  {payment.customerEmail}
+                </Text>
+              ) : null}
             </View>
             <View style={s.infoCol}>
               <Text style={s.infoColLabel}>Payment Method</Text>
-              <Text style={s.infoColValue}>{payment.paymentMethod || "Other"}</Text>
+              <Text style={s.infoColValue}>
+                {payment.paymentMethod || "Other"}
+              </Text>
             </View>
             <View style={s.infoCol}>
               <Text style={s.infoColLabel}>Invoice Reference</Text>
-              <Text style={[s.infoColValue, { fontWeight: 700 }]}>{payment.invoiceNumber || "N/A"}</Text>
+              <Text style={[s.infoColValue, { fontWeight: 700 }]}>
+                {payment.invoiceNumber || "N/A"}
+              </Text>
             </View>
           </View>
 
           <View style={s.heroBox}>
             <View>
               <Text style={s.amountHeroLabel}>Amount Paid</Text>
-              <Text style={{ color: "#ffffff", fontSize: 12, opacity: 0.8 }}>Currency: {currency}</Text>
+              <Text style={{ color: "#ffffff", fontSize: 12, opacity: 0.8 }}>
+                Currency: {currency}
+              </Text>
             </View>
-            <Text style={s.amountHeroValue}>{currency} {Number(payment.amount || 0).toFixed(2)}</Text>
+            <Text style={s.amountHeroValue}>
+              {currency} {Number(payment.amount || 0).toFixed(2)}
+            </Text>
           </View>
 
           {invoice?.items && invoice.items.length > 0 ? (
@@ -371,22 +431,46 @@ export const PaymentReceiptPDF = ({
                 const lineTotal = Number(item.lineTotal || 0);
                 let lineTax = 0;
                 if (invoice.taxInclusive) {
-                  lineTax = lineTotal - (lineTotal / (1 + taxRate / 100));
+                  lineTax = lineTotal - lineTotal / (1 + taxRate / 100);
                 } else {
-                  lineTax = (Number(item.quantity || 0) * Number(item.unitPrice || 0)) * (taxRate / 100);
+                  lineTax =
+                    Number(item.quantity || 0) *
+                    Number(item.unitPrice || 0) *
+                    (taxRate / 100);
                 }
                 return (
                   <View key={i} style={s.tableRow}>
-                    <Text style={[s.colDesc, { fontSize: 8 }]}>{item.description || "Item"}</Text>
-                    <Text style={[s.colQty, { fontSize: 8 }]}>{item.quantity || 0}</Text>
-                    <Text style={[s.colPrice, { fontSize: 8 }]}>{Number(item.unitPrice || 0).toFixed(2)}</Text>
-                    <Text style={[s.colTax, { fontSize: 8 }]}>{lineTax.toFixed(2)}</Text>
-                    <Text style={[s.colTotal, { fontSize: 8, fontWeight: 700 }]}>{lineTotal.toFixed(2)}</Text>
+                    <Text style={[s.colDesc, { fontSize: 8 }]}>
+                      {item.description || "Item"}
+                    </Text>
+                    <Text style={[s.colQty, { fontSize: 8 }]}>
+                      {item.quantity || 0}
+                    </Text>
+                    <Text style={[s.colPrice, { fontSize: 8 }]}>
+                      {Number(item.unitPrice || 0).toFixed(2)}
+                    </Text>
+                    <Text style={[s.colTax, { fontSize: 8 }]}>
+                      {lineTax.toFixed(2)}
+                    </Text>
+                    <Text
+                      style={[s.colTotal, { fontSize: 8, fontWeight: 700 }]}
+                    >
+                      {lineTotal.toFixed(2)}
+                    </Text>
                   </View>
                 );
               })}
               {invoice.items.length > 8 ? (
-                <Text style={{ fontSize: 8, color: "#94a3b8", marginTop: 4, textAlign: "center" }}>... and {invoice.items.length - 8} more items</Text>
+                <Text
+                  style={{
+                    fontSize: 8,
+                    color: "#94a3b8",
+                    marginTop: 4,
+                    textAlign: "center",
+                  }}
+                >
+                  ... and {invoice.items.length - 8} more items
+                </Text>
               ) : null}
             </View>
           ) : null}
@@ -395,19 +479,64 @@ export const PaymentReceiptPDF = ({
             <View style={s.taxTable}>
               {Object.keys(taxSummary).length > 0 ? (
                 <View>
-                  <Text style={[s.infoColLabel, { marginBottom: 4 }]}>Tax Analysis</Text>
-                  <View style={{ borderBottomWidth: 1, borderBottomColor: "#f1f5f9", paddingBottom: 2, marginBottom: 2, flexDirection: "row" }}>
-                    <Text style={{ fontSize: 7, flex: 1, color: "#94a3b8" }}>Rate</Text>
-                    <Text style={{ fontSize: 7, flex: 2, textAlign: "right", color: "#94a3b8" }}>Net</Text>
-                    <Text style={{ fontSize: 7, flex: 2, textAlign: "right", color: "#94a3b8" }}>VAT</Text>
+                  <Text style={[s.infoColLabel, { marginBottom: 4 }]}>
+                    Tax Analysis
+                  </Text>
+                  <View
+                    style={{
+                      borderBottomWidth: 1,
+                      borderBottomColor: "#f1f5f9",
+                      paddingBottom: 2,
+                      marginBottom: 2,
+                      flexDirection: "row",
+                    }}
+                  >
+                    <Text style={{ fontSize: 7, flex: 1, color: "#94a3b8" }}>
+                      Rate
+                    </Text>
+                    <Text
+                      style={{
+                        fontSize: 7,
+                        flex: 2,
+                        textAlign: "right",
+                        color: "#94a3b8",
+                      }}
+                    >
+                      Net
+                    </Text>
+                    <Text
+                      style={{
+                        fontSize: 7,
+                        flex: 2,
+                        textAlign: "right",
+                        color: "#94a3b8",
+                      }}
+                    >
+                      VAT
+                    </Text>
                   </View>
-                  {Object.entries(taxSummary).map(([rate, data]: [string, any]) => (
-                    <View key={rate} style={{ flexDirection: "row", marginBottom: 1 }}>
-                      <Text style={{ fontSize: 7, flex: 1 }}>{Number(rate).toFixed(1)}%</Text>
-                      <Text style={{ fontSize: 7, flex: 2, textAlign: "right" }}>{data.netAmount.toFixed(2)}</Text>
-                      <Text style={{ fontSize: 7, flex: 2, textAlign: "right" }}>{data.taxAmount.toFixed(2)}</Text>
-                    </View>
-                  ))}
+                  {Object.entries(taxSummary).map(
+                    ([rate, data]: [string, any]) => (
+                      <View
+                        key={rate}
+                        style={{ flexDirection: "row", marginBottom: 1 }}
+                      >
+                        <Text style={{ fontSize: 7, flex: 1 }}>
+                          {Number(rate).toFixed(1)}%
+                        </Text>
+                        <Text
+                          style={{ fontSize: 7, flex: 2, textAlign: "right" }}
+                        >
+                          {data.netAmount.toFixed(2)}
+                        </Text>
+                        <Text
+                          style={{ fontSize: 7, flex: 2, textAlign: "right" }}
+                        >
+                          {data.taxAmount.toFixed(2)}
+                        </Text>
+                      </View>
+                    ),
+                  )}
                 </View>
               ) : null}
             </View>
@@ -415,28 +544,63 @@ export const PaymentReceiptPDF = ({
             <View style={s.totalsBox}>
               <View style={s.totalRow}>
                 <Text style={s.totalLabel}>Invoice Total:</Text>
-                <Text style={s.totalValue}>{Number(invoice?.total || 0).toFixed(2)}</Text>
+                <Text style={s.totalValue}>
+                  {Number(invoice?.total || 0).toFixed(2)}
+                </Text>
               </View>
               <View style={s.totalRow}>
                 <Text style={s.totalLabel}>Amount Paid:</Text>
-                <Text style={s.totalValue}>{Number(payment.amount || 0).toFixed(2)}</Text>
+                <Text style={s.totalValue}>
+                  {Number(payment.amount || 0).toFixed(2)}
+                </Text>
               </View>
               <View style={s.grandTotal}>
                 <Text style={s.grandTotalLabel}>Balance Due:</Text>
-                <Text style={s.grandTotalValue}>{currency} {balanceDue.toFixed(2)}</Text>
+                <Text style={s.grandTotalValue}>
+                  {currency} {balanceDue.toFixed(2)}
+                </Text>
               </View>
 
-              <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: "#f1f5f9", borderTopStyle: "dashed" }}>
-                 <View style={s.totalRow}>
-                  <Text style={[s.totalLabel, { fontSize: 7, color: "#94a3b8" }]}>Overall Statement Balance:</Text>
-                  <Text style={[s.totalValue, { fontSize: 8, color: (overallBalance || 0) > 0 ? "#e11d48" : "#059669" }]}>
-                    {overallBalance !== undefined 
+              <View
+                style={{
+                  marginTop: 8,
+                  paddingTop: 8,
+                  borderTopWidth: 1,
+                  borderTopColor: "#f1f5f9",
+                  borderTopStyle: "dashed",
+                }}
+              >
+                <View style={s.totalRow}>
+                  <Text
+                    style={[s.totalLabel, { fontSize: 7, color: "#94a3b8" }]}
+                  >
+                    Overall Statement Balance:
+                  </Text>
+                  <Text
+                    style={[
+                      s.totalValue,
+                      {
+                        fontSize: 8,
+                        color:
+                          (overallBalance || 0) > 0 ? "#e11d48" : "#059669",
+                      },
+                    ]}
+                  >
+                    {overallBalance !== undefined
                       ? `${currency} ${Number(overallBalance).toFixed(2)}`
                       : "N/A"}
                   </Text>
                 </View>
                 {overallBalance === undefined && (
-                  <Text style={{ fontSize: 6, color: "#94a3b8", textAlign: "right" }}>No customer linked to this payment</Text>
+                  <Text
+                    style={{
+                      fontSize: 6,
+                      color: "#94a3b8",
+                      textAlign: "right",
+                    }}
+                  >
+                    No customer linked to this payment
+                  </Text>
                 )}
               </View>
             </View>
@@ -444,14 +608,20 @@ export const PaymentReceiptPDF = ({
 
           {payment.notes ? (
             <View style={s.notes}>
-              <Text style={[s.infoColLabel, { fontSize: 7, marginBottom: 2 }]}>Notes</Text>
+              <Text style={[s.infoColLabel, { fontSize: 7, marginBottom: 2 }]}>
+                Notes
+              </Text>
               <Text style={s.notesText}>{payment.notes}</Text>
             </View>
           ) : null}
 
           <View style={s.footer}>
-            <Text style={s.footerText}>This is a computer-generated payment receipt for your records.</Text>
-            <Text style={{ fontSize: 10, fontWeight: 700, color: "#0f172a" }}>Thank You!</Text>
+            <Text style={s.footerText}>
+              This is a computer-generated payment receipt for your records.
+            </Text>
+            <Text style={{ fontSize: 10, fontWeight: 700, color: "#0f172a" }}>
+              Thank You!
+            </Text>
           </View>
         </View>
       </Page>

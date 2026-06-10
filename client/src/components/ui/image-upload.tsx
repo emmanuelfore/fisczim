@@ -1,4 +1,3 @@
-
 import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,7 +22,11 @@ export function ImageUpload({ value, onChange, className }: Props) {
     if (!file) return;
 
     if (!file.type.startsWith("image/")) {
-      toast({ title: "Invalid file", description: "Please upload an image.", variant: "destructive" });
+      toast({
+        title: "Invalid file",
+        description: "Please upload an image.",
+        variant: "destructive",
+      });
       return;
     }
 
@@ -43,7 +46,11 @@ export function ImageUpload({ value, onChange, className }: Props) {
       onChange(data.url);
       toast({ title: "Success", description: "Image uploaded successfully." });
     } catch (error: any) {
-      toast({ title: "Upload Failed", description: error.message, variant: "destructive" });
+      toast({
+        title: "Upload Failed",
+        description: error.message,
+        variant: "destructive",
+      });
     } finally {
       setUploading(false);
     }
@@ -54,22 +61,26 @@ export function ImageUpload({ value, onChange, className }: Props) {
       <div className="relative group overflow-hidden rounded-2xl border-2 border-dashed border-slate-200 hover:border-primary/50 bg-slate-50/50 transition-all aspect-square sm:aspect-video flex items-center justify-center">
         {value ? (
           <>
-            <img src={resolveMediaUrl(value)} alt="Product" className="w-full h-full object-cover rounded-xl" />
+            <img
+              src={resolveMediaUrl(value)}
+              alt="Product"
+              className="w-full h-full object-cover rounded-xl"
+            />
             <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-              <Button 
-                type="button" 
-                variant="secondary" 
-                size="sm" 
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
                 className="rounded-full shadow-lg"
                 onClick={() => fileInputRef.current?.click()}
               >
                 <Camera className="w-4 h-4 mr-2" />
                 Change
               </Button>
-              <Button 
-                type="button" 
-                variant="destructive" 
-                size="sm" 
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
                 className="rounded-full shadow-lg"
                 onClick={() => onChange("")}
               >
@@ -87,8 +98,12 @@ export function ImageUpload({ value, onChange, className }: Props) {
               <UploadCloud className="w-8 h-8" />
             </div>
             <div className="text-center">
-              <p className="text-sm font-black uppercase tracking-widest">Upload Product Image</p>
-              <p className="text-[10px] uppercase font-bold text-slate-400 mt-1">PNG, JPG up to 5MB</p>
+              <p className=" font-black uppercase tracking-widest">
+                Upload Product Image
+              </p>
+              <p className="text-[10px] uppercase font-bold text-slate-400 mt-1">
+                PNG, JPG up to 5MB
+              </p>
             </div>
           </button>
         )}
@@ -97,18 +112,20 @@ export function ImageUpload({ value, onChange, className }: Props) {
           <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center z-10">
             <div className="flex flex-col items-center gap-2">
               <Loader2 className="w-8 h-8 animate-spin text-primary" />
-              <p className="text-xs font-black uppercase tracking-widest text-slate-500">Uploading...</p>
+              <p className="text-xs font-black uppercase tracking-widest text-slate-500">
+                Uploading...
+              </p>
             </div>
           </div>
         )}
       </div>
 
-      <input 
-        type="file" 
-        ref={fileInputRef} 
-        onChange={handleUpload} 
-        accept="image/*" 
-        className="hidden" 
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleUpload}
+        accept="image/*"
+        className="hidden"
       />
     </div>
   );

@@ -113,6 +113,22 @@ export class EscPosEncoder {
     return this;
   }
 
+  /** Print a 1-bit raster image using GS v 0. Width is in pixels, data is packed MSB-first. */
+  rasterImage(width: number, height: number, data: Uint8Array): this {
+    const bytesPerRow = Math.ceil(width / 8);
+    if (data.length !== bytesPerRow * height) return this;
+
+    this.buffer.push(
+      0x1d, 0x76, 0x30, 0x00,
+      bytesPerRow & 0xff,
+      (bytesPerRow >> 8) & 0xff,
+      height & 0xff,
+      (height >> 8) & 0xff,
+      ...Array.from(data)
+    );
+    return this;
+  }
+
   /** Draw a thin line separator with optional custom character */
   separator(width: number = 32, char: string = "-"): this {
     this.line(char.repeat(width));
@@ -121,13 +137,18 @@ export class EscPosEncoder {
 
   /** Print a two-column row with padding */
   tableRow(left: string, right: string, width: number = 32): this {
-    const leftRoom = width - right.length - 1;
+    const safeRight = right.length > width ? right.substring(0, width) : right;
+    const leftRoom = width - safeRight.length - 1;
     let label = left;
-    if (label.length > leftRoom) {
+    if (leftRoom <= 0) {
+      label = "";
+    } else if (label.length > leftRoom && leftRoom <= 3) {
+      label = label.substring(0, leftRoom);
+    } else if (label.length > leftRoom) {
       label = label.substring(0, leftRoom - 3) + "...";
     }
-    const padding = " ".repeat(width - label.length - right.length);
-    this.line(label + padding + right);
+    const padding = " ".repeat(Math.max(1, width - label.length - safeRight.length));
+    this.line(label + padding + safeRight);
     return this;
   }
 

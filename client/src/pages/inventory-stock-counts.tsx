@@ -5,7 +5,15 @@ import { useProducts } from "@/hooks/use-products";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useBranchContext } from "@/lib/branch-context";
 import { Card, CardContent } from "@/components/ui/card";
-import { Search, ChevronLeft, ChevronRight, History, Package, AlertCircle, PlusCircle } from "lucide-react";
+import {
+  Search,
+  ChevronLeft,
+  ChevronRight,
+  History,
+  Package,
+  AlertCircle,
+  PlusCircle,
+} from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -14,7 +22,13 @@ import { format } from "date-fns";
 import { Link } from "wouter";
 
 const ITEMS_PER_PAGE = 15;
-const ADJUSTMENT_TYPES = ["ADJUSTMENT", "SHRINKAGE", "CORRECTION", "DAMAGE", "EXPIRY"];
+const ADJUSTMENT_TYPES = [
+  "ADJUSTMENT",
+  "SHRINKAGE",
+  "CORRECTION",
+  "DAMAGE",
+  "EXPIRY",
+];
 
 export default function InventoryStockCountsPage() {
   const { activeCompanyId } = useActiveCompany();
@@ -22,7 +36,10 @@ export default function InventoryStockCountsPage() {
   const companyId = activeCompanyId || 0;
 
   const { data: transactions, isLoading } = useInventoryTransactions(companyId);
-  const { data: products } = useProducts(companyId, selectedBranchId || undefined);
+  const { data: products } = useProducts(
+    companyId,
+    selectedBranchId || undefined,
+  );
 
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -33,7 +50,9 @@ export default function InventoryStockCountsPage() {
       if (!isAdjustment) return false;
 
       const isStockTakeRef = (t as any).referenceType === "STOCK_TAKE";
-      const hasStockTakeNote = (t.notes || "").toLowerCase().includes("stock take");
+      const hasStockTakeNote = (t.notes || "")
+        .toLowerCase()
+        .includes("stock take");
       if (!isStockTakeRef && !hasStockTakeNote) return false;
 
       const product = products?.find((p) => p.id === t.productId);
@@ -47,9 +66,14 @@ export default function InventoryStockCountsPage() {
     });
   }, [transactions, products, searchTerm]);
 
-  const totalPages = Math.ceil((filteredStockCounts?.length || 0) / ITEMS_PER_PAGE);
+  const totalPages = Math.ceil(
+    (filteredStockCounts?.length || 0) / ITEMS_PER_PAGE,
+  );
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-  const paginatedStockCounts = filteredStockCounts?.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  const paginatedStockCounts = filteredStockCounts?.slice(
+    startIndex,
+    startIndex + ITEMS_PER_PAGE,
+  );
 
   return (
     <Layout>
@@ -107,11 +131,21 @@ export default function InventoryStockCountsPage() {
           <table className="w-full text-left">
             <thead>
               <tr className="bg-slate-50/80 border-b border-slate-100">
-                <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">Date</th>
-                <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">Source</th>
-                <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">Product</th>
-                <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">Delta</th>
-                <th className="hidden lg:table-cell p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">Notes</th>
+                <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">
+                  Date
+                </th>
+                <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">
+                  Source
+                </th>
+                <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">
+                  Product
+                </th>
+                <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">
+                  Delta
+                </th>
+                <th className="hidden lg:table-cell p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">
+                  Notes
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -130,7 +164,7 @@ export default function InventoryStockCountsPage() {
                     <div className="flex flex-col items-center justify-center">
                       <AlertCircle className="w-12 h-12 text-slate-200 mb-4" />
                       <p className="font-bold text-lg">No stock counts found</p>
-                      <p className="text-sm">Committed stock-takes will appear here</p>
+                      <p className="">Committed stock-takes will appear here</p>
                     </div>
                   </td>
                 </tr>
@@ -140,11 +174,18 @@ export default function InventoryStockCountsPage() {
                   const qty = Number(t.quantity);
 
                   return (
-                    <tr key={t.id} className="group border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
+                    <tr
+                      key={t.id}
+                      className="group border-b border-slate-50 hover:bg-slate-50/50 transition-colors"
+                    >
                       <td className="p-4">
                         <div className="flex flex-col min-w-0">
-                          <span className="font-bold text-sm text-slate-800">{format(new Date(t.createdAt!), "MMM d, yyyy")}</span>
-                          <span className="text-[10px] font-medium text-slate-400">{format(new Date(t.createdAt!), "HH:mm")}</span>
+                          <span className="font-bold  text-slate-800">
+                            {format(new Date(t.createdAt!), "MMM d, yyyy")}
+                          </span>
+                          <span className="text-[10px] font-medium text-slate-400">
+                            {format(new Date(t.createdAt!), "HH:mm")}
+                          </span>
                         </div>
                       </td>
                       <td className="p-4">
@@ -158,18 +199,24 @@ export default function InventoryStockCountsPage() {
                             <Package className="w-4 h-4 md:w-5 md:h-5 text-slate-300" />
                           </div>
                           <div className="flex flex-col min-w-0">
-                            <span className="font-display tracking-tight text-sm truncate">{product?.name || "Unknown Product"}</span>
-                            <span className="text-[10px] text-slate-400 font-medium truncate">{product?.sku || "NO SKU"}</span>
+                            <span className="font-display tracking-tight  truncate">
+                              {product?.name || "Unknown Product"}
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-medium truncate">
+                              {product?.sku || "NO SKU"}
+                            </span>
                           </div>
                         </div>
                       </td>
                       <td className="p-4">
-                        <span className="font-black text-sm text-amber-700">
+                        <span className="font-black  text-amber-700">
                           {qty > 0 ? "+" : ""}
                           {qty.toFixed(2)}
                         </span>
                       </td>
-                      <td className="hidden lg:table-cell p-4 text-sm text-slate-500 max-w-[420px] truncate">{t.notes || "No notes"}</td>
+                      <td className="hidden lg:table-cell p-4  text-slate-500 max-w-[420px] truncate">
+                        {t.notes || "No notes"}
+                      </td>
                     </tr>
                   );
                 })
@@ -186,7 +233,8 @@ export default function InventoryStockCountsPage() {
 
             <div className="flex items-center gap-2">
               <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mr-2">
-                Page {Math.min(currentPage, totalPages || 1)} of {totalPages || 1}
+                Page {Math.min(currentPage, totalPages || 1)} of{" "}
+                {totalPages || 1}
               </div>
               <Button
                 variant="outline"
@@ -201,7 +249,9 @@ export default function InventoryStockCountsPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setCurrentPage((p) => Math.min(totalPages || 1, p + 1))}
+                onClick={() =>
+                  setCurrentPage((p) => Math.min(totalPages || 1, p + 1))
+                }
                 disabled={currentPage >= totalPages || totalPages === 0}
                 className="rounded-xl h-8 text-[10px] font-bold border-slate-200"
               >

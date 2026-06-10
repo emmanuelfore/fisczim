@@ -20,6 +20,7 @@ import SuppliersPage from "@/pages/suppliers";
 import ExpensesPage from "@/pages/expenses";
 import InventoryTransactionsPage from "@/pages/inventory-transactions";
 import InventoryAdjustmentsPage from "@/pages/inventory-adjustments";
+import StockAdjustmentsReportPage from "@/pages/stock-adjustments-report";
 import InventoryStockCountsPage from "@/pages/inventory-stock-counts";
 import ProductionPage from "@/pages/production";
 import InventoryAccountPage from "@/pages/inventory-account";
@@ -88,6 +89,7 @@ import AllocationWorkbenchPage from "@/pages/allocation-workbench";
 import AccountingDashboardPage from "@/pages/accounting-dashboard";
 import ApprovalsPage from "@/pages/approvals";
 import PartnershipSalesReportPage from "@/pages/partnership-sales-report";
+import PayrollPage from "@/pages/payroll";
 import { useAuth } from "@/hooks/use-auth";
 import { usePermissions } from "@/hooks/use-permissions";
 import { NAV_PERMISSION_MAP } from "@shared/permissions";
@@ -102,6 +104,7 @@ import { getPwaLaunchRedirect } from "@/hooks/use-pwa-install";
 import { useIsOnline } from "@/hooks/use-is-online";
 import { useBranding } from "@/hooks/use-branding";
 import { ThemeManager } from "@/components/theme-manager";
+import { getCompanyHomeRoute } from "@/lib/company-home-route";
 function useBoundedLoading(loading: boolean, maxMs = 5000): boolean {
   const [timedOut, setTimedOut] = useState(false);
 
@@ -126,7 +129,11 @@ function LoadingScreen() {
   );
 }
 
-function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
+function ProtectedRoute({
+  component: Component,
+}: {
+  component: React.ComponentType;
+}) {
   const { user, isLoading: isLoadingAuth } = useAuth();
   const {
     data: companies,
@@ -142,22 +149,29 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
   const isPosPath = location.startsWith("/pos");
   const isOffline = !isOnline || isCompaniesError;
   const pathPermission = NAV_PERMISSION_MAP[location.split("?")[0]];
+  const activeRole = (activeCompany as any)?.role;
+  const isCashier = activeRole === "cashier" && !user?.isSuperAdmin;
 
   const rawLoading = isLoadingAuth || (!!user && (isLoadingCompanies || isLoadingActiveCompany || isLoadingPermissions));
   const isLoading = useBoundedLoading(rawLoading);
 
   useEffect(() => {
-    if (isOffline && !isPosPath && !hasRedirectedToPosRef.current) {
+    if (
+      isOffline &&
+      isCashier &&
+      !isPosPath &&
+      !hasRedirectedToPosRef.current
+    ) {
       hasRedirectedToPosRef.current = true;
       setLocation("/pos");
     }
-  }, [isOffline, isPosPath, setLocation]);
+  }, [isOffline, isCashier, isPosPath, setLocation]);
 
   if (isLoading) return <LoadingScreen />;
 
   // No user at all — if offline send to /pos (they may have cached data),
   // if online send to /auth
-  if (!user) return <Redirect to={isOffline ? "/pos" : "/auth"} />;
+  if (!user) return <Redirect to="/auth" />;
 
   // Redirect to onboarding if online and company list is definitively empty
   if (!isOffline && companies && companies.length === 0) {
@@ -170,9 +184,14 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
       location.startsWith("/profile") ||
       location.startsWith("/approvals") ||
       location.startsWith("/settings");
+    if (isCashier && !isAllowedPath) return <Redirect to="/pos" />;
     if (!isAllowedPath && pathPermission && !canAccessPath(location.split("?")[0])) {
       if (can("nav.pos")) return <Redirect to="/pos" />;
       if (can("nav.dashboard")) return <Redirect to="/dashboard" />;
+    }
+    if (location === "/dashboard") {
+      const homeRoute = getCompanyHomeRoute(companies, user);
+      if (homeRoute !== "/dashboard") return <Redirect to={homeRoute} />;
     }
   }
 
@@ -181,7 +200,11 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
 
 function OnboardingRoute() {
   const { user, isLoading: isLoadingAuth } = useAuth();
-  const { data: companies, isLoading: isLoadingCompanies, isError } = useCompanies(!!user, user?.id ?? null);
+  const {
+    data: companies,
+    isLoading: isLoadingCompanies,
+    isError,
+  } = useCompanies(!!user, user?.id ?? null);
   const isOnline = useIsOnline();
 
   const rawLoading = isLoadingAuth || (!!user && isLoadingCompanies);
@@ -190,18 +213,47 @@ function OnboardingRoute() {
   if (isLoading) return <LoadingScreen />;
   if (!user) return <Redirect to="/auth" />;
   if (!Array.isArray(companies)) return <LoadingScreen />;
-  
-  // If offline, we shouldn't attempt onboarding as it requires network to create companies
-  if (!isOnline || isError) return <Redirect to="/pos" />;
+
+  // If offline, onboarding cannot create a company. Only cashiers should be sent to POS.
+  if (!isOnline || isError) {
+    const role = Array.isArray(companies)
+      ? (companies[0] as any)?.role
+      : undefined;
+    const isCashier = role === "cashier" && !user?.isSuperAdmin;
+    return (
+      <Redirect
+        to={isCashier ? "/pos" : getCompanyHomeRoute(companies, user)}
+      />
+    );
+  }
 
   // If we have companies, we shouldn't be here
   if (companies && companies.length > 0) {
-    const role = (companies[0] as any).role;
-    const isCashier = role === "cashier" && !user?.isSuperAdmin;
-    return <Redirect to={isCashier ? "/pos" : "/dashboard"} />;
+    return <Redirect to={getCompanyHomeRoute(companies, user)} />;
   }
 
   return <OnboardingPage />;
+}
+
+function AuthRedirect() {
+  const { user, isLoading: isLoadingAuth } = useAuth();
+  const {
+    data: companies,
+    isLoading: isLoadingCompanies,
+    isError,
+  } = useCompanies(!!user, user?.id ?? null);
+  const isOnline = useIsOnline();
+
+  const rawLoading = isLoadingAuth || (!!user && isLoadingCompanies);
+  const isLoading = useBoundedLoading(rawLoading);
+
+  if (isLoading) return <LoadingScreen />;
+  if (!user) return <Redirect to="/auth" />;
+  if (!isOnline || isError)
+    return <Redirect to={getCompanyHomeRoute(companies, user)} />;
+  if (!Array.isArray(companies)) return <LoadingScreen />;
+
+  return <Redirect to={getCompanyHomeRoute(companies, user)} />;
 }
 
 function Router() {
@@ -217,9 +269,7 @@ function Router() {
 
   return (
     <Switch>
-      <Route path="/auth">
-        {user ? <Redirect to={isOnline ? "/dashboard" : "/pos"} /> : <AuthPage />}
-      </Route>
+      <Route path="/auth">{user ? <AuthRedirect /> : <AuthPage />}</Route>
       <Route path="/forgot-password" component={ForgotPasswordPage} />
       <Route path="/reset-password" component={ResetPasswordPage} />
       <Route path="/pos-login" component={PosLoginPage} />
@@ -239,6 +289,7 @@ function Router() {
       <Route path="/inventory/purchase-orders">{() => <ProtectedRoute component={PurchaseOrdersPage} />}</Route>
       <Route path="/inventory">{() => <ProtectedRoute component={InventoryTransactionsPage} />}</Route>
       <Route path="/inventory/adjustments">{() => <ProtectedRoute component={InventoryAdjustmentsPage} />}</Route>
+      <Route path="/inventory/adjustments/report">{() => <ProtectedRoute component={StockAdjustmentsReportPage} />}</Route>
       <Route path="/inventory/stock-counts">{() => <ProtectedRoute component={InventoryStockCountsPage} />}</Route>
       <Route path="/inventory/bulk-adjust">{() => <ProtectedRoute component={BulkAdjustmentPage} />}</Route>
       <Route path="/inventory/stock-take">{() => <ProtectedRoute component={StockTakePage} />}</Route>
@@ -270,7 +321,6 @@ function Router() {
       <Route path="/zimra-settings">{() => <ProtectedRoute component={ZimraSettingsPage} />}</Route>
       <Route path="/zimra-logs">{() => <ProtectedRoute component={ZimraLogsPage} />}</Route>
       <Route path="/fdms-test">{() => <ProtectedRoute component={FdmsTestPage} />}</Route>
-      <Route path="/restaurant/layout">{() => <ProtectedRoute component={RestaurantLayoutPage} />}</Route>
       <Route path="/quotations">{() => <ProtectedRoute component={QuotationsPage} />}</Route>
       <Route path="/quotations/new">{() => <ProtectedRoute component={CreateQuotationPage} />}</Route>
       <Route path="/recurring">{() => <ProtectedRoute component={RecurringInvoicesPage} />}</Route>
@@ -284,6 +334,7 @@ function Router() {
       <Route path="/bus/dashboard">{() => <ProtectedRoute component={BusDashboardPage} />}</Route>
       <Route path="/bus/trips">{() => <ProtectedRoute component={BusTripsPage} />}</Route>
       <Route path="/bus/conductors">{() => <ProtectedRoute component={BusConductorsPage} />}</Route>
+      <Route path="/bus/reports/:reportMode">{() => <ProtectedRoute component={BusReportsPage} />}</Route>
       <Route path="/bus/reports">{() => <ProtectedRoute component={BusReportsPage} />}</Route>
       <Route path="/restaurant/kds">{() => <ProtectedRoute component={KDSPage} />}</Route>
       <Route path="/restaurant/orders">{() => <ProtectedRoute component={LiveOrdersPage} />}</Route>
@@ -312,9 +363,8 @@ function Router() {
       <Route path="/accounting/creditors/:id">{() => <ProtectedRoute component={CreditorAnalysisPage} />}</Route>
       <Route path="/accounting/cashbook">{() => <ProtectedRoute component={CashbookPage} />}</Route>
       <Route path="/supplier-invoices">{() => <ProtectedRoute component={SupplierInvoicesPage} />}</Route>
-      <Route path="/">
-        {user ? <Redirect to={isOnline ? "/dashboard" : "/pos"} /> : <LandingPage />}
-      </Route>
+      <Route path="/payroll">{() => <ProtectedRoute component={PayrollPage} />}</Route>
+      <Route path="/">{user ? <AuthRedirect /> : <LandingPage />}</Route>
       <Route component={NotFound} />
     </Switch>
   );
@@ -326,7 +376,7 @@ function useSwAuthBridge() {
     if (!navigator.serviceWorker) return;
 
     const handler = async (event: MessageEvent) => {
-      if (event.data?.type !== 'GET_AUTH_TOKEN') return;
+      if (event.data?.type !== "GET_AUTH_TOKEN") return;
       try {
         const { data } = await supabase.auth.getSession();
         const token = data.session?.access_token ?? null;
@@ -336,25 +386,26 @@ function useSwAuthBridge() {
       }
     };
 
-    navigator.serviceWorker.addEventListener('message', handler);
-    return () => navigator.serviceWorker.removeEventListener('message', handler);
+    navigator.serviceWorker.addEventListener("message", handler);
+    return () =>
+      navigator.serviceWorker.removeEventListener("message", handler);
   }, []);
 }
 
 function BrandingMeta() {
   const { brand } = useBranding();
-  
+
   useEffect(() => {
     document.title = brand.name + " | ZIMRA Compliant Fiscalization";
-    
+
     // Update favicon dynamically
     let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
     if (!link) {
-      link = document.createElement('link');
-      link.rel = 'icon';
-      document.getElementsByTagName('head')[0].appendChild(link);
+      link = document.createElement("link");
+      link.rel = "icon";
+      document.getElementsByTagName("head")[0].appendChild(link);
     }
-    // Note: We use the same favicon path for simplicity in development, 
+    // Note: We use the same favicon path for simplicity in development,
     // but in production these would be different assets in the build folder.
     // However, the logo is definitely different.
   }, [brand]);

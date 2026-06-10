@@ -8,12 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BarChart } from 'react-native-gifted-charts';
 import { useBusTicketing } from '../../hooks/useBusTicketing';
 import { getDailySummary, getTicketsForDate, formatAsCSV, formatAsWhatsAppText } from '../../hooks/useBusReports';
-
-const C = {
-  bg: '#07090C', surface: '#111318', border: '#1E2128',
-  amber: '#F0A500', fire: '#FF6B35', white: '#FFFFFF',
-  muted: '#9CA3AF', success: '#22C55E', danger: '#EF4444',
-};
+import { type BusColors, useBusColors } from './theme';
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
@@ -31,6 +26,8 @@ interface Props { onClose: () => void; }
 
 export function BusDailyReportScreen({ onClose }: Props) {
   const insets = useSafeAreaInsets();
+  const C = useBusColors();
+  const styles = makeStyles(C);
   const { tickets: allTickets, activeConductor } = useBusTicketing();
 
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -65,7 +62,7 @@ export function BusDailyReportScreen({ onClose }: Props) {
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
-      <StatusBar barStyle="light-content" backgroundColor={C.bg} />
+      <StatusBar barStyle={C.statusBarStyle} backgroundColor={C.bg} />
       <View style={styles.header}>
         <TouchableOpacity onPress={onClose} style={styles.backBtn}>
           <MaterialCommunityIcons name="arrow-left" size={22} color={C.white} />
@@ -188,7 +185,7 @@ export function BusDailyReportScreen({ onClose }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (C: BusColors) => StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

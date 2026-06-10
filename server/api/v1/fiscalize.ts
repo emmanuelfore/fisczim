@@ -387,23 +387,33 @@ router.post("/", async (req, res) => {
       taxPercent:          item.taxRate,
     }));
 
-    // Aggregate taxes by rate
+    const roundSignedMoney = (value: number) => {
+      const sign = value < 0 ? -1 : 1;
+      return sign * (Math.round(Math.abs(value) * 100) / 100);
+    };
+
+    // Aggregate taxes by rate from signed line totals to match ZIMRA rounding.
     const taxMap = new Map<number, number>();
     for (const item of processedItems) {
-      taxMap.set(item.taxRate, (taxMap.get(item.taxRate) ?? 0) + item.lineTax);
+      taxMap.set(item.taxRate, (taxMap.get(item.taxRate) ?? 0) + (item.lineTotal * priceSign));
     }
-    const receiptTaxes = Array.from(taxMap.entries()).map(([pct, amt]) => ({
-      taxPercent:         pct,
-      taxAmount:          parseFloat(amt.toFixed(2)),
-      salesAmountWithTax: parseFloat((pct > 0 ? (amt / pct) * (pct + 100) : 0).toFixed(2)),
-    }));
+    const receiptTaxes = Array.from(taxMap.entries()).map(([pct, signedSubtotal]) => {
+      const taxAmount = roundSignedMoney(signedSubtotal * (pct / 100));
+      return {
+        taxPercent: pct,
+        taxAmount,
+        salesAmountWithTax: roundSignedMoney(signedSubtotal + taxAmount),
+      };
+    });
 
-    // Build buyerData matching ZIMRA/RevMax shape
-    const buyerData = buyerDisplayName ? {
+    const buyerTin = body.buyer?.tin?.trim();
+
+    // ZIMRA buyerData is optional, but buyerTIN is mandatory when buyerData is sent.
+    const buyerData = buyerDisplayName && buyerTin ? {
       buyerRegisterName: body.buyer?.registeredName ?? buyerDisplayName,
       buyerTradeName:    body.buyer?.tradeName      ?? buyerDisplayName,
       ...(body.buyer?.vatNumber ? { vatNumber: body.buyer.vatNumber } : {}),
-      ...(body.buyer?.tin       ? { buyerTIN:  body.buyer.tin       } : {}),
+      buyerTIN: buyerTin,
       ...((body.buyer?.phone || body.buyer?.email) ? {
         buyerContacts: {
           ...(body.buyer?.phone ? { phoneNo: body.buyer.phone } : {}),

@@ -1,9 +1,21 @@
 import { useQuery } from "@tanstack/react-query";
 import type { Dispatch, SetStateAction } from "react";
 import { type Account } from "@shared/schema";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { apiFetch } from "@/lib/api";
 
@@ -35,32 +47,110 @@ const DEFAULT_ACCOUNTING_SETTINGS = {
 };
 
 const SYSTEM_POSTINGS = [
-  { key: "cashAccountCode", label: "Cash receipts and payments", hint: "Used when payments are recorded without a more specific bank account." },
-  { key: "accountsReceivableCode", label: "Customer receivables", hint: "Debit on sales invoices, credit when customers pay." },
-  { key: "salesRevenueAccountCode", label: "Sales revenue", hint: "Credit side of invoices and POS sales." },
-  { key: "vatOutputAccountCode", label: "VAT output", hint: "Output tax collected on customer invoices." },
-  { key: "inventoryAccountCode", label: "Inventory control", hint: "Stock value relieved when tracked products are sold." },
-  { key: "cogsAccountCode", label: "Cost of sales", hint: "Expense account for product costs on sales." },
-  { key: "accountsPayableCode", label: "Supplier payables", hint: "Credit side of supplier bills, debit when suppliers are paid." },
-  { key: "vatInputAccountCode", label: "VAT input", hint: "Input tax on supplier bills." },
-  { key: "generalExpenseAccountCode", label: "General expenses", hint: "Default debit account for expenses." },
-  { key: "fxGainAccountCode", label: "Foreign exchange gains", hint: "Automatic gains when settlement rates move favorably." },
-  { key: "fxLossAccountCode", label: "Foreign exchange losses", hint: "Automatic losses when settlement rates move unfavorably." },
-  { key: "busConductorCashAccountCode", label: "Bus conductor cash clearing", hint: "Debit account for cash tickets issued by conductors before cash-up." },
-  { key: "busCashOnHandAccountCode", label: "Bus cash received", hint: "Debit account when approved conductor cash-ups are counted into office cash." },
-  { key: "busMobileMoneyAccountCode", label: "Bus mobile money clearing", hint: "Debit account for bus tickets paid by EcoCash or mobile wallet." },
-  { key: "busCardClearingAccountCode", label: "Bus card and bank clearing", hint: "Debit account for card, swipe, and bank transfer bus ticket payments." },
-  { key: "busRevenueAccountCode", label: "Bus passenger revenue", hint: "Credit account for non-fiscal bus ticket revenue postings." },
-  { key: "busCashShortageAccountCode", label: "Bus cash shortages", hint: "Debit expense account when approved cash-ups are short." },
-  { key: "busCashOverageAccountCode", label: "Bus cash overages", hint: "Credit income account when approved cash-ups are over." },
+  {
+    key: "cashAccountCode",
+    label: "Cash receipts and payments",
+    hint: "Used when payments are recorded without a more specific bank account.",
+  },
+  {
+    key: "accountsReceivableCode",
+    label: "Customer receivables",
+    hint: "Debit on sales invoices, credit when customers pay.",
+  },
+  {
+    key: "salesRevenueAccountCode",
+    label: "Sales revenue",
+    hint: "Credit side of invoices and POS sales.",
+  },
+  {
+    key: "vatOutputAccountCode",
+    label: "VAT output",
+    hint: "Output tax collected on customer invoices.",
+  },
+  {
+    key: "inventoryAccountCode",
+    label: "Inventory control",
+    hint: "Stock value relieved when tracked products are sold.",
+  },
+  {
+    key: "cogsAccountCode",
+    label: "Cost of sales",
+    hint: "Expense account for product costs on sales.",
+  },
+  {
+    key: "accountsPayableCode",
+    label: "Supplier payables",
+    hint: "Credit side of supplier bills, debit when suppliers are paid.",
+  },
+  {
+    key: "vatInputAccountCode",
+    label: "VAT input",
+    hint: "Input tax on supplier bills.",
+  },
+  {
+    key: "generalExpenseAccountCode",
+    label: "General expenses",
+    hint: "Default debit account for expenses.",
+  },
+  {
+    key: "fxGainAccountCode",
+    label: "Foreign exchange gains",
+    hint: "Automatic gains when settlement rates move favorably.",
+  },
+  {
+    key: "fxLossAccountCode",
+    label: "Foreign exchange losses",
+    hint: "Automatic losses when settlement rates move unfavorably.",
+  },
+  {
+    key: "busConductorCashAccountCode",
+    label: "Bus conductor cash clearing",
+    hint: "Debit account for cash tickets issued by conductors before cash-up.",
+  },
+  {
+    key: "busCashOnHandAccountCode",
+    label: "Bus cash received",
+    hint: "Debit account when approved conductor cash-ups are counted into office cash.",
+  },
+  {
+    key: "busMobileMoneyAccountCode",
+    label: "Bus mobile money clearing",
+    hint: "Debit account for bus tickets paid by EcoCash or mobile wallet.",
+  },
+  {
+    key: "busCardClearingAccountCode",
+    label: "Bus card and bank clearing",
+    hint: "Debit account for card, swipe, and bank transfer bus ticket payments.",
+  },
+  {
+    key: "busRevenueAccountCode",
+    label: "Bus passenger revenue",
+    hint: "Credit account for non-fiscal bus ticket revenue postings.",
+  },
+  {
+    key: "busCashShortageAccountCode",
+    label: "Bus cash shortages",
+    hint: "Debit expense account when approved cash-ups are short.",
+  },
+  {
+    key: "busCashOverageAccountCode",
+    label: "Bus cash overages",
+    hint: "Credit income account when approved cash-ups are over.",
+  },
 ] as const;
 
-export function AccountingSystemSettings({ companyId, formData, setFormData }: Props) {
+export function AccountingSystemSettings({
+  companyId,
+  formData,
+  setFormData,
+}: Props) {
   const { data: accounts = [], isLoading } = useQuery<Account[]>({
     queryKey: ["/api/accounting/accounts", companyId],
     enabled: !!companyId,
     queryFn: async () => {
-      const res = await apiFetch(`/api/companies/${companyId}/accounting/accounts`);
+      const res = await apiFetch(
+        `/api/companies/${companyId}/accounting/accounts`,
+      );
       if (!res.ok) {
         const err = await res.json().catch(() => ({ message: res.statusText }));
         throw new Error(err.message || "Failed to load chart of accounts");
@@ -90,19 +180,30 @@ export function AccountingSystemSettings({ companyId, formData, setFormData }: P
       <CardHeader className="border-b border-[#E5E7EB]">
         <CardTitle>System Transaction Accounts</CardTitle>
         <CardDescription>
-          Choose the GL accounts used by automatic postings for sales, payments, VAT, inventory, suppliers, expenses, FX, and bus ticketing.
+          Choose the GL accounts used by automatic postings for sales, payments,
+          VAT, inventory, suppliers, expenses, FX, and bus ticketing.
         </CardDescription>
       </CardHeader>
       <CardContent className="pt-5">
         <div className="grid gap-4 md:grid-cols-2">
           {SYSTEM_POSTINGS.map((item) => (
-            <div key={item.key} className="space-y-2 rounded-[10px] border border-[#E5E7EB] bg-[#F8FAFC] p-4">
+            <div
+              key={item.key}
+              className="space-y-2 rounded-[10px] border border-[#E5E7EB] bg-[#F8FAFC] p-4"
+            >
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <Label className="text-sm font-semibold text-[#0F172A]">{item.label}</Label>
-                  <p className="mt-1 text-xs leading-5 text-[#64748B]">{item.hint}</p>
+                  <Label className=" font-semibold text-[#0F172A]">
+                    {item.label}
+                  </Label>
+                  <p className="mt-1 text-xs leading-5 text-[#64748B]">
+                    {item.hint}
+                  </p>
                 </div>
-                <Badge variant="outline" className="shrink-0 bg-white font-mono text-[11px]">
+                <Badge
+                  variant="outline"
+                  className="shrink-0 bg-white font-mono text-[11px]"
+                >
                   {settings[item.key]}
                 </Badge>
               </div>

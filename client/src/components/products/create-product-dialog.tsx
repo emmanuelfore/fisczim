@@ -1,4 +1,3 @@
-
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertProductSchema, type InsertProduct } from "@shared/schema";
@@ -6,29 +5,29 @@ import { useCreateProduct } from "@/hooks/use-products";
 import { useTaxConfig } from "@/hooks/use-tax-config";
 import { Button } from "@/components/ui/button";
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogHeader,
-    DialogTitle,
-    DialogTrigger,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import {
-    Form,
-    FormControl,
-    FormDescription,
-    FormField,
-    FormItem,
-    FormLabel,
-    FormMessage,
+  Form,
+  FormControl,
+  FormDescription,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
 } from "@/components/ui/form";
 import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -41,600 +40,821 @@ import { apiFetch } from "@/lib/api";
 import { ImageUpload } from "@/components/ui/image-upload";
 import { HsCodeAssistant } from "@/components/products/hs-code-assistant";
 
-export function CreateProductDialog({ companyId, defaultType = "good", triggerLabel = "Add Product" }: { companyId: number, defaultType?: "good" | "service", triggerLabel?: string }) {
-    const [open, setOpen] = useState(false);
-    const createProduct = useCreateProduct(companyId);
-    const { taxCategories, taxTypes } = useTaxConfig(companyId);
-    const { toast } = useToast();
+export function CreateProductDialog({
+  companyId,
+  defaultType = "good",
+  triggerLabel = "Add Product",
+}: {
+  companyId: number;
+  defaultType?: "good" | "service";
+  triggerLabel?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const createProduct = useCreateProduct(companyId);
+  const { taxCategories, taxTypes } = useTaxConfig(companyId);
+  const { toast } = useToast();
 
-    const { data: categories } = useQuery({
-        queryKey: ["product-categories", companyId],
-        queryFn: async () => {
-            const res = await apiFetch(`/api/product-categories?companyId=${companyId}`);
-            if (!res.ok) throw new Error("Failed to fetch categories");
-            return res.json();
-        },
-        enabled: open
-    });
-    const { data: existingProducts } = useQuery({
-        queryKey: ["products", companyId, "owner-groups"],
-        queryFn: async () => {
-            const res = await apiFetch(`/api/companies/${companyId}/products`);
-            if (!res.ok) throw new Error("Failed to fetch products");
-            return res.json();
-        },
-        enabled: open && companyId > 0
-    });
+  const { data: categories } = useQuery({
+    queryKey: ["product-categories", companyId],
+    queryFn: async () => {
+      const res = await apiFetch(
+        `/api/product-categories?companyId=${companyId}`,
+      );
+      if (!res.ok) throw new Error("Failed to fetch categories");
+      return res.json();
+    },
+    enabled: open,
+  });
+  const { data: existingProducts } = useQuery({
+    queryKey: ["products", companyId, "owner-groups"],
+    queryFn: async () => {
+      const res = await apiFetch(`/api/companies/${companyId}/products`);
+      if (!res.ok) throw new Error("Failed to fetch products");
+      return res.json();
+    },
+    enabled: open && companyId > 0,
+  });
 
-    const existingOwnerGroups = Array.from(
-        new Set(
-            (existingProducts || [])
-                .map((p: any) => (typeof p.ownerGroup === "string" ? p.ownerGroup.trim() : ""))
-                .filter((v: string) => v.length > 0)
+  const existingOwnerGroups = Array.from(
+    new Set(
+      (existingProducts || [])
+        .map((p: any) =>
+          typeof p.ownerGroup === "string" ? p.ownerGroup.trim() : "",
         )
-    ).sort((a, b) => String(a).localeCompare(String(b))) as string[];
+        .filter((v: string) => v.length > 0),
+    ),
+  ).sort((a, b) => String(a).localeCompare(String(b))) as string[];
 
-    const form = useForm<InsertProduct>({
-        resolver: zodResolver(insertProductSchema),
-        defaultValues: {
-            name: "",
-            description: "",
-            sku: "",
-            barcode: "",
-            hsCode: "",
-            category: "",
-            ownerGroup: "",
-            price: "0.00",
-            costPrice: "0.00",
-            taxRate: "15.00",
-            taxCategoryId: undefined, // Will be set by select
-            brandName: "",
-            oemPartNumber: "",
-            supplierPartNumber: "",
-            fitmentNotes: "",
-            serialTrackingEnabled: false,
-            warrantyTrackingEnabled: false,
-            warrantyMonths: 0,
-            isActive: true,
-            isTracked: defaultType === "good",
-            stockLevel: "0",
-            lowStockThreshold: "10",
-            productType: defaultType,
-            companyId: companyId,
-            taxTypeId: undefined,
-        },
-    });
+  const form = useForm<InsertProduct>({
+    resolver: zodResolver(insertProductSchema),
+    defaultValues: {
+      name: "",
+      description: "",
+      sku: "",
+      barcode: "",
+      hsCode: "",
+      category: "",
+      ownerGroup: "",
+      price: "0.00",
+      costPrice: "0.00",
+      taxRate: "15.00",
+      taxCategoryId: undefined, // Will be set by select
+      brandName: "",
+      oemPartNumber: "",
+      supplierPartNumber: "",
+      fitmentNotes: "",
+      serialTrackingEnabled: false,
+      warrantyTrackingEnabled: false,
+      warrantyMonths: 0,
+      isActive: true,
+      isTracked: defaultType === "good",
+      stockLevel: "0",
+      lowStockThreshold: "10",
+      productType: defaultType,
+      companyId: companyId,
+      taxTypeId: undefined,
+    },
+  });
 
+  const onSubmit = async (data: InsertProduct) => {
+    try {
+      const { companyId: _, ...rest } = data;
+      await createProduct.mutateAsync({ ...rest, productType: defaultType });
+      toast({
+        title: "Success",
+        description: `${defaultType === "service" ? "Service" : "Product"} created successfully.`,
+      });
+      setOpen(false);
+      form.reset({
+        ...form.getValues(),
+        name: "",
+        description: "",
+        price: "0.00",
+      });
+    } catch (error: any) {
+      console.error("Failed to create product:", error);
+      toast({
+        title: "Creation Failed",
+        description: error.message || "An unexpected error occurred.",
+        variant: "destructive",
+      });
+    }
+  };
 
+  const isTracked = form.watch("isTracked");
+  const isService = defaultType === "service";
 
-    const onSubmit = async (data: InsertProduct) => {
-        try {
-            const { companyId: _, ...rest } = data;
-            await createProduct.mutateAsync({ ...rest, productType: defaultType });
-            toast({
-                title: "Success",
-                description: `${defaultType === "service" ? "Service" : "Product"} created successfully.`,
-            });
-            setOpen(false);
-            form.reset({ ...form.getValues(), name: "", description: "", price: "0.00" });
-        } catch (error: any) {
-            console.error("Failed to create product:", error);
-            toast({
-                title: "Creation Failed",
-                description: error.message || "An unexpected error occurred.",
-                variant: "destructive",
-            });
-        }
-    };
+  const [selectedTaxTypeId, setSelectedTaxTypeId] = useState<
+    string | undefined
+  >(undefined);
 
-    const isTracked = form.watch("isTracked");
-    const isService = defaultType === "service";
+  // Sync with default value or tax types load
+  useEffect(() => {
+    if (taxTypes.data && !selectedTaxTypeId && open) {
+      const defaultType = taxTypes.data?.find(
+        (t: any) => t.rate === form.getValues("taxRate"),
+      );
+      if (defaultType) setSelectedTaxTypeId(defaultType.id.toString());
+    }
+  }, [taxTypes.data, open]);
 
-    const [selectedTaxTypeId, setSelectedTaxTypeId] = useState<string | undefined>(undefined);
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(val) => {
+        setOpen(val);
+        if (!val) setSelectedTaxTypeId(undefined);
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button className="gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white shadow-lg shadow-indigo-500/20 rounded-xl transition-all duration-300 hover:-translate-y-0.5">
+          <Plus className="w-4 h-4" />
+          {triggerLabel}
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl">
+        <DialogHeader>
+          <DialogTitle className="text-2xl font-display font-bold text-slate-900">
+            Add New {isService ? "Service" : "Product"}
+          </DialogTitle>
+          <DialogDescription>
+            Create a {isService ? "service offering" : "physical product"} to
+            add to your invoices.
+          </DialogDescription>
+        </DialogHeader>
 
-    // Sync with default value or tax types load
-    useEffect(() => {
-        if (taxTypes.data && !selectedTaxTypeId && open) {
-            const defaultType = taxTypes.data?.find((t: any) => t.rate === form.getValues("taxRate"));
-            if (defaultType) setSelectedTaxTypeId(defaultType.id.toString());
-        }
-    }, [taxTypes.data, open]);
+        <Form {...form}>
+          <form
+            onSubmit={form.handleSubmit(onSubmit)}
+            className="space-y-5 py-4"
+          >
+            <FormField
+              control={form.control}
+              name="name"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-slate-700 font-semibold">
+                    {isService ? "Service Name" : "Product Name"}
+                  </FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder={
+                        isService ? "e.g. Consulting, Labor" : "e.g. Widget X"
+                      }
+                      {...field}
+                      className="rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-primary/20"
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
-    return (
-        <Dialog open={open} onOpenChange={(val) => {
-            setOpen(val);
-            if (!val) setSelectedTaxTypeId(undefined);
-        }}>
-            <DialogTrigger asChild>
-                <Button className="gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white shadow-lg shadow-indigo-500/20 rounded-xl transition-all duration-300 hover:-translate-y-0.5">
-                    <Plus className="w-4 h-4" />
-                    {triggerLabel}
-                </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl">
-                <DialogHeader>
-                    <DialogTitle className="text-2xl font-display font-bold text-slate-900">Add New {isService ? "Service" : "Product"}</DialogTitle>
-                    <DialogDescription>
-                        Create a {isService ? "service offering" : "physical product"} to add to your invoices.
-                    </DialogDescription>
-                </DialogHeader>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <FormField
+                control={form.control}
+                name="imageUrl"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-slate-700 font-semibold uppercase text-[10px] tracking-widest">
+                      Product Image
+                    </FormLabel>
+                    <FormControl>
+                      <ImageUpload
+                        value={field.value || ""}
+                        onChange={field.onChange}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-                <Form {...form}>
-                    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5 py-4">
-                        <FormField
-                            control={form.control}
-                            name="name"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel className="text-slate-700 font-semibold">{isService ? "Service Name" : "Product Name"}</FormLabel>
-                                    <FormControl>
-                                        <Input placeholder={isService ? "e.g. Consulting, Labor" : "e.g. Widget X"} {...field} className="rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-primary/20" />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
+              <FormField
+                control={form.control}
+                name="category"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-slate-700 font-semibold uppercase text-[10px] tracking-widest">
+                      Category
+                    </FormLabel>
+                    <Select
+                      onValueChange={field.onChange}
+                      defaultValue={field.value || undefined}
+                      value={field.value || undefined}
+                    >
+                      <FormControl>
+                        <SelectTrigger className="rounded-xl bg-slate-50 border-slate-200 focus:ring-primary/20">
+                          <SelectValue placeholder="Select Category" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent className="rounded-xl shadow-xl">
+                        {categories?.map((cat: any) => (
+                          <SelectItem key={cat.id} value={cat.name}>
+                            {cat.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <FormField
+              control={form.control}
+              name="ownerGroup"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-slate-700 font-semibold">
+                    Cost Center
+                  </FormLabel>
+                  {existingOwnerGroups.length > 0 && (
+                    <div className="flex flex-wrap gap-2 pt-2">
+                      <Button
+                        type="button"
+                        variant={!field.value ? "default" : "outline"}
+                        size="sm"
+                        className={
+                          !field.value
+                            ? "h-7 rounded-full px-3 text-[10px] font-black bg-slate-900 text-white"
+                            : "h-7 rounded-full px-3 text-[10px] font-bold border-slate-200"
+                        }
+                        onClick={() =>
+                          form.setValue("ownerGroup", "", { shouldDirty: true })
+                        }
+                      >
+                        No Cost Center
+                      </Button>
+                      {existingOwnerGroups.map((group) => (
+                        <Button
+                          key={group}
+                          type="button"
+                          variant={
+                            field.value === group ? "default" : "outline"
+                          }
+                          size="sm"
+                          className={
+                            field.value === group
+                              ? "h-7 rounded-full px-3 text-[10px] font-black bg-indigo-600 text-white hover:bg-indigo-700"
+                              : "h-7 rounded-full px-3 text-[10px] font-bold border-slate-200"
+                          }
+                          onClick={() =>
+                            form.setValue("ownerGroup", group, {
+                              shouldDirty: true,
+                            })
+                          }
+                        >
+                          {group}
+                        </Button>
+                      ))}
+                    </div>
+                  )}
+                  {existingOwnerGroups.length === 0 && (
+                    <FormControl>
+                      <Input
+                        placeholder="Create the first cost center"
+                        value={field.value || ""}
+                        onChange={field.onChange}
+                        className="rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-primary/20"
+                      />
+                    </FormControl>
+                  )}
+                  <FormDescription>
+                    Optional. Used to separate reporting by owner/group.
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            {/* Recipe / source deduction flags */}
+            {!isService && (
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <FormField
+                  control={form.control}
+                  name="isIngredient"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-center justify-between rounded-xl border border-dashed border-amber-200 p-3 bg-amber-50/30">
+                      <div className="space-y-0.5">
+                        <FormLabel className="text-xs font-bold text-amber-900">
+                          Ingredient / Source Stock
+                        </FormLabel>
+                        <FormDescription className="text-[10px]">
+                          Can be used in recipes, bundles, or meat cuts
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value || false}
+                          onCheckedChange={field.onChange}
                         />
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <FormField
-                                control={form.control}
-                                name="imageUrl"
-                                render={({ field }) => (
-                                    <FormItem>
-                                        <FormLabel className="text-slate-700 font-semibold uppercase text-[10px] tracking-widest">Product Image</FormLabel>
-                                        <FormControl>
-                                            <ImageUpload 
-                                                value={field.value || ""} 
-                                                onChange={field.onChange} 
-                                            />
-                                        </FormControl>
-                                        <FormMessage />
-                                    </FormItem>
-                                )}
-                            />
-
-                            <FormField
-                                control={form.control}
-                                name="category"
-                                render={({ field }) => (
-                                    <FormItem>
-                                        <FormLabel className="text-slate-700 font-semibold uppercase text-[10px] tracking-widest">Category</FormLabel>
-                                        <Select
-                                            onValueChange={field.onChange}
-                                            defaultValue={field.value || undefined}
-                                            value={field.value || undefined}
-                                        >
-                                            <FormControl>
-                                                <SelectTrigger className="rounded-xl bg-slate-50 border-slate-200 focus:ring-primary/20">
-                                                    <SelectValue placeholder="Select Category" />
-                                                </SelectTrigger>
-                                            </FormControl>
-                                            <SelectContent className="rounded-xl shadow-xl">
-                                                {categories?.map((cat: any) => (
-                                                    <SelectItem key={cat.id} value={cat.name}>
-                                                        {cat.name}
-                                                    </SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
-                                        <FormMessage />
-                                    </FormItem>
-                                )}
-                            />
-                        </div>
-
-                        <FormField
-                            control={form.control}
-                            name="ownerGroup"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel className="text-slate-700 font-semibold">Cost Center</FormLabel>
-                                    {existingOwnerGroups.length > 0 && (
-                                        <div className="flex flex-wrap gap-2 pt-2">
-                                            <Button
-                                                type="button"
-                                                variant={!field.value ? "default" : "outline"}
-                                                size="sm"
-                                                className={!field.value
-                                                    ? "h-7 rounded-full px-3 text-[10px] font-black bg-slate-900 text-white"
-                                                    : "h-7 rounded-full px-3 text-[10px] font-bold border-slate-200"}
-                                                onClick={() => form.setValue("ownerGroup", "", { shouldDirty: true })}
-                                            >
-                                                No Cost Center
-                                            </Button>
-                                            {existingOwnerGroups.map((group) => (
-                                                <Button
-                                                    key={group}
-                                                    type="button"
-                                                    variant={field.value === group ? "default" : "outline"}
-                                                    size="sm"
-                                                    className={field.value === group
-                                                        ? "h-7 rounded-full px-3 text-[10px] font-black bg-indigo-600 text-white hover:bg-indigo-700"
-                                                        : "h-7 rounded-full px-3 text-[10px] font-bold border-slate-200"}
-                                                    onClick={() => form.setValue("ownerGroup", group, { shouldDirty: true })}
-                                                >
-                                                    {group}
-                                                </Button>
-                                            ))}
-                                        </div>
-                                    )}
-                                    {existingOwnerGroups.length === 0 && (
-                                        <FormControl>
-                                            <Input
-                                                placeholder="Create the first cost center"
-                                                value={field.value || ""}
-                                                onChange={field.onChange}
-                                                className="rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-primary/20"
-                                            />
-                                        </FormControl>
-                                    )}
-                                    <FormDescription>Optional. Used to separate reporting by owner/group.</FormDescription>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="hasRecipe"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-center justify-between rounded-xl border border-dashed border-indigo-200 p-3 bg-indigo-50/30">
+                      <div className="space-y-0.5">
+                        <FormLabel className="text-xs font-bold text-indigo-900">
+                          Has Recipe / BOM
+                        </FormLabel>
+                        <FormDescription className="text-[10px]">
+                          Deduct ingredients or source stock when sold
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value || false}
+                          onCheckedChange={field.onChange}
                         />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+              </div>
+            )}
 
-                        {/* Recipe / source deduction flags */}
-                        {!isService && (
-                            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                                <FormField
-                                    control={form.control}
-                                    name="isIngredient"
-                                    render={({ field }) => (
-                                        <FormItem className="flex flex-row items-center justify-between rounded-xl border border-dashed border-amber-200 p-3 bg-amber-50/30">
-                                            <div className="space-y-0.5">
-                                                <FormLabel className="text-xs font-bold text-amber-900">Ingredient / Source Stock</FormLabel>
-                                                <FormDescription className="text-[10px]">Can be used in recipes, bundles, or meat cuts</FormDescription>
-                                            </div>
-                                            <FormControl>
-                                                <Switch
-                                                    checked={field.value || false}
-                                                    onCheckedChange={field.onChange}
-                                                />
-                                            </FormControl>
-                                        </FormItem>
-                                    )}
-                                />
-                                <FormField
-                                    control={form.control}
-                                    name="hasRecipe"
-                                    render={({ field }) => (
-                                        <FormItem className="flex flex-row items-center justify-between rounded-xl border border-dashed border-indigo-200 p-3 bg-indigo-50/30">
-                                            <div className="space-y-0.5">
-                                                <FormLabel className="text-xs font-bold text-indigo-900">Has Recipe / BOM</FormLabel>
-                                                <FormDescription className="text-[10px]">Deduct ingredients or source stock when sold</FormDescription>
-                                            </div>
-                                            <FormControl>
-                                                <Switch
-                                                    checked={field.value || false}
-                                                    onCheckedChange={field.onChange}
-                                                />
-                                            </FormControl>
-                                        </FormItem>
-                                    )}
-                                />
-                            </div>
-                        )}
+            <FormField
+              control={form.control}
+              name="description"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-slate-700 font-semibold">
+                    Description
+                  </FormLabel>
+                  <FormControl>
+                    <Textarea
+                      placeholder="Details..."
+                      className="resize-none h-20 rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-primary/20"
+                      value={field.value || ""}
+                      onChange={field.onChange}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
-                        <FormField
-                            control={form.control}
-                            name="description"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel className="text-slate-700 font-semibold">Description</FormLabel>
-                                    <FormControl>
-                                        <Textarea placeholder="Details..." className="resize-none h-20 rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-primary/20" value={field.value || ""} onChange={field.onChange} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
+            {!isService && (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-5 space-y-4">
+                <h4 className=" font-bold text-slate-800">Product Details</h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="brandName"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-slate-700 font-semibold">
+                          Brand / Manufacturer
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder="e.g. Samsung, Dairibord, Willard"
+                            value={field.value || ""}
+                            onChange={field.onChange}
+                            className="rounded-xl bg-white border-slate-200"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="oemPartNumber"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-slate-700 font-semibold">
+                          Item / Model Code
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder="Internal, model, or manufacturer code"
+                            value={field.value || ""}
+                            onChange={field.onChange}
+                            className="rounded-xl bg-white border-slate-200 font-mono"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="supplierPartNumber"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-slate-700 font-semibold">
+                          Supplier Code
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder="Supplier SKU, catalogue code, or reference"
+                            value={field.value || ""}
+                            onChange={field.onChange}
+                            className="rounded-xl bg-white border-slate-200 font-mono"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+                <FormField
+                  control={form.control}
+                  name="fitmentNotes"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-slate-700 font-semibold">
+                        Compatibility / Usage Notes
+                      </FormLabel>
+                      <FormControl>
+                        <Textarea
+                          placeholder="e.g. compatible models, sizes, ingredients, pack details, or usage notes"
+                          value={field.value || ""}
+                          onChange={field.onChange}
+                          className="resize-none rounded-xl bg-white border-slate-200"
                         />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="serialTrackingEnabled"
+                    render={({ field }) => (
+                      <FormItem className="flex items-center justify-between rounded-xl bg-white border border-slate-200 p-3">
+                        <FormLabel className="text-xs font-bold text-slate-700">
+                          Serial / Batch Tracking
+                        </FormLabel>
+                        <FormControl>
+                          <Switch
+                            checked={!!field.value}
+                            onCheckedChange={field.onChange}
+                          />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="warrantyTrackingEnabled"
+                    render={({ field }) => (
+                      <FormItem className="flex items-center justify-between rounded-xl bg-white border border-slate-200 p-3">
+                        <FormLabel className="text-xs font-bold text-slate-700">
+                          Warranty Tracking
+                        </FormLabel>
+                        <FormControl>
+                          <Switch
+                            checked={!!field.value}
+                            onCheckedChange={field.onChange}
+                          />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="warrantyMonths"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-slate-700 font-semibold">
+                          Warranty Period (Months)
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            min="0"
+                            value={field.value || 0}
+                            onChange={(event) =>
+                              field.onChange(Number(event.target.value || 0))
+                            }
+                            className="rounded-xl bg-white border-slate-200"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </div>
+            )}
 
-                        {!isService && (
-                            <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-5 space-y-4">
-                                <h4 className="text-sm font-bold text-slate-800">Product Details</h4>
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                    <FormField
-                                        control={form.control}
-                                        name="brandName"
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel className="text-slate-700 font-semibold">Brand / Manufacturer</FormLabel>
-                                                <FormControl>
-                                                    <Input placeholder="e.g. Samsung, Dairibord, Willard" value={field.value || ""} onChange={field.onChange} className="rounded-xl bg-white border-slate-200" />
-                                                </FormControl>
-                                                <FormMessage />
-                                            </FormItem>
-                                        )}
-                                    />
-                                    <FormField
-                                        control={form.control}
-                                        name="oemPartNumber"
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel className="text-slate-700 font-semibold">Item / Model Code</FormLabel>
-                                                <FormControl>
-                                                    <Input placeholder="Internal, model, or manufacturer code" value={field.value || ""} onChange={field.onChange} className="rounded-xl bg-white border-slate-200 font-mono" />
-                                                </FormControl>
-                                                <FormMessage />
-                                            </FormItem>
-                                        )}
-                                    />
-                                    <FormField
-                                        control={form.control}
-                                        name="supplierPartNumber"
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel className="text-slate-700 font-semibold">Supplier Code</FormLabel>
-                                                <FormControl>
-                                                    <Input placeholder="Supplier SKU, catalogue code, or reference" value={field.value || ""} onChange={field.onChange} className="rounded-xl bg-white border-slate-200 font-mono" />
-                                                </FormControl>
-                                                <FormMessage />
-                                            </FormItem>
-                                        )}
-                                    />
-                                </div>
-                                <FormField
-                                    control={form.control}
-                                    name="fitmentNotes"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel className="text-slate-700 font-semibold">Compatibility / Usage Notes</FormLabel>
-                                            <FormControl>
-                                                <Textarea placeholder="e.g. compatible models, sizes, ingredients, pack details, or usage notes" value={field.value || ""} onChange={field.onChange} className="resize-none rounded-xl bg-white border-slate-200" />
-                                            </FormControl>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                    <FormField
-                                        control={form.control}
-                                        name="serialTrackingEnabled"
-                                        render={({ field }) => (
-                                            <FormItem className="flex items-center justify-between rounded-xl bg-white border border-slate-200 p-3">
-                                                <FormLabel className="text-xs font-bold text-slate-700">Serial / Batch Tracking</FormLabel>
-                                                <FormControl>
-                                                    <Switch checked={!!field.value} onCheckedChange={field.onChange} />
-                                                </FormControl>
-                                            </FormItem>
-                                        )}
-                                    />
-                                    <FormField
-                                        control={form.control}
-                                        name="warrantyTrackingEnabled"
-                                        render={({ field }) => (
-                                            <FormItem className="flex items-center justify-between rounded-xl bg-white border border-slate-200 p-3">
-                                                <FormLabel className="text-xs font-bold text-slate-700">Warranty Tracking</FormLabel>
-                                                <FormControl>
-                                                    <Switch checked={!!field.value} onCheckedChange={field.onChange} />
-                                                </FormControl>
-                                            </FormItem>
-                                        )}
-                                    />
-                                    <FormField
-                                        control={form.control}
-                                        name="warrantyMonths"
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel className="text-slate-700 font-semibold">Warranty Period (Months)</FormLabel>
-                                                <FormControl>
-                                                    <Input type="number" min="0" value={field.value || 0} onChange={(event) => field.onChange(Number(event.target.value || 0))} className="rounded-xl bg-white border-slate-200" />
-                                                </FormControl>
-                                                <FormMessage />
-                                            </FormItem>
-                                        )}
-                                    />
-                                </div>
-                            </div>
-                        )}
+            {/* Tax Configuration Section */}
+            <div className="rounded-2xl bg-blue-50/50 p-5 border border-blue-100 space-y-4">
+              <h4 className=" font-bold text-blue-900 flex items-center gap-2">
+                <span className="w-1.5 h-4 bg-blue-500 rounded-full"></span>
+                Tax Configuration
+              </h4>
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="taxRate"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs uppercase tracking-wide text-blue-700 font-semibold">
+                        ZIMRA Tax Type
+                      </FormLabel>
+                      <Select
+                        onValueChange={(val) => {
+                          setSelectedTaxTypeId(val);
+                          const selectedType = taxTypes.data?.find(
+                            (t: any) => t.id.toString() === val,
+                          );
+                          if (selectedType) {
+                            field.onChange(selectedType.rate);
+                            form.setValue("taxTypeId", selectedType.id);
+                            form.setValue("taxCategoryId", null);
+                          }
+                        }}
+                        value={selectedTaxTypeId}
+                      >
+                        <FormControl>
+                          <SelectTrigger className="rounded-xl bg-white border-blue-200 focus:ring-blue-500/20 text-slate-700">
+                            <SelectValue placeholder="Select Tax Type" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent className="rounded-xl shadow-xl">
+                          {taxTypes.data?.map((t: any) => (
+                            <SelectItem key={t.id} value={t.id.toString()}>
+                              {t.name} ({t.rate}%)
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="hsCode"
+                  render={({ field }) => (
+                    <div className="space-y-3">
+                      <FormItem>
+                        <FormLabel className="text-xs uppercase tracking-wide text-blue-700 font-semibold">
+                          HS Code
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder="8-digit HS code"
+                            inputMode="numeric"
+                            maxLength={8}
+                            className="rounded-xl bg-white border-blue-200 focus-visible:ring-blue-500/20 font-mono "
+                            value={(field.value || "")
+                              .replace(/\D/g, "")
+                              .slice(0, 8)}
+                            onChange={(event) =>
+                              field.onChange(
+                                event.target.value
+                                  .replace(/\D/g, "")
+                                  .slice(0, 8),
+                              )
+                            }
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                      <HsCodeAssistant
+                        initialQuery={[
+                          form.watch("name"),
+                          form.watch("category"),
+                          form.watch("description"),
+                        ]
+                          .filter(Boolean)
+                          .join(" ")}
+                        onSelect={(code) =>
+                          form.setValue("hsCode", code, {
+                            shouldDirty: true,
+                            shouldValidate: true,
+                          })
+                        }
+                      />
+                    </div>
+                  )}
+                />
+              </div>
+            </div>
 
-                        {/* Tax Configuration Section */}
-                        <div className="rounded-2xl bg-blue-50/50 p-5 border border-blue-100 space-y-4">
-                            <h4 className="text-sm font-bold text-blue-900 flex items-center gap-2">
-                                <span className="w-1.5 h-4 bg-blue-500 rounded-full"></span>
-                                Tax Configuration
-                            </h4>
-                            <div className="grid grid-cols-2 gap-4">
-                                <FormField
-                                    control={form.control}
-                                    name="taxRate"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel className="text-xs uppercase tracking-wide text-blue-700 font-semibold">ZIMRA Tax Type</FormLabel>
-                                            <Select
-                                                onValueChange={(val) => {
-                                                    setSelectedTaxTypeId(val);
-                                                    const selectedType = taxTypes.data?.find((t: any) => t.id.toString() === val);
-                                                    if (selectedType) {
-                                                        field.onChange(selectedType.rate);
-                                                        form.setValue("taxTypeId", selectedType.id);
-                                                        form.setValue("taxCategoryId", null);
-                                                    }
-                                                }}
-                                                value={selectedTaxTypeId}
-                                            >
-                                                <FormControl>
-                                                    <SelectTrigger className="rounded-xl bg-white border-blue-200 focus:ring-blue-500/20 text-slate-700">
-                                                        <SelectValue placeholder="Select Tax Type" />
-                                                    </SelectTrigger>
-                                                </FormControl>
-                                                <SelectContent className="rounded-xl shadow-xl">
-                                                    {taxTypes.data?.map((t: any) => (
-                                                        <SelectItem key={t.id} value={t.id.toString()}>
-                                                            {t.name} ({t.rate}%)
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
-                                <FormField
-                                    control={form.control}
-                                    name="hsCode"
-                                    render={({ field }) => (
-                                        <div className="space-y-3">
-                                            <FormItem>
-                                                <FormLabel className="text-xs uppercase tracking-wide text-blue-700 font-semibold">HS Code</FormLabel>
-                                                <FormControl>
-                                                    <Input
-                                                        placeholder="8-digit HS code"
-                                                        inputMode="numeric"
-                                                        maxLength={8}
-                                                        className="rounded-xl bg-white border-blue-200 focus-visible:ring-blue-500/20 font-mono text-sm"
-                                                        value={(field.value || "").replace(/\D/g, "").slice(0, 8)}
-                                                        onChange={(event) => field.onChange(event.target.value.replace(/\D/g, "").slice(0, 8))}
-                                                    />
-                                                </FormControl>
-                                                <FormMessage />
-                                            </FormItem>
-                                            <HsCodeAssistant
-                                                initialQuery={[form.watch("name"), form.watch("category"), form.watch("description")].filter(Boolean).join(" ")}
-                                                onSelect={(code) => form.setValue("hsCode", code, { shouldDirty: true, shouldValidate: true })}
-                                            />
-                                        </div>
-                                    )}
-                                />
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-3 gap-4">
-                            <FormField
-                                control={form.control}
-                                name="price"
-                                render={({ field }) => (
-                                    <FormItem>
-                                        <FormLabel className="text-slate-700 font-semibold">Selling Price ($)</FormLabel>
-                                        <FormControl>
-                                            <Input type="number" step="0.01" min="0" {...field} className="rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-primary/20 font-mono" />
-                                        </FormControl>
-                                        <FormMessage />
-                                    </FormItem>
-                                )}
-                            />
-                            <FormField
-                                control={form.control}
-                                name="sku"
-                                render={({ field }) => (
-                                    <FormItem>
-                                        <FormLabel className="text-slate-700 font-semibold">SKU / Code <span className="text-red-500">*</span></FormLabel>
-                                        <FormControl>
-                                            <Input placeholder="Required" value={field.value || ""} onChange={field.onChange} className="rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-primary/20 font-mono" />
-                                        </FormControl>
-                                        <FormMessage />
-                                    </FormItem>
-                                )}
-                            />
-                            {!isService && (
-                                <FormField
-                                    control={form.control}
-                                    name="barcode"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel className="text-slate-700 font-semibold">Barcode</FormLabel>
-                                            <FormControl>
-                                                <Input placeholder="Optional" value={field.value || ""} onChange={field.onChange} className="rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-primary/20 font-mono" />
-                                            </FormControl>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
-                            )}
-                        </div>
-
-                        <FormField
-                            control={form.control}
-                            name={"unitOfMeasure" as any}
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel className="text-slate-700 font-semibold">Unit of Measure</FormLabel>
-                                    <Select onValueChange={field.onChange} value={field.value || ""}>
-                                        <FormControl>
-                                            <SelectTrigger className="rounded-xl bg-slate-50 border-slate-200 focus:ring-primary/20">
-                                                <SelectValue placeholder="Select unit (optional)" />
-                                            </SelectTrigger>
-                                        </FormControl>
-                                        <SelectContent className="rounded-xl shadow-xl">
-                                            {["pcs", "kg", "g", "mg", "L", "mL", "m", "cm", "mm", "box", "pack", "pair", "set", "dozen", "bag", "roll", "sheet", "tin", "bottle", "each"].map(u => (
-                                                <SelectItem key={u} value={u}>{u}</SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
+            <div className="grid grid-cols-3 gap-4">
+              <FormField
+                control={form.control}
+                name="price"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-slate-700 font-semibold">
+                      Selling Price ($)
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        {...field}
+                        className="rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-primary/20 font-mono"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="sku"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-slate-700 font-semibold">
+                      SKU / Code <span className="text-red-500">*</span>
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="Required"
+                        value={field.value || ""}
+                        onChange={field.onChange}
+                        className="rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-primary/20 font-mono"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              {!isService && (
+                <FormField
+                  control={form.control}
+                  name="barcode"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-slate-700 font-semibold">
+                        Barcode
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="Optional"
+                          value={field.value || ""}
+                          onChange={field.onChange}
+                          className="rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-primary/20 font-mono"
                         />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
+            </div>
 
-                        {!isService && (
-                            <div className="border border-slate-200 rounded-2xl p-5 space-y-4 bg-slate-50/50">
-                                <FormField
-                                    control={form.control}
-                                    name="isTracked"
-                                    render={({ field }) => (
-                                        <FormItem className="flex flex-row items-center justify-between rounded-xl border border-slate-200 p-4 shadow-sm bg-white">
-                                            <div className="space-y-0.5">
-                                                <FormLabel className="text-base font-semibold text-slate-700">Track Inventory</FormLabel>
-                                                <FormDescription>
-                                                    Enable stock tracking for this item
-                                                </FormDescription>
-                                            </div>
-                                            <FormControl>
-                                                <Switch
-                                                    checked={field.value || false}
-                                                    onCheckedChange={field.onChange}
-                                                />
-                                            </FormControl>
-                                        </FormItem>
-                                    )}
-                                />
+            <FormField
+              control={form.control}
+              name={"unitOfMeasure" as any}
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-slate-700 font-semibold">
+                    Unit of Measure
+                  </FormLabel>
+                  <Select
+                    onValueChange={field.onChange}
+                    value={field.value || ""}
+                  >
+                    <FormControl>
+                      <SelectTrigger className="rounded-xl bg-slate-50 border-slate-200 focus:ring-primary/20">
+                        <SelectValue placeholder="Select unit (optional)" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent className="rounded-xl shadow-xl">
+                      {[
+                        "pcs",
+                        "kg",
+                        "g",
+                        "mg",
+                        "L",
+                        "mL",
+                        "m",
+                        "cm",
+                        "mm",
+                        "box",
+                        "pack",
+                        "pair",
+                        "set",
+                        "dozen",
+                        "bag",
+                        "roll",
+                        "sheet",
+                        "tin",
+                        "bottle",
+                        "each",
+                      ].map((u) => (
+                        <SelectItem key={u} value={u}>
+                          {u}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
-                                {isTracked && (
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <FormField
-                                            control={form.control}
-                                            name="stockLevel"
-                                            render={({ field }) => (
-                                                <FormItem>
-                                                    <FormLabel className="text-slate-700 font-semibold">Current Stock</FormLabel>
-                                                    <FormControl>
-                                                        <Input type="number" {...field} value={field.value || "0"} className="rounded-xl bg-white border-slate-200 focus-visible:ring-primary/20" />
-                                                    </FormControl>
-                                                    <FormMessage />
-                                                </FormItem>
-                                            )}
-                                        />
-                                        <FormField
-                                            control={form.control}
-                                            name="lowStockThreshold"
-                                            render={({ field }) => (
-                                                <FormItem>
-                                                    <FormLabel className="text-slate-700 font-semibold">Low Stock Alert</FormLabel>
-                                                    <FormControl>
-                                                        <Input type="number" {...field} value={field.value || "10"} className="rounded-xl bg-white border-slate-200 focus-visible:ring-primary/20" />
-                                                    </FormControl>
-                                                    <FormMessage />
-                                                </FormItem>
-                                            )}
-                                        />
-                                    </div>
-                                )}
-                            </div>
-                        )}
+            {!isService && (
+              <div className="border border-slate-200 rounded-2xl p-5 space-y-4 bg-slate-50/50">
+                <FormField
+                  control={form.control}
+                  name="isTracked"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-center justify-between rounded-xl border border-slate-200 p-4 shadow-sm bg-white">
+                      <div className="space-y-0.5">
+                        <FormLabel className="text-base font-semibold text-slate-700">
+                          Track Inventory
+                        </FormLabel>
+                        <FormDescription>
+                          Enable stock tracking for this item
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value || false}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
 
-                        <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
-                            <Button type="button" variant="outline" onClick={() => setOpen(false)} className="rounded-xl border-slate-200 text-slate-600 hover:text-slate-900">
-                                Cancel
-                            </Button>
-                            <Button type="submit" disabled={createProduct.isPending} className="rounded-xl bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/20">
-                                {createProduct.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                                Save {isService ? "Service" : "Product"}
-                            </Button>
-                        </div>
-                    </form>
-                </Form>
-            </DialogContent>
-        </Dialog >
-    );
+                {isTracked && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <FormField
+                      control={form.control}
+                      name="stockLevel"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-slate-700 font-semibold">
+                            Current Stock
+                          </FormLabel>
+                          <FormControl>
+                            <Input
+                              type="number"
+                              {...field}
+                              value={field.value || "0"}
+                              className="rounded-xl bg-white border-slate-200 focus-visible:ring-primary/20"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="lowStockThreshold"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-slate-700 font-semibold">
+                            Low Stock Alert
+                          </FormLabel>
+                          <FormControl>
+                            <Input
+                              type="number"
+                              {...field}
+                              value={field.value || "10"}
+                              className="rounded-xl bg-white border-slate-200 focus-visible:ring-primary/20"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setOpen(false)}
+                className="rounded-xl border-slate-200 text-slate-600 hover:text-slate-900"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={createProduct.isPending}
+                className="rounded-xl bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/20"
+              >
+                {createProduct.isPending && (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                )}
+                Save {isService ? "Service" : "Product"}
+              </Button>
+            </div>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
+  );
 }

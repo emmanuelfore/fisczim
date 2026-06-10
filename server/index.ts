@@ -5,6 +5,7 @@ import { serveStatic } from "./static.js";
 import { createServer } from "http";
 import { setupSwagger } from "./swagger.js";
 import { startRecurringInvoiceWorker, startFiscalDayClosingWorker } from "./jobs.js";
+import { seedGlobalPayrollDefaults } from "./lib/payroll-seeding.js";
 
 import cors from "cors";
 import compression from "compression";
@@ -115,6 +116,7 @@ app.use((req, res, next) => {
 async function initializeApp() {
   // Setup application
   setupSwagger(app);
+  await seedGlobalPayrollDefaults();
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

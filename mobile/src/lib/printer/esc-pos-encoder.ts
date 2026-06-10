@@ -85,8 +85,7 @@ export class MobileTaggedEncoder {
   }
 
   qrcode(data: string, size: number = 6): this {
-    // Tagged format supports [QR] tag
-    this.buffer += `[C][QR]${data}\n`;
+    this.buffer += `[C]<qrcode size='${Math.max(4, size * 3)}'>${data}</qrcode>\n`;
     return this;
   }
 

@@ -162,6 +162,25 @@ export function useFiscalizeInvoice() {
       queryClient.invalidateQueries({ queryKey: [api.invoices.get.path] }); // Invalidate all invoice details
       queryClient.invalidateQueries({ queryKey: [api.invoices.list.path] });
 
+      if (err?.code === "ZIMRA_PREFLIGHT_FAILED") {
+        if (err.invoiceId) {
+          queryClient.invalidateQueries({ queryKey: [api.invoices.get.path, err.invoiceId] });
+        }
+        const count = Array.isArray(err.validationErrors)
+          ? err.validationErrors.length
+          : Array.isArray(err.issues)
+            ? err.issues.length
+            : 0;
+        toast({
+          title: "Preflight Checks Failed",
+          description: count > 0
+            ? `${count} issue(s) were saved on the invoice. Open the invoice, edit the highlighted data, then fiscalize again.`
+            : err.message || "Review the invoice details, edit the issue, then fiscalize again.",
+          variant: "destructive"
+        });
+        return;
+      }
+
       const zimraErr = getZimraErrorMessage(err.zimraErrorCode);
       toast({
         title: zimraErr.title,

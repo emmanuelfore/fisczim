@@ -91,6 +91,21 @@ type NavItem = {
 };
 
 import { useActiveCompany } from "@/hooks/use-active-company";
+import { usePermissions, usePendingApprovalsCount } from "@/hooks/use-permissions";
+
+function filterNavItems(items: NavItem[], canAccessPath: (href: string) => boolean): NavItem[] {
+  return items
+    .map((item) => {
+      if (item.children?.length) {
+        const children = filterNavItems(item.children as NavItem[], canAccessPath) as NavItem["children"];
+        if (!children?.length) return null;
+        return { ...item, children };
+      }
+      if (item.href && !canAccessPath(item.href)) return null;
+      return item;
+    })
+    .filter(Boolean) as NavItem[];
+}
 
 export function Layout({
   children,
@@ -477,6 +492,11 @@ export function Layout({
               label: "Cash Collection",
               href: "/reports/cash-collection",
             },
+            {
+              icon: Building2,
+              label: "Partnership Sales",
+              href: "/reports/partnership-sales",
+            },
           ],
         },
         {
@@ -590,6 +610,11 @@ export function Layout({
       ],
     },
     {
+      icon: ClipboardCheck,
+      label: "Approvals",
+      href: "/approvals",
+    },
+    {
       icon: Settings,
       label: "Settings",
       href: "/settings",
@@ -688,6 +713,8 @@ export function Layout({
       ? restaurantNavItems
       : posNavItems;
 
+  const { canAccessPath } = usePermissions();
+  const { data: pendingApprovalCount = 0 } = usePendingApprovalsCount();
   const isCashier = !user?.isSuperAdmin && activeRole === "cashier";
   const { data: pendingGdns = [] } = usePendingGdns(
     isCashier ? 0 : selectedCompanyId || 0,
@@ -722,7 +749,7 @@ export function Layout({
           href: "/pos/my-sales",
         },
       ]
-    : allNavItems;
+    : filterNavItems(allNavItems, canAccessPath);
 
   const immersiveRoutes = ["/pos", "/restaurant/kds", "/order-status"];
   const isImmersiveRoute = immersiveRoutes.some((route) =>
@@ -907,6 +934,21 @@ export function Layout({
           title: "Team Management",
           subtitle: "Manage users, roles, and business access.",
         };
+      if (search.includes("tab=roles"))
+        return {
+          title: "Role Management",
+          subtitle: "Define custom roles and permissions.",
+        };
+      if (search.includes("tab=approvals"))
+        return {
+          title: "Approval Policies",
+          subtitle: "Configure which actions need approval.",
+        };
+      if (search.includes("tab=partnerships"))
+        return {
+          title: "Partnerships",
+          subtitle: "Manage co-branded partners, logos, and revenue share rules.",
+        };
       if (search.includes("tab=branches"))
         return {
           title: "Cost Center Setup",
@@ -943,6 +985,16 @@ export function Layout({
       return {
         title: "Team Management",
         subtitle: "Manage users, roles, and business access.",
+      };
+    if (location.startsWith("/approvals"))
+      return {
+        title: pendingApprovalCount > 0 ? `Approvals (${pendingApprovalCount})` : "Approvals",
+        subtitle: "Review and approve sensitive business actions.",
+      };
+    if (location.startsWith("/reports/partnership-sales"))
+      return {
+        title: "Partnership Sales",
+        subtitle: "Review co-branded sales and revenue splits.",
       };
     if (location.startsWith("/superadmin-visibility"))
       return {
@@ -1202,7 +1254,7 @@ export function Layout({
       title: "Dashboard",
       subtitle: "Review business performance, alerts, and daily activity.",
     };
-  }, [location]);
+  }, [location, pendingApprovalCount]);
   const pageTitle = headerTitle || pageMeta.title;
   const pageSubtitle =
     headerSubtitle !== undefined ? headerSubtitle : pageMeta.subtitle;

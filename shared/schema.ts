@@ -113,6 +113,8 @@ export const companies = pgTable("companies", {
   restaurantSettings: jsonb("restaurant_settings"), // Stores floor plan layout etc.
   pharmacySettings: jsonb("pharmacy_settings"), // { enabled: boolean, licenseNo: string, etc }
   busSettings: jsonb("bus_settings"), // Controls bus-ticketing feature visibility for web and APK.
+  approvalSettings: jsonb("approval_settings"), // Company-level approval policy per action type
+  partnershipSettings: jsonb("partnership_settings"), // Dual-logo and partnership display settings
   appMode: text("app_mode").default("pos"), // pos, restaurant, bus_ticketing
   superadminVisible: boolean("superadmin_visible").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
@@ -258,18 +260,77 @@ export const inventoryLocationStocksRelations = relations(inventoryLocationStock
   product: one(products, { fields: [inventoryLocationStocks.productId], references: [products.id] }),
 }));
 
+// Company-scoped custom roles with granular permissions
+export const companyRoles = pgTable("company_roles", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  isSystem: boolean("is_system").default(false),
+  legacyRole: text("legacy_role"), // owner, admin, member, cashier
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  companyIdIdx: index("company_roles_company_id_idx").on(table.companyId),
+  companyNameUnique: unique("company_roles_company_name_unique").on(table.companyId, table.name),
+}));
+
+export const companyRolePermissions = pgTable("company_role_permissions", {
+  roleId: integer("role_id").references(() => companyRoles.id, { onDelete: "cascade" }).notNull(),
+  permission: text("permission").notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.roleId, table.permission] }),
+}));
+
+export const companyRolesRelations = relations(companyRoles, ({ one, many }) => ({
+  company: one(companies, { fields: [companyRoles.companyId], references: [companies.id] }),
+  permissions: many(companyRolePermissions),
+}));
+
+export const companyRolePermissionsRelations = relations(companyRolePermissions, ({ one }) => ({
+  role: one(companyRoles, { fields: [companyRolePermissions.roleId], references: [companyRoles.id] }),
+}));
+
+export const approvalRequests = pgTable("approval_requests", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  type: text("type").notNull(), // stock_adjustment, grn_confirm, journal_post, invoice_issue
+  status: text("status").default("pending").notNull(), // pending, approved, rejected, cancelled
+  title: text("title").notNull(),
+  description: text("description"),
+  payload: jsonb("payload").notNull(),
+  referenceType: text("reference_type"),
+  referenceId: text("reference_id"),
+  requestedBy: uuid("requested_by").references(() => users.id).notNull(),
+  reviewedBy: uuid("reviewed_by").references(() => users.id),
+  reviewedAt: timestamp("reviewed_at"),
+  reviewNotes: text("review_notes"),
+  resultData: jsonb("result_data"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  companyStatusIdx: index("approval_requests_company_status_idx").on(table.companyId, table.status),
+  typeIdx: index("approval_requests_type_idx").on(table.type),
+}));
+
+export const approvalRequestsRelations = relations(approvalRequests, ({ one }) => ({
+  company: one(companies, { fields: [approvalRequests.companyId], references: [companies.id] }),
+  requester: one(users, { fields: [approvalRequests.requestedBy], references: [users.id] }),
+  reviewer: one(users, { fields: [approvalRequests.reviewedBy], references: [users.id] }),
+}));
+
 // Join table for Users <-> Companies
 export const companyUsers = pgTable("company_users", {
   id: serial("id").primaryKey(),
   userId: uuid("user_id").references(() => users.id).notNull(),
   companyId: integer("company_id").references(() => companies.id).notNull(),
-  role: text("role").default("member"), // owner, admin, member
+  role: text("role").default("member"), // owner, admin, member, cashier (legacy)
   accessRoleId: integer("access_role_id").references(() => companyAccessRoles.id),
+  companyRoleId: integer("company_role_id").references(() => companyRoles.id),
 }, (table) => {
   return {
     userIdIdx: index("company_users_user_id_idx").on(table.userId),
     companyIdIdx: index("company_users_company_id_idx").on(table.companyId),
     accessRoleIdx: index("company_users_access_role_idx").on(table.accessRoleId),
+    companyRoleIdx: index("company_users_company_role_idx").on(table.companyRoleId),
   };
 });
 
@@ -277,6 +338,7 @@ export const companyUsersRelations = relations(companyUsers, ({ one }) => ({
   user: one(users, { fields: [companyUsers.userId], references: [users.id] }),
   company: one(companies, { fields: [companyUsers.companyId], references: [companies.id] }),
   accessRole: one(companyAccessRoles, { fields: [companyUsers.accessRoleId], references: [companyAccessRoles.id] }),
+  companyRole: one(companyRoles, { fields: [companyUsers.companyRoleId], references: [companyRoles.id] }),
 }));
 
 export const companyAccessRoles = pgTable("company_access_roles", {
@@ -484,6 +546,29 @@ export const insertProductCategorySchema = createInsertSchema(productCategories)
 export type ProductCategory = typeof productCategories.$inferSelect;
 export type InsertProductCategory = z.infer<typeof insertProductCategorySchema>;
 
+// Commercial partners for co-branded / revenue-sharing invoices
+export const companyPartners = pgTable("company_partners", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  name: text("name").notNull(),
+  tradingName: text("trading_name"),
+  logoUrl: text("logo_url"),
+  tin: text("tin"),
+  vatNumber: text("vat_number"),
+  displayLabel: text("display_label").default("In partnership with"),
+  defaultRevenueSharePercent: decimal("default_revenue_share_percent", { precision: 5, scale: 2 }).default("0"),
+  ownerGroupMatch: text("owner_group_match"),
+  isActive: boolean("is_active").default(true),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  companyIdIdx: index("company_partners_company_id_idx").on(table.companyId),
+}));
+
+export const companyPartnersRelations = relations(companyPartners, ({ one }) => ({
+  company: one(companies, { fields: [companyPartners.companyId], references: [companies.id] }),
+}));
+
 // Validation Errors
 export const validationErrors = pgTable("validation_errors", {
   id: serial("id").primaryKey(),
@@ -624,6 +709,13 @@ export const invoices = pgTable("invoices", {
   poNumber: text("po_number"),
   invoiceTemplate: text("invoice_template").default("modern"),
   isFiscalized: boolean("is_fiscalized").default(true),
+
+  // Partnership / co-branding
+  partnerId: integer("partner_id").references(() => companyPartners.id),
+  partnerSnapshot: jsonb("partner_snapshot"),
+  revenueSharePercent: decimal("revenue_share_percent", { precision: 5, scale: 2 }),
+  partnerShareAmount: decimal("partner_share_amount", { precision: 10, scale: 2 }),
+  issuerShareAmount: decimal("issuer_share_amount", { precision: 10, scale: 2 }),
 
   // Restaurant & Online Orders
   tableId: integer("table_id"), // Refers to restaurant_tables
@@ -877,6 +969,7 @@ export const invoicesRelations = relations(invoices, ({ one, many }) => ({
   company: one(companies, { fields: [invoices.companyId], references: [companies.id] }),
   branch: one(branches, { fields: [invoices.branchId], references: [branches.id] }),
   customer: one(customers, { fields: [invoices.customerId], references: [customers.id] }),
+  partner: one(companyPartners, { fields: [invoices.partnerId], references: [companyPartners.id] }),
   creator: one(users, { fields: [invoices.createdBy], references: [users.id] }),
   items: many(invoiceItems),
   payments: many(payments),
@@ -1303,6 +1396,46 @@ export const inventoryTransactionsRelations = relations(inventoryTransactions, (
   location: one(inventoryLocations, { fields: [inventoryTransactions.locationId], references: [inventoryLocations.id] }),
   product: one(products, { fields: [inventoryTransactions.productId], references: [products.id] }),
   supplier: one(suppliers, { fields: [inventoryTransactions.supplierId], references: [suppliers.id] }),
+}));
+
+export const inventoryCostComponents = pgTable("inventory_cost_components", {
+  id: serial("id").primaryKey(),
+  inventoryTransactionId: integer("inventory_transaction_id").references(() => inventoryTransactions.id).notNull(),
+  type: text("type").notNull(),
+  unitCost: decimal("unit_cost", { precision: 15, scale: 4 }).notNull(),
+  totalCost: decimal("total_cost", { precision: 15, scale: 2 }).notNull(),
+  currency: text("currency").default("USD"),
+  exchangeRate: decimal("exchange_rate", { precision: 15, scale: 6 }).default("1"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  transactionIdIdx: index("inv_cost_comp_trans_id_idx").on(table.inventoryTransactionId),
+}));
+
+export const landedCostDocuments = pgTable("landed_cost_documents", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  supplierId: integer("supplier_id").references(() => suppliers.id),
+  reference: text("reference").notNull(),
+  date: timestamp("date").defaultNow().notNull(),
+  totalAmount: decimal("total_amount", { precision: 15, scale: 2 }).notNull(),
+  currency: text("currency").default("USD").notNull(),
+  exchangeRate: decimal("exchange_rate", { precision: 15, scale: 6 }).default("1"),
+  status: text("status").default("PENDING").notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  companyIdIdx: index("landed_cost_doc_company_id_idx").on(table.companyId),
+}));
+
+export const landedCostAllocations = pgTable("landed_cost_allocations", {
+  id: serial("id").primaryKey(),
+  landedCostDocumentId: integer("landed_cost_document_id").references(() => landedCostDocuments.id).notNull(),
+  inventoryTransactionId: integer("inventory_transaction_id").references(() => inventoryTransactions.id).notNull(),
+  allocatedAmount: decimal("allocated_amount", { precision: 15, scale: 2 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  documentIdIdx: index("landed_cost_alloc_doc_id_idx").on(table.landedCostDocumentId),
+  transactionIdIdx: index("landed_cost_alloc_trans_id_idx").on(table.inventoryTransactionId),
 }));
 
 export const goodsDeliveryNotes = pgTable("goods_delivery_notes", {
@@ -2271,26 +2404,8 @@ export type CashbookEntryLine = typeof cashbookEntryLines.$inferSelect;
 export type InsertCashbookEntryLine = z.infer<typeof insertCashbookEntryLineSchema>;
 
 // ==========================================
-// APPROVALS, TAX OBLIGATIONS, MOBILE MONEY, AND REPORT SCHEDULING
+// TAX OBLIGATIONS, MOBILE MONEY, AND REPORT SCHEDULING
 // ==========================================
-export const approvalRequests = pgTable("approval_requests", {
-  id: serial("id").primaryKey(),
-  companyId: integer("company_id").references(() => companies.id).notNull(),
-  entityType: text("entity_type").notNull(),
-  entityId: text("entity_id").notNull(),
-  status: text("status").default("PENDING").notNull(),
-  thresholdAmount: decimal("threshold_amount", { precision: 15, scale: 2 }),
-  requestedBy: uuid("requested_by").references(() => users.id),
-  approvedBy: uuid("approved_by").references(() => users.id),
-  approvedAt: timestamp("approved_at"),
-  rejectedBy: uuid("rejected_by").references(() => users.id),
-  rejectedAt: timestamp("rejected_at"),
-  reason: text("reason"),
-  createdAt: timestamp("created_at").defaultNow(),
-}, (table) => ({
-  companyEntityIdx: index("approval_requests_company_entity_idx").on(table.companyId, table.entityType, table.entityId),
-  statusIdx: index("approval_requests_company_status_idx").on(table.companyId, table.status),
-}));
 
 export const taxObligations = pgTable("tax_obligations", {
   id: serial("id").primaryKey(),
@@ -3603,3 +3718,22 @@ export type InsertPayrollImportBatch = z.infer<typeof insertPayrollImportBatchSc
 export const insertPayrollImportRowSchema = createInsertSchema(payrollImportRows).omit({ id: true, createdAt: true });
 export type PayrollImportRow = typeof payrollImportRows.$inferSelect;
 export type InsertPayrollImportRow = z.infer<typeof insertPayrollImportRowSchema>;
+
+export const insertCompanyRoleSchema = createInsertSchema(companyRoles).omit({ id: true, createdAt: true });
+export type CompanyRole = typeof companyRoles.$inferSelect;
+export type InsertCompanyRole = z.infer<typeof insertCompanyRoleSchema>;
+
+export const insertApprovalRequestSchema = createInsertSchema(approvalRequests).omit({
+  id: true,
+  createdAt: true,
+  reviewedAt: true,
+  reviewedBy: true,
+  reviewNotes: true,
+  resultData: true,
+});
+export type ApprovalRequest = typeof approvalRequests.$inferSelect;
+export type InsertApprovalRequest = z.infer<typeof insertApprovalRequestSchema>;
+
+export const insertCompanyPartnerSchema = createInsertSchema(companyPartners).omit({ id: true, createdAt: true });
+export type CompanyPartner = typeof companyPartners.$inferSelect;
+export type InsertCompanyPartner = z.infer<typeof insertCompanyPartnerSchema>;

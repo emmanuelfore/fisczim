@@ -1,12 +1,15 @@
 
 import {
   users, companies, customers, products, invoices, invoiceItems, companyUsers,
+  companyRoles, companyRolePermissions, approvalRequests, companyPartners,
   type User, type InsertUser, type Company, type InsertCompany,
+  type CompanyRole, type InsertCompanyRole, type ApprovalRequest, type InsertApprovalRequest,
+  type CompanyPartner, type InsertCompanyPartner,
   type Customer, type Product, type Invoice, type InvoiceItem, type InsertInvoiceItem,
   type InsertCustomer, type InsertProduct, type CreateInvoiceRequest, type InsertInvoice,
   taxTypes, taxCategories, type TaxType, type TaxCategory, type InsertTaxCategory, type InsertTaxType,
   currencies, type Currency, type InsertCurrency,
-  payments, paymentAllocations, type Payment, type InsertPayment,
+  payments, type Payment, type InsertPayment,
   auditLogs, type AuditLog, type InsertAuditLog,
   recurringInvoices, type RecurringInvoice, type InsertRecurringInvoice,
   quotations, quotationItems, type Quotation, type QuotationItem, type InsertQuotation, type InsertQuotationItem,
@@ -34,11 +37,7 @@ import {
   type ProductVariation, type InsertProductVariation,
   type ProductBatch, type InsertProductBatch,
   priceAdjustments, type PriceAdjustment, type InsertPriceAdjustment,
-  accounts, accountingSegments, cashbookEntries, cashbookEntryLines, costCenters,
-  inventoryValuationSnapshots, withholdingTaxRates, withholdingTaxCertificates,
-  taxObligations, approvalRequests, mobileMoneyTransactions, scheduledReports,
-  provisions, revenueContracts,
-  journalEntries, ledgerEntries, journalEntryDrafts, journalEntryDraftLines,
+  accounts, journalEntries, ledgerEntries, journalEntryDrafts, journalEntryDraftLines,
   type Account, type JournalEntry, type LedgerEntry, type JournalEntryDraft,
   type InsertAccount, type InsertJournalEntry, type InsertLedgerEntry, type InsertJournalEntryDraft,
   financialPeriods, bankStatements, bankStatementLines,
@@ -82,6 +81,8 @@ const DEFAULT_ACCOUNTING_SYSTEM_ACCOUNTS = {
   fxGainAccountCode: "4900",
   fxLossAccountCode: "5900",
   withholdingTaxPayableCode: "2120",
+  grniAccountCode: "2010",
+  landedCostClearingAccountCode: "2020",
 } as const;
 
 type AccountingSystemAccountKey = keyof typeof DEFAULT_ACCOUNTING_SYSTEM_ACCOUNTS;
@@ -143,13 +144,6 @@ type LedgerPostLine = {
   debit?: string | number;
   credit?: string | number;
   branchId?: number;
-  costCenterId?: number;
-  costCenterCode?: string;
-  segmentId?: number;
-  segmentCode?: string;
-  vatTypeId?: number;
-  vatAmount?: string | number;
-  withholdingTaxAmount?: string | number;
   memo?: string;
 };
 
@@ -160,9 +154,6 @@ type LedgerPostData = {
   referenceType?: string;
   referenceId?: string;
   reference?: string;
-  journalType?: string;
-  status?: string;
-  approvalStatus?: string;
   createdBy?: string;
   lines: LedgerPostLine[];
 };
@@ -241,11 +232,40 @@ export interface IStorage {
   deleteCurrency(id: number): Promise<void>;
 
   // User Management
-  getCompanyUsers(companyId: number): Promise<(User & { role: string })[]>;
-  addCompanyUser(userId: string, companyId: number, role: string): Promise<void>;
+  getCompanyUsers(companyId: number): Promise<(User & { role: string; companyRoleId?: number | null; companyRoleName?: string | null })[]>;
+  addUserToCompany(userId: string, companyId: number, role: string, companyRoleId?: number): Promise<void>;
   updateUserRole(userId: string, companyId: number, role: string): Promise<void>;
-  removeCompanyUser(userId: string, companyId: number): Promise<void>;
+  assignUserCompanyRole(userId: string, companyId: number, companyRoleId: number | null): Promise<void>;
+  removeUserFromCompany(userId: string, companyId: number): Promise<void>;
   getCompanyUserRole(userId: string, companyId: number): Promise<string | undefined>;
+  getCompanyMembership(userId: string, companyId: number): Promise<{ legacyRole: string; companyRoleId: number | null } | undefined>;
+
+  // Roles & Permissions
+  seedDefaultRolesForCompany(companyId: number): Promise<void>;
+  getCompanyRoles(companyId: number): Promise<(CompanyRole & { permissions: string[] })[]>;
+  getCompanyRole(roleId: number, companyId: number): Promise<(CompanyRole & { permissions: string[] }) | undefined>;
+  createCompanyRole(companyId: number, data: { name: string; description?: string; permissions: string[] }): Promise<CompanyRole & { permissions: string[] }>;
+  updateCompanyRole(roleId: number, companyId: number, data: { name?: string; description?: string; permissions?: string[] }): Promise<CompanyRole & { permissions: string[] }>;
+  deleteCompanyRole(roleId: number, companyId: number): Promise<void>;
+  getRolePermissions(roleId: number): Promise<string[]>;
+
+  // Approvals
+  createApprovalRequest(data: InsertApprovalRequest): Promise<ApprovalRequest>;
+  getApprovalRequest(id: number, companyId: number): Promise<ApprovalRequest | undefined>;
+  getApprovalRequests(companyId: number, status?: string): Promise<(ApprovalRequest & { requesterName?: string; reviewerName?: string })[]>;
+  updateApprovalRequest(id: number, companyId: number, data: Partial<ApprovalRequest>): Promise<ApprovalRequest>;
+  getPendingApprovalCount(companyId: number): Promise<number>;
+
+  // Partnerships
+  getCompanyPartners(companyId: number, includeInactive?: boolean): Promise<CompanyPartner[]>;
+  getCompanyPartner(partnerId: number, companyId: number): Promise<CompanyPartner | undefined>;
+  createCompanyPartner(companyId: number, data: Partial<InsertCompanyPartner>): Promise<CompanyPartner>;
+  updateCompanyPartner(partnerId: number, companyId: number, data: Partial<InsertCompanyPartner>): Promise<CompanyPartner>;
+  deactivateCompanyPartner(partnerId: number, companyId: number): Promise<void>;
+  getReportPartnershipSales(companyId: number, startDate: Date, endDate: Date, partnerId?: number): Promise<{
+    summary: { partnerId: number | null; partnerName: string; invoiceCount: number; grossTotal: number; partnerShare: number; issuerShare: number }[];
+    invoices: any[];
+  }>;
 
   // Analytics
   getCompanyStats(companyId: number): Promise<{ totalRevenue: number; pendingAmount: number; invoicesCount: number; customersCount: number }>;
@@ -497,15 +517,7 @@ export interface IStorage {
   postJournalEntryDraft(companyId: number, draftId: number, userId?: string): Promise<JournalEntry>;
   getLedgerEntries(companyId: number, accountId?: number, dateFrom?: Date, dateTo?: Date): Promise<any[]>;
   getTrialBalance(companyId: number, date?: Date): Promise<any[]>;
-  getVatReturn(companyId: number, fromDate?: Date, toDate?: Date): Promise<{
-    outputVat: number;
-    inputVat: number;
-    netVat: number;
-    outputVatByCurrency: Record<string, number>;
-    inputVatByCurrency: Record<string, number>;
-    netVatByCurrency: Record<string, number>;
-    includedInvoiceCount: number;
-  }>;
+  getVatReturn(companyId: number, fromDate?: Date, toDate?: Date): Promise<{ outputVat: number; inputVat: number; netVat: number }>;
   postToLedger(companyId: number, entryData: LedgerPostData, tx?: any): Promise<JournalEntry>;
   
   // Bank Reconciliation
@@ -527,13 +539,8 @@ export class DatabaseStorage implements IStorage {
     accountId: number;
     accountCode: string;
     accountName: string;
-    costCenterId?: number | null;
-    segmentId?: number | null;
     type: "DEBIT" | "CREDIT";
     amount: number;
-    vatTypeId?: number | null;
-    vatAmount?: number;
-    withholdingTaxAmount?: number;
     memo?: string;
   }>> {
     const normalized = [];
@@ -558,35 +565,12 @@ export class DatabaseStorage implements IStorage {
         throw new Error(`Account ${identifier} not found for company ${companyId}`);
       }
 
-      let costCenterId = line.costCenterId ? Number(line.costCenterId) : null;
-      if (!costCenterId && line.costCenterCode) {
-        const [costCenter] = await tx
-          .select()
-          .from(costCenters)
-          .where(and(eq(costCenters.companyId, companyId), eq(costCenters.code, line.costCenterCode)));
-        costCenterId = costCenter?.id || null;
-      }
-
-      let segmentId = line.segmentId ? Number(line.segmentId) : null;
-      if (!segmentId && line.segmentCode) {
-        const [segment] = await tx
-          .select()
-          .from(accountingSegments)
-          .where(and(eq(accountingSegments.companyId, companyId), eq(accountingSegments.code, line.segmentCode)));
-        segmentId = segment?.id || null;
-      }
-
       normalized.push({
         accountId: account.id,
         accountCode: account.code,
         accountName: account.name,
-        costCenterId,
-        segmentId,
         type,
         amount,
-        vatTypeId: line.vatTypeId ? Number(line.vatTypeId) : null,
-        vatAmount: Number(line.vatAmount || 0),
-        withholdingTaxAmount: Number(line.withholdingTaxAmount || 0),
         memo: line.memo,
       });
     }
@@ -754,12 +738,17 @@ export class DatabaseStorage implements IStorage {
     console.log(`[STORAGE] getCompanies for user: ${userId}, email: ${user?.email}, isSuper: ${user?.isSuperAdmin}, isSystemAdmin: ${isSystemAdmin}`);
 
     if (user?.isSuperAdmin) {
-      const allCompanies = isSystemAdmin
-        ? await db.select().from(companies)
-        : await db
-            .select()
-            .from(companies)
-            .where(eq(companies.superadminVisible, true));
+      let allCompanies = await db.select().from(companies);
+      
+      // Only the system admin may see these restricted companies.
+      if (!isSystemAdmin) {
+        const systemAdminOnlyCompanies = new Set(['goosehill trading', 'glorious tire services', 'spares arena']);
+        allCompanies = allCompanies.filter(c => {
+          const companyName = (c.name || "").toLowerCase();
+          const tradingName = (c.tradingName || "").toLowerCase();
+          return !systemAdminOnlyCompanies.has(companyName) && !systemAdminOnlyCompanies.has(tradingName);
+        });
+      }
 
       console.log(`[STORAGE] Superuser ${userId} found ${allCompanies.length} accessible companies`);
       return allCompanies.map(c => ({ ...c, role: "owner" }));
@@ -1455,8 +1444,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createInvoice(data: CreateInvoiceRequest): Promise<Invoice> {
+    const { applyPartnershipToInvoiceData } = await import("./lib/partnerships.js");
+    const enriched = await applyPartnershipToInvoiceData(data);
+
     return await db.transaction(async (tx) => {
-      const { items, ...invoiceData } = data;
+      const { items, ...invoiceData } = enriched;
 
       if (!Array.isArray(items) || items.length === 0) {
         throw new Error("Cannot create an invoice without at least one line item.");
@@ -1504,7 +1496,7 @@ export class DatabaseStorage implements IStorage {
 
                 if (ingredient && ingredient.isTracked) {
                   if (invoiceData.transactionType !== 'CreditNote') {
-                    const ingredientCogs = await calculateCOGS(ingredient.id, ingredientQty, invoiceData.companyId, tx);
+                    const ingredientCogs = await calculateCOGS(ingredient.id, ingredientQty, invoiceData.companyId, invoiceData.branchId || null, tx);
                     totalRecipeCogs += (ingredientCogs || 0);
 
                     await tx.insert(inventoryTransactions).values({
@@ -1568,7 +1560,7 @@ export class DatabaseStorage implements IStorage {
 
               if (invoiceData.transactionType !== 'CreditNote') {
                 // Calculate and deduct for sales
-                cogsAmount = await calculateCOGS(item.productId, quantity, invoiceData.companyId, tx);
+                cogsAmount = await calculateCOGS(item.productId, quantity, invoiceData.companyId, invoiceData.branchId || null, tx);
 
                 // Record the STOCK_OUT transaction
                 await tx.insert(inventoryTransactions).values({
@@ -2159,24 +2151,33 @@ export class DatabaseStorage implements IStorage {
   }
 
   // User Management
-  async getCompanyUsers(companyId: number): Promise<(User & { role: string })[]> {
+  async getCompanyUsers(companyId: number): Promise<(User & { role: string; companyRoleId?: number | null; companyRoleName?: string | null })[]> {
     const result = await db
       .select({
         user: users,
-        role: companyUsers.role
+        role: companyUsers.role,
+        companyRoleId: companyUsers.companyRoleId,
+        companyRoleName: companyRoles.name,
       })
       .from(companyUsers)
       .innerJoin(users, eq(companyUsers.userId, users.id))
+      .leftJoin(companyRoles, eq(companyUsers.companyRoleId, companyRoles.id))
       .where(eq(companyUsers.companyId, companyId));
 
-    return result.map(({ user, role }) => ({ ...user, role: role || "member" }));
+    return result.map(({ user, role, companyRoleId, companyRoleName }) => ({
+      ...user,
+      role: role || "member",
+      companyRoleId,
+      companyRoleName,
+    }));
   }
 
-  async addUserToCompany(userId: string, companyId: number, role: string): Promise<void> {
+  async addUserToCompany(userId: string, companyId: number, role: string, companyRoleId?: number): Promise<void> {
     await db.insert(companyUsers).values({
       userId,
       companyId,
-      role
+      role,
+      companyRoleId: companyRoleId ?? null,
     });
   }
 
@@ -2184,6 +2185,13 @@ export class DatabaseStorage implements IStorage {
     await db
       .update(companyUsers)
       .set({ role })
+      .where(and(eq(companyUsers.userId, userId), eq(companyUsers.companyId, companyId)));
+  }
+
+  async assignUserCompanyRole(userId: string, companyId: number, companyRoleId: number | null): Promise<void> {
+    await db
+      .update(companyUsers)
+      .set({ companyRoleId })
       .where(and(eq(companyUsers.userId, userId), eq(companyUsers.companyId, companyId)));
   }
 
@@ -2199,6 +2207,291 @@ export class DatabaseStorage implements IStorage {
       .from(companyUsers)
       .where(and(eq(companyUsers.userId, userId), eq(companyUsers.companyId, companyId)));
     return result?.role || undefined;
+  }
+
+  async getCompanyMembership(userId: string, companyId: number): Promise<{ legacyRole: string; companyRoleId: number | null } | undefined> {
+    const [result] = await db
+      .select({ role: companyUsers.role, companyRoleId: companyUsers.companyRoleId })
+      .from(companyUsers)
+      .where(and(eq(companyUsers.userId, userId), eq(companyUsers.companyId, companyId)));
+    if (!result) return undefined;
+    return { legacyRole: result.role || "member", companyRoleId: result.companyRoleId ?? null };
+  }
+
+  async seedDefaultRolesForCompany(companyId: number): Promise<void> {
+    const existing = await db.select({ id: companyRoles.id }).from(companyRoles).where(eq(companyRoles.companyId, companyId)).limit(1);
+    if (existing.length > 0) return;
+
+    const { LEGACY_ROLE_PERMISSIONS } = await import("../shared/permissions.js");
+    const templates = [
+      { name: "Owner", legacyRole: "owner", description: "Full access to all features" },
+      { name: "Administrator", legacyRole: "admin", description: "Manage operations and settings" },
+      { name: "Staff Member", legacyRole: "member", description: "Day-to-day operations with approval workflows" },
+      { name: "Cashier", legacyRole: "cashier", description: "POS and limited stock operations" },
+    ];
+
+    for (const template of templates) {
+      const [role] = await db.insert(companyRoles).values({
+        companyId,
+        name: template.name,
+        description: template.description,
+        isSystem: true,
+        legacyRole: template.legacyRole,
+      }).returning();
+
+      const perms = LEGACY_ROLE_PERMISSIONS[template.legacyRole] || [];
+      if (perms.length > 0) {
+        await db.insert(companyRolePermissions).values(
+          perms.map((permission) => ({ roleId: role.id, permission }))
+        );
+      }
+    }
+  }
+
+  async getCompanyRoles(companyId: number): Promise<(CompanyRole & { permissions: string[] })[]> {
+    await this.seedDefaultRolesForCompany(companyId);
+    const roles = await db.select().from(companyRoles).where(eq(companyRoles.companyId, companyId)).orderBy(asc(companyRoles.name));
+    const result: (CompanyRole & { permissions: string[] })[] = [];
+    for (const role of roles) {
+      const permissions = await this.getRolePermissions(role.id);
+      result.push({ ...role, permissions });
+    }
+    return result;
+  }
+
+  async getCompanyRole(roleId: number, companyId: number): Promise<(CompanyRole & { permissions: string[] }) | undefined> {
+    const [role] = await db.select().from(companyRoles).where(and(eq(companyRoles.id, roleId), eq(companyRoles.companyId, companyId))).limit(1);
+    if (!role) return undefined;
+    const permissions = await this.getRolePermissions(roleId);
+    return { ...role, permissions };
+  }
+
+  async createCompanyRole(companyId: number, data: { name: string; description?: string; permissions: string[] }): Promise<CompanyRole & { permissions: string[] }> {
+    const [role] = await db.insert(companyRoles).values({
+      companyId,
+      name: data.name.trim(),
+      description: data.description || null,
+      isSystem: false,
+    }).returning();
+
+    if (data.permissions.length > 0) {
+      await db.insert(companyRolePermissions).values(
+        data.permissions.map((permission) => ({ roleId: role.id, permission }))
+      );
+    }
+    return { ...role, permissions: data.permissions };
+  }
+
+  async updateCompanyRole(roleId: number, companyId: number, data: { name?: string; description?: string; permissions?: string[] }): Promise<CompanyRole & { permissions: string[] }> {
+    const [existing] = await db.select().from(companyRoles).where(and(eq(companyRoles.id, roleId), eq(companyRoles.companyId, companyId))).limit(1);
+    if (!existing) throw new Error("Role not found");
+    if (existing.isSystem) throw new Error("System roles cannot be modified. Clone this role to create a custom variant.");
+
+    const updates: Partial<InsertCompanyRole> = {};
+    if (data.name) updates.name = data.name.trim();
+    if (data.description !== undefined) updates.description = data.description;
+
+    const [role] = Object.keys(updates).length > 0
+      ? await db.update(companyRoles).set(updates).where(eq(companyRoles.id, roleId)).returning()
+      : [existing];
+
+    if (data.permissions) {
+      await db.delete(companyRolePermissions).where(eq(companyRolePermissions.roleId, roleId));
+      if (data.permissions.length > 0) {
+        await db.insert(companyRolePermissions).values(
+          data.permissions.map((permission) => ({ roleId, permission }))
+        );
+      }
+    }
+
+    const permissions = await this.getRolePermissions(roleId);
+    return { ...role, permissions };
+  }
+
+  async deleteCompanyRole(roleId: number, companyId: number): Promise<void> {
+    const [existing] = await db.select().from(companyRoles).where(and(eq(companyRoles.id, roleId), eq(companyRoles.companyId, companyId))).limit(1);
+    if (!existing) throw new Error("Role not found");
+    if (existing.isSystem) throw new Error("System roles cannot be deleted");
+
+    await db.update(companyUsers).set({ companyRoleId: null }).where(eq(companyUsers.companyRoleId, roleId));
+    await db.delete(companyRoles).where(eq(companyRoles.id, roleId));
+  }
+
+  async getRolePermissions(roleId: number): Promise<string[]> {
+    const rows = await db.select({ permission: companyRolePermissions.permission }).from(companyRolePermissions).where(eq(companyRolePermissions.roleId, roleId));
+    return rows.map((r) => r.permission);
+  }
+
+  async createApprovalRequest(data: InsertApprovalRequest): Promise<ApprovalRequest> {
+    const [row] = await db.insert(approvalRequests).values(data).returning();
+    return row;
+  }
+
+  async getApprovalRequest(id: number, companyId: number): Promise<ApprovalRequest | undefined> {
+    const [row] = await db.select().from(approvalRequests).where(and(eq(approvalRequests.id, id), eq(approvalRequests.companyId, companyId))).limit(1);
+    return row;
+  }
+
+  async getApprovalRequests(companyId: number, status?: string): Promise<(ApprovalRequest & { requesterName?: string; reviewerName?: string })[]> {
+    const conditions = [eq(approvalRequests.companyId, companyId)];
+    if (status) conditions.push(eq(approvalRequests.status, status));
+
+    const rows = await db
+      .select({
+        request: approvalRequests,
+        requesterName: users.name,
+      })
+      .from(approvalRequests)
+      .innerJoin(users, eq(approvalRequests.requestedBy, users.id))
+      .where(and(...conditions))
+      .orderBy(desc(approvalRequests.createdAt));
+
+    const result: (ApprovalRequest & { requesterName?: string; reviewerName?: string })[] = [];
+    for (const row of rows) {
+      let reviewerName: string | undefined;
+      if (row.request.reviewedBy) {
+        const [reviewer] = await db.select({ name: users.name }).from(users).where(eq(users.id, row.request.reviewedBy)).limit(1);
+        reviewerName = reviewer?.name || undefined;
+      }
+      result.push({ ...row.request, requesterName: row.requesterName || undefined, reviewerName });
+    }
+    return result;
+  }
+
+  async updateApprovalRequest(id: number, companyId: number, data: Partial<ApprovalRequest>): Promise<ApprovalRequest> {
+    const [row] = await db
+      .update(approvalRequests)
+      .set(data)
+      .where(and(eq(approvalRequests.id, id), eq(approvalRequests.companyId, companyId)))
+      .returning();
+    if (!row) throw new Error("Approval request not found");
+    return row;
+  }
+
+  async getPendingApprovalCount(companyId: number): Promise<number> {
+    const [row] = await db
+      .select({ total: count() })
+      .from(approvalRequests)
+      .where(and(eq(approvalRequests.companyId, companyId), eq(approvalRequests.status, "pending")));
+    return Number(row?.total || 0);
+  }
+
+  async getCompanyPartners(companyId: number, includeInactive = false): Promise<CompanyPartner[]> {
+    const conditions = [eq(companyPartners.companyId, companyId)];
+    if (!includeInactive) conditions.push(eq(companyPartners.isActive, true));
+    return db.select().from(companyPartners).where(and(...conditions)).orderBy(asc(companyPartners.name));
+  }
+
+  async getCompanyPartner(partnerId: number, companyId: number): Promise<CompanyPartner | undefined> {
+    const [row] = await db
+      .select()
+      .from(companyPartners)
+      .where(and(eq(companyPartners.id, partnerId), eq(companyPartners.companyId, companyId)))
+      .limit(1);
+    return row;
+  }
+
+  async createCompanyPartner(companyId: number, data: Partial<InsertCompanyPartner>): Promise<CompanyPartner> {
+    const [row] = await db.insert(companyPartners).values({
+      companyId,
+      name: data.name!,
+      tradingName: data.tradingName || null,
+      logoUrl: data.logoUrl || null,
+      tin: data.tin || null,
+      vatNumber: data.vatNumber || null,
+      displayLabel: data.displayLabel || "In partnership with",
+      defaultRevenueSharePercent: String(data.defaultRevenueSharePercent ?? 0),
+      ownerGroupMatch: data.ownerGroupMatch || null,
+      notes: data.notes || null,
+      isActive: true,
+    }).returning();
+    return row;
+  }
+
+  async updateCompanyPartner(partnerId: number, companyId: number, data: Partial<InsertCompanyPartner>): Promise<CompanyPartner> {
+    const updates: Record<string, unknown> = {};
+    if (data.name) updates.name = data.name;
+    if (data.tradingName !== undefined) updates.tradingName = data.tradingName;
+    if (data.logoUrl !== undefined) updates.logoUrl = data.logoUrl;
+    if (data.tin !== undefined) updates.tin = data.tin;
+    if (data.vatNumber !== undefined) updates.vatNumber = data.vatNumber;
+    if (data.displayLabel !== undefined) updates.displayLabel = data.displayLabel;
+    if (data.defaultRevenueSharePercent !== undefined && data.defaultRevenueSharePercent !== null) {
+      updates.defaultRevenueSharePercent = String(data.defaultRevenueSharePercent);
+    }
+    if (data.ownerGroupMatch !== undefined) updates.ownerGroupMatch = data.ownerGroupMatch;
+    if (data.notes !== undefined) updates.notes = data.notes;
+    if (data.isActive !== undefined) updates.isActive = data.isActive;
+
+    const [row] = await db
+      .update(companyPartners)
+      .set(updates)
+      .where(and(eq(companyPartners.id, partnerId), eq(companyPartners.companyId, companyId)))
+      .returning();
+    if (!row) throw new Error("Partner not found");
+    return row;
+  }
+
+  async deactivateCompanyPartner(partnerId: number, companyId: number): Promise<void> {
+    await db
+      .update(companyPartners)
+      .set({ isActive: false })
+      .where(and(eq(companyPartners.id, partnerId), eq(companyPartners.companyId, companyId)));
+  }
+
+  async getReportPartnershipSales(companyId: number, startDate: Date, endDate: Date, partnerId?: number) {
+    const conditions = [
+      eq(invoices.companyId, companyId),
+      gte(invoices.issueDate, startDate),
+      lte(invoices.issueDate, endDate),
+      ne(invoices.status, "cancelled"),
+      ne(invoices.transactionType, "CreditNote"),
+    ];
+    if (partnerId) conditions.push(eq(invoices.partnerId, partnerId));
+
+    const rows = await db
+      .select({
+        invoice: invoices,
+        customerName: customers.name,
+        partnerName: companyPartners.name,
+      })
+      .from(invoices)
+      .leftJoin(customers, eq(invoices.customerId, customers.id))
+      .leftJoin(companyPartners, eq(invoices.partnerId, companyPartners.id))
+      .where(and(...conditions))
+      .orderBy(desc(invoices.issueDate));
+
+    const partnershipRows = rows.filter((r) => r.invoice.partnerId != null);
+    const summaryMap = new Map<number, { partnerId: number; partnerName: string; invoiceCount: number; grossTotal: number; partnerShare: number; issuerShare: number }>();
+
+    for (const row of partnershipRows) {
+      const pid = row.invoice.partnerId!;
+      const snapshot = row.invoice.partnerSnapshot as any;
+      const name = snapshot?.name || row.partnerName || `Partner #${pid}`;
+      const existing = summaryMap.get(pid) || { partnerId: pid, partnerName: name, invoiceCount: 0, grossTotal: 0, partnerShare: 0, issuerShare: 0 };
+      existing.invoiceCount += 1;
+      existing.grossTotal += Number(row.invoice.total || 0);
+      existing.partnerShare += Number(row.invoice.partnerShareAmount || 0);
+      existing.issuerShare += Number(row.invoice.issuerShareAmount || 0);
+      summaryMap.set(pid, existing);
+    }
+
+    return {
+      summary: Array.from(summaryMap.values()).sort((a, b) => b.grossTotal - a.grossTotal),
+      invoices: partnershipRows.map((r) => ({
+        id: r.invoice.id,
+        invoiceNumber: r.invoice.invoiceNumber,
+        issueDate: r.invoice.issueDate,
+        customerName: r.customerName,
+        status: r.invoice.status,
+        total: Number(r.invoice.total || 0),
+        partnerId: r.invoice.partnerId,
+        partnerName: (r.invoice.partnerSnapshot as any)?.name || r.partnerName,
+        revenueSharePercent: Number(r.invoice.revenueSharePercent || 0),
+        partnerShareAmount: Number(r.invoice.partnerShareAmount || 0),
+        issuerShareAmount: Number(r.invoice.issuerShareAmount || 0),
+      })),
+    };
   }
 
   // Analytics
@@ -2639,22 +2932,9 @@ export class DatabaseStorage implements IStorage {
       
       const [invoice] = await tx.select().from(invoices).where(eq(invoices.id, newPayment.invoiceId));
       if (invoice) {
-        const paymentAmount = this.roundMoney(Number(newPayment.amount || 0));
-        const outstandingBeforePayment = this.roundMoney(Math.max(0, Number(invoice.total || 0) - Number(invoice.paidAmount || 0)));
-        if (paymentAmount - outstandingBeforePayment > 0.005) {
-          throw new Error("Invoice payment exceeds the outstanding balance. Record overpayments through customer receipts so the extra amount stays unallocated.");
-        }
-
         if (skipLedger) {
-          const newPaidAmount = this.roundMoney(Number(invoice.paidAmount) + paymentAmount).toFixed(2);
+          const newPaidAmount = (Number(invoice.paidAmount) + Number(newPayment.amount)).toFixed(2);
           const isFullyPaid = Number(newPaidAmount) >= Number(invoice.total);
-
-          await tx.insert(paymentAllocations).values({
-            companyId: invoice.companyId,
-            paymentId: newPayment.id,
-            invoiceId: invoice.id,
-            amount: paymentAmount.toFixed(2),
-          });
 
           await tx.update(invoices)
             .set({
@@ -2670,8 +2950,8 @@ export class DatabaseStorage implements IStorage {
         const currentRate = Number(newPayment.exchangeRate || 1);
         const invoiceRate = Number(invoice.exchangeRate || 1);
         
-        const originalBaseValue = paymentAmount / invoiceRate;
-        const currentBaseValue = paymentAmount / currentRate;
+        const originalBaseValue = Number(newPayment.amount) / invoiceRate;
+        const currentBaseValue = Number(newPayment.amount) / currentRate;
         fxVariance = Math.round((currentBaseValue - originalBaseValue) * 100) / 100;
         const cashAccountCode = await this.getSystemAccountCode(invoice.companyId, "cashAccountCode", tx);
         const arAccountCode = await this.getSystemAccountCode(invoice.companyId, "accountsReceivableCode", tx);
@@ -2699,15 +2979,8 @@ export class DatabaseStorage implements IStorage {
           lines
         }, tx);
 
-        await tx.insert(paymentAllocations).values({
-          companyId: invoice.companyId,
-          paymentId: newPayment.id,
-          invoiceId: invoice.id,
-          amount: paymentAmount.toFixed(2),
-        });
-
         // Update Invoice Paid Amount and Status
-        const newPaidAmount = this.roundMoney(Number(invoice.paidAmount) + paymentAmount).toFixed(2);
+        const newPaidAmount = (Number(invoice.paidAmount) + Number(newPayment.amount)).toFixed(2);
         const isFullyPaid = Number(newPaidAmount) >= Number(invoice.total);
         
         await tx.update(invoices)
@@ -3505,62 +3778,46 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getCostCenterReport(companyId: number, startDate?: Date, endDate?: Date): Promise<any[]> {
-    const filters: any[] = [
-      eq(journalEntries.companyId, companyId),
-      sql`${ledgerEntries.costCenterId} is not null`,
-    ];
-    if (startDate) filters.push(gte(journalEntries.entryDate, startDate));
-    if (endDate) filters.push(lte(journalEntries.entryDate, endDate));
-
-    const rows = await db
-      .select({
-        id: costCenters.id,
-        code: costCenters.code,
-        name: costCenters.name,
-        accountType: accounts.type,
-        debit: sql<number>`sum(case when ${ledgerEntries.type} = 'DEBIT' then ${ledgerEntries.amount} else 0 end)`,
-        credit: sql<number>`sum(case when ${ledgerEntries.type} = 'CREDIT' then ${ledgerEntries.amount} else 0 end)`,
-        transactionCount: sql<number>`count(*)`,
-      })
-      .from(ledgerEntries)
-      .innerJoin(journalEntries, eq(ledgerEntries.journalEntryId, journalEntries.id))
-      .innerJoin(accounts, eq(ledgerEntries.accountId, accounts.id))
-      .innerJoin(costCenters, eq(ledgerEntries.costCenterId, costCenters.id))
-      .where(and(...filters))
-      .groupBy(costCenters.id, costCenters.code, costCenters.name, accounts.type)
-      .orderBy(costCenters.code);
-
-    const byCenter = new Map<number, any>();
-    for (const row of rows) {
-      const current = byCenter.get(row.id) || {
-        id: row.id,
-        code: row.code,
-        name: row.name,
-        revenue: 0,
-        cogs: 0,
-        expenses: 0,
-        assets: 0,
-        liabilities: 0,
-        transactionCount: 0,
+    const allBranches = await db.select().from(branches).where(eq(branches.companyId, companyId));
+    
+    let invConditions = [eq(invoices.companyId, companyId), ne(invoices.status, 'cancelled')];
+    if (startDate) invConditions.push(gte(invoices.issueDate, startDate));
+    if (endDate) invConditions.push(lte(invoices.issueDate, endDate));
+    const allInvoices = await db.select().from(invoices).where(and(...invConditions));
+    
+    let expConditions = [eq(expenses.companyId, companyId), eq(expenses.status, 'approved')];
+    if (startDate) expConditions.push(gte(expenses.expenseDate, startDate));
+    if (endDate) expConditions.push(lte(expenses.expenseDate, endDate));
+    const allExpenses = await db.select().from(expenses).where(and(...expConditions));
+    
+    let cogsConditions = [eq(inventoryTransactions.companyId, companyId), eq(inventoryTransactions.type, 'STOCK_OUT')];
+    if (startDate) cogsConditions.push(gte(inventoryTransactions.createdAt, startDate));
+    if (endDate) cogsConditions.push(lte(inventoryTransactions.createdAt, endDate));
+    const allCogs = await db.select().from(inventoryTransactions).where(and(...cogsConditions));
+    
+    return allBranches.map(branch => {
+      const bInvoices = allInvoices.filter(i => i.branchId === branch.id);
+      const bExpenses = allExpenses.filter(e => e.branchId === branch.id);
+      const bCogs = allCogs.filter(c => c.branchId === branch.id);
+      
+      const revenue = bInvoices.reduce((sum, inv) => sum + Number(inv.subtotal || 0), 0);
+      const cogsAmount = bCogs.reduce((sum, c) => sum + Number(c.totalCost || 0), 0); 
+      const expenseAmount = bExpenses.reduce((sum, exp) => sum + Number(exp.amount || 0), 0);
+      
+      const grossProfit = revenue - cogsAmount;
+      const netProfit = grossProfit - expenseAmount;
+      
+      return {
+        id: branch.id,
+        name: branch.name,
+        revenue,
+        cogs: cogsAmount,
+        grossProfit,
+        expenses: expenseAmount,
+        netProfit,
+        transactionCount: bInvoices.length + bExpenses.length
       };
-      const debit = Number(row.debit || 0);
-      const credit = Number(row.credit || 0);
-      const signed = ["REVENUE", "LIABILITY", "EQUITY"].includes(row.accountType)
-        ? credit - debit
-        : debit - credit;
-      if (row.accountType === "REVENUE") current.revenue += signed;
-      if (row.accountType === "EXPENSE") current.expenses += signed;
-      if (row.accountType === "ASSET") current.assets += signed;
-      if (row.accountType === "LIABILITY") current.liabilities += signed;
-      current.transactionCount += Number(row.transactionCount || 0);
-      byCenter.set(row.id, current);
-    }
-
-    return Array.from(byCenter.values()).map((row) => ({
-      ...row,
-      grossProfit: row.revenue - row.cogs,
-      netProfit: row.revenue - row.cogs - row.expenses,
-    }));
+    });
   }
 
   async getAPAgingReport(companyId: number, asOfDate: Date = new Date()): Promise<any[]> {
@@ -4607,20 +4864,50 @@ export class DatabaseStorage implements IStorage {
     const rows = await db
       .select({
         invoice: supplierInvoices,
-        supplier: suppliers,
-        purchaseOrder: purchaseOrders
+        supplier: suppliers
       })
       .from(supplierInvoices)
       .leftJoin(suppliers, eq(supplierInvoices.supplierId, suppliers.id))
-      .leftJoin(purchaseOrders, eq(supplierInvoices.purchaseOrderId, purchaseOrders.id))
       .where(eq(supplierInvoices.companyId, companyId))
       .orderBy(desc(supplierInvoices.createdAt));
 
     return rows.map(r => ({
       ...r.invoice,
-      supplier: r.supplier,
-      purchaseOrder: r.purchaseOrder
+      supplier: r.supplier
     }));
+  }
+
+  async getSupplierInvoice(id: number, companyId: number): Promise<any | null> {
+    const [row] = await db
+      .select({ invoice: supplierInvoices, supplier: suppliers })
+      .from(supplierInvoices)
+      .leftJoin(suppliers, eq(supplierInvoices.supplierId, suppliers.id))
+      .where(and(eq(supplierInvoices.id, id), eq(supplierInvoices.companyId, companyId)));
+
+    if (!row) return null;
+
+    const itemRows = await db
+      .select({ item: supplierInvoiceItems, product: products })
+      .from(supplierInvoiceItems)
+      .leftJoin(products, eq(supplierInvoiceItems.productId, products.id))
+      .where(eq(supplierInvoiceItems.supplierInvoiceId, id));
+
+    // Load linked GDN if present
+    let gdn = null;
+    if (row.invoice.referenceGdnId) {
+      const [gdnRow] = await db
+        .select()
+        .from(goodsDeliveryNotes)
+        .where(eq(goodsDeliveryNotes.id, row.invoice.referenceGdnId!));
+      gdn = gdnRow || null;
+    }
+
+    return {
+      ...row.invoice,
+      supplier: row.supplier,
+      gdn,
+      items: itemRows.map(i => ({ ...i.item, product: i.product })),
+    };
   }
 
   async getSupplierPayments(companyId: number): Promise<any[]> {
@@ -4645,25 +4932,14 @@ export class DatabaseStorage implements IStorage {
       const { items, createdBy, ...invoiceData } = data;
       const invoiceTotal = Number(invoiceData.totalAmount || 0);
       const invoiceTax = Number(invoiceData.taxAmount || 0);
-      const invoiceSubtotal = Number((invoiceData as any).subtotalAmount || (invoiceTotal - invoiceTax));
-      const whtAmount = Number((invoiceData as any).withholdingTaxAmount || 0);
       if (invoiceTotal <= 0) {
         throw new Error("Supplier invoice total must be greater than zero");
       }
       if (invoiceTax < 0 || invoiceTax > invoiceTotal) {
         throw new Error("Supplier invoice VAT cannot exceed the total amount");
       }
-      if (invoiceSubtotal < 0 || invoiceSubtotal + invoiceTax > invoiceTotal + 0.02) {
-        throw new Error("Supplier invoice subtotal and VAT do not match the total");
-      }
-      if (whtAmount < 0 || whtAmount > invoiceTotal) {
-        throw new Error("Supplier invoice WHT cannot exceed the total amount");
-      }
 
-      const [invoice] = await tx.insert(supplierInvoices).values({
-        ...invoiceData,
-        subtotalAmount: invoiceSubtotal.toFixed(2),
-      }).returning();
+      const [invoice] = await tx.insert(supplierInvoices).values(invoiceData).returning();
 
       if (items && items.length > 0) {
         const itemsToInsert = items.map(item => ({
@@ -4674,20 +4950,24 @@ export class DatabaseStorage implements IStorage {
       }
 
       // Automated Journaling: Credit Accounts Payable (2000), Debit Inventory (1300) or appropriate account
-      const subtotal = invoiceSubtotal;
+      const subtotal = invoiceTotal - invoiceTax;
       const tax = invoiceTax;
 
-      // Determine the debit account (Control Account for Inventory is 1300 by default)
-      let debitAccountCode = await this.getSystemAccountCode(invoiceData.companyId, "inventoryAccountCode", tx);
-      if (invoiceData.debitAccountId) {
+      // Determine the debit account for the invoice:
+      // - If matched to a GDN (3-way match): Dr GRNI (2010) to clear the liability posted at goods receipt
+      // - If explicit debit account provided: use that (e.g. for expense invoices)
+      // - Otherwise: fall back to Inventory (1300) for direct inventory purchases without a GRV
+      let debitAccountCode: string;
+      if (invoiceData.referenceGdnId) {
+        debitAccountCode = await this.getSystemAccountCode(invoiceData.companyId, "grniAccountCode", tx);
+      } else if (invoiceData.debitAccountId) {
         const [acc] = await tx.select().from(accounts).where(eq(accounts.id, invoiceData.debitAccountId));
-        if (acc) {
-          debitAccountCode = acc.code;
-        }
+        debitAccountCode = acc ? acc.code : await this.getSystemAccountCode(invoiceData.companyId, "inventoryAccountCode", tx);
+      } else {
+        debitAccountCode = await this.getSystemAccountCode(invoiceData.companyId, "inventoryAccountCode", tx);
       }
       const vatInputAccountCode = await this.getSystemAccountCode(invoiceData.companyId, "vatInputAccountCode", tx);
       const apAccountCode = await this.getSystemAccountCode(invoiceData.companyId, "accountsPayableCode", tx);
-      const whtPayableAccountCode = await this.getSystemAccountCode(invoiceData.companyId, "withholdingTaxPayableCode", tx);
 
       const lines: { accountCode: string, type: 'DEBIT'|'CREDIT', amount: number }[] = [
         { accountCode: debitAccountCode, type: 'DEBIT', amount: subtotal }
@@ -4697,11 +4977,7 @@ export class DatabaseStorage implements IStorage {
         lines.push({ accountCode: vatInputAccountCode, type: 'DEBIT', amount: tax }); // VAT Input (VAT Receivable)
       }
 
-      if (whtAmount > 0) {
-        lines.push({ accountCode: whtPayableAccountCode, type: 'CREDIT', amount: whtAmount }); // WHT payable to ZIMRA
-      }
-
-      lines.push({ accountCode: apAccountCode, type: 'CREDIT', amount: invoiceTotal - whtAmount }); // Net payable to supplier
+      lines.push({ accountCode: apAccountCode, type: 'CREDIT', amount: invoiceTotal }); // Accounts Payable
 
       await this.postToLedger(invoiceData.companyId, {
         entryDate: invoiceData.date || new Date(),
@@ -4711,28 +4987,6 @@ export class DatabaseStorage implements IStorage {
         createdBy: createdBy,
         lines
       }, tx);
-
-      if (whtAmount > 0) {
-        const certNo = `WHT-${invoiceData.companyId}-${invoice.id}`;
-        const [certificate] = await tx.insert(withholdingTaxCertificates).values({
-          companyId: invoiceData.companyId,
-          supplierId: invoiceData.supplierId,
-          supplierInvoiceId: invoice.id,
-          rateId: (invoiceData as any).withholdingTaxRateId || null,
-          certificateNumber: certNo,
-          taxableAmount: subtotal.toFixed(2),
-          withheldAmount: whtAmount.toFixed(2),
-          currency: invoiceData.currency || "USD",
-          status: "ISSUED",
-          issuedAt: new Date(),
-          createdBy: createdBy || null,
-        }).returning();
-
-        await tx
-          .update(supplierInvoices)
-          .set({ withholdingCertificateId: certificate.id } as any)
-          .where(eq(supplierInvoices.id, invoice.id));
-      }
 
       return invoice;
     });
@@ -5033,41 +5287,6 @@ export class DatabaseStorage implements IStorage {
         totalValue: totalValuation.toFixed(2),
       };
     });
-  }
-
-  async createInventoryValuationSnapshot(companyId: number, asOfDate: Date = new Date(), createdBy?: string, branchId?: number) {
-    const valuationRows = await this.getStockValuationReport(companyId);
-    const scopedRows = branchId ? valuationRows.filter((row: any) => Number(row.branchId || 0) === branchId) : valuationRows;
-    const [company] = await db
-      .select({ method: companies.inventoryValuationMethod })
-      .from(companies)
-      .where(eq(companies.id, companyId))
-      .limit(1);
-    const valuationMethod = company?.method || "WAC";
-    const totalQuantity = scopedRows.reduce((sum: number, row: any) => sum + Number(row.stockLevel || 0), 0);
-    const totalValue = scopedRows.reduce((sum: number, row: any) => sum + Number(row.totalValuation ?? row.totalValue ?? 0), 0);
-
-    const [snapshot] = await db.insert(inventoryValuationSnapshots).values({
-      companyId,
-      branchId: branchId || null,
-      asOfDate,
-      valuationMethod,
-      totalQuantity: totalQuantity.toFixed(2),
-      totalValue: totalValue.toFixed(2),
-      lines: scopedRows.map((row: any) => ({
-        productId: row.productId,
-        productName: row.name,
-        sku: row.sku,
-        branchId: row.branchId || null,
-        quantity: Number(row.stockLevel || 0),
-        unitCost: Number(row.unitCost || 0),
-        totalValue: Number(row.totalValuation ?? row.totalValue ?? 0),
-        valuationMethod: row.valuationMethod || valuationMethod,
-      })),
-      createdBy: createdBy || null,
-    }).returning();
-
-    return snapshot;
   }
 
   async getFiscalReportData(companyId: number, date: Date, cashierId?: string) {
@@ -5886,35 +6105,6 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getReportWithholdingTax(companyId: number, start: Date, end: Date) {
-    const certificateRows = await db
-      .select({
-        certificate: withholdingTaxCertificates,
-        supplier: suppliers,
-        invoice: supplierInvoices,
-      })
-      .from(withholdingTaxCertificates)
-      .leftJoin(suppliers, eq(withholdingTaxCertificates.supplierId, suppliers.id))
-      .leftJoin(supplierInvoices, eq(withholdingTaxCertificates.supplierInvoiceId, supplierInvoices.id))
-      .where(and(
-        eq(withholdingTaxCertificates.companyId, companyId),
-        gte(withholdingTaxCertificates.createdAt, start),
-        lte(withholdingTaxCertificates.createdAt, end)
-      ));
-
-    if (certificateRows.length > 0) {
-      return certificateRows.map(({ certificate, supplier, invoice }) => ({
-        invoiceId: invoice?.id || certificate.supplierInvoiceId || certificate.id,
-        invoiceNumber: invoice?.invoiceNumber || certificate.certificateNumber,
-        customerName: supplier?.name || "Supplier",
-        issueDate: (certificate.issuedAt || certificate.createdAt || new Date()).toISOString().slice(0, 10),
-        withheldAmount: Number(certificate.withheldAmount || 0).toFixed(2),
-        total: Number(certificate.taxableAmount || 0).toFixed(2),
-        certificateNumber: certificate.certificateNumber,
-        status: certificate.status,
-        remittanceReference: certificate.remittanceReference,
-      }));
-    }
-
     const rows = await db
       .select()
       .from(invoices)
@@ -7476,6 +7666,9 @@ export class DatabaseStorage implements IStorage {
         { code: "5190", name: "Impairment Losses", type: "EXPENSE", category: "Operating Expenses", isSystem: true },
         { code: "5900", name: "Foreign Exchange Losses", type: "EXPENSE", category: "Other Expenses", isSystem: true },
         { code: "5920", name: "Cash Shortage Expense", type: "EXPENSE", category: "Other Expenses", isSystem: true },
+        // Procurement Control Accounts
+        { code: "2010", name: "Goods Received Not Invoiced (GRNI)", type: "LIABILITY", category: "Current Liabilities", isSystem: true },
+        { code: "2020", name: "Landed Cost Clearing", type: "LIABILITY", category: "Current Liabilities", isSystem: true },
       ];
 
       for (const acc of defaultAccounts) {
@@ -7500,7 +7693,6 @@ export class DatabaseStorage implements IStorage {
       const [cpAcc] = await tx.select().from(accounts).where(eq(accounts.id, data.counterpartyAccountId));
 
       if (!bankAcc || !cpAcc) throw new Error("Bank or Counterparty account not found");
-      if (data.bankAccountId === data.counterpartyAccountId) throw new Error("Cashbook source and counterparty accounts cannot be the same");
 
       const lines = [
         {
@@ -7515,7 +7707,7 @@ export class DatabaseStorage implements IStorage {
         }
       ];
 
-      const entry = await this.postToLedger(data.companyId, {
+      return await this.postToLedger(data.companyId, {
         entryDate: data.date,
         description: data.description,
         referenceType: "CASHBOOK",
@@ -7523,29 +7715,6 @@ export class DatabaseStorage implements IStorage {
         createdBy: data.createdBy,
         lines
       }, tx);
-
-      const [cashbook] = await tx.insert(cashbookEntries).values({
-        companyId: data.companyId,
-        bankAccountId: data.bankAccountId,
-        journalEntryId: entry.id,
-        entryDate: data.date,
-        type: data.type,
-        method: "CASH",
-        reference: data.reference,
-        description: data.description,
-        totalAmount: data.amount.toFixed(2),
-        status: "POSTED",
-        createdBy: data.createdBy || null,
-      }).returning();
-
-      await tx.insert(cashbookEntryLines).values({
-        cashbookEntryId: cashbook.id,
-        accountId: data.counterpartyAccountId,
-        amount: data.amount.toFixed(2),
-        description: data.description,
-      });
-
-      return entry;
     });
   }
 
@@ -7787,9 +7956,6 @@ export class DatabaseStorage implements IStorage {
         description: data.description,
         referenceType: data.referenceType,
         referenceId: data.referenceId ?? data.reference,
-        journalType: data.journalType || "GENERAL",
-        status: data.status || "POSTED",
-        approvalStatus: data.approvalStatus || "APPROVED",
         createdBy: data.createdBy,
       }).returning();
 
@@ -7801,14 +7967,8 @@ export class DatabaseStorage implements IStorage {
         await t.insert(ledgerEntries).values({
           journalEntryId: je.id,
           accountId: line.accountId,
-          costCenterId: line.costCenterId || null,
-          segmentId: line.segmentId || null,
           type: line.type,
           amount: line.amount.toFixed(2),
-          vatTypeId: line.vatTypeId || null,
-          vatAmount: (line.vatAmount || 0).toFixed(2),
-          withholdingTaxAmount: (line.withholdingTaxAmount || 0).toFixed(2),
-          memo: line.memo || null,
         });
       }
 
@@ -7822,83 +7982,33 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
-  async getVatReturn(companyId: number, fromDate?: Date, toDate?: Date): Promise<{
-    outputVat: number;
-    inputVat: number;
-    netVat: number;
-    outputVatByCurrency: Record<string, number>;
-    inputVatByCurrency: Record<string, number>;
-    netVatByCurrency: Record<string, number>;
-    includedInvoiceCount: number;
-  }> {
-    const round = (amount: number) => Math.round(amount * 100) / 100;
-    const addCurrency = (totals: Record<string, number>, currency: string | null | undefined, amount: unknown) => {
-      const code = String(currency || "USD").toUpperCase();
-      totals[code] = round((totals[code] || 0) + Number(amount || 0));
-    };
-
-    // Output VAT: only ZIMRA-accepted fiscal sales invoices with no Red validation errors.
-    const salesInvoices = await db.select({
-      id: invoices.id,
-      tax: invoices.taxAmount,
-      currency: invoices.currency,
-      transactionType: invoices.transactionType,
-    })
+  async getVatReturn(companyId: number, fromDate?: Date, toDate?: Date): Promise<{ outputVat: number; inputVat: number; netVat: number }> {
+    // Output VAT: Sum of tax amount from sales invoices
+    const salesInvoices = await db.select({ tax: invoices.taxAmount })
       .from(invoices)
       .where(and(
         eq(invoices.companyId, companyId),
-        ne(invoices.status, 'draft'),
-        ne(invoices.status, 'cancelled'),
-        ne(invoices.status, 'quote'),
-        eq(invoices.isFiscalized, true),
-        eq(invoices.syncedWithFdms, true),
-        sql`${invoices.fiscalCode} is not null`,
-        sql`not exists (
-          select 1
-          from ${validationErrors}
-          where ${validationErrors.invoiceId} = ${invoices.id}
-            and lower(${validationErrors.errorColor}) = 'red'
-        )`,
-        ...(fromDate ? [gte(invoices.issueDate, fromDate)] : []),
-        ...(toDate ? [lte(invoices.issueDate, toDate)] : [])
+        ne(invoices.status, 'CANCELLED'),
+        ...(fromDate ? [gte(invoices.createdAt, fromDate)] : []),
+        ...(toDate ? [lte(invoices.createdAt, toDate)] : [])
       ));
-    const outputVatByCurrency: Record<string, number> = {};
-    salesInvoices.forEach((inv) => {
-      const sign = inv.transactionType === "CreditNote" ? -1 : 1;
-      addCurrency(outputVatByCurrency, inv.currency, sign * Number(inv.tax || 0));
-    });
+    const outputVat = salesInvoices.reduce((sum, inv) => sum + Number(inv.tax || 0), 0);
 
     // Input VAT: Sum of tax amount from supplier invoices
-    const purchases = await db.select({
-      tax: supplierInvoices.taxAmount,
-      currency: supplierInvoices.currency,
-    })
+    const purchases = await db.select({ tax: supplierInvoices.taxAmount })
       .from(supplierInvoices)
       .where(and(
         eq(supplierInvoices.companyId, companyId),
-        ne(supplierInvoices.status, 'cancelled'),
-        ...(fromDate ? [gte(supplierInvoices.date, fromDate)] : []),
-        ...(toDate ? [lte(supplierInvoices.date, toDate)] : [])
+        ne(supplierInvoices.status, 'CANCELLED'),
+        ...(fromDate ? [gte(supplierInvoices.createdAt, fromDate)] : []),
+        ...(toDate ? [lte(supplierInvoices.createdAt, toDate)] : [])
       ));
-    const inputVatByCurrency: Record<string, number> = {};
-    purchases.forEach((inv) => addCurrency(inputVatByCurrency, inv.currency, inv.tax));
-
-    const currencies = new Set([...Object.keys(outputVatByCurrency), ...Object.keys(inputVatByCurrency)]);
-    const netVatByCurrency = Array.from(currencies).reduce((totals, currency) => {
-      totals[currency] = round(Number(outputVatByCurrency[currency] || 0) - Number(inputVatByCurrency[currency] || 0));
-      return totals;
-    }, {} as Record<string, number>);
-    const outputVat = round(Object.values(outputVatByCurrency).reduce((sum, amount) => sum + amount, 0));
-    const inputVat = round(Object.values(inputVatByCurrency).reduce((sum, amount) => sum + amount, 0));
+    const inputVat = purchases.reduce((sum, inv) => sum + Number(inv.tax || 0), 0);
 
     return {
       outputVat,
       inputVat,
-      netVat: round(outputVat - inputVat),
-      outputVatByCurrency,
-      inputVatByCurrency,
-      netVatByCurrency,
-      includedInvoiceCount: salesInvoices.length,
+      netVat: outputVat - inputVat
     };
   }
 }

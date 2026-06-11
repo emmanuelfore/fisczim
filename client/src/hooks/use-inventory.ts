@@ -92,17 +92,23 @@ export function useInventoryAdjust(companyId: number) {
                 method: "POST",
                 body: JSON.stringify(data),
             });
+            const body = await res.json().catch(() => ({}));
             if (!res.ok) {
-                const err = await res.json().catch(() => ({}));
-                throw new Error(err.message || "Failed to adjust stock");
+                throw new Error(body.message || "Failed to adjust stock");
             }
-            return await res.json();
+            if (res.status === 202 || body.requiresApproval) {
+                return { ...body, pendingApproval: true };
+            }
+            return body;
         },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: [api.inventory.transactions.path, companyId] });
-            refreshProductQueries(queryClient, companyId);
-            queryClient.invalidateQueries({ queryKey: [api.reports.stockAdjustments.path, companyId] });
-            queryClient.invalidateQueries({ queryKey: ["grvs", companyId] });
+        onSuccess: (data) => {
+            if (!data?.pendingApproval) {
+                queryClient.invalidateQueries({ queryKey: [api.inventory.transactions.path, companyId] });
+                refreshProductQueries(queryClient, companyId);
+                queryClient.invalidateQueries({ queryKey: ["grvs", companyId] });
+            }
+            queryClient.invalidateQueries({ queryKey: ["approvals", companyId] });
+            queryClient.invalidateQueries({ queryKey: ["pending-approvals-count", companyId] });
         },
     });
 }

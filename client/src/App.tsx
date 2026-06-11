@@ -90,9 +90,13 @@ import OpeningBalancesPage from "@/pages/opening-balances";
 import AccountingAuditTrailPage from "@/pages/accounting-audit-trail";
 import AllocationWorkbenchPage from "@/pages/allocation-workbench";
 import AccountingDashboardPage from "@/pages/accounting-dashboard";
+import ApprovalsPage from "@/pages/approvals";
+import PartnershipSalesReportPage from "@/pages/partnership-sales-report";
 import PayrollPage from "@/pages/payroll";
 import SuperadminVisibilityPage from "@/pages/superadmin-visibility";
 import { useAuth } from "@/hooks/use-auth";
+import { usePermissions } from "@/hooks/use-permissions";
+import { NAV_PERMISSION_MAP } from "@shared/permissions";
 import { supabase } from "@/lib/supabase";
 import { useCompanies } from "@/hooks/use-companies";
 import { useActiveCompany } from "@/hooks/use-active-company";
@@ -144,17 +148,20 @@ function ProtectedRoute({
     !!user,
     user?.id ?? null,
   );
+  const { canAccessPath, can, isLoading: isLoadingPermissions } = usePermissions();
   const [location, setLocation] = useLocation();
   const isOnline = useIsOnline();
   const hasRedirectedToPosRef = useRef(false);
 
   const isPosPath = location.startsWith("/pos");
   const isOffline = !isOnline || isCompaniesError;
+  const pathPermission = NAV_PERMISSION_MAP[location.split("?")[0]];
   const activeRole = (activeCompany as any)?.role;
   const isCashier = activeRole === "cashier" && !user?.isSuperAdmin;
 
   const rawLoading =
-    isLoadingAuth || (!!user && (isLoadingCompanies || isLoadingActiveCompany));
+    isLoadingAuth ||
+    (!!user && (isLoadingCompanies || isLoadingActiveCompany || isLoadingPermissions));
   const isLoading = useBoundedLoading(rawLoading);
 
   useEffect(() => {
@@ -180,9 +187,17 @@ function ProtectedRoute({
     if (location !== "/onboarding") return <Redirect to="/onboarding" />;
   }
 
-  if (activeCompany) {
-    const isAllowedPath = isPosPath || location.startsWith("/profile");
+  if (!isOffline && activeCompany && !user?.isSuperAdmin) {
+    const isAllowedPath =
+      isPosPath ||
+      location.startsWith("/profile") ||
+      location.startsWith("/approvals") ||
+      location.startsWith("/settings");
     if (isCashier && !isAllowedPath) return <Redirect to="/pos" />;
+    if (!isAllowedPath && pathPermission && !canAccessPath(location.split("?")[0])) {
+      if (can("nav.pos")) return <Redirect to="/pos" />;
+      if (can("nav.dashboard")) return <Redirect to="/dashboard" />;
+    }
 
     if (location === "/dashboard") {
       const homeRoute = getCompanyHomeRoute(companies, user);
@@ -361,6 +376,9 @@ function Router() {
       <Route path="/settings">
         {() => <ProtectedRoute component={SettingsPage} />}
       </Route>
+      <Route path="/approvals">
+        {() => <ProtectedRoute component={ApprovalsPage} />}
+      </Route>
       <Route path="/currencies">
         {() => <ProtectedRoute component={CurrencySettingsPage} />}
       </Route>
@@ -394,6 +412,9 @@ function Router() {
       </Route>
       <Route path="/reports/cash-collection">
         {() => <ProtectedRoute component={CashCollectionReportPage} />}
+      </Route>
+      <Route path="/reports/partnership-sales">
+        {() => <ProtectedRoute component={PartnershipSalesReportPage} />}
       </Route>
       <Route path="/profile">
         {() => <ProtectedRoute component={UserProfilePage} />}

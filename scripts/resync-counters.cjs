@@ -63,8 +63,40 @@ async function resyncCounters() {
 
         const status = response.data;
         const zimraGlobalNo = status.lastReceiptGlobalNo || 0;
-        const zimraDailyCount = status.lastReceiptCounter || 0;
-        const zimraHash = status.fiscalDayServerSignature?.hash || null;
+        let zimraDailyCount = status.lastReceiptCounter || 0;
+        let zimraHash = status.fiscalDayServerSignature?.hash || null;
+
+        const statusStr = String(status.fiscalDayStatus || company.last_fiscal_day_status || "").toLowerCase();
+        const activeFiscalDayNo = company.current_fiscal_day_no || status.lastFiscalDayNo || 0;
+        if (zimraDailyCount === 0 && activeFiscalDayNo && (statusStr === "fiscaldayopened" || statusStr === "fiscaldayclosefailed")) {
+            const localMaxRes = await pool.query(
+                `SELECT receipt_counter, fiscal_code
+                 FROM invoices
+                 WHERE company_id = $1
+                   AND fiscal_day_no = $2
+                   AND synced_with_fdms = true
+                   AND receipt_counter IS NOT NULL
+                 ORDER BY receipt_counter DESC, receipt_global_no DESC
+                 LIMIT 1`,
+                [companyId, activeFiscalDayNo]
+            );
+            const localMax = Number(localMaxRes.rows[0]?.receipt_counter || 0);
+            if (localMax > 0) {
+                zimraDailyCount = localMax;
+                const latestGlobalRes = await pool.query(
+                    `SELECT fiscal_code
+                     FROM invoices
+                     WHERE company_id = $1
+                       AND synced_with_fdms = true
+                       AND receipt_global_no IS NOT NULL
+                     ORDER BY receipt_global_no DESC
+                     LIMIT 1`,
+                    [companyId]
+                );
+                zimraHash = latestGlobalRes.rows[0]?.fiscal_code || zimraHash;
+                console.log(`  FDMS returned daily counter 0 in ${statusStr}; using local fiscal day max ${localMax}`);
+            }
+        }
 
         console.log("\nZIMRA Current State:");
         console.log(`  Last Global Receipt No: ${zimraGlobalNo}`);

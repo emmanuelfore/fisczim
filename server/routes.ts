@@ -1,8 +1,6 @@
 
 import express, { type Express } from "express";
 import * as XLSX from "xlsx";
-import JSZip from "jszip";
-import CFB from "cfb";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -24,12 +22,17 @@ import { logAction } from "./audit.js";
 import { startPosShift, endPosShift, addPosTransaction, getOpenShift, getShiftTransactions, getCompanyPosTransactions } from "./lib/pos.js";
 import { seedCompanyDefaults } from "./lib/seeding.js";
 import { processInvoiceFiscalization, getZimraLogger } from "./lib/fiscalization.js";
-import { assertFiscalDayClosePreflight, ZimraPreflightError } from "./lib/zimra-preflight.js";
+import { ZimraPreflightError } from "./lib/zimra-preflight.js";
 import sageWebhookRouter from "./lib/sage-webhook.js";
 import sageOAuthRouter from "./lib/sage-oauth.js";
 import v1Router from "./api/v1/index.js";
 import busTicketingRouter from "./api/v1/bus-ticketing.js";
-import payrollRouter from "./api/v1/payroll.js";
+import { createRolesPermissionsRouter } from "./routes/roles-permissions.js";
+import { createPartnershipsRouter } from "./routes/partnerships.js";
+import { userHasPermission } from "./lib/permissions.js";
+import { resolveActionAccess } from "./lib/approval-policies.js";
+import { createApprovalRequest } from "./lib/approvals.js";
+import { APPROVAL_TYPES } from "../shared/permissions.js";
 import { db } from "./db";
 import { eq, and, gte, lte, ne, desc, asc, sql, or, ilike, isNull, inArray } from "drizzle-orm";
 import { format } from "date-fns";
@@ -1674,25 +1677,12 @@ export async function registerRoutes(
     res.json(company);
   });
 
-  const normalizeCompanyUpdatePayload = (payload: Record<string, any>) => {
-    const normalized = { ...payload };
-    for (const field of ["id", "createdAt", "role"]) {
-      delete normalized[field];
-    }
-    for (const field of ["tin", "vatNumber", "bpNumber"]) {
-      if (typeof normalized[field] === "string" && normalized[field].trim() === "") {
-        normalized[field] = null;
-      }
-    }
-    return normalized;
-  };
-
   app.patch("/api/companies/:id", requireAuth, async (req, res) => {
     try {
       const companyId = Number(req.params.id);
       console.log(`[STORAGE] PATCH /api/companies/${companyId} Body:`, JSON.stringify(req.body, null, 2));
       // Ideally verify user owns this company
-      const updated = await storage.updateCompany(companyId, normalizeCompanyUpdatePayload(req.body));
+      const updated = await storage.updateCompany(companyId, req.body);
       res.json(updated);
     } catch (err) {
       console.error("Update Company Error:", err);
@@ -2587,12 +2577,42 @@ export async function registerRoutes(
   app.post(api.inventory.adjust.path, requireAuth, async (req, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
+      const userId = (req.user as any).id;
+      const isSuperAdmin = !!(req.user as any)?.isSuperAdmin;
       const { productId, variationId, branchId, quantity, type, notes } = api.inventory.adjust.input.parse(req.body);
       if (!notes || notes.trim().length < 5) {
         return res.status(400).json({ message: "Stock adjustments require a clear reason or reference." });
       }
       if (!Number.isFinite(Number(quantity)) || Number(quantity) === 0) {
         return res.status(400).json({ message: "Adjustment quantity must be a non-zero number." });
+      }
+
+      const access = await resolveActionAccess(
+        userId,
+        companyId,
+        APPROVAL_TYPES.STOCK_ADJUSTMENT,
+        isSuperAdmin
+      );
+      if (!access.allowed) {
+        return res.status(403).json({ message: "You do not have permission to adjust stock." });
+      }
+
+      if (access.requiresApproval) {
+        const approval = await createApprovalRequest({
+          companyId,
+          type: APPROVAL_TYPES.STOCK_ADJUSTMENT,
+          title: `Stock adjustment: ${type}`,
+          description: notes,
+          payload: { productId, variationId, branchId, quantity, type, notes },
+          referenceType: "product",
+          referenceId: String(productId),
+          requestedBy: userId,
+        });
+        return res.status(202).json({
+          message: "Stock adjustment submitted for approval",
+          requiresApproval: true,
+          approvalId: approval.id,
+        });
       }
       
       await storage.adjustInventory(companyId, {
@@ -2602,7 +2622,7 @@ export async function registerRoutes(
         quantity,
         type,
         notes,
-        userId: (req.user as any).id
+        userId,
       });
 
       res.status(201).json({ message: "Inventory adjusted successfully" });
@@ -4007,8 +4027,9 @@ export async function registerRoutes(
 
       const fiscalDayNo = company.currentFiscalDayNo || 0;
 
-      const closePreflight = await assertFiscalDayClosePreflight(companyId, fiscalDayNo);
-      const dayInvoices = closePreflight.dayInvoices;
+      // Get all invoices for this fiscal day and find the max receipt counter
+      // Note: We can't use company.dailyReceiptCount because it gets reset to 0 after closing the day
+      const dayInvoices = await storage.getInvoicesByFiscalDay(companyId, fiscalDayNo);
       const maxReceiptCounter = dayInvoices.reduce((max, inv) => {
         return Math.max(max, inv.receiptCounter || 0);
       }, 0);
@@ -4017,7 +4038,8 @@ export async function registerRoutes(
       console.log(`[CloseDay] Starting closure for Fiscal Day ${fiscalDayNo}, Company ${companyId}`);
       console.log(`[CloseDay] Receipt Counter: ${receiptCounter} (from ${dayInvoices.length} invoices)`);
 
-      const counters = closePreflight.counters;
+      // Calculate Counters from DB transactions for this day
+      const counters = await storage.calculateFiscalCounters(companyId, fiscalDayNo);
       console.log(`[CloseDay] Calculated ${counters.length} fiscal counters`);
 
       const formatHarareDateOnly = (date: Date) => {
@@ -4033,6 +4055,14 @@ export async function registerRoutes(
       let fiscalDayDate = formatHarareDateOnly(new Date());
       if (company.fiscalDayOpenedAt) {
         fiscalDayDate = formatHarareDateOnly(new Date(company.fiscalDayOpenedAt));
+      }
+
+      // Check for Red or Grey receipts (Log as warning but don't block closure as requested)
+      const invalidReceipts = dayInvoices.filter(inv =>
+        inv.validationStatus === 'red' || inv.validationStatus === 'grey' || inv.validationStatus === 'invalid'
+      );
+      if (invalidReceipts.length > 0) {
+        console.warn(`[CloseDay] Proceeding with closure for Fiscal Day ${fiscalDayNo} despite ${invalidReceipts.length} receipts with validation issues.`);
       }
 
       // Retry mechanism for fiscal day closure
@@ -4210,14 +4240,6 @@ export async function registerRoutes(
           message: err.message,
           details: err.details,
           endpoint: err.endpoint
-        });
-      }
-
-      if (err instanceof ZimraPreflightError) {
-        return res.status(400).json({
-          message: err.message,
-          issues: err.issues,
-          recovery: "Fix the listed local receipt/day issues, then retry closing the fiscal day. The day was kept open."
         });
       }
 
@@ -4850,9 +4872,8 @@ export async function registerRoutes(
       } else {
         // Close fiscal day
         const fiscalDayNo = company.currentFiscalDayNo || 0;
-        const closePreflight = await assertFiscalDayClosePreflight(companyId, fiscalDayNo);
-        const receiptCounter = closePreflight.dayInvoices.reduce((max, inv) => Math.max(max, inv.receiptCounter || 0), 0);
-        const counters = closePreflight.counters;
+        const receiptCounter = company.dailyReceiptCount || 0;
+        const counters = await storage.calculateFiscalCounters(companyId, fiscalDayNo);
 
         const formatHarareDateOnly = (date: Date) => {
           const parts = new Intl.DateTimeFormat('en-GB', {
@@ -4896,12 +4917,6 @@ export async function registerRoutes(
       const company = await storage.getCompany(Number(req.params.id));
       if (err instanceof ZimraApiError) {
         return res.status(err.statusCode).json(formatRevMaxResponse("0", err.message, {}, company || undefined));
-      }
-      if (err instanceof ZimraPreflightError) {
-        return res.status(400).json(formatRevMaxResponse("0", err.message, {
-          issues: err.issues,
-          recovery: "Fix the listed local receipt/day issues, then retry closing the fiscal day."
-        }, company || undefined));
       }
       res.status(500).json(formatRevMaxResponse("0", `Error: ${err.message}`, {}, company || undefined));
     }
@@ -5664,9 +5679,42 @@ export async function registerRoutes(
   });
 
   app.post("/api/companies/:companyId/inventory/batch-stock-in", requireAuth, async (req, res) => {
+    const companyId = Number(req.params.companyId);
+    const userId = (req.user as any)?.id;
+    const isSuperAdmin = !!(req.user as any)?.isSuperAdmin;
+    const access = await resolveActionAccess(userId, companyId, APPROVAL_TYPES.GRN_CONFIRM, isSuperAdmin);
+    if (!access.allowed) {
+      return res.status(403).json({ message: "You do not have permission for direct goods receipt. Use the GDN workflow instead." });
+    }
     const idempotencyKey = await sendIdempotentHit(req, res);
     if (idempotencyKey === false) return;
     const { items, supplierId, notes, landedCosts, allocationMethod, grvNumber } = req.body;
+
+    if (access.requiresApproval) {
+      const approval = await createApprovalRequest({
+        companyId,
+        type: APPROVAL_TYPES.GRN_CONFIRM,
+        title: "Direct goods receipt",
+        description: notes || "Batch stock-in pending approval",
+        payload: {
+          batchStockIn: true,
+          items,
+          supplierId,
+          notes,
+          landedCosts,
+          allocationMethod,
+          grvNumber,
+        },
+        referenceType: "batch_stock_in",
+        requestedBy: userId,
+      });
+      return sendIdempotent(req, res, idempotencyKey, 202, {
+        message: "Goods receipt submitted for approval",
+        requiresApproval: true,
+        approvalId: approval.id,
+      });
+    }
+
     const { recordBatchStockIn } = await import("./lib/inventory.js");
 
     const result = await recordBatchStockIn(
@@ -5962,9 +6010,11 @@ export async function registerRoutes(
     try {
       const companyId = Number(req.params.companyId);
       const gdnId = Number(req.params.gdnId);
-      const role = await storage.getCompanyUserRole((req.user as any)?.id, companyId);
-      if (role !== "owner" && role !== "admin" && !(req.user as any)?.isSuperAdmin) {
-        return res.status(403).json({ message: "Only owner/admin can confirm GDN stock." });
+      const userId = (req.user as any)?.id;
+      const isSuperAdmin = !!(req.user as any)?.isSuperAdmin;
+      const access = await resolveActionAccess(userId, companyId, APPROVAL_TYPES.GRN_CONFIRM, isSuperAdmin);
+      if (!access.allowed) {
+        return res.status(403).json({ message: "You do not have permission to confirm goods received." });
       }
 
       const { items, notes, landedCosts, allocationMethod, grvNumber } = req.body || {};
@@ -5980,6 +6030,24 @@ export async function registerRoutes(
 
       if (!gdn) return res.status(404).json({ message: "GDN not found." });
       if (gdn.status !== "PENDING") return res.status(409).json({ message: "This GDN has already been processed." });
+
+      if (access.requiresApproval) {
+        const approval = await createApprovalRequest({
+          companyId,
+          type: APPROVAL_TYPES.GRN_CONFIRM,
+          title: `Confirm GDN ${gdn.gdnNumber}`,
+          description: notes || gdn.notes || undefined,
+          payload: { gdnId, items, notes, landedCosts, allocationMethod, grvNumber },
+          referenceType: "gdn",
+          referenceId: String(gdnId),
+          requestedBy: userId,
+        });
+        return res.status(202).json({
+          message: "GDN confirmation submitted for approval",
+          requiresApproval: true,
+          approvalId: approval.id,
+        });
+      }
 
       const stockItems = items.map((raw: any) => {
         const productId = Number(raw.productId);
@@ -7021,8 +7089,52 @@ export async function registerRoutes(
 
       const companyId = Number(req.params.companyId);
       const userId = (req.user as any)?.id;
+      const isSuperAdmin = !!(req.user as any)?.isSuperAdmin;
       const requestBranchId = getBranchId(req);
       const isOfflineSync = req.body?.isOfflineSync === true;
+
+      if (input.isPos) {
+        const canSell = isSuperAdmin || await userHasPermission(userId, companyId, "pos.sell", false);
+        if (!canSell) {
+          return res.status(403).json({ message: "You do not have permission to process POS sales." });
+        }
+      } else {
+        const targetStatus = input.status || "issued";
+        if (targetStatus === "draft") {
+          const canCreate = isSuperAdmin || await userHasPermission(userId, companyId, "invoices.create", false);
+          if (!canCreate) {
+            return res.status(403).json({ message: "You do not have permission to create invoices." });
+          }
+        } else {
+          const invoiceTotal = Number(input.total || 0);
+          const issueAccess = await resolveActionAccess(
+            userId,
+            companyId,
+            APPROVAL_TYPES.INVOICE_ISSUE,
+            isSuperAdmin,
+            { amount: invoiceTotal }
+          );
+          if (!issueAccess.allowed) {
+            return res.status(403).json({ message: "You do not have permission to issue invoices." });
+          }
+          if (issueAccess.requiresApproval) {
+            const approval = await createApprovalRequest({
+              companyId,
+              type: APPROVAL_TYPES.INVOICE_ISSUE,
+              title: `Invoice issuance${input.invoiceNumber ? `: ${input.invoiceNumber}` : ""}`,
+              description: input.notes || undefined,
+              payload: { invoiceData: { ...input, status: "issued", companyId, createdBy: userId, branchId: requestBranchId }, items: input.items },
+              referenceType: "invoice_draft",
+              requestedBy: userId,
+            });
+            return sendIdempotent(req, res, idempotencyKey, 202, {
+              message: "Invoice issuance submitted for approval",
+              requiresApproval: true,
+              approvalId: approval.id,
+            });
+          }
+        }
+      }
 
       // 1. Parallelize initial validation and data fetching
       let activeShiftPromise: Promise<any> = Promise.resolve(null);
@@ -7087,8 +7199,10 @@ export async function registerRoutes(
         companyId,
         createdBy: userId,
         shiftId: activeShift?.id || undefined,
-        branchId: requestBranchId
-      });
+        branchId: requestBranchId,
+        partnerId: input.partnerId ?? undefined,
+        revenueSharePercent: input.revenueSharePercent != null ? String(input.revenueSharePercent) : undefined,
+      } as any);
       markPerf("invoice_created");
 
       // 2. POS Payment Recording
@@ -7207,9 +7321,7 @@ export async function registerRoutes(
           details: err.errors.map(e => `${e.path.join('.')}: ${e.message}`)
         });
       }
-      return res.status(500).json({
-        message: err instanceof Error ? err.message : "Failed to create invoice",
-      });
+      throw err;
     }
   });
 
@@ -7381,33 +7493,6 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/companies/:companyId/zimra/sample-script", requireAuth, async (req, res) => {
-    try {
-      const companyId = Number(req.params.companyId);
-      if (!companyId) return res.status(400).json({ message: "Company ID is required" });
-
-      const memberRole = await storage.getCompanyUserRole((req.user as any)?.id, companyId);
-      if (!memberRole && !(req.user as any)?.isSuperAdmin) {
-        return res.status(403).json({ message: "You do not have permission to export samples for this company" });
-      }
-
-      const workbook = await buildZimraScriptWorkbook(companyId);
-      const company = await storage.getCompany(companyId);
-      const safeName = String(company?.tradingName || company?.name || `company-${companyId}`)
-        .trim()
-        .replace(/[^a-z0-9]+/gi, "_")
-        .replace(/^_+|_+$/g, "")
-        .toLowerCase() || `company_${companyId}`;
-
-      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-      res.setHeader("Content-Disposition", `attachment; filename="${safeName}_zimra_test_scripts.xlsx"`);
-      res.send(workbook);
-    } catch (err: any) {
-      console.error("Create ZIMRA sample script error:", err);
-      res.status(500).json({ message: err.message || "Failed to create ZIMRA sample script workbook" });
-    }
-  });
-
   app.get(api.invoices.get.path, requireAuth, async (req, res) => {
     const invoice = await storage.getInvoice(Number(req.params.id));
     if (!invoice) return res.status(404).json({ message: "Invoice not found" });
@@ -7565,6 +7650,20 @@ export async function registerRoutes(
       // Provide detailed error message if available
       const message = err.message || "An unexpected error occurred during fiscalization.";
 
+      if (err instanceof ZimraPreflightError) {
+        const invoiceId = Number(req.params.id);
+        const invoice = Number.isFinite(invoiceId) ? await storage.getInvoice(invoiceId) : undefined;
+        return res.status(409).json({
+          code: "ZIMRA_PREFLIGHT_FAILED",
+          message,
+          issues: err.issues,
+          invoiceId,
+          invoice,
+          validationErrors: invoice?.validationErrors || [],
+          editable: true,
+        });
+      }
+
       if (err instanceof ZimraApiError) {
         return res.status(400).json({
           message: `ZIMRA Error: ${message}`,
@@ -7675,306 +7774,6 @@ export async function registerRoutes(
       total: (subtotal + taxAmount).toFixed(2),
     };
   }
-
-  const xmlEscape = (value: unknown) => String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-
-  const pdfEscape = (value: unknown) => String(value ?? "")
-    .replace(/\\/g, "\\\\")
-    .replace(/\(/g, "\\(")
-    .replace(/\)/g, "\\)")
-    .replace(/\r?\n/g, " ");
-
-  const extractAddressParts = (address?: string | null) => {
-    const text = String(address || "").replace(/\s+/g, " ").trim();
-    if (!text) return { houseNo: "", street: "" };
-
-    const firstSegment = text.split(",")[0]?.trim() || text;
-    const leadingNumber = firstSegment.match(/^(\d+[A-Za-z]?(?:[-/]\d+[A-Za-z]?)?)\s+(.+)$/);
-    if (leadingNumber) {
-      return { houseNo: leadingNumber[1], street: leadingNumber[2].trim() };
-    }
-
-    const trailingNumber = firstSegment.match(/^(.+?)\s+(\d+[A-Za-z]?(?:[-/]\d+[A-Za-z]?)?)$/);
-    if (trailingNumber) {
-      return { houseNo: trailingNumber[2], street: trailingNumber[1].trim() };
-    }
-
-    return { houseNo: "", street: firstSegment };
-  };
-
-  const makePdf = (title: string, invoice: any, items: any[]) => {
-    const lines = [
-      title,
-      `Document No: ${invoice.invoiceNumber}`,
-      `Currency: ${invoice.currency}`,
-      `Date: ${invoice.issueDate ? new Date(invoice.issueDate).toISOString().slice(0, 10) : ""}`,
-      `Seller: ${invoice.companyName}`,
-      `TIN: ${invoice.tin || ""}   VAT: ${invoice.vatNumber || ""}`,
-      `Buyer: ${invoice.customerName || ""}`,
-      `Receipt Global No: ${invoice.receiptGlobalNo || ""}`,
-      `Receipt Counter: ${invoice.receiptCounter || ""}`,
-      `Verification Code: ${invoice.verificationCode || ""}`,
-      `FDMS Status: ${invoice.fdmsStatus || ""}`,
-      "",
-      "Lines:",
-      ...items.map((item: any) => `${item.description} | Qty ${Number(item.quantity || 0).toFixed(2)} | Unit ${Number(item.unitPrice || 0).toFixed(2)} | VAT ${Number(item.taxRate || 0).toFixed(2)}% | Line ${Number(item.lineTotal || 0).toFixed(2)}`),
-      "",
-      `Subtotal: ${invoice.currency} ${Number(invoice.subtotal || 0).toFixed(2)}`,
-      `VAT: ${invoice.currency} ${Number(invoice.taxAmount || 0).toFixed(2)}`,
-      `Total: ${invoice.currency} ${Number(invoice.total || 0).toFixed(2)}`,
-      invoice.notes ? `Reason: ${invoice.notes}` : "",
-      `Fiscal Signature: ${invoice.fiscalCode || ""}`,
-    ].filter((line) => line !== "");
-
-    const content = [
-      "BT",
-      "/F1 12 Tf",
-      "50 800 Td",
-      ...lines.flatMap((line, index) => [
-        index === 0 ? "/F1 18 Tf" : index === 1 ? "/F1 12 Tf" : "",
-        `(${pdfEscape(line)}) Tj`,
-        "0 -18 Td",
-      ]).filter(Boolean),
-      "ET",
-    ].join("\n");
-
-    const objects = [
-      "<< /Type /Catalog /Pages 2 0 R >>",
-      "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
-      "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-      `<< /Length ${Buffer.byteLength(content, "latin1")} >>\nstream\n${content}\nendstream`,
-    ];
-
-    let body = "%PDF-1.4\n";
-    const offsets = [0];
-    objects.forEach((object, index) => {
-      offsets.push(Buffer.byteLength(body, "latin1"));
-      body += `${index + 1} 0 obj\n${object}\nendobj\n`;
-    });
-    const xrefOffset = Buffer.byteLength(body, "latin1");
-    body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-    for (let index = 1; index <= objects.length; index++) {
-      body += `${String(offsets[index]).padStart(10, "0")} 00000 n \n`;
-    }
-    body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
-    return Buffer.from(body, "latin1");
-  };
-
-  const makeOlePackage = (filename: string, data: Buffer) => {
-    const writeUInt16 = (value: number) => {
-      const buffer = Buffer.alloc(2);
-      buffer.writeUInt16LE(value);
-      return buffer;
-    };
-    const writeUInt32 = (value: number) => {
-      const buffer = Buffer.alloc(4);
-      buffer.writeUInt32LE(value);
-      return buffer;
-    };
-    const asciiz = (value: string) => Buffer.concat([Buffer.from(value, "latin1"), Buffer.from([0])]);
-    const nativeBody = Buffer.concat([
-      writeUInt16(2),
-      asciiz(filename),
-      asciiz(filename),
-      writeUInt16(0),
-      writeUInt16(3),
-      writeUInt32(Buffer.byteLength(filename, "latin1") + 1),
-      asciiz(filename),
-      writeUInt32(data.length),
-      data,
-      writeUInt16(0),
-    ]);
-
-    const cfb = CFB.utils.cfb_new();
-    CFB.utils.cfb_add(cfb, "\u0001Ole", Buffer.from([1, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]));
-    CFB.utils.cfb_add(cfb, "\u0001Ole10Native", Buffer.concat([writeUInt32(nativeBody.length), nativeBody]));
-    return CFB.write(cfb, { type: "buffer" }) as Buffer;
-  };
-
-  const buildZimraScriptWorkbook = async (companyId: number) => {
-    const rows = await db.select({
-      companyId: companies.id,
-      companyName: companies.name,
-      tin: companies.tin,
-      vatNumber: companies.vatNumber,
-      tradingName: companies.tradingName,
-      phone: companies.phone,
-      email: companies.email,
-      address: companies.address,
-      city: companies.city,
-      fdmsDeviceSerialNo: companies.fdmsDeviceSerialNo,
-      fdmsDeviceId: companies.fdmsDeviceId,
-      fdmsApiKey: companies.fdmsApiKey,
-      invoiceId: invoices.id,
-      invoiceNumber: invoices.invoiceNumber,
-      transactionType: invoices.transactionType,
-      currency: invoices.currency,
-      issueDate: invoices.issueDate,
-      subtotal: invoices.subtotal,
-      taxAmount: invoices.taxAmount,
-      total: invoices.total,
-      notes: invoices.notes,
-      fiscalCode: invoices.fiscalCode,
-      verificationCode: invoices.verificationCode,
-      receiptGlobalNo: invoices.receiptGlobalNo,
-      receiptCounter: invoices.receiptCounter,
-      fdmsStatus: invoices.fdmsStatus,
-      customerName: customers.name,
-    })
-      .from(invoices)
-      .innerJoin(companies, eq(invoices.companyId, companies.id))
-      .leftJoin(customers, eq(invoices.customerId, customers.id))
-      .where(and(eq(invoices.companyId, companyId), ilike(customers.name, "TEST CUSTOMER")))
-      .orderBy(desc(invoices.createdAt));
-
-    if (rows.length === 0) {
-      throw new Error("No ZIMRA sample documents found. Create and fiscalize samples first.");
-    }
-
-    const latestByCurrency = new Map<string, Record<string, any>>();
-    for (const row of rows) {
-      const currency = row.currency || "USD";
-      const type = row.transactionType || "FiscalInvoice";
-      if (!latestByCurrency.has(currency)) latestByCurrency.set(currency, {});
-      const bucket = latestByCurrency.get(currency)!;
-      if (!bucket[type] && ["FiscalInvoice", "CreditNote", "DebitNote"].includes(type)) {
-        bucket[type] = row;
-      }
-    }
-
-    const selected = Array.from(latestByCurrency.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .flatMap(([, bucket]) => [bucket.FiscalInvoice, bucket.CreditNote, bucket.DebitNote])
-      .filter(Boolean);
-
-    const hasAllTypes = Array.from(latestByCurrency.values()).some((bucket) => bucket.FiscalInvoice && bucket.CreditNote && bucket.DebitNote);
-    if (!hasAllTypes) {
-      throw new Error("Sample documents are incomplete. Generate invoice, credit note, and debit note samples first.");
-    }
-
-    const selectedIds = selected.map((row) => row.invoiceId);
-    const itemRows = await db.select({
-      invoiceId: invoiceItems.invoiceId,
-      description: invoiceItems.description,
-      quantity: invoiceItems.quantity,
-      unitPrice: invoiceItems.unitPrice,
-      taxRate: invoiceItems.taxRate,
-      lineTotal: invoiceItems.lineTotal,
-      hsCode: products.hsCode,
-    })
-      .from(invoiceItems)
-      .leftJoin(products, eq(invoiceItems.productId, products.id))
-      .where(inArray(invoiceItems.invoiceId, selectedIds))
-      .orderBy(asc(invoiceItems.invoiceId), asc(invoiceItems.id));
-
-    const itemsByInvoice = new Map<number, any[]>();
-    for (const item of itemRows) {
-      if (!itemsByInvoice.has(item.invoiceId)) itemsByInvoice.set(item.invoiceId, []);
-      itemsByInvoice.get(item.invoiceId)!.push(item);
-    }
-
-    const company = selected[0];
-    const addressParts = extractAddressParts(company.address);
-    const numbersByType = {
-      invoice: selected.filter((row) => row.transactionType === "FiscalInvoice").map((row) => row.invoiceNumber).join(", "),
-      creditNote: selected.filter((row) => row.transactionType === "CreditNote").map((row) => row.invoiceNumber).join(", "),
-      debitNote: selected.filter((row) => row.transactionType === "DebitNote").map((row) => row.invoiceNumber).join(", "),
-    };
-    const aoa = [
-      ["Taxpayer TIN", "Taxpayer name", "VAT number", "Email", "Trade name", "Contact phone No", "E-mail", "Province", "Street", "House No", "City", "Region", "Station", "Serial No", "Model name", "Supplier", "Serial No", "Device ID", "INVOICE", "CREDIT NOTE", "DEBIT NOTE", "ZIMRA COMMENTS"],
-      [
-        company.tin || "",
-        company.companyName || "",
-        company.vatNumber || "",
-        company.email || "",
-        company.tradingName || company.companyName || "",
-        company.phone || "",
-        company.email || "",
-        company.city || "",
-        addressParts.street,
-        addressParts.houseNo,
-        company.city || "",
-        "Region 1 Small Clients Office",
-        "SCO Kurima",
-        company.fdmsDeviceSerialNo || "",
-        "Server",
-        "Self (Server to Server)",
-        company.fdmsDeviceSerialNo || "",
-        company.fdmsDeviceId || "",
-        numbersByType.invoice,
-        numbersByType.creditNote,
-        numbersByType.debitNote,
-        "",
-      ],
-    ];
-
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws["!ref"] = "A1:V1000";
-    ws["!rows"] = [{ hpt: 63.75 }, { hpt: 76.5 }];
-    ws["!cols"] = [
-      12, 30, 14, 28, 30, 18, 28, 14, 26, 10, 14, 28, 16, 22, 16, 28, 24, 13, 34, 34, 34, 58
-    ].map((width) => ({ wch: width }));
-    XLSX.utils.book_append_sheet(wb, ws, "Registration Details");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["Region 1 Large Clients Office"], ["Region 1 Medium Clients Office"], ["Region 1 Small Clients Office"], ["Region 2"], ["Region 3"]]), "Regions");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["Beitbrigde"], ["Bindura"], ["SCO Kurima"], ["Chinhoyi"], ["Chipinge"], ["Chiredzi"], ["Gwanda"], ["Gweru"], ["Hwange"], ["Kadoma"], ["Kariba"], ["Kwekwe"], ["LCO Kurima"], ["Marondera"], ["Masvingo"], ["MCO Kurima"], ["Mutare"], ["Rusape"], ["SCO Kurima"], ["Victoria Falls Town Office"], ["Zvishavane"], ["harare"]]), "Stations");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["Axis Solutions"], ["Cortech Solutions"], ["Fiscal Revenue Solutions"], ["Fiscal Support Services"], ["Global Horizons"], ["JUST IT"], ["Microware"], ["Self (Server to Server)"], ["Chips(Server to Server)"]]), "Suppliers");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["ELTRADE A3"], ["ELTRADE B1"], ["ELTRADE CC300"], ["ELTRADE PRP 250F"], ["ELTRADE TM-T810F"], ["INCOTEX 118"], ["Revmax"], ["Server"], ["Tracksol001"], ["Tracksol003"], ["VFD"]]), "Model Names");
-
-    const workbookBuffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
-    const zip = await JSZip.loadAsync(workbookBuffer);
-
-    const objects = selected.map((invoice, index) => {
-      const title = invoice.transactionType === "CreditNote" ? "FISCAL CREDIT NOTE" : invoice.transactionType === "DebitNote" ? "FISCAL DEBIT NOTE" : "FISCAL TAX INVOICE";
-      const filename = `${invoice.transactionType === "CreditNote" ? "CreditNote" : "Invoice"}-${invoice.invoiceNumber}.pdf`;
-      const pdf = makePdf(title, invoice, itemsByInvoice.get(invoice.invoiceId) || []);
-      const col = invoice.transactionType === "CreditNote" ? 19 : invoice.transactionType === "DebitNote" ? 20 : 18;
-      const sameColumnIndex = selected.slice(0, index).filter((row) => row.transactionType === invoice.transactionType).length;
-      return {
-        filename,
-        ole: makeOlePackage(filename, pdf),
-        col,
-        colOff: sameColumnIndex * 1905000,
-        rid: index + 1,
-        shapeId: 1025 + index,
-      };
-    });
-
-    objects.forEach((object, index) => {
-      zip.file(`xl/embeddings/oleObject${index + 1}.bin`, object.ole);
-    });
-
-    const sheetPath = "xl/worksheets/sheet1.xml";
-    let sheetXml = await zip.file(sheetPath)!.async("string");
-    if (!sheetXml.includes("xmlns:xdr=")) {
-      sheetXml = sheetXml.replace("<worksheet ", '<worksheet xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" ');
-    }
-    const oleObjectsXml = `<oleObjects>${objects.map((object) => {
-      const width = 1752600;
-      const height = 609600;
-      return `<oleObject progId="Package" dvAspect="DVASPECT_ICON" shapeId="${object.shapeId}" r:id="rId${object.rid}"><objectPr defaultSize="0"><anchor moveWithCells="1"><from><xdr:col>${object.col}</xdr:col><xdr:colOff>${object.colOff}</xdr:colOff><xdr:row>1</xdr:row><xdr:rowOff>114300</xdr:rowOff></from><to><xdr:col>${object.col}</xdr:col><xdr:colOff>${object.colOff + width}</xdr:colOff><xdr:row>1</xdr:row><xdr:rowOff>${114300 + height}</xdr:rowOff></to></anchor></objectPr></oleObject>`;
-    }).join("")}</oleObjects>`;
-    sheetXml = sheetXml.replace(/<pageMargins /, `${oleObjectsXml}<pageMargins `);
-    zip.file(sheetPath, sheetXml);
-
-    const relsPath = "xl/worksheets/_rels/sheet1.xml.rels";
-    const relsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${objects.map((object, index) => `<Relationship Id="rId${object.rid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/oleObject" Target="../embeddings/oleObject${index + 1}.bin"/>`).join("")}</Relationships>`;
-    zip.file(relsPath, relsXml);
-
-    const contentTypesPath = "[Content_Types].xml";
-    let contentTypes = await zip.file(contentTypesPath)!.async("string");
-    if (!contentTypes.includes('Extension="bin"')) {
-      contentTypes = contentTypes.replace("</Types>", '<Default Extension="bin" ContentType="application/vnd.openxmlformats-officedocument.oleObject"/></Types>');
-    }
-    zip.file(contentTypesPath, contentTypes);
-
-    return zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
-  };
 
   // Create Credit Note
   app.post("/api/invoices/:id/credit-note", requireAuth, async (req, res) => {
@@ -8734,7 +8533,6 @@ export async function registerRoutes(
       const productRevenue = await db
         .select({
           productId: invoiceItemsTable.productId,
-          currency: invoices.currency,
           name: sql<string>`max(${invoiceItemsTable.description})`,
           sku: sql<string>`max(${products.sku})`,
           revenue: sql<number>`coalesce(sum(${invoiceItemsTable.lineTotal}), 0)`
@@ -8751,35 +8549,10 @@ export async function registerRoutes(
           ne(invoices.status, 'quote'),
           ownerGroupFilter,
         ))
-        .groupBy(invoiceItemsTable.productId, invoices.currency)
+        .groupBy(invoiceItemsTable.productId)
         .orderBy(sql`revenue desc`);
 
-      const byProduct = new Map<string, {
-        productId: number | null;
-        name: string;
-        sku: string;
-        revenue: number;
-        byCurrency: Record<string, number>;
-      }>();
-
-      for (const row of productRevenue) {
-        const key = String(row.productId ?? row.name ?? "unknown");
-        const currency = row.currency || "USD";
-        const revenue = Number(row.revenue || 0);
-        const existing = byProduct.get(key) || {
-          productId: row.productId,
-          name: row.name || "Unknown Product",
-          sku: row.sku || "N/A",
-          revenue: 0,
-          byCurrency: {},
-        };
-        existing.revenue += revenue;
-        existing.byCurrency[currency] = (existing.byCurrency[currency] || 0) + revenue;
-        byProduct.set(key, existing);
-      }
-
-      const productRevenueByCurrency = Array.from(byProduct.values());
-      const totalRevenue = productRevenueByCurrency.reduce((sum, p) => sum + Number(p.revenue), 0);
+      const totalRevenue = productRevenue.reduce((sum, p) => sum + Number(p.revenue), 0);
       
       console.log(`ABC Debug [${companyId}]: Found ${productRevenue.length} products with revenue in range ${startDate.toISOString()} to ${endDate.toISOString()}. Total Rev: ${totalRevenue}`);
 
@@ -8789,7 +8562,7 @@ export async function registerRoutes(
 
       // 2. Calculate categories
       let cumulativeRevenue = 0;
-      const results = productRevenueByCurrency.map((p) => {
+      const results = productRevenue.map((p) => {
         const revenue = Number(p.revenue);
         cumulativeRevenue += revenue;
         const cumulativeShare = (cumulativeRevenue / totalRevenue) * 100;
@@ -8807,9 +8580,6 @@ export async function registerRoutes(
           name: p.name || "Unknown Product",
           sku: p.sku || "N/A",
           revenue,
-          byCurrency: Object.fromEntries(
-            Object.entries(p.byCurrency).map(([currency, amount]) => [currency, Math.round(amount * 100) / 100])
-          ),
           share,
           cumulativeShare,
           category,
@@ -8897,7 +8667,6 @@ export async function registerRoutes(
           userId: invoices.createdBy,
           cashierName: users.name,
           total: invoices.total,
-          currency: invoices.currency,
           paymentMethod: invoices.paymentMethod,
           splitPayments: invoices.splitPayments,
           transactionType: invoices.transactionType,
@@ -8934,12 +8703,9 @@ export async function registerRoutes(
             userId,
             cashierName: cashierName || "Unknown Cashier",
             cashSales: 0,
-            cashSalesByCurrency: {},
             cashSinceLastCollection: 0,
-            cashSinceLastCollectionByCurrency: {},
             collections: 0,
             expectedCash: 0,
-            expectedCashByCurrency: {},
             lastSaleAt: null as Date | null,
             lastCollectionAt: null as Date | null,
           });
@@ -8960,7 +8726,6 @@ export async function registerRoutes(
         if (!isOwner && sale.userId !== currentUserId) continue;
         const method = String(sale.paymentMethod || "CASH").toUpperCase();
         const sign = sale.transactionType === "CreditNote" ? -1 : 1;
-        const currency = sale.currency || "USD";
         let cashAmount = 0;
         if (method === "CASH") {
           cashAmount = Number(sale.total || 0);
@@ -8973,11 +8738,9 @@ export async function registerRoutes(
         const row = ensure(sale.userId, sale.cashierName);
         const signedCashAmount = sign * cashAmount;
         row.cashSales += signedCashAmount;
-        row.cashSalesByCurrency[currency] = (row.cashSalesByCurrency[currency] || 0) + signedCashAmount;
         const saleDate = sale.createdAt ? new Date(sale.createdAt) : null;
         if (!row.lastCollectionAt || (saleDate && saleDate > row.lastCollectionAt)) {
           row.cashSinceLastCollection += signedCashAmount;
-          row.cashSinceLastCollectionByCurrency[currency] = (row.cashSinceLastCollectionByCurrency[currency] || 0) + signedCashAmount;
         }
         if (!row.lastSaleAt || (sale.createdAt && new Date(sale.createdAt) > row.lastSaleAt)) {
           row.lastSaleAt = sale.createdAt ? new Date(sale.createdAt) : null;
@@ -8988,18 +8751,9 @@ export async function registerRoutes(
         .map((row) => {
           const outstandingCash = row.cashSales - row.collections;
           const expectedCash = useSinceLastCollection ? row.cashSinceLastCollection : outstandingCash;
-          const expectedCashByCurrency = useSinceLastCollection
-            ? row.cashSinceLastCollectionByCurrency
-            : row.cashSalesByCurrency;
           return {
             ...row,
             expectedCash,
-            expectedCashByCurrency: Object.fromEntries(
-              Object.entries(expectedCashByCurrency).map(([currency, amount]) => [currency, Math.round(Number(amount || 0) * 100) / 100])
-            ),
-            cashSalesByCurrency: Object.fromEntries(
-              Object.entries(row.cashSalesByCurrency).map(([currency, amount]) => [currency, Math.round(Number(amount || 0) * 100) / 100])
-            ),
             outstandingCash: outstandingCash.toFixed(2),
             cashSales: row.cashSales.toFixed(2),
             cashSinceLastCollection: row.cashSinceLastCollection.toFixed(2),
@@ -10728,42 +10482,6 @@ export async function registerRoutes(
   app.get("/api/companies/:companyId/reports/tax-summary", requireAuth,
     reportRouteHandler((id, s, e) => storage.getReportTaxSummary(id, s, e)));
 
-  app.get("/api/companies/:companyId/reports/auto-spares-daily-sales", requireAuth,
-    reportRouteHandler((id, s, e) => storage.getReportAutoSparesDailySales(id, s, e)));
-
-  app.get("/api/companies/:companyId/reports/top-selling-parts", requireAuth,
-    reportRouteHandler((id, s, e) => storage.getReportTopSellingParts(id, s, e)));
-
-  app.get("/api/companies/:companyId/reports/dead-stock", requireAuth,
-    reportRouteHandler((id, s, e) => storage.getReportDeadStock(id, s, e)));
-
-  app.get("/api/companies/:companyId/reports/profit-margins", requireAuth,
-    reportRouteHandler((id, s, e) => storage.getReportProfitMargins(id, s, e)));
-
-  app.get("/api/companies/:companyId/reports/purchase-report", requireAuth,
-    reportRouteHandler((id, s, e) => storage.getReportPurchaseHistory(id, s, e)));
-
-  app.get("/api/companies/:companyId/reports/supplier-performance", requireAuth,
-    reportRouteHandler((id, s, e) => storage.getReportSupplierPerformance(id, s, e)));
-
-  app.get("/api/companies/:companyId/reports/customer-credit", requireAuth,
-    reportRouteHandler((id, s, e) => storage.getReportCustomerCredit(id, s, e)));
-
-  app.get("/api/companies/:companyId/reports/salesperson-performance", requireAuth,
-    reportRouteHandler((id, s, e) => storage.getReportSalespersonPerformance(id, s, e)));
-
-  app.get("/api/companies/:companyId/reports/category-brand-performance", requireAuth,
-    reportRouteHandler((id, s, e) => storage.getReportCategoryBrandPerformance(id, s, e)));
-
-  app.get("/api/companies/:companyId/reports/return-warranty", requireAuth,
-    reportRouteHandler((id, s, e) => storage.getReportReturnWarranty(id, s, e)));
-
-  app.get("/api/companies/:companyId/reports/reorder-suggestions", requireAuth,
-    reportRouteHandler((id, s, e) => storage.getReportReorderSuggestions(id, s, e)));
-
-  app.get("/api/companies/:companyId/reports/price-changes", requireAuth,
-    reportRouteHandler((id, s, e) => storage.getReportPriceChanges(id, s, e)));
-
   // Currency-aware reports for Dashboard
   app.get("/api/companies/:companyId/reports/receivables-aging", requireAuth, async (req: any, res: any) => {
     try {
@@ -10794,9 +10512,6 @@ export async function registerRoutes(
 
   // Sage OAuth 2.0 (connect / callback / status / disconnect)
   app.use("/api/sage/oauth", sageOAuthRouter);
-
-  // HR & Payroll module
-  app.use("/api/companies/:companyId/payroll", requireAuth, payrollRouter);
 
   // Bus Ticketing direct web-admin access
   app.use("/api/companies/:companyId/bus-ticketing", requireAuth, busTicketingRouter);
@@ -10978,7 +10693,45 @@ export async function registerRoutes(
       const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
 
-      const entry = await storage.postJournalEntryDraft(companyId, Number(req.params.id), req.user?.id);
+      const userId = req.user?.id;
+      const isSuperAdmin = !!req.user?.isSuperAdmin;
+      const draftId = Number(req.params.id);
+      const drafts = await storage.getJournalEntryDrafts(companyId);
+      const draft = drafts.find((d) => d.id === draftId);
+      const draftAmount = (draft as any)?.lines?.reduce?.(
+        (sum: number, line: any) => sum + Math.max(Number(line.debit || 0), Number(line.credit || 0)),
+        0
+      ) ?? Number((draft as any)?.totalDebit || 0);
+      const access = await resolveActionAccess(
+        userId,
+        companyId,
+        APPROVAL_TYPES.JOURNAL_POST,
+        isSuperAdmin,
+        { amount: draftAmount }
+      );
+      if (!access.allowed) {
+        return res.status(403).json({ message: "You do not have permission to post journal entries." });
+      }
+
+      if (access.requiresApproval) {
+        const approval = await createApprovalRequest({
+          companyId,
+          type: APPROVAL_TYPES.JOURNAL_POST,
+          title: `Journal posting: ${draft?.description || `Draft #${draftId}`}`,
+          description: draft?.description || undefined,
+          payload: { draftId },
+          referenceType: "journal_draft",
+          referenceId: String(draftId),
+          requestedBy: userId,
+        });
+        return res.status(202).json({
+          message: "Journal posting submitted for approval",
+          requiresApproval: true,
+          approvalId: approval.id,
+        });
+      }
+
+      const entry = await storage.postJournalEntryDraft(companyId, draftId, userId);
       res.json(entry);
     } catch (err: any) {
       res.status(400).json({ message: err.message });
@@ -10989,10 +10742,44 @@ export async function registerRoutes(
     try {
       const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+
+      const userId = req.user?.id;
+      const isSuperAdmin = !!req.user?.isSuperAdmin;
+      const journalLines = Array.isArray(req.body?.lines) ? req.body.lines : [];
+      const journalAmount = journalLines.reduce(
+        (sum: number, line: any) => sum + Math.max(Number(line.debit || 0), Number(line.credit || 0), Number(line.amount || 0)),
+        0
+      );
+      const access = await resolveActionAccess(
+        userId,
+        companyId,
+        APPROVAL_TYPES.JOURNAL_POST,
+        isSuperAdmin,
+        { amount: journalAmount }
+      );
+      if (!access.allowed) {
+        return res.status(403).json({ message: "You do not have permission to post journal entries." });
+      }
+
+      if (access.requiresApproval) {
+        const approval = await createApprovalRequest({
+          companyId,
+          type: APPROVAL_TYPES.JOURNAL_POST,
+          title: `Journal posting: ${req.body?.description || "Manual entry"}`,
+          description: req.body?.description,
+          payload: { manualEntry: req.body },
+          requestedBy: userId,
+        });
+        return res.status(202).json({
+          message: "Journal posting submitted for approval",
+          requiresApproval: true,
+          approvalId: approval.id,
+        });
+      }
       
       const entry = await storage.postToLedger(companyId, {
         ...req.body,
-        createdBy: req.user?.id
+        createdBy: userId
       });
       res.json(entry);
     } catch (err: any) {
@@ -12203,6 +11990,9 @@ export async function registerRoutes(
       res.status(500).json({ message: err.message });
     }
   });
+
+  app.use("/api", createRolesPermissionsRouter(requireAuth));
+  app.use("/api", createPartnershipsRouter(requireAuth));
 
   app.use('/api/v1', v1Router);
 

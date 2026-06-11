@@ -1,6 +1,7 @@
 import { db } from "../db";
-import { inventoryTransactions, products, companies, stockTakes, stockTakeItems, branchStocks } from "@shared/schema";
+import { inventoryTransactions, products, companies, stockTakes, stockTakeItems, branchStocks, inventoryCostComponents, purchaseOrderItems, goodsDeliveryNotes, accounts } from "@shared/schema";
 import { eq, and, asc, desc, sql } from "drizzle-orm";
+import { createCostLayer, consumeInventory, recalculateBranchAVCO, type CostComponentType } from "./costing";
 
 export function generateGrvReference() {
     const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
@@ -63,6 +64,7 @@ export async function calculateCOGS(
     productId: number,
     quantitySold: number,
     companyId: number,
+    branchId: number | null = null,
     tx?: any
 ) {
     const activeDb = tx || db;
@@ -73,132 +75,23 @@ export async function calculateCOGS(
         .where(eq(companies.id, companyId))
         .limit(1);
 
-    const method = company?.method || "WAC";
+    const method = (company?.method || "WAC") as 'FIFO' | 'LIFO' | 'AVCO' | 'WAC';
+    
+    // Convert WAC to AVCO for the engine (internal nomenclature)
+    const engineMethod = method === "WAC" ? "AVCO" : method;
 
-    if (method === "WAC") {
-        return calculateWAC(productId, quantitySold, companyId, tx);
-    } else if (method === "LIFO") {
-        return calculateFIFO_LIFO(productId, quantitySold, companyId, "LIFO", tx);
-    } else {
-        return calculateFIFO_LIFO(productId, quantitySold, companyId, "FIFO", tx);
-    }
+    const { totalCogs } = await consumeInventory(productId, branchId, quantitySold, companyId, engineMethod, tx);
+    return totalCogs;
 }
 
-async function calculateWAC(productId: number, quantitySold: number, companyId: number, tx?: any) {
-    const activeDb = tx || db;
-    // Weighted Average Cost = Total Cost of Available Stock / Total Quantity of Available Stock
-    const result = await activeDb
-        .select({
-            totalQuantity: sql<number>`SUM(remaining_quantity)`,
-            totalCost: sql<number>`SUM(remaining_quantity * unit_cost)`,
-        })
-        .from(inventoryTransactions)
-        .where(
-            and(
-                eq(inventoryTransactions.productId, productId),
-                eq(inventoryTransactions.companyId, companyId),
-                sql`remaining_quantity > 0`
-            )
-        );
 
-    const { totalQuantity, totalCost } = result[0];
-
-    if (!totalQuantity || totalQuantity <= 0) return 0;
-
-    const avgCost = totalCost / totalQuantity;
-    const cogsAmount = avgCost * quantitySold;
-
-    // Update remaining quantities
-    await reduceStock(productId, quantitySold, companyId, "FIFO", tx);
-
-    return cogsAmount;
-}
-
-async function calculateFIFO_LIFO(
-    productId: number,
-    quantitySold: number,
-    companyId: number,
-    method: "FIFO" | "LIFO",
-    tx?: any
-) {
-    const activeDb = tx || db;
-    const order = method === "FIFO" ? asc : desc;
-
-    const batches = await activeDb
-        .select()
-        .from(inventoryTransactions)
-        .where(
-            and(
-                eq(inventoryTransactions.productId, productId),
-                eq(inventoryTransactions.companyId, companyId),
-                sql`remaining_quantity > 0`
-            )
-        )
-        .orderBy(order(inventoryTransactions.createdAt));
-
-    let remainingToSell = quantitySold;
-    let totalCOGS = 0;
-
-    for (const batch of batches) {
-        if (remainingToSell <= 0) break;
-
-        const availableInBatch = Number(batch.remainingQuantity);
-        const takeFromBatch = Math.min(availableInBatch, remainingToSell);
-
-        totalCOGS += takeFromBatch * Number(batch.unitCost);
-        remainingToSell -= takeFromBatch;
-
-        // Update batch remaining quantity
-        await activeDb
-            .update(inventoryTransactions)
-            .set({
-                remainingQuantity: (availableInBatch - takeFromBatch).toString(),
-            })
-            .where(eq(inventoryTransactions.id, batch.id));
-    }
-
-    return totalCOGS;
-}
-
-async function reduceStock(
-    productId: number,
-    quantity: number,
-    companyId: number,
-    orderMethod: "FIFO" | "LIFO",
-    tx?: any
-) {
-    const activeDb = tx || db;
-    const order = orderMethod === "FIFO" ? asc : desc;
-    const batches = await activeDb
-        .select()
-        .from(inventoryTransactions)
-        .where(
-            and(
-                eq(inventoryTransactions.productId, productId),
-                eq(inventoryTransactions.companyId, companyId),
-                sql`remaining_quantity > 0`
-            )
-        )
-        .orderBy(order(inventoryTransactions.createdAt));
-
-    let remainingToReduce = quantity;
-    for (const batch of batches) {
-        if (remainingToReduce <= 0) break;
-        const available = Number(batch.remainingQuantity);
-        const take = Math.min(available, remainingToReduce);
-        await activeDb
-            .update(inventoryTransactions)
-            .set({ remainingQuantity: (available - take).toString() })
-            .where(eq(inventoryTransactions.id, batch.id));
-        remainingToReduce -= take;
-    }
-}
 
 export async function recordStockIn(
     productId: number,
     quantity: number,
     unitCost: number,
     companyId: number,
+    branchId: number | null = null,
     supplierId?: number,
     notes?: string,
     landedCost: number = 0,
@@ -206,52 +99,57 @@ export async function recordStockIn(
 ) {
     const grvReference = grvNumber?.trim() || generateGrvReference();
 
-    // Fetch current stock and cost for weighted average
-    const [product] = await db
-        .select({
-            stockLevel: products.stockLevel,
-            costPrice: products.costPrice,
-        })
-        .from(products)
-        .where(eq(products.id, productId))
-        .limit(1);
-
-    const currentQty = parseFloat(product?.stockLevel?.toString() || "0") || 0;
-    const currentCost = parseFloat(product?.costPrice?.toString() || "0") || 0;
-
-    const effectiveUnitCost = unitCost + (quantity > 0 ? landedCost / quantity : 0);
-    let newCostPrice = effectiveUnitCost;
-    const totalNewQty = currentQty + quantity;
-
-    if (totalNewQty > 0 && currentQty > 0) {
-        newCostPrice = ((currentQty * currentCost) + (quantity * effectiveUnitCost)) / totalNewQty;
-    }
-
     // 1. Record the transaction
-    await db.insert(inventoryTransactions).values({
+    const [transaction] = await db.insert(inventoryTransactions).values({
         companyId,
         productId,
+        branchId: branchId,
         supplierId: supplierId || null,
         type: "STOCK_IN",
         quantity: quantity.toString(),
-        unitCost: effectiveUnitCost.toFixed(4),
-        totalCost: (quantity * effectiveUnitCost).toFixed(4),
+        unitCost: unitCost.toString(), // Store base unit cost
+        totalCost: (quantity * unitCost).toString(),
         referenceType: "GRN",
         referenceId: grvReference,
         remainingQuantity: quantity.toString(),
-        notes: landedCost > 0 ? `${notes || ""}${notes ? "\n" : ""}Landed cost allocated: ${landedCost.toFixed(2)}` : notes,
-    });
+        notes: notes,
+    }).returning();
 
-    // 2. Update product stock level
-    await db
-        .update(products)
-        .set({
-            stockLevel: sql`stock_level + ${quantity}`,
-            costPrice: newCostPrice.toFixed(2), // Update to weighted average cost
-        })
-        .where(eq(products.id, productId));
+    // 2. Create Cost Layers
+    const components: Array<{ type: CostComponentType; unitCost: number; totalCost: number }> = [
+        { type: 'BASE', unitCost, totalCost: quantity * unitCost }
+    ];
+    
+    if (landedCost > 0) {
+        components.push({ 
+            type: 'FREIGHT' as const, 
+            unitCost: landedCost / quantity, 
+            totalCost: landedCost 
+        });
+    }
 
-    return { grvNumber: grvReference };
+    await createCostLayer(transaction.id, components);
+
+    // 3. Update product stock level and standard cost price
+    const { avgCost } = await recalculateBranchAVCO(productId, branchId, companyId);
+
+    if (branchId) {
+        const [existing] = await db.select().from(branchStocks).where(and(eq(branchStocks.branchId, branchId), eq(branchStocks.productId, productId)));
+        if (existing) {
+            await db.update(branchStocks).set({ stockLevel: sql`stock_level + ${quantity}` }).where(eq(branchStocks.id, existing.id));
+        } else {
+            await db.insert(branchStocks).values({ branchId, productId, stockLevel: quantity.toString() });
+        }
+    } else {
+        await db.update(products)
+            .set({
+                stockLevel: sql`stock_level + ${quantity}`,
+                costPrice: avgCost.toFixed(2), // Keep global costPrice as moving average
+            })
+            .where(eq(products.id, productId));
+    }
+
+    return { grvNumber: grvReference, transactionId: transaction.id };
 }
 
 export async function recordBatchStockIn(
@@ -263,7 +161,8 @@ export async function recordBatchStockIn(
     allocationMethod: LandedCostAllocationMethod = "value",
     grvNumber?: string,
     createdBy?: string,
-    locationId?: number | null
+    purchaseOrderId?: number,
+    gdnId?: number
 ) {
     const grvReference = grvNumber?.trim() || generateGrvReference();
     const allocatedItems = allocateLandedCosts(items, landedCosts, allocationMethod);
@@ -288,38 +187,87 @@ export async function recordBatchStockIn(
             const currentQty = parseFloat(product?.stockLevel?.toString() || "0") || 0;
             const currentCost = parseFloat(product?.costPrice?.toString() || "0") || 0;
 
-            let newCostPrice = effectiveUnitCost;
             const totalNewQty = currentQty + quantity;
+            let newCostPrice = baseUnitCost;
 
             if (totalNewQty > 0 && currentQty > 0) {
-                newCostPrice = ((currentQty * currentCost) + (quantity * effectiveUnitCost)) / totalNewQty;
+                newCostPrice = ((currentQty * currentCost) + (quantity * baseUnitCost)) / totalNewQty;
             }
 
             // 1. Record the transaction
-            await tx.insert(inventoryTransactions).values({
+            const [transaction] = await tx.insert(inventoryTransactions).values({
                 companyId,
                 productId: item.productId,
                 supplierId: supplierId || null,
                 type: "STOCK_IN",
                 quantity: quantity.toString(),
-                unitCost: effectiveUnitCost.toFixed(4),
-                totalCost: (quantity * effectiveUnitCost).toFixed(4),
+                unitCost: baseUnitCost.toString(),
+                totalCost: (quantity * baseUnitCost).toString(),
                 referenceType: "GRN",
                 referenceId: grvReference,
                 remainingQuantity: quantity.toString(),
                 notes: `${notes || "Batch GRV"}\nBase cost: ${(quantity * baseUnitCost).toFixed(2)}; landed cost: ${item.landedCost.toFixed(2)}; allocation: ${allocationMethod}`,
                 createdBy: createdBy || null,
-                locationId: locationId || null,
-            });
+            }).returning();
 
-            // 2. Update product stock level
+            // 2. Create Cost Layers
+            const components: Array<{ type: CostComponentType; unitCost: number; totalCost: number }> = [
+                { type: 'BASE', unitCost: baseUnitCost, totalCost: quantity * baseUnitCost }
+            ];
+            
+            if (item.landedCost > 0) {
+                components.push({ 
+                    type: 'FREIGHT' as const, 
+                    unitCost: item.landedCost / quantity, 
+                    totalCost: item.landedCost 
+                });
+            }
+
+            await createCostLayer(transaction.id, components, tx);
+
+            // 3. Update product stock level and moving average cost
+            // We use null for branchId in batchStockIn for now as it doesn't specify branch per item yet
+            const { avgCost } = await recalculateBranchAVCO(item.productId, null, companyId, tx);
+
             await tx
                 .update(products)
                 .set({
                     stockLevel: sql`stock_level + ${quantity}`,
-                    costPrice: newCostPrice.toFixed(2),
+                    costPrice: avgCost.toFixed(2),
                 })
                 .where(eq(products.id, item.productId));
+
+            // 4. If linked to a PO, update quantity received for 3-way match tracking
+            if (purchaseOrderId) {
+                await tx
+                    .update(purchaseOrderItems)
+                    .set({ quantityReceived: sql`quantity_received + ${quantity}` })
+                    .where(and(
+                        eq(purchaseOrderItems.purchaseOrderId, purchaseOrderId),
+                        eq(purchaseOrderItems.productId, item.productId)
+                    ));
+            }
+        }
+
+        // 5. Post GL: Dr Inventory (1300), Cr GRNI (2010)
+        // Lazy import to avoid circular dependency
+        const { storage } = await import("../storage");
+        const inventoryAccCode = await storage.getSystemAccountCodePublic(companyId, "inventoryAccountCode");
+        const grniAccCode = await storage.getSystemAccountCodePublic(companyId, "grniAccountCode");
+        const totalCost = allocatedItems.reduce((sum, i) => sum + (i.quantity * i.baseUnitCost) + i.landedCost, 0);
+
+        if (inventoryAccCode && grniAccCode && totalCost > 0) {
+            await storage.postToLedger(companyId, {
+                entryDate: new Date(),
+                description: `GRV ${grvReference}${gdnId ? ` (GDN #${gdnId})` : ""}`,
+                referenceType: "GRV",
+                referenceId: grvReference,
+                createdBy: createdBy,
+                lines: [
+                    { accountCode: inventoryAccCode, type: "DEBIT" as const, amount: totalCost },
+                    { accountCode: grniAccCode, type: "CREDIT" as const, amount: totalCost },
+                ],
+            });
         }
     });
 
@@ -377,9 +325,9 @@ export async function recordAdjustment(
                 .where(eq(products.id, data.productId));
         }
 
-        // 3. If negative adjustment, reduce from existing batches (FIFO)
+        // 3. If negative adjustment, reduce from existing batches (FIFO/AVCO)
         if (qty < 0) {
-            await reduceStockTx(tx, data.productId, absQty, companyId, "FIFO");
+            await calculateCOGS(data.productId, absQty, companyId, data.branchId || null, tx);
         }
     });
 }
@@ -422,7 +370,7 @@ export async function processStockTake(stockTakeId: number, companyId: number) {
                 .where(eq(products.id, item.productId));
             
             if (variance < 0) {
-                await reduceStockTx(tx, item.productId, Math.abs(variance), companyId, "FIFO");
+                await calculateCOGS(item.productId, Math.abs(variance), companyId, null, tx);
             }
         }
 
@@ -433,35 +381,82 @@ export async function processStockTake(stockTakeId: number, companyId: number) {
     });
 }
 
-async function reduceStockTx(
-    tx: any,
-    productId: number,
-    quantity: number,
+export async function recordTransfer(
     companyId: number,
-    orderMethod: "FIFO" | "LIFO"
+    fromBranchId: number,
+    toBranchId: number,
+    items: { productId: number, quantity: number, unitCost?: number }[],
+    notes?: string,
+    userId?: string,
+    tx?: any
 ) {
-    const order = orderMethod === "FIFO" ? asc : desc;
-    const batches = await tx
-        .select()
-        .from(inventoryTransactions)
-        .where(
-            and(
-                eq(inventoryTransactions.productId, productId),
-                eq(inventoryTransactions.companyId, companyId),
-                sql`remaining_quantity > 0`
-            )
-        )
-        .orderBy(order(inventoryTransactions.createdAt));
+    const activeDb = tx || db;
+    const referenceId = `TRF-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
 
-    let remainingToReduce = quantity;
-    for (const batch of batches) {
-        if (remainingToReduce <= 0) break;
-        const available = Number(batch.remainingQuantity);
-        const take = Math.min(available, remainingToReduce);
-        await tx
-            .update(inventoryTransactions)
-            .set({ remainingQuantity: (available - take).toString() })
-            .where(eq(inventoryTransactions.id, batch.id));
-        remainingToReduce -= take;
+    for (const item of items) {
+        const { productId, quantity } = item;
+        const absQty = Math.abs(quantity);
+
+        // 1. Consume from source branch (calculate cost)
+        const { totalCogs, consumedLayers } = await consumeInventory(productId, fromBranchId, absQty, companyId, 'FIFO', activeDb);
+        const unitCost = totalCogs / absQty;
+
+        const baseNotes = `${notes || "Branch stock transfer"}; from branch ${fromBranchId} to branch ${toBranchId}`;
+
+        // 2. Record TRANSFER_OUT
+        const [outTx] = await activeDb.insert(inventoryTransactions).values({
+            companyId,
+            branchId: fromBranchId,
+            productId,
+            type: "TRANSFER_OUT",
+            quantity: (-absQty).toString(),
+            unitCost: unitCost.toString(),
+            totalCost: totalCogs.toString(),
+            referenceType: "TRANSFER",
+            referenceId,
+            notes: baseNotes,
+            createdBy: userId || null,
+            remainingQuantity: "0",
+        }).returning();
+
+        // 3. Record TRANSFER_IN
+        const [inTx] = await activeDb.insert(inventoryTransactions).values({
+            companyId,
+            branchId: toBranchId,
+            productId,
+            type: "TRANSFER_IN",
+            quantity: absQty.toString(),
+            unitCost: unitCost.toString(),
+            totalCost: totalCogs.toString(),
+            referenceType: "TRANSFER",
+            referenceId,
+            notes: baseNotes,
+            createdBy: userId || null,
+            remainingQuantity: absQty.toString(),
+        }).returning();
+
+        // 4. Create identical layers in destination branch
+        const components: Array<{ type: CostComponentType; unitCost: number; totalCost: number }> = [
+            { type: 'BASE', unitCost: unitCost, totalCost: totalCogs }
+        ];
+        await createCostLayer(inTx.id, components, activeDb);
+
+        // 5. Update branch stocks
+        const [source] = await activeDb.select().from(branchStocks).where(and(eq(branchStocks.branchId, fromBranchId), eq(branchStocks.productId, productId))).limit(1);
+        if (source) {
+            await activeDb.update(branchStocks).set({ stockLevel: (Number(source.stockLevel) - absQty).toString() }).where(eq(branchStocks.id, source.id));
+        }
+
+        const [dest] = await activeDb.select().from(branchStocks).where(and(eq(branchStocks.branchId, toBranchId), eq(branchStocks.productId, productId))).limit(1);
+        if (dest) {
+            await activeDb.update(branchStocks).set({ stockLevel: (Number(dest.stockLevel) + absQty).toString() }).where(eq(branchStocks.id, dest.id));
+        } else {
+            await activeDb.insert(branchStocks).values({ branchId: toBranchId, productId, stockLevel: absQty.toString() });
+        }
+
+        // 6. Recalculate AVCO for destination
+        await recalculateBranchAVCO(productId, toBranchId, companyId, activeDb);
     }
+
+    return { referenceId };
 }

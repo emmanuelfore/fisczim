@@ -4,7 +4,7 @@ import { Invoice } from "../../shared/schema.js";
 import fs from "fs";
 import path from "path";
 import { logAction } from "../audit.js";
-import { assertReceiptPreflight } from "./zimra-preflight.js";
+import { assertReceiptPreflight, ZimraPreflightError } from "./zimra-preflight.js";
 
 const POS_VERBOSE_LOGS = process.env.POS_VERBOSE_LOGS === "1";
 const vLog = (...args: any[]) => { if (POS_VERBOSE_LOGS) console.log(...args); };
@@ -195,6 +195,18 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
                 zimraDailyCount = status.fiscalDayDocumentQuantities.reduce((sum: number, dq: any) => sum + (dq.receiptQuantity || 0), 0);
             }
 
+            const activeStatusDayNo = fiscalConfig.currentFiscalDayNo || status.lastFiscalDayNo || company.currentFiscalDayNo;
+            if (zimraDailyCount === 0 && activeStatusDayNo && (statusStr === 'fiscaldayopened' || statusStr === 'fiscaldayclosefailed')) {
+                const localDayInvoices = await storage.getInvoicesByFiscalDay(company.id, activeStatusDayNo);
+                const localMaxReceiptCounter = localDayInvoices
+                    .filter((inv: any) => inv.syncedWithFdms)
+                    .reduce((max: number, inv: any) => Math.max(max, inv.receiptCounter || 0), 0);
+                if (localMaxReceiptCounter > 0) {
+                    zimraDailyCount = localMaxReceiptCounter;
+                    vLog(`[ZIMRA] Status returned dailyCount=0 for ${statusStr}; using local day max counter ${localMaxReceiptCounter}`);
+                }
+            }
+
             vLog(`[Fiscalize] ZIMRA Status Sync - GlobalNo: ${zimraGlobalNo}, DailyCount: ${zimraDailyCount}`);
 
             if (status.lastReceiptGlobalNo !== undefined || status.lastReceiptCounter !== undefined) {
@@ -237,9 +249,8 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
             }
         }
 
-        // Reuse existing numbers if present (retry scenario), otherwise atomically claim new ones.
-        // The atomic claim does a single UPDATE...RETURNING so no two concurrent fiscalizations
-        // can ever receive the same pair of numbers.
+        // Preview numbers for local preflight only. Do not claim/persist counters yet:
+        // a preflight failure never reached FDMS, so it must not burn a receipt number.
         let nextGlobalNo: number;
         let nextReceiptCounter: number;
 
@@ -252,11 +263,10 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
             nextReceiptCounter = invoice.receiptCounter;
             vLog(`[Fiscalize] Retry — reusing locked numbers: GlobalNo=${nextGlobalNo}, Counter=${nextReceiptCounter}`);
         } else {
-            // First attempt: atomically claim the next pair
-            const claimed = await storage.claimNextReceiptNumbers(company.id, invoice.branchId || undefined);
-            nextGlobalNo = claimed.receiptGlobalNo;
-            nextReceiptCounter = claimed.receiptCounter;
-            vLog(`[Fiscalize] Atomically claimed: GlobalNo=${nextGlobalNo}, Counter=${nextReceiptCounter}`);
+            const counterSource = activeBranch || fiscalConfig || company;
+            nextGlobalNo = (counterSource.lastReceiptGlobalNo || 0) + 1;
+            nextReceiptCounter = (counterSource.dailyReceiptCount || 0) + 1;
+            vLog(`[Fiscalize] Preflight preview: GlobalNo=${nextGlobalNo}, Counter=${nextReceiptCounter}`);
         }
 
         // 1. Get ZIMRA Config for correct Tax IDs
@@ -610,7 +620,8 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
 
         vLog(`[Fiscalize] Prepared Receipt Data for Invoice ${invoiceId} (Date: ${receiptData.receiptDate}):`, JSON.stringify(receiptData, null, 2));
 
-        // Submit with previous hash for chaining (first receipt of day has no previous hash)
+        // Submit with previous hash for chaining. This is recalculated after the
+        // real receipt numbers are claimed, because preflight only uses a preview.
         let prevHash = (nextReceiptCounter === 1) ? null : (company.lastFiscalHash || null);
         let result: any;
 
@@ -628,7 +639,58 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
                 originalInvoice,
                 zimraConfig
             });
+        } catch (preflightErr: any) {
+            if (preflightErr instanceof ZimraPreflightError) {
+                const parsedValidationErrors = preflightErr.issues.map((issue: any) => ({
+                    invoiceId: invoiceId,
+                    errorCode: issue.code || 'PREFLIGHT',
+                    errorMessage: issue.message,
+                    errorColor: 'Red',
+                    requiresPreviousReceipt: false
+                }));
+                try {
+                    if (parsedValidationErrors.length > 0) {
+                        await storage.createValidationErrors(parsedValidationErrors);
+                        await storage.updateInvoice(invoiceId, { validationStatus: 'invalid', fdmsStatus: 'failed' });
+                    }
+                } catch (saveErr) {}
+            }
+            throw preflightErr; // Propagate preflight errors WITHOUT locking sequence numbers
+        }
 
+        // Now that preflight passed, we are ready to make the network request.
+        // Claim the actual numbers atomically, or reuse valid locked ones.
+        if (zimraSync) {
+            nextGlobalNo = zimraSync.nextGlobalNo;
+            nextReceiptCounter = zimraSync.nextReceiptCounter;
+        } else if (
+            invoice.receiptGlobalNo &&
+            invoice.receiptCounter &&
+            invoice.receiptGlobalNo === ((fiscalConfig.lastReceiptGlobalNo ?? company.lastReceiptGlobalNo) || 0) &&
+            invoice.receiptCounter === ((fiscalConfig.dailyReceiptCount ?? company.dailyReceiptCount) || 0)
+        ) {
+            // Retry after a post-preflight/submit failure: reuse the already claimed
+            // high-water numbers. If another invoice moved the counters forward,
+            // these locked numbers are stale and must not be reused.
+            nextGlobalNo = invoice.receiptGlobalNo;
+            nextReceiptCounter = invoice.receiptCounter;
+            vLog(`[Fiscalize] Retry — safely reusing locked numbers: GlobalNo=${nextGlobalNo}, Counter=${nextReceiptCounter}`);
+        } else {
+            // First attempt, preflight passed: atomically claim the actual pair.
+            const claimed = await storage.claimNextReceiptNumbers(company.id, invoice.branchId || undefined);
+            nextGlobalNo = claimed.receiptGlobalNo;
+            nextReceiptCounter = claimed.receiptCounter;
+            vLog(`[Fiscalize] Atomically claimed fresh numbers: GlobalNo=${nextGlobalNo}, Counter=${nextReceiptCounter}`);
+        }
+
+        // Update receiptData with the REAL assigned numbers
+        receiptData.receiptCounter = nextReceiptCounter;
+        receiptData.receiptGlobalNo = nextGlobalNo;
+        prevHash = (receiptData.receiptCounter === 1) ? null : (fiscalConfig.lastFiscalHash || company.lastFiscalHash || null);
+
+        // Note: The signature generation inside submitReceipt relies on these final counters!
+        
+        try {
             try {
                 vTime(`[ZIMRA] submitReceipt-${companyId}-${nextGlobalNo}`);
                 result = await device.submitReceipt(receiptData, prevHash, true);

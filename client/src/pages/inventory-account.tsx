@@ -3,10 +3,7 @@ import { PageHeader } from "@/components/page-header";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import {
   GdnListItem,
-  useCreateGdn,
-  useConfirmGdn,
   useGrvs,
-  usePendingGdns,
 } from "@/hooks/use-grvs";
 import { useProducts } from "@/hooks/use-products";
 import { useSuppliers } from "@/hooks/use-suppliers";
@@ -44,11 +41,18 @@ import {
   Loader2,
   Plus,
   XCircle,
+  Info,
+  AlertTriangle,
 } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
 import { format } from "date-fns";
-import { GrnForm } from "@/components/inventory/grn-form";
 
 const ITEMS_PER_PAGE = 15;
 
@@ -56,8 +60,7 @@ export default function InventoryAccountPage() {
   const { activeCompanyId } = useActiveCompany();
   const companyId = activeCompanyId || 0;
   const { data: grvs, isLoading } = useGrvs(companyId);
-  const { data: pendingGdns = [], isLoading: loadingGdns } =
-    usePendingGdns(companyId);
+
 
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -81,20 +84,20 @@ export default function InventoryAccountPage() {
     <Layout>
       <PageHeader
         title="Goods Received"
-        subtitle="Review pending GDNs and manage confirmed GRV stock documents"
+        subtitle="Review draft GDNs and manage confirmed GRV stock documents"
         actions={
           <div className="flex flex-wrap gap-2">
-            <GdnForm companyId={companyId} />
-            <GrnForm />
+            <Link href="/inventory/grvs/new">
+              <Button className="rounded-xl font-bold bg-blue-600 hover:bg-blue-700">
+                <Plus className="w-4 h-4 mr-2" />
+                Direct GRV
+              </Button>
+            </Link>
           </div>
         }
       />
 
-      <PendingGdnSection
-        companyId={companyId}
-        gdns={pendingGdns}
-        isLoading={loadingGdns}
-      />
+
 
       <div className="flex flex-col md:flex-row gap-4 mb-6">
         <div className="relative flex-1 w-full sm:max-w-sm group">
@@ -111,85 +114,227 @@ export default function InventoryAccountPage() {
         </div>
       </div>
 
-      <Card className="border-none shadow-xl shadow-slate-200/50 bg-white/80 backdrop-blur-sm rounded-[2rem] overflow-hidden ring-1 ring-slate-100">
-        <CardContent className="p-0 overflow-x-hidden">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="bg-slate-50/80 border-b border-slate-100">
-                <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">
-                  GRV No
-                </th>
-                <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">
-                  Date
-                </th>
-                <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">
-                  Supplier
-                </th>
-                <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">
-                  Lines
-                </th>
-                <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">
-                  Total Cost
-                </th>
-                <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px] text-right">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {isLoading ? (
-                <tr>
-                  <td colSpan={6} className="p-12 text-center text-slate-500">
-                    <div className="flex flex-col items-center justify-center gap-3">
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-violet-600"></div>
-                      Loading goods received...
-                    </div>
-                  </td>
+      <TooltipProvider>
+        <Card className="border-none shadow-xl shadow-slate-200/50 bg-white/80 backdrop-blur-sm rounded-[2rem] overflow-hidden ring-1 ring-slate-100">
+          <CardContent className="p-0 overflow-x-hidden">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="bg-slate-50/80 border-b border-slate-100">
+                  <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">
+                    GRV No
+                  </th>
+                  <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">
+                    Status
+                  </th>
+                  <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">
+                    3-Way Match
+                  </th>
+                  <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">
+                    Supplier Invoice
+                  </th>
+                  <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">
+                    Date
+                  </th>
+                  <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">
+                    Supplier
+                  </th>
+                  <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">
+                    Lines
+                  </th>
+                  <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">
+                    Total Cost
+                  </th>
+                  <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px] text-right">
+                    Actions
+                  </th>
                 </tr>
-              ) : rows.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="p-12 text-center text-slate-500">
-                    <p className="font-bold text-lg">No GRVs found</p>
-                    <p className="">
-                      Record goods received to create GRV documents.
-                    </p>
-                  </td>
-                </tr>
-              ) : (
-                rows.map((grv) => (
-                  <tr
-                    key={grv.id}
-                    className="group border-b border-slate-50 hover:bg-slate-50/50 transition-colors"
-                  >
-                    <td className="p-4">
-                      <div className="flex items-center gap-2">
+              </thead>
+              <tbody>
+                {isLoading ? (
+                  <tr>
+                    <td colSpan={9} className="p-12 text-center text-slate-500">
+                      <div className="flex flex-col items-center justify-center gap-3">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-violet-600"></div>
+                        Loading goods received...
+                      </div>
+                    </td>
+                  </tr>
+                ) : rows.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="p-12 text-center text-slate-500">
+                      <p className="font-bold text-lg">No GRVs found</p>
+                      <p className="">
+                        Record goods received to create GRV documents.
+                      </p>
+                    </td>
+                  </tr>
+                ) : (
+                  rows.map((grv) => (
+                    <tr
+                      key={grv.id}
+                      className="group border-b border-slate-50 hover:bg-slate-50/50 transition-colors"
+                    >
+                      <td className="p-4">
+                        <div className="flex items-center gap-2">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Badge
+                                variant="outline"
+                                className={`font-mono text-[10px] border-slate-200 bg-white ${grv.journalEntry ? "cursor-help" : ""}`}
+                              >
+                                {grv.grvNumber}
+                              </Badge>
+                            </TooltipTrigger>
+                            {grv.journalEntry && (
+                              <TooltipContent className="p-3 bg-slate-900 border border-slate-800 text-white rounded-xl shadow-xl w-72">
+                                <div className="space-y-2 text-xs">
+                                  <p className="font-bold text-[10px] text-slate-400 uppercase tracking-wider">GL Accrual Posting</p>
+                                  <p className="font-semibold text-slate-300">{grv.journalEntry.description}</p>
+                                  <div className="border-t border-slate-800 pt-1.5 space-y-1 font-mono text-[10px]">
+                                    {grv.journalEntry.lines.map((line: any, i: number) => (
+                                      <div key={i} className="flex justify-between gap-4">
+                                        <span className={line.type === "DEBIT" ? "text-emerald-400" : "text-blue-400 pl-2"}>
+                                          {line.accountCode} {line.accountName}
+                                        </span>
+                                        <span className="font-bold text-slate-200">
+                                          ${line.amount.toFixed(2)} ({line.type === "DEBIT" ? "Dr" : "Cr"})
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              </TooltipContent>
+                            )}
+                          </Tooltip>
+                        </div>
+                      </td>
+                      <td className="p-4">
                         <Badge
-                          variant="outline"
-                          className="font-mono text-[10px] border-slate-200 bg-white"
+                          variant="secondary"
+                          className={
+                            grv.status === "DRAFT"
+                              ? "bg-amber-100 text-amber-800 hover:bg-amber-100 border-none font-bold text-[10px]"
+                              : "bg-emerald-100 text-emerald-800 hover:bg-emerald-100 border-none font-bold text-[10px]"
+                          }
                         >
-                          {grv.grvNumber}
+                          {grv.status || "POSTED"}
                         </Badge>
-                      </div>
-                    </td>
-                    <td className="p-4  font-medium text-slate-700">
-                      {grv.createdAt
-                        ? format(new Date(grv.createdAt), "dd MMM yyyy HH:mm")
-                        : "-"}
-                    </td>
-                    <td className="p-4">
-                      <div className="flex items-center gap-2 text-slate-700">
-                        <Truck className="w-4 h-4 text-slate-400" />
-                        <span className="font-medium">
-                          {grv.supplierName || "N/A"}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="p-4  font-semibold text-slate-700">
-                      {grv.lineCount}
-                    </td>
-                    <td className="p-4  font-black text-slate-800">
-                      ${Number(grv.totalCost || 0).toFixed(2)}
-                    </td>
+                      </td>
+                      <td className="p-4">
+                        <Badge
+                          variant="secondary"
+                          className={
+                            grv.matchingStatus === "MATCHED"
+                              ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-100 border-none font-bold text-[10px]"
+                              : grv.matchingStatus === "QTY_MISMATCH"
+                              ? "bg-rose-100 text-rose-800 hover:bg-rose-100 border-none font-bold text-[10px]"
+                              : grv.matchingStatus === "PRICE_VARIANCE"
+                              ? "bg-amber-100 text-amber-800 hover:bg-amber-100 border-none font-bold text-[10px]"
+                              : "bg-slate-100 text-slate-500 hover:bg-slate-100 border-none font-bold text-[10px]"
+                          }
+                        >
+                          {grv.matchingStatus === "MATCHED"
+                            ? "3-Way Matched"
+                            : grv.matchingStatus === "QTY_MISMATCH"
+                            ? "Qty Mismatch"
+                            : grv.matchingStatus === "PRICE_VARIANCE"
+                            ? "Price Variance"
+                            : "Invoice Pending"}
+                        </Badge>
+                      </td>
+                      <td className="p-4">
+                        {grv.status === "DRAFT" ? (
+                          <span className="text-[10px] text-slate-400 italic">N/A (Draft GRV)</span>
+                        ) : grv.invoiceId ? (
+                          <Link href={`/supplier-invoices/${grv.invoiceId}`}>
+                            <a className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:text-blue-800 transition-colors">
+                              <FileText className="w-3.5 h-3.5" />
+                              <span>Bill #{grv.invoiceNumber}</span>
+                            </a>
+                          </Link>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className="bg-slate-50 text-slate-500 border-slate-200 font-bold text-[10px]">
+                              Pending
+                            </Badge>
+                            <Link href={`/supplier-invoices/new?grvId=${grv.id}`}>
+                              <a className="text-[10px] font-extrabold text-blue-600 hover:text-blue-800 transition-colors hover:underline">
+                                + Create Bill
+                              </a>
+                            </Link>
+                          </div>
+                        )}
+                      </td>
+                      <td className="p-4  font-medium text-slate-700">
+                        {grv.createdAt
+                          ? format(new Date(grv.createdAt), "dd MMM yyyy HH:mm")
+                          : "-"}
+                      </td>
+                      <td className="p-4">
+                        <div className="flex items-center gap-2 text-slate-700">
+                          <Truck className="w-4 h-4 text-slate-400" />
+                          <span className="font-medium">
+                            {grv.supplierName || "N/A"}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="p-4 font-semibold text-slate-700">
+                        {grv.serialNumbers && grv.serialNumbers.length > 0 ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="cursor-help underline decoration-slate-300 decoration-dotted hover:text-violet-600 transition-colors">
+                                {grv.lineCount}
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent className="p-3 bg-slate-900 border border-slate-800 text-white rounded-xl shadow-xl max-w-xs">
+                              <div className="space-y-1">
+                                <p className="font-bold text-[10px] text-slate-400 uppercase tracking-wider">Received Serial/Batch Numbers</p>
+                                <div className="flex flex-wrap gap-1 pt-1.5 font-mono text-[9px]">
+                                  {grv.serialNumbers.map((s: string, idx: number) => (
+                                    <Badge key={idx} variant="outline" className="bg-slate-800 text-slate-300 border-slate-700 text-[9px] font-mono leading-none">
+                                      {s}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              </div>
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : (
+                          grv.lineCount
+                        )}
+                      </td>
+                      <td className="p-4 font-black text-slate-800">
+                        {grv.landedCostsBreakdown && (grv.landedCostsBreakdown.freight > 0 || grv.landedCostsBreakdown.duty > 0 || grv.landedCostsBreakdown.handling > 0) ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="cursor-help underline decoration-slate-300 decoration-dotted hover:text-violet-600 transition-colors">
+                                ${Number(grv.totalCost || 0).toFixed(2)}
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent className="p-3 bg-slate-900 border border-slate-800 text-white rounded-xl shadow-xl w-60">
+                              <div className="space-y-2 text-xs">
+                                <p className="font-bold text-[10px] text-slate-400 uppercase tracking-wider">Landed Costs Breakdown</p>
+                                <div className="space-y-1.5 font-mono text-[10px] text-slate-300">
+                                  <div className="flex justify-between">
+                                    <span>Freight:</span>
+                                    <span className="font-bold text-slate-100">${grv.landedCostsBreakdown.freight.toFixed(2)}</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span>Customs Duty:</span>
+                                    <span className="font-bold text-slate-100">${grv.landedCostsBreakdown.duty.toFixed(2)}</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span>Handling:</span>
+                                    <span className="font-bold text-slate-100">${grv.landedCostsBreakdown.handling.toFixed(2)}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : (
+                          `$${Number(grv.totalCost || 0).toFixed(2)}`
+                        )}
+                      </td>
                     <td className="p-4">
                       <div className="flex items-center justify-end gap-2">
                         <Link
@@ -260,579 +405,9 @@ export default function InventoryAccountPage() {
           </div>
         </CardContent>
       </Card>
+      </TooltipProvider>
     </Layout>
   );
 }
 
-function GdnForm({ companyId }: { companyId: number }) {
-  const { data: products = [] } = useProducts(companyId);
-  const { data: suppliers = [] } = useSuppliers(companyId);
-  const { mutate: createGdn, isPending } = useCreateGdn(companyId);
-  const { toast } = useToast();
-  const [open, setOpen] = useState(false);
-  const [gdnNumber, setGdnNumber] = useState("");
-  const [supplierId, setSupplierId] = useState("");
-  const [notes, setNotes] = useState("");
-  const [items, setItems] = useState([
-    { localId: crypto.randomUUID(), productId: "", quantity: "1" },
-  ]);
 
-  const reset = () => {
-    setGdnNumber("");
-    setSupplierId("");
-    setNotes("");
-    setItems([{ localId: crypto.randomUUID(), productId: "", quantity: "1" }]);
-  };
-
-  const handleSubmit = () => {
-    const cleanNumber = gdnNumber.trim();
-    const cleanItems = items
-      .map((item) => ({
-        productId: Number(item.productId),
-        quantity: Number(item.quantity),
-      }))
-      .filter((item) => item.productId && item.quantity > 0);
-
-    if (!cleanNumber || cleanItems.length === 0) {
-      toast({
-        title: "Check GDN details",
-        description: "Enter a GDN number and at least one valid item.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    createGdn(
-      {
-        gdnNumber: cleanNumber,
-        supplierId: supplierId ? Number(supplierId) : null,
-        notes: notes.trim() || undefined,
-        items: cleanItems,
-      },
-      {
-        onSuccess: () => {
-          toast({
-            title: "GDN recorded",
-            description: "Delivery note is waiting for admin confirmation.",
-          });
-          reset();
-          setOpen(false);
-        },
-        onError: (error: any) =>
-          toast({
-            title: "Could not record GDN",
-            description: error.message || "Please try again.",
-            variant: "destructive",
-          }),
-      },
-    );
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <Button
-        variant="outline"
-        className="rounded-2xl gap-2 font-bold"
-        onClick={() => setOpen(true)}
-      >
-        <Plus className="h-4 w-4" />
-        Record GDN
-      </Button>
-      <DialogContent className="sm:max-w-[780px] rounded-[1.5rem]">
-        <DialogHeader>
-          <DialogTitle>Record Goods Delivery Note</DialogTitle>
-          <p className="text-xs font-semibold text-slate-500">
-            Capture delivered items first. Admin confirmation will post stock as
-            a GRV.
-          </p>
-        </DialogHeader>
-
-        <div className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-3">
-            <div className="grid gap-2">
-              <Label>GDN Number</Label>
-              <Input
-                value={gdnNumber}
-                onChange={(event) => setGdnNumber(event.target.value)}
-                placeholder="GDN-0001"
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label>Supplier</Label>
-              <Select value={supplierId} onValueChange={setSupplierId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Optional supplier" />
-                </SelectTrigger>
-                <SelectContent>
-                  {suppliers.map((supplier: any) => (
-                    <SelectItem key={supplier.id} value={String(supplier.id)}>
-                      {supplier.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid gap-2">
-              <Label>Notes</Label>
-              <Input
-                value={notes}
-                onChange={(event) => setNotes(event.target.value)}
-                placeholder="Vehicle, driver, delivery ref"
-              />
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-slate-100">
-            <div className="grid grid-cols-[1fr_120px_44px] gap-3 border-b border-slate-100 bg-slate-50 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
-              <span>Product</span>
-              <span>Quantity</span>
-              <span />
-            </div>
-            {items.map((item) => (
-              <div
-                key={item.localId}
-                className="grid grid-cols-[1fr_120px_44px] gap-3 border-b border-slate-50 px-4 py-3 last:border-b-0"
-              >
-                <Select
-                  value={item.productId}
-                  onValueChange={(productId) =>
-                    setItems((prev) =>
-                      prev.map((line) =>
-                        line.localId === item.localId
-                          ? { ...line, productId }
-                          : line,
-                      ),
-                    )
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select product" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {products.map((product: any) => (
-                      <SelectItem key={product.id} value={String(product.id)}>
-                        {product.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={item.quantity}
-                  onChange={(event) =>
-                    setItems((prev) =>
-                      prev.map((line) =>
-                        line.localId === item.localId
-                          ? { ...line, quantity: event.target.value }
-                          : line,
-                      ),
-                    )
-                  }
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  disabled={items.length === 1}
-                  onClick={() =>
-                    setItems((prev) =>
-                      prev.filter((line) => line.localId !== item.localId),
-                    )
-                  }
-                >
-                  <XCircle className="h-4 w-4" />
-                </Button>
-              </div>
-            ))}
-          </div>
-
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() =>
-              setItems((prev) => [
-                ...prev,
-                { localId: crypto.randomUUID(), productId: "", quantity: "1" },
-              ])
-            }
-          >
-            <Plus className="h-4 w-4" />
-            Add item
-          </Button>
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>
-            Cancel
-          </Button>
-          <Button onClick={handleSubmit} disabled={isPending}>
-            {isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <ClipboardCheck className="h-4 w-4" />
-            )}
-            Save pending GDN
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function PendingGdnSection({
-  companyId,
-  gdns,
-  isLoading,
-}: {
-  companyId: number;
-  gdns: GdnListItem[];
-  isLoading: boolean;
-}) {
-  const [selected, setSelected] = useState<GdnListItem | null>(null);
-
-  return (
-    <Card className="mb-6 border-none shadow-xl shadow-amber-100/60 bg-white/90 backdrop-blur-sm rounded-[2rem] overflow-hidden ring-1 ring-amber-100">
-      <CardContent className="p-6">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-5">
-          <div className="flex items-center gap-3">
-            <div className="h-11 w-11 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center">
-              <ClipboardCheck className="h-5 w-5" />
-            </div>
-            <div>
-              <h2 className="text-lg font-black text-slate-900">
-                Pending GDN Verification
-              </h2>
-              <p className="text-xs font-semibold text-slate-500">
-                Cashier delivery notes waiting for admin cost entry and stock
-                posting.
-              </p>
-            </div>
-          </div>
-          <Badge className="w-fit rounded-xl bg-amber-50 text-amber-700 hover:bg-amber-50">
-            <Clock className="h-3.5 w-3.5 mr-1" />
-            {gdns.length} pending
-          </Badge>
-        </div>
-
-        {isLoading ? (
-          <div className="py-8 text-center  font-semibold text-slate-500">
-            Loading pending GDNs...
-          </div>
-        ) : gdns.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 p-6 text-center">
-            <p className=" font-black text-slate-700">No pending GDNs</p>
-            <p className="text-xs text-slate-500 mt-1">
-              Cashier submissions from the mobile app will appear here.
-            </p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="border-b border-slate-100">
-                  <th className="py-3 pr-4 font-black text-slate-400 uppercase tracking-widest text-[10px]">
-                    GDN No
-                  </th>
-                  <th className="py-3 pr-4 font-black text-slate-400 uppercase tracking-widest text-[10px]">
-                    Date
-                  </th>
-                  <th className="py-3 pr-4 font-black text-slate-400 uppercase tracking-widest text-[10px]">
-                    Supplier
-                  </th>
-                  <th className="py-3 pr-4 font-black text-slate-400 uppercase tracking-widest text-[10px]">
-                    Lines
-                  </th>
-                  <th className="py-3 pr-4 font-black text-slate-400 uppercase tracking-widest text-[10px] text-right">
-                    Action
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {gdns.map((gdn) => (
-                  <tr
-                    key={gdn.id}
-                    className="border-b border-slate-50 last:border-0"
-                  >
-                    <td className="py-3 pr-4">
-                      <Badge
-                        variant="outline"
-                        className="font-mono text-[10px] border-amber-200 bg-amber-50/40"
-                      >
-                        {gdn.gdnNumber}
-                      </Badge>
-                    </td>
-                    <td className="py-3 pr-4  font-medium text-slate-700">
-                      {gdn.createdAt
-                        ? format(new Date(gdn.createdAt), "dd MMM yyyy HH:mm")
-                        : "-"}
-                    </td>
-                    <td className="py-3 pr-4  font-semibold text-slate-700">
-                      {gdn.supplierName || "N/A"}
-                    </td>
-                    <td className="py-3 pr-4  font-semibold text-slate-700">
-                      {gdn.lineCount} / Qty{" "}
-                      {Number(gdn.totalQuantity || 0).toFixed(2)}
-                    </td>
-                    <td className="py-3 pr-0 text-right">
-                      <Button
-                        size="sm"
-                        className="rounded-xl h-8 text-[10px] font-bold"
-                        onClick={() => setSelected(gdn)}
-                      >
-                        <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
-                        Verify
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        <ConfirmGdnDialog
-          companyId={companyId}
-          gdn={selected}
-          onClose={() => setSelected(null)}
-        />
-      </CardContent>
-    </Card>
-  );
-}
-
-function ConfirmGdnDialog({
-  companyId,
-  gdn,
-  onClose,
-}: {
-  companyId: number;
-  gdn: GdnListItem | null;
-  onClose: () => void;
-}) {
-  const { data: products = [] } = useProducts(companyId);
-  const { mutate: confirmGdn, isPending } = useConfirmGdn(companyId);
-  const { toast } = useToast();
-  const [grvNumber, setGrvNumber] = useState("");
-  const [notes, setNotes] = useState("");
-  const [landedCosts, setLandedCosts] = useState("");
-  const [unitCosts, setUnitCosts] = useState<Record<number, string>>({});
-
-  useEffect(() => {
-    if (!gdn) return;
-    const initialCosts: Record<number, string> = {};
-    for (const item of gdn.items || []) {
-      const product = products.find(
-        (p: any) => Number(p.id) === Number(item.productId),
-      );
-      initialCosts[item.productId] = String(
-        product?.costPrice ?? item.costPrice ?? "0",
-      );
-    }
-    setUnitCosts(initialCosts);
-    setNotes(gdn.notes || `Confirmed from GDN ${gdn.gdnNumber}`);
-    setGrvNumber("");
-    setLandedCosts("");
-  }, [gdn, products]);
-
-  const totalCost = useMemo(() => {
-    if (!gdn) return 0;
-    return (
-      (gdn.items || []).reduce((sum, item) => {
-        const cost = Number(unitCosts[item.productId] || 0);
-        return sum + Number(item.quantityReceived || 0) * cost;
-      }, 0) + Number(landedCosts || 0)
-    );
-  }, [gdn, landedCosts, unitCosts]);
-
-  const handleConfirm = () => {
-    if (!gdn) return;
-    const missing = (gdn.items || []).some((item) => {
-      const cost = Number(unitCosts[item.productId]);
-      return !Number.isFinite(cost) || cost < 0;
-    });
-    if (missing) {
-      toast({
-        title: "Check costs",
-        description: "Enter a valid unit cost for every GDN line.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    confirmGdn(
-      {
-        gdnId: gdn.id,
-        grvNumber: grvNumber.trim() || undefined,
-        notes,
-        landedCosts: landedCosts || 0,
-        allocationMethod: "value",
-        items: (gdn.items || []).map((item) => ({
-          productId: item.productId,
-          quantity: item.quantityReceived,
-          unitCost: unitCosts[item.productId] || 0,
-        })),
-      },
-      {
-        onSuccess: (result: any) => {
-          toast({
-            title: "GDN Confirmed",
-            description:
-              `Stock posted as GRV ${result?.grvNumber || ""}`.trim(),
-          });
-          onClose();
-        },
-        onError: (error: any) => {
-          toast({
-            title: "Could not confirm GDN",
-            description: error.message || "Please try again.",
-            variant: "destructive",
-          });
-        },
-      },
-    );
-  };
-
-  return (
-    <Dialog
-      open={!!gdn}
-      onOpenChange={(open) => {
-        if (!open) onClose();
-      }}
-    >
-      <DialogContent className="sm:max-w-[880px] rounded-[1.5rem] border-none shadow-2xl p-0 overflow-hidden">
-        <DialogHeader className="p-6 bg-slate-50/70 border-b border-slate-100">
-          <DialogTitle className="text-xl font-black">
-            Verify GDN {gdn?.gdnNumber}
-          </DialogTitle>
-          <p className="text-xs font-semibold text-slate-500">
-            Enter costs, confirm quantities, and post stock into inventory.
-          </p>
-        </DialogHeader>
-
-        <div className="p-6 space-y-5 max-h-[70vh] overflow-y-auto">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                GRV Number
-              </Label>
-              <Input
-                value={grvNumber}
-                onChange={(e) => setGrvNumber(e.target.value)}
-                placeholder="Auto if blank"
-                className="mt-2 h-10 rounded-lg"
-              />
-            </div>
-            <div>
-              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                Landed Costs
-              </Label>
-              <Input
-                value={landedCosts}
-                onChange={(e) => setLandedCosts(e.target.value)}
-                placeholder="0.00"
-                className="mt-2 h-10 rounded-lg"
-              />
-            </div>
-            <div>
-              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                Supplier
-              </Label>
-              <div className="mt-2 h-10 rounded-lg border border-slate-200 bg-slate-50 px-3 flex items-center  font-semibold text-slate-700">
-                {gdn?.supplierName || "N/A"}
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-slate-100 overflow-hidden">
-            <div className="bg-slate-50 py-2 px-4 grid grid-cols-[1fr,110px,140px,140px] gap-4">
-              <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                Product
-              </span>
-              <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                Qty
-              </span>
-              <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 text-right">
-                Unit Cost
-              </span>
-              <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 text-right">
-                Line Total
-              </span>
-            </div>
-            {(gdn?.items || []).map((item) => {
-              const cost = Number(unitCosts[item.productId] || 0);
-              const lineTotal = Number(item.quantityReceived || 0) * cost;
-              return (
-                <div
-                  key={item.id}
-                  className="p-3 grid grid-cols-[1fr,110px,140px,140px] gap-4 items-center border-t border-slate-50"
-                >
-                  <div>
-                    <p className=" font-bold text-slate-800">
-                      {item.productName}
-                    </p>
-                    <p className="text-[11px] font-semibold text-slate-400">
-                      {item.sku || "No SKU"}
-                    </p>
-                  </div>
-                  <p className=" font-mono font-bold text-slate-700">
-                    {Number(item.quantityReceived || 0).toFixed(2)}
-                  </p>
-                  <Input
-                    value={unitCosts[item.productId] || ""}
-                    onChange={(e) =>
-                      setUnitCosts((prev) => ({
-                        ...prev,
-                        [item.productId]: e.target.value,
-                      }))
-                    }
-                    className="h-9 text-right font-mono rounded-lg"
-                  />
-                  <p className=" font-black text-slate-800 text-right">
-                    ${lineTotal.toFixed(2)}
-                  </p>
-                </div>
-              );
-            })}
-          </div>
-
-          <div>
-            <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-              Notes
-            </Label>
-            <Textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              className="mt-2 rounded-xl"
-              rows={3}
-            />
-          </div>
-        </div>
-
-        <DialogFooter className="p-6 bg-slate-50/70 border-t border-slate-100 sm:justify-between items-center">
-          <p className=" font-black text-slate-800">
-            Inventory value: ${totalCost.toFixed(2)}
-          </p>
-          <div className="flex gap-2 w-full sm:w-auto">
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={onClose}
-              className="rounded-xl font-bold flex-1 sm:flex-none"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleConfirm}
-              disabled={isPending || !gdn}
-              className="rounded-xl font-bold px-8 flex-1 sm:flex-none"
-            >
-              {isPending ? "Posting..." : "Confirm & Post Stock"}
-            </Button>
-          </div>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}

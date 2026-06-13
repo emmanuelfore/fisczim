@@ -4,12 +4,13 @@ import { format, startOfMonth, endOfMonth } from "date-fns";
 import { Layout } from "@/components/layout";
 import { useCurrencies } from "@/hooks/use-currencies";
 import { useActiveCompany } from "@/hooks/use-active-company";
+import { useBranches } from "@/hooks/use-branches";
 import { Button } from "@/components/ui/button";
 import {
   Calendar as CalendarIcon,
   Printer,
-  Calculator,
   FileDown,
+  GitBranch,
 } from "lucide-react";
 import {
   Select,
@@ -37,6 +38,7 @@ export default function FinancialReportsPage() {
   const [location] = useLocation();
 
   const { data: currencies } = useCurrencies(companyId);
+  const { data: branches } = useBranches(companyId);
 
   // State
   const [dateRange, setDateRange] = useState<{ from: Date; to: Date }>({
@@ -44,6 +46,8 @@ export default function FinancialReportsPage() {
     to: endOfMonth(new Date()),
   });
   const [consolidatedCode, setConsolidatedCode] = useState<string>("USD");
+  const [selectedBranchId, setSelectedBranchId] = useState<string>("all");
+
   const defaultStatementTab = location.includes("balance-sheet")
     ? "bs"
     : location.includes("cash-flow")
@@ -55,6 +59,7 @@ export default function FinancialReportsPage() {
   );
   const consolidatedRate = Number(consolidatedCurrency?.exchangeRate || 1);
   const consolidatedSymbol = consolidatedCurrency?.symbol || "$";
+  const branchIdNum = selectedBranchId !== "all" ? Number(selectedBranchId) : undefined;
 
   const handleExportExcel = () => {
     const params = new URLSearchParams({
@@ -86,10 +91,15 @@ export default function FinancialReportsPage() {
           </h1>
           <p className=" text-slate-500">
             Comprehensive overview of company financials
+            {branchIdNum && branches && (
+              <span className="ml-2 text-indigo-600 font-semibold">
+                · {branches.find((b) => b.id === branchIdNum)?.name}
+              </span>
+            )}
           </p>
         </div>
-        {/* Right actions remain the same */}
         <div className="flex flex-wrap items-center gap-3 bg-white/50 backdrop-blur-md p-2 rounded-[1.5rem] border border-slate-100 shadow-sm">
+          {/* Currency selector */}
           <div className="flex items-center gap-2 pl-2">
             <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest">
               Base:
@@ -122,6 +132,35 @@ export default function FinancialReportsPage() {
 
           <div className="h-6 w-px bg-slate-200" />
 
+          {/* Branch filter */}
+          {branches && branches.length > 0 && (
+            <>
+              <div className="flex items-center gap-2">
+                <GitBranch className="h-3.5 w-3.5 text-slate-400" />
+                <Select
+                  value={selectedBranchId}
+                  onValueChange={setSelectedBranchId}
+                >
+                  <SelectTrigger className="h-8 text-xs font-bold border-none bg-slate-100/50 rounded-xl focus:ring-0 min-w-[110px]">
+                    <SelectValue placeholder="All Branches" />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl border-slate-100 shadow-xl">
+                    <SelectItem value="all" className="text-xs font-bold">
+                      All Branches
+                    </SelectItem>
+                    {branches.map((b) => (
+                      <SelectItem key={b.id} value={String(b.id)} className="text-xs font-bold">
+                        {b.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="h-6 w-px bg-slate-200" />
+            </>
+          )}
+
+          {/* Date range picker */}
           <Popover>
             <PopoverTrigger asChild>
               <Button
@@ -186,7 +225,7 @@ export default function FinancialReportsPage() {
             value="pl"
             className="px-6 rounded-lg font-bold data-[state=active]:bg-white data-[state=active]:shadow-sm"
           >
-            Profit & Loss
+            Profit &amp; Loss
           </TabsTrigger>
           <TabsTrigger
             value="bs"
@@ -208,6 +247,7 @@ export default function FinancialReportsPage() {
             dateRange={dateRange}
             consolidatedSymbol={consolidatedSymbol}
             consolidatedRate={consolidatedRate}
+            branchId={branchIdNum}
           />
         </TabsContent>
 
@@ -217,6 +257,7 @@ export default function FinancialReportsPage() {
             dateRange={dateRange}
             consolidatedSymbol={consolidatedSymbol}
             consolidatedRate={consolidatedRate}
+            branchId={branchIdNum}
           />
         </TabsContent>
 
@@ -226,6 +267,7 @@ export default function FinancialReportsPage() {
             dateRange={dateRange}
             consolidatedSymbol={consolidatedSymbol}
             consolidatedRate={consolidatedRate}
+            branchId={branchIdNum}
           />
         </TabsContent>
       </Tabs>

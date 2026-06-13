@@ -234,11 +234,11 @@ export function Layout({
   const isSystemAdmin = String(user?.email || "").toLowerCase() === "admin@zimra.co.zw";
   const posNavItems: NavItem[] = [
     { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
-    { icon: MonitorCheck, label: "POS Terminal", href: "/pos" },
     {
-      icon: FileText,
-      label: "Invoices & Billing",
+      icon: MonitorCheck,
+      label: "Sales",
       children: [
+        { icon: MonitorCheck, label: "POS Terminal", href: "/pos" },
         { icon: FileText, label: "Invoices", href: "/invoices" },
         {
           icon: Palette,
@@ -251,18 +251,34 @@ export function Layout({
           label: "Payments Received",
           href: "/payments-received",
         },
-      ],
-    },
-    {
-      icon: Users,
-      label: "Customers",
-      children: [
         { icon: Users, label: "Customer List", href: "/customers" },
         {
           icon: FileText,
-          label: "Statements",
+          label: "Customer Statements",
           href: "/reports/customer-statements",
         },
+      ],
+    },
+    {
+      icon: ClipboardList,
+      label: "Procurement",
+      children: [
+        {
+          icon: ClipboardList,
+          label: "Purchase Orders",
+          href: "/inventory/purchase-orders",
+        },
+        {
+          icon: ClipboardCheck,
+          label: "Goods Received",
+          href: "/inventory/account",
+        },
+        {
+          icon: ArrowRightLeft,
+          label: "Purchase Returns",
+          href: "/inventory/purchase-returns",
+        },
+        { icon: Truck, label: "Suppliers", href: "/suppliers" },
       ],
     },
     {
@@ -273,19 +289,9 @@ export function Layout({
         {
           icon: ShieldCheck,
           label: "Serial & Warranty Items",
-          href: "/auto-spares",
+          href: "/serial-tracking",
         },
         { icon: Briefcase, label: "Services", href: "/services" },
-        {
-          icon: ClipboardList,
-          label: "Purchase Orders",
-          href: "/inventory/purchase-orders",
-        },
-        {
-          icon: LayoutDashboard,
-          label: "Goods Received",
-          href: "/inventory/account",
-        },
         {
           icon: ArrowRightLeft,
           label: "Stock Transfers",
@@ -317,148 +323,60 @@ export function Layout({
     },
     {
       icon: Calculator,
-      label: "Accounting",
+      label: "Finance",
       children: [
         {
           icon: LayoutDashboard,
-          label: "Dashboard",
+          label: "Finance Dashboard",
           href: "/accounting/dashboard",
         },
         {
-          icon: Settings,
-          label: "Setup",
+          icon: Calculator,
+          label: "Core Accounting",
           children: [
-            {
-              icon: ClipboardList,
-              label: "Chart of Accounts",
-              href: "/accounting/coa",
-            },
-            {
-              icon: Settings,
-              label: "Posting Setup",
-              href: "/settings?tab=accounting",
-            },
-            {
-              icon: CalendarDays,
-              label: "Financial Periods",
-              href: "/accounting/periods",
-            },
-            {
-              icon: Scale,
-              label: "Opening Balances",
-              href: "/accounting/opening-balances",
-            },
-          ],
-        },
-        {
-          icon: History,
-          label: "Transactions",
-          children: [
-            {
-              icon: History,
-              label: "Journal Vouchers",
-              href: "/accounting/journal",
-            },
-            {
-              icon: ShieldCheck,
-              label: "Posting Audit Trail",
-              href: "/accounting/audit-trail",
-            },
-            {
-              icon: ArrowRightLeft,
-              label: "Payment Allocation",
-              href: "/accounting/allocations",
-            },
-            {
-              icon: CreditCard,
-              label: "Cashbook",
-              href: "/accounting/cashbook",
-            },
-            {
-              icon: Receipt,
-              label: "Supplier Bills",
-              href: "/supplier-invoices",
-            },
-            {
-              icon: ArrowRightLeft,
-              label: "Bank Reconciliation",
-              href: "/accounting/reconciliation",
-            },
-            {
-              icon: Briefcase,
-              label: "Fixed Assets",
-              href: "/accounting/fixed-assets",
-            },
+            { icon: ClipboardList, label: "Chart of Accounts", href: "/accounting/coa" },
+            { icon: History, label: "Journal Vouchers", href: "/accounting/journal" },
+            { icon: CreditCard, label: "Cashbook", href: "/accounting/cashbook" },
+            { icon: ArrowRightLeft, label: "Bank Reconciliation", href: "/accounting/reconciliation" },
           ],
         },
         {
           icon: Users,
-          label: "Receivables",
+          label: "Payables & Receivables",
           children: [
-            {
-              icon: Users,
-              label: "Customer Balances",
-              href: "/accounting/accounts-receivable",
-            },
-            {
-              icon: TrendingUp,
-              label: "Receivables Aging",
-              href: "/accounting/reports/aging?tab=ar",
-            },
+            { icon: Receipt, label: "Supplier Bills", href: "/supplier-invoices" },
+            { icon: Receipt, label: "Supplier Credit Notes", href: "/supplier-credit-notes" },
+            { icon: Receipt, label: "Supplier Balances", href: "/accounting/accounts-payable" },
+            { icon: TrendingDown, label: "Payables Aging", href: "/accounting/reports/aging?tab=ap" },
+            { icon: Users, label: "Customer Balances", href: "/accounting/accounts-receivable" },
+            { icon: TrendingUp, label: "Receivables Aging", href: "/accounting/reports/aging?tab=ar" },
+            { icon: ArrowRightLeft, label: "Payment Allocation", href: "/accounting/allocations" },
           ],
         },
         {
-          icon: Receipt,
-          label: "Payables",
+          icon: Settings,
+          label: "Configuration",
           children: [
-            {
-              icon: Receipt,
-              label: "Supplier Balances",
-              href: "/accounting/accounts-payable",
-            },
-            {
-              icon: TrendingDown,
-              label: "Payables Aging",
-              href: "/accounting/reports/aging?tab=ap",
-            },
+            { icon: BarChart3, label: "Accounting Segments", href: "/accounting/segments" },
+            { icon: CalendarDays, label: "Financial Periods", href: "/accounting/periods" },
+            { icon: Scale, label: "Opening Balances", href: "/accounting/opening-balances" },
+            { icon: ShieldCheck, label: "Posting Audit Trail", href: "/accounting/audit-trail" },
           ],
         },
-        {
-          icon: BarChart3,
-          label: "Reports",
-          children: [
-            {
-              icon: FileText,
-              label: "General Ledger",
-              href: "/accounting/reports/ledger",
-            },
-            {
-              icon: BarChart3,
-              label: "Trial Balance",
-              href: "/accounting/reports/trial-balance",
-            },
-            {
-              icon: TrendingUp,
-              label: "Financial Statements",
-              href: "/accounting/reports/financial",
-            },
-            {
-              icon: Coins,
-              label: "VAT Returns",
-              href: "/accounting/reports/vat-return",
-            },
-            {
-              icon: Building2,
-              label: "Cost Centers",
-              href: "/accounting/reports/cost-centers",
-            },
-          ],
-        },
+        { icon: Calculator, label: "Expenses", href: "/expenses" },
       ],
     },
     {
       icon: Briefcase,
-      label: "Payroll & HR",
+      label: "Fixed Assets",
+      children: [
+        { icon: ClipboardList, label: "Asset Registry", href: "/accounting/fixed-assets" },
+        { icon: History, label: "Depreciation Records", href: "/accounting/fixed-assets/depreciation" },
+      ],
+    },
+    {
+      icon: Briefcase,
+      label: "HR & Payroll",
       children: [
         { icon: FileSpreadsheet, label: "Payroll Workbench", href: "/payroll" },
         { icon: Users, label: "Employees", href: "/payroll?tab=employees" },
@@ -470,7 +388,17 @@ export function Layout({
         },
       ],
     },
-    { icon: Calculator, label: "Expenses", href: "/expenses" },
+    {
+      icon: ShieldCheck,
+      label: "Tax & Compliance",
+      children: [
+        { icon: Server, label: "ZIMRA Device Settings", href: "/settings?tab=zimra" },
+        { icon: ClipboardList, label: "Transaction Logs", href: "/zimra-logs" },
+        { icon: Activity, label: "FDMS Test", href: "/fdms-test" },
+        { icon: FileText, label: "Tax & ZIMRA Report", href: "/reports/tax" },
+        { icon: Coins, label: "VAT Returns", href: "/accounting/reports/vat-return" },
+      ],
+    },
     {
       icon: BarChart3,
       label: "Reports",
@@ -549,23 +477,6 @@ export function Layout({
         },
         {
           icon: ShieldCheck,
-          label: "Compliance Reports",
-          children: [
-            { icon: FileText, label: "Tax & ZIMRA", href: "/reports/tax" },
-            {
-              icon: Coins,
-              label: "VAT Returns",
-              href: "/accounting/reports/vat-return",
-            },
-            {
-              icon: ClipboardList,
-              label: "Fiscal Logs",
-              href: "/zimra-logs",
-            },
-          ],
-        },
-        {
-          icon: ShieldCheck,
           label: "Audit Reports",
           children: [
             {
@@ -599,35 +510,41 @@ export function Layout({
         { icon: Building2, label: "Floor Plan", href: "/restaurant/layout" },
       ],
     },
-
-    {
-      icon: ShieldCheck,
-      label: "Compliance",
-      children: [
-        { icon: Server, label: "ZIMRA Device", href: "/settings?tab=zimra" },
-        { icon: ClipboardList, label: "Transaction Logs", href: "/zimra-logs" },
-        { icon: Activity, label: "FDMS Test", href: "/fdms-test" },
-      ],
-    },
-    {
-      icon: ClipboardCheck,
-      label: "Approvals",
-      href: "/approvals",
-    },
     {
       icon: Settings,
-      label: "Settings",
-      href: "/settings",
+      label: "Administration",
+      children: [
+        {
+          icon: ClipboardCheck,
+          label: "Approvals",
+          href: "/approvals",
+        },
+        {
+          icon: UserCog,
+          label: "User Management",
+          href: "/team-settings",
+        },
+        {
+          icon: Settings,
+          label: "Posting Setup",
+          href: "/settings?tab=accounting",
+        },
+        {
+          icon: Settings,
+          label: "General Settings",
+          href: "/settings",
+        },
+        ...(isSystemAdmin
+          ? [
+              {
+                icon: Eye,
+                label: "Super Admin Visibility",
+                href: "/superadmin-visibility",
+              },
+            ]
+          : []),
+      ],
     },
-    ...(isSystemAdmin
-      ? [
-          {
-            icon: Eye,
-            label: "Super Admin Visibility",
-            href: "/superadmin-visibility",
-          },
-        ]
-      : []),
   ];
 
   const restaurantNavItems: NavItem[] = [
@@ -651,6 +568,7 @@ export function Layout({
       ],
     },
     { icon: Package, label: "Menu Items", href: "/products" },
+    { icon: Truck, label: "Suppliers", href: "/suppliers" },
     { icon: Users, label: "Customers", href: "/customers" },
     {
       icon: BarChart3,
@@ -672,6 +590,7 @@ export function Layout({
         },
       ],
     },
+    { icon: UserCog, label: "User Management", href: "/team-settings" },
     { icon: Settings, label: "Settings", href: "/settings?tab=app-mode" },
   ];
 
@@ -704,6 +623,7 @@ export function Layout({
           },
         ]
       : []),
+    { icon: UserCog, label: "User Management", href: "/team-settings" },
     { icon: Settings, label: "Bus Settings", children: busSettingsChildren },
   ];
 
@@ -834,7 +754,7 @@ export function Layout({
         title: "Products",
         subtitle: "Manage inventory items, pricing, tax, and stock controls.",
       };
-    if (location.startsWith("/auto-spares"))
+    if (location.startsWith("/serial-tracking"))
       return {
         title: "Serial & Warranty Items",
         subtitle:
@@ -881,6 +801,11 @@ export function Layout({
         subtitle:
           "Create and track supplier purchase orders before goods are received.",
       };
+    if (location.startsWith("/inventory/purchase-returns"))
+      return {
+        title: "Purchase Returns",
+        subtitle: "Manage and track returns to suppliers.",
+      };
     if (location.startsWith("/inventory/account"))
       return {
         title: "Goods Received",
@@ -900,6 +825,11 @@ export function Layout({
       return {
         title: "Stock Ledger",
         subtitle: "Review inventory transactions and stock movement history.",
+      };
+    if (location.startsWith("/supplier-credit-notes"))
+      return {
+        title: "Supplier Credit Notes",
+        subtitle: "Manage and track accounts payable credit notes from suppliers.",
       };
     if (location.startsWith("/expenses"))
       return {
@@ -951,8 +881,13 @@ export function Layout({
         };
       if (search.includes("tab=branches"))
         return {
+          title: "Branch Setup",
+          subtitle: "Manage physical locations and fiscal endpoints.",
+        };
+      if (search.includes("tab=cost-centers"))
+        return {
           title: "Cost Center Setup",
-          subtitle: "Manage branches used for cost center reporting.",
+          subtitle: "Manage cost centers used for budgeting and accounting dimensions.",
         };
       if (search.includes("tab=accounting"))
         return {
@@ -1069,6 +1004,11 @@ export function Layout({
       return {
         title: "Bank Reconciliation",
         subtitle: "Match bank statement lines to ledger transactions.",
+      };
+    if (location.startsWith("/accounting/fixed-assets/depreciation"))
+      return {
+        title: "Depreciation Records",
+        subtitle: "Review automatic and manual asset depreciation history.",
       };
     if (location.startsWith("/accounting/fixed-assets"))
       return {

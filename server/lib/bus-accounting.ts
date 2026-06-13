@@ -2,22 +2,16 @@ import { and, eq, inArray } from "drizzle-orm";
 import { accounts, busReconciliations, busTickets, companies, journalEntries } from "../../shared/schema.js";
 import { storage } from "../storage.js";
 
-const BUS_DEFAULT_ACCOUNTS = [
-  { code: "1060", name: "Conductor Cash Clearing", type: "ASSET", category: "Current Assets" },
-  { code: "1070", name: "Mobile Money Clearing", type: "ASSET", category: "Current Assets" },
-  { code: "4110", name: "Passenger Transport Revenue", type: "REVENUE", category: "Revenue" },
-  { code: "4920", name: "Cash Overage Income", type: "REVENUE", category: "Other Income" },
-  { code: "5920", name: "Cash Shortage Expense", type: "EXPENSE", category: "Other Expenses" },
-] as const;
+const BUS_DEFAULT_ACCOUNTS: Array<{ code: string; name: string; type: string; category: string }> = [];
 
 const BUS_ACCOUNTING_DEFAULTS = {
-  busConductorCashAccountCode: "1060",
+  busConductorCashAccountCode: "1000",
   busCashOnHandAccountCode: "1000",
-  busMobileMoneyAccountCode: "1070",
-  busCardClearingAccountCode: "1010",
-  busRevenueAccountCode: "4110",
-  busCashShortageAccountCode: "5920",
-  busCashOverageAccountCode: "4920",
+  busMobileMoneyAccountCode: "1000",
+  busCardClearingAccountCode: "1000",
+  busRevenueAccountCode: "4000",
+  busCashShortageAccountCode: "5300",
+  busCashOverageAccountCode: "4100",
 } as const;
 
 type BusAccountingSettings = typeof BUS_ACCOUNTING_DEFAULTS;

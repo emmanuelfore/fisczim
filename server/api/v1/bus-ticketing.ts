@@ -9,6 +9,7 @@ import {
 } from "../../../shared/schema.js";
 import { eq, and, desc, gte, lte, inArray, sql } from "drizzle-orm";
 import { postBusReconciliationAccounting, postBusTicketAccounting } from "../../lib/bus-accounting.js";
+import { userHasPermission } from "../../lib/permissions.js";
 
 const router = Router({ mergeParams: true });
 
@@ -151,12 +152,21 @@ async function ensureBusTicketingSchema() {
   return busTicketingSchemaReady;
 }
 
-router.use(async (_req, res, next) => {
+router.use(async (req: any, res, next) => {
   try {
     await ensureBusTicketingSchema();
+    const companyId = getTargetCompanyId(req);
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ error: "UNAUTHORIZED", message: "User context missing" });
+    }
+    const hasBusAccess = req.user?.isSuperAdmin || await userHasPermission(userId, companyId, "bus.view", false);
+    if (!hasBusAccess) {
+      return res.status(403).json({ error: "FORBIDDEN", message: "Bus ticketing permission required" });
+    }
     next();
   } catch (err: any) {
-    console.error("[BusTicketing] Schema readiness check failed:", err);
+    console.error("[BusTicketing] Schema/auth check failed:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
   }
 });

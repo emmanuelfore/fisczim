@@ -120,7 +120,7 @@ async function executeApprovalAction(
       const { recordBatchStockIn } = await import("./inventory.js");
       const { db } = await import("../db.js");
       const { goodsDeliveryNotes, goodsDeliveryNoteItems } = await import("../../shared/schema.js");
-      const { eq, and } = await import("drizzle-orm");
+      const { eq, and, sql } = await import("drizzle-orm");
 
       const [gdn] = await db
         .select()
@@ -129,13 +129,19 @@ async function executeApprovalAction(
         .limit(1);
 
       if (!gdn) throw new Error("GDN not found");
-      if (gdn.status !== "PENDING") throw new Error("GDN already processed");
+      if (gdn.status !== "DRAFT") throw new Error("GDN already processed");
 
       const stockItems = items.map((raw: any) => ({
-        productId: Number(raw.productId),
+        productId: raw.productId ? Number(raw.productId) : null,
+        accountCode: raw.accountCode || null,
+        description: raw.description || null,
         quantity: Number(raw.quantity ?? raw.quantityAccepted ?? raw.quantityReceived),
         unitCost: Number(raw.unitCost),
         landedCost: Number(raw.landedCost || 0),
+        taxTypeId: raw.taxTypeId ? Number(raw.taxTypeId) : null,
+        taxRate: Number(raw.taxRate || 0),
+        taxAmount: Number(raw.taxAmount || 0),
+        isRecoverable: raw.isRecoverable !== false,
       }));
 
       const result = await recordBatchStockIn(
@@ -146,15 +152,40 @@ async function executeApprovalAction(
         payload.landedCosts ? Number(payload.landedCosts) : 0,
         (payload.allocationMethod as "value" | "quantity" | undefined) || "value",
         typeof payload.grvNumber === "string" ? payload.grvNumber : undefined,
-        userId
+        userId,
+        gdn.purchaseOrderId || undefined,
+        gdn.id
       );
 
       await db.transaction(async (tx) => {
         for (const item of stockItems) {
-          await tx
-            .update(goodsDeliveryNoteItems)
-            .set({ quantityAccepted: item.quantity.toString(), quantityRejected: "0" })
-            .where(and(eq(goodsDeliveryNoteItems.gdnId, gdnId), eq(goodsDeliveryNoteItems.productId, item.productId)));
+          if (item.productId) {
+            await tx
+              .update(goodsDeliveryNoteItems)
+              .set({
+                unitCost: item.unitCost.toString(),
+                quantityAccepted: item.quantity.toString(),
+                quantityRejected: "0",
+                taxTypeId: item.taxTypeId,
+                taxRate: item.taxRate.toString(),
+                taxAmount: item.taxAmount.toString(),
+                isRecoverable: item.isRecoverable
+              })
+              .where(and(eq(goodsDeliveryNoteItems.gdnId, gdnId), eq(goodsDeliveryNoteItems.productId, item.productId)));
+          } else {
+            await tx
+              .update(goodsDeliveryNoteItems)
+              .set({
+                unitCost: item.unitCost.toString(),
+                quantityAccepted: item.quantity.toString(),
+                quantityRejected: "0",
+                taxTypeId: item.taxTypeId,
+                taxRate: item.taxRate.toString(),
+                taxAmount: item.taxAmount.toString(),
+                isRecoverable: item.isRecoverable
+              })
+              .where(and(eq(goodsDeliveryNoteItems.gdnId, gdnId), sql`${goodsDeliveryNoteItems.productId} IS NULL`, eq(goodsDeliveryNoteItems.description, item.description || "")));
+          }
         }
         await tx
           .update(goodsDeliveryNotes)

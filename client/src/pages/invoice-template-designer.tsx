@@ -2,6 +2,7 @@ import { Layout } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -298,6 +299,43 @@ export default function InvoiceTemplateDesignerPage() {
                   </SelectContent>
                 </Select>
               </div>
+
+              <div className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50/50 p-3">
+                <div className="space-y-0.5">
+                  <Label className="text-sm font-semibold">Partnership Mode</Label>
+                  <p className="text-xs text-slate-500">Preview partnership layout & co-branding.</p>
+                </div>
+                <Switch
+                  checked={settings.showPartnership || false}
+                  onCheckedChange={(checked) =>
+                    updateSettings({ showPartnership: checked })
+                  }
+                />
+              </div>
+
+              {settings.showPartnership && (
+                <div className="space-y-2">
+                  <Label>Partner logo placement</Label>
+                  <Select
+                    value={settings.partnerLogoPlacement || "side_by_side"}
+                    onValueChange={(value) =>
+                      updateSettings({
+                        partnerLogoPlacement: value as InvoiceTemplateDesignerSettings["partnerLogoPlacement"],
+                      })
+                    }
+                  >
+                    <SelectTrigger className="h-11">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="side_by_side">Side by side</SelectItem>
+                      <SelectItem value="primary_secondary">Primary + secondary</SelectItem>
+                      <SelectItem value="stacked">Stacked</SelectItem>
+                      <SelectItem value="right_header">Right header</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
               <Button
                 className="h-11 w-full gap-2 bg-slate-950 text-white hover:bg-slate-800"

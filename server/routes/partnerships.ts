@@ -28,6 +28,7 @@ export function createPartnershipsRouter(requireAuth: (req: any, res: any, next:
         displayLabel: z.string().optional(),
         defaultRevenueSharePercent: z.number().min(0).max(100).optional(),
         ownerGroupMatch: z.string().optional(),
+        invoiceTemplate: z.string().optional(),
         notes: z.string().optional(),
       }).parse(req.body);
 

@@ -102,13 +102,15 @@ function getNextAccountCode(
 export default function AccountingCOAPage() {
   const [searchTerm, setSearchState] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [isCodeManuallyEdited, setIsCodeManuallyEdited] = useState(false);
   const [formData, setFormData] = useState({
     code: "",
     name: "",
     description: "",
     type: "ASSET",
     category: "Current Assets",
+    subType: "Current",
+    normalBalance: "DEBIT",
+    ifrsMappingTag: "",
   });
 
   const { toast } = useToast();
@@ -154,13 +156,15 @@ export default function AccountingCOAPage() {
       });
       toast({ title: "Success", description: "Account created successfully" });
       setIsDialogOpen(false);
-      setIsCodeManuallyEdited(false);
       setFormData({
         code: "",
         name: "",
         description: "",
         type: "ASSET",
         category: "Current Assets",
+        subType: "Current",
+        normalBalance: "DEBIT",
+        ifrsMappingTag: "",
       });
     },
     onError: (error: any) => {
@@ -187,12 +191,12 @@ export default function AccountingCOAPage() {
   );
 
   useEffect(() => {
-    if (!isDialogOpen || isCodeManuallyEdited) return;
+    if (!isDialogOpen) return;
     setFormData((current) => ({
       ...current,
       code: getNextAccountCode(accounts, current.type, current.category),
     }));
-  }, [accounts, isCodeManuallyEdited, isDialogOpen]);
+  }, [accounts, isDialogOpen]);
 
   const filteredAccounts = accounts?.filter(
     (acc) =>
@@ -241,7 +245,6 @@ export default function AccountingCOAPage() {
             onOpenChange={(open) => {
               setIsDialogOpen(open);
               if (open) {
-                setIsCodeManuallyEdited(false);
                 setFormData((current) => ({
                   ...current,
                   code: getNextAccountCode(
@@ -259,107 +262,151 @@ export default function AccountingCOAPage() {
                 <span>Create Account</span>
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[425px]">
+            <DialogContent className="sm:max-w-[625px]">
               <DialogHeader>
                 <DialogTitle>Create New Account</DialogTitle>
               </DialogHeader>
               <form onSubmit={handleSubmit} className="space-y-4 pt-4">
-                <div className="space-y-2">
-                  <Label>Account Code</Label>
-                  <Input
-                    value={formData.code}
-                    onChange={(e) => {
-                      setIsCodeManuallyEdited(true);
-                      setFormData((p) => ({ ...p, code: e.target.value }));
-                    }}
-                    placeholder={suggestedCode || "Auto-generated"}
-                  />
-                  <p className="text-[11px] text-slate-400">
-                    Automatically assigned from the selected type/category. You
-                    can override it if needed.
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <Label>Account Name</Label>
-                  <Input
-                    required
-                    value={formData.name}
-                    onChange={(e) =>
-                      setFormData((p) => ({ ...p, name: e.target.value }))
-                    }
-                    placeholder="e.g. Cash in Bank"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Account Type</Label>
-                  <Select
-                    value={formData.type}
-                    onValueChange={(v) => {
-                      const type = v as AccountType;
-                      setFormData((p) => ({
-                        ...p,
-                        type,
-                        category: ACCOUNT_CATEGORIES[type][0],
-                        code: isCodeManuallyEdited
-                          ? p.code
-                          : getNextAccountCode(
-                              accounts,
-                              type,
-                              ACCOUNT_CATEGORIES[type][0],
-                            ),
-                      }));
-                    }}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="ASSET">Asset</SelectItem>
-                      <SelectItem value="LIABILITY">Liability</SelectItem>
-                      <SelectItem value="EQUITY">Equity</SelectItem>
-                      <SelectItem value="REVENUE">Revenue</SelectItem>
-                      <SelectItem value="EXPENSE">Expense</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Category</Label>
-                  <Select
-                    value={formData.category}
-                    onValueChange={(v) =>
-                      setFormData((p) => ({
-                        ...p,
-                        category: v,
-                        code: isCodeManuallyEdited
-                          ? p.code
-                          : getNextAccountCode(accounts, p.type, v),
-                      }))
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select category" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {categoryOptions.map((category) => (
-                        <SelectItem key={category} value={category}>
-                          {category}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Description (Optional)</Label>
-                  <Input
-                    value={formData.description}
-                    onChange={(e) =>
-                      setFormData((p) => ({
-                        ...p,
-                        description: e.target.value,
-                      }))
-                    }
-                    placeholder="Brief description of the account purpose"
-                  />
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Account Code</Label>
+                    <Input
+                      disabled
+                      value={formData.code}
+                      placeholder={suggestedCode || "Auto-generated"}
+                      className="bg-slate-50 cursor-not-allowed text-slate-500 font-medium"
+                    />
+                    <p className="text-[11px] text-slate-400">
+                      Automatically generated based on type/category.
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Account Name</Label>
+                    <Input
+                      required
+                      value={formData.name}
+                      onChange={(e) =>
+                        setFormData((p) => ({ ...p, name: e.target.value }))
+                      }
+                      placeholder="e.g. Cash in Bank"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Account Type</Label>
+                    <Select
+                      value={formData.type}
+                      onValueChange={(v) => {
+                        const type = v as AccountType;
+                        setFormData((p) => ({
+                          ...p,
+                          type,
+                          category: ACCOUNT_CATEGORIES[type][0],
+                          code: getNextAccountCode(
+                            accounts,
+                            type,
+                            ACCOUNT_CATEGORIES[type][0],
+                          ),
+                        }));
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ASSET">Asset</SelectItem>
+                        <SelectItem value="LIABILITY">Liability</SelectItem>
+                        <SelectItem value="EQUITY">Equity</SelectItem>
+                        <SelectItem value="REVENUE">Revenue</SelectItem>
+                        <SelectItem value="EXPENSE">Expense</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Category</Label>
+                    <Select
+                      value={formData.category}
+                      onValueChange={(v) =>
+                        setFormData((p) => ({
+                          ...p,
+                          category: v,
+                          code: getNextAccountCode(accounts, p.type, v),
+                        }))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {categoryOptions.map((category) => (
+                          <SelectItem key={category} value={category}>
+                            {category}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Subtype</Label>
+                    <Select
+                      value={formData.subType}
+                      onValueChange={(v) =>
+                        setFormData((p) => ({ ...p, subType: v }))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Current">Current</SelectItem>
+                        <SelectItem value="Non-current">Non-current</SelectItem>
+                        <SelectItem value="Operating">Operating</SelectItem>
+                        <SelectItem value="Finance">Finance</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Normal Balance</Label>
+                    <Select
+                      value={formData.normalBalance}
+                      onValueChange={(v) =>
+                        setFormData((p) => ({ ...p, normalBalance: v }))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="DEBIT">DEBIT</SelectItem>
+                        <SelectItem value="CREDIT">CREDIT</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2 col-span-2">
+                    <Label>IFRS Mapping Tag (Optional)</Label>
+                    <Input
+                      value={formData.ifrsMappingTag}
+                      onChange={(e) =>
+                        setFormData((p) => ({
+                          ...p,
+                          ifrsMappingTag: e.target.value,
+                        }))
+                      }
+                      placeholder="e.g. IAS-1, IFRS-9, IAS-16"
+                    />
+                  </div>
+                  <div className="space-y-2 col-span-2">
+                    <Label>Description (Optional)</Label>
+                    <Input
+                      value={formData.description}
+                      onChange={(e) =>
+                        setFormData((p) => ({
+                          ...p,
+                          description: e.target.value,
+                        }))
+                      }
+                      placeholder="Brief description of the account purpose"
+                    />
+                  </div>
                 </div>
                 <div className="pt-4 flex justify-end gap-3">
                   <Button
@@ -412,6 +459,12 @@ export default function AccountingCOAPage() {
                     Type / Category
                   </TableHead>
                   <TableHead className="font-bold text-slate-500 uppercase text-[11px] tracking-wider">
+                    IFRS Subtype
+                  </TableHead>
+                  <TableHead className="font-bold text-slate-500 uppercase text-[11px] tracking-wider">
+                    Bal.
+                  </TableHead>
+                  <TableHead className="font-bold text-slate-500 uppercase text-[11px] tracking-wider">
                     Status
                   </TableHead>
                   <TableHead className="font-bold text-slate-500 uppercase text-[11px] tracking-wider">
@@ -426,13 +479,13 @@ export default function AccountingCOAPage() {
                 {isLoading || isCompanyLoading ? (
                   Array.from({ length: 5 }).map((_, i) => (
                     <TableRow key={i} className="animate-pulse border-slate-50">
-                      <TableCell colSpan={6} className="h-16 bg-slate-50/20" />
+                      <TableCell colSpan={8} className="h-16 bg-slate-50/20" />
                     </TableRow>
                   ))
                 ) : filteredAccounts?.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={6}
+                      colSpan={8}
                       className="h-32 text-center text-slate-400 font-medium"
                     >
                       No accounts found matching your search.
@@ -471,6 +524,26 @@ export default function AccountingCOAPage() {
                             {account.category}
                           </span>
                         </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[11px] font-bold text-slate-700">
+                            {account.subType}
+                          </span>
+                          {account.ifrsMappingTag && (
+                            <Badge variant="outline" className="w-fit text-[9px] px-1 py-0 border-slate-200 text-slate-500">
+                              {account.ifrsMappingTag}
+                            </Badge>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <span className={cn(
+                          "text-[10px] font-black px-1.5 py-0.5 rounded-sm uppercase",
+                          account.normalBalance === "DEBIT" ? "bg-blue-50 text-blue-700" : "bg-purple-50 text-purple-700"
+                        )}>
+                          {account.normalBalance === "DEBIT" ? "DR" : "CR"}
+                        </span>
                       </TableCell>
                       <TableCell>
                         <Badge

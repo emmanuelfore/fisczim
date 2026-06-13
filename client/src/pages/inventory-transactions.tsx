@@ -13,12 +13,13 @@ import {
   History,
   Package,
   User,
+  Plus,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useState } from "react";
-import { GrnForm } from "@/components/inventory/grn-form";
+import { Link } from "wouter";
 
 const ITEMS_PER_PAGE = 15;
 
@@ -60,7 +61,12 @@ export default function InventoryTransactionsPage() {
   return (
     <Layout>
       <div className="flex items-center justify-end mb-4">
-        <GrnForm />
+        <Link href="/inventory/grvs/new">
+          <Button className="rounded-xl font-bold bg-blue-600 hover:bg-blue-700">
+            <Plus className="w-4 h-4 mr-2" />
+            Direct GRV
+          </Button>
+        </Link>
       </div>
 
       <div className="flex flex-col md:flex-row gap-4 mb-8">

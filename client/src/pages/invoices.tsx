@@ -110,6 +110,7 @@ import { ValidationErrorsDisplay } from "@/components/invoices/validation-errors
 import { useTaxConfig } from "@/hooks/use-tax-config";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useBranchContext } from "@/lib/branch-context";
+import { usePermissions } from "@/hooks/use-permissions";
 import { pdf } from "@react-pdf/renderer";
 
 // ── Preview panel (used by invoice-details split view) ──────────────────────
@@ -748,6 +749,7 @@ function formatCustomerName(name: string | null | undefined): string {
 }
 
 export default function InvoicesPage() {
+  const { can } = usePermissions();
   const { user } = useAuth();
   const [, setLocation] = useLocation();
   const { activeCompanyId } = useActiveCompany();
@@ -757,6 +759,25 @@ export default function InvoicesPage() {
   const useFiscalWorkflow = Boolean(
     company?.fdmsDeviceId && company?.vatRegistered !== false,
   );
+
+  if (!can("invoices.view")) {
+    return (
+      <Layout>
+        <Card className="max-w-2xl mx-auto mt-8 border-rose-100 bg-rose-50/20">
+          <CardContent className="py-12 text-center">
+            <FileText className="mx-auto mb-4 h-12 w-12 text-rose-300" />
+            <h3 className="text-lg font-bold text-rose-900">Access Denied</h3>
+            <p className="mt-2 text-sm text-rose-700">
+              You do not have the required permissions to view Invoices.
+            </p>
+            <p className="mt-1 text-xs text-rose-500 font-semibold">
+              Required permission: invoices.view
+            </p>
+          </CardContent>
+        </Card>
+      </Layout>
+    );
+  }
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -1222,6 +1243,9 @@ export default function InvoicesPage() {
                         <TableHead className="h-11 text-xs font-semibold uppercase tracking-wide text-[#64748B]">
                           Date
                         </TableHead>
+                        <TableHead className="h-11 text-xs font-semibold uppercase tracking-wide text-[#64748B]">
+                          Issuer / Actor
+                        </TableHead>
                         <TableHead className="h-11 text-right text-xs font-semibold uppercase tracking-wide text-[#64748B]">
                           Amount
                         </TableHead>
@@ -1318,6 +1342,9 @@ export default function InvoicesPage() {
                                     "dd MMM yyyy",
                                   )
                                 : "-"}
+                            </TableCell>
+                            <TableCell className="whitespace-nowrap py-3 font-semibold text-slate-700">
+                              {invoice.createdByName || "System"}
                             </TableCell>
                             <TableCell className="whitespace-nowrap py-3 text-right  font-bold text-[#0F172A]">
                               {formatMoney(invoice.currency, invoice.total)}

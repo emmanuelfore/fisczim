@@ -10,6 +10,14 @@ export type GrvListItem = {
   createdAt: string;
   createdBy: string;
   notes: string;
+  status?: string;
+  invoiceId?: number | null;
+  invoiceNumber?: string | null;
+  purchaseOrderId?: number | null;
+  matchingStatus?: "MATCHED" | "QTY_MISMATCH" | "PRICE_VARIANCE" | "PENDING_INVOICE";
+  landedCostsBreakdown?: { freight: number; duty: number; handling: number };
+  serialNumbers?: string[];
+  journalEntry?: { id: number; description: string; lines: Array<{ accountCode: string; accountName: string; type: "DEBIT" | "CREDIT"; amount: number }> } | null;
   lineCount: number;
   totalQuantity: number;
   totalCost: number;
@@ -23,11 +31,22 @@ export type GrvDetail = {
   supplierId: number | null;
   supplierName: string;
   notes: string;
+  status?: string;
+  invoiceId?: number | null;
+  invoiceNumber?: string | null;
+  purchaseOrderId?: number | null;
+  matchingStatus?: "MATCHED" | "QTY_MISMATCH" | "PRICE_VARIANCE" | "PENDING_INVOICE";
+  landedCostsBreakdown?: { freight: number; duty: number; handling: number };
+  serialNumbers?: string[];
+  journalEntry?: { id: number; description: string; lines: Array<{ accountCode: string; accountName: string; type: "DEBIT" | "CREDIT"; amount: number }> } | null;
+  taxInclusive?: boolean;
   totalQuantity: number;
   totalCost: number;
   lines: Array<{
     id: number;
     productId: number;
+    accountCode?: string | null;
+    description?: string | null;
     productName: string;
     sku: string;
     quantity: number;
@@ -37,6 +56,8 @@ export type GrvDetail = {
     taxTypeId: number | null;
     taxTypeName: string | null;
     taxTypeCode: string | null;
+    taxAmount?: number;
+    isRecoverable?: boolean;
   }>;
 };
 
@@ -110,11 +131,11 @@ export function useGrv(companyId: number, grvId?: string) {
 
 export function usePendingGdns(companyId: number) {
   return useQuery({
-    queryKey: ["gdns", companyId, "PENDING"],
+    queryKey: ["gdns", companyId, "DRAFT"],
     enabled: !!companyId,
     refetchInterval: 60000,
     queryFn: async (): Promise<GdnListItem[]> => {
-      const res = await apiFetch(`/api/companies/${companyId}/gdns?status=PENDING`);
+      const res = await apiFetch(`/api/companies/${companyId}/gdns?status=DRAFT`);
       return readJsonOrThrow<GdnListItem[]>(res, "Failed to fetch pending GDNs");
     },
   });
@@ -136,7 +157,7 @@ export function useCreateGdn(companyId: number) {
       return readJsonOrThrow(res, "Failed to record GDN");
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["gdns", companyId, "PENDING"] });
+      queryClient.invalidateQueries({ queryKey: ["gdns", companyId, "DRAFT"] });
     },
   });
 }
@@ -172,7 +193,7 @@ export function useConfirmGdn(companyId: number) {
       return readJsonOrThrow(res, "Failed to confirm GDN");
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["gdns", companyId, "PENDING"] });
+      queryClient.invalidateQueries({ queryKey: ["gdns", companyId, "DRAFT"] });
       queryClient.invalidateQueries({ queryKey: ["grvs", companyId] });
       refreshProductQueries(queryClient, companyId);
     },

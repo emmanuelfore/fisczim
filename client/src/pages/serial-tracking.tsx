@@ -1,4 +1,5 @@
 import { Layout } from "@/components/layout";
+import { Link } from "wouter";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useProducts } from "@/hooks/use-products";
 import {
@@ -125,13 +126,15 @@ export default function AutoSparesPage() {
                 <CardTitle>Serial Stock</CardTitle>
               </CardHeader>
               <CardContent>
-                <Table>
+                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Serial</TableHead>
                       <TableHead>Product</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Warranty Until</TableHead>
+                      <TableHead>Sold Invoice</TableHead>
+                      <TableHead>Sold At</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -141,20 +144,39 @@ export default function AutoSparesPage() {
                       );
                       return (
                         <TableRow key={serial.id}>
-                          <TableCell className="font-mono">
+                          <TableCell className="font-mono font-bold">
                             {serial.serialNumber}
                           </TableCell>
                           <TableCell>
                             {product?.name || serial.productId}
                           </TableCell>
                           <TableCell>
-                            <Badge variant="outline">{serial.status}</Badge>
+                            <Badge
+                              variant={serial.status === "SOLD" ? "secondary" : "outline"}
+                              className={serial.status === "SOLD" ? "bg-slate-100 text-slate-700" : "bg-green-50 text-green-700 border-green-200"}
+                            >
+                              {serial.status}
+                            </Badge>
                           </TableCell>
                           <TableCell>
                             {serial.warrantyExpiresAt
                               ? new Date(
                                   serial.warrantyExpiresAt,
                                 ).toLocaleDateString()
+                              : "-"}
+                          </TableCell>
+                          <TableCell>
+                            {serial.soldInvoiceId ? (
+                              <Link href={`/invoices/${serial.soldInvoiceId}`} className="text-primary hover:underline font-mono font-bold">
+                                {serial.soldInvoiceNumber || `#${serial.soldInvoiceId}`}
+                              </Link>
+                            ) : (
+                              "-"
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {serial.soldAt
+                              ? new Date(serial.soldAt).toLocaleDateString()
                               : "-"}
                           </TableCell>
                         </TableRow>

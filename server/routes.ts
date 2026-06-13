@@ -27,12 +27,13 @@ import sageWebhookRouter from "./lib/sage-webhook.js";
 import sageOAuthRouter from "./lib/sage-oauth.js";
 import v1Router from "./api/v1/index.js";
 import busTicketingRouter from "./api/v1/bus-ticketing.js";
+import payrollRouter from "./api/v1/payroll.js";
 import { createRolesPermissionsRouter } from "./routes/roles-permissions.js";
 import { createPartnershipsRouter } from "./routes/partnerships.js";
 import { userHasPermission } from "./lib/permissions.js";
 import { resolveActionAccess } from "./lib/approval-policies.js";
 import { createApprovalRequest } from "./lib/approvals.js";
-import { APPROVAL_TYPES } from "../shared/permissions.js";
+import { APPROVAL_TYPES, ALL_PERMISSION_KEYS } from "../shared/permissions.js";
 import { db } from "./db";
 import { eq, and, gte, lte, ne, desc, asc, sql, or, ilike, isNull, inArray } from "drizzle-orm";
 import { format } from "date-fns";
@@ -65,6 +66,8 @@ import {
   companies,
   companyUsers,
   companyAccessRoles,
+  companyRoles,
+  companyRolePermissions,
   customers,
   currencies,
   taxTypes,
@@ -75,6 +78,8 @@ import {
   inventoryLocations,
   inventoryLocationStocks,
   inventoryTransactions,
+  inventoryCostComponents,
+  productSerialNumbers,
   goodsDeliveryNotes,
   goodsDeliveryNoteItems,
   stockTransfers,
@@ -112,6 +117,7 @@ import {
   insertCustomerSchema,
   insertBranchSchema,
   insertBranchStockSchema,
+  insertCostCenterSchema,
   type InsertQuotation,
   type InsertRecurringInvoice,
   type Branch,
@@ -123,6 +129,10 @@ import {
   insertLaybySchema,
   insertLaybyItemSchema,
   insertLaybyPaymentSchema,
+  purchaseReturns,
+  purchaseReturnItems,
+  insertPurchaseReturnSchema,
+  insertPurchaseReturnItemSchema,
 } from "@shared/schema";
 import { paynowService } from "./paynow.js";
 
@@ -323,33 +333,78 @@ export async function registerRoutes(
     quantityDelta: number,
     branchId?: number | null,
   ) => {
+    // 1. If branchId is specified, sum all location stock levels for this branch and update branchStocks
     if (branchId) {
+      const branchLocations = await tx
+        .select({ id: inventoryLocations.id })
+        .from(inventoryLocations)
+        .where(eq(inventoryLocations.branchId, branchId));
+      
+      const locationIds = branchLocations.map((l: any) => l.id);
+      
+      let totalBranchStock = 0;
+      if (locationIds.length > 0) {
+        const [sumRow] = await tx
+          .select({
+            total: sql<string>`coalesce(sum(${inventoryLocationStocks.stockLevel}::numeric), 0)`
+          })
+          .from(inventoryLocationStocks)
+          .where(and(
+            inArray(inventoryLocationStocks.locationId, locationIds),
+            eq(inventoryLocationStocks.productId, productId)
+          ));
+        totalBranchStock = Number(sumRow?.total || 0);
+      }
+
       const [stock] = await tx
         .select()
         .from(branchStocks)
         .where(and(eq(branchStocks.branchId, branchId), eq(branchStocks.productId, productId)))
         .limit(1);
-      const next = Number(stock?.stockLevel || 0) + quantityDelta;
+
       if (stock) {
-        await tx.update(branchStocks).set({ stockLevel: next.toString() }).where(eq(branchStocks.id, stock.id));
+        await tx.update(branchStocks).set({ stockLevel: totalBranchStock.toString() }).where(eq(branchStocks.id, stock.id));
       } else {
         await tx.insert(branchStocks).values({
           branchId,
           productId,
-          stockLevel: next.toString(),
+          stockLevel: totalBranchStock.toString(),
         });
       }
-      return next;
     }
 
-    const [product] = await tx
-      .select({ stockLevel: products.stockLevel })
+    // 2. Sum all locations for the company to update products.stockLevel (Global Product Stock)
+    const [productRow] = await tx
+      .select({ companyId: products.companyId })
       .from(products)
       .where(eq(products.id, productId))
       .limit(1);
-    const next = Number(product?.stockLevel || 0) + quantityDelta;
-    await tx.update(products).set({ stockLevel: next.toString() }).where(eq(products.id, productId));
-    return next;
+    
+    if (productRow) {
+      const companyLocations = await tx
+        .select({ id: inventoryLocations.id })
+        .from(inventoryLocations)
+        .where(eq(inventoryLocations.companyId, productRow.companyId));
+      
+      const companyLocIds = companyLocations.map((l: any) => l.id);
+      let totalCompanyStock = 0;
+      if (companyLocIds.length > 0) {
+        const [sumRow] = await tx
+          .select({
+            total: sql<string>`coalesce(sum(${inventoryLocationStocks.stockLevel}::numeric), 0)`
+          })
+          .from(inventoryLocationStocks)
+          .where(and(
+            inArray(inventoryLocationStocks.locationId, companyLocIds),
+            eq(inventoryLocationStocks.productId, productId)
+          ));
+        totalCompanyStock = Number(sumRow?.total || 0);
+      }
+
+      await tx.update(products).set({ stockLevel: totalCompanyStock.toString() }).where(eq(products.id, productId));
+    }
+
+    return 0;
   };
 
   const ensureCompanyInventoryLocations = async (tx: any, companyId: number) => {
@@ -481,6 +536,26 @@ export async function registerRoutes(
     }
 
     return next;
+  };
+
+  const ensureTransitLocation = async (tx: any, companyId: number) => {
+    let [location] = await tx
+      .select()
+      .from(inventoryLocations)
+      .where(and(eq(inventoryLocations.companyId, companyId), eq(inventoryLocations.code, "IN-TRANSIT")))
+      .limit(1);
+    
+    if (!location) {
+      const [created] = await tx.insert(inventoryLocations).values({
+        companyId,
+        type: "VAN",
+        name: "In-Transit Goods",
+        code: "IN-TRANSIT",
+        isActive: true,
+      }).returning();
+      location = created;
+    }
+    return location;
   };
 
   const locationDisplayName = (location: any) =>
@@ -630,9 +705,39 @@ export async function registerRoutes(
 
 
 
+  const checkCompanyAccess = async (user: any, companyId: number): Promise<boolean> => {
+    if (!user) return false;
+    if (user.isSuperAdmin) {
+      const isSystemAdmin = String(user.email || "").toLowerCase() === "admin@zimra.co.zw";
+      if (isSystemAdmin) return true;
+      
+      const comp = await storage.getCompany(companyId);
+      if (!comp || comp.superadminVisible === false) return false;
+      
+      const systemAdminOnlyCompanies = new Set(['goosehill trading', 'glorious tire services', 'spares arena']);
+      const companyName = (comp.name || "").toLowerCase();
+      const tradingName = (comp.tradingName || "").toLowerCase();
+      if (systemAdminOnlyCompanies.has(companyName) || systemAdminOnlyCompanies.has(tradingName)) {
+        return false;
+      }
+      return true;
+    }
+    
+    const userCompanies = await storage.getCompanies(user.id);
+    return userCompanies.some(c => c.id === companyId);
+  };
+
   const requireOwner = async (req: any, res: any, next: any) => {
     if (!req.isAuthenticated()) {
       return res.status(401).json({ message: "Unauthorized: Authentication required" });
+    }
+
+    const companyId = req.params.companyId || req.body.companyId || req.query.companyId;
+    if (companyId) {
+      const hasAccess = await checkCompanyAccess(req.user, Number(companyId));
+      if (!hasAccess) {
+        return res.status(403).json({ message: "Forbidden: You do not have access to this company" });
+      }
     }
 
     // If it's a superadmin, they have owner permissions globally
@@ -640,10 +745,6 @@ export async function registerRoutes(
       return next();
     }
 
-    // For specific company check, would need companyId from params or body
-    // but at minimum check if they are logged in.
-    // Refinement: If companyId is present, we should check their role in that company
-    const companyId = req.params.companyId || req.body.companyId || req.query.companyId;
     if (companyId) {
       const companies = await storage.getCompanies(req.user.id);
       const userCompany = companies.find(c => c.id === Number(companyId));
@@ -1069,6 +1170,7 @@ export async function registerRoutes(
           const tinHeader = findHeader(row, ['TIN', 'Tax ID', 'Tax Number']);
           const vatHeader = findHeader(row, ['VAT Number', 'VAT NO', 'VAT']);
           const typeHeader = findHeader(row, ['Type', 'Customer Type', 'Client Type']);
+          const balanceHeader = findHeader(row, ['Balance', 'Opening Balance', 'Account Balance']);
 
           const name = nameHeader ? (row as any)[nameHeader] : null;
           if (!name) throw new Error("Missing 'Name' column");
@@ -1082,6 +1184,7 @@ export async function registerRoutes(
             tin: tinHeader ? (row as any)[tinHeader] : undefined,
             vatNumber: vatHeader ? (row as any)[vatHeader] : undefined,
             customerType: typeHeader ? ((row as any)[typeHeader] || 'individual').toLowerCase() : 'individual',
+            openingBalance: balanceHeader ? (row as any)[balanceHeader]?.toString().replace(/[^0-9.-]/g, '') || "0.00" : "0.00",
             isActive: true
           };
 
@@ -1107,6 +1210,89 @@ export async function registerRoutes(
 
     } catch (error: any) {
       console.error("Import Customers Error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Import Suppliers
+  app.post("/api/import/suppliers", requireAuth, csvUpload.single("file"), async (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ message: "No CSV file uploaded" });
+
+      const targetCompanyId = parseInt(req.body.companyId) || (req as any).user?.companyId;
+      if (!targetCompanyId) return res.status(400).json({ message: "Target Company ID required" });
+
+      const fileContent = req.file.buffer.toString("utf-8");
+      const records = parse(fileContent, {
+        columns: true,
+        skip_empty_lines: true,
+        trim: true,
+        relax_column_count: true
+      });
+
+      const results = {
+        success: 0,
+        failed: 0,
+        errors: [] as string[]
+      };
+
+      const findHeader = (row: any, options: string[]) => {
+        const keys = Object.keys(row);
+        for (const opt of options) {
+          const match = keys.find(k => k.toLowerCase().replace(/[\s_-]/g, '') === opt.toLowerCase().replace(/[\s_-]/g, ''));
+          if (match) return match;
+        }
+        return null;
+      };
+
+      for (const [index, row] of records.entries()) {
+        try {
+          const nameHeader = findHeader(row, ['Name', 'Supplier Name', 'Vendor Name', 'Business Name']);
+          const emailHeader = findHeader(row, ['Email', 'Email Address']);
+          const phoneHeader = findHeader(row, ['Phone', 'Telephone', 'Mobile', 'Phone Number']);
+          const addressHeader = findHeader(row, ['Address', 'Location']);
+          const tinHeader = findHeader(row, ['TIN', 'Tax ID', 'Tax Number']);
+          const vatHeader = findHeader(row, ['VAT Number', 'VAT NO', 'VAT']);
+          const contactPersonHeader = findHeader(row, ['Contact Person', 'Contact']);
+          const balanceHeader = findHeader(row, ['Balance', 'Opening Balance', 'Account Balance']);
+
+          const name = nameHeader ? (row as any)[nameHeader] : null;
+          if (!name) throw new Error("Missing 'Name' column");
+
+          const supplierData = {
+            companyId: targetCompanyId,
+            name: name,
+            email: emailHeader ? (row as any)[emailHeader] : undefined,
+            phone: phoneHeader ? (row as any)[phoneHeader] : undefined,
+            address: addressHeader ? (row as any)[addressHeader] : undefined,
+            tin: tinHeader ? (row as any)[tinHeader] : undefined,
+            vatNumber: vatHeader ? (row as any)[vatHeader] : undefined,
+            contactPerson: contactPersonHeader ? (row as any)[contactPersonHeader] : undefined,
+            openingBalance: balanceHeader ? (row as any)[balanceHeader]?.toString().replace(/[^0-9.-]/g, '') || "0.00" : "0.00",
+            isActive: true
+          };
+
+          const validated = api.suppliers.create.input.parse(supplierData);
+
+          await storage.createSupplier({
+            ...validated,
+            companyId: targetCompanyId
+          });
+          results.success++;
+        } catch (err: any) {
+          results.failed++;
+          let msg = err.message;
+          if (err instanceof z.ZodError) {
+            msg = err.errors.map(e => `${e.path.join('.')}: ${e.message}`).join(', ');
+          }
+          results.errors.push(`Row ${index + 2}: ${msg}`);
+        }
+      }
+
+      res.json({ message: "Import completed", ...results });
+
+    } catch (error: any) {
+      console.error("Import Suppliers Error:", error);
       res.status(500).json({ message: error.message });
     }
   });
@@ -1434,7 +1620,7 @@ export async function registerRoutes(
       const customers = await storage.getCustomers(companyId);
 
       // Construct CSV
-      const headers = ["Name", "Email", "Phone", "Address", "TIN", "VAT Number", "Customer Type"];
+      const headers = ["Name", "Email", "Phone", "Address", "TIN", "VAT Number", "Customer Type", "Balance"];
       const rows = customers.map(c => [
         c.name,
         c.email || "",
@@ -1442,7 +1628,8 @@ export async function registerRoutes(
         c.address || "",
         c.tin || "",
         c.vatNumber || "",
-        c.customerType || "individual"
+        c.customerType || "individual",
+        c.openingBalance || "0.00"
       ]);
 
       const csvContent = [
@@ -1472,7 +1659,7 @@ export async function registerRoutes(
       const suppliers = await storage.getSuppliers(companyId);
 
       // Construct CSV
-      const headers = ["Name", "Contact Person", "Email", "Phone", "Address", "TIN", "VAT Number"];
+      const headers = ["Name", "Contact Person", "Email", "Phone", "Address", "TIN", "VAT Number", "Balance"];
       const rows = suppliers.map(s => [
         s.name,
         s.contactPerson || "",
@@ -1480,7 +1667,8 @@ export async function registerRoutes(
         s.phone || "",
         s.address || "",
         s.tin || "",
-        s.vatNumber || ""
+        s.vatNumber || "",
+        s.openingBalance || "0.00"
       ]);
 
       const csvContent = [
@@ -1779,6 +1967,59 @@ export async function registerRoutes(
     }
   });
 
+  // --- Cost Centers ---
+  app.get("/api/companies/:companyId/cost-centers", requireAuth, async (req, res) => {
+    const companyId = parseInt(req.params.companyId);
+    if (isNaN(companyId)) return res.status(400).json({ message: "Invalid company ID" });
+    try {
+      const centers = await storage.getCostCenters(companyId);
+      res.json(centers);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/companies/:companyId/cost-centers", requireAuth, async (req, res) => {
+    const companyId = parseInt(req.params.companyId);
+    if (isNaN(companyId)) return res.status(400).json({ message: "Invalid company ID" });
+    try {
+      const data = insertCostCenterSchema.omit({ companyId: true }).parse(req.body);
+      const center = await storage.createCostCenter({ ...data, companyId });
+      res.status(201).json(center);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/companies/:companyId/cost-centers/:id", requireAuth, async (req, res) => {
+    const id = parseInt(req.params.id);
+    const companyId = Number(req.params.companyId);
+    if (isNaN(id) || isNaN(companyId)) return res.status(400).json({ message: "Invalid ID" });
+    try {
+      const existing = await storage.getCostCenter(id);
+      if (!existing || existing.companyId !== companyId) return res.status(404).json({ message: "Cost center not found" });
+      const data = insertCostCenterSchema.partial().parse(req.body);
+      const center = await storage.updateCostCenter(id, data);
+      res.json(center);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/companies/:companyId/cost-centers/:id", requireAuth, async (req, res) => {
+    const id = parseInt(req.params.id);
+    const companyId = Number(req.params.companyId);
+    if (isNaN(id) || isNaN(companyId)) return res.status(400).json({ message: "Invalid ID" });
+    try {
+      const existing = await storage.getCostCenter(id);
+      if (!existing || existing.companyId !== companyId) return res.status(404).json({ message: "Cost center not found" });
+      await storage.deleteCostCenter(id);
+      res.sendStatus(204);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   app.get("/api/branches/:branchId/stock", requireAuth, async (req, res) => {
     const branchId = parseInt(req.params.branchId);
     if (isNaN(branchId)) return res.status(400).json({ message: "Invalid branch ID" });
@@ -1805,9 +2046,23 @@ export async function registerRoutes(
   app.get("/api/companies/:companyId/inventory/locations", requireAuth, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
-      const locations = await db.transaction(async (tx) =>
+      let locations = await db.transaction(async (tx) =>
         ensureCompanyInventoryLocations(tx, companyId),
       );
+
+      // Enterprise Branch Isolation:
+      // Filter locations by the active branch (X-Branch-ID) OR global locations (branchId is null)
+      // unless "?all=true" is passed (e.g. for cross-branch stock transfers).
+      const showAll = req.query.all === "true";
+      if (!showAll) {
+        const activeBranchId = getBranchId(req);
+        if (activeBranchId !== undefined) {
+          locations = locations.filter(
+            (location: any) => location.branchId === activeBranchId || location.branchId === null
+          );
+        }
+      }
+
       const locationIds = locations.map((location: any) => location.id);
       const stockRows = locationIds.length
         ? await db
@@ -1837,10 +2092,46 @@ export async function registerRoutes(
     }
   });
 
+  // Per-location stock levels — used by the transfer dispatch form to check availability
+  app.get("/api/companies/:companyId/inventory/location-stocks", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const locationId = req.query.locationId ? Number(req.query.locationId) : null;
+
+      if (!locationId) {
+        return res.status(400).json({ message: "locationId query param is required." });
+      }
+
+      // Verify the location belongs to this company
+      const [location] = await db
+        .select({ id: inventoryLocations.id })
+        .from(inventoryLocations)
+        .where(and(eq(inventoryLocations.id, locationId), eq(inventoryLocations.companyId, companyId)))
+        .limit(1);
+
+      if (!location) return res.status(404).json({ message: "Location not found." });
+
+      const stocks = await db
+        .select({
+          productId: inventoryLocationStocks.productId,
+          stockLevel: inventoryLocationStocks.stockLevel,
+          availableQuantity: inventoryLocationStocks.availableQuantity,
+        })
+        .from(inventoryLocationStocks)
+        .where(eq(inventoryLocationStocks.locationId, locationId));
+
+      res.json(stocks);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch location stocks" });
+    }
+  });
+
+
   app.post("/api/companies/:companyId/inventory/locations", requireAuth, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const role = await storage.getCompanyUserRole((req.user as any)?.id, companyId);
+
       if (role !== "owner" && role !== "admin" && !(req.user as any)?.isSuperAdmin) {
         return res.status(403).json({ message: "Only owner/admin can create inventory locations." });
       }
@@ -1849,7 +2140,16 @@ export async function registerRoutes(
       if (!allowedTypes.has(type)) return res.status(400).json({ message: "Invalid location type." });
       const name = String(req.body?.name || "").trim();
       if (!name) return res.status(400).json({ message: "Location name is required." });
-      const branchId = req.body?.branchId ? Number(req.body.branchId) : null;
+      
+      // Default to active branch if not explicitly provided
+      let branchId = req.body?.branchId ? Number(req.body.branchId) : null;
+      if (!branchId) {
+        const activeBranchId = getBranchId(req);
+        if (activeBranchId !== undefined) {
+          branchId = activeBranchId;
+        }
+      }
+
       if (branchId) await ensureBranchBelongsToCompany(db, branchId, companyId);
       const [created] = await db.insert(inventoryLocations).values({
         companyId,
@@ -3437,7 +3737,7 @@ export async function registerRoutes(
     try {
       const companyId = Number(req.params.companyId);
       const userId = (req as any).user.id;
-      const { email, role, name, username, password } = req.body;
+      const { email, role, name, username, password, roleId } = req.body;
 
       if (!email) return res.status(400).json({ message: "Email is required" });
 
@@ -3497,7 +3797,23 @@ export async function registerRoutes(
         return res.status(409).json({ message: "User already in company" });
       }
 
-      await storage.addUserToCompany(userToAdd.id, companyId, role || 'member');
+      let finalRole = role || 'member';
+      let finalRoleId = roleId ? Number(roleId) : undefined;
+
+      if (finalRoleId) {
+        const [roleObj] = await db
+          .select()
+          .from(companyRoles)
+          .where(and(eq(companyRoles.id, finalRoleId), eq(companyRoles.companyId, companyId)))
+          .limit(1);
+        if (roleObj) {
+          finalRole = roleObj.legacyRole || 'member';
+        } else {
+          finalRoleId = undefined;
+        }
+      }
+
+      await storage.addUserToCompany(userToAdd.id, companyId, finalRole, finalRoleId);
       res.status(201).json({ message: "User added successfully", user: userToAdd });
 
     } catch (err: any) {
@@ -3561,10 +3877,6 @@ export async function registerRoutes(
         }
       }
 
-      if (role) {
-        await storage.updateUserRole(targetUserId, companyId, role);
-      }
-
       if (ownerGroupScope !== undefined) {
         const normalizedScope = typeof ownerGroupScope === "string" && ownerGroupScope.trim().length > 0
           ? ownerGroupScope.trim()
@@ -3573,19 +3885,27 @@ export async function registerRoutes(
       }
 
       if (accessRoleId !== undefined) {
-        const normalizedAccessRoleId = accessRoleId ? Number(accessRoleId) : null;
-        if (normalizedAccessRoleId) {
-          const [accessRole] = await db
-            .select({ id: companyAccessRoles.id })
-            .from(companyAccessRoles)
-            .where(and(eq(companyAccessRoles.id, normalizedAccessRoleId), eq(companyAccessRoles.companyId, companyId)))
+        const normalizedRoleId = accessRoleId ? Number(accessRoleId) : null;
+        if (normalizedRoleId) {
+          const [roleObj] = await db
+            .select()
+            .from(companyRoles)
+            .where(and(eq(companyRoles.id, normalizedRoleId), eq(companyRoles.companyId, companyId)))
             .limit(1);
-          if (!accessRole) return res.status(400).json({ message: "Access role does not belong to this company" });
+          if (!roleObj) return res.status(400).json({ message: "Role does not belong to this company" });
+
+          await db
+            .update(companyUsers)
+            .set({ companyRoleId: normalizedRoleId, role: roleObj.legacyRole || "member" })
+            .where(and(eq(companyUsers.userId, targetUserId), eq(companyUsers.companyId, companyId)));
+        } else {
+          await db
+            .update(companyUsers)
+            .set({ companyRoleId: null, role: "member" })
+            .where(and(eq(companyUsers.userId, targetUserId), eq(companyUsers.companyId, companyId)));
         }
-        await db
-          .update(companyUsers)
-          .set({ accessRoleId: normalizedAccessRoleId })
-          .where(and(eq(companyUsers.userId, targetUserId), eq(companyUsers.companyId, companyId)));
+      } else if (role) {
+        await storage.updateUserRole(targetUserId, companyId, role);
       }
 
       if (branchIds !== undefined) {
@@ -4928,18 +5248,30 @@ export async function registerRoutes(
       const role = await storage.getCompanyUserRole((req as any).user.id, companyId);
       if (!role && !(req as any).user?.isSuperAdmin) return res.status(403).json({ message: "Forbidden" });
 
+      await storage.seedDefaultRolesForCompany(companyId);
+
       const rows = await db
         .select({
-          role: companyAccessRoles,
+          role: companyRoles,
           memberCount: sql<number>`count(${companyUsers.id})::int`,
         })
-        .from(companyAccessRoles)
-        .leftJoin(companyUsers, eq(companyUsers.accessRoleId, companyAccessRoles.id))
-        .where(eq(companyAccessRoles.companyId, companyId))
-        .groupBy(companyAccessRoles.id)
-        .orderBy(asc(companyAccessRoles.name));
+        .from(companyRoles)
+        .leftJoin(companyUsers, eq(companyUsers.companyRoleId, companyRoles.id))
+        .where(eq(companyRoles.companyId, companyId))
+        .groupBy(companyRoles.id)
+        .orderBy(asc(companyRoles.name));
 
-      res.json(rows.map((row) => ({ ...row.role, memberCount: Number(row.memberCount || 0) })));
+      const result = [];
+      for (const row of rows) {
+        const permissions = await storage.getRolePermissions(row.role.id);
+        result.push({
+          ...row.role,
+          permissions,
+          memberCount: Number(row.memberCount || 0)
+        });
+      }
+
+      res.json(result);
     } catch (err: any) {
       res.status(500).json({ message: err.message || "Failed to list access roles" });
     }
@@ -4952,23 +5284,19 @@ export async function registerRoutes(
       if (!(req as any).user?.isSuperAdmin && currentRole !== "owner" && currentRole !== "admin") {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
-      const payload = insertCompanyAccessRoleSchema.parse({
-        ...req.body,
-        companyId,
-        permissions: Array.isArray(req.body?.permissions)
-          ? req.body.permissions.filter((permission: unknown): permission is string => typeof permission === "string")
-          : [],
-      });
-      const [created] = await db
-        .insert(companyAccessRoles)
-        .values({
-          companyId: payload.companyId,
-          name: payload.name,
-          description: payload.description || null,
-          permissions: payload.permissions as string[],
-          createdBy: (req as any).user.id,
-        })
-        .returning();
+
+      const body = z.object({
+        name: z.string().min(2),
+        description: z.string().optional(),
+        permissions: z.array(z.string()).default([]),
+      }).parse(req.body);
+
+      const invalid = body.permissions.filter((p) => !ALL_PERMISSION_KEYS.includes(p));
+      if (invalid.length > 0) {
+        return res.status(400).json({ message: `Invalid permissions: ${invalid.join(", ")}` });
+      }
+
+      const created = await storage.createCompanyRole(companyId, body);
       res.status(201).json(created);
     } catch (err: any) {
       res.status(400).json({ message: err.message || "Failed to create access role" });
@@ -4983,27 +5311,21 @@ export async function registerRoutes(
       if (!(req as any).user?.isSuperAdmin && currentRole !== "owner" && currentRole !== "admin") {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
-      const payload = insertCompanyAccessRoleSchema.partial().parse({
-        ...req.body,
-        companyId,
-        permissions: req.body?.permissions === undefined
-          ? undefined
-          : Array.isArray(req.body.permissions)
-            ? req.body.permissions.filter((permission: unknown): permission is string => typeof permission === "string")
-            : [],
-      });
-      const updatePayload: any = {
-        updatedAt: new Date(),
-      };
-      if (payload.name !== undefined) updatePayload.name = payload.name;
-      if (payload.description !== undefined) updatePayload.description = payload.description || null;
-      if (payload.permissions !== undefined) updatePayload.permissions = payload.permissions as string[];
-      const [updated] = await db
-        .update(companyAccessRoles)
-        .set(updatePayload)
-        .where(and(eq(companyAccessRoles.id, roleId), eq(companyAccessRoles.companyId, companyId)))
-        .returning();
-      if (!updated) return res.status(404).json({ message: "Access role not found" });
+
+      const body = z.object({
+        name: z.string().min(2).optional(),
+        description: z.string().optional(),
+        permissions: z.array(z.string()).optional(),
+      }).parse(req.body);
+
+      if (body.permissions) {
+        const invalid = body.permissions.filter((p) => !ALL_PERMISSION_KEYS.includes(p));
+        if (invalid.length > 0) {
+          return res.status(400).json({ message: `Invalid permissions: ${invalid.join(", ")}` });
+        }
+      }
+
+      const updated = await storage.updateCompanyRole(roleId, companyId, body);
       res.json(updated);
     } catch (err: any) {
       res.status(400).json({ message: err.message || "Failed to update access role" });
@@ -5018,15 +5340,8 @@ export async function registerRoutes(
       if (!(req as any).user?.isSuperAdmin && currentRole !== "owner" && currentRole !== "admin") {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
-      await db.transaction(async (tx) => {
-        await tx
-          .update(companyUsers)
-          .set({ accessRoleId: null })
-          .where(and(eq(companyUsers.companyId, companyId), eq(companyUsers.accessRoleId, roleId)));
-        await tx
-          .delete(companyAccessRoles)
-          .where(and(eq(companyAccessRoles.id, roleId), eq(companyAccessRoles.companyId, companyId)));
-      });
+
+      await storage.deleteCompanyRole(roleId, companyId);
       res.sendStatus(204);
     } catch (err: any) {
       res.status(400).json({ message: err.message || "Failed to delete access role" });
@@ -5362,6 +5677,7 @@ export async function registerRoutes(
           poNumber: purchaseOrders.poNumber,
           status: purchaseOrders.status,
           expectedDate: purchaseOrders.expectedDate,
+          shipTo: purchaseOrders.shipTo,
           notes: purchaseOrders.notes,
           createdAt: purchaseOrders.createdAt,
           updatedAt: purchaseOrders.updatedAt,
@@ -5369,6 +5685,8 @@ export async function registerRoutes(
           productId: purchaseOrderItems.productId,
           productName: products.name,
           productSku: products.sku,
+          description: purchaseOrderItems.description,
+          accountCode: purchaseOrderItems.accountCode,
           quantity: purchaseOrderItems.quantity,
           unitCost: purchaseOrderItems.unitCost,
           itemNotes: purchaseOrderItems.notes,
@@ -5380,6 +5698,125 @@ export async function registerRoutes(
         .leftJoin(branches, eq(branches.id, purchaseOrders.branchId))
         .where(eq(purchaseOrders.companyId, companyId))
         .orderBy(desc(purchaseOrders.createdAt), asc(purchaseOrderItems.id));
+
+      // 1. Fetch confirmed GDN items for all company POs to compute received quantity
+      const gdnItems = await db
+        .select({
+          purchaseOrderId: goodsDeliveryNotes.purchaseOrderId,
+          productId: goodsDeliveryNoteItems.productId,
+          description: goodsDeliveryNoteItems.description,
+          quantityReceived: goodsDeliveryNoteItems.quantityReceived,
+        })
+        .from(goodsDeliveryNoteItems)
+        .innerJoin(goodsDeliveryNotes, eq(goodsDeliveryNotes.id, goodsDeliveryNoteItems.gdnId))
+        .where(
+          and(
+            eq(goodsDeliveryNotes.companyId, companyId),
+            eq(goodsDeliveryNotes.status, "CONFIRMED"),
+            sql`${goodsDeliveryNotes.purchaseOrderId} IS NOT NULL`
+          )
+        );
+
+      // Map: poId -> Map: (productId/description) -> quantityReceived
+      const receivedQuantities = new Map<number, Map<string, number>>();
+      for (const gi of gdnItems) {
+        const poId = gi.purchaseOrderId;
+        if (!poId) continue;
+        if (!receivedQuantities.has(poId)) {
+          receivedQuantities.set(poId, new Map());
+        }
+        const key = gi.productId ? `p-${gi.productId}` : `d-${gi.description || ""}`;
+        const map = receivedQuantities.get(poId)!;
+        const current = map.get(key) || 0;
+        map.set(key, current + Number(gi.quantityReceived || 0));
+      }
+
+      // 2. Fetch linked GRVs
+      const grvsList = await db
+        .select({
+          id: goodsDeliveryNotes.id,
+          purchaseOrderId: goodsDeliveryNotes.purchaseOrderId,
+          confirmedGrvNumber: goodsDeliveryNotes.confirmedGrvNumber,
+          gdnNumber: goodsDeliveryNotes.gdnNumber,
+          status: goodsDeliveryNotes.status,
+        })
+        .from(goodsDeliveryNotes)
+        .where(
+          and(
+            eq(goodsDeliveryNotes.companyId, companyId),
+            sql`${goodsDeliveryNotes.purchaseOrderId} IS NOT NULL`
+          )
+        );
+
+      const poGrvsMap = new Map<number, any[]>();
+      for (const g of grvsList) {
+        const poId = g.purchaseOrderId;
+        if (!poId) continue;
+        if (!poGrvsMap.has(poId)) poGrvsMap.set(poId, []);
+        poGrvsMap.get(poId)!.push({
+          id: g.id,
+          grvNumber: g.confirmedGrvNumber,
+          gdnNumber: g.gdnNumber,
+          status: g.status,
+        });
+      }
+
+      // 3. Fetch linked Bills (supplier invoices)
+      const billsList = await db
+        .select({
+          id: supplierInvoices.id,
+          purchaseOrderId: supplierInvoices.purchaseOrderId,
+          invoiceNumber: supplierInvoices.invoiceNumber,
+          status: supplierInvoices.status,
+        })
+        .from(supplierInvoices)
+        .where(
+          and(
+            eq(supplierInvoices.companyId, companyId),
+            sql`${supplierInvoices.purchaseOrderId} IS NOT NULL`
+          )
+        );
+
+      const poBillsMap = new Map<number, any[]>();
+      for (const b of billsList) {
+        const poId = b.purchaseOrderId;
+        if (!poId) continue;
+        if (!poBillsMap.has(poId)) poBillsMap.set(poId, []);
+        poBillsMap.get(poId)!.push({
+          id: b.id,
+          invoiceNumber: b.invoiceNumber,
+          status: b.status,
+        });
+      }
+
+      // 4. Fetch linked approval requests
+      const approvalList = await db
+        .select({
+          id: approvalRequests.id,
+          referenceId: approvalRequests.referenceId,
+          status: approvalRequests.status,
+          reviewedBy: approvalRequests.reviewedBy,
+          reviewerName: users.name,
+        })
+        .from(approvalRequests)
+        .leftJoin(users, eq(users.id, approvalRequests.reviewedBy))
+        .where(
+          and(
+            eq(approvalRequests.companyId, companyId),
+            eq(approvalRequests.referenceType, "purchase_order")
+          )
+        );
+
+      const poApprovalMap = new Map<number, any>();
+      for (const appReq of approvalList) {
+        const poId = Number(appReq.referenceId);
+        if (!poId) continue;
+        poApprovalMap.set(poId, {
+          id: appReq.id,
+          status: appReq.status,
+          reviewerName: appReq.reviewerName,
+        });
+      }
 
       const grouped = new Map<number, any>();
       for (const row of rows) {
@@ -5394,25 +5831,35 @@ export async function registerRoutes(
             poNumber: row.poNumber,
             status: row.status,
             expectedDate: row.expectedDate,
+            shipTo: row.shipTo,
             notes: row.notes,
             createdAt: row.createdAt,
             updatedAt: row.updatedAt,
             items: [],
             lineCount: 0,
             totalCost: 0,
+            grvs: poGrvsMap.get(row.id) || [],
+            bills: poBillsMap.get(row.id) || [],
+            approval: poApprovalMap.get(row.id) || null,
           });
         }
         if (row.itemId) {
           const po = grouped.get(row.id);
           const quantity = Number(row.quantity || 0);
           const unitCost = Number(row.unitCost || 0);
+          const key = row.productId ? `p-${row.productId}` : `d-${row.description || ""}`;
+          const qtyReceived = (receivedQuantities.get(row.id)?.get(key)) || 0;
+
           po.items.push({
             id: row.itemId,
             productId: row.productId,
             productName: row.productName,
             productSku: row.productSku,
+            description: row.description,
+            accountCode: row.accountCode,
             quantity,
             unitCost,
+            quantityReceived: qtyReceived,
             notes: row.itemNotes,
           });
           po.lineCount += 1;
@@ -5436,11 +5883,20 @@ export async function registerRoutes(
         poNumber: z.string().trim().optional(),
         status: z.enum(["DRAFT", "SENT", "RECEIVED", "CANCELLED"]).optional(),
         expectedDate: z.string().optional().nullable(),
+        shipTo: z.string().optional().nullable(),
         notes: z.string().optional().nullable(),
+        currency: z.string().default("USD"),
+        taxInclusive: z.boolean().default(false),
         items: z.array(z.object({
-          productId: z.coerce.number().int().positive(),
+          productId: z.coerce.number().int().positive().optional().nullable(),
+          description: z.string().optional().nullable(),
+          accountCode: z.string().optional().nullable(),
           quantity: z.coerce.number().positive(),
           unitCost: z.coerce.number().nonnegative(),
+          taxTypeId: z.coerce.number().int().positive().optional().nullable(),
+          taxRate: z.coerce.number().nonnegative().optional().default(0),
+          taxAmount: z.coerce.number().nonnegative().optional().default(0),
+          isRecoverable: z.boolean().default(true),
           notes: z.string().optional().nullable(),
         })).min(1),
       }).parse(req.body);
@@ -5454,16 +5910,25 @@ export async function registerRoutes(
           poNumber,
           status: payload.status || "DRAFT",
           expectedDate: payload.expectedDate ? new Date(payload.expectedDate) : null,
+          shipTo: payload.shipTo || null,
           notes: payload.notes || null,
+          currency: payload.currency,
+          taxInclusive: payload.taxInclusive,
           createdBy: (req.user as any)?.id,
         })).returning();
 
         await tx.insert(purchaseOrderItems).values(payload.items.map((item) =>
           insertPurchaseOrderItemSchema.parse({
             purchaseOrderId: created.id,
-            productId: item.productId,
+            productId: item.productId || null,
+            description: item.description || null,
+            accountCode: item.accountCode || null,
             quantity: item.quantity.toFixed(2),
             unitCost: item.unitCost.toFixed(2),
+            taxTypeId: item.taxTypeId || null,
+            taxRate: item.taxRate.toFixed(2),
+            taxAmount: item.taxAmount.toFixed(2),
+            isRecoverable: item.isRecoverable,
             notes: item.notes || null,
           })
         ));
@@ -5525,16 +5990,20 @@ export async function registerRoutes(
           companyId: order.companyId,
           supplierId: order.supplierId,
           purchaseOrderId: order.id,
-          gdnNumber: `GDN-${order.poNumber}`,
-          status: "PENDING",
+          gdnNumber: `GRV-DRAFT-${order.poNumber}`,
+          status: "DRAFT",
           notes: `Created from PO ${order.poNumber}`,
+          currency: order.currency || "USD",
           createdBy: (req.user as any)?.id || null,
         }).returning();
 
         await tx.insert(goodsDeliveryNoteItems).values(orderItems.map((item) => ({
           gdnId: gdn.id,
           productId: item.productId,
+          accountCode: item.accountCode,
+          description: item.description,
           quantityReceived: item.quantity,
+          unitCost: item.unitCost,
           notes: item.notes || null,
         })));
 
@@ -5546,7 +6015,7 @@ export async function registerRoutes(
         return gdn;
       });
 
-      res.status(201).json({ message: "Receiving document created from purchase order.", gdn: result });
+      res.status(201).json({ message: "Draft GRV created from purchase order.", gdn: result });
     } catch (err: any) {
       const duplicate = String(err?.message || "").includes("goods_delivery_notes_company_gdn_number_idx");
       res.status(duplicate ? 409 : 400).json({
@@ -5578,6 +6047,575 @@ export async function registerRoutes(
     }
   });
 
+  // Edit a purchase order (header + lines). Only editable when DRAFT or SENT.
+  app.patch("/api/purchase-orders/:id", requireAuth, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const payload = z.object({
+        supplierId: z.coerce.number().int().positive().optional(),
+        branchId: z.coerce.number().int().positive().optional().nullable(),
+        expectedDate: z.string().optional().nullable(),
+        shipTo: z.string().optional().nullable(),
+        notes: z.string().optional().nullable(),
+        currency: z.string().optional(),
+        items: z.array(z.object({
+          productId: z.coerce.number().int().positive().optional().nullable(),
+          description: z.string().optional().nullable(),
+          accountCode: z.string().optional().nullable(),
+          quantity: z.coerce.number().positive(),
+          unitCost: z.coerce.number().nonnegative(),
+          notes: z.string().optional().nullable(),
+        })).min(1).optional(),
+      }).parse(req.body);
+
+      const [existing] = await db.select().from(purchaseOrders).where(eq(purchaseOrders.id, id)).limit(1);
+      if (!existing) return res.status(404).json({ message: "Purchase order not found" });
+      if (!["DRAFT", "SENT"].includes(existing.status)) {
+        return res.status(409).json({ message: `Cannot edit a ${existing.status} purchase order.` });
+      }
+
+      const updated = await db.transaction(async (tx) => {
+        const [po] = await tx.update(purchaseOrders).set({
+          supplierId: payload.supplierId ?? existing.supplierId,
+          branchId: payload.branchId !== undefined ? payload.branchId : existing.branchId,
+          expectedDate: payload.expectedDate !== undefined
+            ? (payload.expectedDate ? new Date(payload.expectedDate) : null)
+            : existing.expectedDate,
+          shipTo: payload.shipTo !== undefined ? payload.shipTo : existing.shipTo,
+          notes: payload.notes !== undefined ? payload.notes : existing.notes,
+          currency: payload.currency !== undefined ? payload.currency : existing.currency,
+          updatedAt: new Date(),
+        }).where(eq(purchaseOrders.id, id)).returning();
+
+        if (payload.items && payload.items.length > 0) {
+          await tx.delete(purchaseOrderItems).where(eq(purchaseOrderItems.purchaseOrderId, id));
+          await tx.insert(purchaseOrderItems).values(payload.items.map((item) => ({
+            purchaseOrderId: id,
+            productId: item.productId || null,
+            description: item.description || null,
+            accountCode: item.accountCode || null,
+            quantity: item.quantity.toFixed(2),
+            unitCost: item.unitCost.toFixed(2),
+            notes: item.notes || null,
+          })));
+        }
+
+        return po;
+      });
+
+      res.json(updated);
+    } catch (err: any) {
+      console.error("Edit Purchase Order Error:", err);
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+
+
+  app.get("/api/companies/:companyId/purchase-returns", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const rows = await db
+        .select({
+          id: purchaseReturns.id,
+          companyId: purchaseReturns.companyId,
+          supplierId: purchaseReturns.supplierId,
+          supplierName: suppliers.name,
+          branchId: purchaseReturns.branchId,
+          branchName: branches.name,
+          purchaseOrderId: purchaseReturns.purchaseOrderId,
+          goodsDeliveryNoteId: purchaseReturns.goodsDeliveryNoteId,
+          gdnNumber: goodsDeliveryNotes.gdnNumber,
+          returnNumber: purchaseReturns.returnNumber,
+          status: purchaseReturns.status,
+          reason: purchaseReturns.reason,
+          notes: purchaseReturns.notes,
+          createdAt: purchaseReturns.createdAt,
+          updatedAt: purchaseReturns.updatedAt,
+          itemId: purchaseReturnItems.id,
+          productId: purchaseReturnItems.productId,
+          productName: products.name,
+          productSku: products.sku,
+          quantity: purchaseReturnItems.quantity,
+          unitCost: purchaseReturnItems.unitCost,
+          itemReason: purchaseReturnItems.reason,
+          itemNotes: purchaseReturnItems.notes,
+          creditNoteId: supplierInvoices.id,
+          creditNoteNumber: supplierInvoices.invoiceNumber,
+        })
+        .from(purchaseReturns)
+        .leftJoin(purchaseReturnItems, eq(purchaseReturnItems.purchaseReturnId, purchaseReturns.id))
+        .leftJoin(products, eq(products.id, purchaseReturnItems.productId))
+        .leftJoin(suppliers, eq(suppliers.id, purchaseReturns.supplierId))
+        .leftJoin(branches, eq(branches.id, purchaseReturns.branchId))
+        .leftJoin(goodsDeliveryNotes, eq(goodsDeliveryNotes.id, purchaseReturns.goodsDeliveryNoteId))
+        .leftJoin(supplierInvoices, and(
+          eq(supplierInvoices.invoiceNumber, sql`CONCAT('CN-PR-', ${purchaseReturns.returnNumber})`),
+          eq(supplierInvoices.companyId, companyId)
+        ))
+        .where(eq(purchaseReturns.companyId, companyId))
+        .orderBy(desc(purchaseReturns.createdAt), asc(purchaseReturnItems.id));
+
+      const grouped = new Map<number, any>();
+      for (const row of rows) {
+        if (!grouped.has(row.id)) {
+          grouped.set(row.id, {
+            id: row.id,
+            companyId: row.companyId,
+            supplierId: row.supplierId,
+            supplierName: row.supplierName,
+            branchId: row.branchId,
+            branchName: row.branchName,
+            purchaseOrderId: row.purchaseOrderId,
+            goodsDeliveryNoteId: row.goodsDeliveryNoteId,
+            gdnNumber: row.gdnNumber,
+            returnNumber: row.returnNumber,
+            status: row.status,
+            reason: row.reason,
+            notes: row.notes,
+            createdAt: row.createdAt,
+            updatedAt: row.updatedAt,
+            creditNoteId: row.creditNoteId,
+            creditNoteNumber: row.creditNoteNumber,
+            items: [],
+            lineCount: 0,
+            totalCost: 0,
+          });
+        }
+        if (row.itemId) {
+          const ret = grouped.get(row.id);
+          const quantity = Number(row.quantity || 0);
+          const unitCost = Number(row.unitCost || 0);
+          ret.items.push({
+            id: row.itemId,
+            productId: row.productId,
+            productName: row.productName,
+            productSku: row.productSku,
+            quantity,
+            unitCost,
+            reason: row.itemReason,
+            notes: row.itemNotes,
+          });
+          ret.lineCount += 1;
+          ret.totalCost += quantity * unitCost;
+        }
+      }
+
+      res.json(Array.from(grouped.values()));
+    } catch (err: any) {
+      console.error("Get Purchase Returns Error:", err);
+      res.status(500).json({ message: "Failed to fetch purchase returns" });
+    }
+  });
+
+  app.post("/api/companies/:companyId/purchase-returns", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const payload = z.object({
+        supplierId: z.coerce.number().int().positive(),
+        branchId: z.coerce.number().int().positive().optional().nullable(),
+        purchaseOrderId: z.coerce.number().int().positive().optional().nullable(),
+        goodsDeliveryNoteId: z.coerce.number().int().positive().optional().nullable(),
+        returnNumber: z.string().trim().optional(),
+        status: z.enum(["DRAFT", "APPROVED", "SHIPPED", "COMPLETED", "CANCELLED"]).optional(),
+        reason: z.string().optional().nullable(),
+        notes: z.string().optional().nullable(),
+        items: z.array(z.object({
+          productId: z.coerce.number().int().positive().optional().nullable(),
+          quantity: z.coerce.number().positive(),
+          unitCost: z.coerce.number().nonnegative(),
+          reason: z.string().optional().nullable(),
+          notes: z.string().optional().nullable(),
+        })).min(1),
+      }).parse(req.body);
+
+      const returnNumber = payload.returnNumber?.trim() || `PR-${format(new Date(), "yyyyMMdd-HHmmss")}`;
+      const returnDoc = await db.transaction(async (tx) => {
+        // Validate against original GRV if provided
+        if (payload.goodsDeliveryNoteId) {
+          const grvItems = await tx.select().from(goodsDeliveryNoteItems).where(eq(goodsDeliveryNoteItems.gdnId, payload.goodsDeliveryNoteId));
+          
+          // Get other returns for the same GRV
+          const otherReturns = await tx.select({
+            productId: purchaseReturnItems.productId,
+            quantity: purchaseReturnItems.quantity,
+          })
+          .from(purchaseReturns)
+          .innerJoin(purchaseReturnItems, eq(purchaseReturnItems.purchaseReturnId, purchaseReturns.id))
+          .where(and(
+            eq(purchaseReturns.goodsDeliveryNoteId, payload.goodsDeliveryNoteId),
+            ne(purchaseReturns.status, "CANCELLED")
+          ));
+
+          const returnedMap: Record<number, number> = {};
+          for (const ret of otherReturns) {
+            if (ret.productId) {
+              returnedMap[ret.productId] = (returnedMap[ret.productId] || 0) + Number(ret.quantity);
+            }
+          }
+
+          for (const item of payload.items) {
+            if (!item.productId) continue;
+            const grvItem = grvItems.find((gi) => gi.productId === item.productId);
+            if (!grvItem) {
+              throw new Error(`Product is not part of the selected GRV.`);
+            }
+            const grvReceivedQty = Number(grvItem.quantityReceived || 0);
+            const alreadyReturned = returnedMap[item.productId] || 0;
+            const currentReturnQty = Number(item.quantity);
+
+            if (currentReturnQty + alreadyReturned > grvReceivedQty) {
+              throw new Error(`Cannot return ${currentReturnQty} units. Already returned: ${alreadyReturned}. Received: ${grvReceivedQty}.`);
+            }
+          }
+        }
+
+        const [created] = await tx.insert(purchaseReturns).values(insertPurchaseReturnSchema.parse({
+          companyId,
+          supplierId: payload.supplierId,
+          branchId: payload.branchId || null,
+          purchaseOrderId: payload.purchaseOrderId || null,
+          goodsDeliveryNoteId: payload.goodsDeliveryNoteId || null,
+          returnNumber,
+          status: payload.status || "DRAFT",
+          reason: payload.reason || null,
+          notes: payload.notes || null,
+          createdBy: (req.user as any)?.id,
+        })).returning();
+
+        await tx.insert(purchaseReturnItems).values(payload.items.map((item) =>
+          insertPurchaseReturnItemSchema.parse({
+            purchaseReturnId: created.id,
+            productId: item.productId || null,
+            quantity: item.quantity.toFixed(2),
+            unitCost: item.unitCost.toFixed(2),
+            reason: item.reason || null,
+            notes: item.notes || null,
+          })
+        ));
+
+        return created;
+      });
+
+      res.status(201).json(returnDoc);
+    } catch (err: any) {
+      console.error("Create Purchase Return Error:", err);
+      const duplicate = String(err?.message || "").includes("purchase_returns_company_return_number_idx");
+      res.status(400).json({ message: duplicate ? "Return number already exists" : err.message });
+    }
+  });
+
+  app.patch("/api/purchase-returns/:id/status", requireAuth, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const { status } = z.object({
+        status: z.enum(["DRAFT", "APPROVED", "SHIPPED", "COMPLETED", "CANCELLED"]),
+      }).parse(req.body);
+
+      const [existing] = await db.select().from(purchaseReturns).where(eq(purchaseReturns.id, id)).limit(1);
+      if (!existing) return res.status(404).json({ message: "Purchase return not found" });
+
+      // Enforce status transition stages: DRAFT -> APPROVED -> SHIPPED -> COMPLETED
+      const currentStatus = existing.status;
+      if (status !== "CANCELLED") {
+        if (currentStatus === "DRAFT" && status !== "APPROVED") {
+          return res.status(400).json({ message: "A draft purchase return must first be Approved." });
+        }
+        if (currentStatus === "APPROVED" && status !== "SHIPPED" && status !== "DRAFT") {
+          return res.status(400).json({ message: "An approved purchase return can only be marked as Shipped or reverted to Draft." });
+        }
+        if (currentStatus === "SHIPPED" && status !== "COMPLETED") {
+          return res.status(400).json({ message: "A shipped purchase return can only be marked as Completed." });
+        }
+        if (["COMPLETED", "CANCELLED"].includes(currentStatus)) {
+          return res.status(400).json({ message: "Cannot change the status of a completed or cancelled return." });
+        }
+      }
+
+      const updated = await db.transaction(async (tx) => {
+        const [ret] = await tx.update(purchaseReturns)
+          .set({ status, updatedAt: new Date() })
+          .where(eq(purchaseReturns.id, id))
+          .returning();
+
+        if (status === "SHIPPED" && existing.status !== "SHIPPED") {
+          // Fetch return lines
+          const items = await tx.select().from(purchaseReturnItems).where(eq(purchaseReturnItems.purchaseReturnId, id));
+          
+          // Fetch products info
+          const productIds = items.map((i) => i.productId).filter(Boolean) as number[];
+          const productsInfo = productIds.length > 0
+            ? await tx.select().from(products).where(inArray(products.id, productIds))
+            : [];
+
+          let subtotalAmount = 0;
+          for (const item of items) {
+            const qty = Number(item.quantity);
+            const price = Number(item.unitCost);
+            subtotalAmount += qty * price;
+          }
+
+          // Decrement physical stock on SHIPPED
+          const { recordAdjustment } = await import("./lib/inventory.js");
+          for (const item of items) {
+            if (item.productId) {
+              await recordAdjustment(existing.companyId, {
+                productId: item.productId,
+                quantity: -Number(item.quantity),
+                type: "ADJUSTMENT",
+                notes: `Purchase Return ${existing.returnNumber} shipping`,
+                userId: (req.user as any)?.id,
+              });
+            }
+          }
+
+          // Post Ledger Journal Entry for SHIPPED stage
+          const { storage } = await import("./storage.js");
+          const inventoryAccCode = await storage.getSystemAccountCode(existing.companyId, "inventoryAccountCode", tx);
+          const grniAccountCode = await storage.getSystemAccountCode(existing.companyId, "grniAccountCode", tx);
+
+          if (inventoryAccCode && grniAccountCode && subtotalAmount > 0) {
+            const ledgerLines = [
+              { accountCode: grniAccountCode, type: "DEBIT", amount: Number(subtotalAmount.toFixed(2)) },
+              { accountCode: inventoryAccCode, type: "CREDIT", amount: Number(subtotalAmount.toFixed(2)) },
+            ];
+
+            await storage.postToLedger(existing.companyId, {
+              entryDate: new Date(),
+              description: `Purchase Return Shipped: ${existing.returnNumber}`,
+              referenceType: "PurchaseReturn",
+              referenceId: String(id),
+              createdBy: (req.user as any)?.id,
+              lines: ledgerLines as any,
+            }, tx);
+          }
+        }
+
+        if (status === "COMPLETED" && existing.status !== "COMPLETED") {
+          // Fetch return lines
+          const items = await tx.select().from(purchaseReturnItems).where(eq(purchaseReturnItems.purchaseReturnId, id));
+          
+          // Fetch products tax/cost info
+          const productIds = items.map((i) => i.productId).filter(Boolean) as number[];
+          const productsInfo = productIds.length > 0
+            ? await tx.select().from(products).where(inArray(products.id, productIds))
+            : [];
+
+          let matchedInvoice = null;
+          if (existing.purchaseOrderId) {
+            const [invoice] = await tx.select()
+              .from(supplierInvoices)
+              .where(and(
+                eq(supplierInvoices.purchaseOrderId, existing.purchaseOrderId),
+                eq(supplierInvoices.companyId, existing.companyId)
+              ))
+              .limit(1);
+            matchedInvoice = invoice;
+          }
+
+          let subtotalAmount = 0;
+          let taxAmount = 0;
+          const lineItems = items.map((item) => {
+            const product = productsInfo.find((p) => p.id === item.productId);
+            const qty = Number(item.quantity);
+            const price = Number(item.unitCost);
+            const lineSubtotal = qty * price;
+            
+            const taxRate = Number(product?.taxRate || 0);
+            const lineTax = lineSubtotal * (taxRate / 100);
+            
+            subtotalAmount += lineSubtotal;
+            taxAmount += lineTax;
+
+            return {
+              productId: item.productId,
+              description: product?.name || "Returned product",
+              quantity: qty.toFixed(4),
+              unitPrice: price.toFixed(2),
+              totalPrice: lineSubtotal.toFixed(2),
+              taxTypeId: product?.taxTypeId || null,
+              taxRate: taxRate.toFixed(2),
+              taxAmount: lineTax.toFixed(2),
+              isRecoverable: true,
+            };
+          });
+          const totalAmount = subtotalAmount + taxAmount;
+
+          // Always automatically generate a Supplier Credit Note
+          const [creditNote] = await tx.insert(supplierInvoices).values({
+            companyId: existing.companyId,
+            supplierId: existing.supplierId,
+            purchaseOrderId: existing.purchaseOrderId,
+            invoiceNumber: `CN-PR-${existing.returnNumber}`,
+            date: new Date(),
+            transactionType: "CreditNote",
+            referenceInvoiceId: matchedInvoice ? matchedInvoice.id : null,
+            subtotalAmount: subtotalAmount.toFixed(2),
+            taxAmount: taxAmount.toFixed(2),
+            totalAmount: totalAmount.toFixed(2),
+            taxInclusive: false,
+            currency: matchedInvoice?.currency || "USD",
+            status: "unpaid",
+            notes: `Automatically generated from Purchase Return ${existing.returnNumber}`,
+          }).returning();
+
+          if (lineItems.length > 0) {
+            await tx.insert(supplierInvoiceItems).values(
+              lineItems.map((line) => ({
+                supplierInvoiceId: creditNote.id,
+                productId: line.productId,
+                description: line.description,
+                quantity: line.quantity,
+                unitPrice: line.unitPrice,
+                totalPrice: line.totalPrice,
+                taxTypeId: line.taxTypeId,
+                taxRate: line.taxRate,
+                taxAmount: line.taxAmount,
+                isRecoverable: line.isRecoverable,
+              }))
+            );
+          }
+
+          // Post Ledger Entries for the Credit Note
+          const { storage } = await import("./storage.js");
+          const grniAccountCode = await storage.getSystemAccountCode(existing.companyId, "grniAccountCode", tx);
+          const apAccountCode = await storage.getSystemAccountCode(existing.companyId, "accountsPayableCode", tx);
+          const vatInputAccountCode = await storage.getSystemAccountCode(existing.companyId, "vatInputAccountCode", tx);
+
+          const debitAccountCode = matchedInvoice ? apAccountCode : grniAccountCode;
+
+          if (debitAccountCode && grniAccountCode && subtotalAmount > 0) {
+            const ledgerLines = [
+              { accountCode: debitAccountCode, type: "DEBIT", amount: Number(totalAmount.toFixed(2)) },
+              { accountCode: grniAccountCode, type: "CREDIT", amount: Number(subtotalAmount.toFixed(2)) },
+            ];
+            if (taxAmount > 0 && vatInputAccountCode) {
+              ledgerLines.push({ accountCode: vatInputAccountCode, type: "CREDIT", amount: Number(taxAmount.toFixed(2)) });
+            }
+
+            await storage.postToLedger(existing.companyId, {
+              entryDate: new Date(),
+              description: `Supplier Credit Note: CN-PR-${existing.returnNumber}`,
+              referenceType: "SupplierInvoice",
+              referenceId: String(creditNote.id),
+              createdBy: (req.user as any)?.id,
+              lines: ledgerLines as any,
+            }, tx);
+          }
+        }
+
+        return ret;
+      });
+
+      res.json(updated);
+    } catch (err: any) {
+      console.error("Update Purchase Return Status Error:", err);
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/purchase-returns/:id", requireAuth, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const payload = z.object({
+        supplierId: z.coerce.number().int().positive().optional(),
+        branchId: z.coerce.number().int().positive().optional().nullable(),
+        purchaseOrderId: z.coerce.number().int().positive().optional().nullable(),
+        goodsDeliveryNoteId: z.coerce.number().int().positive().optional().nullable(),
+        reason: z.string().optional().nullable(),
+        notes: z.string().optional().nullable(),
+        items: z.array(z.object({
+          productId: z.coerce.number().int().positive().optional().nullable(),
+          quantity: z.coerce.number().positive(),
+          unitCost: z.coerce.number().nonnegative(),
+          reason: z.string().optional().nullable(),
+          notes: z.string().optional().nullable(),
+        })).min(1).optional(),
+      }).parse(req.body);
+
+      const [existing] = await db.select().from(purchaseReturns).where(eq(purchaseReturns.id, id)).limit(1);
+      if (!existing) return res.status(404).json({ message: "Purchase return not found" });
+      if (!["DRAFT", "APPROVED"].includes(existing.status)) {
+        return res.status(409).json({ message: `Cannot edit a ${existing.status} purchase return.` });
+      }
+
+      const updated = await db.transaction(async (tx) => {
+        // Validate against original GRV if provided / existing
+        const gdId = payload.goodsDeliveryNoteId !== undefined ? payload.goodsDeliveryNoteId : existing.goodsDeliveryNoteId;
+        if (gdId) {
+          const grvItems = await tx.select().from(goodsDeliveryNoteItems).where(eq(goodsDeliveryNoteItems.gdnId, gdId));
+          
+          // Get other returns for the same GRV, excluding this return
+          const otherReturns = await tx.select({
+            productId: purchaseReturnItems.productId,
+            quantity: purchaseReturnItems.quantity,
+          })
+          .from(purchaseReturns)
+          .innerJoin(purchaseReturnItems, eq(purchaseReturnItems.purchaseReturnId, purchaseReturns.id))
+          .where(and(
+            eq(purchaseReturns.goodsDeliveryNoteId, gdId),
+            ne(purchaseReturns.status, "CANCELLED"),
+            ne(purchaseReturns.id, id)
+          ));
+
+          const returnedMap: Record<number, number> = {};
+          for (const ret of otherReturns) {
+            if (ret.productId) {
+              returnedMap[ret.productId] = (returnedMap[ret.productId] || 0) + Number(ret.quantity);
+            }
+          }
+
+          const itemsToValidate = payload.items || [];
+          for (const item of itemsToValidate) {
+            if (!item.productId) continue;
+            const grvItem = grvItems.find((gi) => gi.productId === item.productId);
+            if (!grvItem) {
+              throw new Error(`Product is not part of the selected GRV.`);
+            }
+            const grvReceivedQty = Number(grvItem.quantityReceived || 0);
+            const alreadyReturned = returnedMap[item.productId] || 0;
+            const currentReturnQty = Number(item.quantity);
+
+            if (currentReturnQty + alreadyReturned > grvReceivedQty) {
+              throw new Error(`Cannot return ${currentReturnQty} units. Already returned: ${alreadyReturned}. Received: ${grvReceivedQty}.`);
+            }
+          }
+        }
+
+        const [ret] = await tx.update(purchaseReturns).set({
+          supplierId: payload.supplierId ?? existing.supplierId,
+          branchId: payload.branchId !== undefined ? payload.branchId : existing.branchId,
+          purchaseOrderId: payload.purchaseOrderId !== undefined ? payload.purchaseOrderId : existing.purchaseOrderId,
+          goodsDeliveryNoteId: payload.goodsDeliveryNoteId !== undefined ? payload.goodsDeliveryNoteId : existing.goodsDeliveryNoteId,
+          reason: payload.reason !== undefined ? payload.reason : existing.reason,
+          notes: payload.notes !== undefined ? payload.notes : existing.notes,
+          updatedAt: new Date(),
+        }).where(eq(purchaseReturns.id, id)).returning();
+
+        if (payload.items && payload.items.length > 0) {
+          await tx.delete(purchaseReturnItems).where(eq(purchaseReturnItems.purchaseReturnId, id));
+          await tx.insert(purchaseReturnItems).values(payload.items.map((item) =>
+            insertPurchaseReturnItemSchema.parse({
+              purchaseReturnId: id,
+              productId: item.productId || null,
+              quantity: item.quantity.toFixed(2),
+              unitCost: item.unitCost.toFixed(2),
+              reason: item.reason || null,
+              notes: item.notes || null,
+            })
+          ));
+        }
+
+        return ret;
+      });
+
+      res.json(updated);
+    } catch (err: any) {
+      console.error("Edit Purchase Return Error:", err);
+      res.status(400).json({ message: err.message });
+    }
+  });
+
   app.get("/api/companies/:companyId/supplier-invoices", requireAuth, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
@@ -5586,6 +6624,19 @@ export async function registerRoutes(
     } catch (err: any) {
       console.error("Get Supplier Invoices Error:", err);
       res.status(500).json({ message: "Failed to fetch supplier invoices" });
+    }
+  });
+
+  app.get("/api/companies/:companyId/supplier-invoices/:id", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const id = Number(req.params.id);
+      const invoice = await storage.getSupplierInvoice(id, companyId);
+      if (!invoice) return res.status(404).json({ message: "Supplier invoice not found" });
+      res.json(invoice);
+    } catch (err: any) {
+      console.error("Get Supplier Invoice Error:", err);
+      res.status(500).json({ message: "Failed to fetch supplier invoice" });
     }
   });
 
@@ -5626,6 +6677,12 @@ export async function registerRoutes(
         items: (req.body.items || []).map((item: any) => ({
           ...item,
           description: item.description || "Supplier bill line",
+          taxTypeId: item.taxTypeId ? Number(item.taxTypeId) : undefined,
+          taxRate: item.taxRate ? String(item.taxRate) : "0.00",
+          taxAmount: item.taxAmount ? String(item.taxAmount) : "0.00",
+          isRecoverable: item.isRecoverable !== undefined ? Boolean(item.isRecoverable) : true,
+          accountCode: item.accountCode || undefined,
+          productId: item.productId ? Number(item.productId) : undefined,
         })),
         createdBy: (req.user as any)?.id
       });
@@ -5670,6 +6727,7 @@ export async function registerRoutes(
       parseFloat(quantity),
       parseFloat(unitCost),
       Number(req.params.companyId),
+      null,
       supplierId ? Number(supplierId) : undefined,
       notes,
       landedCost ? Number(landedCost) : 0
@@ -5689,6 +6747,10 @@ export async function registerRoutes(
     const idempotencyKey = await sendIdempotentHit(req, res);
     if (idempotencyKey === false) return;
     const { items, supplierId, notes, landedCosts, allocationMethod, grvNumber } = req.body;
+
+    if (!supplierId) {
+      return res.status(400).json({ message: "Supplier is required." });
+    }
 
     if (access.requiresApproval) {
       const approval = await createApprovalRequest({
@@ -5963,10 +7025,11 @@ export async function registerRoutes(
   app.post("/api/companies/:companyId/gdns", requireAuth, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
-      const { gdnNumber, supplierId, purchaseOrderId, notes, items } = req.body || {};
+      const { gdnNumber, supplierId, purchaseOrderId, notes, taxInclusive, items } = req.body || {};
       const cleanGdnNumber = String(gdnNumber || "").trim();
 
       if (!cleanGdnNumber) return res.status(400).json({ message: "GDN number is required." });
+      if (!supplierId) return res.status(400).json({ message: "Supplier is required." });
       if (!Array.isArray(items) || items.length === 0) {
         return res.status(400).json({ message: "Add at least one item to the GDN." });
       }
@@ -5977,21 +7040,29 @@ export async function registerRoutes(
           supplierId: supplierId ? Number(supplierId) : null,
           purchaseOrderId: purchaseOrderId ? Number(purchaseOrderId) : null,
           gdnNumber: cleanGdnNumber,
-          status: "PENDING",
+          status: "DRAFT",
+          taxInclusive: !!taxInclusive,
           notes: notes || null,
           createdBy: (req.user as any)?.id || null,
         }).returning();
 
         for (const raw of items) {
-          const productId = Number(raw.productId);
+          const productId = raw.productId ? Number(raw.productId) : null;
           const quantity = Number(raw.quantity ?? raw.quantityReceived);
-          if (!productId || !Number.isFinite(quantity) || quantity <= 0) {
-            throw new Error("Each GDN line needs a product and positive quantity.");
+          if (!Number.isFinite(quantity) || quantity <= 0) {
+            throw new Error("Each GDN line needs a positive quantity.");
           }
           await tx.insert(goodsDeliveryNoteItems).values({
             gdnId: gdn.id,
             productId,
+            accountCode: raw.accountCode || null,
+            description: raw.description || raw.productName || null,
+            unitCost: (raw.unitCost !== undefined && raw.unitCost !== null) ? raw.unitCost.toString() : "0",
             quantityReceived: quantity.toString(),
+            taxTypeId: raw.taxTypeId ? Number(raw.taxTypeId) : null,
+            taxRate: (raw.taxRate !== undefined && raw.taxRate !== null) ? raw.taxRate.toString() : "0",
+            taxAmount: (raw.taxAmount !== undefined && raw.taxAmount !== null) ? raw.taxAmount.toString() : "0",
+            isRecoverable: raw.isRecoverable !== undefined ? !!raw.isRecoverable : true,
             notes: raw.notes || null,
           });
         }
@@ -6029,7 +7100,7 @@ export async function registerRoutes(
         .limit(1);
 
       if (!gdn) return res.status(404).json({ message: "GDN not found." });
-      if (gdn.status !== "PENDING") return res.status(409).json({ message: "This GDN has already been processed." });
+      if (gdn.status !== "DRAFT") return res.status(409).json({ message: "This GDN has already been processed." });
 
       if (access.requiresApproval) {
         const approval = await createApprovalRequest({
@@ -6050,13 +7121,20 @@ export async function registerRoutes(
       }
 
       const stockItems = items.map((raw: any) => {
-        const productId = Number(raw.productId);
+        const productId = raw.productId ? Number(raw.productId) : null;
+        const accountCode = raw.accountCode || null;
+        const description = raw.description || null;
         const quantity = Number(raw.quantity ?? raw.quantityAccepted ?? raw.quantityReceived);
         const unitCost = Number(raw.unitCost);
         const landedCost = raw.landedCost === undefined ? 0 : Number(raw.landedCost);
-        if (!productId || !Number.isFinite(quantity) || quantity <= 0) throw new Error("Each confirmation line needs a valid quantity.");
+        const taxTypeId = raw.taxTypeId ? Number(raw.taxTypeId) : null;
+        const taxRate = Number(raw.taxRate || 0);
+        const taxAmount = Number(raw.taxAmount || 0);
+        const isRecoverable = raw.isRecoverable !== false;
+        
+        if (!Number.isFinite(quantity) || quantity <= 0) throw new Error("Each confirmation line needs a valid quantity.");
         if (!Number.isFinite(unitCost) || unitCost < 0) throw new Error("Each confirmation line needs a valid unit cost.");
-        return { productId, quantity, unitCost, landedCost: Number.isFinite(landedCost) ? landedCost : 0 };
+        return { productId, accountCode, description, quantity, unitCost, landedCost: Number.isFinite(landedCost) ? landedCost : 0, taxTypeId, taxRate, taxAmount, isRecoverable };
       });
 
       const { recordBatchStockIn } = await import("./lib/inventory.js");
@@ -6068,18 +7146,40 @@ export async function registerRoutes(
         landedCosts ? Number(landedCosts) : 0,
         allocationMethod || "value",
         typeof grvNumber === "string" && grvNumber.trim() ? grvNumber : undefined,
-        (req.user as any)?.id
+        (req.user as any)?.id,
+        gdn.purchaseOrderId || undefined,
+        gdn.id
       );
 
       await db.transaction(async (tx) => {
         for (const item of stockItems) {
-          await tx
-            .update(goodsDeliveryNoteItems)
-            .set({
-              quantityAccepted: item.quantity.toString(),
-              quantityRejected: "0",
-            })
-            .where(and(eq(goodsDeliveryNoteItems.gdnId, gdnId), eq(goodsDeliveryNoteItems.productId, item.productId)));
+          if (item.productId) {
+            await tx
+              .update(goodsDeliveryNoteItems)
+              .set({
+                unitCost: item.unitCost.toString(),
+                quantityAccepted: item.quantity.toString(),
+                quantityRejected: "0",
+                taxTypeId: item.taxTypeId,
+                taxRate: item.taxRate.toString(),
+                taxAmount: item.taxAmount.toString(),
+                isRecoverable: item.isRecoverable
+              })
+              .where(and(eq(goodsDeliveryNoteItems.gdnId, gdnId), eq(goodsDeliveryNoteItems.productId, item.productId)));
+          } else {
+            await tx
+              .update(goodsDeliveryNoteItems)
+              .set({
+                unitCost: item.unitCost.toString(),
+                quantityAccepted: item.quantity.toString(),
+                quantityRejected: "0",
+                taxTypeId: item.taxTypeId,
+                taxRate: item.taxRate.toString(),
+                taxAmount: item.taxAmount.toString(),
+                isRecoverable: item.isRecoverable
+              })
+              .where(and(eq(goodsDeliveryNoteItems.gdnId, gdnId), sql`${goodsDeliveryNoteItems.productId} IS NULL`, eq(goodsDeliveryNoteItems.description, item.description || "")));
+          }
         }
         await tx
           .update(goodsDeliveryNotes)
@@ -6180,6 +7280,89 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/companies/:companyId/inventory/transfers", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const status = typeof req.query.status === "string" ? req.query.status : undefined;
+      const filters = [eq(stockTransfers.companyId, companyId)];
+      if (status && status !== "all") filters.push(eq(stockTransfers.status, status));
+      const companyBranches = await storage.getBranches(companyId);
+      const branchNameById = new Map(companyBranches.map((branch) => [branch.id, branch.name]));
+      const companyLocations = await db.transaction(async (tx) =>
+        ensureCompanyInventoryLocations(tx, companyId),
+      );
+      const locationById = new Map(companyLocations.map((location: any) => [location.id, location]));
+
+      const rows = await db
+        .select({
+          transfer: stockTransfers,
+          itemId: stockTransferItems.id,
+          productId: stockTransferItems.productId,
+          productName: products.name,
+          productSku: products.sku,
+          quantity: stockTransferItems.quantity,
+          quantityReceived: stockTransferItems.quantityReceived,
+          quantityDamaged: stockTransferItems.quantityDamaged,
+          quantityLost: stockTransferItems.quantityLost,
+          unitCost: stockTransferItems.unitCost,
+          batchNumber: stockTransferItems.batchNumber,
+          expiryDate: stockTransferItems.expiryDate,
+        })
+        .from(stockTransfers)
+        .leftJoin(stockTransferItems, eq(stockTransferItems.transferId, stockTransfers.id))
+        .leftJoin(products, eq(products.id, stockTransferItems.productId))
+        .where(and(...filters))
+        .orderBy(desc(stockTransfers.createdAt), asc(stockTransferItems.id));
+
+      const grouped = new Map<number, any>();
+      for (const row of rows) {
+        if (!grouped.has(row.transfer.id)) {
+          const fromLocation = row.transfer.fromLocationId ? locationById.get(row.transfer.fromLocationId) : null;
+          const toLocation = row.transfer.toLocationId ? locationById.get(row.transfer.toLocationId) : null;
+          grouped.set(row.transfer.id, {
+            ...row.transfer,
+            fromLocationName: fromLocation
+              ? locationDisplayName(fromLocation)
+              : row.transfer.fromBranchId
+                ? branchNameById.get(row.transfer.fromBranchId) || `Branch ${row.transfer.fromBranchId}`
+                : "Main Warehouse",
+            toLocationName: toLocation
+              ? locationDisplayName(toLocation)
+              : row.transfer.toBranchId
+                ? branchNameById.get(row.transfer.toBranchId) || `Branch ${row.transfer.toBranchId}`
+                : "Main Warehouse",
+            lineCount: 0,
+            totalQuantity: 0,
+            items: [],
+          });
+        }
+        if (row.itemId) {
+          const transfer = grouped.get(row.transfer.id);
+          const qty = Number(row.quantity || 0);
+          transfer.lineCount += 1;
+          transfer.totalQuantity += qty;
+          transfer.items.push({
+            id: row.itemId,
+            productId: row.productId,
+            productName: row.productName || `Product ${row.productId}`,
+            sku: row.productSku || "",
+            quantity: qty,
+            quantityReceived: row.quantityReceived === null ? null : Number(row.quantityReceived || 0),
+            quantityDamaged: Number(row.quantityDamaged || 0),
+            quantityLost: Number(row.quantityLost || 0),
+            unitCost: Number(row.unitCost || 0),
+            batchNumber: row.batchNumber || "",
+            expiryDate: row.expiryDate ? row.expiryDate.toISOString() : null,
+          });
+        }
+      }
+
+      res.json(Array.from(grouped.values()));
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch stock transfers" });
+    }
+  });
+
   app.post("/api/companies/:companyId/inventory/transfers", requireAuth, async (req, res) => {
     try {
       const idempotencyKey = await sendIdempotentHit(req, res);
@@ -6189,14 +7372,32 @@ export async function registerRoutes(
       const requestedToLocationId = req.body?.toLocationId ? Number(req.body.toLocationId) : null;
       const requestedFromBranchId = req.body?.fromBranchId ? Number(req.body.fromBranchId) : null;
       const requestedToBranchId = req.body?.toBranchId ? Number(req.body.toBranchId) : null;
+      const statusInput = req.body?.status || "DRAFT"; // DRAFT, PENDING_APPROVAL, IN_TRANSIT
+      const transitCost = req.body?.transitCost ? Number(req.body.transitCost) : 0;
+      const transitCostCurrency = req.body?.transitCostCurrency || "USD";
+      const freightCarrier = req.body?.freightCarrier || null;
+      const vehicleReg = req.body?.vehicleReg || null;
       const { items, notes } = req.body || {};
 
       if (!Array.isArray(items) || items.length === 0) {
         return res.status(400).json({ message: "Add at least one product to transfer." });
       }
 
-      const referenceId = `TRF-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
-      const transfer = await db.transaction(async (tx) => {
+      const result = await db.transaction(async (tx) => {
+        // ── Sequential transfer number: TRF-YYYY-NNNN ──
+        const year = new Date().getFullYear();
+        const prefix = `TRF-${year}-`;
+        const [lastTransfer] = await tx
+          .select({ transferNumber: stockTransfers.transferNumber })
+          .from(stockTransfers)
+          .where(and(eq(stockTransfers.companyId, companyId), sql`transfer_number LIKE ${prefix + '%'}`))
+          .orderBy(desc(stockTransfers.createdAt))
+          .limit(1);
+        const lastSeq = lastTransfer?.transferNumber?.startsWith(prefix)
+          ? parseInt(lastTransfer.transferNumber.slice(prefix.length), 10) || 0
+          : 0;
+        const referenceId = `${prefix}${String(lastSeq + 1).padStart(4, "0")}`;
+
         const fromLocation = await resolveInventoryLocation(tx, companyId, {
           locationId: requestedFromLocationId,
           branchId: requestedFromBranchId,
@@ -6212,6 +7413,8 @@ export async function registerRoutes(
         const fromBranchId = fromLocation.branchId || null;
         const toBranchId = toLocation.branchId || null;
 
+        const isDispatching = statusInput === "IN_TRANSIT";
+
         const [created] = await tx.insert(stockTransfers).values({
           companyId,
           transferNumber: referenceId,
@@ -6219,58 +7422,280 @@ export async function registerRoutes(
           toBranchId,
           fromLocationId: fromLocation.id,
           toLocationId: toLocation.id,
-          status: "IN_TRANSIT",
+          status: statusInput,
           notes: notes || null,
-          dispatchedBy: (req.user as any)?.id || null,
-          dispatchedAt: new Date(),
+          transitCost: transitCost.toFixed(2),
+          transitCostCurrency,
+          freightCarrier,
+          vehicleReg,
+          dispatchedBy: isDispatching ? ((req.user as any)?.id || null) : null,
+          dispatchedAt: isDispatching ? new Date() : null,
         }).returning();
 
+        let totalTransferCost = 0;
         for (const raw of items) {
           const productId = Number(raw.productId);
           const quantity = Number(raw.quantity);
           if (!productId || !Number.isFinite(quantity) || quantity <= 0) {
             throw new Error("Each transfer line needs a product and positive quantity.");
           }
-          const available = await getStockAtInventoryLocation(tx, productId, fromLocation.id);
-          if (available < quantity) {
-            throw new Error(`Insufficient ${locationDisplayName(fromLocation)} stock for product ${productId}. Available ${available}, requested ${quantity}.`);
+
+          if (isDispatching) {
+            const available = await getStockAtInventoryLocation(tx, productId, fromLocation.id);
+            if (available < quantity) {
+              const [prod] = await tx.select({ name: products.name }).from(products).where(eq(products.id, productId)).limit(1);
+              throw new Error(`Insufficient stock at ${locationDisplayName(fromLocation)} for "${prod?.name || `Product ${productId}`}". Available: ${available}, Requested: ${quantity}.`);
+            }
           }
 
-          const [product] = await tx.select({ costPrice: products.costPrice }).from(products).where(eq(products.id, productId)).limit(1);
+          const [product] = await tx.select({ costPrice: products.costPrice, name: products.name }).from(products).where(eq(products.id, productId)).limit(1);
           const unitCost = Number(raw.unitCost ?? product?.costPrice ?? 0);
+          const lineCost = quantity * unitCost;
+          totalTransferCost += lineCost;
           const baseNotes = `${notes || "Stock transfer"}; ${locationDisplayName(fromLocation)} to ${locationDisplayName(toLocation)}`;
 
-          await adjustStockAtInventoryLocation(tx, productId, -quantity, fromLocation);
+          if (isDispatching) {
+            await adjustStockAtInventoryLocation(tx, productId, -quantity, fromLocation);
+          }
+
           await tx.insert(stockTransferItems).values({
             transferId: created.id,
             productId,
             quantity: quantity.toString(),
             unitCost: unitCost.toString(),
+            batchNumber: raw.batchNumber || null,
+            expiryDate: raw.expiryDate ? new Date(raw.expiryDate) : null,
             notes: raw.notes || null,
           });
+
+          if (isDispatching) {
+            await tx.insert(inventoryTransactions).values({
+              companyId,
+              branchId: fromBranchId,
+              locationId: fromLocation.id,
+              productId,
+              type: "TRANSFER_OUT",
+              quantity: (-quantity).toString(),
+              unitCost: unitCost.toString(),
+              totalCost: lineCost.toString(),
+              referenceType: "TRANSFER",
+              referenceId,
+              notes: baseNotes,
+              createdBy: (req.user as any)?.id,
+              remainingQuantity: "0",
+              batchNumber: raw.batchNumber || null,
+              expiryDate: raw.expiryDate ? new Date(raw.expiryDate) : null,
+            });
+          }
+        }
+
+        // ── GL Posting: Dr Inventory-InTransit / Cr Inventory-Source ──
+        if (isDispatching && totalTransferCost > 0) {
+          const inventoryAccCode = await storage.getSystemAccountCode(companyId, "inventoryAccountCode", tx);
+          const inTransitAccCode = await storage.getSystemAccountCode(companyId, "inventoryInTransitCode", tx)
+            || await storage.getSystemAccountCode(companyId, "inventoryAccountCode", tx); // fallback
+          if (inventoryAccCode && inTransitAccCode) {
+            await storage.postToLedger(companyId, {
+              entryDate: new Date(),
+              description: `Transfer Dispatch ${referenceId} — ${locationDisplayName(fromLocation)} → ${locationDisplayName(toLocation)}`,
+              referenceType: "TRANSFER_DISPATCH",
+              referenceId,
+              createdBy: (req.user as any)?.id,
+              lines: [
+                { accountCode: inTransitAccCode, type: "DEBIT" as const, amount: totalTransferCost },
+                { accountCode: inventoryAccCode, type: "CREDIT" as const, amount: totalTransferCost },
+              ],
+            }, tx);
+          }
+        }
+
+        return { created, referenceId };
+      });
+
+      sendIdempotent(req, res, idempotencyKey, 201, {
+        message: statusInput === "IN_TRANSIT" ? "Transfer dispatched" : "Transfer order created",
+        transfer: result.created,
+        referenceId: result.referenceId
+      });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message || "Failed to transfer stock" });
+    }
+  });
+
+  app.post("/api/companies/:companyId/inventory/transfers/:transferId/submit", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const transferId = Number(req.params.transferId);
+
+      const [updated] = await db
+        .update(stockTransfers)
+        .set({ status: "PENDING_APPROVAL", updatedAt: new Date() })
+        .where(and(eq(stockTransfers.id, transferId), eq(stockTransfers.companyId, companyId), eq(stockTransfers.status, "DRAFT")))
+        .returning();
+
+      if (!updated) {
+        return res.status(400).json({ message: "Only draft transfers can be submitted for approval." });
+      }
+      res.json({ message: "Transfer submitted for approval", transfer: updated });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message || "Failed to submit transfer" });
+    }
+  });
+
+  app.post("/api/companies/:companyId/inventory/transfers/:transferId/approve", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const transferId = Number(req.params.transferId);
+
+      const [updated] = await db
+        .update(stockTransfers)
+        .set({
+          status: "APPROVED",
+          approvedBy: (req.user as any)?.id || null,
+          approvedAt: new Date(),
+          updatedAt: new Date()
+        })
+        .where(and(eq(stockTransfers.id, transferId), eq(stockTransfers.companyId, companyId), eq(stockTransfers.status, "PENDING_APPROVAL")))
+        .returning();
+
+      if (!updated) {
+        return res.status(400).json({ message: "Only transfers in pending approval state can be approved." });
+      }
+      res.json({ message: "Transfer approved successfully", transfer: updated });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message || "Failed to approve transfer" });
+    }
+  });
+
+  app.post("/api/companies/:companyId/inventory/transfers/:transferId/dispatch", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const transferId = Number(req.params.transferId);
+
+      const result = await db.transaction(async (tx) => {
+        const [transfer] = await tx
+          .select()
+          .from(stockTransfers)
+          .where(and(eq(stockTransfers.id, transferId), eq(stockTransfers.companyId, companyId)))
+          .limit(1);
+
+        if (!transfer) throw new Error("Transfer not found.");
+        if (transfer.status !== "APPROVED" && transfer.status !== "DRAFT") {
+          throw new Error("Only approved or draft transfers can be dispatched.");
+        }
+
+        const fromLocation = await resolveInventoryLocation(tx, companyId, {
+          locationId: transfer.fromLocationId,
+          branchId: transfer.fromBranchId,
+          defaultWarehouse: !transfer.fromLocationId && !transfer.fromBranchId,
+        });
+        const toLocation = await resolveInventoryLocation(tx, companyId, {
+          locationId: transfer.toLocationId,
+          branchId: transfer.toBranchId,
+        });
+
+        const items = await tx
+          .select()
+          .from(stockTransferItems)
+          .where(eq(stockTransferItems.transferId, transferId));
+
+        let totalTransferCost = 0;
+        const transitLoc = await ensureTransitLocation(tx, companyId);
+        for (const item of items) {
+          const quantity = Number(item.quantity);
+          const available = await getStockAtInventoryLocation(tx, item.productId, fromLocation.id);
+          if (available < quantity) {
+            const [prod] = await tx.select({ name: products.name }).from(products).where(eq(products.id, item.productId)).limit(1);
+            throw new Error(`Insufficient stock at ${locationDisplayName(fromLocation)} for "${prod?.name || `Product ${item.productId}`}". Available: ${available}, Dispatched: ${quantity}.`);
+          }
+
+          const unitCost = Number(item.unitCost || 0);
+          const lineCost = quantity * unitCost;
+          totalTransferCost += lineCost;
+          const baseNotes = `${transfer.notes || "Stock transfer"}; ${locationDisplayName(fromLocation)} to ${locationDisplayName(toLocation)}`;
+
+          // Deduct from source
+          await adjustStockAtInventoryLocation(tx, item.productId, -quantity, fromLocation);
+
+          // Add to virtual transit location
+          await adjustStockAtInventoryLocation(tx, item.productId, quantity, transitLoc);
+
+          // Log transaction for source
           await tx.insert(inventoryTransactions).values({
             companyId,
-            branchId: fromBranchId,
+            branchId: transfer.fromBranchId,
             locationId: fromLocation.id,
-            productId,
+            productId: item.productId,
             type: "TRANSFER_OUT",
             quantity: (-quantity).toString(),
             unitCost: unitCost.toString(),
-            totalCost: (quantity * unitCost).toString(),
+            totalCost: lineCost.toString(),
             referenceType: "TRANSFER",
-            referenceId,
+            referenceId: transfer.transferNumber,
             notes: baseNotes,
             createdBy: (req.user as any)?.id,
             remainingQuantity: "0",
+            batchNumber: item.batchNumber,
+            expiryDate: item.expiryDate,
+          });
+
+          // Log transaction for virtual transit location
+          await tx.insert(inventoryTransactions).values({
+            companyId,
+            branchId: null, // Global transit
+            locationId: transitLoc.id,
+            productId: item.productId,
+            type: "TRANSFER_IN",
+            quantity: quantity.toString(),
+            unitCost: unitCost.toString(),
+            totalCost: lineCost.toString(),
+            referenceType: "TRANSFER",
+            referenceId: transfer.transferNumber,
+            notes: `In-Transit - ${baseNotes}`,
+            createdBy: (req.user as any)?.id,
+            remainingQuantity: quantity.toString(),
+            batchNumber: item.batchNumber,
+            expiryDate: item.expiryDate,
           });
         }
 
-        return created;
+        // Post ledger entries
+        if (totalTransferCost > 0) {
+          const inventoryAccCode = await storage.getSystemAccountCode(companyId, "inventoryAccountCode", tx);
+          const inTransitAccCode = await storage.getSystemAccountCode(companyId, "inventoryInTransitCode", tx)
+            || await storage.getSystemAccountCode(companyId, "inventoryAccountCode", tx);
+          if (inventoryAccCode && inTransitAccCode) {
+            await storage.postToLedger(companyId, {
+              entryDate: new Date(),
+              description: `Transfer Dispatch ${transfer.transferNumber} — ${locationDisplayName(fromLocation)} → ${locationDisplayName(toLocation)}`,
+              referenceType: "TRANSFER_DISPATCH",
+              referenceId: transfer.transferNumber,
+              createdBy: (req.user as any)?.id,
+              lines: [
+                { accountCode: inTransitAccCode, type: "DEBIT" as const, amount: totalTransferCost },
+                { accountCode: inventoryAccCode, type: "CREDIT" as const, amount: totalTransferCost },
+              ],
+            }, tx);
+          }
+        }
+
+        const [updated] = await tx
+          .update(stockTransfers)
+          .set({
+            status: "IN_TRANSIT",
+            dispatchedBy: (req.user as any)?.id || null,
+            dispatchedAt: new Date(),
+            updatedAt: new Date()
+          })
+          .where(eq(stockTransfers.id, transferId))
+          .returning();
+
+        return updated;
       });
 
-      sendIdempotent(req, res, idempotencyKey, 201, { message: "Transfer dispatched and awaiting receipt", transfer, referenceId });
+      res.json({ message: "Transfer dispatched successfully", transfer: result });
     } catch (error: any) {
-      res.status(400).json({ message: error.message || "Failed to transfer stock" });
+      res.status(400).json({ message: error.message || "Failed to dispatch transfer" });
     }
   });
 
@@ -6278,7 +7703,7 @@ export async function registerRoutes(
     try {
       const companyId = Number(req.params.companyId);
       const transferId = Number(req.params.transferId);
-      const { notes, items } = req.body || {};
+      const { notes, items, varianceReason } = req.body || {};
 
       const result = await db.transaction(async (tx) => {
         const [transfer] = await tx
@@ -6298,20 +7723,107 @@ export async function registerRoutes(
           .select()
           .from(stockTransferItems)
           .where(eq(stockTransferItems.transferId, transferId));
-        const receivedMap = new Map<number, number>(
+
+        const itemMap = new Map<number, { quantityReceived?: number; quantityDamaged?: number; quantityLost?: number; batchNumber?: string; expiryDate?: Date | string }>(
           Array.isArray(items)
-            ? items.map((item: any) => [Number(item.productId), Number(item.quantityReceived ?? item.quantity ?? 0)])
+            ? items.map((item: any) => [Number(item.productId), item])
             : [],
         );
 
+        let totalDispatchedGoodsCost = 0;
+        let totalReceivedGoodsCost = 0;
+        let totalVarianceGoodsCost = 0;
+
+        const itemDispatchedCosts = transferItems.map((item) => {
+          const qtyDispatched = Number(item.quantity || 0);
+          const unitCost = Number(item.unitCost || 0);
+          const dispatchCost = qtyDispatched * unitCost;
+          totalDispatchedGoodsCost += dispatchCost;
+          return { id: item.id, productId: item.productId, dispatchCost, qtyDispatched, unitCost };
+        });
+
+        const transitCost = Number(transfer.transitCost || 0);
+
         for (const item of transferItems) {
+          const dispatchCostInfo = itemDispatchedCosts.find(d => d.id === item.id)!;
           const expected = Number(item.quantity || 0);
-          const received = receivedMap.has(item.productId) ? Number(receivedMap.get(item.productId)) : expected;
-          if (!Number.isFinite(received) || received < 0 || received > expected) {
+          
+          const inputItem = itemMap.get(item.productId) || {};
+          const received = inputItem.quantityReceived !== undefined ? Number(inputItem.quantityReceived) : expected;
+          const damaged = Number(inputItem.quantityDamaged || 0);
+          const lost = Number(inputItem.quantityLost || 0);
+          const batchNumber = inputItem.batchNumber || item.batchNumber || null;
+          const expiryDate = inputItem.expiryDate ? new Date(inputItem.expiryDate) : (item.expiryDate ? new Date(item.expiryDate) : null);
+
+          if (!Number.isFinite(received) || received < 0) {
             throw new Error(`Invalid received quantity for product ${item.productId}.`);
           }
-          await adjustStockAtInventoryLocation(tx, item.productId, received, toLocation);
-          await tx.update(stockTransferItems).set({ quantityReceived: received.toString() }).where(eq(stockTransferItems.id, item.id));
+
+          let finalLost = lost;
+          let finalDamaged = damaged;
+          
+          if (received + damaged + lost !== expected) {
+            const diff = expected - received;
+            if (diff > 0 && damaged + lost === 0) {
+              finalLost = diff;
+            } else {
+              throw new Error(`Sum of Received (${received}), Damaged (${damaged}), and Lost (${lost}) must equal Dispatched (${expected}) for product ${item.productId}.`);
+            }
+          }
+
+          const unitCost = Number(item.unitCost || 0);
+          const lineCostReceived = received * unitCost;
+          totalReceivedGoodsCost += lineCostReceived;
+
+          const varianceQty = finalLost + finalDamaged;
+          const lineCostVariance = varianceQty * unitCost;
+          totalVarianceGoodsCost += lineCostVariance;
+
+          let allocatedTransitCost = 0;
+          if (transitCost > 0) {
+            if (totalDispatchedGoodsCost > 0) {
+              allocatedTransitCost = (dispatchCostInfo.dispatchCost / totalDispatchedGoodsCost) * transitCost;
+            } else {
+              allocatedTransitCost = (expected / transferItems.reduce((s, i) => s + Number(i.quantity), 0)) * transitCost;
+            }
+          }
+
+          const effectiveUnitCost = unitCost + (received > 0 ? (allocatedTransitCost / received) : 0);
+
+          await tx.update(stockTransferItems)
+            .set({
+              quantityReceived: received.toString(),
+              quantityDamaged: finalDamaged.toString(),
+              quantityLost: finalLost.toString(),
+              batchNumber,
+              expiryDate,
+            })
+            .where(eq(stockTransferItems.id, item.id));
+
+          const transitLoc = await ensureTransitLocation(tx, companyId);
+          await adjustStockAtInventoryLocation(tx, item.productId, -expected, transitLoc);
+
+          // Log TRANSFER_OUT from virtual transit location
+          await tx.insert(inventoryTransactions).values({
+            companyId,
+            branchId: null,
+            locationId: transitLoc.id,
+            productId: item.productId,
+            type: "TRANSFER_OUT",
+            quantity: (-expected).toString(),
+            unitCost: unitCost.toString(),
+            totalCost: (expected * unitCost * -1).toString(),
+            referenceType: "TRANSFER",
+            referenceId: transfer.transferNumber,
+            notes: `Transit Out - Transfer ${transfer.transferNumber}`,
+            createdBy: (req.user as any)?.id,
+            remainingQuantity: "0",
+          });
+
+          if (received > 0) {
+            await adjustStockAtInventoryLocation(tx, item.productId, received, toLocation);
+          }
+
           await tx.insert(inventoryTransactions).values({
             companyId,
             branchId: toLocation.branchId || null,
@@ -6319,18 +7831,79 @@ export async function registerRoutes(
             productId: item.productId,
             type: "TRANSFER_IN",
             quantity: received.toString(),
-            unitCost: (item.unitCost || "0").toString(),
-            totalCost: (received * Number(item.unitCost || 0)).toString(),
+            unitCost: effectiveUnitCost.toString(),
+            totalCost: (received * effectiveUnitCost).toString(),
             referenceType: "TRANSFER",
             referenceId: transfer.transferNumber,
             notes: notes || transfer.notes || `Received transfer ${transfer.transferNumber}`,
             createdBy: (req.user as any)?.id,
             remainingQuantity: received.toString(),
+            batchNumber,
+            expiryDate,
           });
+
+          if (varianceQty > 0) {
+            await tx.insert(inventoryTransactions).values({
+              companyId,
+              branchId: null, // Global transit
+              locationId: transitLoc.id,
+              productId: item.productId,
+              type: "ADJUSTMENT",
+              quantity: (-varianceQty).toString(),
+              unitCost: unitCost.toString(),
+              totalCost: lineCostVariance.toString(),
+              referenceType: "TRANSFER_VARIANCE",
+              referenceId: transfer.transferNumber,
+              notes: `Loss/Damage in transit for ${transfer.transferNumber}. Lost: ${finalLost}, Damaged: ${finalDamaged}. Reason: ${varianceReason || 'N/A'}`,
+              createdBy: (req.user as any)?.id,
+              remainingQuantity: "0",
+            });
+          }
+        }
+
+        const totalDebits = totalReceivedGoodsCost + transitCost + totalVarianceGoodsCost;
+        if (totalDebits > 0) {
+          const inventoryAccCode = await storage.getSystemAccountCode(companyId, "inventoryAccountCode", tx);
+          const inTransitAccCode = await storage.getSystemAccountCode(companyId, "inventoryInTransitCode", tx)
+            || await storage.getSystemAccountCode(companyId, "inventoryAccountCode", tx);
+          const lossAccCode = await storage.getSystemAccountCode(companyId, "generalExpenseAccountCode", tx);
+          const transitClearingAccCode = await storage.getSystemAccountCode(companyId, "landedCostClearingAccountCode", tx)
+            || await storage.getSystemAccountCode(companyId, "accountsPayableCode", tx);
+
+          const lines = [];
+
+          const finalReceivedVal = totalReceivedGoodsCost + transitCost;
+          if (finalReceivedVal > 0 && inventoryAccCode) {
+            lines.push({ accountCode: inventoryAccCode, type: "DEBIT" as const, amount: Number(finalReceivedVal.toFixed(2)) });
+          }
+
+          if (totalVarianceGoodsCost > 0 && lossAccCode) {
+            lines.push({ accountCode: lossAccCode, type: "DEBIT" as const, amount: Number(totalVarianceGoodsCost.toFixed(2)) });
+          }
+
+          if (totalDispatchedGoodsCost > 0 && inTransitAccCode) {
+            lines.push({ accountCode: inTransitAccCode, type: "CREDIT" as const, amount: Number(totalDispatchedGoodsCost.toFixed(2)) });
+          }
+
+          if (transitCost > 0 && transitClearingAccCode) {
+            lines.push({ accountCode: transitClearingAccCode, type: "CREDIT" as const, amount: Number(transitCost.toFixed(2)) });
+          }
+
+          if (lines.length >= 2) {
+            await storage.postToLedger(companyId, {
+              entryDate: new Date(),
+              description: `Transfer Receipt ${transfer.transferNumber} — Received at ${toLocation.name}${transitCost > 0 ? ' (Freight Capitalized)' : ''}${totalVarianceGoodsCost > 0 ? ' (Transit Variance Logged)' : ''}`,
+              referenceType: "TRANSFER_RECEIPT",
+              referenceId: transfer.transferNumber,
+              createdBy: (req.user as any)?.id,
+              lines,
+            }, tx);
+          }
         }
 
         const [updated] = await tx.update(stockTransfers).set({
           status: "RECEIVED",
+          varianceReason: varianceReason || null,
           receivedBy: (req.user as any)?.id || null,
           receivedAt: new Date(),
           updatedAt: new Date(),
@@ -6355,16 +7928,48 @@ export async function registerRoutes(
           .where(and(eq(stockTransfers.id, transferId), eq(stockTransfers.companyId, companyId)))
           .limit(1);
         if (!transfer) throw new Error("Transfer not found.");
-        if (transfer.status !== "IN_TRANSIT") throw new Error("Only in-transit transfers can be cancelled.");
-        const fromLocation = await resolveInventoryLocation(tx, companyId, {
-          locationId: transfer.fromLocationId,
-          branchId: transfer.fromBranchId,
-          defaultWarehouse: !transfer.fromLocationId && !transfer.fromBranchId,
-        });
-        const items = await tx.select().from(stockTransferItems).where(eq(stockTransferItems.transferId, transferId));
-        for (const item of items) {
-          await adjustStockAtInventoryLocation(tx, item.productId, Number(item.quantity || 0), fromLocation);
+        
+        if (transfer.status === "CANCELLED" || transfer.status === "RECEIVED") {
+          throw new Error("Transfer is already completed or cancelled.");
         }
+
+        const wasDispatched = transfer.status === "IN_TRANSIT";
+
+        if (wasDispatched) {
+          const fromLocation = await resolveInventoryLocation(tx, companyId, {
+            locationId: transfer.fromLocationId,
+            branchId: transfer.fromBranchId,
+            defaultWarehouse: !transfer.fromLocationId && !transfer.fromBranchId,
+          });
+          const items = await tx.select().from(stockTransferItems).where(eq(stockTransferItems.transferId, transferId));
+          let totalReversalCost = 0;
+          for (const item of items) {
+            const quantity = Number(item.quantity || 0);
+            await adjustStockAtInventoryLocation(tx, item.productId, quantity, fromLocation);
+            totalReversalCost += quantity * Number(item.unitCost || 0);
+          }
+
+          // Reverse Ledger if was dispatched
+          if (totalReversalCost > 0) {
+            const inventoryAccCode = await storage.getSystemAccountCode(companyId, "inventoryAccountCode", tx);
+            const inTransitAccCode = await storage.getSystemAccountCode(companyId, "inventoryInTransitCode", tx)
+              || await storage.getSystemAccountCode(companyId, "inventoryAccountCode", tx);
+            if (inventoryAccCode && inTransitAccCode) {
+              await storage.postToLedger(companyId, {
+                entryDate: new Date(),
+                description: `Transfer Reversal/Cancellation ${transfer.transferNumber}`,
+                referenceType: "TRANSFER_REVERSAL",
+                referenceId: transfer.transferNumber,
+                createdBy: (req.user as any)?.id,
+                lines: [
+                  { accountCode: inventoryAccCode, type: "DEBIT" as const, amount: totalReversalCost },
+                  { accountCode: inTransitAccCode, type: "CREDIT" as const, amount: totalReversalCost },
+                ],
+              }, tx);
+            }
+          }
+        }
+
         const [updated] = await tx.update(stockTransfers).set({
           status: "CANCELLED",
           cancelledBy: (req.user as any)?.id || null,
@@ -6374,7 +7979,7 @@ export async function registerRoutes(
         return updated;
       });
 
-      res.json({ message: "Transfer cancelled and source stock restored", transfer: result });
+      res.json({ message: "Transfer cancelled successfully", transfer: result });
     } catch (error: any) {
       res.status(400).json({ message: error.message || "Failed to cancel transfer" });
     }
@@ -6382,6 +7987,198 @@ export async function registerRoutes(
 
   app.get("/api/companies/:companyId/grvs", requireAuth, async (req, res) => {
     const companyId = Number(req.params.companyId);
+
+    const invoices = await db
+      .select({
+        id: supplierInvoices.id,
+        invoiceNumber: supplierInvoices.invoiceNumber,
+        grvReference: supplierInvoices.grvReference,
+        referenceGdnId: supplierInvoices.referenceGdnId,
+      })
+      .from(supplierInvoices)
+      .where(eq(supplierInvoices.companyId, companyId));
+
+    const invoiceByGrvRef = new Map<string, { id: number; invoiceNumber: string }>();
+    const invoiceByGdnId = new Map<number, { id: number; invoiceNumber: string }>();
+    for (const inv of invoices) {
+      if (inv.grvReference) {
+        invoiceByGrvRef.set(inv.grvReference, { id: inv.id, invoiceNumber: inv.invoiceNumber });
+      }
+      if (inv.referenceGdnId) {
+        invoiceByGdnId.set(inv.referenceGdnId, { id: inv.id, invoiceNumber: inv.invoiceNumber });
+      }
+    }
+
+    const gdnRecords = await db
+      .select({
+        id: goodsDeliveryNotes.id,
+        confirmedGrvNumber: goodsDeliveryNotes.confirmedGrvNumber,
+        purchaseOrderId: goodsDeliveryNotes.purchaseOrderId,
+        status: goodsDeliveryNotes.status,
+      })
+      .from(goodsDeliveryNotes)
+      .where(eq(goodsDeliveryNotes.companyId, companyId));
+
+    const gdnByGrvNumber = new Map<string, { id: number, purchaseOrderId: number | null }>();
+    for (const gdn of gdnRecords) {
+      if (gdn.confirmedGrvNumber) {
+        gdnByGrvNumber.set(gdn.confirmedGrvNumber, { id: gdn.id, purchaseOrderId: gdn.purchaseOrderId });
+      }
+    }
+
+    // 1. PO Items for 3-way match
+    const poItems = await db
+      .select({
+        purchaseOrderId: purchaseOrderItems.purchaseOrderId,
+        productId: purchaseOrderItems.productId,
+        quantity: purchaseOrderItems.quantity,
+        unitCost: purchaseOrderItems.unitCost,
+      })
+      .from(purchaseOrderItems)
+      .innerJoin(purchaseOrders, eq(purchaseOrderItems.purchaseOrderId, purchaseOrders.id))
+      .where(eq(purchaseOrders.companyId, companyId));
+
+    const poItemsMap = new Map<number, any[]>();
+    for (const item of poItems) {
+      if (!poItemsMap.has(item.purchaseOrderId)) {
+        poItemsMap.set(item.purchaseOrderId, []);
+      }
+      poItemsMap.get(item.purchaseOrderId)!.push(item);
+    }
+
+    // 2. Invoice Items for 3-way match
+    const invoiceItems = await db
+      .select({
+        supplierInvoiceId: supplierInvoiceItems.supplierInvoiceId,
+        productId: supplierInvoiceItems.productId,
+        quantity: supplierInvoiceItems.quantity,
+        unitPrice: supplierInvoiceItems.unitPrice,
+      })
+      .from(supplierInvoiceItems)
+      .innerJoin(supplierInvoices, eq(supplierInvoiceItems.supplierInvoiceId, supplierInvoices.id))
+      .where(eq(supplierInvoices.companyId, companyId));
+
+    const invoiceItemsMap = new Map<number, any[]>();
+    for (const item of invoiceItems) {
+      if (!invoiceItemsMap.has(item.supplierInvoiceId)) {
+        invoiceItemsMap.set(item.supplierInvoiceId, []);
+      }
+      invoiceItemsMap.get(item.supplierInvoiceId)!.push(item);
+    }
+
+    // Helper for matching status
+    function getMatchingStatus(
+      purchaseOrderId: number | null,
+      invoiceId: number | null,
+      grvQty: number,
+      grvCost: number
+    ) {
+      if (!purchaseOrderId) {
+        if (!invoiceId) return "PENDING_INVOICE";
+        const invLines = invoiceItemsMap.get(invoiceId) || [];
+        const invQty = invLines.reduce((sum, item) => sum + Number(item.quantity), 0);
+        const invCost = invLines.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitPrice), 0);
+        if (Math.abs(grvQty - invQty) > 0.01) return "QTY_MISMATCH";
+        if (Math.abs(grvCost - invCost) > 0.01) return "PRICE_VARIANCE";
+        return "MATCHED";
+      }
+
+      if (!invoiceId) {
+        return "PENDING_INVOICE";
+      }
+
+      const poLines = poItemsMap.get(purchaseOrderId) || [];
+      const invLines = invoiceItemsMap.get(invoiceId) || [];
+
+      const poQty = poLines.reduce((sum, item) => sum + Number(item.quantity), 0);
+      const poCost = poLines.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitCost), 0);
+      const invQty = invLines.reduce((sum, item) => sum + Number(item.quantity), 0);
+      const invCost = invLines.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitPrice), 0);
+
+      const qtyMismatch = Math.abs(poQty - grvQty) > 0.01 || Math.abs(grvQty - invQty) > 0.01;
+      const priceMismatch = Math.abs(poCost - grvCost) > 0.01 || Math.abs(grvCost - invCost) > 0.01;
+
+      if (qtyMismatch) return "QTY_MISMATCH";
+      if (priceMismatch) return "PRICE_VARIANCE";
+      return "MATCHED";
+    }
+
+    // 3. Landed Cost Components
+    const costComponents = await db
+      .select({
+        transactionId: inventoryCostComponents.inventoryTransactionId,
+        type: inventoryCostComponents.type,
+        totalCost: inventoryCostComponents.totalCost,
+      })
+      .from(inventoryCostComponents)
+      .innerJoin(inventoryTransactions, eq(inventoryCostComponents.inventoryTransactionId, inventoryTransactions.id))
+      .where(and(
+        eq(inventoryTransactions.companyId, companyId),
+        eq(inventoryTransactions.type, "STOCK_IN")
+      ));
+
+    const costComponentsByTxId = new Map<number, any[]>();
+    for (const comp of costComponents) {
+      if (!costComponentsByTxId.has(comp.transactionId)) {
+        costComponentsByTxId.set(comp.transactionId, []);
+      }
+      costComponentsByTxId.get(comp.transactionId)!.push(comp);
+    }
+
+    // 4. Serial Numbers
+    const serials = await db
+      .select({
+        transactionId: productSerialNumbers.receivedInventoryTransactionId,
+        serialNumber: productSerialNumbers.serialNumber,
+      })
+      .from(productSerialNumbers)
+      .where(eq(productSerialNumbers.companyId, companyId));
+
+    const serialsByTxId = new Map<number, string[]>();
+    for (const item of serials) {
+      if (item.transactionId) {
+        if (!serialsByTxId.has(item.transactionId)) {
+          serialsByTxId.set(item.transactionId, []);
+        }
+        serialsByTxId.get(item.transactionId)!.push(item.serialNumber);
+      }
+    }
+
+    // 5. AP Accrual Ledger Entries
+    const ledgerLines = await db
+      .select({
+        journalEntryId: ledgerEntries.journalEntryId,
+        referenceId: journalEntries.referenceId,
+        accountCode: accounts.code,
+        accountName: accounts.name,
+        type: ledgerEntries.type,
+        amount: ledgerEntries.amount,
+        description: journalEntries.description,
+      })
+      .from(ledgerEntries)
+      .innerJoin(accounts, eq(ledgerEntries.accountId, accounts.id))
+      .innerJoin(journalEntries, eq(ledgerEntries.journalEntryId, journalEntries.id))
+      .where(and(
+        eq(journalEntries.companyId, companyId),
+        eq(journalEntries.referenceType, "GRV")
+      ));
+
+    const ledgerLinesByGrvRef = new Map<string, any[]>();
+    const journalsByGrvRef = new Map<string, { id: number; description: string }>();
+    for (const line of ledgerLines) {
+      if (line.referenceId) {
+        if (!ledgerLinesByGrvRef.has(line.referenceId)) {
+          ledgerLinesByGrvRef.set(line.referenceId, []);
+        }
+        ledgerLinesByGrvRef.get(line.referenceId)!.push({
+          accountCode: line.accountCode,
+          accountName: line.accountName,
+          type: line.type,
+          amount: Number(line.amount),
+        });
+        journalsByGrvRef.set(line.referenceId, { id: line.journalEntryId, description: line.description });
+      }
+    }
 
     const rows = await db
       .select({
@@ -6421,6 +8218,9 @@ export async function registerRoutes(
       const grvId = row.referenceId || fallbackId;
       const qty = Number(row.quantity || 0);
       const cost = Number(row.totalCost || (Number(row.unitCost || 0) * qty));
+      const matchedInvoice = invoiceByGrvRef.get(grvId);
+      const gdnInfo = gdnByGrvNumber.get(grvId);
+      const purchaseOrderId = gdnInfo ? gdnInfo.purchaseOrderId : null;
 
       if (!grouped.has(grvId)) {
         grouped.set(grvId, {
@@ -6431,6 +8231,13 @@ export async function registerRoutes(
           createdAt: row.createdAt,
           createdBy: row.userName || "System",
           notes: row.notes || "",
+          status: "POSTED",
+          invoiceId: matchedInvoice ? matchedInvoice.id : null,
+          invoiceNumber: matchedInvoice ? matchedInvoice.invoiceNumber : null,
+          purchaseOrderId,
+          landedCostsBreakdown: { freight: 0, duty: 0, handling: 0 },
+          serialNumbers: [],
+          journalEntry: null,
           lineCount: 0,
           totalQuantity: 0,
           totalCost: 0,
@@ -6442,6 +8249,19 @@ export async function registerRoutes(
       item.totalQuantity += qty;
       item.totalCost += cost;
 
+      // Landed cost breakdown aggregation
+      const components = costComponentsByTxId.get(row.id) || [];
+      for (const comp of components) {
+        const type = comp.type.toLowerCase();
+        if (type === "freight" || type === "duty" || type === "handling") {
+          item.landedCostsBreakdown[type] += Number(comp.totalCost);
+        }
+      }
+
+      // Serial numbers aggregation
+      const lineSerials = serialsByTxId.get(row.id) || [];
+      item.serialNumbers.push(...lineSerials);
+
       if (row.createdAt && item.createdAt && row.createdAt < item.createdAt) {
         item.createdAt = row.createdAt;
       }
@@ -6449,6 +8269,80 @@ export async function registerRoutes(
       if (!item.supplierName || item.supplierName === "N/A") {
         item.supplierName = row.supplierName || "N/A";
       }
+    }
+
+    // Attach GL journal entries and match statuses to grouped items
+    for (const [grvId, item] of grouped.entries()) {
+      const je = journalsByGrvRef.get(grvId);
+      if (je) {
+        item.journalEntry = {
+          id: je.id,
+          description: je.description,
+          lines: ledgerLinesByGrvRef.get(grvId) || [],
+        };
+      }
+      item.matchingStatus = getMatchingStatus(
+        item.purchaseOrderId,
+        item.invoiceId,
+        item.totalQuantity,
+        item.totalCost
+      );
+    }
+
+    const gdnRows = await db
+      .select({
+        id: goodsDeliveryNotes.id,
+        gdnNumber: goodsDeliveryNotes.gdnNumber,
+        purchaseOrderId: goodsDeliveryNotes.purchaseOrderId,
+        supplierId: goodsDeliveryNotes.supplierId,
+        supplierName: suppliers.name,
+        createdAt: goodsDeliveryNotes.createdAt,
+        createdBy: users.username,
+        notes: goodsDeliveryNotes.notes,
+        status: goodsDeliveryNotes.status,
+        quantity: goodsDeliveryNoteItems.quantityReceived,
+        unitCost: goodsDeliveryNoteItems.unitCost,
+      })
+      .from(goodsDeliveryNotes)
+      .leftJoin(suppliers, eq(suppliers.id, goodsDeliveryNotes.supplierId))
+      .leftJoin(users, eq(users.id, goodsDeliveryNotes.createdBy))
+      .leftJoin(goodsDeliveryNoteItems, eq(goodsDeliveryNoteItems.gdnId, goodsDeliveryNotes.id))
+      .leftJoin(products, eq(products.id, goodsDeliveryNoteItems.productId))
+      .where(and(eq(goodsDeliveryNotes.companyId, companyId), eq(goodsDeliveryNotes.status, "DRAFT")));
+
+    for (const row of gdnRows) {
+      const grvId = String(row.id);
+      const qty = Number(row.quantity || 0);
+      const cost = Number(row.unitCost || 0) * qty;
+      const matchedInvoice = invoiceByGdnId.get(row.id);
+
+      if (!grouped.has(grvId)) {
+        grouped.set(grvId, {
+          id: grvId,
+          grvNumber: row.gdnNumber,
+          supplierId: row.supplierId,
+          supplierName: row.supplierName || "N/A",
+          createdAt: row.createdAt,
+          createdBy: row.createdBy || "System",
+          notes: row.notes || "",
+          status: row.status,
+          invoiceId: matchedInvoice ? matchedInvoice.id : null,
+          invoiceNumber: matchedInvoice ? matchedInvoice.invoiceNumber : null,
+          purchaseOrderId: row.purchaseOrderId,
+          landedCostsBreakdown: { freight: 0, duty: 0, handling: 0 },
+          serialNumbers: [],
+          journalEntry: null,
+          matchingStatus: "PENDING_INVOICE",
+          lineCount: 0,
+          totalQuantity: 0,
+          totalCost: 0,
+        });
+      }
+
+      const item = grouped.get(grvId);
+      item.lineCount += 1;
+      item.totalQuantity += qty;
+      item.totalCost += cost;
     }
 
     res.json(Array.from(grouped.values()).sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)));
@@ -6465,6 +8359,98 @@ export async function registerRoutes(
 
     if ((grvId.startsWith("LEGACY-") || grvId.startsWith("HIST-")) && (!legacyId || Number.isNaN(legacyId))) {
       return res.status(404).json({ message: "GRV not found" });
+    }
+
+    if (!legacyId) {
+      const gdnIdNum = Number(grvId);
+      const [gdn] = await db
+        .select({
+          id: goodsDeliveryNotes.id,
+          gdnNumber: goodsDeliveryNotes.gdnNumber,
+          status: goodsDeliveryNotes.status,
+          createdAt: goodsDeliveryNotes.createdAt,
+          notes: goodsDeliveryNotes.notes,
+          taxInclusive: goodsDeliveryNotes.taxInclusive,
+          supplierId: goodsDeliveryNotes.supplierId,
+          supplierName: suppliers.name,
+          createdBy: users.username,
+        })
+        .from(goodsDeliveryNotes)
+        .leftJoin(suppliers, eq(suppliers.id, goodsDeliveryNotes.supplierId))
+        .leftJoin(users, eq(users.id, goodsDeliveryNotes.createdBy))
+        .where(
+          and(
+            eq(goodsDeliveryNotes.companyId, companyId),
+            or(
+              eq(goodsDeliveryNotes.gdnNumber, grvId),
+              eq(goodsDeliveryNotes.confirmedGrvNumber, grvId),
+              Number.isNaN(gdnIdNum) ? sql`false` : eq(goodsDeliveryNotes.id, gdnIdNum)
+            )
+          )
+        )
+        .limit(1);
+
+        if (gdn) {
+          const items = await db
+            .select({
+              id: goodsDeliveryNoteItems.id,
+              productId: goodsDeliveryNoteItems.productId,
+              accountCode: goodsDeliveryNoteItems.accountCode,
+              description: goodsDeliveryNoteItems.description,
+              productName: products.name,
+              productSku: products.sku,
+              taxRate: goodsDeliveryNoteItems.taxRate,
+              taxTypeId: goodsDeliveryNoteItems.taxTypeId,
+              taxAmount: goodsDeliveryNoteItems.taxAmount,
+              isRecoverable: goodsDeliveryNoteItems.isRecoverable,
+              taxTypeName: taxTypes.name,
+              taxTypeCode: taxTypes.code,
+              quantity: goodsDeliveryNoteItems.quantityReceived,
+              unitCost: goodsDeliveryNoteItems.unitCost,
+              costPrice: products.costPrice,
+            })
+            .from(goodsDeliveryNoteItems)
+            .leftJoin(products, eq(products.id, goodsDeliveryNoteItems.productId))
+            .leftJoin(taxTypes, eq(taxTypes.id, goodsDeliveryNoteItems.taxTypeId))
+            .where(eq(goodsDeliveryNoteItems.gdnId, gdn.id));
+
+          const lines = items.map(item => {
+            const qty = Number(item.quantity || 0);
+            const unitCost = Number(item.unitCost || item.costPrice || 0);
+            return {
+              id: item.id,
+              productId: item.productId,
+              accountCode: item.accountCode,
+              description: item.description,
+              productName: item.productName || item.description || (item.productId ? `Product ${item.productId}` : 'Expense/Service'),
+              sku: item.productSku || item.accountCode || "",
+              quantity: qty,
+              unitCost,
+              totalCost: qty * unitCost,
+              taxRate: Number(item.taxRate || 0),
+              taxTypeId: item.taxTypeId || null,
+              taxAmount: Number(item.taxAmount || 0),
+              isRecoverable: item.isRecoverable !== false,
+              taxTypeName: item.taxTypeName || null,
+              taxTypeCode: item.taxTypeCode || null,
+            };
+          });
+
+          return res.json({
+            id: String(gdn.id),
+            grvNumber: gdn.gdnNumber,
+            createdAt: gdn.createdAt,
+            createdBy: gdn.createdBy || "System",
+            supplierId: gdn.supplierId,
+            supplierName: gdn.supplierName || "N/A",
+            notes: gdn.notes || "",
+            status: gdn.status,
+            taxInclusive: !!gdn.taxInclusive,
+            totalQuantity: lines.reduce((sum, line) => sum + line.quantity, 0),
+            totalCost: lines.reduce((sum, line) => sum + line.totalCost, 0),
+            lines,
+          });
+        }
     }
 
     const whereClause =
@@ -6486,6 +8472,10 @@ export async function registerRoutes(
         productId: inventoryTransactions.productId,
         productName: products.name,
         productSku: products.sku,
+        productTaxRate: products.taxRate,
+        productTaxTypeId: products.taxTypeId,
+        taxTypeName: taxTypes.name,
+        taxTypeCode: taxTypes.code,
         supplierId: inventoryTransactions.supplierId,
         supplierName: suppliers.name,
         quantity: inventoryTransactions.quantity,
@@ -6498,6 +8488,7 @@ export async function registerRoutes(
       })
       .from(inventoryTransactions)
       .leftJoin(products, eq(products.id, inventoryTransactions.productId))
+      .leftJoin(taxTypes, eq(taxTypes.id, products.taxTypeId))
       .leftJoin(suppliers, eq(suppliers.id, inventoryTransactions.supplierId))
       .leftJoin(users, eq(users.id, inventoryTransactions.createdBy))
       .where(whereClause)
@@ -6528,6 +8519,112 @@ export async function registerRoutes(
     const totalQuantity = lines.reduce((sum, line) => sum + line.quantity, 0);
     const totalCost = lines.reduce((sum, line) => sum + line.totalCost, 0);
     const first = rows[0];
+    const txIds = rows.map(r => r.id);
+
+    // Fetch invoices matching grvId
+    const [matchingInvoice] = await db
+      .select({
+        id: supplierInvoices.id,
+        invoiceNumber: supplierInvoices.invoiceNumber,
+      })
+      .from(supplierInvoices)
+      .where(and(
+        eq(supplierInvoices.companyId, companyId),
+        eq(supplierInvoices.grvReference, grvId)
+      ))
+      .limit(1);
+
+    // Fetch PO ID from GDN
+    const [linkedGdn] = await db
+      .select({
+        purchaseOrderId: goodsDeliveryNotes.purchaseOrderId,
+      })
+      .from(goodsDeliveryNotes)
+      .where(and(
+        eq(goodsDeliveryNotes.companyId, companyId),
+        eq(goodsDeliveryNotes.confirmedGrvNumber, grvId)
+      ))
+      .limit(1);
+    
+    const purchaseOrderId = linkedGdn ? linkedGdn.purchaseOrderId : null;
+    const invoiceId = matchingInvoice ? matchingInvoice.id : null;
+
+    // Fetch PO items & Invoice items for match status
+    const poLines = purchaseOrderId ? await db.select().from(purchaseOrderItems).where(eq(purchaseOrderItems.purchaseOrderId, purchaseOrderId)) : [];
+    const invLines = invoiceId ? await db.select().from(supplierInvoiceItems).where(eq(supplierInvoiceItems.supplierInvoiceId, invoiceId)) : [];
+
+    const poQty = poLines.reduce((sum, item) => sum + Number(item.quantity), 0);
+    const poCost = poLines.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitCost), 0);
+    const invQty = invLines.reduce((sum, item) => sum + Number(item.quantity), 0);
+    const invCost = invLines.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitPrice), 0);
+
+    let matchingStatus = "PENDING_INVOICE";
+    if (invoiceId) {
+      if (purchaseOrderId) {
+        const qtyMismatch = Math.abs(poQty - totalQuantity) > 0.01 || Math.abs(totalQuantity - invQty) > 0.01;
+        const priceMismatch = Math.abs(poCost - totalCost) > 0.01 || Math.abs(totalCost - invCost) > 0.01;
+        matchingStatus = qtyMismatch ? "QTY_MISMATCH" : priceMismatch ? "PRICE_VARIANCE" : "MATCHED";
+      } else {
+        const qtyMismatch = Math.abs(totalQuantity - invQty) > 0.01;
+        const priceMismatch = Math.abs(totalCost - invCost) > 0.01;
+        matchingStatus = qtyMismatch ? "QTY_MISMATCH" : priceMismatch ? "PRICE_VARIANCE" : "MATCHED";
+      }
+    }
+
+    // Landed cost components
+    const costComps = txIds.length > 0 ? await db
+      .select()
+      .from(inventoryCostComponents)
+      .where(inArray(inventoryCostComponents.inventoryTransactionId, txIds)) : [];
+
+    const landedCostsBreakdown: Record<string, number> = { freight: 0, duty: 0, handling: 0 };
+    for (const comp of costComps) {
+      const type = comp.type.toLowerCase();
+      if (type === "freight" || type === "duty" || type === "handling") {
+        landedCostsBreakdown[type] += Number(comp.totalCost);
+      }
+    }
+
+    // Serial numbers
+    const serialsList = txIds.length > 0 ? await db
+      .select()
+      .from(productSerialNumbers)
+      .where(and(
+        eq(productSerialNumbers.companyId, companyId),
+        inArray(productSerialNumbers.receivedInventoryTransactionId, txIds)
+      )) : [];
+    const serialNumbers = serialsList.map(s => s.serialNumber);
+
+    // GL AP Accrual
+    const [je] = await db
+      .select()
+      .from(journalEntries)
+      .where(and(
+        eq(journalEntries.companyId, companyId),
+        eq(journalEntries.referenceType, "GRV"),
+        eq(journalEntries.referenceId, grvId)
+      ))
+      .limit(1);
+
+    let journalEntry = null;
+    if (je) {
+      const jLines = await db
+        .select({
+          accountCode: accounts.code,
+          accountName: accounts.name,
+          type: ledgerEntries.type,
+          amount: ledgerEntries.amount,
+        })
+        .from(ledgerEntries)
+        .innerJoin(accounts, eq(ledgerEntries.accountId, accounts.id))
+        .where(eq(ledgerEntries.journalEntryId, je.id));
+
+      journalEntry = {
+        id: je.id,
+        description: je.description,
+        lines: jLines.map(l => ({ ...l, amount: Number(l.amount) })),
+      };
+    }
 
     res.json({
       id: grvId,
@@ -6539,6 +8636,14 @@ export async function registerRoutes(
       notes: first.notes || "",
       totalQuantity,
       totalCost,
+      status: "POSTED",
+      invoiceId,
+      invoiceNumber: matchingInvoice ? matchingInvoice.invoiceNumber : null,
+      purchaseOrderId,
+      matchingStatus,
+      landedCostsBreakdown,
+      serialNumbers,
+      journalEntry,
       lines,
     });
   });
@@ -6857,11 +8962,9 @@ export async function registerRoutes(
       if (isNaN(companyId)) return res.status(400).json({ message: "Invalid company ID" });
       
       // Ownership check
-      if (!(req.user as any).isSuperAdmin) {
-        const userCompanies = await storage.getCompanies((req.user as any).id);
-        if (!userCompanies.find((c: any) => c.id === companyId)) {
-          return res.status(403).json({ message: "Forbidden" });
-        }
+      const hasAccess = await checkCompanyAccess(req.user, companyId);
+      if (!hasAccess) {
+        return res.status(403).json({ message: "Forbidden" });
       }
 
       await storage.deleteCompanyProducts(companyId);
@@ -6993,7 +9096,7 @@ export async function registerRoutes(
 
   app.get("/api/tax-types", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
-    const companyId = req.query.companyId ? parseInt(req.query.companyId as string) : undefined;
+    const companyId = req.query.companyId ? parseInt(req.query.companyId as string) : (req.headers["x-company-id"] ? parseInt(req.headers["x-company-id"] as string) : undefined);
     // Allow seeing system defaults even if companyId is provided (logic inside storage)
     const taxes = await storage.getTaxTypes(companyId);
     res.json(taxes);
@@ -10110,11 +12213,9 @@ export async function registerRoutes(
         }
 
         // Company ownership check
-        if (!req.user.isSuperAdmin) {
-          const userCompanies = await storage.getCompanies(req.user.id);
-          if (!userCompanies.find((c: any) => c.id === companyId)) {
-            return res.status(403).json({ message: "Forbidden" });
-          }
+        const hasAccess = await checkCompanyAccess(req.user, companyId);
+        if (!hasAccess) {
+          return res.status(403).json({ message: "Forbidden" });
         }
 
         // Parse date range with current-month defaults
@@ -10153,11 +12254,9 @@ export async function registerRoutes(
       const companyId = Number(req.params.companyId);
       if (!companyId) return res.status(400).json({ message: "Invalid companyId" });
 
-      if (!req.user.isSuperAdmin) {
-        const userCompanies = await storage.getCompanies(req.user.id);
-        if (!userCompanies.find((company: any) => company.id === companyId)) {
-          return res.status(403).json({ message: "Forbidden" });
-        }
+      const hasAccess = await checkCompanyAccess(req.user, companyId);
+      if (!hasAccess) {
+        return res.status(403).json({ message: "Forbidden" });
       }
 
       const now = new Date();
@@ -10368,7 +12467,7 @@ export async function registerRoutes(
       const [pendingGdn] = await db
         .select({ count: sql<number>`count(*)` })
         .from(goodsDeliveryNotes)
-        .where(and(eq(goodsDeliveryNotes.companyId, companyId), eq(goodsDeliveryNotes.status, "PENDING")));
+        .where(and(eq(goodsDeliveryNotes.companyId, companyId), eq(goodsDeliveryNotes.status, "DRAFT")));
 
       const branchRows = Array.from(rowsByKey.values())
         .filter((row) => canSeeAllBranches || row.branchId !== null)
@@ -10515,6 +12614,9 @@ export async function registerRoutes(
 
   // Bus Ticketing direct web-admin access
   app.use("/api/companies/:companyId/bus-ticketing", requireAuth, busTicketingRouter);
+
+  // Payroll & HR direct access
+  app.use("/api/companies/:companyId/payroll", requireAuth, payrollRouter);
 
   // --- ACCOUNTING ROUTES ---
 
@@ -10937,9 +13039,45 @@ export async function registerRoutes(
       const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const asOfDate = req.query.date ? new Date(req.query.date as string) : new Date();
+      const branchId = req.query.branchId ? Number(req.query.branchId) : undefined;
       
-      // Use trial balance as the base data
-      const tb = await storage.getTrialBalance(companyId, asOfDate);
+      // Use trial balance as the base data — if branchId is specified, filter ledger entries to that branch
+      let tb: any[];
+      if (branchId) {
+        // Fetch only ledger entries for this branch
+        const rows = await db
+          .select({
+            accountId: accounts.id,
+            accountCode: accounts.code,
+            accountName: accounts.name,
+            accountType: accounts.type,
+            accountCategory: accounts.category,
+            debit: sql<number>`sum(case when ${ledgerEntries.type} = 'DEBIT' then ${ledgerEntries.amount} else 0 end)`,
+            credit: sql<number>`sum(case when ${ledgerEntries.type} = 'CREDIT' then ${ledgerEntries.amount} else 0 end)`,
+          })
+          .from(ledgerEntries)
+          .innerJoin(journalEntries, eq(ledgerEntries.journalEntryId, journalEntries.id))
+          .innerJoin(accounts, eq(ledgerEntries.accountId, accounts.id))
+          .where(and(
+            eq(journalEntries.companyId, companyId),
+            eq(ledgerEntries.branchId, branchId),
+            lte(journalEntries.entryDate, asOfDate)
+          ))
+          .groupBy(accounts.id, accounts.code, accounts.name, accounts.type, accounts.category)
+          .orderBy(accounts.code);
+        tb = rows.map((row: any) => ({
+          accountId: row.accountId,
+          accountCode: row.accountCode,
+          accountName: row.accountName,
+          accountType: row.accountType,
+          accountCategory: row.accountCategory,
+          debit: Number(row.debit || 0),
+          credit: Number(row.credit || 0),
+          balance: Number(row.debit || 0) - Number(row.credit || 0),
+        }));
+      } else {
+        tb = await storage.getTrialBalance(companyId, asOfDate);
+      }
       
       const reportLines = tb.map((line: any) => ({
         ...line,
@@ -10953,7 +13091,8 @@ export async function registerRoutes(
       }));
       const assets = reportLines.filter(a => a.type === 'ASSET');
       const liabilities = reportLines.filter(a => a.type === 'LIABILITY');
-      const equity = reportLines.filter(a => a.type === 'EQUITY');
+      // Exclude 3100 (Current Year Earnings) from general equity list to prevent double counting
+      const equity = reportLines.filter(a => a.type === 'EQUITY' && a.code !== '3100');
       const revenue = reportLines.filter(a => a.type === 'REVENUE');
       const expenses = reportLines.filter(a => a.type === 'EXPENSE');
 
@@ -10962,11 +13101,16 @@ export async function registerRoutes(
       const totalEquity = equity.reduce((sum, a) => sum + Number(a.balance), 0);
       const totalRevenue = revenue.reduce((sum, a) => sum + Number(a.balance), 0);
       const totalExpenses = expenses.reduce((sum, a) => sum + Number(a.balance), 0);
-      const currentYearEarnings = totalRevenue - totalExpenses;
+      
+      const cyeLine = reportLines.find(a => a.code === '3100');
+      const cyeLedgerBalance = cyeLine ? Number(cyeLine.balance) : 0;
+      const currentYearEarnings = (totalRevenue - totalExpenses) + cyeLedgerBalance;
+      
       const totalLiabilitiesAndEquity = totalLiabilities + totalEquity + currentYearEarnings;
 
       res.json({
         date: asOfDate,
+        branchId: branchId || null,
         assets,
         liabilities,
         equity,
@@ -11409,12 +13553,15 @@ export async function registerRoutes(
 
       const startDate = req.query.from ? new Date(req.query.from as string) : undefined;
       const endDate = req.query.to ? new Date(req.query.to as string) : undefined;
+      const branchId = req.query.branchId ? Number(req.query.branchId) : undefined;
+
       const filters: any[] = [
         eq(journalEntries.companyId, companyId),
         inArray(accounts.type, ["REVENUE", "EXPENSE"]),
       ];
       if (startDate) filters.push(gte(journalEntries.entryDate, startDate));
       if (endDate) filters.push(lte(journalEntries.entryDate, endDate));
+      if (branchId) filters.push(eq(ledgerEntries.branchId, branchId));
 
       const rows = await db
         .select({
@@ -11469,6 +13616,7 @@ export async function registerRoutes(
       res.json({
         startDate,
         endDate,
+        branchId: branchId || null,
         sections: {
           revenue,
           costOfSales,
@@ -11500,30 +13648,169 @@ export async function registerRoutes(
       
       const startDate = req.query.from ? new Date(req.query.from as string) : undefined;
       const endDate = req.query.to ? new Date(req.query.to as string) : undefined;
-      
-      // Grab all journal entries hitting Cash & Cash Equivalents 
-      // First get cash accounts
-      const accounts = await storage.getAccounts(companyId);
-      const cashAccounts = accounts.filter(a => a.type === 'ASSET' && String(a.code).startsWith('10'));
-      const cashAccountIds = cashAccounts.map(a => a.id);
-      
-      // In a real scenario we use a dedicated query, but here we can query ledger entries
-      const entriesProms = cashAccountIds.map(id => storage.getLedgerEntries(companyId, id, startDate, endDate));
-      const entriesArrays = await Promise.all(entriesProms);
-      
-      const allEntries = entriesArrays.flat().sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-      
-      // Group by money in / money out
-      const inflows = allEntries.filter(e => e.type === "DEBIT"); // debiting cash = money in
-      const outflows = allEntries.filter(e => e.type === "CREDIT"); // crediting cash = money out
-      
+      const branchId = req.query.branchId ? Number(req.query.branchId) : undefined;
+
+      // Build filters for journal entries in the period
+      const jeFilters: any[] = [eq(journalEntries.companyId, companyId)];
+      if (startDate) jeFilters.push(gte(journalEntries.entryDate, startDate));
+      if (endDate) jeFilters.push(lte(journalEntries.entryDate, endDate));
+      if (branchId) jeFilters.push(eq(journalEntries.branchId, branchId));
+
+      // Query ledger entries joined to accounts — classify by cashFlowCategory
+      const rows = await db
+        .select({
+          accountId: accounts.id,
+          accountCode: accounts.code,
+          accountName: accounts.name,
+          accountType: accounts.type,
+          cashFlowCategory: accounts.cashFlowCategory, // Operating, Investing, Financing
+          entryDate: journalEntries.entryDate,
+          description: journalEntries.description,
+          referenceType: journalEntries.referenceType,
+          referenceId: journalEntries.referenceId,
+          ledgerType: ledgerEntries.type,
+          amount: ledgerEntries.amount,
+        })
+        .from(ledgerEntries)
+        .innerJoin(journalEntries, eq(ledgerEntries.journalEntryId, journalEntries.id))
+        .innerJoin(accounts, eq(ledgerEntries.accountId, accounts.id))
+        .where(and(
+          ...jeFilters,
+          // Only touch Cash & Bank accounts (ASSET accounts with code starting with 1)
+          eq(accounts.type, 'ASSET'),
+        ))
+        .orderBy(journalEntries.entryDate);
+
+      // Separate cash accounts from non-cash (the assumption: DEBIT = cash in, CREDIT = cash out)
+      // Map each entry to a category
+      type CfLine = {
+        date: Date;
+        description: string;
+        accountCode: string;
+        accountName: string;
+        category: string;
+        type: 'inflow' | 'outflow';
+        amount: number;
+        referenceType: string | null;
+        referenceId: string | null;
+      };
+
+      const operatingInflows: CfLine[] = [];
+      const operatingOutflows: CfLine[] = [];
+      const investingInflows: CfLine[] = [];
+      const investingOutflows: CfLine[] = [];
+      const financingInflows: CfLine[] = [];
+      const financingOutflows: CfLine[] = [];
+
+      for (const row of rows) {
+        const isInflow = row.ledgerType === 'DEBIT';
+        const amount = Number(row.amount);
+        // Default: Operating if no cashFlowCategory is set on the account
+        const cat = (row.cashFlowCategory || 'Operating').toLowerCase();
+        const line: CfLine = {
+          date: row.entryDate,
+          description: row.description,
+          accountCode: row.accountCode,
+          accountName: row.accountName,
+          category: row.cashFlowCategory || 'Operating',
+          type: isInflow ? 'inflow' : 'outflow',
+          amount,
+          referenceType: row.referenceType,
+          referenceId: row.referenceId,
+        };
+        if (cat.includes('invest')) {
+          isInflow ? investingInflows.push(line) : investingOutflows.push(line);
+        } else if (cat.includes('financ')) {
+          isInflow ? financingInflows.push(line) : financingOutflows.push(line);
+        } else {
+          // Operating (default)
+          isInflow ? operatingInflows.push(line) : operatingOutflows.push(line);
+        }
+      }
+
+      const sumAmount = (lines: CfLine[]) => lines.reduce((s, l) => s + l.amount, 0);
+      const netOperating = sumAmount(operatingInflows) - sumAmount(operatingOutflows);
+      const netInvesting = sumAmount(investingInflows) - sumAmount(investingOutflows);
+      const netFinancing = sumAmount(financingInflows) - sumAmount(financingOutflows);
+      const netCashFlow = netOperating + netInvesting + netFinancing;
+
+      // Legacy flat format for backward compat with old frontend
+      const inflows = [...operatingInflows, ...investingInflows, ...financingInflows];
+      const outflows = [...operatingOutflows, ...investingOutflows, ...financingOutflows];
+
       res.json({
         startDate,
         endDate,
+        branchId: branchId || null,
+        // Structured IAS 7 format
+        operating: { inflows: operatingInflows, outflows: operatingOutflows, net: netOperating },
+        investing: { inflows: investingInflows, outflows: investingOutflows, net: netInvesting },
+        financing: { inflows: financingInflows, outflows: financingOutflows, net: netFinancing },
+        // Flat format for backward compat
         inflows,
         outflows,
-        netCashFlow: inflows.reduce((s, e) => s + Number(e.amount), 0) - outflows.reduce((s, e) => s + Number(e.amount), 0)
+        netCashFlow,
       });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Payment GL audit trail lookup
+  app.get("/api/accounting/payments/:paymentId/journal-entry", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+
+      const paymentId = Number(req.params.paymentId);
+      const [payment] = await db
+        .select()
+        .from(payments)
+        .where(and(eq(payments.id, paymentId), eq(payments.companyId, companyId)));
+
+      if (!payment) return res.status(404).json({ message: "Payment not found" });
+
+      // Try to find the journal entry: first by the stored journalEntryId, then by referenceId fallback
+      let je: any = null;
+      if ((payment as any).journalEntryId) {
+        const [found] = await db
+          .select()
+          .from(journalEntries)
+          .where(and(eq(journalEntries.id, (payment as any).journalEntryId), eq(journalEntries.companyId, companyId)));
+        je = found || null;
+      }
+      if (!je) {
+        // Fallback: look up by PAYMENT referenceType + paymentId
+        const [found] = await db
+          .select()
+          .from(journalEntries)
+          .where(and(
+            eq(journalEntries.companyId, companyId),
+            eq(journalEntries.referenceType, 'PAYMENT'),
+            eq(journalEntries.referenceId, paymentId.toString())
+          ));
+        je = found || null;
+      }
+
+      if (!je) return res.status(404).json({ message: "No journal entry found for this payment" });
+
+      // Fetch ledger lines
+      const lines = await db
+        .select({
+          id: ledgerEntries.id,
+          type: ledgerEntries.type,
+          amount: ledgerEntries.amount,
+          accountCode: accounts.code,
+          accountName: accounts.name,
+          accountType: accounts.type,
+          branchId: ledgerEntries.branchId,
+          memo: ledgerEntries.memo,
+        })
+        .from(ledgerEntries)
+        .innerJoin(accounts, eq(ledgerEntries.accountId, accounts.id))
+        .where(eq(ledgerEntries.journalEntryId, je.id));
+
+      res.json({ payment, journalEntry: je, lines });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -11535,6 +13822,17 @@ export async function registerRoutes(
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const assets = await storage.getFixedAssets(companyId);
       res.json(assets);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/accounting/fixed-assets/depreciation-runs", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const runs = await storage.getDepreciationRuns(companyId);
+      res.json(runs);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

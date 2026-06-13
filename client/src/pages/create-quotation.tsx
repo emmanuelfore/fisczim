@@ -518,13 +518,14 @@ export default function CreateQuotationPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[40%]">Description</TableHead>
-                  <TableHead className="w-[100px] text-center">Qty</TableHead>
-                  <TableHead className="text-right">Price</TableHead>
-                  <TableHead className="text-right w-[110px]">
+                  <TableHead className="w-[200px]">Item</TableHead>
+                  <TableHead>Description</TableHead>
+                  <TableHead className="w-[80px] text-center">Qty</TableHead>
+                  <TableHead className="text-right w-[180px]">Price</TableHead>
+                  <TableHead className="text-right w-[140px]">
                     VAT Amt
                   </TableHead>
-                  <TableHead className="text-right w-[110px]">Amount</TableHead>
+                  <TableHead className="text-right w-[150px]">Amount</TableHead>
                   <TableHead className="w-[50px]"></TableHead>
                 </TableRow>
               </TableHeader>

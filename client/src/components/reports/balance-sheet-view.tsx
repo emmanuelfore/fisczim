@@ -8,6 +8,7 @@ interface BalanceSheetViewProps {
   dateRange: { from: Date; to: Date };
   consolidatedSymbol: string;
   consolidatedRate: number;
+  branchId?: number;
 }
 
 export function BalanceSheetView({
@@ -15,10 +16,18 @@ export function BalanceSheetView({
   dateRange,
   consolidatedSymbol,
   consolidatedRate,
+  branchId,
 }: BalanceSheetViewProps) {
   const asOfDate = format(dateRange.to, "yyyy-MM-dd");
+  const branchParam = branchId ? `&branchId=${branchId}` : "";
   const { data, isLoading } = useQuery<any>({
-    queryKey: [`/api/accounting/reports/balance-sheet`, { date: asOfDate }],
+    queryKey: [`/api/accounting/reports/balance-sheet`, { date: asOfDate, branchId }],
+    queryFn: async () => {
+      const res = await fetch(`/api/accounting/reports/balance-sheet?date=${asOfDate}${branchParam}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load balance sheet");
+      return res.json();
+    },
+    enabled: !!companyId,
   });
 
   if (isLoading) {

@@ -42,6 +42,8 @@ export type InvoiceTemplateDesignerSettings = {
   logoPlacement: "left" | "center" | "right";
   qrPlacement: "header-right" | "header-center" | "footer";
   density: "comfortable" | "compact";
+  showPartnership?: boolean;
+  partnerLogoPlacement?: "side_by_side" | "primary_secondary" | "stacked" | "right_header";
 };
 
 export const invoiceTemplates: InvoiceTemplate[] = [
@@ -72,6 +74,8 @@ export const defaultInvoiceTemplateSettings: InvoiceTemplateDesignerSettings = {
   logoPlacement: "left",
   qrPlacement: "header-right",
   density: "comfortable",
+  showPartnership: false,
+  partnerLogoPlacement: "side_by_side",
 };
 
 export function getInvoiceTemplate(id?: string | null) {

@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { apiFetch } from "@/lib/api";
 
-type ImportType = "customer" | "product" | "service";
+type ImportType = "customer" | "product" | "service" | "supplier";
 
 interface CsvImportDialogProps {
   type: ImportType;
@@ -49,7 +49,10 @@ export function CsvImportDialog({
 
   const getTemplate = () => {
     if (type === "customer") {
-      return "Name,Email,Phone,Address,TIN,VAT Number,Type\nJohn Doe,john@example.com,0771234567,123 Street,100100100,12345678,Individual\nACME Corp,info@acme.com,0242123456,Industrial Site,200200200,87654321,Business";
+      return "Name,Email,Phone,Address,TIN,VAT Number,Type,Balance\nJohn Doe,john@example.com,0771234567,123 Street,100100100,12345678,Individual,50.00\nACME Corp,info@acme.com,0242123456,Industrial Site,200200200,87654321,Business,0.00";
+    }
+    if (type === "supplier") {
+      return "Name,Contact Person,Email,Phone,Address,TIN,VAT Number,Balance\nSupplier Inc,Jane Smith,jane@supplier.com,0777111222,456 Market St,300300300,55555555,100.00";
     }
     if (type === "product") {
       return "Name,Description,SKU,Barcode,Price,Cost Price,Tax Type,Type,Stock,HS Code,Category,Cost Center,Track Inventory\nWidget A,High quality widget,WID-001,600123456789,10.00,7.50,VAT,Good,100,0000.00.00,General,Mother,Yes\nConsulting,Hourly rate,SVC-001,,50.00,0.00,EXEMPT,Service,0,,Services,Beauty,No";
@@ -84,7 +87,9 @@ export function CsvImportDialog({
     // For now, services are products with type='service'.
     // The endpoint `/api/import/products` handles discrimination via CSV column 'Type'.
     const endpoint =
-      type === "customer" ? "/api/import/customers" : "/api/import/products";
+      type === "customer" ? "/api/import/customers" : 
+      type === "supplier" ? "/api/import/suppliers" : 
+      "/api/import/products";
 
     try {
       const res = await apiFetch(endpoint, {
@@ -154,7 +159,7 @@ export function CsvImportDialog({
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle>
-            Import {type === "customer" ? "Customers" : "Products & Services"}
+            Import {type === "customer" ? "Customers" : type === "supplier" ? "Suppliers" : "Products & Services"}
           </DialogTitle>
           <DialogDescription>
             Upload a CSV file to bulk import data.

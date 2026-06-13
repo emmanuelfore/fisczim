@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { CreateSupplierDialog } from "@/components/suppliers/create-supplier-dialog";
 import { EditSupplierDialog } from "@/components/suppliers/edit-supplier-dialog";
+import { CsvImportDialog } from "@/components/csv-import-dialog";
 import { DeleteButton } from "@/components/delete-button";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -87,7 +88,14 @@ export default function SuppliersPage() {
               Export CSV
             </Button>
             {companyId > 0 ? (
-              <CreateSupplierDialog companyId={companyId} />
+              <>
+                <CsvImportDialog
+                  type="supplier"
+                  companyId={companyId}
+                  onSuccess={() => window.location.reload()}
+                />
+                <CreateSupplierDialog companyId={companyId} />
+              </>
             ) : (
               <Button disabled variant="outline">
                 Select a Company First
@@ -150,6 +158,7 @@ export default function SuppliersPage() {
                 <th className="p-6 font-bold text-slate-400">Supplier Name</th>
                 <th className="p-6 font-bold text-slate-400">Contact</th>
                 <th className="p-6 font-bold text-slate-400">Tax Details</th>
+                <th className="p-6 font-bold text-slate-400 text-right">Balance</th>
                 <th className="p-6 font-bold text-slate-400 text-right">
                   Actions
                 </th>
@@ -255,6 +264,11 @@ export default function SuppliersPage() {
                           </span>
                         )}
                       </div>
+                    </td>
+                    <td className="p-6 text-right align-middle">
+                      <span className={`font-bold font-mono ${Number((s as any).openingBalance) > 0 ? "text-rose-600" : "text-slate-600"}`}>
+                        ${Number((s as any).openingBalance || 0).toFixed(2)}
+                      </span>
                     </td>
                     <td className="p-6 text-right align-middle">
                       <div className="flex justify-end items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">

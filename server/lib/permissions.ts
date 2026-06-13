@@ -12,6 +12,20 @@ export async function getUserPermissions(
   isSuperAdmin?: boolean
 ): Promise<Set<PermissionKey>> {
   if (isSuperAdmin) {
+    const user = await storage.getUser(userId);
+    const isSystemAdmin = user?.email === 'admin@zimra.co.zw';
+    if (!isSystemAdmin) {
+      const company = await storage.getCompany(companyId);
+      if (!company || company.superadminVisible === false) {
+        return new Set();
+      }
+      const systemAdminOnlyCompanies = new Set(['goosehill trading', 'glorious tire services', 'spares arena']);
+      const companyName = (company.name || "").toLowerCase();
+      const tradingName = (company.tradingName || "").toLowerCase();
+      if (systemAdminOnlyCompanies.has(companyName) || systemAdminOnlyCompanies.has(tradingName)) {
+        return new Set();
+      }
+    }
     return new Set(ALL_PERMISSION_KEYS);
   }
 
@@ -73,9 +87,7 @@ export async function canRequestAction(
   directPermission: PermissionKey,
   isSuperAdmin?: boolean
 ): Promise<{ allowed: boolean; requiresApproval: boolean }> {
-  if (isSuperAdmin) return { allowed: true, requiresApproval: false };
-
-  const perms = await getUserPermissions(userId, companyId, false);
+  const perms = await getUserPermissions(userId, companyId, isSuperAdmin);
   if (perms.has(directPermission)) {
     return { allowed: true, requiresApproval: false };
   }

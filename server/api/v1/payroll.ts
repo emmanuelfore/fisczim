@@ -18,6 +18,7 @@ import { eq, and, desc, asc, ne, sql, gte, lte } from "drizzle-orm";
 import { ZimbabwePayrollEngine, type TaxBracket } from "../../../shared/payroll-engine.js";
 import { logAction } from "../../audit.js";
 import crypto from "crypto";
+import { userHasPermission } from "../../lib/permissions.js";
 
 const router = Router({ mergeParams: true });
 
@@ -76,8 +77,15 @@ async function resolvePayrollRole(req: any, companyId: number): Promise<string |
 router.use(async (req: any, res, next) => {
   try {
     const companyId = getTargetCompanyId(req);
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ error: "UNAUTHORIZED", message: "User not authenticated" });
+    }
+    const hasRead = req.user?.isSuperAdmin || await userHasPermission(userId, companyId, "payroll.view", false);
     const role = await resolvePayrollRole(req, companyId);
-    if (!role || !PAYROLL_READ_ROLES.has(role)) {
+    const isLegacyAllowed = role && PAYROLL_READ_ROLES.has(role);
+
+    if (!hasRead && !isLegacyAllowed) {
       return res.status(403).json({ error: "FORBIDDEN", message: "You do not have payroll access for this company" });
     }
     req.payrollRole = role;
@@ -87,18 +95,36 @@ router.use(async (req: any, res, next) => {
   }
 });
 
-function requirePayrollWrite(req: any, res: any, next: any) {
-  if (!PAYROLL_WRITE_ROLES.has(req.payrollRole)) {
-    return res.status(403).json({ error: "FORBIDDEN", message: "Payroll write permission required" });
+async function requirePayrollWrite(req: any, res: any, next: any) {
+  try {
+    const companyId = getTargetCompanyId(req);
+    const userId = req.user?.id;
+    const hasWrite = req.user?.isSuperAdmin || await userHasPermission(userId, companyId, "payroll.write", false);
+    const isLegacyAllowed = PAYROLL_WRITE_ROLES.has(req.payrollRole);
+
+    if (!hasWrite && !isLegacyAllowed) {
+      return res.status(403).json({ error: "FORBIDDEN", message: "Payroll write permission required" });
+    }
+    next();
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
   }
-  next();
 }
 
-function requirePayrollApproval(req: any, res: any, next: any) {
-  if (!PAYROLL_APPROVAL_ROLES.has(req.payrollRole)) {
-    return res.status(403).json({ error: "FORBIDDEN", message: "Payroll approval permission required" });
+async function requirePayrollApproval(req: any, res: any, next: any) {
+  try {
+    const companyId = getTargetCompanyId(req);
+    const userId = req.user?.id;
+    const hasApprove = req.user?.isSuperAdmin || await userHasPermission(userId, companyId, "payroll.approve", false);
+    const isLegacyAllowed = PAYROLL_APPROVAL_ROLES.has(req.payrollRole);
+
+    if (!hasApprove && !isLegacyAllowed) {
+      return res.status(403).json({ error: "FORBIDDEN", message: "Payroll approval permission required" });
+    }
+    next();
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
   }
-  next();
 }
 
 async function auditPayroll(req: any, action: string, entityType: string, entityId?: string | number, details?: Record<string, unknown>) {

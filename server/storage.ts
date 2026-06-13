@@ -20,9 +20,10 @@ import {
   posHolds, type PosHold, type InsertPosHold,
   branches, branchUsers, branchStocks,
   type Branch, type InsertBranch, type BranchUser, type BranchStock,
+  costCenters, type CostCenter, type InsertCostCenter,
   productCategories, type ProductCategory, type InsertProductCategory,
   resetTokens, insertResetTokenSchema,
-  suppliers, inventoryTransactions, expenses, purchaseOrders, purchaseOrderItems,
+  suppliers, inventoryTransactions, expenses, purchaseOrders, purchaseOrderItems, goodsDeliveryNotes,
   type Supplier, type InsertSupplier,
   type InventoryTransaction, type InsertInventoryTransaction,
   type Expense, type InsertExpense,
@@ -57,10 +58,13 @@ import {
   type ProductSerialNumber, type InsertProductSerialNumber,
   type WarrantyClaim, type InsertWarrantyClaim,
   type Layby, type InsertLayby, type LaybyItem, type InsertLaybyItem,
-  type LaybyPayment, type InsertLaybyPayment
+  type LaybyPayment, type InsertLaybyPayment,
+  inventoryValuationSnapshots,
+  inventoryLocations,
+  inventoryLocationStocks
 } from "../shared/schema.js";
 import { db } from "./db.js";
-import { eq, and, asc, desc, lte, gte, lt, ne, or, isNull, sql, ilike, count, inArray, gt } from "drizzle-orm";
+import { eq, and, asc, desc, lte, gte, lt, ne, or, isNull, sql, ilike, count, inArray, gt, not } from "drizzle-orm";
 import { type FiscalDayCounter } from "./zimra.js";
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
@@ -72,18 +76,21 @@ const DEFAULT_ACCOUNTING_SYSTEM_ACCOUNTS = {
   cashAccountCode: "1000",
   accountsReceivableCode: "1200",
   inventoryAccountCode: "1300",
+  inventoryInTransitCode: "1310",   // Inter-location inventory-in-transit account
   accountsPayableCode: "2000",
-  vatOutputAccountCode: "2100",
-  vatInputAccountCode: "2110",
+  vatOutputAccountCode: "2200",
+  vatInputAccountCode: "1420",
   salesRevenueAccountCode: "4000",
   cogsAccountCode: "5000",
   generalExpenseAccountCode: "5100",
-  fxGainAccountCode: "4900",
-  fxLossAccountCode: "5900",
-  withholdingTaxPayableCode: "2120",
-  grniAccountCode: "2010",
-  landedCostClearingAccountCode: "2020",
+  fxGainAccountCode: "4100",
+  fxLossAccountCode: "5300",
+  withholdingTaxPayableCode: "2200",
+  grniAccountCode: "2000",
+  landedCostClearingAccountCode: "2000",
+  partnerPayableAccountCode: "2000",
 } as const;
+
 
 type AccountingSystemAccountKey = keyof typeof DEFAULT_ACCOUNTING_SYSTEM_ACCOUNTS;
 
@@ -155,6 +162,7 @@ type LedgerPostData = {
   referenceId?: string;
   reference?: string;
   createdBy?: string;
+  branchId?: number; // Optional branch context for GL segregation
   lines: LedgerPostLine[];
 };
 
@@ -181,7 +189,7 @@ export interface IStorage {
   updateCompany(id: number, data: Partial<InsertCompany>): Promise<Company>;
 
   // Customers
-  getCustomers(companyId: number): Promise<Customer[]>;
+  getCustomers(companyId: number): Promise<(Customer & { balance?: number })[]>;
   getCustomer(id: number): Promise<Customer | undefined>;
   createCustomer(customer: InsertCustomer): Promise<Customer>;
   updateCustomer(id: number, customer: Partial<InsertCustomer>): Promise<Customer>;
@@ -194,7 +202,7 @@ export interface IStorage {
   getProductBySku(companyId: number, sku: string): Promise<Product | undefined>;
   deleteCompanyProducts(companyId: number): Promise<void>;
   getProductsForExport(companyId: number): Promise<any[]>;
-  getProductSerialNumbers(companyId: number, productId?: number, status?: string): Promise<ProductSerialNumber[]>;
+  getProductSerialNumbers(companyId: number, productId?: number, status?: string): Promise<any[]>;
   createProductSerialNumbers(data: Array<InsertProductSerialNumber & { companyId: number }>): Promise<ProductSerialNumber[]>;
   updateProductSerialNumber(id: number, companyId: number, data: Partial<InsertProductSerialNumber>): Promise<ProductSerialNumber>;
   getWarrantyClaims(companyId: number): Promise<WarrantyClaim[]>;
@@ -370,12 +378,13 @@ export interface IStorage {
   getFixedAssets(companyId: number): Promise<FixedAsset[]>;
   createFixedAsset(data: InsertFixedAsset & { accumulatedDepreciation?: number, netBookValue?: number }): Promise<FixedAsset>;
   runDepreciation(companyId: number, asOfDate: Date, userId: string): Promise<{ success: boolean; depreciatedCount: number; amount: number }>;
+  getDepreciationRuns(companyId: number): Promise<any[]>;
   
   // Financial Periods
   getFinancialPeriods(companyId: number): Promise<FinancialPeriod[]>;
   createFinancialPeriod(data: InsertFinancialPeriod): Promise<FinancialPeriod>;
   toggleFinancialPeriod(id: number, status: string): Promise<FinancialPeriod>;
-  runYearEndClose(companyId: number, asOfDate: Date, retainedEarningsCode?: string): Promise<void>;
+  runYearEndClose(companyId: number, asOfDate: Date, currentYearEarningsCode?: string, retainedEarningsCode?: string): Promise<void>;
   createPosShift(data: InsertPosShift): Promise<PosShift>;
   updatePosShift(id: number, userId: string, data: Partial<PosShift>): Promise<PosShift>;
 
@@ -393,7 +402,7 @@ export interface IStorage {
   clearTestInvoices(companyId: number): Promise<number>;
 
   // Suppliers
-  getSuppliers(companyId: number): Promise<Supplier[]>;
+  getSuppliers(companyId: number): Promise<(Supplier & { balance?: number })[]>;
   getSupplier(id: number): Promise<Supplier | undefined>;
   createSupplier(data: InsertSupplier & { companyId: number }): Promise<Supplier>;
   updateSupplier(id: number, data: Partial<InsertSupplier>): Promise<Supplier | undefined>;
@@ -405,6 +414,7 @@ export interface IStorage {
   // Inventory Transactions
   getInventoryTransactions(companyId: number, productId?: number, ownerGroup?: string): Promise<InventoryTransaction[]>;
   createInventoryTransaction(data: InsertInventoryTransaction & { companyId: number }): Promise<InventoryTransaction>;
+  createInventoryValuationSnapshot(companyId: number, asOfDate: Date, userId?: string, branchId?: number): Promise<any>;
 
   // Expenses
   getExpenses(companyId: number): Promise<Expense[]>;
@@ -493,6 +503,13 @@ export interface IStorage {
   getUserBranches(userId: string): Promise<Branch[]>;
   addUserToBranch(userId: string, branchId: number, role?: string): Promise<void>;
 
+  // Cost Centers
+  getCostCenters(companyId: number): Promise<CostCenter[]>;
+  getCostCenter(id: number): Promise<CostCenter | undefined>;
+  createCostCenter(data: InsertCostCenter): Promise<CostCenter>;
+  updateCostCenter(id: number, data: Partial<CostCenter>): Promise<CostCenter>;
+  deleteCostCenter(id: number): Promise<void>;
+
   // Branch Stock
   getBranchStock(branchId: number, productId: number): Promise<BranchStock | undefined>;
   updateBranchStock(branchId: number, productId: number, stockLevel: string): Promise<void>;
@@ -517,7 +534,7 @@ export interface IStorage {
   postJournalEntryDraft(companyId: number, draftId: number, userId?: string): Promise<JournalEntry>;
   getLedgerEntries(companyId: number, accountId?: number, dateFrom?: Date, dateTo?: Date): Promise<any[]>;
   getTrialBalance(companyId: number, date?: Date): Promise<any[]>;
-  getVatReturn(companyId: number, fromDate?: Date, toDate?: Date): Promise<{ outputVat: number; inputVat: number; netVat: number }>;
+  getVatReturn(companyId: number, fromDate?: Date, toDate?: Date): Promise<{ outputVat: number; inputVat: number; netVat: number; inputVatBreakdown?: any[]; outputVatBreakdown?: any[] }>;
   postToLedger(companyId: number, entryData: LedgerPostData, tx?: any): Promise<JournalEntry>;
   
   // Bank Reconciliation
@@ -592,6 +609,32 @@ export class DatabaseStorage implements IStorage {
 
     if (Math.abs(totalDebit - totalCredit) > 0.005) {
       throw new Error(`Journal entry is out of balance. Debits: ${totalDebit.toFixed(2)}, Credits: ${totalCredit.toFixed(2)}`);
+    }
+  }
+
+  private async checkControlAccounts(companyId: number, lines: Array<{ accountId: number; accountName: string; accountCode: string }>, referenceType?: string, tx: any = db) {
+    const isManual = !referenceType || ["JOURNAL", "MANUAL", "GENERAL"].includes(referenceType);
+    if (!isManual) return; // Permit system postings
+
+    const accountIds = lines.map(line => line.accountId);
+    if (accountIds.length === 0) return;
+
+    // Check if any of these accounts are control accounts
+    const controlAccounts = await tx.select({
+      id: accounts.id,
+      name: accounts.name,
+      code: accounts.code
+    })
+    .from(accounts)
+    .where(and(
+      eq(accounts.companyId, companyId),
+      eq(accounts.isControlAccount, true),
+      inArray(accounts.id, accountIds)
+    ));
+
+    if (controlAccounts.length > 0) {
+      const names = controlAccounts.map((a: any) => `${a.name} (${a.code})`).join(", ");
+      throw new Error(`Cannot manually post to Control Account(s): ${names}. Control accounts only accept system-generated postings.`);
     }
   }
 
@@ -746,7 +789,8 @@ export class DatabaseStorage implements IStorage {
         allCompanies = allCompanies.filter(c => {
           const companyName = (c.name || "").toLowerCase();
           const tradingName = (c.tradingName || "").toLowerCase();
-          return !systemAdminOnlyCompanies.has(companyName) && !systemAdminOnlyCompanies.has(tradingName);
+          const isSystemOnly = systemAdminOnlyCompanies.has(companyName) || systemAdminOnlyCompanies.has(tradingName);
+          return !isSystemOnly && c.superadminVisible !== false;
         });
       }
 
@@ -832,13 +876,31 @@ export class DatabaseStorage implements IStorage {
     return `FS-${nextNumber.toString().padStart(5, '0')}`;
   }
 
-  async getCustomers(companyId: number): Promise<Customer[]> {
-    return await db.select().from(customers).where(
+  async getCustomers(companyId: number): Promise<(Customer & { balance?: number })[]> {
+    const results = await db.select({
+      customer: customers,
+      balance: sql<number>`COALESCE(SUM(
+        CASE 
+          WHEN ${invoices.status} NOT IN ('draft', 'cancelled') 
+          THEN ${invoices.total} - ${invoices.paidAmount} 
+          ELSE 0 
+        END
+      ), 0)`
+    })
+    .from(customers)
+    .leftJoin(invoices, eq(customers.id, invoices.customerId))
+    .where(
       and(
         eq(customers.companyId, companyId),
         eq(customers.isActive, true)
       )
-    );
+    )
+    .groupBy(customers.id);
+
+    return results.map(r => ({
+      ...r.customer,
+      balance: Number(r.balance)
+    }));
   }
 
   async getCustomer(id: number): Promise<Customer | undefined> {
@@ -913,15 +975,34 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async getProductSerialNumbers(companyId: number, productId?: number, status?: string): Promise<ProductSerialNumber[]> {
+  async getProductSerialNumbers(companyId: number, productId?: number, status?: string): Promise<any[]> {
     const filters: any[] = [eq(productSerialNumbers.companyId, companyId)];
     if (productId) filters.push(eq(productSerialNumbers.productId, productId));
     if (status) filters.push(eq(productSerialNumbers.status, status));
-    return await db
-      .select()
+    const rows = await db
+      .select({
+        id: productSerialNumbers.id,
+        companyId: productSerialNumbers.companyId,
+        branchId: productSerialNumbers.branchId,
+        productId: productSerialNumbers.productId,
+        serialNumber: productSerialNumbers.serialNumber,
+        status: productSerialNumbers.status,
+        supplierId: productSerialNumbers.supplierId,
+        receivedInventoryTransactionId: productSerialNumbers.receivedInventoryTransactionId,
+        soldInvoiceId: productSerialNumbers.soldInvoiceId,
+        soldInvoiceItemId: productSerialNumbers.soldInvoiceItemId,
+        soldAt: productSerialNumbers.soldAt,
+        warrantyExpiresAt: productSerialNumbers.warrantyExpiresAt,
+        notes: productSerialNumbers.notes,
+        createdAt: productSerialNumbers.createdAt,
+        updatedAt: productSerialNumbers.updatedAt,
+        soldInvoiceNumber: invoices.invoiceNumber,
+      })
       .from(productSerialNumbers)
+      .leftJoin(invoices, eq(productSerialNumbers.soldInvoiceId, invoices.id))
       .where(and(...filters))
       .orderBy(desc(productSerialNumbers.createdAt));
+    return rows;
   }
 
   async createProductSerialNumbers(data: Array<InsertProductSerialNumber & { companyId: number }>): Promise<ProductSerialNumber[]> {
@@ -1272,10 +1353,12 @@ export class DatabaseStorage implements IStorage {
         invoice: invoices,
         customer: customers,
         latestErrorMsg: latestErrorSubquery.errorMessage,
-        latestErrorColor: latestErrorSubquery.errorColor
+        latestErrorColor: latestErrorSubquery.errorColor,
+        createdByName: users.name,
       })
       .from(invoices)
       .leftJoin(customers, eq(invoices.customerId, customers.id))
+      .leftJoin(users, eq(invoices.createdBy, users.id))
       .leftJoin(latestErrorSubquery, and(
         eq(invoices.id, latestErrorSubquery.invoiceId),
         eq(latestErrorSubquery.rn, 1)
@@ -1287,12 +1370,14 @@ export class DatabaseStorage implements IStorage {
 
     const data: Array<Invoice & {
       customer?: Customer;
+      createdByName?: string;
       latestError?: { message: string; color: string };
       relatedInvoiceNumber?: string | null;
       linkedDocuments?: Array<{ id: number; invoiceNumber: string; transactionType: string | null }>;
     }> = rows.map(r => ({
       ...r.invoice,
       customer: r.customer || undefined,
+      createdByName: r.createdByName || undefined,
       latestError: r.latestErrorMsg ? {
         message: r.latestErrorMsg,
         color: r.latestErrorColor || 'Red'
@@ -1475,6 +1560,171 @@ export class DatabaseStorage implements IStorage {
         dueDate: new Date(invoiceData.dueDate), // Ensure Date object
       }).returning();
 
+      // Enterprise Inventory Isolation:
+      // Resolve the branch warehouse location and adjust stock through inventory_location_stocks.
+      const ensureCompanyInventoryLocations = async (tempTx: any, compId: number) => {
+        const existing = await tempTx
+          .select()
+          .from(inventoryLocations)
+          .where(eq(inventoryLocations.companyId, compId));
+
+        const existingWarehouse = existing.find((l: any) => l.type === "WAREHOUSE" && !l.branchId);
+        if (!existingWarehouse) {
+          const [wh] = await tempTx.insert(inventoryLocations).values({
+            companyId: compId,
+            type: "WAREHOUSE",
+            name: "Main Warehouse",
+            code: "MAIN-WAREHOUSE",
+            isDefaultReceiving: true,
+            isDefaultDispatch: true,
+            isActive: true,
+          }).returning();
+          existing.push(wh);
+        }
+
+        const companyBranches = await tempTx.select().from(branches).where(eq(branches.companyId, compId));
+        const existingBranchLocationIds = new Set(
+          existing
+            .filter((l: any) => l.branchId)
+            .map((l: any) => Number(l.branchId)),
+        );
+        for (const b of companyBranches) {
+          if (existingBranchLocationIds.has(b.id)) continue;
+          const [bl] = await tempTx.insert(inventoryLocations).values({
+            companyId: compId,
+            type: "BRANCH",
+            name: b.name,
+            code: b.code || `BRANCH-${b.id}`,
+            address: b.address || null,
+            branchId: b.id,
+            isActive: b.isActive ?? true,
+          }).returning();
+          existing.push(bl);
+        }
+        return existing;
+      };
+
+      const resolveInventoryLocation = async (
+        tempTx: any,
+        compId: number,
+        brId: number | null
+      ) => {
+        const locations = await ensureCompanyInventoryLocations(tempTx, compId);
+        let location;
+        if (brId) {
+          location = locations.find((l: any) => l.branchId === brId);
+        }
+        if (!location) {
+          location = locations.find((l: any) => l.isDefaultDispatch);
+        }
+        if (!location) {
+          location = locations.find((l: any) => l.type === "WAREHOUSE");
+        }
+        if (!location) {
+          throw new Error("No default inventory location or warehouse found for this company.");
+        }
+        return location;
+      };
+
+      const invoiceLocation = await resolveInventoryLocation(tx, invoiceData.companyId, invoiceData.branchId || null);
+
+      const adjustLocationStock = async (
+        tempTx: any,
+        pId: number,
+        qtyDelta: number,
+        loc: any
+      ) => {
+        // 1. Update/Insert inventory_location_stocks
+        const [stock] = await tempTx
+          .select()
+          .from(inventoryLocationStocks)
+          .where(and(eq(inventoryLocationStocks.locationId, loc.id), eq(inventoryLocationStocks.productId, pId)))
+          .limit(1);
+        const next = Number(stock?.stockLevel || 0) + qtyDelta;
+        const nextText = next.toString();
+
+        if (stock) {
+          await tempTx
+            .update(inventoryLocationStocks)
+            .set({
+              stockLevel: nextText,
+              availableQuantity: nextText,
+              updatedAt: new Date(),
+            })
+            .where(eq(inventoryLocationStocks.id, stock.id));
+        } else {
+          await tempTx.insert(inventoryLocationStocks).values({
+            locationId: loc.id,
+            productId: pId,
+            stockLevel: nextText,
+            reservedQuantity: "0",
+            availableQuantity: nextText,
+          });
+        }
+
+        // 2. Sum branch stocks
+        if (loc.branchId) {
+          const branchLocations = await tempTx
+            .select({ id: inventoryLocations.id })
+            .from(inventoryLocations)
+            .where(eq(inventoryLocations.branchId, loc.branchId));
+          
+          const locationIds = branchLocations.map((l: any) => l.id);
+          let totalBranchStock = 0;
+          if (locationIds.length > 0) {
+            const [sumRow] = await tempTx
+              .select({
+                total: sql<string>`coalesce(sum(${inventoryLocationStocks.stockLevel}::numeric), 0)`
+              })
+              .from(inventoryLocationStocks)
+              .where(and(
+                inArray(inventoryLocationStocks.locationId, locationIds),
+                eq(inventoryLocationStocks.productId, pId)
+              ));
+            totalBranchStock = Number(sumRow?.total || 0);
+          }
+
+          const [branchStock] = await tempTx
+            .select()
+            .from(branchStocks)
+            .where(and(eq(branchStocks.branchId, loc.branchId), eq(branchStocks.productId, pId)))
+            .limit(1);
+
+          if (branchStock) {
+            await tempTx.update(branchStocks).set({ stockLevel: totalBranchStock.toString() }).where(eq(branchStocks.id, branchStock.id));
+          } else {
+            await tempTx.insert(branchStocks).values({
+              branchId: loc.branchId,
+              productId: pId,
+              stockLevel: totalBranchStock.toString(),
+            });
+          }
+        }
+
+        // 3. Sum global stock
+        const companyLocations = await tempTx
+          .select({ id: inventoryLocations.id })
+          .from(inventoryLocations)
+          .where(eq(inventoryLocations.companyId, loc.companyId));
+        
+        const companyLocIds = companyLocations.map((l: any) => l.id);
+        let totalCompanyStock = 0;
+        if (companyLocIds.length > 0) {
+          const [sumRow] = await tempTx
+            .select({
+              total: sql<string>`coalesce(sum(${inventoryLocationStocks.stockLevel}::numeric), 0)`
+            })
+            .from(inventoryLocationStocks)
+            .where(and(
+              inArray(inventoryLocationStocks.locationId, companyLocIds),
+              eq(inventoryLocationStocks.productId, pId)
+            ));
+          totalCompanyStock = Number(sumRow?.total || 0);
+        }
+
+        await tempTx.update(products).set({ stockLevel: totalCompanyStock.toString() }).where(eq(products.id, pId));
+      };
+
       const { calculateCOGS } = await import("./lib/inventory.js");
 
       if (items.length > 0) {
@@ -1502,6 +1752,7 @@ export class DatabaseStorage implements IStorage {
                     await tx.insert(inventoryTransactions).values({
                       companyId: invoiceData.companyId,
                       branchId: invoiceData.branchId || null,
+                      locationId: invoiceLocation.id,
                       productId: ingredient.id,
                       type: "STOCK_OUT",
                       quantity: (-ingredientQty).toString(),
@@ -1514,6 +1765,7 @@ export class DatabaseStorage implements IStorage {
                     await tx.insert(inventoryTransactions).values({
                       companyId: invoiceData.companyId,
                       branchId: invoiceData.branchId || null,
+                      locationId: invoiceLocation.id,
                       productId: ingredient.id,
                       type: "ADJUSTMENT",
                       quantity: ingredientQty.toString(),
@@ -1525,31 +1777,7 @@ export class DatabaseStorage implements IStorage {
                   }
 
                   const recipeStockChange = invoiceData.transactionType === 'CreditNote' ? ingredientQty : -ingredientQty;
-                  const newIngStock = (parseFloat(ingredient.stockLevel || "0") + recipeStockChange).toString();
-                  await tx.update(products).set({ stockLevel: newIngStock }).where(eq(products.id, ingredient.id));
-
-                  if (invoiceData.branchId) {
-                    const [currentBranchStock] = await tx
-                      .select()
-                      .from(branchStocks)
-                      .where(and(
-                        eq(branchStocks.branchId, invoiceData.branchId),
-                        eq(branchStocks.productId, ingredient.id)
-                      ));
-
-                    const newBranchStock = (parseFloat(currentBranchStock?.stockLevel || "0") + recipeStockChange).toString();
-                    await tx
-                      .insert(branchStocks)
-                      .values({
-                        branchId: invoiceData.branchId,
-                        productId: ingredient.id,
-                        stockLevel: newBranchStock
-                      })
-                      .onConflictDoUpdate({
-                        target: [branchStocks.branchId, branchStocks.productId],
-                        set: { stockLevel: newBranchStock }
-                      });
-                  }
+                  await adjustLocationStock(tx, recipe.ingredientProductId, recipeStockChange, invoiceLocation);
                 }
               }
               cogsAmount = totalRecipeCogs;
@@ -1566,6 +1794,7 @@ export class DatabaseStorage implements IStorage {
                 await tx.insert(inventoryTransactions).values({
                   companyId: invoiceData.companyId,
                   branchId: invoiceData.branchId || null,
+                  locationId: invoiceLocation.id,
                   productId: item.productId,
                   type: "STOCK_OUT",
                   quantity: (-quantity).toString(),
@@ -1579,6 +1808,7 @@ export class DatabaseStorage implements IStorage {
                 await tx.insert(inventoryTransactions).values({
                   companyId: invoiceData.companyId,
                   branchId: invoiceData.branchId || null,
+                  locationId: invoiceLocation.id,
                   productId: item.productId,
                   type: "ADJUSTMENT",
                   quantity: quantity.toString(),
@@ -1589,37 +1819,9 @@ export class DatabaseStorage implements IStorage {
                 });
               }
 
-              // Update stock level on product (Global)
+              // Update stock level through location-scoped stock logic
               const stockChange = invoiceData.transactionType === 'CreditNote' ? quantity : -quantity;
-              const newStockLevel = (parseFloat(product.stockLevel || "0") + stockChange).toString();
-              await tx.update(products)
-                .set({ stockLevel: newStockLevel })
-                .where(eq(products.id, item.productId));
-
-              // --- Branch Specific Stock Update ---
-              if (invoiceData.branchId) {
-                const [currentBranchStock] = await tx
-                  .select()
-                  .from(branchStocks)
-                  .where(and(
-                    eq(branchStocks.branchId, invoiceData.branchId),
-                    eq(branchStocks.productId, item.productId)
-                  ));
-
-                const newBranchStock = (parseFloat(currentBranchStock?.stockLevel || "0") + stockChange).toString();
-
-                await tx
-                  .insert(branchStocks)
-                  .values({
-                    branchId: invoiceData.branchId,
-                    productId: item.productId,
-                    stockLevel: newBranchStock
-                  })
-                  .onConflictDoUpdate({
-                    target: [branchStocks.branchId, branchStocks.productId],
-                    set: { stockLevel: newBranchStock }
-                  });
-              }
+              await adjustLocationStock(tx, item.productId, stockChange, invoiceLocation);
 
               // Update Batch Stock if applicable
               if (item.batchId) {
@@ -1734,17 +1936,37 @@ export class DatabaseStorage implements IStorage {
       const ledgerTaxAmount = this.roundMoney(taxAmount);
       const ledgerSubtotal = this.roundMoney(ledgerTotal - ledgerTaxAmount);
 
+      const postLines: any[] = [
+        { accountCode: isImmediateCashSale ? cashAccountCode : arAccountCode, type: isCreditNote ? "CREDIT" : "DEBIT", amount: ledgerTotal },
+        { accountCode: vatOutputAccountCode, type: isCreditNote ? "DEBIT" : "CREDIT", amount: ledgerTaxAmount },
+      ];
+
+      // PARTNERSHIP REVENUE SPLIT
+      if (invoice.partnerShareAmount && Number(invoice.partnerShareAmount) > 0) {
+        const partnerShare = this.roundMoney(Number(invoice.partnerShareAmount));
+        const issuerShare = this.roundMoney(ledgerSubtotal - partnerShare);
+        const rawPartnerAccount = await this.getSystemAccountCode(invoice.companyId, "partnerPayableAccountCode", tx).catch(() => null);
+        const apAccountCode = await this.getSystemAccountCode(invoice.companyId, "accountsPayableCode", tx);
+        const partnerPayableAccountCode = rawPartnerAccount || apAccountCode; // Default liability account if not mapped
+        
+        if (issuerShare > 0) {
+          postLines.push({ accountCode: salesAccountCode, type: isCreditNote ? "DEBIT" : "CREDIT", amount: issuerShare });
+        }
+        if (partnerShare > 0) {
+          postLines.push({ accountCode: partnerPayableAccountCode, type: isCreditNote ? "DEBIT" : "CREDIT", amount: partnerShare });
+        }
+      } else {
+        // Standard full revenue recognition
+        postLines.push({ accountCode: salesAccountCode, type: isCreditNote ? "DEBIT" : "CREDIT", amount: ledgerSubtotal });
+      }
+
       await this.postToLedger(invoice.companyId, {
         entryDate: invoice.issueDate || new Date(),
         description,
         referenceType: "INVOICE",
         referenceId: invoice.id.toString(),
         createdBy: invoice.createdBy || undefined,
-        lines: ([
-          { accountCode: isImmediateCashSale ? cashAccountCode : arAccountCode, type: isCreditNote ? "CREDIT" : "DEBIT", amount: ledgerTotal },
-          { accountCode: salesAccountCode, type: isCreditNote ? "DEBIT" : "CREDIT", amount: ledgerSubtotal },
-          { accountCode: vatOutputAccountCode, type: isCreditNote ? "DEBIT" : "CREDIT", amount: ledgerTaxAmount },
-        ] as LedgerPostLine[]).filter(line => Number(line.amount) > 0)
+        lines: postLines.filter(line => Number(line.amount) > 0)
       }, tx);
 
       if (totalCogs > 0) {
@@ -1989,19 +2211,30 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getTaxTypes(companyId?: number): Promise<TaxType[]> {
-    if (companyId) {
-      return await db
-        .select()
-        .from(taxTypes)
-        .where(
-          and(
-            or(eq(taxTypes.companyId, companyId), isNull(taxTypes.companyId)),
-            eq(taxTypes.isActive, true)
-          )
+    const taxes = await db
+      .select()
+      .from(taxTypes)
+      .where(
+        and(
+          companyId ? or(eq(taxTypes.companyId, companyId), isNull(taxTypes.companyId)) : isNull(taxTypes.companyId),
+          eq(taxTypes.isActive, true)
         )
-        .orderBy(taxTypes.rate);
+      )
+      .orderBy(taxTypes.rate);
+      
+    // Deduplicate by code, preferring company-specific over system defaults
+    if (companyId) {
+      const deduped = new Map<string, TaxType>();
+      for (const tax of taxes) {
+        const existing = deduped.get(tax.code);
+        if (!existing || (existing.companyId === null && tax.companyId !== null)) {
+          deduped.set(tax.code, tax);
+        }
+      }
+      return Array.from(deduped.values()).sort((a, b) => Number(a.rate) - Number(b.rate));
     }
-    return await db.select().from(taxTypes).where(eq(taxTypes.isActive, true)).orderBy(taxTypes.rate);
+    
+    return taxes;
   }
 
   async createTaxType(taxType: InsertTaxType & { companyId: number }): Promise<TaxType> {
@@ -2285,7 +2518,6 @@ export class DatabaseStorage implements IStorage {
   async updateCompanyRole(roleId: number, companyId: number, data: { name?: string; description?: string; permissions?: string[] }): Promise<CompanyRole & { permissions: string[] }> {
     const [existing] = await db.select().from(companyRoles).where(and(eq(companyRoles.id, roleId), eq(companyRoles.companyId, companyId))).limit(1);
     if (!existing) throw new Error("Role not found");
-    if (existing.isSystem) throw new Error("System roles cannot be modified. Clone this role to create a custom variant.");
 
     const updates: Partial<InsertCompanyRole> = {};
     if (data.name) updates.name = data.name.trim();
@@ -2928,7 +3160,7 @@ export class DatabaseStorage implements IStorage {
   async createPayment(payment: InsertPayment & { companyId: number; skipLedger?: boolean }): Promise<Payment> {
     return await db.transaction(async (tx) => {
       const { skipLedger, ...paymentData } = payment;
-      const [newPayment] = await tx.insert(payments).values(paymentData).returning();
+      let [newPayment] = await tx.insert(payments).values(paymentData).returning();
       
       const [invoice] = await tx.select().from(invoices).where(eq(invoices.id, newPayment.invoiceId));
       if (invoice) {
@@ -2970,14 +3202,21 @@ export class DatabaseStorage implements IStorage {
            lines.push({ accountCode: fxLossAccountCode, type: "DEBIT", amount: Math.abs(fxVariance) });
         }
 
-        await this.postToLedger(invoice.companyId, {
+        const je = await this.postToLedger(invoice.companyId, {
           entryDate: newPayment.paymentDate,
           description: `Payment for Invoice ${invoice.invoiceNumber} (${newPayment.paymentMethod}) - FX Auth`,
           referenceType: "PAYMENT",
           referenceId: newPayment.id.toString(),
           createdBy: newPayment.createdBy || undefined,
+          branchId: newPayment.branchId || undefined,
           lines
         }, tx);
+
+        // Write the journal entry ID back to the payment record for full audit trail
+        await tx.update(payments)
+          .set({ journalEntryId: je.id })
+          .where(eq(payments.id, newPayment.id));
+        newPayment = { ...newPayment, journalEntryId: je.id };
 
         // Update Invoice Paid Amount and Status
         const newPaidAmount = (Number(invoice.paidAmount) + Number(newPayment.amount)).toFixed(2);
@@ -3948,9 +4187,46 @@ export class DatabaseStorage implements IStorage {
     return period;
   }
 
-  async runYearEndClose(companyId: number, asOfDate: Date, retainedEarningsCode: string = "3000"): Promise<void> {
+  async runYearEndClose(companyId: number, asOfDate: Date, currentYearEarningsCode: string = "3100", retainedEarningsCode: string = "3110"): Promise<void> {
     return await db.transaction(async (tx) => {
-      // 1. Get trial balance of REVENUE and EXPENSE up to asOfDate
+      // 1. Calculate prior balance of Current Year Earnings (3100) before close
+      const [currentEarningsBalance] = await tx.select({
+        netDebit: sql<number>`sum(case when ${ledgerEntries.type} = 'DEBIT' then ${ledgerEntries.amount} else 0 end)`,
+        netCredit: sql<number>`sum(case when ${ledgerEntries.type} = 'CREDIT' then ${ledgerEntries.amount} else 0 end)`,
+      })
+      .from(ledgerEntries)
+      .innerJoin(journalEntries, eq(ledgerEntries.journalEntryId, journalEntries.id))
+      .innerJoin(accounts, eq(ledgerEntries.accountId, accounts.id))
+      .where(and(
+        eq(journalEntries.companyId, companyId),
+        eq(accounts.code, currentYearEarningsCode),
+        lte(journalEntries.entryDate, asOfDate)
+      ));
+
+      const debitVal = Number(currentEarningsBalance?.netDebit || 0);
+      const creditVal = Number(currentEarningsBalance?.netCredit || 0);
+      const netCYE = creditVal - debitVal;
+
+      if (Math.abs(netCYE) > 0.005) {
+        const transferLines: { accountCode: string, type: 'DEBIT' | 'CREDIT', amount: number }[] = [];
+        if (netCYE > 0) {
+          transferLines.push({ accountCode: currentYearEarningsCode, type: 'DEBIT', amount: netCYE });
+          transferLines.push({ accountCode: retainedEarningsCode, type: 'CREDIT', amount: netCYE });
+        } else {
+          transferLines.push({ accountCode: currentYearEarningsCode, type: 'CREDIT', amount: Math.abs(netCYE) });
+          transferLines.push({ accountCode: retainedEarningsCode, type: 'DEBIT', amount: Math.abs(netCYE) });
+        }
+
+        await this.postToLedger(companyId, {
+          entryDate: asOfDate,
+          description: "Prior Year Earnings Transfer to Retained Earnings",
+          referenceType: "SYSTEM",
+          referenceId: "YEC-TRANSFER",
+          lines: transferLines
+        }, tx);
+      }
+
+      // 2. Sweep P&L accounts -> Current Year Earnings (3100)
       const balances = await tx.select({
         accountId: ledgerEntries.accountId,
         type: accounts.type,
@@ -3969,7 +4245,7 @@ export class DatabaseStorage implements IStorage {
       ))
       .groupBy(ledgerEntries.accountId, accounts.type, accounts.code, accounts.name);
 
-      const lines: { accountCode: string, type: 'DEBIT' | 'CREDIT', amount: number }[] = [];
+      const sweepLines: { accountCode: string, type: 'DEBIT' | 'CREDIT', amount: number }[] = [];
       let totalNetProfit = 0; 
       
       for (const bal of balances) {
@@ -3979,38 +4255,37 @@ export class DatabaseStorage implements IStorage {
         if (bal.type === 'REVENUE') {
             const netBalance = credit - debit;
             if (netBalance > 0) {
-               lines.push({ accountCode: bal.accountCode as string, type: 'DEBIT', amount: netBalance });
+               sweepLines.push({ accountCode: bal.accountCode as string, type: 'DEBIT', amount: netBalance });
             } else if (netBalance < 0) {
-               lines.push({ accountCode: bal.accountCode as string, type: 'CREDIT', amount: Math.abs(netBalance) });
+               sweepLines.push({ accountCode: bal.accountCode as string, type: 'CREDIT', amount: Math.abs(netBalance) });
             }
             totalNetProfit += netBalance;
         } else if (bal.type === 'EXPENSE') {
             const netBalance = debit - credit;
             if (netBalance > 0) {
-               lines.push({ accountCode: bal.accountCode as string, type: 'CREDIT', amount: netBalance });
+               sweepLines.push({ accountCode: bal.accountCode as string, type: 'CREDIT', amount: netBalance });
             } else if (netBalance < 0) {
-               lines.push({ accountCode: bal.accountCode as string, type: 'DEBIT', amount: Math.abs(netBalance) });
+               sweepLines.push({ accountCode: bal.accountCode as string, type: 'DEBIT', amount: Math.abs(netBalance) });
             }
             totalNetProfit -= netBalance;
         }
       }
 
-      if (lines.length === 0) return; // Nothing to sweep
+      if (sweepLines.length > 0) {
+        if (totalNetProfit > 0) {
+            sweepLines.push({ accountCode: currentYearEarningsCode, type: 'CREDIT', amount: totalNetProfit });
+        } else if (totalNetProfit < 0) {
+            sweepLines.push({ accountCode: currentYearEarningsCode, type: 'DEBIT', amount: Math.abs(totalNetProfit) });
+        }
 
-      // Balance goes to Retained Earnings
-      if (totalNetProfit > 0) {
-          lines.push({ accountCode: retainedEarningsCode, type: 'CREDIT', amount: totalNetProfit });
-      } else if (totalNetProfit < 0) {
-          lines.push({ accountCode: retainedEarningsCode, type: 'DEBIT', amount: Math.abs(totalNetProfit) });
+        await this.postToLedger(companyId, {
+          entryDate: asOfDate,
+          description: "Automated Year-End P&L Closing Sweep",
+          referenceType: "SYSTEM",
+          referenceId: "YEC-SWEEP",
+          lines: sweepLines
+        }, tx);
       }
-
-      await this.postToLedger(companyId, {
-        entryDate: asOfDate,
-        description: "Automated Year-End Closing Sweep",
-        referenceType: "SYSTEM",
-        referenceId: "YEC",
-        lines
-      }, tx);
     });
   }
 
@@ -4121,6 +4396,25 @@ export class DatabaseStorage implements IStorage {
   // ==========================================
   async getFixedAssets(companyId: number): Promise<FixedAsset[]> {
     return db.select().from(fixedAssets).where(eq(fixedAssets.companyId, companyId)).orderBy(fixedAssets.name);
+  }
+
+  async getDepreciationRuns(companyId: number): Promise<any[]> {
+    return db.select({
+      id: depreciationRuns.id,
+      companyId: depreciationRuns.companyId,
+      assetId: depreciationRuns.assetId,
+      journalEntryId: depreciationRuns.journalEntryId,
+      date: depreciationRuns.date,
+      amount: depreciationRuns.amount,
+      notes: depreciationRuns.notes,
+      createdAt: depreciationRuns.createdAt,
+      assetName: fixedAssets.name,
+      assetSerialNumber: fixedAssets.serialNumber
+    })
+    .from(depreciationRuns)
+    .innerJoin(fixedAssets, eq(depreciationRuns.assetId, fixedAssets.id))
+    .where(eq(depreciationRuns.companyId, companyId))
+    .orderBy(desc(depreciationRuns.date));
   }
 
   async createFixedAsset(data: InsertFixedAsset & { accumulatedDepreciation?: number, netBookValue?: number }): Promise<FixedAsset> {
@@ -4836,13 +5130,32 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Suppliers
-  async getSuppliers(companyId: number): Promise<Supplier[]> {
-    return await db.select().from(suppliers).where(
+  async getSuppliers(companyId: number): Promise<(Supplier & { balance?: number })[]> {
+    const results = await db.select({
+      supplier: suppliers,
+      balance: sql<number>`COALESCE(SUM(
+        CASE 
+          WHEN ${supplierInvoices.status} != 'cancelled' 
+          THEN ${supplierInvoices.totalAmount} - ${supplierInvoices.paidAmount} 
+          ELSE 0 
+        END
+      ), 0)`
+    })
+    .from(suppliers)
+    .leftJoin(supplierInvoices, eq(suppliers.id, supplierInvoices.supplierId))
+    .where(
       and(
         eq(suppliers.companyId, companyId),
         eq(suppliers.isActive, true)
       )
-    ).orderBy(suppliers.name);
+    )
+    .groupBy(suppliers.id)
+    .orderBy(suppliers.name);
+
+    return results.map(r => ({
+      ...r.supplier,
+      balance: Number(r.balance)
+    }));
   }
 
   async getSupplier(id: number): Promise<Supplier | undefined> {
@@ -4949,35 +5262,65 @@ export class DatabaseStorage implements IStorage {
         await tx.insert(supplierInvoiceItems).values(itemsToInsert);
       }
 
-      // Automated Journaling: Credit Accounts Payable (2000), Debit Inventory (1300) or appropriate account
-      const subtotal = invoiceTotal - invoiceTax;
-      const tax = invoiceTax;
-
-      // Determine the debit account for the invoice:
-      // - If matched to a GDN (3-way match): Dr GRNI (2010) to clear the liability posted at goods receipt
-      // - If explicit debit account provided: use that (e.g. for expense invoices)
-      // - Otherwise: fall back to Inventory (1300) for direct inventory purchases without a GRV
-      let debitAccountCode: string;
-      if (invoiceData.referenceGdnId) {
-        debitAccountCode = await this.getSystemAccountCode(invoiceData.companyId, "grniAccountCode", tx);
-      } else if (invoiceData.debitAccountId) {
-        const [acc] = await tx.select().from(accounts).where(eq(accounts.id, invoiceData.debitAccountId));
-        debitAccountCode = acc ? acc.code : await this.getSystemAccountCode(invoiceData.companyId, "inventoryAccountCode", tx);
-      } else {
-        debitAccountCode = await this.getSystemAccountCode(invoiceData.companyId, "inventoryAccountCode", tx);
-      }
       const vatInputAccountCode = await this.getSystemAccountCode(invoiceData.companyId, "vatInputAccountCode", tx);
       const apAccountCode = await this.getSystemAccountCode(invoiceData.companyId, "accountsPayableCode", tx);
+      const defaultInventoryCode = await this.getSystemAccountCode(invoiceData.companyId, "inventoryAccountCode", tx);
+      const grniAccountCode = await this.getSystemAccountCode(invoiceData.companyId, "grniAccountCode", tx);
 
-      const lines: { accountCode: string, type: 'DEBIT'|'CREDIT', amount: number }[] = [
-        { accountCode: debitAccountCode, type: 'DEBIT', amount: subtotal }
-      ];
-      
-      if (tax > 0) {
-        lines.push({ accountCode: vatInputAccountCode, type: 'DEBIT', amount: tax }); // VAT Input (VAT Receivable)
+      const lines: { accountCode: string, type: 'DEBIT'|'CREDIT', amount: number }[] = [];
+      let totalRecoverableTax = 0;
+      let totalAP = invoiceTotal;
+
+      if (items && items.length > 0) {
+        for (const item of items) {
+          const itemTotal = Number(item.totalPrice || 0); // This is quantity * unitCost (which is subtotal when exclusive, total when inclusive)
+          const itemTax = Number(item.taxAmount || 0);
+          
+          // Let's get the base cost for this line
+          const itemBase = invoiceData.taxInclusive ? itemTotal - itemTax : itemTotal;
+
+          let lineAccountCode = defaultInventoryCode;
+          if (invoiceData.referenceGdnId) {
+            lineAccountCode = grniAccountCode;
+          } else if (item.accountCode) {
+            lineAccountCode = item.accountCode;
+          } else if (invoiceData.debitAccountId) {
+             const [acc] = await tx.select().from(accounts).where(eq(accounts.id, invoiceData.debitAccountId));
+             if (acc) lineAccountCode = acc.code;
+          }
+
+          let amountToCapitalize = itemBase;
+          if (itemTax > 0) {
+            if (item.isRecoverable !== false) { // Default true
+              totalRecoverableTax += itemTax;
+            } else {
+              amountToCapitalize += itemTax; // Non-recoverable tax gets added to expense/inventory
+            }
+          }
+
+          lines.push({ accountCode: lineAccountCode, type: 'DEBIT', amount: Number(amountToCapitalize.toFixed(2)) });
+        }
+      } else {
+         // Fallback if no items were provided (legacy invoices)
+         const subtotal = invoiceTotal - invoiceTax;
+         let debitAccountCode = defaultInventoryCode;
+         if (invoiceData.referenceGdnId) {
+            debitAccountCode = grniAccountCode;
+         } else if (invoiceData.debitAccountId) {
+            const [acc] = await tx.select().from(accounts).where(eq(accounts.id, invoiceData.debitAccountId));
+            if (acc) debitAccountCode = acc.code;
+         }
+         lines.push({ accountCode: debitAccountCode, type: 'DEBIT', amount: Number(subtotal.toFixed(2)) });
+         if (invoiceTax > 0) {
+           totalRecoverableTax += invoiceTax;
+         }
       }
 
-      lines.push({ accountCode: apAccountCode, type: 'CREDIT', amount: invoiceTotal }); // Accounts Payable
+      if (totalRecoverableTax > 0) {
+        lines.push({ accountCode: vatInputAccountCode, type: 'DEBIT', amount: Number(totalRecoverableTax.toFixed(2)) });
+      }
+
+      lines.push({ accountCode: apAccountCode, type: 'CREDIT', amount: Number(invoiceTotal.toFixed(2)) });
 
       await this.postToLedger(invoiceData.companyId, {
         entryDate: invoiceData.date || new Date(),
@@ -5031,6 +5374,72 @@ export class DatabaseStorage implements IStorage {
 
       return payment;
     });
+  }
+
+  async createInventoryValuationSnapshot(companyId: number, asOfDate: Date, userId?: string, branchId?: number): Promise<any> {
+    const [company] = await db.select().from(companies).where(eq(companies.id, companyId)).limit(1);
+    const method = company?.inventoryValuationMethod || "WAC";
+
+    let productsList: any[] = [];
+    if (branchId) {
+      const rows = await db
+        .select({
+          id: products.id,
+          name: products.name,
+          sku: products.sku,
+          costPrice: products.costPrice,
+          stockLevel: branchStocks.stockLevel,
+        })
+        .from(products)
+        .leftJoin(branchStocks, and(eq(branchStocks.productId, products.id), eq(branchStocks.branchId, branchId)))
+        .where(eq(products.companyId, companyId));
+      productsList = rows;
+    } else {
+      productsList = await db
+        .select({
+          id: products.id,
+          name: products.name,
+          sku: products.sku,
+          costPrice: products.costPrice,
+          stockLevel: products.stockLevel,
+        })
+        .from(products)
+        .where(eq(products.companyId, companyId));
+    }
+
+    const lines = productsList.map((p) => {
+      const quantity = Number(p.stockLevel || 0);
+      const unitCost = Number(p.costPrice || 0);
+      return {
+        productId: p.id,
+        productName: p.name,
+        sku: p.sku || null,
+        branchId: branchId || null,
+        quantity,
+        unitCost,
+        totalValue: quantity * unitCost,
+        valuationMethod: method,
+      };
+    });
+
+    const totalQuantity = lines.reduce((sum, l) => sum + l.quantity, 0);
+    const totalValue = lines.reduce((sum, l) => sum + l.totalValue, 0);
+
+    const [snapshot] = await db
+      .insert(inventoryValuationSnapshots)
+      .values({
+        companyId,
+        branchId: branchId || null,
+        asOfDate,
+        valuationMethod: method,
+        totalQuantity: totalQuantity.toFixed(2),
+        totalValue: totalValue.toFixed(2),
+        lines,
+        createdBy: userId || null,
+      })
+      .returning();
+
+    return snapshot;
   }
 
   // Inventory Transactions
@@ -7491,6 +7900,34 @@ export class DatabaseStorage implements IStorage {
     await db.delete(branches).where(eq(branches.id, id));
   }
 
+  // Cost Centers Implementation
+  async getCostCenters(companyId: number): Promise<CostCenter[]> {
+    return await db.select().from(costCenters).where(eq(costCenters.companyId, companyId));
+  }
+
+  async getCostCenter(id: number): Promise<CostCenter | undefined> {
+    const [costCenter] = await db.select().from(costCenters).where(eq(costCenters.id, id));
+    return costCenter;
+  }
+
+  async createCostCenter(data: InsertCostCenter): Promise<CostCenter> {
+    const [costCenter] = await db.insert(costCenters).values(data).returning();
+    return costCenter;
+  }
+
+  async updateCostCenter(id: number, data: Partial<CostCenter>): Promise<CostCenter> {
+    const [costCenter] = await db
+      .update(costCenters)
+      .set(data)
+      .where(eq(costCenters.id, id))
+      .returning();
+    return costCenter;
+  }
+
+  async deleteCostCenter(id: number): Promise<void> {
+    await db.delete(costCenters).where(eq(costCenters.id, id));
+  }
+
   async getUserBranches(userId: string): Promise<Branch[]> {
     const result = await db
       .select({
@@ -7610,65 +8047,124 @@ export class DatabaseStorage implements IStorage {
   async initializeCompanyAccounts(companyId: number, tx?: any): Promise<void> {
     const executeInTx = async (t: any) => {
       const defaultAccounts = [
-        // --- ASSETS (IFRS presentation: current and non-current) ---
-        { code: "1000", name: "Cash on Hand", type: "ASSET", category: "Current Assets", isSystem: true },
-        { code: "1010", name: "Cash at Bank - USD", type: "ASSET", category: "Current Assets", isSystem: true },
-        { code: "1020", name: "Cash at Bank - ZiG", type: "ASSET", category: "Current Assets", isSystem: true },
-        { code: "1050", name: "Petty Cash", type: "ASSET", category: "Current Assets", isSystem: true },
-        { code: "1060", name: "Conductor Cash Clearing", type: "ASSET", category: "Current Assets", isSystem: true },
-        { code: "1070", name: "Mobile Money Clearing", type: "ASSET", category: "Current Assets", isSystem: true },
-        { code: "1100", name: "Short-term Investments", type: "ASSET", category: "Current Assets", isSystem: true },
-        { code: "1200", name: "Trade Receivables", type: "ASSET", category: "Current Assets", isSystem: true },
-        { code: "1210", name: "Allowance for Expected Credit Losses", type: "ASSET", category: "Current Assets", isSystem: true },
-        { code: "1300", name: "Inventories", type: "ASSET", category: "Current Assets", isSystem: true },
-        { code: "1400", name: "Prepayments", type: "ASSET", category: "Current Assets", isSystem: true },
-        { code: "1500", name: "Property, Plant and Equipment - Cost", type: "ASSET", category: "Non-current Assets", isSystem: true },
-        { code: "1510", name: "Accumulated Depreciation - PPE", type: "ASSET", category: "Non-current Assets", isSystem: true },
-        { code: "1520", name: "Right-of-use Assets", type: "ASSET", category: "Non-current Assets", isSystem: true },
-        { code: "1530", name: "Intangible Assets", type: "ASSET", category: "Non-current Assets", isSystem: true },
-        { code: "1540", name: "Accumulated Amortisation", type: "ASSET", category: "Non-current Assets", isSystem: true },
-        { code: "2110", name: "VAT Input Recoverable", type: "ASSET", category: "Current Assets", isSystem: true },
+        // --- ASSETS ---
+        // Current Assets
+        { code: "1000", name: "Cash & Cash Equivalents", type: "ASSET", subType: "Current", normalBalance: "DEBIT", ifrsMappingTag: "IAS-7", category: "Current Assets", cashFlowCategory: "Operating", isControlAccount: true, isSystem: true },
+        { code: "1001", name: "Petty Cash", type: "ASSET", subType: "Current", normalBalance: "DEBIT", ifrsMappingTag: "IAS-7", category: "Current Assets", cashFlowCategory: "Operating", isControlAccount: false, isSystem: true },
+        { code: "1002", name: "Short-term Investments", type: "ASSET", subType: "Current", normalBalance: "DEBIT", ifrsMappingTag: "IFRS-9", category: "Current Assets", cashFlowCategory: "Investing", isControlAccount: false, isSystem: true },
+        { code: "1005", name: "Work-in-Progress Inventory", type: "ASSET", subType: "Current", normalBalance: "DEBIT", ifrsMappingTag: "IAS-2", category: "Current Assets", isControlAccount: true, isSystem: true },
+        { code: "1008", name: "Inter-Branch Receivables", type: "ASSET", subType: "Current", normalBalance: "DEBIT", ifrsMappingTag: "IAS-1", category: "Current Assets", isControlAccount: true, isSystem: true },
+        { code: "1009", name: "Allowance for Doubtful Accounts", type: "ASSET", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IFRS-9", category: "Current Assets", isControlAccount: true, isSystem: true },
+        { code: "1013", name: "VAT Receivable", type: "ASSET", subType: "Current", normalBalance: "DEBIT", ifrsMappingTag: "IAS-1", category: "Current Assets", isControlAccount: false, isSystem: true },
+        { code: "1014", name: "Tax Refund Receivable", type: "ASSET", subType: "Current", normalBalance: "DEBIT", ifrsMappingTag: "IAS-1", category: "Current Assets", isControlAccount: false, isSystem: true },
+        { code: "1015", name: "Supplier Prepayments", type: "ASSET", subType: "Current", normalBalance: "DEBIT", ifrsMappingTag: "IAS-1", category: "Current Assets", isControlAccount: false, isSystem: true },
+        { code: "1006", name: "Prepaid Expenses", type: "ASSET", subType: "Current", normalBalance: "DEBIT", ifrsMappingTag: "IAS-1", category: "Current Assets", isControlAccount: false, isSystem: true },
+        { code: "1007", name: "Other Current Assets", type: "ASSET", subType: "Current", normalBalance: "DEBIT", ifrsMappingTag: "IAS-1", category: "Current Assets", isControlAccount: false, isSystem: true },
+        { code: "1010", name: "Sales Tax Receivable", type: "ASSET", subType: "Current", normalBalance: "DEBIT", ifrsMappingTag: "IAS-1", category: "Current Assets", isControlAccount: false, isSystem: true },
+        { code: "1011", name: "Purchase Tax Receivable", type: "ASSET", subType: "Current", normalBalance: "DEBIT", ifrsMappingTag: "IAS-1", category: "Current Assets", isControlAccount: false, isSystem: true },
+        { code: "1012", name: "Input Tax Receivable", type: "ASSET", subType: "Current", normalBalance: "DEBIT", ifrsMappingTag: "IAS-1", category: "Current Assets", isControlAccount: false, isSystem: true },
+        { code: "1200", name: "Trade Receivables", type: "ASSET", subType: "Current", normalBalance: "DEBIT", ifrsMappingTag: "IFRS-9", category: "Current Assets", isControlAccount: true, isSystem: true },
+        { code: "1300", name: "Inventory", type: "ASSET", subType: "Current", normalBalance: "DEBIT", ifrsMappingTag: "IAS-2", category: "Current Assets", isControlAccount: true, isSystem: true },
+        { code: "1400", name: "Prepayments", type: "ASSET", subType: "Current", normalBalance: "DEBIT", ifrsMappingTag: "IAS-1", category: "Current Assets", isControlAccount: false, isSystem: true },
+        { code: "1420", name: "VAT Input Recoverable", type: "ASSET", subType: "Current", normalBalance: "DEBIT", ifrsMappingTag: "IAS-1", category: "Current Assets", isControlAccount: false, isSystem: true },
+        
+        // Non-Current Assets
+        { code: "1500", name: "Property, Plant and Equipment", type: "ASSET", subType: "Non-current", normalBalance: "DEBIT", ifrsMappingTag: "IAS-16", category: "Non-current Assets", cashFlowCategory: "Investing", isControlAccount: true, isSystem: true },
+        { code: "1501", name: "Buildings", type: "ASSET", subType: "Non-current", normalBalance: "DEBIT", ifrsMappingTag: "IAS-16", category: "Non-current Assets", cashFlowCategory: "Investing", isControlAccount: false, isSystem: true },
+        { code: "1502", name: "Machinery & Equipment", type: "ASSET", subType: "Non-current", normalBalance: "DEBIT", ifrsMappingTag: "IAS-16", category: "Non-current Assets", cashFlowCategory: "Investing", isControlAccount: false, isSystem: true },
+        { code: "1503", name: "Vehicles", type: "ASSET", subType: "Non-current", normalBalance: "DEBIT", ifrsMappingTag: "IAS-16", category: "Non-current Assets", cashFlowCategory: "Investing", isControlAccount: false, isSystem: true },
+        { code: "1504", name: "Furniture & Fixtures", type: "ASSET", subType: "Non-current", normalBalance: "DEBIT", ifrsMappingTag: "IAS-16", category: "Non-current Assets", cashFlowCategory: "Investing", isControlAccount: false, isSystem: true },
+        { code: "1505", name: "Computer Equipment", type: "ASSET", subType: "Non-current", normalBalance: "DEBIT", ifrsMappingTag: "IAS-16", category: "Non-current Assets", cashFlowCategory: "Investing", isControlAccount: false, isSystem: true },
+        { code: "1506", name: "Accumulated Depreciation", type: "ASSET", subType: "Non-current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-16", category: "Non-current Assets", isControlAccount: true, isSystem: true },
+        { code: "1600", name: "Right-of-Use Assets", type: "ASSET", subType: "Non-current", normalBalance: "DEBIT", ifrsMappingTag: "IFRS-16", category: "Non-current Assets", isControlAccount: false, isSystem: true },
+        { code: "1700", name: "Intangibles", type: "ASSET", subType: "Non-current", normalBalance: "DEBIT", ifrsMappingTag: "IAS-38", category: "Non-current Assets", cashFlowCategory: "Investing", isControlAccount: false, isSystem: true },
+        { code: "1800", name: "Deferred Tax Assets", type: "ASSET", subType: "Non-current", normalBalance: "DEBIT", ifrsMappingTag: "IAS-12", category: "Non-current Assets", isControlAccount: false, isSystem: true },
 
-        // --- LIABILITIES (IFRS presentation: current and non-current) ---
-        { code: "2000", name: "Trade Payables", type: "LIABILITY", category: "Current Liabilities", isSystem: true },
-        { code: "2100", name: "VAT Output Payable", type: "LIABILITY", category: "Current Liabilities", isSystem: true },
-        { code: "2120", name: "Income Tax Payable", type: "LIABILITY", category: "Current Liabilities", isSystem: true },
-        { code: "2200", name: "Accrued Expenses", type: "LIABILITY", category: "Current Liabilities", isSystem: true },
-        { code: "2300", name: "Related Party Loans", type: "LIABILITY", category: "Non-current Liabilities", isSystem: true },
-        { code: "2400", name: "Lease Liabilities", type: "LIABILITY", category: "Non-current Liabilities", isSystem: true },
-        { code: "2500", name: "Deferred Tax Liabilities", type: "LIABILITY", category: "Non-current Liabilities", isSystem: true },
+        // --- LIABILITIES ---
+        // Current Liabilities
+        { code: "2000", name: "Trade Payables", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IFRS-9", category: "Current Liabilities", isControlAccount: true, isSystem: true },
+        { code: "2006", name: "Inter-Branch Payables", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-1", category: "Current Liabilities", isControlAccount: true, isSystem: true },
+        { code: "2009", name: "Customer Prepayments", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IFRS-15", category: "Current Liabilities", isControlAccount: true, isSystem: true },
+        { code: "2012", name: "Withholding Tax Payable", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-37", category: "Current Liabilities", isControlAccount: true, isSystem: true },
+        { code: "2013", name: "Payroll Tax Payable", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-37", category: "Current Liabilities", isControlAccount: true, isSystem: true },
+        { code: "2014", name: "Inter-Branch Clearing", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-1", category: "Current Liabilities", isControlAccount: true, isSystem: true },
+        { code: "2001", name: "Short-term Loans", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IFRS-9", category: "Current Liabilities", isControlAccount: false, isSystem: true },
+        { code: "2003", name: "Taxes Payable", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-37", category: "Current Liabilities", isControlAccount: false, isSystem: true },
+        { code: "2004", name: "Wages Payable", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-19", category: "Current Liabilities", isControlAccount: false, isSystem: true },
+        { code: "2005", name: "Unearned Revenue", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IFRS-15", category: "Current Liabilities", isControlAccount: false, isSystem: true },
+        { code: "2007", name: "Sales Tax Payable", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-37", category: "Current Liabilities", isControlAccount: false, isSystem: true },
+        { code: "2008", name: "Purchase Tax Payable", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-37", category: "Current Liabilities", isControlAccount: false, isSystem: true },
+        { code: "2011", name: "VAT Payable", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-37", category: "Current Liabilities", isControlAccount: false, isSystem: true },
+        { code: "2100", name: "Accrued Expenses", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-37", category: "Current Liabilities", isControlAccount: false, isSystem: true },
+        { code: "2200", name: "VAT Output Payable", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-1", category: "Current Liabilities", isControlAccount: false, isSystem: true },
+        { code: "2250", name: "Contract Liabilities", type: "LIABILITY", subType: "Current", normalBalance: "CREDIT", ifrsMappingTag: "IFRS-15", category: "Current Liabilities", isControlAccount: false, isSystem: true },
 
+        // Non-Current Liabilities
+        { code: "2300", name: "Loans", type: "LIABILITY", subType: "Non-current", normalBalance: "CREDIT", ifrsMappingTag: "IFRS-9", category: "Non-current Liabilities", cashFlowCategory: "Financing", isControlAccount: false, isSystem: true },
+        { code: "2400", name: "Lease Liabilities", type: "LIABILITY", subType: "Non-current", normalBalance: "CREDIT", ifrsMappingTag: "IFRS-16", category: "Non-current Liabilities", cashFlowCategory: "Financing", isControlAccount: false, isSystem: true },
+        { code: "2500", name: "Deferred Tax Liabilities", type: "LIABILITY", subType: "Non-current", normalBalance: "CREDIT", ifrsMappingTag: "IAS-12", category: "Non-current Liabilities", isControlAccount: false, isSystem: true },
+
+        { code: "2501", name: "Mortgages", type: "LIABILITY", subType: "Non-current", normalBalance: "CREDIT", ifrsMappingTag: "IFRS-9", category: "Non-current Liabilities", cashFlowCategory: "Financing", isControlAccount: false, isSystem: true },
+        { code: "2502", name: "Bonds Payable", type: "LIABILITY", subType: "Non-current", normalBalance: "CREDIT", ifrsMappingTag: "IFRS-9", category: "Non-current Liabilities", cashFlowCategory: "Financing", isControlAccount: false, isSystem: true },
         // --- EQUITY ---
-        { code: "3000", name: "Retained Earnings", type: "EQUITY", category: "Equity", isSystem: true },
-        { code: "3100", name: "Opening Balance Equity", type: "EQUITY", category: "Equity", isSystem: true },
-        { code: "3200", name: "Share Capital", type: "EQUITY", category: "Equity", isSystem: true },
-        { code: "3300", name: "Other Reserves", type: "EQUITY", category: "Equity", isSystem: true },
+        { code: "3000", name: "Share Capital", type: "EQUITY", subType: "Finance", normalBalance: "CREDIT", ifrsMappingTag: "IAS-32", category: "Equity", cashFlowCategory: "Financing", isControlAccount: false, isSystem: true },
+        { code: "3100", name: "Current Year Earnings", type: "EQUITY", subType: "Operating", normalBalance: "CREDIT", ifrsMappingTag: "IAS-1", category: "Equity", isControlAccount: false, isSystem: true },
+        { code: "3110", name: "Retained Earnings", type: "EQUITY", subType: "Operating", normalBalance: "CREDIT", ifrsMappingTag: "IAS-1", category: "Equity", isControlAccount: false, isSystem: true },
+        { code: "3200", name: "Reserves", type: "EQUITY", subType: "Finance", normalBalance: "CREDIT", ifrsMappingTag: "IAS-1", category: "Equity", isControlAccount: false, isSystem: true },
+        { code: "9999", name: "Suspense Account", type: "EQUITY", subType: "Operating", normalBalance: "CREDIT", ifrsMappingTag: "IAS-1", category: "Equity", isControlAccount: false, isSystem: true },
 
-        // --- INCOME ---
-        { code: "4000", name: "Revenue from Contracts with Customers", type: "REVENUE", category: "Revenue", isSystem: true },
-        { code: "4100", name: "Service Revenue", type: "REVENUE", category: "Revenue", isSystem: true },
-        { code: "4110", name: "Passenger Transport Revenue", type: "REVENUE", category: "Revenue", isSystem: true },
-        { code: "4200", name: "Finance Income", type: "REVENUE", category: "Other Income", isSystem: true },
-        { code: "4900", name: "Foreign Exchange Gains", type: "REVENUE", category: "Other Income", isSystem: true },
-        { code: "4920", name: "Cash Overage Income", type: "REVENUE", category: "Other Income", isSystem: true },
+        { code: "3002", name: "Additional Paid-in Capital", type: "EQUITY", subType: "Finance", normalBalance: "CREDIT", ifrsMappingTag: "IAS-32", category: "Equity", cashFlowCategory: "Financing", isControlAccount: false, isSystem: true },
+        { code: "3003", name: "Treasury Stock", type: "EQUITY", subType: "Finance", normalBalance: "DEBIT", ifrsMappingTag: "IAS-32", category: "Equity", cashFlowCategory: "Financing", isControlAccount: false, isSystem: true },
+        { code: "3105", name: "Opening Balance Equity", type: "EQUITY", subType: "Operating", normalBalance: "CREDIT", ifrsMappingTag: "IAS-1", category: "Equity", isControlAccount: false, isSystem: true },
+        // --- REVENUE ---
+        { code: "4000", name: "Revenue", type: "REVENUE", subType: "Operating", normalBalance: "CREDIT", ifrsMappingTag: "IFRS-15", category: "Revenue", isControlAccount: true, isSystem: true },
+        { code: "4003", name: "Discount Income", type: "REVENUE", subType: "Operating", normalBalance: "CREDIT", ifrsMappingTag: "IFRS-15", category: "Revenue", isControlAccount: false, isSystem: true },
+        { code: "4006", name: "Sales Returns & Allowances", type: "REVENUE", subType: "Operating", normalBalance: "DEBIT", ifrsMappingTag: "IFRS-15", category: "Revenue", isControlAccount: false, isSystem: true },
+        { code: "4007", name: "Sales Discounts", type: "REVENUE", subType: "Operating", normalBalance: "DEBIT", ifrsMappingTag: "IFRS-15", category: "Revenue", isControlAccount: false, isSystem: true },
+        { code: "4001", name: "Service Revenue", type: "REVENUE", subType: "Operating", normalBalance: "CREDIT", ifrsMappingTag: "IFRS-15", category: "Revenue", isControlAccount: false, isSystem: true },
+        { code: "4002", name: "Commission Income", type: "REVENUE", subType: "Operating", normalBalance: "CREDIT", ifrsMappingTag: "IFRS-15", category: "Revenue", isControlAccount: false, isSystem: true },
+        { code: "4004", name: "Product Sales", type: "REVENUE", subType: "Operating", normalBalance: "CREDIT", ifrsMappingTag: "IFRS-15", category: "Revenue", isControlAccount: false, isSystem: true },
+        { code: "4005", name: "Freight Revenue", type: "REVENUE", subType: "Operating", normalBalance: "CREDIT", ifrsMappingTag: "IFRS-15", category: "Revenue", isControlAccount: false, isSystem: true },
+        { code: "4500", name: "Interest Income", type: "REVENUE", subType: "Operating", normalBalance: "CREDIT", ifrsMappingTag: "IFRS-9", category: "Other Income", isControlAccount: false, isSystem: true },
+        { code: "4501", name: "Dividend Income", type: "REVENUE", subType: "Operating", normalBalance: "CREDIT", ifrsMappingTag: "IFRS-9", category: "Other Income", isControlAccount: false, isSystem: true },
+        { code: "4503", name: "Investment Income", type: "REVENUE", subType: "Operating", normalBalance: "CREDIT", ifrsMappingTag: "IFRS-9", category: "Other Income", isControlAccount: false, isSystem: true },
+        { code: "4100", name: "Other Income", type: "REVENUE", subType: "Operating", normalBalance: "CREDIT", ifrsMappingTag: "IAS-1", category: "Other Income", isControlAccount: false, isSystem: true },
+        { code: "4504", name: "Rounding Gain", type: "REVENUE", subType: "Operating", normalBalance: "CREDIT", ifrsMappingTag: "IAS-1", category: "Other Income", isControlAccount: false, isSystem: true },
+        { code: "4505", name: "Foreign Exchange Gain", type: "REVENUE", subType: "Operating", normalBalance: "CREDIT", ifrsMappingTag: "IAS-21", category: "Other Income", isControlAccount: false, isSystem: true },
+        { code: "4506", name: "Bad Debt Recovery", type: "REVENUE", subType: "Operating", normalBalance: "CREDIT", ifrsMappingTag: "IFRS-9", category: "Other Income", isControlAccount: false, isSystem: true },
+        { code: "4507", name: "Unrealized Exchange Gain", type: "REVENUE", subType: "Operating", normalBalance: "CREDIT", ifrsMappingTag: "IAS-21", category: "Other Income", isControlAccount: false, isSystem: true },
 
         // --- EXPENSES ---
-        { code: "5000", name: "Cost of Sales", type: "EXPENSE", category: "Cost of Sales", isSystem: true },
-        { code: "5100", name: "Administrative Expenses", type: "EXPENSE", category: "Operating Expenses", isSystem: true },
-        { code: "5110", name: "Rent and Occupancy Expenses", type: "EXPENSE", category: "Operating Expenses", isSystem: true },
-        { code: "5120", name: "Utilities", type: "EXPENSE", category: "Operating Expenses", isSystem: true },
-        { code: "5130", name: "Employee Benefits Expense", type: "EXPENSE", category: "Operating Expenses", isSystem: true },
-        { code: "5140", name: "Printing and Stationery", type: "EXPENSE", category: "Operating Expenses", isSystem: true },
-        { code: "5150", name: "Bank Charges", type: "EXPENSE", category: "Finance Costs", isSystem: true },
-        { code: "5160", name: "Repairs and Maintenance", type: "EXPENSE", category: "Operating Expenses", isSystem: true },
-        { code: "5170", name: "Communication Expenses", type: "EXPENSE", category: "Operating Expenses", isSystem: true },
-        { code: "5180", name: "Depreciation and Amortisation", type: "EXPENSE", category: "Operating Expenses", isSystem: true },
-        { code: "5190", name: "Impairment Losses", type: "EXPENSE", category: "Operating Expenses", isSystem: true },
-        { code: "5900", name: "Foreign Exchange Losses", type: "EXPENSE", category: "Other Expenses", isSystem: true },
-        { code: "5920", name: "Cash Shortage Expense", type: "EXPENSE", category: "Other Expenses", isSystem: true },
-        // Procurement Control Accounts
-        { code: "2010", name: "Goods Received Not Invoiced (GRNI)", type: "LIABILITY", category: "Current Liabilities", isSystem: true },
-        { code: "2020", name: "Landed Cost Clearing", type: "LIABILITY", category: "Current Liabilities", isSystem: true },
+        { code: "5000", name: "Cost of Sales", type: "EXPENSE", subType: "Operating", normalBalance: "DEBIT", ifrsMappingTag: "IAS-2", category: "Cost of Sales", isControlAccount: false, isSystem: true },
+        { code: "5001", name: "Inventory Adjustments", type: "EXPENSE", subType: "Operating", normalBalance: "DEBIT", ifrsMappingTag: "IAS-2", category: "Operating Expenses", isControlAccount: false, isSystem: true },
+        { code: "5004", name: "Payroll Expenses", type: "EXPENSE", subType: "Operating", normalBalance: "DEBIT", ifrsMappingTag: "IAS-19", category: "Operating Expenses", isControlAccount: false, isSystem: true },
+        { code: "5005", name: "Rent Expense", type: "EXPENSE", subType: "Operating", normalBalance: "DEBIT", ifrsMappingTag: "IFRS-16", category: "Operating Expenses", isControlAccount: false, isSystem: true },
+        { code: "5006", name: "Utilities", type: "EXPENSE", subType: "Operating", normalBalance: "DEBIT", ifrsMappingTag: "IAS-1", category: "Operating Expenses", isControlAccount: false, isSystem: true },
+        { code: "5016", name: "Purchase Discounts", type: "EXPENSE", subType: "Operating", normalBalance: "CREDIT", ifrsMappingTag: "IAS-2", category: "Cost of Sales", isControlAccount: false, isSystem: true },
+        { code: "5017", name: "Purchase Returns", type: "EXPENSE", subType: "Operating", normalBalance: "CREDIT", ifrsMappingTag: "IAS-2", category: "Cost of Sales", isControlAccount: false, isSystem: true },
+        { code: "5018", name: "Bad Debt Expense", type: "EXPENSE", subType: "Operating", normalBalance: "DEBIT", ifrsMappingTag: "IFRS-9", category: "Operating Expenses", isControlAccount: false, isSystem: true },
+        { code: "5019", name: "Depreciation Expense", type: "EXPENSE", subType: "Operating", normalBalance: "DEBIT", ifrsMappingTag: "IAS-16", category: "Operating Expenses", isControlAccount: false, isSystem: true },
+        { code: "5002", name: "Purchase Price Variance", type: "EXPENSE", subType: "Operating", normalBalance: "DEBIT", ifrsMappingTag: "IAS-2", category: "Cost of Sales", isControlAccount: false, isSystem: true },
+        { code: "5003", name: "Administrative Expenses", type: "EXPENSE", subType: "Operating", normalBalance: "DEBIT", ifrsMappingTag: "IAS-1", category: "Operating Expenses", isControlAccount: false, isSystem: true },
+        { code: "5007", name: "Insurance", type: "EXPENSE", subType: "Operating", normalBalance: "DEBIT", ifrsMappingTag: "IAS-1", category: "Operating Expenses", isControlAccount: false, isSystem: true },
+        { code: "5008", name: "Marketing & Advertising", type: "EXPENSE", subType: "Operating", normalBalance: "DEBIT", ifrsMappingTag: "IAS-1", category: "Operating Expenses", isControlAccount: false, isSystem: true },
+        { code: "5009", name: "Professional Services", type: "EXPENSE", subType: "Operating", normalBalance: "DEBIT", ifrsMappingTag: "IAS-1", category: "Operating Expenses", isControlAccount: false, isSystem: true },
+        { code: "5010", name: "Freight & Shipping", type: "EXPENSE", subType: "Operating", normalBalance: "DEBIT", ifrsMappingTag: "IAS-2", category: "Operating Expenses", isControlAccount: false, isSystem: true },
+        { code: "5011", name: "Office Supplies", type: "EXPENSE", subType: "Operating", normalBalance: "DEBIT", ifrsMappingTag: "IAS-1", category: "Operating Expenses", isControlAccount: false, isSystem: true },
+        { code: "5012", name: "Travel & Entertainment", type: "EXPENSE", subType: "Operating", normalBalance: "DEBIT", ifrsMappingTag: "IAS-1", category: "Operating Expenses", isControlAccount: false, isSystem: true },
+        { code: "5013", name: "Repairs & Maintenance", type: "EXPENSE", subType: "Operating", normalBalance: "DEBIT", ifrsMappingTag: "IAS-16", category: "Operating Expenses", isControlAccount: false, isSystem: true },
+        { code: "5014", name: "Training & Development", type: "EXPENSE", subType: "Operating", normalBalance: "DEBIT", ifrsMappingTag: "IAS-1", category: "Operating Expenses", isControlAccount: false, isSystem: true },
+        { code: "5015", name: "Research & Development", type: "EXPENSE", subType: "Operating", normalBalance: "DEBIT", ifrsMappingTag: "IAS-38", category: "Operating Expenses", isControlAccount: false, isSystem: true },
+        { code: "5501", name: "Investment Losses", type: "EXPENSE", subType: "Finance", normalBalance: "DEBIT", ifrsMappingTag: "IFRS-9", category: "Finance Costs", isControlAccount: false, isSystem: true },
+        { code: "5503", name: "Interest Expense", type: "EXPENSE", subType: "Finance", normalBalance: "DEBIT", ifrsMappingTag: "IFRS-9", category: "Finance Costs", isControlAccount: false, isSystem: true },
+        { code: "5505", name: "Professional Fees", type: "EXPENSE", subType: "Finance", normalBalance: "DEBIT", ifrsMappingTag: "IAS-1", category: "Finance Costs", isControlAccount: false, isSystem: true },
+        { code: "5100", name: "Operating Expenses", type: "EXPENSE", subType: "Operating", normalBalance: "DEBIT", ifrsMappingTag: "IAS-1", category: "Operating Expenses", isControlAccount: false, isSystem: true },
+        { code: "5200", name: "Finance Costs", type: "EXPENSE", subType: "Finance", normalBalance: "DEBIT", ifrsMappingTag: "IFRS-9", category: "Finance Costs", isControlAccount: false, isSystem: true },
+        { code: "5300", name: "Other Expenses", type: "EXPENSE", subType: "Operating", normalBalance: "DEBIT", ifrsMappingTag: "IAS-1", category: "Operating Expenses", isControlAccount: false, isSystem: true },
+        { code: "5504", name: "Bank Charges", type: "EXPENSE", subType: "Finance", normalBalance: "DEBIT", ifrsMappingTag: "IFRS-9", category: "Finance Costs", isControlAccount: false, isSystem: true },
+        { code: "5506", name: "Rounding Loss", type: "EXPENSE", subType: "Finance", normalBalance: "DEBIT", ifrsMappingTag: "IAS-1", category: "Finance Costs", isControlAccount: false, isSystem: true },
+        { code: "5507", name: "Foreign Exchange Loss", type: "EXPENSE", subType: "Finance", normalBalance: "DEBIT", ifrsMappingTag: "IAS-21", category: "Finance Costs", isControlAccount: false, isSystem: true },
+        { code: "5508", name: "Unrealized Exchange Loss", type: "EXPENSE", subType: "Finance", normalBalance: "DEBIT", ifrsMappingTag: "IAS-21", category: "Finance Costs", isControlAccount: false, isSystem: true },
       ];
 
       for (const acc of defaultAccounts) {
@@ -7678,8 +8174,34 @@ export class DatabaseStorage implements IStorage {
           isActive: true
         }).onConflictDoUpdate({
           target: [accounts.companyId, accounts.code],
-          set: { name: acc.name, type: acc.type, category: acc.category, isSystem: acc.isSystem }
+          set: { 
+            name: acc.name, 
+            type: acc.type, 
+            subType: acc.subType,
+            category: acc.category, 
+            normalBalance: acc.normalBalance,
+            ifrsMappingTag: acc.ifrsMappingTag,
+            isControlAccount: acc.isControlAccount,
+            isSystem: acc.isSystem 
+          }
         });
+      }
+
+      // Cleanup obsolete/orphan accounts that are not in defaultAccounts
+      const defaultCodes = new Set(defaultAccounts.map(acc => acc.code));
+      const allCompanyAccounts = await t.select().from(accounts).where(eq(accounts.companyId, companyId));
+      for (const acc of allCompanyAccounts) {
+        if (!defaultCodes.has(acc.code)) {
+          try {
+            // Nested transaction / savepoint to catch FK constraint errors safely without aborting the outer transaction
+            await t.transaction(async (tx2: any) => {
+              await tx2.delete(accounts).where(eq(accounts.id, acc.id));
+            });
+          } catch (e) {
+            // If there's a constraint violation or any error, deactivate it and mark as not system
+            await t.update(accounts).set({ isActive: false, isSystem: false }).where(eq(accounts.id, acc.id));
+          }
+        }
       }
     };
     
@@ -7723,13 +8245,18 @@ export class DatabaseStorage implements IStorage {
     if (dateFrom) filters.push(gte(journalEntries.entryDate, dateFrom));
     if (dateTo) filters.push(lte(journalEntries.entryDate, dateTo));
 
-    const entries = await db.select()
+    const entries = await db.select({
+        entry: journalEntries,
+        createdByName: users.name,
+      })
       .from(journalEntries)
+      .leftJoin(users, eq(journalEntries.createdBy, users.id))
       .where(and(...filters))
       .orderBy(desc(journalEntries.entryDate));
 
     const result = [];
-    for (const entry of entries) {
+    for (const row of entries) {
+      const entry = row.entry;
       const lines = await db.select({
         id: ledgerEntries.id,
         accountId: ledgerEntries.accountId,
@@ -7742,7 +8269,7 @@ export class DatabaseStorage implements IStorage {
       .innerJoin(accounts, eq(ledgerEntries.accountId, accounts.id))
       .where(eq(ledgerEntries.journalEntryId, entry.id));
       
-      result.push({ ...entry, lines });
+      result.push({ ...entry, createdByName: row.createdByName || "System", lines });
     }
     return result;
   }
@@ -7777,6 +8304,7 @@ export class DatabaseStorage implements IStorage {
     return await db.transaction(async (tx) => {
       const normalizedLines = await this.normalizeLedgerLines(companyId, data.lines, tx);
       this.assertBalancedLedgerLines(normalizedLines);
+      await this.checkControlAccounts(companyId, normalizedLines, data.referenceType || "JOURNAL", tx);
 
       const [draft] = await tx.insert(journalEntryDrafts).values({
         companyId,
@@ -7952,6 +8480,7 @@ export class DatabaseStorage implements IStorage {
       // 1. Create Journal Entry
       const [je] = await t.insert(journalEntries).values({
         companyId,
+        branchId: data.branchId ?? null,
         entryDate,
         description: data.description,
         referenceType: data.referenceType,
@@ -7961,12 +8490,14 @@ export class DatabaseStorage implements IStorage {
 
       const normalizedLines = await this.normalizeLedgerLines(companyId, data.lines, t);
       this.assertBalancedLedgerLines(normalizedLines);
+      await this.checkControlAccounts(companyId, normalizedLines, data.referenceType, t);
 
-      // 2. Create Ledger Entries
+      // 2. Create Ledger Entries (denormalize branchId for efficient branch-level querying)
       for (const line of normalizedLines) {
         await t.insert(ledgerEntries).values({
           journalEntryId: je.id,
           accountId: line.accountId,
+          branchId: data.branchId ?? null,
           type: line.type,
           amount: line.amount.toFixed(2),
         });
@@ -7982,9 +8513,17 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
-  async getVatReturn(companyId: number, fromDate?: Date, toDate?: Date): Promise<{ outputVat: number; inputVat: number; netVat: number }> {
+  async getVatReturn(companyId: number, fromDate?: Date, toDate?: Date): Promise<{ outputVat: number; inputVat: number; netVat: number; inputVatBreakdown?: any[]; outputVatBreakdown?: any[] }> {
     // Output VAT: Sum of tax amount from sales invoices
-    const salesInvoices = await db.select({ tax: invoices.taxAmount })
+    const salesInvoices = await db.select({
+      id: invoices.id,
+      invoiceNumber: invoices.invoiceNumber,
+      customerName: invoices.customerName,
+      date: invoices.issueDate,
+      total: invoices.total,
+      tax: invoices.taxAmount,
+      currency: invoices.currency
+    })
       .from(invoices)
       .where(and(
         eq(invoices.companyId, companyId),
@@ -7995,20 +8534,38 @@ export class DatabaseStorage implements IStorage {
     const outputVat = salesInvoices.reduce((sum, inv) => sum + Number(inv.tax || 0), 0);
 
     // Input VAT: Sum of tax amount from supplier invoices
-    const purchases = await db.select({ tax: supplierInvoices.taxAmount })
+    const purchases = await db.select({
+      id: supplierInvoices.id,
+      invoiceNumber: supplierInvoices.invoiceNumber,
+      date: supplierInvoices.date,
+      total: supplierInvoices.totalAmount,
+      tax: supplierInvoices.taxAmount,
+      currency: supplierInvoices.currency,
+      transactionType: supplierInvoices.transactionType,
+      supplierName: suppliers.name,
+      supplierVat: suppliers.vatNumber
+    })
       .from(supplierInvoices)
+      .leftJoin(suppliers, eq(supplierInvoices.supplierId, suppliers.id))
       .where(and(
         eq(supplierInvoices.companyId, companyId),
         ne(supplierInvoices.status, 'CANCELLED'),
         ...(fromDate ? [gte(supplierInvoices.createdAt, fromDate)] : []),
         ...(toDate ? [lte(supplierInvoices.createdAt, toDate)] : [])
       ));
-    const inputVat = purchases.reduce((sum, inv) => sum + Number(inv.tax || 0), 0);
+    
+    // Calculate net input VAT (subtract Credit Notes)
+    const inputVat = purchases.reduce((sum, inv) => {
+      const amount = Number(inv.tax || 0);
+      return sum + (inv.transactionType === "CreditNote" ? -amount : amount);
+    }, 0);
 
     return {
       outputVat,
       inputVat,
-      netVat: outputVat - inputVat
+      netVat: outputVat - inputVat,
+      inputVatBreakdown: purchases,
+      outputVatBreakdown: salesInvoices
     };
   }
 }

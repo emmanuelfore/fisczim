@@ -9,7 +9,11 @@ export type StockTransferItemView = {
   sku?: string | null;
   quantity: number;
   quantityReceived?: number | null;
+  quantityDamaged?: number | null;
+  quantityLost?: number | null;
   unitCost: number;
+  batchNumber?: string | null;
+  expiryDate?: string | null;
 };
 
 export type StockTransferView = {
@@ -22,9 +26,18 @@ export type StockTransferView = {
   toLocationId?: number | null;
   fromLocationName: string;
   toLocationName: string;
-  status: "IN_TRANSIT" | "RECEIVED" | "CANCELLED";
+  status: "DRAFT" | "PENDING_APPROVAL" | "APPROVED" | "IN_TRANSIT" | "RECEIVED" | "CANCELLED";
   notes?: string | null;
+  transitCost?: string | number | null;
+  transitCostCurrency?: string | null;
+  freightCarrier?: string | null;
+  vehicleReg?: string | null;
+  varianceReason?: string | null;
+  approvedBy?: string | null;
+  approvedAt?: string | null;
+  dispatchedBy?: string | null;
   dispatchedAt?: string | null;
+  receivedBy?: string | null;
   receivedAt?: string | null;
   createdAt?: string | null;
   lineCount: number;
@@ -47,11 +60,12 @@ export type InventoryLocationView = {
   stockValue?: number;
 };
 
-export function useInventoryLocations(companyId: number) {
+export function useInventoryLocations(companyId: number, params?: { all?: boolean }) {
   return useQuery<InventoryLocationView[]>({
-    queryKey: ["inventory-locations", companyId],
+    queryKey: ["inventory-locations", companyId, params?.all],
     queryFn: async () => {
-      const res = await apiFetch(`/api/companies/${companyId}/inventory/locations`);
+      const queryStr = params?.all ? "?all=true" : "";
+      const res = await apiFetch(`/api/companies/${companyId}/inventory/locations${queryStr}`);
       if (!res.ok) throw new Error("Failed to fetch inventory locations");
       return res.json();
     },
@@ -83,7 +97,12 @@ export function useCreateStockTransfer(companyId: number) {
       fromBranchId?: number | null;
       toBranchId?: number | null;
       notes?: string;
-      items: { productId: number; quantity: number | string }[];
+      status?: string;
+      transitCost?: number;
+      transitCostCurrency?: string;
+      freightCarrier?: string;
+      vehicleReg?: string;
+      items: { productId: number; quantity: number | string; unitCost?: number; batchNumber?: string; expiryDate?: string }[];
     }) => {
       const res = await apiFetch(`/api/companies/${companyId}/inventory/transfers`, {
         method: "POST",
@@ -104,19 +123,80 @@ export function useCreateStockTransfer(companyId: number) {
   });
 }
 
+export function useSubmitStockTransfer(companyId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (transferId: number) => {
+      const res = await apiFetch(`/api/companies/${companyId}/inventory/transfers/${transferId}/submit`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || "Failed to submit transfer for approval");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["stock-transfers", companyId] });
+    },
+  });
+}
+
+export function useApproveStockTransfer(companyId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (transferId: number) => {
+      const res = await apiFetch(`/api/companies/${companyId}/inventory/transfers/${transferId}/approve`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || "Failed to approve transfer");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["stock-transfers", companyId] });
+    },
+  });
+}
+
+export function useDispatchStockTransfer(companyId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (transferId: number) => {
+      const res = await apiFetch(`/api/companies/${companyId}/inventory/transfers/${transferId}/dispatch`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || "Failed to dispatch transfer");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["stock-transfers", companyId] });
+      queryClient.invalidateQueries({ queryKey: ["inventory-locations", companyId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/companies", companyId, "branches"] });
+      refreshProductQueries(queryClient, companyId);
+    },
+  });
+}
+
 export function useReceiveStockTransfer(companyId: number) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (data: {
       transferId: number;
       notes?: string;
-      items?: { productId: number; quantityReceived: number | string }[];
+      varianceReason?: string;
+      items?: { productId: number; quantityReceived: number | string; quantityDamaged?: number | string; quantityLost?: number | string; batchNumber?: string; expiryDate?: string }[];
     }) => {
       const res = await apiFetch(
         `/api/companies/${companyId}/inventory/transfers/${data.transferId}/receive`,
         {
           method: "POST",
-          body: JSON.stringify({ notes: data.notes, items: data.items }),
+          body: JSON.stringify({ notes: data.notes, items: data.items, varianceReason: data.varianceReason }),
         },
       );
       if (!res.ok) {

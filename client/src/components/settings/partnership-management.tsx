@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Loader2, Handshake, Plus, Pencil, Save } from "lucide-react";
 import { DEFAULT_PARTNERSHIP_SETTINGS, type PartnershipSettings } from "@shared/partnership";
+import { invoiceTemplates } from "@/lib/invoice-templates";
 
 interface PartnershipManagementProps {
   companyId: number;
@@ -37,6 +38,7 @@ export function PartnershipManagement({ companyId }: PartnershipManagementProps)
     displayLabel: "In partnership with",
     defaultRevenueSharePercent: "0",
     ownerGroupMatch: "",
+    invoiceTemplate: "modern",
     notes: "",
   });
 
@@ -55,6 +57,7 @@ export function PartnershipManagement({ companyId }: PartnershipManagementProps)
       displayLabel: "In partnership with",
       defaultRevenueSharePercent: "0",
       ownerGroupMatch: "",
+      invoiceTemplate: "modern",
       notes: "",
     });
     setEditorOpen(true);
@@ -71,6 +74,7 @@ export function PartnershipManagement({ companyId }: PartnershipManagementProps)
       displayLabel: partner.displayLabel || "In partnership with",
       defaultRevenueSharePercent: String(partner.defaultRevenueSharePercent || 0),
       ownerGroupMatch: partner.ownerGroupMatch || "",
+      invoiceTemplate: partner.invoiceTemplate || "modern",
       notes: partner.notes || "",
     });
     setEditorOpen(true);
@@ -223,12 +227,59 @@ export function PartnershipManagement({ companyId }: PartnershipManagementProps)
           <div className="grid gap-3">
             <div className="grid gap-2"><Label>Name</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
             <div className="grid gap-2"><Label>Trading name</Label><Input value={form.tradingName} onChange={(e) => setForm({ ...form, tradingName: e.target.value })} /></div>
-            <div className="grid gap-2"><Label>Logo URL</Label><Input value={form.logoUrl} onChange={(e) => setForm({ ...form, logoUrl: e.target.value })} placeholder="https://..." /></div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="grid gap-2"><Label>Revenue share %</Label><Input type="number" min={0} max={100} value={form.defaultRevenueSharePercent} onChange={(e) => setForm({ ...form, defaultRevenueSharePercent: e.target.value })} /></div>
-              <div className="grid gap-2"><Label>Owner group match</Label><Input value={form.ownerGroupMatch} onChange={(e) => setForm({ ...form, ownerGroupMatch: e.target.value })} placeholder="e.g. Beauty" /></div>
+            <div className="grid gap-2">
+              <Label>Logo</Label>
+              <div className="flex items-center gap-3">
+                {form.logoUrl && (
+                  <img src={form.logoUrl} alt="Logo" className="h-10 w-20 object-contain rounded border border-slate-200" />
+                )}
+                <Input
+                  type="file"
+                  accept="image/*"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const fd = new FormData();
+                    fd.append("image", file);
+                    try {
+                      const res = await apiFetch("/api/upload", { method: "POST", body: fd });
+                      if (!res.ok) throw new Error("Upload failed");
+                      const data = await res.json();
+                      setForm({ ...form, logoUrl: data.url });
+                    } catch (err: any) {
+                      toast({ title: "Upload Error", description: err.message, variant: "destructive" });
+                    }
+                  }}
+                />
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-3 rounded-md border border-blue-100 bg-blue-50/50 p-3">
+              <div className="col-span-2 space-y-1">
+                <Label className="text-blue-900 font-semibold">Automatic Split Rules</Label>
+                <p className="text-xs text-blue-700">Configure how revenue is automatically split when an invoice is issued with this partner.</p>
+              </div>
+              <div className="grid gap-2">
+                <Label className="text-blue-900">Partner Share %</Label>
+                <Input type="number" min={0} max={100} value={form.defaultRevenueSharePercent} onChange={(e) => setForm({ ...form, defaultRevenueSharePercent: e.target.value })} className="bg-white" />
+              </div>
+              <div className="grid gap-2">
+                <Label className="text-blue-900">Owner group match</Label>
+                <Input value={form.ownerGroupMatch} onChange={(e) => setForm({ ...form, ownerGroupMatch: e.target.value })} placeholder="e.g. Beauty" className="bg-white" />
+              </div>
             </div>
             <div className="grid gap-2"><Label>Display label</Label><Input value={form.displayLabel} onChange={(e) => setForm({ ...form, displayLabel: e.target.value })} /></div>
+            <div className="grid gap-2">
+              <Label>Invoice Template</Label>
+              <Select value={form.invoiceTemplate} onValueChange={(v) => setForm({ ...form, invoiceTemplate: v })}>
+                <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {invoiceTemplates.map(t => (
+                    <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="grid gap-2"><Label>Notes</Label><Textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={2} /></div>
           </div>
           <DialogFooter>

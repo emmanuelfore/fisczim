@@ -226,9 +226,22 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
     const verificationCode = verificationCodeRaw.match(/.{1,4}/g)?.join("-") || "";
 
     const isExclusive = !invoice.taxInclusive;
-    const partner = (invoice.partnerSnapshot || null) as PartnerSnapshot | null;
+    const hasDesignerPartnership = designerSettings.showPartnership;
+    const partner = (invoice.partnerSnapshot || (hasDesignerPartnership ? {
+        id: 1,
+        name: "Acme Partner Pvt Ltd",
+        tradingName: "Acme Partner",
+        logoUrl: "https://placehold.co/200x100/png?text=Partner+Logo",
+        tin: "9876543210",
+        vatNumber: "VAT111222",
+        displayLabel: "In association with",
+        revenueSharePercent: 30,
+    } : null)) as PartnerSnapshot | null;
+
     const partnershipSettings = normalizePartnershipSettings(company?.partnershipSettings);
-    const showDualLogo = !!partner?.logoUrl && partnershipSettings.dualLogoEnabled !== false;
+    const showDualLogo = !!partner?.logoUrl && (hasDesignerPartnership || partnershipSettings.dualLogoEnabled !== false);
+    const partnerLogoPlacement = designerSettings.partnerLogoPlacement || partnershipSettings.dualLogoLayout || "side_by_side";
+
     const documentTitle = invoice.status === 'quote'
         ? "OFFICIAL QUOTATION"
         : (invoice.transactionType === 'CreditNote'
@@ -245,12 +258,16 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                 {/* 0. Header: Logo (Left) - Verification (Center) - QR (Right) */}
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: compact ? 7 : 10, padding: template.headerMode === 'band' ? 10 : 0, paddingBottom: template.headerMode === 'band' ? 10 : 10, borderBottomWidth: 1, borderBottomColor: borderColor, backgroundColor: template.headerMode === 'band' ? template.secondary : 'transparent' }}>
                     {/* Left: Logo(s) */}
-                    <View style={{ width: '28%', flexDirection: showDualLogo && partnershipSettings.dualLogoLayout === 'stacked' ? 'column' : 'row', alignItems: 'center', gap: 4 }}>
+                    <View style={{ width: '28%', flexDirection: showDualLogo && partnerLogoPlacement === 'stacked' ? 'column' : 'row', alignItems: 'center', gap: 4 }}>
                         {company?.logoUrl ? (
-                            <Image src={company.logoUrl} style={{ width: showDualLogo ? 72 : 108, height: 50, objectFit: 'contain' }} />
-                        ) : null}
-                        {showDualLogo && partner?.logoUrl ? (
-                            <Image src={partner.logoUrl} style={{ width: partnershipSettings.dualLogoLayout === 'primary_secondary' ? 56 : 72, height: 44, objectFit: 'contain' }} />
+                            <Image src={company.logoUrl} style={{ width: showDualLogo && partnerLogoPlacement !== 'right_header' ? 72 : 108, height: 50, objectFit: 'contain' }} />
+                        ) : (
+                            hasDesignerPartnership ? (
+                                <Image src="https://placehold.co/200x100/png?text=Company+Logo" style={{ width: showDualLogo && partnerLogoPlacement !== 'right_header' ? 72 : 108, height: 50, objectFit: 'contain' }} />
+                            ) : null
+                        )}
+                        {showDualLogo && partner?.logoUrl && partnerLogoPlacement !== 'right_header' ? (
+                            <Image src={partner.logoUrl} style={{ width: partnerLogoPlacement === 'primary_secondary' ? 56 : 72, height: 44, objectFit: 'contain' }} />
                         ) : null}
                     </View>
 
@@ -271,8 +288,11 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                         ) : null}
                     </View>
 
-                    {/* Right: QR Code */}
-                    <View style={{ width: '28%', alignItems: 'flex-end' }}>
+                    {/* Right: QR Code / Partner Logo */}
+                    <View style={{ width: '28%', alignItems: 'flex-end', gap: 4 }}>
+                        {showDualLogo && partner?.logoUrl && partnerLogoPlacement === 'right_header' ? (
+                            <Image src={partner.logoUrl} style={{ width: 72, height: 44, objectFit: 'contain', marginBottom: 4 }} />
+                        ) : null}
                         {showHeaderQr && designerSettings.qrPlacement === "header-right" ? (
                             <Image style={{ width: 68, height: 68 }} src={qrCodeUrl} />
                         ) : invoice.status === 'quote' ? (
@@ -521,6 +541,11 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                                             <Text style={styles.colExCode}>{item.product?.hsCode || "0000"}</Text>
                                             <View style={styles.colExDesc}>
                                                 <Text>{item.description}</Text>
+                                                {item.serialNumber && (
+                                                    <Text style={{ fontSize: 7, color: accentColor, fontWeight: 700, marginTop: 1 }}>
+                                                        S/N: {item.serialNumber}
+                                                    </Text>
+                                                )}
                                                 {item.notes && (
                                                     <Text style={{ fontSize: 7, color: '#64748b', marginTop: 1, fontStyle: 'italic' }}>
                                                         Note: {item.notes}
@@ -538,6 +563,11 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                                             <Text style={styles.colCode}>{item.product?.hsCode || "0000"}</Text>
                                             <View style={styles.colDesc}>
                                                 <Text>{item.description}</Text>
+                                                {item.serialNumber && (
+                                                    <Text style={{ fontSize: 7, color: accentColor, fontWeight: 700, marginTop: 1 }}>
+                                                        S/N: {item.serialNumber}
+                                                    </Text>
+                                                )}
                                                 {item.notes && (
                                                     <Text style={{ fontSize: 7, color: '#64748b', marginTop: 1, fontStyle: 'italic' }}>
                                                         Note: {item.notes}
@@ -553,7 +583,14 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                                 ) : (
                                     <>
                                         <Text style={[styles.colCode, { width: '15%' }]}>{item.product?.hsCode || "0000"}</Text>
-                                        <Text style={[styles.colDesc, { width: '45%' }]}>{item.description}</Text>
+                                        <View style={[styles.colDesc, { width: '45%' }]}>
+                                            <Text>{item.description}</Text>
+                                            {item.serialNumber && (
+                                                <Text style={{ fontSize: 7, color: accentColor, fontWeight: 700, marginTop: 1 }}>
+                                                    S/N: {item.serialNumber}
+                                                </Text>
+                                            )}
+                                        </View>
                                         <Text style={[styles.colQty, { width: '10%' }]}>{qty}</Text>
                                         <Text style={[styles.colPrice, { width: '15%' }]}>{displayPrice.toFixed(2)}</Text>
                                         <Text style={[styles.colTotal, { width: '15%' }]}>{displayTotalIncl.toFixed(2)}</Text>

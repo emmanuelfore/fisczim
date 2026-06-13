@@ -5,6 +5,7 @@ import * as z from "zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCompany } from "@/hooks/use-companies";
 import { useCustomers } from "@/hooks/use-customers";
+import { useSuppliers } from "@/hooks/use-suppliers";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -50,6 +51,7 @@ interface PaymentModalProps {
   remainingBalance: number;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  type?: "customer" | "supplier";
 }
 
 export function PaymentModal({
@@ -57,13 +59,17 @@ export function PaymentModal({
   remainingBalance,
   open,
   onOpenChange,
+  type = "customer",
 }: PaymentModalProps) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const companyId = parseInt(localStorage.getItem("selectedCompanyId") || "0");
   const { data: company } = useCompany(companyId);
   const { data: customers } = useCustomers(companyId);
-  const customer = customers?.find((c: any) => c.id === invoice?.customerId);
+  const { data: suppliers } = useSuppliers(companyId);
+  const customer = type === "customer"
+    ? customers?.find((c: any) => c.id === invoice?.customerId)
+    : suppliers?.find((s: any) => s.id === invoice?.supplierId);
 
   const [receiptData, setReceiptData] = useState<any | null>(null);
   const [showReceipt, setShowReceipt] = useState(false);
@@ -95,50 +101,87 @@ export function PaymentModal({
     const allocationAmount = Math.min(amount, remainingBalance);
     try {
       setIsPosting(true);
-      const response = await apiRequest(
-        "POST",
-        "/api/accounting/receipts/customer",
-        {
-          customerId: invoice.customerId,
-          amount,
-          currency: invoice.currency || "USD",
-          paymentDate: new Date().toISOString(),
-          paymentMethod: values.paymentMethod,
-          reference: values.reference,
-          notes: values.notes,
-          allocations:
-            allocationAmount > 0
-              ? [{ invoiceId: invoice.id, amount: allocationAmount }]
-              : [],
-        },
-      );
+      const isSupplier = type === "supplier";
+      const url = isSupplier
+        ? "/api/accounting/payments/supplier"
+        : "/api/accounting/receipts/customer";
+
+      const payload = isSupplier
+        ? {
+            supplierId: invoice.supplierId,
+            amount,
+            currency: invoice.currency || "USD",
+            paymentDate: new Date().toISOString(),
+            method: values.paymentMethod === "CARD" ? "Card" : values.paymentMethod === "ECOCASH" ? "EcoCash" : values.paymentMethod === "BANK_TRANSFER" ? "Bank" : "Cash",
+            reference: values.reference,
+            notes: values.notes,
+            allocations:
+              allocationAmount > 0
+                ? [{ supplierInvoiceId: invoice.id, amount: allocationAmount }]
+                : [],
+          }
+        : {
+            customerId: invoice.customerId,
+            amount,
+            currency: invoice.currency || "USD",
+            paymentDate: new Date().toISOString(),
+            paymentMethod: values.paymentMethod,
+            reference: values.reference,
+            notes: values.notes,
+            allocations:
+              allocationAmount > 0
+                ? [{ invoiceId: invoice.id, amount: allocationAmount }]
+                : [],
+          };
+
+      const response = await apiRequest("POST", url, payload);
       const result = await response.json();
-      const payment = result.receipt;
-      const unallocatedAmount = Number(result.unallocatedAmount || 0);
-      toast({
-        title:
-          unallocatedAmount > 0
-            ? "Payment recorded with overpayment"
-            : "Payment allocated",
-        description:
-          unallocatedAmount > 0
-            ? `${invoice.currency || "USD"} ${unallocatedAmount.toFixed(2)} remains unallocated on the customer account.`
-            : "The receipt was allocated to this invoice.",
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["/api/invoices", invoice.id, "payment-summary"],
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+
+      if (isSupplier) {
+        toast({
+          title: "Payment recorded",
+          description: "The payment was successfully recorded for the supplier.",
+        });
+        queryClient.invalidateQueries({
+          queryKey: [`/api/companies/${companyId}/supplier-invoices/${invoice.id}`],
+        });
+        queryClient.invalidateQueries({
+          queryKey: [`/api/companies/${companyId}/supplier-invoices`],
+        });
+      } else {
+        const payment = result.receipt;
+        const unallocatedAmount = Number(result.unallocatedAmount || 0);
+        toast({
+          title:
+            unallocatedAmount > 0
+              ? "Payment recorded with overpayment"
+              : "Payment allocated",
+          description:
+            unallocatedAmount > 0
+              ? `${invoice.currency || "USD"} ${unallocatedAmount.toFixed(2)} remains unallocated on the customer account.`
+              : "The receipt was allocated to this invoice.",
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["/api/invoices", invoice.id, "payment-summary"],
+        });
+        queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+      }
+
       // Store payment data for receipt, then close form and show receipt
-      setReceiptData({
-        ...values,
-        amount: values.amount,
-        currency: invoice.currency || "USD",
-        createdAt: (payment as any)?.createdAt || new Date().toISOString(),
-      });
+      if (!isSupplier) {
+        const payment = result.receipt;
+        setReceiptData({
+          ...values,
+          amount: values.amount,
+          currency: invoice.currency || "USD",
+          createdAt: (payment as any)?.createdAt || new Date().toISOString(),
+        });
+      }
       onOpenChange(false);
       form.reset();
-      setShowReceipt(true);
+      if (!isSupplier) {
+        setShowReceipt(true);
+      }
     } catch (error: any) {
       toast({
         title: "Could not record payment",

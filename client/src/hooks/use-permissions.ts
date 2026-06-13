@@ -2,7 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useAuth } from "@/hooks/use-auth";
-import { NAV_PERMISSION_MAP } from "@shared/permissions";
+import { NAV_PERMISSION_MAP, DIRECT_ACTION_PERMISSION, REQUEST_ACTION_PERMISSION, type ApprovalType } from "@shared/permissions";
+import { type CompanyApprovalPolicies } from "@shared/approval-policies";
 
 export function usePermissions() {
   const { user } = useAuth();
@@ -11,13 +12,14 @@ export function usePermissions() {
   const query = useQuery({
     queryKey: ["my-permissions", activeCompanyId, user?.id],
     queryFn: async () => {
-      if (!activeCompanyId) return { permissions: [] as string[], legacyRole: "member", companyRoleId: null };
+      if (!activeCompanyId) return { permissions: [] as string[], legacyRole: "member", companyRoleId: null, approvalPolicies: null };
       const res = await apiFetch(`/api/companies/${activeCompanyId}/my-permissions`);
       if (!res.ok) throw new Error("Failed to load permissions");
       return await res.json() as {
         permissions: string[];
         legacyRole: string;
         companyRoleId: number | null;
+        approvalPolicies: CompanyApprovalPolicies | null;
       };
     },
     enabled: !!user && !!activeCompanyId,
@@ -38,13 +40,45 @@ export function usePermissions() {
     return permissions.has(required);
   };
 
+  const requiresApproval = (type: ApprovalType, amount?: number) => {
+    if (isSuperAdmin) return false;
+    
+    const policy = query.data?.approvalPolicies?.[type];
+    if (!policy || policy.mode === "disabled") {
+      return false;
+    }
+
+    const isOwner = query.data?.legacyRole === "owner";
+    const ownerBypass = policy.ownerBypass !== false;
+    if (isOwner && ownerBypass) {
+      return false;
+    }
+
+    if (policy.mode === "always") {
+      return true;
+    }
+
+    // mode is "by_permission"
+    const threshold = Number(policy.amountThreshold || 0);
+    if (threshold > 0 && amount != null && Number.isFinite(amount) && amount >= threshold) {
+      return true;
+    }
+
+    const directPermission = DIRECT_ACTION_PERMISSION[type];
+    const hasDirect = permissions.has(directPermission);
+    
+    return !hasDirect;
+  };
+
   return {
     ...query,
     permissions: query.data?.permissions || [],
     legacyRole: query.data?.legacyRole || "member",
     companyRoleId: query.data?.companyRoleId || null,
+    approvalPolicies: query.data?.approvalPolicies || null,
     can,
     canAccessPath,
+    requiresApproval,
     isSuperAdmin,
   };
 }

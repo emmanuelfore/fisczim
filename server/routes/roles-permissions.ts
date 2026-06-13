@@ -48,10 +48,12 @@ export function createRolesPermissionsRouter(
       await assertCompanyAccess(req, companyId);
       const permissions = await getUserPermissions(req.user!.id, companyId, req.user?.isSuperAdmin);
       const membership = await storage.getCompanyMembership(req.user!.id, companyId);
+      const approvalPolicies = await getCompanyApprovalPolicies(companyId);
       res.json({
         permissions: Array.from(permissions),
         legacyRole: membership?.legacyRole || "member",
         companyRoleId: membership?.companyRoleId || null,
+        approvalPolicies,
       });
     } catch (err: any) {
       res.status(err.statusCode || 500).json({ message: err.message });

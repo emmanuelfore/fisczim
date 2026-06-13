@@ -12,10 +12,16 @@ export function generateGrvReference() {
 type LandedCostAllocationMethod = "quantity" | "value" | "manual";
 
 type StockInItemInput = {
-    productId: number;
+    productId?: number | null;
+    accountCode?: string | null;
+    description?: string | null;
     quantity: number | string;
     unitCost: number | string;
     landedCost?: number | string;
+    taxTypeId?: number | null;
+    taxRate?: number | string;
+    taxAmount?: number | string;
+    isRecoverable?: boolean;
 };
 
 function allocateLandedCosts(
@@ -32,7 +38,7 @@ function allocateLandedCosts(
                 ? parseFloat(item.landedCost)
                 : item.landedCost;
         return {
-            productId: item.productId,
+            productId: item.productId!,
             quantity: Number.isFinite(quantity) ? quantity : 0,
             baseUnitCost: Number.isFinite(baseUnitCost) ? baseUnitCost : 0,
             manualLandedCost: Number.isFinite(manualLandedCost) ? manualLandedCost : 0,
@@ -165,7 +171,79 @@ export async function recordBatchStockIn(
     gdnId?: number
 ) {
     const grvReference = grvNumber?.trim() || generateGrvReference();
-    const allocatedItems = allocateLandedCosts(items, landedCosts, allocationMethod);
+    
+    const stockItemsInput = items.filter(i => i.productId);
+    const nonStockItemsInput = items.filter(i => !i.productId);
+
+    let totalRecoverableVat = 0;
+
+    // If the GRV is tax inclusive, the item.unitCost (which maps to baseUnitCost) may already include VAT.
+    const [gdnRecord] = gdnId 
+        ? await db.select({ taxInclusive: goodsDeliveryNotes.taxInclusive }).from(goodsDeliveryNotes).where(eq(goodsDeliveryNotes.id, gdnId)).limit(1)
+        : [null];
+    const isGdnTaxInclusive = gdnRecord ? !!gdnRecord.taxInclusive : false;
+
+    // Sum non-stock items to act as the auto-landed cost pool
+    // Non-recoverable VAT gets added to the landed cost pool!
+    const autoLandedCostPool = nonStockItemsInput.reduce((sum, item) => {
+        const qty = typeof item.quantity === "string" ? parseFloat(item.quantity) : item.quantity;
+        const cost = typeof item.unitCost === "string" ? parseFloat(item.unitCost) : item.unitCost;
+        const taxAmt = typeof item.taxAmount === "string" ? parseFloat(item.taxAmount) : (item.taxAmount || 0);
+        
+        let itemTotal = (Number.isFinite(qty) ? qty : 0) * (Number.isFinite(cost) ? cost : 0);
+        
+        // If tax inclusive, the cost already includes tax.
+        if (isGdnTaxInclusive) {
+            if (item.isRecoverable !== false) {
+                itemTotal -= (Number.isFinite(taxAmt) ? taxAmt : 0); // Subtract recoverable tax from inventory cost
+                totalRecoverableVat += (Number.isFinite(taxAmt) ? taxAmt : 0);
+            } else {
+                // If not recoverable, keep the full tax-inclusive amount as part of the cost pool
+            }
+        } else {
+            // Tax exclusive
+            if (item.isRecoverable !== false) {
+                totalRecoverableVat += (Number.isFinite(taxAmt) ? taxAmt : 0);
+            } else {
+                itemTotal += (Number.isFinite(taxAmt) ? taxAmt : 0); // Capitalize non-recoverable VAT
+            }
+        }
+        
+        return sum + itemTotal;
+    }, 0);
+    
+    // Process stock items
+    for (const stockItem of stockItemsInput) {
+        const qty = typeof stockItem.quantity === "string" ? parseFloat(stockItem.quantity) : stockItem.quantity;
+        const cost = typeof stockItem.unitCost === "string" ? parseFloat(stockItem.unitCost) : stockItem.unitCost;
+        const taxAmt = typeof stockItem.taxAmount === "string" ? parseFloat(stockItem.taxAmount) : (stockItem.taxAmount || 0);
+        const isRecoverable = stockItem.isRecoverable !== false;
+
+        if (isGdnTaxInclusive) {
+            if (isRecoverable) {
+                // Deduct recoverable tax from the unit cost
+                if (qty > 0) {
+                    stockItem.unitCost = cost - (taxAmt / qty);
+                }
+                totalRecoverableVat += (Number.isFinite(taxAmt) ? taxAmt : 0);
+            } else {
+                // Keep the cost as-is because it already includes the non-recoverable tax
+            }
+        } else {
+            // Tax exclusive
+            if (isRecoverable) {
+                totalRecoverableVat += (Number.isFinite(taxAmt) ? taxAmt : 0);
+            } else {
+                // Capitalize tax by adding it to the unitCost
+                if (qty > 0) {
+                    stockItem.unitCost = cost + (taxAmt / qty);
+                }
+            }
+        }
+    }
+
+    const totalLandedCosts = landedCosts + autoLandedCostPool;
+    const allocatedItems = allocateLandedCosts(stockItemsInput, totalLandedCosts, allocationMethod);
 
     // Wrap in a transaction to ensure all or nothing
     await db.transaction(async (tx) => {
@@ -249,24 +327,54 @@ export async function recordBatchStockIn(
             }
         }
 
-        // 5. Post GL: Dr Inventory (1300), Cr GRNI (2010)
+        // Update PO quantities for non-stock items
+        if (purchaseOrderId && nonStockItemsInput.length > 0) {
+            for (const item of nonStockItemsInput) {
+                const qty = typeof item.quantity === "string" ? parseFloat(item.quantity) : item.quantity;
+                await tx
+                    .update(purchaseOrderItems)
+                    .set({ quantityReceived: sql`quantity_received + ${qty}` })
+                    .where(and(
+                        eq(purchaseOrderItems.purchaseOrderId, purchaseOrderId),
+                        sql`${purchaseOrderItems.productId} IS NULL`,
+                        eq(purchaseOrderItems.description, item.description || "")
+                    ));
+            }
+        }
+
+        // 5. Post GL: Dr Inventory (1300), Dr Input VAT (e.g. 1500), Cr GRNI (2010)
         // Lazy import to avoid circular dependency
         const { storage } = await import("../storage");
-        const inventoryAccCode = await storage.getSystemAccountCodePublic(companyId, "inventoryAccountCode");
-        const grniAccCode = await storage.getSystemAccountCodePublic(companyId, "grniAccountCode");
-        const totalCost = allocatedItems.reduce((sum, i) => sum + (i.quantity * i.baseUnitCost) + i.landedCost, 0);
+        const inventoryAccCode = await storage.getSystemAccountCode(companyId, "inventoryAccountCode");
+        const grniAccCode = await storage.getSystemAccountCode(companyId, "grniAccountCode");
+        const inputVatAccCode = await storage.getSystemAccountCode(companyId, "vatInputAccountCode"); // Key is vatInputAccountCode
+        
+        // Note: allocatedItems baseUnitCost values have already been adjusted in pre-processing
+        // (i.e. if taxInclusive and recoverable, baseUnitCost = cost - taxAmt/qty).
+        // Therefore, we can sum them directly to get totalInventoryCost.
+        const totalInventoryCost = allocatedItems.reduce((sum, item) => sum + (item.quantity * item.baseUnitCost) + item.landedCost, 0);
+        const grandTotal = totalInventoryCost + totalRecoverableVat;
 
-        if (inventoryAccCode && grniAccCode && totalCost > 0) {
+        if (inventoryAccCode && grniAccCode && grandTotal > 0) {
+            const lines: { accountCode: string, type: "DEBIT" | "CREDIT", amount: number }[] = [];
+            
+            if (totalInventoryCost > 0) {
+                lines.push({ accountCode: inventoryAccCode, type: "DEBIT", amount: Number(totalInventoryCost.toFixed(2)) });
+            }
+            if (totalRecoverableVat > 0 && inputVatAccCode) {
+                lines.push({ accountCode: inputVatAccCode, type: "DEBIT", amount: Number(totalRecoverableVat.toFixed(2)) });
+            }
+            if (grandTotal > 0) {
+                lines.push({ accountCode: grniAccCode, type: "CREDIT", amount: Number((totalInventoryCost + totalRecoverableVat).toFixed(2)) });
+            }
+
             await storage.postToLedger(companyId, {
                 entryDate: new Date(),
                 description: `GRV ${grvReference}${gdnId ? ` (GDN #${gdnId})` : ""}`,
                 referenceType: "GRV",
                 referenceId: grvReference,
                 createdBy: createdBy,
-                lines: [
-                    { accountCode: inventoryAccCode, type: "DEBIT" as const, amount: totalCost },
-                    { accountCode: grniAccCode, type: "CREDIT" as const, amount: totalCost },
-                ],
+                lines,
             });
         }
     });

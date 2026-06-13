@@ -4,6 +4,7 @@ import { useProducts } from "@/hooks/use-products";
 import { useInventoryAdjust } from "@/hooks/use-inventory";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useBranchContext } from "@/lib/branch-context";
+import { usePermissions } from "@/hooks/use-permissions";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Search,
@@ -58,6 +59,8 @@ export default function InventoryAdjustmentsPage() {
   const { activeCompanyId } = useActiveCompany();
   const { selectedBranchId } = useBranchContext();
   const { toast } = useToast();
+  const { can, requiresApproval } = usePermissions();
+  const hasDirectAccess = !requiresApproval("stock_adjustment");
 
   const companyId = activeCompanyId || 0;
   const branchId = selectedBranchId || undefined;
@@ -323,8 +326,10 @@ export default function InventoryAdjustmentsPage() {
       if (failedCount === 0) {
         setBatchReason("");
         toast({
-          title: "Adjustments saved",
-          description: `Successfully committed ${successfulIds.length} stock adjustments.`,
+          title: hasDirectAccess ? "Adjustments saved" : "Submitted for approval",
+          description: hasDirectAccess 
+            ? `Successfully committed ${successfulIds.length} stock adjustments.`
+            : `Submitted ${successfulIds.length} stock adjustments for approval.`,
         });
       } else {
         toast({
@@ -684,8 +689,10 @@ export default function InventoryAdjustmentsPage() {
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   Saving...
                 </>
-              ) : (
+              ) : hasDirectAccess ? (
                 "Commit Adjustments"
+              ) : (
+                "Submit for Approval"
               )}
             </Button>
           </div>

@@ -10,6 +10,7 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { useCurrencies } from "@/hooks/use-currencies";
 import { useCompany } from "@/hooks/use-companies";
+import { usePartners } from "@/hooks/use-partners";
 import { useTaxConfig } from "@/hooks/use-tax-config";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -80,6 +81,7 @@ import {
   invoiceTemplates,
   type InvoiceTemplateId,
 } from "@/lib/invoice-templates";
+import { usePermissions } from "@/hooks/use-permissions";
 
 type LineItem = {
   localId: string;
@@ -113,6 +115,7 @@ export default function CreateInvoicePage() {
   });
 
   const { data: company } = useCompany(companyId);
+  const { data: partners } = usePartners(companyId);
   const { data: customers } = useCustomers(companyId);
   const { data: products } = useProducts(companyId);
   const { data: currencies } = useCurrencies(companyId);
@@ -129,6 +132,8 @@ export default function CreateInvoicePage() {
   const fiscalizeInvoice = useFiscalizeInvoice();
   const createProduct = useCreateProduct(companyId);
   const { user } = useAuth();
+  const { can, requiresApproval } = usePermissions();
+
 
   const [isLockedByOther, setIsLockedByOther] = useState(false);
   const [lockStatus, setLockStatus] = useState<string>("");
@@ -215,6 +220,12 @@ export default function CreateInvoicePage() {
       setExchangeRate(existingInvoice.exchangeRate || "1.000000"); // Ensure we copy exchange rate too
       setPaymentMethod(existingInvoice.paymentMethod || "CASH");
 
+      if ((existingInvoice as any).partnerId) {
+        setPartnerId((existingInvoice as any).partnerId.toString());
+      } else {
+        setPartnerId("none");
+      }
+
       if (existingInvoice.items && existingInvoice.items.length > 0) {
         console.log("Populating items:", existingInvoice.items);
         setItems(
@@ -235,6 +246,7 @@ export default function CreateInvoicePage() {
 
   // Form State
   const [customerId, setCustomerId] = useState<string>("");
+  const [partnerId, setPartnerId] = useState<string>("none");
   const [issueDate, setIssueDate] = useState<string>(
     new Date().toISOString().split("T")[0],
   ); // Default to today
@@ -335,6 +347,7 @@ export default function CreateInvoicePage() {
     const timer = setTimeout(() => {
       const draftState = {
         customerId,
+        partnerId,
         items,
         notes,
         poNumber,
@@ -355,6 +368,7 @@ export default function CreateInvoicePage() {
     return () => clearTimeout(timer);
   }, [
     customerId,
+    partnerId,
     items,
     notes,
     poNumber,
@@ -379,6 +393,7 @@ export default function CreateInvoicePage() {
       try {
         const state = JSON.parse(saved);
         if (state.customerId) setCustomerId(state.customerId);
+        if (state.partnerId) setPartnerId(state.partnerId);
         if (state.items) setItems(state.items);
         if (state.notes) setNotes(state.notes);
         if (state.poNumber) setPoNumber(state.poNumber);
@@ -495,6 +510,7 @@ export default function CreateInvoicePage() {
   };
 
   const { subtotal, taxAmount, total } = calculateTotals();
+  const hasDirectAccess = !requiresApproval("invoice_issue", total);
 
   const calculateTaxBreakdown = () => {
     const breakdown: Record<
@@ -595,6 +611,7 @@ export default function CreateInvoicePage() {
       companyId,
       invoiceNumber,
       customerId: parseInt(customerId),
+      partnerId: partnerId === "none" ? null : parseInt(partnerId),
       issueDate: issueDate ? new Date(issueDate) : new Date(),
       dueDate: new Date(dueDate),
       notes,
@@ -679,6 +696,7 @@ export default function CreateInvoicePage() {
       companyId,
       invoiceNumber,
       customerId: parseInt(customerId),
+      partnerId: partnerId === "none" ? null : parseInt(partnerId),
       issueDate: issueDate ? new Date(issueDate) : new Date(),
       dueDate: dueDate
         ? new Date(dueDate)
@@ -775,6 +793,7 @@ export default function CreateInvoicePage() {
       companyId,
       invoiceNumber,
       customerId: parseInt(customerId),
+      partnerId: partnerId === "none" ? null : parseInt(partnerId),
       issueDate: new Date(issueDate),
       dueDate: new Date(dueDate),
       notes,
@@ -826,8 +845,8 @@ export default function CreateInvoicePage() {
         }
       } else {
         toast({
-          title: "Invoice Issued",
-          description: "Invoice issued successfully.",
+          title: hasDirectAccess ? "Invoice Issued" : "Invoice submitted for approval",
+          description: hasDirectAccess ? "Invoice issued successfully." : "Invoice submission sent for approval.",
         });
       }
 
@@ -1043,27 +1062,29 @@ export default function CreateInvoicePage() {
               ) : (
                 <Send className="w-4 h-4" />
               )}
-              Issue Invoice
+              {hasDirectAccess ? "Issue Invoice" : "Request Approval"}
             </Button>
-            <Button
-              onClick={() => handleActionClick("issueAndFiscalize")}
-              disabled={
-                loadingAction !== null || isLockedByOther || !hasFiscalDevice
-              }
-              className="h-9 gap-2 bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 disabled:bg-slate-300"
-              title={
-                !hasFiscalDevice
-                  ? "Connect a fiscal device before fiscalizing"
-                  : undefined
-              }
-            >
-              {loadingAction === "issueAndFiscalize" ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <ShieldCheck className="w-4 h-4" />
-              )}
-              Issue & Fiscalize
-            </Button>
+            {hasDirectAccess && (
+              <Button
+                onClick={() => handleActionClick("issueAndFiscalize")}
+                disabled={
+                  loadingAction !== null || isLockedByOther || !hasFiscalDevice
+                }
+                className="h-9 gap-2 bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 disabled:bg-slate-300"
+                title={
+                  !hasFiscalDevice
+                    ? "Connect a fiscal device before fiscalizing"
+                    : undefined
+                }
+              >
+                {loadingAction === "issueAndFiscalize" ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <ShieldCheck className="w-4 h-4" />
+                )}
+                Issue & Fiscalize
+              </Button>
+            )}
           </div>
         </div>
 
@@ -1247,6 +1268,36 @@ export default function CreateInvoicePage() {
                           {invoiceTemplates.map((template) => (
                             <SelectItem key={template.id} value={template.id}>
                               {template.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#64748B]">
+                        Partner
+                      </Label>
+                      <Select
+                        value={partnerId}
+                        onValueChange={(val) => {
+                          setPartnerId(val);
+                          if (val !== "none") {
+                            const p = partners?.find(p => p.id.toString() === val);
+                            if ((p as any)?.invoiceTemplate) {
+                              setInvoiceTemplate((p as any).invoiceTemplate as any);
+                            }
+                          }
+                        }}
+                      >
+                        <SelectTrigger className="h-11 rounded-xl bg-white px-3 py-0">
+                          <SelectValue placeholder="No Partner" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">None (Auto-match if applicable)</SelectItem>
+                          {partners?.filter(p => p.isActive).map((p) => (
+                            <SelectItem key={p.id} value={p.id.toString()}>
+                              {p.name}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -1623,16 +1674,16 @@ export default function CreateInvoicePage() {
                           <TableHead className="pl-4">
                             Item & Description
                           </TableHead>
-                          <TableHead className="w-[100px] text-center">
+                          <TableHead className="w-[80px] text-center">
                             Qty
                           </TableHead>
-                          <TableHead className="w-[110px] text-right">
+                          <TableHead className="w-[180px] text-right">
                             Price
                           </TableHead>
-                          <TableHead className="w-[110px] text-right">
+                          <TableHead className="w-[140px] text-right">
                             VAT Amt
                           </TableHead>
-                          <TableHead className="w-[110px] text-right">
+                          <TableHead className="w-[150px] text-right">
                             Amount
                           </TableHead>
                           <TableHead className="w-[50px]"></TableHead>
@@ -2353,29 +2404,31 @@ export default function CreateInvoicePage() {
                       ) : (
                         <Send className="h-4 w-4" />
                       )}
-                      Review & Issue Invoice
+                      {hasDirectAccess ? "Review & Issue Invoice" : "Review & Request Approval"}
                     </Button>
-                    <Button
-                      className="h-11 rounded-xl gap-2 bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-slate-300"
-                      onClick={() => handleActionClick("issueAndFiscalize")}
-                      disabled={
-                        loadingAction !== null ||
-                        isLockedByOther ||
-                        !hasFiscalDevice
-                      }
-                      title={
-                        !hasFiscalDevice
-                          ? "Connect a fiscal device before fiscalizing"
-                          : undefined
-                      }
-                    >
-                      {loadingAction === "issueAndFiscalize" ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <ShieldCheck className="h-4 w-4" />
-                      )}
-                      Issue & Fiscalize Now
-                    </Button>
+                    {hasDirectAccess && (
+                      <Button
+                        className="h-11 rounded-xl gap-2 bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-slate-300"
+                        onClick={() => handleActionClick("issueAndFiscalize")}
+                        disabled={
+                          loadingAction !== null ||
+                          isLockedByOther ||
+                          !hasFiscalDevice
+                        }
+                        title={
+                          !hasFiscalDevice
+                            ? "Connect a fiscal device before fiscalizing"
+                            : undefined
+                        }
+                      >
+                        {loadingAction === "issueAndFiscalize" ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <ShieldCheck className="h-4 w-4" />
+                        )}
+                        Issue & Fiscalize
+                      </Button>
+                    )}
                   </div>
                 </div>
               </aside>

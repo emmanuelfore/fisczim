@@ -106,7 +106,6 @@ export default function CustomerStatements() {
 
   return (
     <Layout
-      hideHeaderTitle
       headerTitle="Customer Statements"
       headerSubtitle="Generate official customer account statements."
     >

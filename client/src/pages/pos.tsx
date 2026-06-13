@@ -7,6 +7,7 @@ import { useCompany } from "@/hooks/use-companies";
 import { useTaxConfig } from "@/hooks/use-tax-config";
 import { useToast } from "@/hooks/use-toast";
 import { useOffline } from "@/hooks/use-offline";
+import { useProductSerials } from "@/hooks/use-auto-spares";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -157,6 +158,7 @@ export default function POSPage() {
   const isCashier = (company as any)?.role === "cashier";
   const { data: products, isLoading: isLoadingProducts } =
     useProducts(companyId);
+  const { data: serialNumbers = [] } = useProductSerials(companyId, undefined, "IN_STOCK");
 
   // Emergency fallback: if React Query returns nothing but we have a companyId,
   // read directly from IndexedDB. This handles edge cases where the query
@@ -769,22 +771,9 @@ export default function POSPage() {
     const settings = company?.posSettings as any;
     const allowOutOfStock = settings?.allowOutOfStockSales ?? false;
 
-    // Strict Stock Check
-    // if (product && product.isTracked && !allowOutOfStock) {
-    //     const inCart = cart.find(item => item.productId === product.id)?.quantity || 0;
-    //     if (inCart >= Number(product.stockLevel || 0)) {
-    //         toast({
-    //             title: "Out of Stock",
-    //             description: `Only ${product.stockLevel || 0} units available for ${product.name}`,
-    //             variant: "destructive"
-    //         });
-    //         return;
-    //     }
-    // }
-
     setCart((prev) => {
       const existing = prev.find((item) => item.productId === product.id);
-      if (existing) {
+      if (existing && !product.serialTrackingEnabled) {
         return prev.map((item) =>
           item.productId === product.id
             ? { ...item, quantity: item.quantity + 1 }
@@ -800,17 +789,23 @@ export default function POSPage() {
         if (category) taxRate = Number(category.rate);
       }
 
+      const cartItemId = product.serialTrackingEnabled
+        ? `${product.id}-${Date.now()}-${Math.random()}`
+        : String(product.id);
+
       return [
         ...prev,
         {
+          cartItemId,
           productId: product.id,
           name: product.name,
           price: Number(product.price),
-          quantity: product.initialQuantity || 1,
+          quantity: product.serialTrackingEnabled ? 1 : (product.initialQuantity || 1),
           discountAmount: 0,
           taxRate: taxRate,
           taxTypeId: product.taxTypeId,
           hsCode: product.hsCode,
+          serialNumber: undefined,
         },
       ];
     });
@@ -829,13 +824,14 @@ export default function POSPage() {
       !allowOutOfStock
     ) {
       const inCart =
-        cart.find((item) => item.productId === product.id)?.quantity || 0;
+        cart.filter((item) => item.productId === product.id).reduce((sum, item) => sum + item.quantity, 0);
       const newTotal = inCart + quantity;
       if (newTotal > Number(product.stockLevel || 0)) {
         toast({
           title: "Insufficient Stock",
           description: `Cannot add ${quantity.toFixed(3)} units. Only ${product.stockLevel || 0} available.`,
           variant: "destructive",
+          // ... rest of toast options ...
         });
         return;
       }
@@ -843,7 +839,7 @@ export default function POSPage() {
 
     setCart((prev) => {
       const existing = prev.find((item) => item.productId === product.id);
-      if (existing) {
+      if (existing && !product.serialTrackingEnabled) {
         return prev.map((item) =>
           item.productId === product.id
             ? { ...item, quantity: item.quantity + quantity }
@@ -859,27 +855,33 @@ export default function POSPage() {
         if (category) taxRate = Number(category.rate);
       }
 
+      const cartItemId = product.serialTrackingEnabled
+        ? `${product.id}-${Date.now()}-${Math.random()}`
+        : String(product.id);
+
       return [
         ...prev,
         {
+          cartItemId,
           productId: product.id,
           name: product.name,
           price: Number(product.price),
-          quantity: quantity,
+          quantity: product.serialTrackingEnabled ? 1 : quantity,
           discountAmount: 0,
           taxRate: taxRate,
           taxTypeId: product.taxTypeId,
           hsCode: product.hsCode,
+          serialNumber: undefined,
         },
       ];
     });
     playAddToCartSound();
   };
 
-  const applyLineDiscount = (productId: number, amount: number) => {
+  const applyLineDiscount = (cartItemId: string, amount: number) => {
     setCart((prev) =>
       prev.map((item) =>
-        item.productId === productId
+        (item.cartItemId || String(item.productId)) === cartItemId
           ? { ...item, discountAmount: amount }
           : item,
       ),
@@ -934,13 +936,17 @@ export default function POSPage() {
           case "+":
           case "=":
             e.preventDefault();
-            if (cart.length > 0)
-              updateQuantity(cart[cart.length - 1].productId, 1);
+            if (cart.length > 0) {
+              const lastItem = cart[cart.length - 1];
+              updateQuantity(lastItem.cartItemId || String(lastItem.productId), 1);
+            }
             return;
           case "-":
             e.preventDefault();
-            if (cart.length > 0)
-              updateQuantity(cart[cart.length - 1].productId, -1);
+            if (cart.length > 0) {
+              const lastItem = cart[cart.length - 1];
+              updateQuantity(lastItem.cartItemId || String(lastItem.productId), -1);
+            }
             return;
         }
       }
@@ -1014,8 +1020,13 @@ export default function POSPage() {
           );
           if (found) {
             const prev = lastScannedProductRef.current;
-            if (prev && prev.productId === found.id && now - prev.time < 2000) {
-              updateQuantity(found.id, 1);
+            if (prev && prev.productId === found.id && now - prev.time < 2000 && !found.serialTrackingEnabled) {
+              const existingItem = cart.find((c) => c.productId === found.id);
+              if (existingItem) {
+                updateQuantity(existingItem.cartItemId || String(existingItem.productId), 1);
+              } else {
+                addToCart(found);
+              }
             } else {
               addToCart(found);
               toast({ title: "✓ Scanned", description: found.name });
@@ -1106,8 +1117,13 @@ export default function POSPage() {
       if (found) {
         const now = Date.now();
         const prev = lastScannedProductRef.current;
-        if (prev && prev.productId === found.id && now - prev.time < 2000) {
-          updateQuantity(found.id, 1);
+        if (prev && prev.productId === found.id && now - prev.time < 2000 && !found.serialTrackingEnabled) {
+          const existingItem = cart.find((c) => c.productId === found.id);
+          if (existingItem) {
+            updateQuantity(existingItem.cartItemId || String(existingItem.productId), 1);
+          } else {
+            addToCart(found);
+          }
         } else {
           addToCart(found);
           toast({ title: "✓ Scanned", description: found.name });
@@ -1142,11 +1158,15 @@ export default function POSPage() {
       });
   }, [companyId, isOnline]);
 
-  const updateQuantity = (productId: number, delta: number) => {
-    const product = resolvedProducts?.find((p: any) => p.id === productId);
+  const updateQuantity = (cartItemId: string, delta: number) => {
+    const cartItem = cart.find((item) => (item.cartItemId || String(item.productId)) === cartItemId);
+    if (!cartItem) return;
+    const product = resolvedProducts?.find((p: any) => p.id === cartItem.productId);
+    if (product?.serialTrackingEnabled) return; // Prevent changing quantity of serial-tracked items
+
     setCart((prev) =>
       prev.map((item) => {
-        if (item.productId === productId) {
+        if ((item.cartItemId || String(item.productId)) === cartItemId) {
           const newQty = item.quantity + delta;
           if (newQty < 1) return item;
 
@@ -1174,26 +1194,26 @@ export default function POSPage() {
     );
   };
 
-  const removeFromCart = (productId: number) => {
+  const removeFromCart = (cartItemId: string) => {
     const settings = company?.posSettings as any;
     if (settings?.requireOverrideForDelete) {
-      setPendingOverride({ type: "REMOVE_ITEM", data: productId });
+      setPendingOverride({ type: "REMOVE_ITEM", data: cartItemId });
     } else {
-      setCart((prev) => prev.filter((item) => item.productId !== productId));
+      setCart((prev) => prev.filter((item) => (item.cartItemId || String(item.productId)) !== cartItemId));
     }
   };
 
-  const updatePrice = (productId: number, newPrice: number) => {
+  const updatePrice = (cartItemId: string, newPrice: number) => {
     const settings = company?.posSettings as any;
     if (settings?.requireOverrideForPriceChange) {
       setPendingOverride({
         type: "PRICE_CHANGE",
-        data: { productId, price: newPrice },
+        data: { cartItemId, price: newPrice },
       });
     } else {
       setCart((prev) =>
         prev.map((item) =>
-          item.productId === productId ? { ...item, price: newPrice } : item,
+          (item.cartItemId || String(item.productId)) === cartItemId ? { ...item, price: newPrice } : item,
         ),
       );
     }
@@ -2933,133 +2953,178 @@ export default function POSPage() {
             </div>
           ) : (
             <div className="space-y-1">
-              {cart.map((item) => (
-                <div
-                  key={item.productId}
-                  className="group relative bg-white hover:bg-slate-50 p-2 rounded-xl border border-slate-100/50 transition-all duration-200 shadow-sm flex items-center gap-3"
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <h4 className="text-[11px] font-black text-slate-800 truncate leading-none">
-                        {item.name}
-                      </h4>
-                      <button
-                        className="text-[11px] font-black text-slate-900 shrink-0 hover:text-primary transition-colors hover:underline"
-                        title="Click to set target total"
-                        onClick={() => {
-                          setQtyDialog({
-                            open: true,
-                            productId: item.productId,
-                            productName: item.name,
-                            currentQty: item.quantity,
-                            mode: "total",
-                            unitPrice: item.price,
-                            discountAmount: item.discountAmount,
-                          });
-                          setQtyDialogInput(
-                            (
+              {cart.map((item) => {
+                const cartProduct = resolvedProducts?.find(
+                  (p: any) => p.id === item.productId,
+                );
+                const itemId = item.cartItemId || String(item.productId);
+                return (
+                  <div
+                    key={itemId}
+                    className="group relative bg-white hover:bg-slate-50 p-2 rounded-xl border border-slate-100/50 transition-all duration-200 shadow-sm flex flex-col gap-2"
+                  >
+                    <div className="flex items-center gap-3 w-full">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <h4 className="text-[11px] font-black text-slate-800 truncate leading-none">
+                            {item.name}
+                          </h4>
+                          <button
+                            className="text-[11px] font-black text-slate-900 shrink-0 hover:text-primary transition-colors hover:underline"
+                            title="Click to set target total"
+                            onClick={() => {
+                              if (cartProduct?.serialTrackingEnabled) return;
+                              setQtyDialog({
+                                open: true,
+                                productId: item.productId,
+                                productName: item.name,
+                                currentQty: item.quantity,
+                                mode: "total",
+                                unitPrice: item.price,
+                                discountAmount: item.discountAmount,
+                              });
+                              setQtyDialogInput(
+                                (
+                                  item.price * item.quantity -
+                                  item.discountAmount
+                                ).toFixed(2),
+                              );
+                            }}
+                            disabled={cartProduct?.serialTrackingEnabled}
+                          >
+                            $
+                            {(
                               item.price * item.quantity -
                               item.discountAmount
-                            ).toFixed(2),
-                          );
-                        }}
-                      >
-                        $
-                        {(
-                          item.price * item.quantity -
-                          item.discountAmount
-                        ).toFixed(2)}
-                      </button>
-                    </div>
-                    <div className="flex items-center gap-2 mt-1">
-                      <button
-                        className="text-[11px] font-bold text-slate-400 hover:text-primary transition-colors hover:underline"
-                        onClick={() => {
-                          const newPriceStr = prompt(
-                            "Enter new price:",
-                            item.price.toString(),
-                          );
-                          if (newPriceStr) {
-                            const p = parseFloat(newPriceStr);
-                            if (!isNaN(p)) updatePrice(item.productId, p);
-                          }
-                        }}
-                      >
-                        ${item.price.toFixed(2)}
-                      </button>
-                      {item.discountAmount > 0 && (
-                        <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 px-1 rounded">
-                          -{item.discountAmount.toFixed(2)}
-                        </span>
-                      )}
-                      {(() => {
-                        const cartProduct = resolvedProducts?.find(
-                          (p: any) => p.id === item.productId,
-                        );
-                        if (!cartProduct?.isTracked) return null;
-                        return (
-                          <span className="text-[9px] font-black text-slate-300 bg-slate-50 px-1 rounded uppercase tracking-tighter">
-                            {cartProduct.hasRecipe
-                              ? "Source stock"
-                              : `Stock: ${(cartProduct.stockLevel || 0) - (cart.find((c) => c.productId === item.productId)?.quantity || 0)}`}
-                          </span>
-                        );
-                      })()}
-                    </div>
-                  </div>
+                            ).toFixed(2)}
+                          </button>
+                        </div>
+                        <div className="flex items-center gap-2 mt-1">
+                          <button
+                            className="text-[11px] font-bold text-slate-400 hover:text-primary transition-colors hover:underline"
+                            onClick={() => {
+                              const newPriceStr = prompt(
+                                "Enter new price:",
+                                item.price.toString(),
+                              );
+                              if (newPriceStr) {
+                                const p = parseFloat(newPriceStr);
+                                if (!isNaN(p)) updatePrice(itemId, p);
+                              }
+                            }}
+                          >
+                            ${item.price.toFixed(2)}
+                          </button>
+                          {item.discountAmount > 0 && (
+                            <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 px-1 rounded">
+                              -{item.discountAmount.toFixed(2)}
+                            </span>
+                          )}
+                          {(() => {
+                            if (!cartProduct?.isTracked) return null;
+                            return (
+                              <span className="text-[9px] font-black text-slate-300 bg-slate-50 px-1 rounded uppercase tracking-tighter">
+                                {cartProduct.hasRecipe
+                                  ? "Source stock"
+                                  : `Stock: ${(cartProduct.stockLevel || 0) - (cart.filter((c) => c.productId === item.productId).reduce((sum, c) => sum + c.quantity, 0))}`}
+                              </span>
+                            );
+                          })()}
+                        </div>
+                      </div>
 
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <div className="flex items-center bg-slate-100 rounded-lg p-0.5">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 hover:bg-white rounded-md p-0"
-                        onClick={() => updateQuantity(item.productId, -1)}
-                      >
-                        <Minus className="h-3.5 w-3.5 text-slate-600" />
-                      </Button>
-                      <button
-                        className="text-xs font-black w-10 text-center text-slate-700 hover:text-primary transition-colors hover:underline px-1"
-                        title="Click to set exact quantity"
-                        onClick={() => {
-                          setQtyDialog({
-                            open: true,
-                            productId: item.productId,
-                            productName: item.name,
-                            currentQty: item.quantity,
-                            mode: "qty",
-                            unitPrice: item.price,
-                            discountAmount: item.discountAmount,
-                          });
-                          setQtyDialogInput(item.quantity.toString());
-                        }}
-                      >
-                        {item.quantity % 1 === 0
-                          ? item.quantity
-                          : item.quantity.toFixed(
-                              posSettings.quantityDecimalPlaces,
-                            )}
-                      </button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 hover:bg-white rounded-md p-0"
-                        onClick={() => updateQuantity(item.productId, 1)}
-                      >
-                        <Plus className="h-3.5 w-3.5 text-slate-600" />
-                      </Button>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <div className="flex items-center bg-slate-100 rounded-lg p-0.5">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 hover:bg-white rounded-md p-0"
+                            onClick={() => updateQuantity(itemId, -1)}
+                            disabled={cartProduct?.serialTrackingEnabled}
+                          >
+                            <Minus className="h-3.5 w-3.5 text-slate-600" />
+                          </Button>
+                          <button
+                            className="text-xs font-black w-10 text-center text-slate-700 hover:text-primary transition-colors hover:underline px-1"
+                            title="Click to set exact quantity"
+                            onClick={() => {
+                              if (cartProduct?.serialTrackingEnabled) return;
+                              setQtyDialog({
+                                open: true,
+                                productId: item.productId,
+                                productName: item.name,
+                                currentQty: item.quantity,
+                                mode: "qty",
+                                unitPrice: item.price,
+                                discountAmount: item.discountAmount,
+                              });
+                              setQtyDialogInput(item.quantity.toString());
+                            }}
+                            disabled={cartProduct?.serialTrackingEnabled}
+                          >
+                            {item.quantity % 1 === 0
+                              ? item.quantity
+                              : item.quantity.toFixed(
+                                  posSettings.quantityDecimalPlaces,
+                                )}
+                          </button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 hover:bg-white rounded-md p-0"
+                            onClick={() => updateQuantity(itemId, 1)}
+                            disabled={cartProduct?.serialTrackingEnabled}
+                          >
+                            <Plus className="h-3.5 w-3.5 text-slate-600" />
+                          </Button>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg"
+                          onClick={() => removeFromCart(itemId)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg"
-                      onClick={() => removeFromCart(item.productId)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+
+                    {cartProduct?.serialTrackingEnabled && (
+                      <div className="w-full mt-1">
+                        <Select
+                          value={item.serialNumber || ""}
+                          onValueChange={(val) => {
+                            setCart((prev) =>
+                              prev.map((c) =>
+                                (c.cartItemId || String(c.productId)) === itemId
+                                  ? { ...c, serialNumber: val }
+                                  : c
+                              )
+                            );
+                          }}
+                        >
+                          <SelectTrigger className="h-8 text-[11px] w-full bg-slate-50 border-slate-200 rounded-lg">
+                            <SelectValue placeholder="Select Serial Number" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {serialNumbers
+                              .filter(
+                                (s: any) =>
+                                  s.productId === item.productId &&
+                                  (s.status === "IN_STOCK" || s.serialNumber === item.serialNumber),
+                              )
+                              .map((s: any) => (
+                                <SelectItem key={s.id} value={s.serialNumber}>
+                                  {s.serialNumber}
+                                </SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </ScrollArea>

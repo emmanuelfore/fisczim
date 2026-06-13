@@ -2,6 +2,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertProductSchema, type InsertProduct } from "@shared/schema";
 import { useCreateProduct } from "@/hooks/use-products";
+import { useCostCenters } from "@/hooks/use-cost-centers";
 import { useTaxConfig } from "@/hooks/use-tax-config";
 import { Button } from "@/components/ui/button";
 import {
@@ -65,25 +66,7 @@ export function CreateProductDialog({
     },
     enabled: open,
   });
-  const { data: existingProducts } = useQuery({
-    queryKey: ["products", companyId, "owner-groups"],
-    queryFn: async () => {
-      const res = await apiFetch(`/api/companies/${companyId}/products`);
-      if (!res.ok) throw new Error("Failed to fetch products");
-      return res.json();
-    },
-    enabled: open && companyId > 0,
-  });
-
-  const existingOwnerGroups = Array.from(
-    new Set(
-      (existingProducts || [])
-        .map((p: any) =>
-          typeof p.ownerGroup === "string" ? p.ownerGroup.trim() : "",
-        )
-        .filter((v: string) => v.length > 0),
-    ),
-  ).sort((a, b) => String(a).localeCompare(String(b))) as string[];
+  const { data: costCenters = [] } = useCostCenters(companyId);
 
   const form = useForm<InsertProduct>({
     resolver: zodResolver(insertProductSchema),
@@ -270,59 +253,33 @@ export function CreateProductDialog({
                   <FormLabel className="text-slate-700 font-semibold">
                     Cost Center
                   </FormLabel>
-                  {existingOwnerGroups.length > 0 && (
-                    <div className="flex flex-wrap gap-2 pt-2">
-                      <Button
-                        type="button"
-                        variant={!field.value ? "default" : "outline"}
-                        size="sm"
-                        className={
-                          !field.value
-                            ? "h-7 rounded-full px-3 text-[10px] font-black bg-slate-900 text-white"
-                            : "h-7 rounded-full px-3 text-[10px] font-bold border-slate-200"
-                        }
-                        onClick={() =>
-                          form.setValue("ownerGroup", "", { shouldDirty: true })
-                        }
-                      >
-                        No Cost Center
-                      </Button>
-                      {existingOwnerGroups.map((group) => (
-                        <Button
-                          key={group}
-                          type="button"
-                          variant={
-                            field.value === group ? "default" : "outline"
-                          }
-                          size="sm"
-                          className={
-                            field.value === group
-                              ? "h-7 rounded-full px-3 text-[10px] font-black bg-indigo-600 text-white hover:bg-indigo-700"
-                              : "h-7 rounded-full px-3 text-[10px] font-bold border-slate-200"
-                          }
-                          onClick={() =>
-                            form.setValue("ownerGroup", group, {
-                              shouldDirty: true,
-                            })
-                          }
-                        >
-                          {group}
-                        </Button>
-                      ))}
-                    </div>
-                  )}
-                  {existingOwnerGroups.length === 0 && (
+                  <Select
+                    value={field.value || "none"}
+                    onValueChange={(val) =>
+                      form.setValue("ownerGroup", val === "none" ? "" : val, { shouldDirty: true })
+                    }
+                  >
                     <FormControl>
-                      <Input
-                        placeholder="Create the first cost center"
-                        value={field.value || ""}
-                        onChange={field.onChange}
-                        className="rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-primary/20"
-                      />
+                      <SelectTrigger className="rounded-xl bg-slate-50 border-slate-200 focus:ring-primary/20">
+                        <SelectValue placeholder="Select Cost Center" />
+                      </SelectTrigger>
                     </FormControl>
-                  )}
+                    <SelectContent className="rounded-xl shadow-xl">
+                      <SelectItem value="none">No Cost Center</SelectItem>
+                      {costCenters.map((cc) => (
+                        <SelectItem key={cc.id} value={cc.name}>
+                          {cc.name} ({cc.code})
+                        </SelectItem>
+                      ))}
+                      {field.value && !costCenters.some(cc => cc.name === field.value) && (
+                        <SelectItem value={field.value}>
+                          {field.value} (Legacy/Unmanaged)
+                        </SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
                   <FormDescription>
-                    Optional. Used to separate reporting by owner/group.
+                    Optional. Used to separate reporting by cost center.
                   </FormDescription>
                   <FormMessage />
                 </FormItem>

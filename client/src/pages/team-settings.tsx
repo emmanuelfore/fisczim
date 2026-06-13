@@ -31,6 +31,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useBranches } from "@/hooks/use-branches";
+import { useCostCenters } from "@/hooks/use-cost-centers";
 import { useCompanies } from "@/hooks/use-companies";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
@@ -47,46 +48,8 @@ import {
   UserPlus,
   Users,
 } from "lucide-react";
-import { useMemo, useState } from "react";
-
-const PERMISSION_GROUPS = [
-  {
-    label: "Sales",
-    items: [
-      ["sales.view", "View sales"],
-      ["sales.create", "Create invoices/POS sales"],
-      ["sales.refund", "Process refunds and credit notes"],
-      ["payments.manage", "Record payments"],
-    ],
-  },
-  {
-    label: "Inventory",
-    items: [
-      ["inventory.view", "View stock"],
-      ["inventory.adjust", "Adjust stock"],
-      ["inventory.transfer", "Dispatch and receive transfers"],
-      ["inventory.procure", "Manage PO, GRV and GDN"],
-    ],
-  },
-  {
-    label: "Accounting",
-    items: [
-      ["accounting.view", "View accounting"],
-      ["accounting.post", "Post journals and opening balances"],
-      ["accounting.payables", "Manage suppliers and bills"],
-      ["accounting.reports", "View accounting reports"],
-    ],
-  },
-  {
-    label: "Administration",
-    items: [
-      ["reports.view", "View reports"],
-      ["settings.manage", "Manage company settings"],
-      ["team.manage", "Manage users and access"],
-      ["zimra.manage", "Manage fiscal/ZIMRA setup"],
-    ],
-  },
-] as const;
+import { useMemo, useState, useEffect } from "react";
+import { ALL_PERMISSIONS, PERMISSION_GROUPS as SYSTEM_PERMISSION_GROUPS } from "@shared/permissions";
 
 type AccessRole = {
   id: number;
@@ -94,9 +57,9 @@ type AccessRole = {
   description?: string | null;
   permissions: string[];
   memberCount?: number;
+  isSystem?: boolean;
+  legacyRole?: string | null;
 };
-
-const builtInRoles = ["owner", "admin", "member", "cashier"];
 
 export default function TeamSettingsPage() {
   const { toast } = useToast();
@@ -117,7 +80,7 @@ export default function TeamSettingsPage() {
     name: "",
     username: "",
     password: "Zimra123!",
-    role: "member",
+    roleId: "",
   });
   const [roleForm, setRoleForm] = useState({
     name: "",
@@ -125,11 +88,17 @@ export default function TeamSettingsPage() {
     permissions: [] as string[],
   });
   const [accessDraft, setAccessDraft] = useState({
-    role: "member",
-    accessRoleId: "none",
+    accessRoleId: "",
     branchIds: [] as number[],
     ownerGroupScope: "",
   });
+
+  const systemPermissionGroups = useMemo(() => {
+    return SYSTEM_PERMISSION_GROUPS.map((group) => ({
+      label: group,
+      items: ALL_PERMISSIONS.filter((p) => p.group === group).map((p) => [p.key, p.label, p.description]),
+    })).filter((g) => g.items.length > 0);
+  }, []);
 
   const usersQuery = useQuery({
     queryKey: ["users", companyId],
@@ -145,11 +114,12 @@ export default function TeamSettingsPage() {
     enabled: !!companyId,
     queryFn: async () => {
       const res = await apiFetch(`/api/companies/${companyId}/access-roles`);
-      if (!res.ok) throw new Error("Failed to fetch access profiles");
+      if (!res.ok) throw new Error("Failed to fetch roles");
       return res.json();
     },
   });
   const { data: branches = [] } = useBranches(companyId);
+  const { data: costCenters = [] } = useCostCenters(companyId);
 
   const users = usersQuery.data || [];
   const accessRoles = accessRolesQuery.data || [];
@@ -161,11 +131,25 @@ export default function TeamSettingsPage() {
     queryClient.invalidateQueries({ queryKey: ["access-roles", companyId] });
   };
 
+  // Set default roleId when accessRoles loads
+  useEffect(() => {
+    if (accessRoles.length > 0 && !userForm.roleId) {
+      const defaultRole = accessRoles.find(r => r.legacyRole === 'member') || accessRoles[0];
+      setUserForm(p => ({ ...p, roleId: String(defaultRole.id) }));
+    }
+  }, [accessRoles]);
+
   const addUserMutation = useMutation({
     mutationFn: async () => {
       const res = await apiFetch(`/api/companies/${companyId}/users`, {
         method: "POST",
-        body: JSON.stringify(userForm),
+        body: JSON.stringify({
+          email: userForm.email,
+          name: userForm.name,
+          username: userForm.username,
+          password: userForm.password,
+          roleId: userForm.roleId ? Number(userForm.roleId) : undefined,
+        }),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -176,7 +160,8 @@ export default function TeamSettingsPage() {
     onSuccess: () => {
       invalidateTeam();
       setIsAddUserOpen(false);
-      setUserForm({ email: "", name: "", username: "", password: "Zimra123!", role: "member" });
+      const defaultRole = accessRoles.find(r => r.legacyRole === 'member') || accessRoles[0];
+      setUserForm({ email: "", name: "", username: "", password: "Zimra123!", roleId: defaultRole ? String(defaultRole.id) : "" });
       toast({ title: "User Added", description: "The team member was added." });
     },
     onError: (err: Error) =>
@@ -232,7 +217,7 @@ export default function TeamSettingsPage() {
       });
       if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.message || "Failed to save access profile");
+        throw new Error(err.message || "Failed to save role");
       }
       return res.json();
     },
@@ -241,7 +226,7 @@ export default function TeamSettingsPage() {
       setIsRoleDialogOpen(false);
       setEditingRole(null);
       setRoleForm({ name: "", description: "", permissions: [] });
-      toast({ title: "Access Profile Saved", description: "Permissions were updated." });
+      toast({ title: "Role Saved", description: "Permissions were updated." });
     },
     onError: (err: Error) =>
       toast({ title: "Error", description: err.message, variant: "destructive" }),
@@ -254,12 +239,12 @@ export default function TeamSettingsPage() {
       });
       if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.message || "Failed to delete access profile");
+        throw new Error(err.message || "Failed to delete role");
       }
     },
     onSuccess: () => {
       invalidateTeam();
-      toast({ title: "Access Profile Deleted", description: "Users were detached from that profile." });
+      toast({ title: "Role Deleted", description: "Users were detached from that role." });
     },
     onError: (err: Error) =>
       toast({ title: "Error", description: err.message, variant: "destructive" }),
@@ -267,9 +252,17 @@ export default function TeamSettingsPage() {
 
   const openUserAccess = (user: any) => {
     setEditingUser(user);
+    let targetRoleId = "";
+    if (user.companyRoleId) {
+      targetRoleId = String(user.companyRoleId);
+    } else if (user.role) {
+      const matched = accessRoles.find((r) => r.legacyRole === user.role);
+      if (matched) {
+        targetRoleId = String(matched.id);
+      }
+    }
     setAccessDraft({
-      role: user.role || "member",
-      accessRoleId: user.accessRoleId ? String(user.accessRoleId) : "none",
+      accessRoleId: targetRoleId,
       branchIds: Array.isArray(user.branchIds) ? user.branchIds.map(Number) : [],
       ownerGroupScope: user.ownerGroupScope || "",
     });
@@ -285,11 +278,52 @@ export default function TeamSettingsPage() {
     setIsRoleDialogOpen(true);
   };
 
+  const NAV_GROUP_MAP: Record<string, string[]> = {
+    "nav.pos": ["Sales"],
+    "nav.invoices": ["Sales"],
+    "nav.inventory": ["Inventory", "Procurement"],
+    "nav.accounting": ["Finance"],
+    "nav.reports": ["Reports"],
+    "nav.restaurant": ["Restaurant"],
+    "nav.compliance": ["Tax & Compliance"],
+    "nav.users": ["Administration"],
+    "nav.approvals": ["Administration"],
+    "nav.settings": ["Administration"],
+    "nav.payroll": ["HR & Payroll"],
+    "nav.bus": ["Transport & Bus Ticketing"],
+  };
+
   const togglePermission = (permission: string, checked: boolean) => {
     setRoleForm((prev) => {
       const next = new Set(prev.permissions);
-      if (checked) next.add(permission);
-      else next.delete(permission);
+      const def = ALL_PERMISSIONS.find((p) => p.key === permission);
+
+      if (checked) {
+        next.add(permission);
+
+        // Intelligent select: If a sub-permission is checked, automatically check its parent nav item
+        if (def && def.group !== "Navigation") {
+          const navKeys = Object.keys(NAV_GROUP_MAP).filter((navKey) =>
+            NAV_GROUP_MAP[navKey].includes(def.group)
+          );
+          navKeys.forEach((navKey) => next.add(navKey));
+        }
+
+        // Optional intelligent auto-fill: if a navigation item is checked, we could pre-fill some defaults,
+        // but it's safer to just require the user to pick what specific sub-actions they want.
+      } else {
+        next.delete(permission);
+
+        // Intelligent unselect: If a nav permission is unchecked, automatically uncheck all its sub-permissions
+        if (NAV_GROUP_MAP[permission]) {
+          const groupsToClear = NAV_GROUP_MAP[permission];
+          ALL_PERMISSIONS.forEach((p) => {
+            if (groupsToClear.includes(p.group)) {
+              next.delete(p.key);
+            }
+          });
+        }
+      }
       return { ...prev, permissions: Array.from(next) };
     });
   };
@@ -319,7 +353,7 @@ export default function TeamSettingsPage() {
     <Layout>
       <PageHeader
         title="Team Management"
-        subtitle={`Manage users, custom access profiles, permissions, and branch scope for ${currentCompany.name}`}
+        subtitle={`Manage users, custom roles, permissions, and branch scope for ${currentCompany.name}`}
         actions={
           <Dialog open={isAddUserOpen} onOpenChange={setIsAddUserOpen}>
             <DialogTrigger asChild>
@@ -354,11 +388,11 @@ export default function TeamSettingsPage() {
                     <Input type="password" value={userForm.password} onChange={(e) => setUserForm((p) => ({ ...p, password: e.target.value }))} />
                   </div>
                   <div className="space-y-2">
-                    <Label>System Role</Label>
-                    <Select value={userForm.role} onValueChange={(role) => setUserForm((p) => ({ ...p, role }))}>
+                    <Label>Role</Label>
+                    <Select value={userForm.roleId} onValueChange={(roleId) => setUserForm((p) => ({ ...p, roleId }))}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        {builtInRoles.map((role) => <SelectItem key={role} value={role}>{role}</SelectItem>)}
+                        {accessRoles.map((role) => <SelectItem key={role.id} value={String(role.id)}>{role.name}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
@@ -379,14 +413,14 @@ export default function TeamSettingsPage() {
       <div className="mb-4 grid gap-3 md:grid-cols-4">
         <MetricCard icon={Users} label="Users" value={users.length} />
         <MetricCard icon={Shield} label="Owners" value={ownerCount} />
-        <MetricCard icon={LockKeyhole} label="Access Profiles" value={accessRoles.length} />
+        <MetricCard icon={LockKeyhole} label="Roles" value={accessRoles.length} />
         <MetricCard icon={Building2} label="Branch Scoped" value={branchScopedCount} />
       </div>
 
       <Tabs defaultValue="users" className="space-y-4">
         <TabsList>
           <TabsTrigger value="users">Users</TabsTrigger>
-          <TabsTrigger value="roles">Access Profiles</TabsTrigger>
+          <TabsTrigger value="roles">Roles</TabsTrigger>
           <TabsTrigger value="permissions">Permission Catalogue</TabsTrigger>
         </TabsList>
 
@@ -407,13 +441,12 @@ export default function TeamSettingsPage() {
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="font-bold text-slate-900">{user.name || user.email}</p>
-                        <Badge variant="secondary">{user.role || "member"}</Badge>
-                        {user.accessRoleId ? <Badge variant="outline">{accessRoleById.get(user.accessRoleId)?.name || user.accessRole?.name || "Custom profile"}</Badge> : null}
+                        <Badge variant="secondary">{user.companyRoleName || user.role || "member"}</Badge>
                       </div>
                       <p className="text-sm text-slate-500">{user.email}</p>
                       <p className="mt-1 text-xs font-medium text-slate-500">
                         {user.branchIds?.length ? `${user.branchIds.length} branch${user.branchIds.length === 1 ? "" : "es"}` : "All branches"}
-                        {user.ownerGroupScope ? ` - ${user.ownerGroupScope}` : ""}
+                        {user.ownerGroupScope ? ` - Cost Center: ${user.ownerGroupScope}` : ""}
                       </p>
                     </div>
                     <div className="flex gap-2">
@@ -440,25 +473,28 @@ export default function TeamSettingsPage() {
           <Card>
             <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
-                <CardTitle>Access Profiles</CardTitle>
-                <CardDescription>Create custom roles and select exactly what they can do.</CardDescription>
+                <CardTitle>Roles</CardTitle>
+                <CardDescription>Create roles and select exactly what they can do. System roles can be edited but not deleted.</CardDescription>
               </div>
               <Button onClick={() => openRoleDialog()}>
                 <LockKeyhole className="h-4 w-4" />
-                New Profile
+                New Role
               </Button>
             </CardHeader>
             <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {accessRoles.length === 0 ? (
                 <div className="col-span-full rounded-lg border border-dashed p-8 text-center text-sm text-slate-500">
-                  No custom access profiles yet.
+                  No roles found.
                 </div>
               ) : (
                 accessRoles.map((role) => (
                   <div key={role.id} className="rounded-lg border border-slate-200 p-4">
                     <div className="mb-3 flex items-start justify-between gap-2">
                       <div>
-                        <p className="font-bold text-slate-900">{role.name}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="font-bold text-slate-900">{role.name}</p>
+                          {role.isSystem && <Badge variant="secondary">System</Badge>}
+                        </div>
                         <p className="text-sm text-slate-500">{role.description || "No description"}</p>
                       </div>
                       <Badge variant="outline">{role.memberCount || 0} users</Badge>
@@ -471,9 +507,11 @@ export default function TeamSettingsPage() {
                     </div>
                     <div className="flex justify-end gap-2">
                       <Button variant="outline" size="sm" onClick={() => openRoleDialog(role)}>Edit</Button>
-                      <Button variant="ghost" size="sm" className="text-red-600" onClick={() => confirm("Delete this access profile?") && deleteRoleMutation.mutate(role.id)}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      {!role.isSystem && (
+                        <Button variant="ghost" size="sm" className="text-red-600" onClick={() => confirm("Delete this role?") && deleteRoleMutation.mutate(role.id)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
                     </div>
                   </div>
                 ))
@@ -486,17 +524,20 @@ export default function TeamSettingsPage() {
           <Card>
             <CardHeader>
               <CardTitle>Permission Catalogue</CardTitle>
-              <CardDescription>These permissions are used by custom access profiles.</CardDescription>
+              <CardDescription>These permissions are used by roles.</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4 md:grid-cols-2">
-              {PERMISSION_GROUPS.map((group) => (
+              {systemPermissionGroups.map((group) => (
                 <div key={group.label} className="rounded-lg border border-slate-200 p-4">
                   <p className="mb-3 font-bold text-slate-900">{group.label}</p>
                   <div className="space-y-2">
-                    {group.items.map(([key, label]) => (
-                      <div key={key} className="flex items-center justify-between gap-3 text-sm">
-                        <span>{label}</span>
-                        <code className="rounded bg-slate-100 px-2 py-1 text-[11px] text-slate-600">{key}</code>
+                    {group.items.map(([key, label, description]) => (
+                      <div key={key} className="flex flex-col gap-1 border-b border-slate-100 py-2 last:border-0">
+                        <div className="flex items-center justify-between gap-3 text-sm font-semibold">
+                          <span>{label}</span>
+                          <code className="rounded bg-slate-100 px-2 py-1 text-[11px] text-slate-600">{key}</code>
+                        </div>
+                        {description && <span className="text-xs text-slate-400">{description}</span>}
                       </div>
                     ))}
                   </div>
@@ -515,21 +556,11 @@ export default function TeamSettingsPage() {
           </DialogHeader>
           <div className="grid gap-4">
             <div className="grid gap-3 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label>System Role</Label>
-                <Select value={accessDraft.role} onValueChange={(role) => setAccessDraft((p) => ({ ...p, role }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {builtInRoles.map((role) => <SelectItem key={role} value={role}>{role}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Access Profile</Label>
+              <div className="space-y-2 md:col-span-2">
+                <Label>Role</Label>
                 <Select value={accessDraft.accessRoleId} onValueChange={(accessRoleId) => setAccessDraft((p) => ({ ...p, accessRoleId }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">No custom profile</SelectItem>
                     {accessRoles.map((role) => <SelectItem key={role.id} value={String(role.id)}>{role.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
@@ -563,12 +594,30 @@ export default function TeamSettingsPage() {
               <p className="text-xs text-slate-500">Leave all unchecked for all-branch access.</p>
             </div>
             <div className="space-y-2">
-              <Label>Cost Center / Owner Group Scope</Label>
-              <Input
-                value={accessDraft.ownerGroupScope}
-                onChange={(e) => setAccessDraft((p) => ({ ...p, ownerGroupScope: e.target.value }))}
-                placeholder="Optional, for example Beauty or Mother"
-              />
+              <Label>Cost Center Scope</Label>
+              <Select
+                value={accessDraft.ownerGroupScope || "all"}
+                onValueChange={(val) =>
+                  setAccessDraft((p) => ({ ...p, ownerGroupScope: val === "all" ? "" : val }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="All Cost Centers" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Cost Centers (Unrestricted)</SelectItem>
+                  {costCenters.map((cc) => (
+                    <SelectItem key={cc.id} value={cc.name}>
+                      {cc.name} ({cc.code})
+                    </SelectItem>
+                  ))}
+                  {accessDraft.ownerGroupScope && !costCenters.some(cc => cc.name === accessDraft.ownerGroupScope) && (
+                    <SelectItem value={accessDraft.ownerGroupScope}>
+                      {accessDraft.ownerGroupScope} (Legacy/Unmanaged)
+                    </SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <DialogFooter>
@@ -579,8 +628,7 @@ export default function TeamSettingsPage() {
                 updateUserAccessMutation.mutate({
                   userId: editingUser.id,
                   payload: {
-                    role: accessDraft.role,
-                    accessRoleId: accessDraft.accessRoleId === "none" ? null : Number(accessDraft.accessRoleId),
+                    accessRoleId: accessDraft.accessRoleId ? Number(accessDraft.accessRoleId) : null,
                     branchIds: accessDraft.branchIds,
                     ownerGroupScope: accessDraft.ownerGroupScope.trim() || null,
                   },
@@ -595,31 +643,34 @@ export default function TeamSettingsPage() {
       </Dialog>
 
       <Dialog open={isRoleDialogOpen} onOpenChange={setIsRoleDialogOpen}>
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editingRole ? "Edit Access Profile" : "New Access Profile"}</DialogTitle>
-            <DialogDescription>Select permissions for this custom user group.</DialogDescription>
+            <DialogTitle>{editingRole ? "Edit Role" : "New Role"}</DialogTitle>
+            <DialogDescription>Select permissions for this role. System roles can be customized.</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4">
             <div className="grid gap-3 md:grid-cols-2">
               <div className="space-y-2">
                 <Label>Name</Label>
-                <Input value={roleForm.name} onChange={(e) => setRoleForm((p) => ({ ...p, name: e.target.value }))} />
+                <Input value={roleForm.name} onChange={(e) => setRoleForm((p) => ({ ...p, name: e.target.value }))} disabled={editingRole?.isSystem} />
               </div>
               <div className="space-y-2">
                 <Label>Description</Label>
-                <Textarea className="min-h-[40px]" value={roleForm.description} onChange={(e) => setRoleForm((p) => ({ ...p, description: e.target.value }))} />
+                <Textarea className="min-h-[40px]" value={roleForm.description} onChange={(e) => setRoleForm((p) => ({ ...p, description: e.target.value }))} disabled={editingRole?.isSystem} />
               </div>
             </div>
             <div className="grid gap-4 md:grid-cols-2">
-              {PERMISSION_GROUPS.map((group) => (
+              {systemPermissionGroups.map((group) => (
                 <div key={group.label} className="rounded-lg border border-slate-200 p-4">
                   <p className="mb-3 font-bold text-slate-900">{group.label}</p>
                   <div className="space-y-3">
-                    {group.items.map(([key, label]) => (
-                      <label key={key} className="flex items-center gap-3 text-sm font-medium text-slate-700">
+                    {group.items.map(([key, label, description]) => (
+                      <label key={key} className="flex items-start gap-3 text-sm font-medium text-slate-700 hover:bg-slate-50 p-1.5 rounded-md cursor-pointer">
                         <Checkbox checked={roleForm.permissions.includes(key)} onCheckedChange={(checked) => togglePermission(key, checked === true)} />
-                        {label}
+                        <div>
+                          <span className="block">{label}</span>
+                          {description && <span className="block text-xs text-slate-400 font-normal">{description}</span>}
+                        </div>
                       </label>
                     ))}
                   </div>
@@ -627,11 +678,11 @@ export default function TeamSettingsPage() {
               ))}
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="mt-4">
             <Button variant="outline" onClick={() => setIsRoleDialogOpen(false)}>Cancel</Button>
             <Button disabled={saveRoleMutation.isPending || !roleForm.name.trim()} onClick={() => saveRoleMutation.mutate()}>
               {saveRoleMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              Save Profile
+              Save Role
             </Button>
           </DialogFooter>
         </DialogContent>

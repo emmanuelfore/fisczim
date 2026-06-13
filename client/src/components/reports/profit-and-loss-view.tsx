@@ -48,6 +48,7 @@ interface ProfitAndLossViewProps {
   dateRange: { from: Date; to: Date };
   consolidatedSymbol: string;
   consolidatedRate: number;
+  branchId?: number;
 }
 
 type ProfitAndLossLine = {
@@ -85,16 +86,18 @@ export function ProfitAndLossView({
   dateRange,
   consolidatedSymbol,
   consolidatedRate,
+  branchId,
 }: ProfitAndLossViewProps) {
   const from = format(dateRange.from, "yyyy-MM-dd");
   const to = format(dateRange.to, "yyyy-MM-dd");
+  const branchParam = branchId ? `&branchId=${branchId}` : "";
 
   const { data: report, isLoading } = useQuery<ProfitAndLossReport>({
-    queryKey: ["/api/accounting/reports/profit-and-loss", { from, to }],
+    queryKey: ["/api/accounting/reports/profit-and-loss", { from, to, branchId }],
     enabled: !!companyId,
     queryFn: async () => {
       const res = await apiFetch(
-        `/api/accounting/reports/profit-and-loss?from=${from}&to=${to}`,
+        `/api/accounting/reports/profit-and-loss?from=${from}&to=${to}${branchParam}`,
       );
       if (!res.ok) throw new Error("Failed to load profit and loss report");
       return res.json();

@@ -27,6 +27,15 @@ import { apiFetch } from "@/lib/api";
 import { apiRequest } from "@/lib/queryClient";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+
 
 type CurrencyAmounts = Record<string, number>;
 
@@ -398,6 +407,49 @@ export default function VatReturnPage() {
             </div>
           </CardContent>
         </Card>
+
+        {report && report.inputVatBreakdown && report.inputVatBreakdown.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Input VAT Claimed Breakdown</CardTitle>
+              <CardDescription>
+                Detailed list of supplier invoices and debit/credit notes contributing to the Input VAT claim.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader className="bg-slate-50/50">
+                  <TableRow>
+                    <TableHead className="pl-6 font-bold text-slate-500 uppercase text-[11px] tracking-wider">Date</TableHead>
+                    <TableHead className="font-bold text-slate-500 uppercase text-[11px] tracking-wider">Invoice #</TableHead>
+                    <TableHead className="font-bold text-slate-500 uppercase text-[11px] tracking-wider">Supplier Name</TableHead>
+                    <TableHead className="font-bold text-slate-500 uppercase text-[11px] tracking-wider">Supplier VAT</TableHead>
+                    <TableHead className="font-bold text-slate-500 uppercase text-[11px] tracking-wider">Type</TableHead>
+                    <TableHead className="text-right pr-6 font-bold text-slate-500 uppercase text-[11px] tracking-wider">Input VAT</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {report.inputVatBreakdown.map((row: any) => (
+                    <TableRow key={row.id}>
+                      <TableCell className="pl-6">{format(new Date(row.date), "dd MMM yyyy")}</TableCell>
+                      <TableCell className="font-medium text-slate-900">{row.invoiceNumber}</TableCell>
+                      <TableCell>{row.supplierName}</TableCell>
+                      <TableCell className="font-mono text-slate-600">{row.supplierVat || "N/A"}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className={row.transactionType === "DebitNote" ? "text-purple-600 bg-purple-50" : row.transactionType === "CreditNote" ? "text-cyan-600 bg-cyan-50" : ""}>
+                          {row.transactionType === "DebitNote" ? "DEBIT NOTE" : row.transactionType === "CreditNote" ? "CREDIT NOTE" : "BILL"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className={`text-right pr-6 font-mono font-bold ${row.transactionType === 'CreditNote' ? 'text-rose-600' : 'text-slate-900'}`}>
+                        {row.transactionType === "CreditNote" ? "-" : ""}{formatCurrency(Number(row.tax), row.currency)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader>

@@ -163,6 +163,7 @@ export function StockInScreen({ onOpenDrawer, onClose, companyId, userRole = "me
 
   const handleSubmit = useCallback(async () => {
     if (importCompleted) return;
+    if (!selectedSupplier) return Alert.alert("Error", "Please select a supplier.");
     if (grvItems.length === 0) return Alert.alert("Error", `Add at least one product line to the ${isGdnMode ? "GDN" : "GRV"}.`);
     if (isGdnMode) {
       const cleanGdnNumber = gdnNumber.trim();
@@ -424,10 +425,10 @@ export function StockInScreen({ onOpenDrawer, onClose, companyId, userRole = "me
                     />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.compactLabel}>Supplier</Text>
+                    <Text style={styles.compactLabel}>Supplier *</Text>
                     <TouchableOpacity style={[styles.compactSelector, importCompleted && { opacity: 0.6 }]} onPress={() => !importCompleted && setShowSupplierPicker(true)}>
                       <Text style={[styles.compactSelectorText, !selectedSupplier && { color: C.text.secondary }]} numberOfLines={1}>
-                        {selectedSupplier?.name || "Optional"}
+                        {selectedSupplier?.name || "Select Supplier"}
                       </Text>
                       <ChevronDown size={16} color={C.text.secondary} />
                     </TouchableOpacity>
@@ -490,7 +491,7 @@ export function StockInScreen({ onOpenDrawer, onClose, companyId, userRole = "me
               editable={!importCompleted}
             />
 
-            <Text style={styles.label}>Supplier</Text>
+            <Text style={styles.label}>Supplier *</Text>
             <TouchableOpacity style={[styles.selector, importCompleted && { opacity: 0.6 }]} onPress={() => !importCompleted && setShowSupplierPicker(true)}>
               {selectedSupplier ? (
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
@@ -498,7 +499,7 @@ export function StockInScreen({ onOpenDrawer, onClose, companyId, userRole = "me
                   <Text style={styles.selectorText} numberOfLines={1}>{selectedSupplier.name}</Text>
                 </View>
               ) : (
-                <Text style={[styles.selectorText, { color: C.text.secondary }]}>Tap to select supplier (optional)...</Text>
+                <Text style={[styles.selectorText, { color: C.text.secondary }]}>Tap to select supplier...</Text>
               )}
               <ChevronDown size={18} color={C.text.secondary} />
             </TouchableOpacity>

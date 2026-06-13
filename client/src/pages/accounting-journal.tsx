@@ -46,6 +46,7 @@ import {
 } from "@/components/ui/select";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { usePermissions } from "@/hooks/use-permissions";
 
 type FullJournalEntry = JournalEntry & {
   lines?: Array<
@@ -105,8 +106,28 @@ export default function AccountingJournalPage() {
   });
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { can, requiresApproval } = usePermissions();
 
-  const { data: entries, isLoading } = useQuery<FullJournalEntry[]>({
+  if (!can("accounting.view")) {
+    return (
+      <Layout>
+        <Card className="max-w-2xl mx-auto mt-8 border-rose-100 bg-rose-50/20">
+          <CardContent className="py-12 text-center">
+            <History className="mx-auto mb-4 h-12 w-12 text-rose-300" />
+            <h3 className="text-lg font-bold text-rose-900">Access Denied</h3>
+            <p className="mt-2 text-sm text-rose-700">
+              You do not have the required permissions to view the General Journal.
+            </p>
+            <p className="mt-1 text-xs text-rose-500 font-semibold">
+              Required permission: accounting.view
+            </p>
+          </CardContent>
+        </Card>
+      </Layout>
+    );
+  }
+
+  const { data: entries, isLoading } = useQuery<any[]>({
     queryKey: ["/api/accounting/journal"],
   });
 
@@ -126,6 +147,9 @@ export default function AccountingJournalPage() {
     },
     { debit: 0, credit: 0 },
   );
+
+  const voucherTotal = totals?.debit || 0;
+  const hasDirectAccess = !requiresApproval("journal_post", voucherTotal);
   const isBalanced =
     Math.abs(totals.debit - totals.credit) < 0.005 && totals.debit > 0;
 
@@ -208,7 +232,7 @@ export default function AccountingJournalPage() {
       return res.json();
     },
     onSuccess: () => {
-      toast({ title: "Journal voucher posted" });
+      toast({ title: hasDirectAccess ? "Journal voucher posted" : "Voucher submitted for approval" });
       setIsVoucherOpen(false);
       resetVoucher();
       queryClient.invalidateQueries({ queryKey: ["/api/accounting/journal"] });
@@ -235,7 +259,7 @@ export default function AccountingJournalPage() {
       return res.json();
     },
     onSuccess: () => {
-      toast({ title: "Draft posted to ledger" });
+      toast({ title: hasDirectAccess ? "Draft posted to ledger" : "Draft submitted for approval" });
       queryClient.invalidateQueries({
         queryKey: ["/api/accounting/journal-drafts"],
       });
@@ -347,7 +371,7 @@ export default function AccountingJournalPage() {
                                 <SelectValue placeholder="Select account" />
                               </SelectTrigger>
                               <SelectContent>
-                                {accounts?.map((account) => (
+                                {accounts?.filter((account) => !account.isControlAccount).map((account) => (
                                   <SelectItem
                                     key={account.id}
                                     value={String(account.id)}
@@ -503,8 +527,8 @@ export default function AccountingJournalPage() {
                     >
                       <Send className="h-4 w-4 mr-2" />{" "}
                       {postVoucherMutation.isPending
-                        ? "Posting..."
-                        : "Post Now"}
+                        ? (hasDirectAccess ? "Posting..." : "Submitting...")
+                        : (hasDirectAccess ? "Post Now" : "Submit for Approval")}
                     </Button>
                   </div>
                 </div>
@@ -573,7 +597,7 @@ export default function AccountingJournalPage() {
                                 Math.abs(debit - credit) > 0.005
                               }
                             >
-                              Post Draft
+                              {hasDirectAccess ? "Post Draft" : "Request Approval"}
                             </Button>
                           </TableCell>
                         </TableRow>
@@ -636,10 +660,10 @@ export default function AccountingJournalPage() {
                         </div>
                       </div>
                     </div>
-                    <div className="flex flex-col items-end">
+                     <div className="flex flex-col items-end">
                       <div className="flex items-center gap-1 text-[11px] font-bold text-slate-400 mb-1">
                         <User className="h-3 w-3" />
-                        {entry.createdBy}
+                        {entry.createdByName || "System"}
                       </div>
                       <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">
                         Entry ID: #{entry.id}
@@ -667,7 +691,7 @@ export default function AccountingJournalPage() {
                     </TableHeader>
                     <TableBody>
                       {(entry.lines || entry.ledgerEntries || []).map(
-                        (line) => (
+                        (line: any) => (
                           <TableRow
                             key={line.id}
                             className="hover:bg-slate-50/30 border-slate-50"

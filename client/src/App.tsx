@@ -25,12 +25,20 @@ import InventoryStockCountsPage from "@/pages/inventory-stock-counts";
 import ProductionPage from "@/pages/production";
 import InventoryAccountPage from "@/pages/inventory-account";
 import StockTransfersPage from "@/pages/stock-transfers";
+import StockTransferFormPage from "@/pages/stock-transfer-form";
+import StockTransferDetailsPage from "@/pages/stock-transfer-details";
 import InventoryLocationsPage from "@/pages/inventory-locations";
 import PurchaseOrdersPage from "@/pages/purchase-orders";
+import PurchaseOrderFormPage from "@/pages/purchase-order-form";
+import PurchaseOrderDetailsPage from "@/pages/purchase-order-details";
+import PurchaseReturnsPage from "@/pages/purchase-returns";
+import PurchaseReturnFormPage from "@/pages/purchase-return-form";
+import PurchaseReturnDetailsPage from "@/pages/purchase-return-details";
 import GrvDetailsPage from "@/pages/grv-details";
+import CreateGrv from "@/pages/create-grv";
 import ProductsPage from "@/pages/products";
 import BulkPriceAdjustmentPage from "@/pages/bulk-price-adjustment";
-import AutoSparesPage from "@/pages/auto-spares";
+import SerialTrackingPage from "@/pages/serial-tracking";
 import ServicesPage from "@/pages/services";
 import TaxConfigPage from "@/pages/tax-config";
 import SettingsPage from "@/pages/settings";
@@ -76,10 +84,14 @@ import AccountingJournalPage from "@/pages/accounting-journal";
 import TrialBalancePage from "@/pages/accounting-trial-balance";
 import GeneralLedgerPage from "@/pages/accounting-ledger";
 import SupplierInvoicesPage from "@/pages/supplier-invoices";
+import SupplierCreditNotesPage from "@/pages/supplier-credit-notes";
+import SupplierInvoiceDetailsPage from "@/pages/supplier-invoice-details";
+import SupplierInvoiceFormPage from "@/pages/supplier-invoice-form";
 import CashbookPage from "@/pages/cashbook";
 import AgingReportsPage from "@/pages/aging-reports";
 import CostCentersPage from "@/pages/cost-centers";
 import FixedAssetsPage from "@/pages/fixed-assets";
+import DepreciationRecordsPage from "@/pages/depreciation-records";
 import FinancialPeriodsPage from "@/pages/financial-periods";
 import VatReturnPage from "@/pages/vat-return";
 import BankReconciliationPage from "@/pages/bank-reconciliation";
@@ -90,6 +102,7 @@ import OpeningBalancesPage from "@/pages/opening-balances";
 import AccountingAuditTrailPage from "@/pages/accounting-audit-trail";
 import AllocationWorkbenchPage from "@/pages/allocation-workbench";
 import AccountingDashboardPage from "@/pages/accounting-dashboard";
+import AccountingSegmentsPage from "@/pages/accounting-segments";
 import ApprovalsPage from "@/pages/approvals";
 import PartnershipSalesReportPage from "@/pages/partnership-sales-report";
 import PayrollPage from "@/pages/payroll";
@@ -103,7 +116,6 @@ import { useActiveCompany } from "@/hooks/use-active-company";
 import { Loader2 } from "lucide-react";
 import { insertBusRouteSchema, type BusRouteCloud } from "@shared/schema";
 import { useEffect, useRef, useState } from "react";
-import { PwaInstallPrompt } from "@/components/pwa-install-prompt";
 import { getPwaLaunchRedirect } from "@/hooks/use-pwa-install";
 import { useIsOnline } from "@/hooks/use-is-online";
 import { useBranding } from "@/hooks/use-branding";
@@ -319,6 +331,21 @@ function Router() {
       <Route path="/inventory/purchase-orders">
         {() => <ProtectedRoute component={PurchaseOrdersPage} />}
       </Route>
+      <Route path="/inventory/purchase-orders/new">
+        {() => <ProtectedRoute component={PurchaseOrderFormPage} />}
+      </Route>
+      <Route path="/inventory/purchase-orders/:id">
+        {() => <ProtectedRoute component={PurchaseOrderDetailsPage} />}
+      </Route>
+      <Route path="/inventory/purchase-returns">
+        {() => <ProtectedRoute component={PurchaseReturnsPage} />}
+      </Route>
+      <Route path="/inventory/purchase-returns/new">
+        {() => <ProtectedRoute component={PurchaseReturnFormPage} />}
+      </Route>
+      <Route path="/inventory/purchase-returns/:id">
+        {() => <ProtectedRoute component={PurchaseReturnDetailsPage} />}
+      </Route>
       <Route path="/inventory">
         {() => <ProtectedRoute component={InventoryTransactionsPage} />}
       </Route>
@@ -343,8 +370,17 @@ function Router() {
       <Route path="/inventory/transfers">
         {() => <ProtectedRoute component={StockTransfersPage} />}
       </Route>
+      <Route path="/inventory/transfers/new">
+        {() => <ProtectedRoute component={StockTransferFormPage} />}
+      </Route>
+      <Route path="/inventory/transfers/:id">
+        {() => <ProtectedRoute component={StockTransferDetailsPage} />}
+      </Route>
       <Route path="/inventory/locations">
         {() => <ProtectedRoute component={InventoryLocationsPage} />}
+      </Route>
+      <Route path="/inventory/grvs/new">
+        {() => <ProtectedRoute component={CreateGrv} />}
       </Route>
       <Route path="/inventory/grvs/:id">
         {() => <ProtectedRoute component={GrvDetailsPage} />}
@@ -364,8 +400,8 @@ function Router() {
       <Route path="/products">
         {() => <ProtectedRoute component={ProductsPage} />}
       </Route>
-      <Route path="/auto-spares">
-        {() => <ProtectedRoute component={AutoSparesPage} />}
+      <Route path="/serial-tracking">
+        {() => <ProtectedRoute component={SerialTrackingPage} />}
       </Route>
       <Route path="/services">
         {() => <ProtectedRoute component={ServicesPage} />}
@@ -485,6 +521,9 @@ function Router() {
       <Route path="/accounting/coa">
         {() => <ProtectedRoute component={AccountingCOAPage} />}
       </Route>
+      <Route path="/accounting/segments">
+        {() => <ProtectedRoute component={AccountingSegmentsPage} />}
+      </Route>
       <Route path="/accounting/dashboard">
         {() => <ProtectedRoute component={AccountingDashboardPage} />}
       </Route>
@@ -533,6 +572,9 @@ function Router() {
       <Route path="/accounting/fixed-assets">
         {() => <ProtectedRoute component={FixedAssetsPage} />}
       </Route>
+      <Route path="/accounting/fixed-assets/depreciation">
+        {() => <ProtectedRoute component={DepreciationRecordsPage} />}
+      </Route>
       <Route path="/accounting/reconciliation">
         {() => <ProtectedRoute component={BankReconciliationPage} />}
       </Route>
@@ -553,6 +595,18 @@ function Router() {
       </Route>
       <Route path="/supplier-invoices">
         {() => <ProtectedRoute component={SupplierInvoicesPage} />}
+      </Route>
+      <Route path="/supplier-invoices/new">
+        {() => <ProtectedRoute component={SupplierInvoiceFormPage} />}
+      </Route>
+      <Route path="/supplier-invoices/:id">
+        {() => <ProtectedRoute component={SupplierInvoiceDetailsPage} />}
+      </Route>
+      <Route path="/supplier-credit-notes">
+        {() => <ProtectedRoute component={SupplierCreditNotesPage} />}
+      </Route>
+      <Route path="/supplier-credit-notes/new">
+        {() => <ProtectedRoute component={SupplierInvoiceFormPage} />}
       </Route>
       <Route path="/payroll">
         {() => <ProtectedRoute component={PayrollPage} />}
@@ -617,7 +671,6 @@ function App() {
         <BranchProvider>
           <BrandingMeta />
           <Toaster />
-          <PwaInstallPrompt />
           <Router />
         </BranchProvider>
       </TooltipProvider>

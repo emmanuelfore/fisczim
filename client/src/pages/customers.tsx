@@ -203,6 +203,9 @@ export default function CustomersPage() {
                 <th className="hidden sm:table-cell px-5 py-3 font-semibold">
                   Type
                 </th>
+                <th className="hidden sm:table-cell px-5 py-3 font-semibold text-right">
+                  Balance
+                </th>
                 <th className="px-5 py-3 font-semibold text-right">Actions</th>
               </tr>
             </thead>
@@ -325,6 +328,11 @@ export default function CustomersPage() {
                           <Users className="w-3 h-3 mr-1.5" />
                         )}
                         {c.customerType}
+                      </span>
+                    </td>
+                    <td className="hidden sm:table-cell px-5 py-4 align-middle text-right">
+                      <span className={`font-bold font-mono ${Number((c as any).openingBalance) > 0 ? "text-red-600" : "text-slate-600"}`}>
+                        ${Number((c as any).openingBalance || 0).toFixed(2)}
                       </span>
                     </td>
                     <td className="px-5 py-4 text-right align-middle">

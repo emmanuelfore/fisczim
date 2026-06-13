@@ -34,6 +34,7 @@ import { Switch } from "@/components/ui/switch";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useBranches } from "@/hooks/use-branches";
 import { useToast } from "@/hooks/use-toast";
+import { useBranchContext } from "@/lib/branch-context";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import {
@@ -203,6 +204,7 @@ function fmt(n: number) {
 export default function InventoryLocationsPage() {
   const { activeCompanyId } = useActiveCompany();
   const companyId = activeCompanyId || 0;
+  const { selectedBranchId } = useBranchContext();
   const { data: locations = [], isLoading } = useInventoryLocations(companyId);
   const { data: branches = [] } = useBranches(companyId);
   const { toast } = useToast();
@@ -219,7 +221,10 @@ export default function InventoryLocationsPage() {
 
   const openCreate = () => {
     setEditing(null);
-    setForm(EMPTY_FORM);
+    setForm({
+      ...EMPTY_FORM,
+      branchId: selectedBranchId ? String(selectedBranchId) : "",
+    });
     setDialogOpen(true);
   };
 
@@ -557,27 +562,25 @@ export default function InventoryLocationsPage() {
             </div>
 
             {/* Branch link */}
-            {(form.type === "BRANCH" || form.type === "SHOP_FLOOR") && (
-              <div className="grid gap-1.5">
-                <Label>Link to Branch</Label>
-                <Select
-                  value={form.branchId || "none"}
-                  onValueChange={(v) => setForm((f) => ({ ...f, branchId: v === "none" ? "" : v }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select branch…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">— No branch link —</SelectItem>
-                    {(branches as Branch[]).map((b) => (
-                      <SelectItem key={b.id} value={String(b.id)}>
-                        {b.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
+            <div className="grid gap-1.5">
+              <Label>Link to Branch</Label>
+              <Select
+                value={form.branchId || "none"}
+                onValueChange={(v) => setForm((f) => ({ ...f, branchId: v === "none" ? "" : v }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select branch…" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">— No branch link —</SelectItem>
+                  {(branches as Branch[]).map((b) => (
+                    <SelectItem key={b.id} value={String(b.id)}>
+                      {b.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
             {/* Address */}
             <div className="grid gap-1.5">

@@ -36,9 +36,9 @@ async function seedSuperAdmin() {
     console.log("🚀 Starting Super Admin seed...");
 
     const adminUser = {
-        email: "admin@fiscalstake.co.zw",
-        password: "FiscalStakeAdmin123!",
-        name: "FiscalStake Admin",
+        email: "admin@fiscalstack.co.zw",
+        password: "FiscalStackAdmin123!",
+        name: "FiscalStack Admin",
     };
 
     try {

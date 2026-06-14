@@ -143,7 +143,7 @@ function ReportSidebar({ activeReport, onSelect, openCategories, onToggleCategor
     <div className="sticky top-[88px] flex h-[calc(100vh-96px)] w-72 shrink-0 flex-col overflow-hidden rounded-[14px] border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
       {/* Sidebar header */}
       <div className="px-4 py-3 border-b border-slate-100 shrink-0">
-        <span className="text-sm font-black text-slate-800 uppercase tracking-tight">Reports</span>
+        <span className="text-base font-black text-slate-800 uppercase tracking-tight">Reports</span>
       </div>
 
       {/* Category groups */}
@@ -161,7 +161,7 @@ function ReportSidebar({ activeReport, onSelect, openCategories, onToggleCategor
             >
               <CollapsibleTrigger asChild>
                 <div className={cn(
-                  "flex items-center justify-between w-full px-3 py-2.5 text-sm font-semibold transition-all duration-200 cursor-pointer select-none group",
+                  "flex items-center justify-between w-full px-3 py-2.5 text-base font-semibold transition-all duration-200 cursor-pointer select-none group",
                   category.reports.some(r => r.key === activeReport)
                     ? "text-violet-700 bg-violet-50"
                     : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
@@ -173,12 +173,12 @@ function ReportSidebar({ activeReport, onSelect, openCategories, onToggleCategor
                         ? "bg-violet-100 text-violet-600"
                         : "bg-slate-100 text-slate-400 group-hover:bg-slate-200 group-hover:text-slate-600"
                     )}>
-                      <CategoryIcon className="w-3.5 h-3.5" />
+                      <CategoryIcon className="w-5 h-5" />
                     </div>
-                    <span className="text-sm tracking-tight">{category.label}</span>
+                    <span className="text-base tracking-tight">{category.label}</span>
                   </div>
                   <ChevronDown className={cn(
-                    "w-3.5 h-3.5 transition-transform duration-200 shrink-0",
+                    "w-5 h-5 transition-transform duration-200 shrink-0",
                     isOpen ? "rotate-180 text-violet-400" : "text-slate-300"
                   )} />
                 </div>
@@ -193,7 +193,7 @@ function ReportSidebar({ activeReport, onSelect, openCategories, onToggleCategor
                       return (
                         <Link key={report.key} href={report.externalHref}>
                           <div className={cn(
-                            "flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-semibold transition-all duration-150 cursor-pointer",
+                            "flex items-center gap-2 px-3 py-2.5 rounded-lg text-base font-semibold transition-all duration-150 cursor-pointer",
                             isActive
                               ? "bg-violet-600 text-white shadow-sm shadow-violet-500/20"
                               : "text-slate-500 hover:text-slate-800 hover:bg-slate-50"
@@ -208,7 +208,7 @@ function ReportSidebar({ activeReport, onSelect, openCategories, onToggleCategor
                       <div
                         key={report.key}
                         className={cn(
-                          "flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-semibold transition-all duration-150 cursor-pointer",
+                          "flex items-center gap-2 px-3 py-2.5 rounded-lg text-base font-semibold transition-all duration-150 cursor-pointer",
                           isActive
                             ? "bg-violet-600 text-white shadow-sm shadow-violet-500/20"
                             : "text-slate-500 hover:text-slate-800 hover:bg-slate-50"

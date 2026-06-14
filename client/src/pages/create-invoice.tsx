@@ -82,6 +82,7 @@ import {
   type InvoiceTemplateId,
 } from "@/lib/invoice-templates";
 import { usePermissions } from "@/hooks/use-permissions";
+import { apiFetch } from "@/lib/api";
 
 type LineItem = {
   localId: string;
@@ -90,6 +91,7 @@ type LineItem = {
   quantity: number;
   unitPrice: number;
   taxRate: number;
+  segmentId?: number | null;
   hsCode?: string;
   taxTypeId?: number | null;
 };
@@ -134,6 +136,15 @@ export default function CreateInvoicePage() {
   const { user } = useAuth();
   const { can, requiresApproval } = usePermissions();
 
+  const { data: segments } = useQuery<any[]>({
+    queryKey: ["/api/accounting/segments", companyId],
+    enabled: !!companyId,
+    queryFn: async () => {
+      const res = await apiFetch(`/api/companies/${companyId}/accounting/segments`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
 
   const [isLockedByOther, setIsLockedByOther] = useState(false);
   const [lockStatus, setLockStatus] = useState<string>("");
@@ -236,6 +247,7 @@ export default function CreateInvoicePage() {
             quantity: Number(item.quantity),
             unitPrice: Number(item.unitPrice),
             taxRate: Number(item.taxRate),
+            segmentId: (item as any).segmentId,
             hsCode: (item as any).product?.hsCode || undefined,
             taxTypeId: item.taxTypeId,
           })),
@@ -631,6 +643,7 @@ export default function CreateInvoicePage() {
         quantity: item.quantity.toString(),
         unitPrice: item.unitPrice.toString(),
         taxRate: item.taxRate.toString(),
+        segmentId: item.segmentId,
         lineTotal: (item.quantity * item.unitPrice).toString(),
         taxTypeId: item.taxTypeId,
       })),
@@ -718,6 +731,7 @@ export default function CreateInvoicePage() {
         quantity: item.quantity.toString(),
         unitPrice: item.unitPrice.toString(),
         taxRate: item.taxRate.toString(),
+        segmentId: item.segmentId,
         lineTotal: (item.quantity * item.unitPrice).toString(),
         taxTypeId: item.taxTypeId,
       })),
@@ -813,6 +827,7 @@ export default function CreateInvoicePage() {
         quantity: item.quantity.toString(),
         unitPrice: item.unitPrice.toString(),
         taxRate: item.taxRate.toString(),
+        segmentId: item.segmentId,
         lineTotal: (item.quantity * item.unitPrice).toString(),
         taxTypeId: item.taxTypeId,
       })),
@@ -1674,6 +1689,9 @@ export default function CreateInvoicePage() {
                           <TableHead className="pl-4">
                             Item & Description
                           </TableHead>
+                          <TableHead className="w-[120px]">
+                            Segment
+                          </TableHead>
                           <TableHead className="w-[80px] text-center">
                             Qty
                           </TableHead>
@@ -1969,6 +1987,26 @@ export default function CreateInvoicePage() {
                                   </div>
                                 </TableCell>
                                 <TableCell className="align-top py-3">
+                                  <Select
+                                    value={item.segmentId?.toString() || "none"}
+                                    onValueChange={(val) =>
+                                      updateItem(item.localId, "segmentId", val === "none" ? null : parseInt(val))
+                                    }
+                                  >
+                                    <SelectTrigger className="h-9">
+                                      <SelectValue placeholder="Segment" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="none">None</SelectItem>
+                                      {segments?.map((seg) => (
+                                        <SelectItem key={seg.id} value={String(seg.id)}>
+                                          {seg.name}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </TableCell>
+                                <TableCell className="align-top py-3">
                                   <Input
                                     type="number"
                                     min="1"
@@ -2039,15 +2077,18 @@ export default function CreateInvoicePage() {
                         </AnimatePresence>
                       </TableBody>
                     </Table>
-                    <div className="border-t border-slate-100 bg-slate-50/60 p-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={handleAddItem}
-                        className="text-primary hover:text-primary hover:bg-primary/5 w-full justify-start h-8"
-                      >
-                        <Plus className="w-3.5 h-3.5 mr-2" /> Add Line Item
-                      </Button>
+                  </div>
+                  <div className="flex justify-between items-center px-4 py-3 bg-slate-50 border-t border-slate-200">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleAddItem}
+                      className="text-primary hover:text-primary hover:bg-primary/5 h-9"
+                    >
+                      <Plus className="mr-2 h-4 w-4" /> Add Line
+                    </Button>
+                    <div className="text-sm text-slate-500 font-medium">
+                      {items.length} item{items.length === 1 ? "" : "s"}
                     </div>
                   </div>
                 </div>

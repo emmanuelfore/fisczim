@@ -20,7 +20,7 @@ async function check() {
       JOIN companies c ON c.id = cu.company_id
       WHERE cu.user_id = 'b72d80ae-31c4-4484-b517-564c7cd3cef1';
     `);
-    console.log("Companies for admin@fiscalstake.co.zw:");
+    console.log("Companies for admin@fiscalstack.co.zw:");
     res.rows.forEach(row => console.log(`- ${row.company_id}: ${row.name} (${row.role})`));
 
   } catch (err) {

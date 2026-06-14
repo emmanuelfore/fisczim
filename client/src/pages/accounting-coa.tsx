@@ -111,6 +111,7 @@ export default function AccountingCOAPage() {
     subType: "Current",
     normalBalance: "DEBIT",
     ifrsMappingTag: "",
+    defaultSegmentId: undefined as number | undefined,
   });
 
   const { toast } = useToast();
@@ -130,6 +131,16 @@ export default function AccountingCOAPage() {
         const err = await res.json().catch(() => ({ message: res.statusText }));
         throw new Error(err.message || "Failed to load chart of accounts");
       }
+      return res.json();
+    },
+  });
+
+  const { data: segments } = useQuery<any[]>({
+    queryKey: ["/api/accounting/segments", companyId],
+    enabled: !!companyId,
+    queryFn: async () => {
+      const res = await apiFetch(`/api/companies/${companyId}/accounting/segments`);
+      if (!res.ok) return [];
       return res.json();
     },
   });
@@ -165,6 +176,7 @@ export default function AccountingCOAPage() {
         subType: "Current",
         normalBalance: "DEBIT",
         ifrsMappingTag: "",
+        defaultSegmentId: undefined,
       });
     },
     onError: (error: any) => {
@@ -393,6 +405,30 @@ export default function AccountingCOAPage() {
                       }
                       placeholder="e.g. IAS-1, IFRS-9, IAS-16"
                     />
+                  </div>
+                  <div className="space-y-2 col-span-2">
+                    <Label>Default Segment (Optional)</Label>
+                    <Select
+                      value={formData.defaultSegmentId?.toString() || "none"}
+                      onValueChange={(v) =>
+                        setFormData((p) => ({
+                          ...p,
+                          defaultSegmentId: v === "none" ? undefined : Number(v),
+                        }))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a default segment" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">None</SelectItem>
+                        {segments?.map((seg) => (
+                          <SelectItem key={seg.id} value={String(seg.id)}>
+                            {seg.name} ({seg.type})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="space-y-2 col-span-2">
                     <Label>Description (Optional)</Label>

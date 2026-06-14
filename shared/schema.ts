@@ -768,6 +768,8 @@ export const invoiceItems = pgTable("invoice_items", {
   variationId: integer("variation_id"), // Linked to product_variations
   expiryDate: date("expiry_date"), // Snapshot from batch
   batchNumber: text("batch_number"), // Snapshot from batch
+  segmentId: integer("segment_id").references(() => accountingSegments.id),
+
   
 }, (table) => {
   return {
@@ -779,6 +781,7 @@ export const invoiceItems = pgTable("invoice_items", {
 export const invoiceItemsRelations = relations(invoiceItems, ({ one }) => ({
   invoice: one(invoices, { fields: [invoiceItems.invoiceId], references: [invoices.id] }),
   product: one(products, { fields: [invoiceItems.productId], references: [products.id] }),
+  segment: one(accountingSegments, { fields: [invoiceItems.segmentId], references: [accountingSegments.id] }),
 }));
 
 export const productSerialNumbers = pgTable("product_serial_numbers", {
@@ -1629,6 +1632,7 @@ export const purchaseOrderItems = pgTable("purchase_order_items", {
   taxRate: decimal("tax_rate", { precision: 5, scale: 2 }).default("0.00").notNull(),
   taxAmount: decimal("tax_amount", { precision: 10, scale: 2 }).default("0.00").notNull(),
   isRecoverable: boolean("is_recoverable").default(true),
+  segmentId: integer("segment_id").references(() => accountingSegments.id),
   notes: text("notes"),
 }, (table) => {
   return {
@@ -1648,6 +1652,7 @@ export const purchaseOrdersRelations = relations(purchaseOrders, ({ one, many })
 export const purchaseOrderItemsRelations = relations(purchaseOrderItems, ({ one }) => ({
   purchaseOrder: one(purchaseOrders, { fields: [purchaseOrderItems.purchaseOrderId], references: [purchaseOrders.id] }),
   product: one(products, { fields: [purchaseOrderItems.productId], references: [products.id] }),
+  segment: one(accountingSegments, { fields: [purchaseOrderItems.segmentId], references: [accountingSegments.id] }),
 }));
 
 export const purchaseReturns = pgTable("purchase_returns", {
@@ -1724,6 +1729,7 @@ export const expenses = pgTable("expenses", {
   notes: text("notes"),
   debitAccountId: integer("debit_account_id").references(() => accounts.id),
   creditAccountId: integer("credit_account_id").references(() => accounts.id),
+  segmentId: integer("segment_id").references(() => accountingSegments.id),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => {
   return {
@@ -1735,6 +1741,7 @@ export const expensesRelations = relations(expenses, ({ one }) => ({
   company: one(companies, { fields: [expenses.companyId], references: [companies.id] }),
   branch: one(branches, { fields: [expenses.branchId], references: [branches.id] }),
   supplier: one(suppliers, { fields: [expenses.supplierId], references: [suppliers.id] }),
+  segment: one(accountingSegments, { fields: [expenses.segmentId], references: [accountingSegments.id] }),
 }));
 
 export const stockTakes = pgTable("stock_takes", {

@@ -39,6 +39,7 @@ import { cn } from "@/lib/utils";
 type DraftLine = {
   isFreetext?: boolean;
   productId: string;
+  segmentId?: string;
   description?: string;
   accountCode?: string;
   quantity: string;
@@ -87,6 +88,16 @@ export default function PurchaseOrderFormPage({
     },
   });
 
+  const { data: segments } = useQuery<any[]>({
+    queryKey: ["/api/accounting/segments", companyId],
+    enabled: !!companyId,
+    queryFn: async () => {
+      const res = await apiFetch(`/api/companies/${companyId}/accounting/segments`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
   const { mutate: createOrder, isPending: creating } = useCreatePurchaseOrder(companyId);
   const { mutate: updateOrder, isPending: updating } = useUpdatePurchaseOrder(companyId);
   const { toast } = useToast();
@@ -100,7 +111,7 @@ export default function PurchaseOrderFormPage({
   const [notes, setNotes] = useState("");
   const [taxInclusive, setTaxInclusive] = useState(false);
   const [lines, setLines] = useState<DraftLine[]>([
-    { isFreetext: false, productId: "", description: "", accountCode: "", quantity: "1", unitCost: "0", taxTypeId: "", taxRate: "0", taxAmount: "0", isRecoverable: true, notes: "" },
+    { isFreetext: false, productId: "", segmentId: "none", description: "", accountCode: "", quantity: "1", unitCost: "0", taxTypeId: "", taxRate: "0", taxAmount: "0", isRecoverable: true, notes: "" },
   ]);
   const [openComboboxIndex, setOpenComboboxIndex] = useState<number | null>(null);
 
@@ -136,6 +147,7 @@ export default function PurchaseOrderFormPage({
           ? initialData.items.map((item: any) => ({
               isFreetext: !item.productId,
               productId: item.productId ? String(item.productId) : "",
+              segmentId: item.segmentId ? String(item.segmentId) : "none",
               description: item.description || "",
               accountCode: item.accountCode || "",
               quantity: String(item.quantity),
@@ -146,7 +158,7 @@ export default function PurchaseOrderFormPage({
               isRecoverable: item.isRecoverable !== false,
               notes: item.notes || "",
             }))
-          : [{ isFreetext: false, productId: "", description: "", accountCode: "", quantity: "1", unitCost: "0", taxTypeId: "", taxRate: "0", taxAmount: "0", isRecoverable: true, notes: "" }],
+          : [{ isFreetext: false, productId: "", segmentId: "none", description: "", accountCode: "", quantity: "1", unitCost: "0", taxTypeId: "", taxRate: "0", taxAmount: "0", isRecoverable: true, notes: "" }],
       );
       if ((initialData as any).taxInclusive) setTaxInclusive(true);
     }
@@ -165,7 +177,7 @@ export default function PurchaseOrderFormPage({
   const total = taxInclusive ? subtotal : subtotal + totalTax;
 
   const addLine = () =>
-    setLines((prev) => [...prev, { isFreetext: false, productId: "", description: "", accountCode: "", quantity: "1", unitCost: "0", taxTypeId: "", taxRate: "0", taxAmount: "0", isRecoverable: true, notes: "" }]);
+    setLines((prev) => [...prev, { isFreetext: false, productId: "", segmentId: "none", description: "", accountCode: "", quantity: "1", unitCost: "0", taxTypeId: "", taxRate: "0", taxAmount: "0", isRecoverable: true, notes: "" }]);
   const removeLine = (index: number) =>
     setLines((prev) => prev.filter((_, i) => i !== index));
   const updateLine = (index: number, patch: Partial<DraftLine>) =>
@@ -176,6 +188,7 @@ export default function PurchaseOrderFormPage({
       .filter((line) => (line.productId || (line.isFreetext && line.description)) && Number(line.quantity) > 0)
       .map((line) => ({
         productId: line.isFreetext ? null : Number(line.productId),
+        segmentId: line.segmentId && line.segmentId !== "none" ? Number(line.segmentId) : undefined,
         description: line.isFreetext ? line.description : null,
         accountCode: line.isFreetext ? line.accountCode : null,
         quantity: Number(line.quantity),
@@ -282,18 +295,19 @@ export default function PurchaseOrderFormPage({
               <div className="space-y-4">
                 <div className="rounded-xl border border-slate-100 overflow-hidden">
                   <div className="grid grid-cols-12 gap-0 bg-slate-50 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
-                    <div className="col-span-4">Product</div>
+                    <div className="col-span-3">Product</div>
+                    <div className="col-span-2">Segment</div>
                     <div className="col-span-1 text-right">Qty</div>
                     <div className="col-span-2 text-right">Unit Cost</div>
                     <div className="col-span-2 text-right">Tax</div>
-                    <div className="col-span-2 text-right">Total</div>
+                    <div className="col-span-1 text-right">Total</div>
                     <div className="col-span-1" />
                   </div>
 
                   <div className="space-y-0">
                     {lines.map((line, index) => (
                       <div key={index} className="grid grid-cols-12 gap-2 items-start border-t border-slate-50 px-3 py-3">
-                        <div className="col-span-4 space-y-1">
+                        <div className="col-span-3 space-y-1">
                           {!line.isFreetext ? (
                             <Select
                               value={line.productId}
@@ -403,6 +417,24 @@ export default function PurchaseOrderFormPage({
                             </label>
                           </div>
                         </div>
+                        <div className="col-span-2">
+                          <Select
+                            value={line.segmentId || "none"}
+                            onValueChange={(val) => updateLine(index, { segmentId: val })}
+                          >
+                            <SelectTrigger className="h-9">
+                              <SelectValue placeholder="Segment" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">None</SelectItem>
+                              {segments?.map((seg) => (
+                                <SelectItem key={seg.id} value={String(seg.id)}>
+                                  {seg.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
                         <div className="col-span-1">
                           <Input
                             type="number" min="0" value={line.quantity}
@@ -486,7 +518,7 @@ export default function PurchaseOrderFormPage({
                             </div>
                           )}
                         </div>
-                        <div className="col-span-2 text-right text-base font-bold text-slate-800 flex flex-col justify-center h-9">
+                        <div className="col-span-1 text-right text-base font-bold text-slate-800 flex flex-col justify-center h-9">
                           <div>
                             {currencyCode} {taxInclusive ? 
                               (Number(line.quantity || 0) * Number(line.unitCost || 0)).toFixed(2) : 

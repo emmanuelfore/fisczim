@@ -1256,27 +1256,27 @@ export function Layout({
         }
 
         .admin-blueprint .admin-sidebar {
-          background: #FFFFFF !important;
-          color: #0F172A !important;
-          border-right: 1px solid #E5E7EB !important;
+          background: #0f172a !important;
+          color: #f8fafc !important;
+          border-right: 1px solid #1e293b !important;
           box-shadow: none !important;
         }
-        .admin-blueprint .admin-sidebar .text-slate-800 { color: #0F172A !important; }
-        .admin-blueprint .admin-sidebar .text-slate-500 { color: #374151 !important; }
-        .admin-blueprint .admin-sidebar .bg-slate-100 { background: #F1F5F9 !important; }
+        .admin-blueprint .admin-sidebar .text-slate-800 { color: #f8fafc !important; }
+        .admin-blueprint .admin-sidebar .text-slate-500 { color: #94a3b8 !important; }
+        .admin-blueprint .admin-sidebar .bg-slate-100 { background: #1e293b !important; }
         .admin-blueprint .admin-sidebar .border-slate-50,
         .admin-blueprint .admin-sidebar .border-slate-100,
         .admin-blueprint .admin-sidebar .border-slate-200,
-        .admin-blueprint .admin-sidebar .border-slate-200\\/60 {
-          border-color: #E5E7EB !important;
+        .admin-blueprint .admin-sidebar .border-slate-200\/60 {
+          border-color: #1e293b !important;
         }
         .admin-blueprint .admin-sidebar .bg-slate-900 {
-          background: #EEF4FF !important;
-          color: #2563EB !important;
+          background: rgba(73, 37, 238, 0.15) !important;
+          color: #ffffff !important;
           box-shadow: none !important;
         }
-        .admin-blueprint .admin-sidebar .hover\\:bg-slate-50:hover {
-          background: #F3F4F6 !important;
+        .admin-blueprint .admin-sidebar .hover\:bg-slate-50:hover {
+          background: #1e293b !important;
         }
         .admin-blueprint .nav-item {
           transform: translateX(0);
@@ -1363,7 +1363,7 @@ export function Layout({
         {/* Primary Navigation Sidebar */}
         <aside
           className={cn(
-            "admin-sidebar bg-white border-r border-slate-200/60 shadow-[1px_0_10px_rgba(0,0,0,0.02)] flex shrink-0 flex-col overflow-hidden transition-all duration-500 ease-in-out",
+            "admin-sidebar bg-[#0f172a] border-r border-slate-800/60 shadow-[1px_0_10px_rgba(0,0,0,0.02)] flex shrink-0 flex-col overflow-hidden transition-all duration-500 ease-in-out",
             "fixed inset-y-0 left-0 z-50 lg:inset-y-0 lg:h-screen lg:max-h-screen",
             isSidebarCollapsed ? "w-20" : "w-[264px]",
             isMobileMenuOpen
@@ -1373,7 +1373,7 @@ export function Layout({
         >
           <div
             className={cn(
-              "relative h-[68px] flex items-center bg-white",
+              "relative h-[68px] flex items-center bg-[#0f172a]",
               isSidebarCollapsed ? "px-3 justify-center" : "px-4",
             )}
           >
@@ -1389,7 +1389,7 @@ export function Layout({
                     <MonitorCheck className="w-4 h-4" />
                   </div>
                   {!isSidebarCollapsed && (
-                    <span className="text-xl font-black text-slate-800 tracking-tight font-display">
+                    <span className="text-xl font-black text-white tracking-tight font-display">
                       Fiscal<span className="text-primary">Zone</span>
                     </span>
                   )}
@@ -1409,7 +1409,7 @@ export function Layout({
               variant="ghost"
               size="icon"
               className={cn(
-                "absolute right-2 top-1/2 hidden h-8 w-8 -translate-y-1/2 rounded-[10px] border border-[#E5E7EB] bg-white text-[#64748B] shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:bg-[#F8FAFC] hover:text-[#0F172A] lg:inline-flex",
+                "absolute right-2 top-1/2 hidden h-8 w-8 -translate-y-1/2 rounded-[10px] border border-slate-700 bg-slate-800 text-slate-400 shadow-[0_1px_2px_rgba(0,0,0,0.1)] hover:bg-slate-700 hover:text-white lg:inline-flex",
                 isSidebarCollapsed && "right-1/2 translate-x-1/2",
               )}
               onClick={() => setIsSidebarCollapsed((value) => !value)}
@@ -1429,7 +1429,7 @@ export function Layout({
             <Button
               variant="ghost"
               size="icon"
-              className="absolute right-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 rounded-[10px] border border-[#E5E7EB] bg-white text-[#64748B] shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:bg-[#F8FAFC] hover:text-[#0F172A] lg:hidden"
+              className="absolute right-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 rounded-[10px] border border-slate-700 bg-slate-800 text-slate-400 shadow-[0_1px_2px_rgba(0,0,0,0.1)] hover:bg-slate-700 hover:text-white lg:hidden"
               onClick={() => setIsMobileMenuOpen(false)}
               aria-label="Close admin drawer"
               title="Close drawer"
@@ -1464,8 +1464,8 @@ export function Layout({
                             className={cn(
                               "w-11 h-11 rounded-[10px] flex items-center justify-center cursor-pointer transition-all duration-300 relative group collapsed-item mx-auto mb-1 nav-item",
                               isActiveGroup
-                                ? "bg-[#EFF6FF] text-[#2563EB] shadow-[inset_3px_0_0_#2563EB]"
-                                : "text-[#64748B] hover:bg-[#F8FAFC] hover:text-[#1E293B]",
+                                ? "bg-slate-800/80 text-white shadow-[inset_3px_0_0_#4925ee]"
+                                : "text-slate-400 hover:bg-slate-800/50 hover:text-white",
                             )}
                           >
                             <item.icon className="w-[18px] h-[18px]" />
@@ -1477,7 +1477,7 @@ export function Layout({
                         <DropdownMenuContent
                           side="right"
                           align="start"
-                          className="w-56 bg-white border-slate-200 rounded-xl shadow-2xl p-1 ml-4 animate-in fade-in slide-in-from-left-2 duration-200"
+                          className="w-56 bg-slate-900 border-slate-800 rounded-xl shadow-2xl p-1 ml-4 animate-in fade-in slide-in-from-left-2 duration-200"
                         >
                           <p className="text-[12px] font-black text-slate-400 uppercase tracking-widest px-3 py-2 border-b border-slate-50 mb-1">
                             {item.label}
@@ -1504,8 +1504,8 @@ export function Layout({
                                             className={cn(
                                               "flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-all  font-medium nav-sub-item",
                                               isGrandchildActive
-                                                ? "bg-[#EFF6FF] text-[#0F172A] shadow-[inset_3px_0_0_#2563EB]"
-                                                : "text-[#475569] hover:bg-[#F8FAFC] hover:text-[#1E293B]",
+                                                ? "bg-slate-800/80 text-white shadow-[inset_3px_0_0_#4925ee]"
+                                                : "text-slate-400 hover:bg-slate-800/50 hover:text-white",
                                             )}
                                           >
                                             <grandchild.icon
@@ -1533,8 +1533,8 @@ export function Layout({
                                   className={cn(
                                     "flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-all  font-medium mb-1 nav-sub-item",
                                     isChildActive
-                                      ? "bg-[#EFF6FF] text-[#0F172A] shadow-[inset_3px_0_0_#2563EB]"
-                                      : "text-[#475569] hover:bg-[#F8FAFC] hover:text-[#1E293B]",
+                                      ? "bg-slate-800/80 text-white shadow-[inset_3px_0_0_#4925ee]"
+                                      : "text-slate-400 hover:bg-slate-800/50 hover:text-white",
                                   )}
                                 >
                                   <child.icon
@@ -1567,8 +1567,8 @@ export function Layout({
                             className={cn(
                               "flex items-center w-full px-3 py-2.5 rounded-[10px] text-[16px] font-semibold transition-all duration-200 cursor-pointer select-none group nav-item",
                               isActiveGroup
-                                ? "bg-[#EFF6FF] text-[#0F172A] shadow-[inset_3px_0_0_#2563EB]"
-                                : "text-[#1E293B] hover:bg-[#F8FAFC] hover:text-[#0F172A]",
+                                ? "bg-slate-800/80 text-white shadow-[inset_3px_0_0_#4925ee]"
+                                : "text-slate-400 hover:bg-slate-800/50 hover:text-white",
                             )}
                           >
                             <div className="flex items-center gap-3 min-w-0">
@@ -1642,8 +1642,8 @@ export function Layout({
                                               className={cn(
                                                 "flex items-center gap-3 px-2.5 py-2.5 rounded-lg  font-medium transition-all duration-150 cursor-pointer nav-sub-item",
                                                 isGrandchildActive
-                                                  ? "bg-[#EFF6FF] text-[#0F172A] shadow-[inset_3px_0_0_#2563EB]"
-                                                  : "text-[#475569] hover:text-[#1E293B] hover:bg-[#F8FAFC]",
+                                                  ? "bg-slate-800/80 text-white shadow-[inset_3px_0_0_#4925ee]"
+                                                  : "text-slate-400 hover:bg-slate-800/50 hover:text-white",
                                               )}
                                             >
                                               <grandchild.icon
@@ -1673,8 +1673,8 @@ export function Layout({
                                     className={cn(
                                       "flex items-center gap-3 px-2.5 py-2.5 rounded-lg  font-medium transition-all duration-150 cursor-pointer nav-sub-item",
                                       isChildActive
-                                        ? "bg-[#EFF6FF] text-[#0F172A] shadow-[inset_3px_0_0_#2563EB]"
-                                        : "text-[#475569] hover:text-[#1E293B] hover:bg-[#F8FAFC]",
+                                        ? "bg-slate-800/80 text-white shadow-[inset_3px_0_0_#4925ee]"
+                                        : "text-slate-400 hover:bg-slate-800/50 hover:text-white",
                                     )}
                                   >
                                     <child.icon
@@ -1708,8 +1708,8 @@ export function Layout({
                         className={cn(
                           "w-11 h-11 rounded-[10px] flex items-center justify-center cursor-pointer transition-all duration-300 relative group collapsed-item mx-auto mb-1 nav-item",
                           isActive
-                            ? "bg-[#EFF6FF] text-[#2563EB] shadow-[inset_3px_0_0_#2563EB]"
-                            : "text-[#64748B] hover:bg-[#F8FAFC] hover:text-[#1E293B]",
+                            ? "bg-slate-800/80 text-white shadow-[inset_3px_0_0_#4925ee]"
+                            : "text-slate-400 hover:bg-slate-800/50 hover:text-white",
                         )}
                       >
                         <item.icon className="w-[18px] h-[18px]" />
@@ -1728,8 +1728,8 @@ export function Layout({
                         className={cn(
                           "flex items-center gap-3 px-3 py-2.5 rounded-[10px] text-[16px] font-semibold transition-all duration-200 cursor-pointer select-none group nav-item",
                           isActive
-                            ? "bg-[#EFF6FF] text-[#0F172A] shadow-[inset_3px_0_0_#2563EB]"
-                            : "text-[#1E293B] hover:bg-[#F8FAFC] hover:text-[#0F172A]",
+                            ? "bg-slate-800/80 text-white shadow-[inset_3px_0_0_#4925ee]"
+                            : "text-slate-400 hover:bg-slate-800/50 hover:text-white",
                         )}
                       >
                         <item.icon
@@ -1753,7 +1753,7 @@ export function Layout({
 
           <div
             className={cn(
-              "sticky bottom-0 z-20 mt-auto border-t border-[#E5E7EB] bg-white",
+              "sticky bottom-0 z-20 mt-auto border-t border-slate-800/60 bg-[#0f172a]",
               isSidebarCollapsed ? "p-2" : "p-3 space-y-3",
             )}
           >
@@ -1761,7 +1761,7 @@ export function Layout({
               <DropdownMenuTrigger asChild>
                 <div
                   className={cn(
-                    "transition-all cursor-pointer group active:scale-95 duration-200 border border-[#E5E7EB] bg-[#F8FAFC] hover:bg-white hover:border-[#CBD5E1]",
+                    "transition-all cursor-pointer group active:scale-95 duration-200 border border-slate-800/60 bg-slate-800/30 hover:bg-slate-800/60 hover:border-slate-700",
                     isSidebarCollapsed
                       ? "mx-auto flex h-11 w-11 items-center justify-center rounded-[10px]"
                       : "rounded-xl p-2.5",
@@ -1775,7 +1775,7 @@ export function Layout({
                   >
                     <div
                       className={cn(
-                        "rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-300 overflow-hidden shadow-sm shrink-0",
+                        "rounded-full bg-[#0f172a] border border-slate-700 flex items-center justify-center text-slate-300 overflow-hidden shadow-sm shrink-0",
                         isSidebarCollapsed ? "h-8 w-8" : "w-10 h-10",
                       )}
                     >
@@ -1796,7 +1796,7 @@ export function Layout({
                     </div>
                     {!isSidebarCollapsed && (
                       <div className="overflow-hidden flex-1 text-left">
-                        <p className=" font-bold text-[#1E293B] truncate leading-none mb-1.5 font-display group-hover:text-[#2563EB] transition-colors">
+                        <p className=" font-bold text-white truncate leading-none mb-1.5 font-display group-hover:text-[#4925ee] transition-colors">
                           {selectedCompany ? selectedCompany.name : "Setup"}
                         </p>
                         {selectedCompany && (

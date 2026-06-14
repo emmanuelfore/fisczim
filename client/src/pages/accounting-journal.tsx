@@ -47,6 +47,8 @@ import {
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { usePermissions } from "@/hooks/use-permissions";
+import { useActiveCompany } from "@/hooks/use-active-company";
+import { apiFetch } from "@/lib/api";
 
 type FullJournalEntry = JournalEntry & {
   lines?: Array<
@@ -84,6 +86,7 @@ type JournalDraft = {
 
 type VoucherLine = {
   accountId: string;
+  segmentId: string;
   debit: string;
   credit: string;
   memo: string;
@@ -91,6 +94,7 @@ type VoucherLine = {
 
 const emptyVoucherLine = (): VoucherLine => ({
   accountId: "",
+  segmentId: "none",
   debit: "",
   credit: "",
   memo: "",
@@ -107,6 +111,17 @@ export default function AccountingJournalPage() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { can, requiresApproval } = usePermissions();
+  const { activeCompanyId: companyId } = useActiveCompany();
+
+  const { data: segments } = useQuery<any[]>({
+    queryKey: ["/api/accounting/segments", companyId],
+    enabled: !!companyId,
+    queryFn: async () => {
+      const res = await apiFetch(`/api/companies/${companyId}/accounting/segments`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
 
   if (!can("accounting.view")) {
     return (
@@ -167,6 +182,7 @@ export default function AccountingJournalPage() {
       return [
         {
           accountId: Number(line.accountId),
+          segmentId: line.segmentId && line.segmentId !== "none" ? Number(line.segmentId) : undefined,
           type: debit > 0 ? "DEBIT" : "CREDIT",
           amount: debit > 0 ? debit : credit,
           memo: line.memo,
@@ -339,12 +355,13 @@ export default function AccountingJournalPage() {
                   <Table>
                     <TableHeader className="bg-slate-50">
                       <TableRow>
-                        <TableHead className="w-[36%]">Account</TableHead>
+                        <TableHead className="w-[25%]">Account</TableHead>
+                        <TableHead className="w-[20%]">Segment</TableHead>
                         <TableHead>Memo</TableHead>
-                        <TableHead className="w-[130px] text-right">
+                        <TableHead className="w-[110px] text-right">
                           Debit
                         </TableHead>
-                        <TableHead className="w-[130px] text-right">
+                        <TableHead className="w-[110px] text-right">
                           Credit
                         </TableHead>
                         <TableHead className="w-[48px]" />
@@ -377,6 +394,33 @@ export default function AccountingJournalPage() {
                                     value={String(account.id)}
                                   >
                                     {account.code} - {account.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </TableCell>
+                          <TableCell>
+                            <Select
+                              value={line.segmentId}
+                              onValueChange={(value) =>
+                                setVoucher((current) => ({
+                                  ...current,
+                                  lines: current.lines.map((item, lineIndex) =>
+                                    lineIndex === index
+                                      ? { ...item, segmentId: value }
+                                      : item,
+                                  ),
+                                }))
+                              }
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Segment" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none">None</SelectItem>
+                                {segments?.map((seg) => (
+                                  <SelectItem key={seg.id} value={String(seg.id)}>
+                                    {seg.name}
                                   </SelectItem>
                                 ))}
                               </SelectContent>
@@ -468,7 +512,7 @@ export default function AccountingJournalPage() {
                         </TableRow>
                       ))}
                       <TableRow className="bg-slate-50">
-                        <TableCell colSpan={2}>
+                        <TableCell colSpan={3}>
                           <Button
                             variant="outline"
                             size="sm"

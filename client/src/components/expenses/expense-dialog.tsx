@@ -35,6 +35,8 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Plus, Loader2, ReceiptText } from "lucide-react";
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { apiFetch } from "@/lib/api";
 
 const expenseCategories = [
   "Rent",
@@ -70,6 +72,16 @@ export function ExpenseDialog({ companyId, expense, trigger }: Props) {
   const updateExpense = useUpdateExpense();
   const { data: suppliers } = useSuppliers(companyId);
 
+  const { data: segments } = useQuery<any[]>({
+    queryKey: ["/api/accounting/segments", companyId],
+    enabled: !!companyId,
+    queryFn: async () => {
+      const res = await apiFetch(`/api/companies/${companyId}/accounting/segments`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
   const isEditing = !!expense;
 
   const form = useForm<InsertExpense>({
@@ -81,6 +93,7 @@ export function ExpenseDialog({ companyId, expense, trigger }: Props) {
       category: expense?.category || "Other",
       currency: expense?.currency || "USD",
       supplierId: expense?.supplierId || undefined,
+      segmentId: expense?.segmentId || undefined,
       expenseDate: expense?.expenseDate
         ? new Date(expense.expenseDate)
         : new Date(),
@@ -313,6 +326,41 @@ export function ExpenseDialog({ companyId, expense, trigger }: Props) {
                       <SelectContent className="rounded-xl shadow-xl">
                         <SelectItem value="none">None</SelectItem>
                         {suppliers?.map((s) => (
+                          <SelectItem key={s.id} value={s.id.toString()}>
+                            {s.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-5">
+              <FormField
+                control={form.control}
+                name="segmentId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-slate-700 font-semibold">
+                      Segment / Dimension
+                    </FormLabel>
+                    <Select
+                      onValueChange={(v) =>
+                        field.onChange(v === "none" ? undefined : parseInt(v))
+                      }
+                      value={field.value?.toString() || "none"}
+                    >
+                      <FormControl>
+                        <SelectTrigger className="rounded-xl bg-slate-50 border-slate-200 focus:ring-amber-500/20">
+                          <SelectValue placeholder="Select segment" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent className="rounded-xl shadow-xl">
+                        <SelectItem value="none">None</SelectItem>
+                        {segments?.map((s) => (
                           <SelectItem key={s.id} value={s.id.toString()}>
                             {s.name}
                           </SelectItem>

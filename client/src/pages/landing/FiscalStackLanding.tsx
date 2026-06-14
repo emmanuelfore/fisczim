@@ -5,8 +5,8 @@ import { useBranding } from "@/hooks/use-branding";
 // ─── Design Tokens ─────────────────────────────────────────────────────────────
 const C = {
   navy: "#0D1B2A",
-  gold: "#2563EB",
-  goldLight: "#3B82F6",
+  gold: "#4925ee",
+  goldLight: "#6b4ced",
   slate: "#1E2D3D",
   ash: "#F0EEE9",
   steel: "#6B7F96",
@@ -276,243 +276,60 @@ const Navbar = () => {
   );
 };
 
-// ── Live Invoice Widget ─────────────────────────────────────────────────────────
-const InvoiceWidget = () => (
+// ── Financial Dashboard Widget ──────────────────────────────────────────────────
+const FinancialDashboardWidget = () => (
   <div
     style={{
       background: "#fff",
       borderRadius: 16,
       boxShadow: "0 24px 80px rgba(0,0,0,0.22)",
-      width: 280,
+      width: 320,
       padding: 20,
       fontFamily: "'Plus Jakarta Sans',sans-serif",
       position: "relative",
     }}
   >
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "flex-start",
-        marginBottom: 12,
-      }}
-    >
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
       <div>
-        <div
-          style={{
-            fontSize: 10,
-            fontFamily: "'DM Mono',monospace",
-            color: C.steel,
-            letterSpacing: "0.1em",
-            marginBottom: 2,
-          }}
-        >
-          TechSolutions Ltd
+        <div style={{ fontSize: 10, fontFamily: "'DM Mono',monospace", color: C.steel, letterSpacing: "0.1em", marginBottom: 2 }}>
+          Net Profit (YTD)
         </div>
-        <div
-          style={{
-            fontSize: 9,
-            color: "#aaa",
-            fontFamily: "'DM Mono',monospace",
-          }}
-        >
-          VAT: 123456789
+        <div style={{ fontSize: 24, fontWeight: 800, color: C.navy, letterSpacing: "-0.03em" }}>
+          $142,500.00
         </div>
       </div>
-      <span
-        style={{
-          background: "#dcfce7",
-          color: "#16a34a",
-          fontSize: 9,
-          fontWeight: 700,
-          padding: "3px 8px",
-          borderRadius: 99,
-          letterSpacing: "0.08em",
-        }}
-      >
-        FISCALIZED
+      <span style={{ background: "#dcfce7", color: "#16a34a", fontSize: 10, fontWeight: 700, padding: "4px 8px", borderRadius: 99 }}>
+        +18.4%
       </span>
     </div>
-    <div
-      style={{ fontSize: 11, fontWeight: 700, color: C.navy, marginBottom: 10 }}
-    >
-      #INV-2024-001
-    </div>
-    <table
-      style={{ width: "100%", borderCollapse: "collapse", marginBottom: 10 }}
-    >
-      <thead>
-        <tr style={{ borderBottom: "1px solid #f0f0f0" }}>
-          <th
-            style={{
-              textAlign: "left",
-              fontSize: 9,
-              color: "#aaa",
-              fontWeight: 500,
-              padding: "3px 0",
-              fontFamily: "'DM Mono',monospace",
-            }}
-          >
-            DESCRIPTION
-          </th>
-          <th
-            style={{
-              textAlign: "right",
-              fontSize: 9,
-              color: "#aaa",
-              fontWeight: 500,
-              padding: "3px 0",
-              fontFamily: "'DM Mono',monospace",
-            }}
-          >
-            AMOUNT
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        {(
-          [
-            ["Web Development", "$1,200.00"],
-            ["Hosting (Yearly)", "$250.00"],
-            ["Maintenance", "$1,000.00"],
-          ] as [string, string][]
-        ).map(([d, a]) => (
-          <tr key={d}>
-            <td style={{ fontSize: 10, color: C.slate, padding: "4px 0" }}>
-              {d}
-            </td>
-            <td
-              style={{
-                fontSize: 10,
-                color: C.slate,
-                textAlign: "right",
-                fontFamily: "'DM Mono',monospace",
-              }}
-            >
-              {a}
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-    <div style={{ borderTop: "1px solid #f0f0f0", paddingTop: 8 }}>
-      {(
-        [
-          ["Subtotal", "$2,450.00", false],
-          ["VAT (15%)", "$367.50", false],
-          ["Total", "$2,817.50", true],
-        ] as [string, string, boolean][]
-      ).map(([l, v, bold]) => (
-        <div
-          key={l}
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            marginBottom: 3,
-          }}
-        >
-          <span
-            style={{
-              fontSize: bold ? 11 : 9,
-              fontWeight: bold ? 700 : 400,
-              color: bold ? C.navy : "#aaa",
-              fontFamily: bold
-                ? "'Plus Jakarta Sans',sans-serif"
-                : "'DM Mono',monospace",
-            }}
-          >
-            {l}
-          </span>
-          <span
-            style={{
-              fontSize: bold ? 11 : 9,
-              fontWeight: bold ? 700 : 400,
-              color: bold ? C.gold : "#aaa",
-              fontFamily: "'DM Mono',monospace",
-            }}
-          >
-            {v}
-          </span>
-        </div>
+
+    {/* Mini Chart */}
+    <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 60, marginBottom: 20 }}>
+      {[40, 60, 45, 80, 55, 90, 70].map((h, i) => (
+        <div key={i} style={{ flex: 1, background: i === 6 ? C.gold : "rgba(73, 37, 238, 0.15)", height: `${h}%`, borderRadius: "4px 4px 0 0", transition: "height 0.3s" }} />
       ))}
     </div>
-    <div
-      style={{
-        marginTop: 12,
-        padding: "8px",
-        background: C.ash,
-        borderRadius: 8,
-        textAlign: "center",
-      }}
-    >
-      <div
-        style={{
-          fontSize: 9,
-          color: C.steel,
-          fontFamily: "'DM Mono',monospace",
-          marginBottom: 4,
-        }}
-      >
-        Scan to verify Fiscal Signature
-      </div>
-      <div
-        style={{
-          width: 44,
-          height: 44,
-          margin: "0 auto",
-          background: C.navy,
-          borderRadius: 4,
-          display: "grid",
-          gridTemplateColumns: "repeat(6,1fr)",
-          gap: 1,
-          padding: 4,
-        }}
-      >
-        {Array.from({ length: 36 }).map((_, i) => (
-          <div
-            key={i}
-            style={{
-              background: i % 3 === 0 || i % 5 === 0 ? "#fff" : "transparent",
-              borderRadius: 1,
-            }}
-          />
-        ))}
-      </div>
-    </div>
-    {/* FDMS badge */}
-    <div
-      style={{
-        position: "absolute",
-        top: -12,
-        right: 16,
-        background: C.navy,
-        borderRadius: 99,
-        padding: "4px 10px",
-        display: "flex",
-        alignItems: "center",
-        gap: 5,
-      }}
-    >
-      <span
-        style={{
-          width: 6,
-          height: 6,
-          borderRadius: "50%",
-          background: "#22c55e",
-          display: "inline-block",
-          animation: "pulse 1.5s infinite",
-        }}
-      />
-      <span
-        style={{
-          fontSize: 9,
-          color: "#fff",
-          fontFamily: "'DM Mono',monospace",
-          letterSpacing: "0.1em",
-        }}
-      >
-        FDMS Connected
-      </span>
+
+    {/* Ledger Items */}
+    <div style={{ borderTop: "1px solid #f0f0f0", paddingTop: 12 }}>
+      <div style={{ fontSize: 10, color: C.steel, fontFamily: "'DM Mono',monospace", marginBottom: 10, letterSpacing: "0.05em" }}>RECENT LEDGER ENTRIES</div>
+      {(
+        [
+          ["Sales Revenue", "Credit", "+$4,200.00"],
+          ["Asset Depreciation", "Debit", "-$350.00"],
+          ["Stock Transfer (North)", "Debit", "-$1,200.00"],
+        ] as [string, string, string][]
+      ).map(([desc, type, amt]) => (
+        <div key={desc} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0" }}>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: C.navy }}>{desc}</div>
+            <div style={{ fontSize: 9, color: C.steel }}>{type}</div>
+          </div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: amt.startsWith("+") ? "#16a34a" : C.slate, fontFamily: "'DM Mono',monospace" }}>
+            {amt}
+          </div>
+        </div>
+      ))}
     </div>
   </div>
 );
@@ -634,7 +451,7 @@ const Hero = () => {
                 letterSpacing: "-0.03em",
               }}
             >
-              Fiscalisation
+              ZIMRA compliant.
             </span>
             <em
               style={{
@@ -649,7 +466,7 @@ const Hero = () => {
                 lineHeight: 1,
               }}
             >
-              Reimagined.
+              Always. Automatically.
             </em>
           </h1>
 
@@ -664,9 +481,7 @@ const Hero = () => {
               marginTop: 20,
             }}
           >
-            The all-in-one fiscalization platform for Zimbabwe's modern
-            businesses. Seamlessly sync with ZIMRA, manage inventory, and drive
-            growth with smart analytics.
+            The complete, ZIMRA-compliant ERP and accounting system for modern businesses. Manage ledgers, track stock transfers, automate asset depreciation, and file tax returns seamlessly without lifting a finger.
           </p>
 
           <div
@@ -736,6 +551,34 @@ const Hero = () => {
             >
               Book a Demo →
             </button>
+            <button
+              onClick={() => window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent("Hi! I'm interested in FiscalStack.")}`, "_blank")}
+              className="fs-hero-button"
+              style={{
+                fontFamily: "'Plus Jakarta Sans',sans-serif",
+                fontWeight: 600,
+                fontSize: 14,
+                padding: "13px 28px",
+                borderRadius: 9999,
+                background: "#25D366",
+                color: "#fff",
+                border: "none",
+                cursor: "pointer",
+                transition: "all 0.2s",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.background = "#1ebe5d";
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.background = "#25D366";
+              }}
+            >
+              <svg width="18" height="18" viewBox="0 0 32 32" fill="white" xmlns="http://www.w3.org/2000/svg"><path d="M22.5 9.5A8.96 8.96 0 0 0 16 7C11.03 7 7 11.03 7 16c0 1.59.42 3.13 1.2 4.49L7 25l4.63-1.21A8.95 8.95 0 0 0 16 25c4.97 0 9-4.03 9-9 0-2.4-.94-4.66-2.5-6.5zm-6.5 13.84a7.44 7.44 0 0 1-3.79-1.03l-.27-.16-2.75.72.73-2.69-.18-.28A7.44 7.44 0 0 1 8.56 16c0-4.1 3.34-7.44 7.44-7.44 1.99 0 3.86.77 5.26 2.18a7.4 7.4 0 0 1 2.18 5.26c0 4.1-3.34 7.44-7.44 7.44z"/></svg>
+              Chat on WhatsApp
+            </button>
           </div>
 
           <div
@@ -772,19 +615,17 @@ const Hero = () => {
                 color: "rgba(255,255,255,0.45)",
               }}
             >
-              Trusted by{" "}
-              <strong style={{ color: "rgba(255,255,255,0.75)" }}>500+</strong>{" "}
-              businesses
+              Trusted by Zimbabwean SMEs & Tax Agents
             </span>
           </div>
         </div>
 
-        {/* Right — invoice widget */}
+        {/* Right — financial dashboard widget */}
         <div
           style={{ ...fu(0.45), display: "flex", justifyContent: "center" }}
           className="fs-hero-visual"
         >
-          <InvoiceWidget />
+          <FinancialDashboardWidget />
         </div>
       </div>
 
@@ -815,10 +656,10 @@ const Hero = () => {
         >
           {(
             [
-              ["500+", "Businesses Active"],
-              ["$12M+", "Invoices Processed"],
-              ["99.9%", "FDMS Uptime"],
-              ["< 1s", "Sync Latency"],
+              ["100%", "ZIMRA API Compliant"],
+              ["Live", "FDMS Sync Ready"],
+              ["ZWG/USD", "Multi-Currency"],
+              ["Offline", "First Architecture"],
             ] as [string, string][]
           ).map(([v, l]) => (
             <div
@@ -858,22 +699,29 @@ const featureList: FeatureItem[] = [
     icon: "🏛️",
     tag: "COMPLIANCE",
     title: "ZIMRA Compliant",
-    desc: "Always up to date with the latest tax regulations. Automatic updates keep you compliant without lifting a finger.",
+    desc: "Always up to date with the latest tax regulations. Automatic VAT returns and FDMS sync keep you compliant.",
     color: "#16a34a",
   },
   {
-    icon: "📡",
-    tag: "INTEGRATION",
-    title: "FDMS Sync",
-    desc: "Real-time fiscal device synchronization with Zimbabwe's FDMS infrastructure. Zero manual steps.",
+    icon: "📒",
+    tag: "ACCOUNTING",
+    title: "General Ledger",
+    desc: "Full double-entry accounting system with automated journaling, trial balances, and financial statements.",
     color: C.gold,
   },
   {
-    icon: "⬡",
-    tag: "VERIFICATION",
-    title: "Smart QR Codes",
-    desc: "Every invoice embeds a cryptographically signed fiscal QR code for instant ZIMRA verification.",
+    icon: "📉",
+    tag: "FIXED ASSETS",
+    title: "Asset Depreciation",
+    desc: "Automated asset registers and depreciation schedules. Say goodbye to manual PPE calculations.",
     color: "#7c3aed",
+  },
+  {
+    icon: "📦",
+    tag: "INVENTORY",
+    title: "Stock Transfers",
+    desc: "Enterprise-grade inventory management. Track stock across multiple branches with flawless valuation.",
+    color: "#ea580c",
   },
   {
     icon: "🧮",
@@ -890,24 +738,17 @@ const featureList: FeatureItem[] = [
     color: "#db2777",
   },
   {
-    icon: "📦",
-    tag: "STOCK CONTROL",
-    title: "Inventory Management",
-    desc: "Track stock levels, set reorder alerts, and manage products across multiple locations in real time.",
-    color: "#ea580c",
-  },
-  {
-    icon: "✉️",
-    tag: "COMMUNICATION",
-    title: "Email Hosting",
-    desc: "Professional business email under your domain — fully integrated with invoicing and client communications.",
+    icon: "💱",
+    tag: "CURRENCY",
+    title: "Multi-Currency Ready",
+    desc: "Seamlessly handle ZWG, USD, and cross-currency transactions with automated exchange rate adjustments.",
     color: "#0ea5e9",
   },
   {
     icon: "📊",
     tag: "ANALYTICS",
-    title: "Smart Analytics",
-    desc: "Revenue trends, tax liabilities, and growth insights — presented in clear dashboards built for action.",
+    title: "Financial Analytics",
+    desc: "Revenue trends, cash flow, and growth insights — presented in clear dashboards built for action.",
     color: C.goldLight,
   },
 ];
@@ -1318,6 +1159,79 @@ const POSHighlight = () => {
   );
 };
 
+// ── Testimonials ────────────────────────────────────────────────────────────────
+const Testimonials = () => {
+  return (
+    <section id="testimonials" style={{ background: "#fff", padding: "100px 24px" }}>
+      <div style={{ maxWidth: 1080, margin: "0 auto" }}>
+        <div style={{ textAlign: "center", marginBottom: 56 }}>
+          <span
+            style={{
+              fontFamily: "'DM Mono',monospace",
+              fontSize: 11,
+              letterSpacing: "0.18em",
+              color: C.steel,
+              display: "block",
+              marginBottom: 12,
+            }}
+          >
+            TESTIMONIALS
+          </span>
+          <h2
+            style={{
+              fontFamily: "'Plus Jakarta Sans',sans-serif",
+              fontSize: "clamp(2rem,4vw,3rem)",
+              fontWeight: 800,
+              color: C.navy,
+              letterSpacing: "-0.03em",
+            }}
+          >
+            Trusted by{" "}
+            <em
+              style={{
+                fontFamily: "'Cormorant Garamond',serif",
+                fontWeight: 300,
+                fontStyle: "italic",
+                color: C.gold,
+              }}
+            >
+              local businesses.
+            </em>
+          </h2>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))", gap: 24 }}>
+          {[
+            {
+              quote: "FiscalStack completely automated our FDMS sync. We no longer worry about ZIMRA penalties.",
+              author: "Tendai M.",
+              role: "Retail Owner, Harare",
+            },
+            {
+              quote: "The only system that handles ZWG/USD splits perfectly while keeping our ledgers ZIMRA-compliant. A lifesaver.",
+              author: "Sarah J.",
+              role: "Tax Agent, Bulawayo",
+            },
+            {
+              quote: "Offline-first means our POS never stops, even during power cuts. It just syncs when the internet comes back.",
+              author: "David K.",
+              role: "Supermarket Manager",
+            }
+          ].map((t, i) => (
+            <div key={i} style={{ background: C.ash, padding: 32, borderRadius: 24, position: "relative" }}>
+              <div style={{ fontSize: 40, color: C.gold, opacity: 0.2, position: "absolute", top: 16, left: 24, fontFamily: "serif" }}>"</div>
+              <p style={{ fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 15, color: C.navy, lineHeight: 1.6, marginBottom: 24, position: "relative", zIndex: 1 }}>{t.quote}</p>
+              <div>
+                <div style={{ fontFamily: "'Plus Jakarta Sans',sans-serif", fontWeight: 700, fontSize: 14, color: C.navy }}>{t.author}</div>
+                <div style={{ fontFamily: "'DM Mono',monospace", fontSize: 11, color: C.steel }}>{t.role}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+};
+
 // ── Pricing ─────────────────────────────────────────────────────────────────────
 const Pricing = () => {
   const { brand } = useBranding();
@@ -1367,7 +1281,7 @@ const Pricing = () => {
         "Dedicated Manager",
         "SLA Assurance",
         "Custom Integration",
-        "Email Hosting",
+        "Multi-Currency Support",
         "On-premise option",
       ],
       cta: "Contact Sales",
@@ -1593,6 +1507,9 @@ const Pricing = () => {
               </button>
             </div>
           ))}
+        </div>
+        <div style={{ marginTop: 32, textAlign: "center", fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 14, color: C.steel, background: "rgba(73, 37, 238, 0.05)", padding: "16px", borderRadius: 16 }}>
+          <strong>Accepted Payment Methods:</strong> We accept ZWL, USD, EcoCash, and local bank transfers at the prevailing rate.
         </div>
       </div>
     </section>
@@ -1916,7 +1833,7 @@ const Footer = () => {
                 "FDMS Sync",
                 "Smart POS",
                 "Inventory",
-                "Email Hosting",
+                "Multi-Currency",
                 "Analytics",
               ],
             },
@@ -2328,6 +2245,7 @@ export default function LandingPage() {
       <Hero />
       <Features />
       <POSHighlight />
+      <Testimonials />
       <Pricing />
       <FAQ />
       <Footer />

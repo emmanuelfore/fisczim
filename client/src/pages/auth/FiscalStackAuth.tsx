@@ -187,63 +187,38 @@ export default function AuthPage() {
   }
 
   return (
-    <div className="min-h-screen grid lg:grid-cols-2">
-      {/* Left Panel - Hero */}
-      <div className="hidden lg:flex flex-col justify-center p-12 bg-slate-950 relative overflow-hidden">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(59,130,246,0.3),transparent_45%),radial-gradient(circle_at_bottom_left,rgba(99,102,241,0.25),transparent_40%)]" />
-        <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20" />
-        <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-primary/30 rounded-full blur-[100px] -translate-y-1/2 translate-x-1/2" />
-        <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-indigo-600/30 rounded-full blur-[100px] translate-y-1/2 -translate-x-1/2" />
-
-        <div className="relative z-10 max-w-lg">
-          <div className="h-16 px-6 bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl mb-8 inline-flex items-center justify-center shadow-xl w-fit">
-            <img
-              src="/fiscalstack-full-logo.png"
-              alt="FiscalStack logo"
-              className="h-10 w-auto object-contain"
-            />
-          </div>
-          <h1 className="text-4xl font-display font-bold mb-6 leading-tight text-white">
-            Seamless ZIMRA Compliant Invoicing.
-          </h1>
-          <p className="text-lg text-slate-300 mb-8 leading-relaxed">
-            Manage customers, products, and fiscalization in one secure
-            platform. Automate your compliance and focus on growth.
-          </p>
-          <div className="flex gap-4">
-            <div className="px-4 py-2 rounded-lg bg-white/5 border border-white/10  text-slate-300">
-              FDMS Ready
-            </div>
-            <div className="px-4 py-2 rounded-lg bg-white/5 border border-white/10  text-slate-300">
-              Secure
-            </div>
-          </div>
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 relative p-4 lg:p-8">
+      <div className="absolute top-0 left-0 w-full h-full bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.03] pointer-events-none" />
+      
+      <div className="w-full max-w-[440px] relative z-10 flex flex-col items-center">
+        <div className="mb-8">
+          <img
+            src="/fiscalstack-full-logo.png"
+            alt="FiscalStack logo"
+            className="h-9 w-auto object-contain drop-shadow-sm opacity-90 hover:opacity-100 transition-opacity"
+          />
         </div>
-      </div>
 
-      {/* Right Panel - Form */}
-      <div className="flex items-center justify-center p-6 bg-slate-50 relative">
-        <div className="absolute top-0 left-0 w-full h-full bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.03] pointer-events-none" />
-        <Card className="w-full max-w-md card-depth border border-slate-200/70 relative z-10 shadow-[0_24px_60px_-24px_rgba(2,6,23,0.35)]">
-          <CardHeader className="text-center pb-2">
-            <CardTitle className="font-display text-2xl">
-              {mode === "login" ? "Welcome Back" : "Create Account"}
+        <Card className="w-full card-depth border border-slate-200/70 shadow-[0_24px_60px_-24px_rgba(2,6,23,0.15)] bg-white">
+          <CardHeader className="text-center pb-4 pt-8">
+            <CardTitle className="font-display text-[22px] font-bold text-slate-900 tracking-tight">
+              {mode === "login" ? "Access your workspace" : "Sign Up"}
             </CardTitle>
-            <CardDescription>
+            <CardDescription className="text-slate-500 text-[15px] mt-2">
               {mode === "login"
-                ? "Sign in to your account"
-                : "Enter your details to get started"}
+                ? "Sign in to continue managing invoices and compliance."
+                : "Create an account to get started."}
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="px-8 pb-8">
             {error && (
-              <div className="mb-4 p-3 rounded-md bg-red-50 text-red-500  border border-red-100">
+              <div className="mb-4 p-3 rounded-md bg-red-50 text-red-500 border border-red-100 text-sm">
                 {error}
               </div>
             )}
 
             {successMsg && (
-              <div className="mb-4 p-3 rounded-md bg-emerald-50 text-emerald-600  border border-emerald-100">
+              <div className="mb-4 p-3 rounded-md bg-emerald-50 text-emerald-600 border border-emerald-100 text-sm">
                 {successMsg}
               </div>
             )}
@@ -267,7 +242,7 @@ export default function AuthPage() {
             {mode === "login" ? (
               <form onSubmit={handleLogin} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="email">Email Address</Label>
+                  <Label htmlFor="email">Work Email</Label>
                   <Input
                     id="email"
                     type="email"
@@ -277,6 +252,7 @@ export default function AuthPage() {
                       setLoginData({ ...loginData, email: e.target.value })
                     }
                     required
+                    className="h-11"
                   />
                 </div>
                 <div className="space-y-2">
@@ -285,7 +261,7 @@ export default function AuthPage() {
                     <Link href="/forgot-password">
                       <Button
                         variant="link"
-                        className="p-0 h-auto text-xs text-primary"
+                        className="p-0 h-auto text-xs text-primary font-medium"
                         type="button"
                       >
                         Forgot password?
@@ -300,11 +276,12 @@ export default function AuthPage() {
                       setLoginData({ ...loginData, password: e.target.value })
                     }
                     required
+                    className="h-11"
                   />
                 </div>
                 <Button
                   type="submit"
-                  className="w-full h-11"
+                  className="w-full h-11 text-[15px] font-semibold mt-2"
                   disabled={isLoggingIn}
                 >
                   {isLoggingIn ? (
@@ -313,7 +290,7 @@ export default function AuthPage() {
                   Sign In
                 </Button>
 
-                <div className="text-center  text-slate-500 mt-4">
+                <div className="text-center text-slate-500 text-sm mt-6">
                   Don't have an account?{" "}
                   <button
                     type="button"
@@ -339,10 +316,11 @@ export default function AuthPage() {
                       setSignupData({ ...signupData, name: e.target.value })
                     }
                     required
+                    className="h-11"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="signup-email">Email Address</Label>
+                  <Label htmlFor="signup-email">Work Email</Label>
                   <Input
                     id="signup-email"
                     type="email"
@@ -352,6 +330,7 @@ export default function AuthPage() {
                       setSignupData({ ...signupData, email: e.target.value })
                     }
                     required
+                    className="h-11"
                   />
                 </div>
                 <div className="space-y-2">
@@ -365,6 +344,7 @@ export default function AuthPage() {
                     }
                     required
                     minLength={6}
+                    className="h-11"
                   />
                 </div>
                 <div className="space-y-2">
@@ -381,11 +361,12 @@ export default function AuthPage() {
                     }
                     required
                     minLength={6}
+                    className="h-11"
                   />
                 </div>
                 <Button
                   type="submit"
-                  className="w-full h-11"
+                  className="w-full h-11 text-[15px] font-semibold mt-2"
                   disabled={isLoggingIn}
                 >
                   {isLoggingIn ? (
@@ -394,8 +375,8 @@ export default function AuthPage() {
                   Create Account
                 </Button>
 
-                <div className="text-center  text-slate-500 mt-4">
-                  Already have an account?{" "}
+                <div className="text-center text-slate-500 text-sm mt-6">
+                  Already have access?{" "}
                   <button
                     type="button"
                     onClick={() => {

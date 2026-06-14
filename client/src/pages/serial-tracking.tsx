@@ -31,7 +31,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { useState } from "react";
+import { useState, useMemo } from "react";
+import { Download, Search, Calendar as CalendarIcon, Filter } from "lucide-react";
+import { format } from "date-fns";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
 
 export default function AutoSparesPage() {
   const { user } = useAuth();
@@ -45,10 +49,73 @@ export default function AutoSparesPage() {
   const { toast } = useToast();
   const [productId, setProductId] = useState("");
   const [serialText, setSerialText] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [filterProductId, setFilterProductId] = useState<string>("all");
+  const [filterStatus, setFilterStatus] = useState<string>("all");
+  const [dateFrom, setDateFrom] = useState<Date | undefined>();
+  const [dateTo, setDateTo] = useState<Date | undefined>();
 
   const serialTrackedProducts = products.filter(
     (product: any) => product.serialTrackingEnabled,
   );
+
+  const filteredSerials = useMemo(() => {
+    return serials.filter((serial: any) => {
+      // Product Filter
+      if (filterProductId !== "all" && String(serial.productId) !== filterProductId) return false;
+      
+      // Status Filter
+      if (filterStatus !== "all" && serial.status !== filterStatus) return false;
+      
+      // Search Filter
+      if (searchTerm) {
+        const product = products.find((p: any) => p.id === serial.productId);
+        const searchLower = searchTerm.toLowerCase();
+        const matchSerial = serial.serialNumber?.toLowerCase().includes(searchLower);
+        const matchProduct = product?.name?.toLowerCase().includes(searchLower);
+        const matchInvoice = String(serial.soldInvoiceNumber || "").toLowerCase().includes(searchLower);
+        if (!matchSerial && !matchProduct && !matchInvoice) return false;
+      }
+      
+      // Date Filter (by createdAt)
+      if (dateFrom || dateTo) {
+        const createdDate = new Date(serial.createdAt);
+        if (dateFrom && createdDate < dateFrom) return false;
+        if (dateTo) {
+          const toDate = new Date(dateTo);
+          toDate.setHours(23, 59, 59, 999);
+          if (createdDate > toDate) return false;
+        }
+      }
+      
+      return true;
+    });
+  }, [serials, products, filterProductId, filterStatus, searchTerm, dateFrom, dateTo]);
+
+  const exportCsv = () => {
+    const headers = ["Serial", "Product", "Status", "Warranty Until", "Sold Invoice", "Sold At", "Created At"];
+    const rows = filteredSerials.map((serial: any) => {
+      const product = products.find((p: any) => p.id === serial.productId);
+      return [
+        serial.serialNumber,
+        product?.name || serial.productId,
+        serial.status,
+        serial.warrantyExpiresAt ? new Date(serial.warrantyExpiresAt).toLocaleDateString() : "-",
+        serial.soldInvoiceNumber || serial.soldInvoiceId || "-",
+        serial.soldAt ? new Date(serial.soldAt).toLocaleDateString() : "-",
+        serial.createdAt ? new Date(serial.createdAt).toLocaleDateString() : "-"
+      ].map(v => `"${v}"`).join(",");
+    });
+    const csvContent = [headers.join(","), ...rows].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", `serial-stock-${new Date().toISOString().split("T")[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   const addSerials = async () => {
     const serialNumbers = serialText
@@ -122,10 +189,90 @@ export default function AutoSparesPage() {
             </Card>
 
             <Card>
-              <CardHeader>
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle>Serial Stock</CardTitle>
+                <Button variant="outline" size="sm" onClick={exportCsv} className="h-8">
+                  <Download className="mr-2 h-4 w-4" />
+                  Export CSV
+                </Button>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-4">
+                <div className="flex flex-col sm:flex-row flex-wrap items-center gap-2 mb-2">
+                  <div className="relative flex-1 min-w-[200px]">
+                    <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Search serial, product, invoice..."
+                      className="pl-8 h-9"
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                  </div>
+                  
+                  <Select value={filterProductId} onValueChange={setFilterProductId}>
+                    <SelectTrigger className="w-[180px] h-9">
+                      <Filter className="mr-2 h-3.5 w-3.5 text-muted-foreground" />
+                      <SelectValue placeholder="All Products" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Products</SelectItem>
+                      {serialTrackedProducts.map((product: any) => (
+                        <SelectItem key={product.id} value={String(product.id)}>
+                          {product.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  <Select value={filterStatus} onValueChange={setFilterStatus}>
+                    <SelectTrigger className="w-[140px] h-9">
+                      <SelectValue placeholder="All Status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Status</SelectItem>
+                      <SelectItem value="IN_STOCK">In Stock</SelectItem>
+                      <SelectItem value="SOLD">Sold</SelectItem>
+                      <SelectItem value="RESERVED">Reserved</SelectItem>
+                      <SelectItem value="RETURNED">Returned</SelectItem>
+                    </SelectContent>
+                  </Select>
+
+                  <div className="flex items-center gap-2">
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" className="h-9 w-[130px] justify-start text-left font-normal">
+                          <CalendarIcon className="mr-2 h-4 w-4" />
+                          {dateFrom ? format(dateFrom, "PP") : <span>From date</span>}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={dateFrom}
+                          onSelect={setDateFrom}
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
+                    <span className="text-muted-foreground">-</span>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" className="h-9 w-[130px] justify-start text-left font-normal">
+                          <CalendarIcon className="mr-2 h-4 w-4" />
+                          {dateTo ? format(dateTo, "PP") : <span>To date</span>}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={dateTo}
+                          onSelect={setDateTo}
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                </div>
+
                  <Table>
                   <TableHeader>
                     <TableRow>
@@ -138,7 +285,7 @@ export default function AutoSparesPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {serials.map((serial: any) => {
+                    {filteredSerials.map((serial: any) => {
                       const product = products.find(
                         (p: any) => p.id === serial.productId,
                       );

@@ -1,4 +1,5 @@
 import { Layout } from "@/components/layout";
+import { useQuery } from "@tanstack/react-query";
 import { useCustomers, useCreateCustomer } from "@/hooks/use-customers";
 import { useProducts, useCreateProduct } from "@/hooks/use-products";
 import {
@@ -1689,19 +1690,19 @@ export default function CreateInvoicePage() {
                           <TableHead className="pl-4">
                             Item & Description
                           </TableHead>
-                          <TableHead className="w-[120px]">
+                          <TableHead className="w-[100px]">
                             Segment
                           </TableHead>
-                          <TableHead className="w-[80px] text-center">
+                          <TableHead className="w-[140px] text-center">
                             Qty
                           </TableHead>
-                          <TableHead className="w-[180px] text-right">
+                          <TableHead className="w-[220px] text-right">
                             Price
                           </TableHead>
-                          <TableHead className="w-[140px] text-right">
+                          <TableHead className="w-[100px] text-right">
                             VAT Amt
                           </TableHead>
-                          <TableHead className="w-[150px] text-right">
+                          <TableHead className="w-[110px] text-right">
                             Amount
                           </TableHead>
                           <TableHead className="w-[50px]"></TableHead>
@@ -1766,21 +1767,13 @@ export default function CreateInvoicePage() {
                                           variant="outline"
                                           role="combobox"
                                           className={cn(
-                                            "h-9 w-full justify-between overflow-hidden rounded-xl bg-white px-3 font-semibold",
+                                            "h-auto min-h-[36px] py-1.5 w-full justify-between overflow-hidden rounded-xl bg-white px-3 font-medium text-[13px]",
                                             !item.productId &&
                                               "text-muted-foreground",
                                           )}
                                         >
-                                          <div className="flex items-center gap-2 overflow-hidden">
-                                            {item.hsCode && (
-                                              <Badge
-                                                variant="secondary"
-                                                className="text-[9px] h-4 py-0 px-1 font-mono opacity-60"
-                                              >
-                                                {item.hsCode}
-                                              </Badge>
-                                            )}
-                                            <span className="truncate">
+                                          <div className="flex flex-col items-start overflow-hidden w-full text-left">
+                                            <span className="truncate w-full block">
                                               {item.productId
                                                 ? products?.find(
                                                     (p) =>
@@ -1788,6 +1781,14 @@ export default function CreateInvoicePage() {
                                                   )?.name || "Select Item"
                                                 : "Select Item"}
                                             </span>
+                                            {item.hsCode && (
+                                              <Badge
+                                                variant="secondary"
+                                                className="text-[9px] h-4 py-0 px-1 font-mono opacity-60 mt-0.5"
+                                              >
+                                                {item.hsCode}
+                                              </Badge>
+                                            )}
                                           </div>
                                           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                                         </Button>
@@ -2018,7 +2019,7 @@ export default function CreateInvoicePage() {
                                         parseFloat(e.target.value) || 0,
                                       )
                                     }
-                                    className="h-9 w-full rounded-xl border-slate-100 bg-slate-50/50 px-2 text-center  font-semibold transition-all hover:border-slate-200 focus:border-primary focus:bg-white"
+                                    className="h-9 w-full rounded-xl border-slate-100 bg-slate-50/50 px-2 text-center font-semibold transition-all hover:border-slate-200 focus:border-primary focus:bg-white"
                                   />
                                 </TableCell>
                                 <TableCell className="align-top py-3">
@@ -2042,7 +2043,7 @@ export default function CreateInvoicePage() {
                                         parseFloat(val.toFixed(2)),
                                       );
                                     }}
-                                    className="h-9 w-full rounded-xl border-slate-100 bg-slate-50/50 px-2 text-right font-mono  font-semibold transition-all hover:border-slate-200 focus:border-primary focus:bg-white"
+                                    className="h-9 w-full rounded-xl border-slate-100 bg-slate-50/50 px-2 text-right font-mono font-semibold transition-all hover:border-slate-200 focus:border-primary focus:bg-white"
                                   />
                                 </TableCell>
                                 <TableCell className="align-top py-3 text-right font-mono  font-semibold text-slate-500">
@@ -2617,7 +2618,7 @@ export default function CreateInvoicePage() {
       </Dialog>
 
       <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
-        <DialogContent className="max-w-4xl h-[90vh]">
+        <DialogContent className="max-w-4xl h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Document Preview</DialogTitle>
           </DialogHeader>

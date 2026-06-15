@@ -518,14 +518,14 @@ export default function CreateQuotationPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[200px]">Item</TableHead>
+                  <TableHead className="w-[150px]">Item</TableHead>
                   <TableHead>Description</TableHead>
-                  <TableHead className="w-[80px] text-center">Qty</TableHead>
-                  <TableHead className="text-right w-[180px]">Price</TableHead>
-                  <TableHead className="text-right w-[140px]">
+                  <TableHead className="w-[140px] text-center">Qty</TableHead>
+                  <TableHead className="text-right w-[220px]">Price</TableHead>
+                  <TableHead className="text-right w-[100px]">
                     VAT Amt
                   </TableHead>
-                  <TableHead className="text-right w-[150px]">Amount</TableHead>
+                  <TableHead className="text-right w-[110px]">Amount</TableHead>
                   <TableHead className="w-[50px]"></TableHead>
                 </TableRow>
               </TableHeader>
@@ -539,7 +539,7 @@ export default function CreateQuotationPage() {
                             variant="outline"
                             role="combobox"
                             className={cn(
-                              "w-full justify-between h-9 px-3 font-normal",
+                              "w-full justify-between h-9 px-3 font-medium text-[13px]",
                               !item.productId && "text-muted-foreground",
                             )}
                           >
@@ -629,7 +629,7 @@ export default function CreateQuotationPage() {
                             parseFloat(e.target.value),
                           )
                         }
-                        className="text-right"
+                        className="w-full text-right"
                       />
                     </TableCell>
                     <TableCell className="text-right font-mono  text-slate-500">

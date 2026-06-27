@@ -28,6 +28,7 @@ import sageOAuthRouter from "./lib/sage-oauth.js";
 import v1Router from "./api/v1/index.js";
 import busTicketingRouter from "./api/v1/bus-ticketing.js";
 import payrollRouter from "./api/v1/payroll.js";
+import manufacturingRouter from "./api/v1/manufacturing.js";
 import { createRolesPermissionsRouter } from "./routes/roles-permissions.js";
 import { createPartnershipsRouter } from "./routes/partnerships.js";
 import { userHasPermission } from "./lib/permissions.js";
@@ -2758,6 +2759,17 @@ export async function registerRoutes(
     try {
       const batch = await storage.createProductBatch({ ...req.body, productId: parseInt(req.params.productId) });
       res.status(201).json(batch);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/companies/:companyId/inventory/expiring-batches", requireAuth, async (req, res) => {
+    try {
+      const companyId = parseInt(req.params.companyId);
+      const days = req.query.days ? parseInt(req.query.days as string) : 90;
+      const batches = await storage.getExpiringBatches(companyId, days);
+      res.json(batches);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -6670,6 +6682,24 @@ export async function registerRoutes(
         purchaseOrderId: body.purchaseOrderId ? Number(body.purchaseOrderId) : null,
         grvReference: body.grvReference || null,
       });
+
+      if (input.purchaseOrderId) {
+        // Enforce Three-Way Matching Tolerances
+        const [po] = await db.select().from(purchaseOrders).where(eq(purchaseOrders.id, input.purchaseOrderId));
+        if (po) {
+           const poTotal = Number((po as any).totalAmount || 0);
+           const invTotal = Number(input.totalAmount || 0);
+           
+           if (invTotal > poTotal * 1.05) {
+               return res.status(400).json({ message: `Three-Way Match Failed: Invoice total (${invTotal}) exceeds Purchase Order total (${poTotal}) by more than the 5% allowed tolerance.` });
+           }
+
+           const grvs = await db.select().from(goodsDeliveryNotes).where(and(eq(goodsDeliveryNotes.purchaseOrderId, po.id), eq(goodsDeliveryNotes.status, 'CONFIRMED')));
+           if (grvs.length === 0) {
+               return res.status(400).json({ message: `Three-Way Match Failed: No confirmed Goods Received Voucher (GRV) found for Purchase Order #${po.poNumber}.` });
+           }
+        }
+      }
       
       const invoice = await storage.createSupplierInvoice({
         ...input,
@@ -7134,7 +7164,7 @@ export async function registerRoutes(
         
         if (!Number.isFinite(quantity) || quantity <= 0) throw new Error("Each confirmation line needs a valid quantity.");
         if (!Number.isFinite(unitCost) || unitCost < 0) throw new Error("Each confirmation line needs a valid unit cost.");
-        return { productId, accountCode, description, quantity, unitCost, landedCost: Number.isFinite(landedCost) ? landedCost : 0, taxTypeId, taxRate, taxAmount, isRecoverable };
+        return { productId, accountCode, description, quantity, unitCost, landedCost: Number.isFinite(landedCost) ? landedCost : 0, taxTypeId, taxRate, taxAmount, isRecoverable, serialNumbers: Array.isArray(raw.serialNumbers) ? raw.serialNumbers : [] };
       });
 
       const { recordBatchStockIn } = await import("./lib/inventory.js");
@@ -9258,7 +9288,7 @@ export async function registerRoutes(
       ]);
       markPerf("prefetch_done");
 
-      if (input.isPos && !activeShift && isOfflineSync && userId) {
+      if (input.isPos && !activeShift && userId) {
         activeShift = await findOfflineSyncShift(
           companyId,
           userId,
@@ -12618,6 +12648,9 @@ export async function registerRoutes(
   // Payroll & HR direct access
   app.use("/api/companies/:companyId/payroll", requireAuth, payrollRouter);
 
+  // Manufacturing & BOM direct access
+  app.use("/api/companies/:companyId/manufacturing", requireAuth, manufacturingRouter);
+
   // --- ACCOUNTING ROUTES ---
 
   const resolveAccountingCompanyId = (req: any): number | null => {
@@ -12689,6 +12722,73 @@ export async function registerRoutes(
   app.get("/api/companies/:companyId/accounting/accounts", requireAuth, listAccountingAccounts);
   app.post("/api/companies/:companyId/accounting/accounts", requireAuth, createAccountingAccount);
 
+  app.get("/api/accounting/budgets", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const budgets = await storage.getBudgets(companyId);
+      res.json(budgets);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/budgets", requireAuth, async (req: any, res: any) => {
+    try {
+      if (req.user?.role !== "admin") return res.status(403).json({ message: "Only administrators can create budgets" });
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const budget = await storage.createBudget({
+        ...req.body,
+        companyId,
+        createdBy: req.user?.id || 'system'
+      });
+      res.json(budget);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/accounting/allocations", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const rules = await storage.getCostAllocationRules(companyId);
+      res.json(rules);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/allocations", requireAuth, async (req: any, res: any) => {
+    try {
+      if (req.user?.role !== "admin") return res.status(403).json({ message: "Only administrators can create allocation rules" });
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const rule = await storage.createCostAllocationRule({
+        ...req.body,
+        companyId,
+        createdBy: req.user?.id || 'system'
+      });
+      res.json(rule);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/allocations/run", requireAuth, async (req: any, res: any) => {
+    try {
+      if (req.user?.role !== "admin") return res.status(403).json({ message: "Only administrators can run allocations" });
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      
+      const asOfDate = req.body.date ? new Date(req.body.date) : new Date();
+      const result = await storage.runCostAllocations(companyId, asOfDate, req.user?.id || 'system');
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
   app.get("/api/accounting/cost-centers", requireAuth, async (req: any, res: any) => {
     try {
       const companyId = resolveAccountingCompanyId(req);
@@ -12904,6 +13004,71 @@ export async function registerRoutes(
         totalDebit: lines.reduce((sum: number, line: any) => sum + Number(line.debit || 0), 0),
         totalCredit: lines.reduce((sum: number, line: any) => sum + Number(line.credit || 0), 0)
       });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/companies/:companyId/accounting/consolidated-trial-balance", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = parseInt(req.params.companyId);
+      const { date } = req.query;
+      const asOfDate = date ? new Date(date as string) : undefined;
+      
+      const lines = await storage.getConsolidatedTrialBalance(companyId, asOfDate || new Date());
+      res.json({
+        asOfDate: asOfDate || new Date(),
+        lines,
+        totalDebit: lines.reduce((sum: number, line: any) => sum + Number(line.debit || 0), 0),
+        totalCredit: lines.reduce((sum: number, line: any) => sum + Number(line.credit || 0), 0)
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/companies/:companyId/accounting/run-eliminations", requireAuth, async (req: any, res: any) => {
+    try {
+      if (req.user?.role !== "admin") return res.status(403).json({ message: "Only administrators can run eliminations" });
+      const companyId = parseInt(req.params.companyId);
+      const asOfDate = req.body.date ? new Date(req.body.date) : new Date();
+      const result = await storage.runConsolidationEliminations(companyId, asOfDate, req.user?.id || 'system');
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // --- MANUFACTURING API ---
+  app.post("/api/manufacturing/bom", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      
+      const bom = await storage.createBillOfMaterial({ ...req.body, companyId });
+      res.json(bom);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/manufacturing/work-orders", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      
+      const wo = await storage.createWorkOrder({ ...req.body, companyId });
+      res.json(wo);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/manufacturing/work-orders/:id/complete", requireAuth, async (req: any, res: any) => {
+    try {
+      const { completedQuantity } = req.body;
+      const wo = await storage.completeWorkOrder(Number(req.params.id), Number(completedQuantity), req.user?.id || 'system');
+      res.json(wo);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -13897,6 +14062,40 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/accounting/fixed-assets/:id/dispose", requireAuth, async (req: any, res: any) => {
+    try {
+      if (req.user?.role !== "admin") {
+        return res.status(403).json({ message: "Only administrators can dispose of fixed assets" });
+      }
+
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      
+      const assetId = parseInt(req.params.id);
+      if (isNaN(assetId)) return res.status(400).json({ message: "Invalid asset ID" });
+
+      const disposalDate = req.body.disposalDate ? new Date(req.body.disposalDate) : new Date();
+      const disposalType = req.body.disposalType || 'SOLD';
+      const proceedsAmount = Number(req.body.proceedsAmount || 0);
+      const notes = req.body.notes || '';
+      const userId = req.user?.id || 'system';
+      
+      const result = await storage.disposeFixedAsset(
+        companyId, 
+        assetId, 
+        disposalDate, 
+        disposalType, 
+        String(proceedsAmount), 
+        notes, 
+        userId
+      );
+      
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // Financial Periods
   app.get("/api/accounting/periods", requireAuth, async (req: any, res: any) => {
     try {
@@ -13936,8 +14135,8 @@ export async function registerRoutes(
 
   app.patch("/api/accounting/periods/:id/toggle", requireAuth, async (req: any, res: any) => {
     try {
-      const { status } = req.body;
-      const period = await storage.toggleFinancialPeriod(Number(req.params.id), status);
+      const updates = req.body;
+      const period = await storage.toggleFinancialPeriod(Number(req.params.id), updates);
       res.json(period);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -13950,6 +14149,25 @@ export async function registerRoutes(
       if (!companyId) return res.status(401).json({ message: "No company selected" });
       await storage.runYearEndClose(companyId, new Date(req.body.asOfDate));
       res.json({ success: true, message: "Year-End closing sweep completed." });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/accounting/revaluation", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company selected" });
+      
+      const { cutOffDate } = req.body;
+      if (!cutOffDate) return res.status(400).json({ message: "cutOffDate is required" });
+
+      const result = await storage.runForexRevaluation(companyId, new Date(cutOffDate), req.user.id);
+      res.json({ 
+        success: true, 
+        message: `Forex revaluation complete. ${result.entriesPosted} journal entries posted.`,
+        ...result 
+      });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -14276,6 +14494,19 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/accounting/reconciliation/create-match", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = resolveAccountingCompanyId(req);
+      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
+      const { statementLineId, targetAccountId, description } = req.body;
+      const [line] = await db.select().from(bankStatementLines).where(eq(bankStatementLines.id, Number(statementLineId)));
+      await assertOpenAccountingPeriod(companyId, line?.date || new Date(), "Bank reconciliation entry");
+      await storage.createAndReconcile(Number(statementLineId), Number(targetAccountId), description, req.user?.id || 'system');
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
   app.post("/api/accounting/reconciliation/statements/:id/auto-match", requireAuth, async (req: any, res: any) => {
     try {
       const companyId = resolveAccountingCompanyId(req);

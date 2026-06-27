@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { inventoryTransactions, products, companies, stockTakes, stockTakeItems, branchStocks, inventoryCostComponents, purchaseOrderItems, goodsDeliveryNotes, accounts } from "@shared/schema";
+import { inventoryTransactions, products, companies, stockTakes, stockTakeItems, branchStocks, inventoryCostComponents, purchaseOrderItems, goodsDeliveryNotes, accounts, productSerialNumbers, productVariations } from "@shared/schema";
 import { eq, and, asc, desc, sql } from "drizzle-orm";
 import { createCostLayer, consumeInventory, recalculateBranchAVCO, type CostComponentType } from "./costing";
 
@@ -13,6 +13,7 @@ type LandedCostAllocationMethod = "quantity" | "value" | "manual";
 
 type StockInItemInput = {
     productId?: number | null;
+    variationId?: number | null;
     accountCode?: string | null;
     description?: string | null;
     quantity: number | string;
@@ -22,6 +23,10 @@ type StockInItemInput = {
     taxRate?: number | string;
     taxAmount?: number | string;
     isRecoverable?: boolean;
+    serialNumbers?: string[];
+    batchNumber?: string;
+    manufacturingDate?: string;
+    expiryDate?: string;
 };
 
 function allocateLandedCosts(
@@ -42,6 +47,7 @@ function allocateLandedCosts(
             quantity: Number.isFinite(quantity) ? quantity : 0,
             baseUnitCost: Number.isFinite(baseUnitCost) ? baseUnitCost : 0,
             manualLandedCost: Number.isFinite(manualLandedCost) ? manualLandedCost : 0,
+            serialNumbers: item.serialNumbers || [],
         };
     });
 
@@ -172,6 +178,22 @@ export async function recordBatchStockIn(
 ) {
     const grvReference = grvNumber?.trim() || generateGrvReference();
     
+    // Apply variation UoM conversions before processing
+    for (const item of items) {
+        if ((item as any).variationId) {
+            const [variation] = await db.select().from(productVariations).where(eq(productVariations.id, (item as any).variationId));
+            if (variation && variation.baseUnitMultiplier) {
+                const multiplier = parseFloat(variation.baseUnitMultiplier.toString());
+                const oldQty = typeof item.quantity === "string" ? parseFloat(item.quantity) : item.quantity;
+                const oldCost = typeof item.unitCost === "string" ? parseFloat(item.unitCost) : item.unitCost;
+                
+                item.quantity = oldQty * multiplier;
+                item.unitCost = oldCost / multiplier;
+                // Note: taxAmount is total for the line, so it doesn't need to be changed
+            }
+        }
+    }
+
     const stockItemsInput = items.filter(i => i.productId);
     const nonStockItemsInput = items.filter(i => !i.productId);
 
@@ -288,6 +310,45 @@ export async function recordBatchStockIn(
                 createdBy: createdBy || null,
             }).returning();
 
+            if (item.serialNumbers && item.serialNumbers.length > 0) {
+                const serialVals = item.serialNumbers.map(sn => ({
+                    companyId,
+                    productId: item.productId,
+                    serialNumber: sn,
+                    receivedInventoryTransactionId: transaction.id,
+                    status: "IN_STOCK",
+                }));
+                await tx.insert(productSerialNumbers).values(serialVals);
+            }
+
+            if ((item as any).batchNumber && (item as any).expiryDate) {
+                // Check if batch exists
+                const [existingBatch] = await tx
+                    .select()
+                    .from(productBatches)
+                    .where(and(
+                        eq(productBatches.productId, item.productId),
+                        eq(productBatches.batchNumber, (item as any).batchNumber)
+                    ))
+                    .limit(1);
+
+                if (existingBatch) {
+                    await tx.update(productBatches)
+                        .set({ stockLevel: sql`stock_level + ${quantity}` })
+                        .where(eq(productBatches.id, existingBatch.id));
+                } else {
+                    await tx.insert(productBatches).values({
+                        companyId,
+                        productId: item.productId,
+                        variationId: (item as any).variationId || null,
+                        batchNumber: (item as any).batchNumber,
+                        manufacturingDate: (item as any).manufacturingDate ? new Date((item as any).manufacturingDate).toISOString() : null,
+                        expiryDate: new Date((item as any).expiryDate).toISOString(),
+                        stockLevel: quantity.toString(),
+                    });
+                }
+            }
+
             // 2. Create Cost Layers
             const components: Array<{ type: CostComponentType; unitCost: number; totalCost: number }> = [
                 { type: 'BASE', unitCost: baseUnitCost, totalCost: quantity * baseUnitCost }
@@ -392,7 +453,15 @@ export async function recordAdjustment(
     data: { productId: number, variationId?: number, branchId?: number, quantity: number, type: string, notes?: string, userId: string }
 ) {
     await db.transaction(async (tx) => {
-        const qty = data.quantity;
+        let qty = data.quantity;
+        
+        if (data.variationId) {
+            const [variation] = await tx.select().from(productVariations).where(eq(productVariations.id, data.variationId));
+            if (variation && variation.baseUnitMultiplier) {
+                qty = qty * parseFloat(variation.baseUnitMultiplier.toString());
+            }
+        }
+
         const absQty = Math.abs(qty);
 
         // 1. Record the transaction

@@ -128,6 +128,8 @@ interface CartItem {
   taxRate: number;
   taxTypeId?: number | null;
   hsCode?: string;
+  cartItemId?: string;
+  serialNumber?: string;
 }
 
 import { useAuth } from "@/hooks/use-auth";
@@ -1574,6 +1576,7 @@ export default function POSPage() {
             item.discountAmount
           ).toString(),
           taxTypeId: item.taxTypeId,
+          serialNumber: item.serialNumber,
         })),
       };
 
@@ -1612,6 +1615,7 @@ export default function POSPage() {
                 item.price * item.quantity -
                 item.discountAmount
               ).toString(),
+              serialNumber: item.serialNumber,
             })),
           }),
         });
@@ -1770,6 +1774,7 @@ export default function POSPage() {
                 item.discountAmount
               ).toString(),
               taxTypeId: item.taxTypeId,
+              serialNumber: item.serialNumber,
             })),
           };
           const offlineId = await addPendingSale(

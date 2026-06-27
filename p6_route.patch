@@ -1,0 +1,60 @@
+--- server/api/v1/payroll.ts
++++ server/api/v1/payroll.ts
+@@ -3954,6 +3954,58 @@
+   }
+ });
+ 
++router.get("/exports/p6", async (req, res) => {
++  const companyId = getTargetCompanyId(req);
++  const employeeId = parseInt(req.query.employeeId as string, 10);
++  const taxYear = req.query.taxYear ? String(req.query.taxYear) : new Date().getFullYear().toString();
++
++  if (!employeeId) return res.status(400).json({ message: "Employee ID is required" });
++
++  try {
++    const periodStart = `${taxYear}-01-01`;
++    const periodEnd = `${taxYear}-12-31`; // Zimbabwe tax year is Jan-Dec
++
++    const [company] = await db.select().from(companies).where(eq(companies.id, companyId)).limit(1);
++    const [emp] = await db.select().from(employees).where(and(eq(employees.id, employeeId), eq(employees.companyId, companyId))).limit(1);
++    if (!emp) return res.status(404).json({ message: "Employee not found" });
++
++    const runs = await db.query.payrollRuns.findMany({
++      where: and(
++        eq(payrollRuns.companyId, companyId),
++        gte(payrollRuns.periodStart, periodStart),
++        lte(payrollRuns.periodStart, periodEnd),
++        eq(payrollRuns.status, "LOCKED")
++      )
++    });
++    const runIds = runs.map(r => r.id);
++
++    let monthsEmployed = 0;
++    let totalGross = 0;
++    let totalPaye = 0;
++    let totalNssa = 0;
++
++    if (runIds.length > 0) {
++      const lines = await db.query.payrollRunEmployees.findMany({
++        where: and(inArray(payrollRunEmployees.payrollRunId, runIds), eq(payrollRunEmployees.employeeId, employeeId))
++      });
++      monthsEmployed = lines.length;
++      totalGross = lines.reduce((acc, line) => acc + parseFloat(line.grossSalary), 0);
++      totalPaye = lines.reduce((acc, line) => acc + parseFloat(line.paye) + parseFloat(line.aidsLevy), 0);
++      totalNssa = lines.reduce((acc, line) => acc + parseFloat(line.nssaEmployee), 0);
++    }
++
++    res.json({
++      employer: { name: company?.name, bpNumber: company?.bpNumber, address: company?.address },
++      employee: { name: `${emp.firstName} ${emp.lastName}`, nationalId: emp.nationalId, nssaNumber: emp.nssaNumber, taxNumber: emp.zimraTaxNumber },
++      taxYear,
++      isFDS: monthsEmployed === 12, // Mark as F.D.S. if employed for full tax year
++      totals: { monthsEmployed, totalGross, totalPaye, totalNssa }
++    });
++  } catch (err: any) {
++    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
++  }
++});
++
+ router.get("/exports/p2", async (req, res) => {
+   const companyId = getTargetCompanyId(req);

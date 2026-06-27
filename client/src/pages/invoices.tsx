@@ -143,7 +143,7 @@ export function InvoicePreviewPanel({
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string>("");
 
   const totalPaid =
-    payments?.reduce((sum: number, p: any) => sum + Number(p.amount), 0) || 0;
+    payments?.reduce((sum: number, p: any) => sum + Number(p.allocatedToThisInvoice ?? p.amount ?? 0), 0) || 0;
   const balanceDue = Math.max(0, Number(invoice?.total || 0) - totalPaid);
   const isPaid = balanceDue <= 0.01;
 
@@ -503,6 +503,7 @@ export function InvoicePreviewPanel({
             notes: receiptPayment.notes,
             currency: receiptPayment.currency || invoice.currency,
             createdAt: receiptPayment.paymentDate,
+            balanceDue: balanceDue,
           }}
           invoice={invoice}
           company={company}

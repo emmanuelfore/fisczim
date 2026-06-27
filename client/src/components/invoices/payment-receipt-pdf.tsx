@@ -231,6 +231,7 @@ interface PaymentReceiptPDFProps {
     invoiceNumber?: string;
     customerName?: string;
     customerEmail?: string;
+    balanceDue?: number;
   };
   allPayments?: any[];
   overallBalance?: number;
@@ -259,17 +260,19 @@ export const PaymentReceiptPDF = ({
   // We sum all payments for this invoice that happened on or before this payment
   const currentPaymentDate = getSafeDate(payment.paymentDate).getTime();
   const paidUntilNow = (allPayments || []).reduce((sum, p) => {
-    const pDate = getSafeDate(p.paymentDate).getTime();
+    const pDate = getSafeDate(p.paymentDate || p.createdAt).getTime();
     if (
       pDate < currentPaymentDate ||
       (pDate === currentPaymentDate && p.id <= payment.id)
     ) {
-      return sum + Number(p.amount || 0);
+      return sum + Number(p.allocatedToThisInvoice ?? p.amount ?? 0);
     }
     return sum;
   }, 0);
 
-  const balanceDue = Math.max(0, Number(invoice?.total || 0) - paidUntilNow);
+  const balanceDue = payment.balanceDue !== undefined 
+    ? Number(payment.balanceDue)
+    : Math.max(0, Number(invoice?.total || 0) - paidUntilNow);
 
   const date = format(getSafeDate(payment.paymentDate), "dd MMM yyyy");
 
@@ -335,7 +338,7 @@ export const PaymentReceiptPDF = ({
               PAYMENT RECEIPT
             </Text>
             <Text style={{ fontSize: 8, opacity: 0.8 }}>
-              #{payment.reference || "REC-NEW"}
+              #{payment.id ? `REC-${String(payment.id).padStart(6, "0")}` : "REC-NEW"}
             </Text>
           </View>
         </View>
@@ -373,7 +376,7 @@ export const PaymentReceiptPDF = ({
                   { fontSize: 12, color: "#1e293b", marginBottom: 2 },
                 ]}
               >
-                Receipt No: {payment.reference || "N/A"}
+                Receipt No: {payment.id ? `REC-${String(payment.id).padStart(6, "0")}` : "N/A"}
               </Text>
               <Text style={s.receiptNo}>Date: {date}</Text>
             </View>
@@ -396,6 +399,11 @@ export const PaymentReceiptPDF = ({
               <Text style={s.infoColValue}>
                 {payment.paymentMethod || "Other"}
               </Text>
+              {payment.reference ? (
+                <Text style={[s.companyMeta, { marginTop: 4, fontWeight: "bold" }]}>
+                  Ref: {payment.reference}
+                </Text>
+              ) : null}
             </View>
             <View style={s.infoCol}>
               <Text style={s.infoColLabel}>Invoice Reference</Text>
@@ -476,70 +484,7 @@ export const PaymentReceiptPDF = ({
           ) : null}
 
           <View style={s.summarySection}>
-            <View style={s.taxTable}>
-              {Object.keys(taxSummary).length > 0 ? (
-                <View>
-                  <Text style={[s.infoColLabel, { marginBottom: 4 }]}>
-                    Tax Analysis
-                  </Text>
-                  <View
-                    style={{
-                      borderBottomWidth: 1,
-                      borderBottomColor: "#f1f5f9",
-                      paddingBottom: 2,
-                      marginBottom: 2,
-                      flexDirection: "row",
-                    }}
-                  >
-                    <Text style={{ fontSize: 7, flex: 1, color: "#94a3b8" }}>
-                      Rate
-                    </Text>
-                    <Text
-                      style={{
-                        fontSize: 7,
-                        flex: 2,
-                        textAlign: "right",
-                        color: "#94a3b8",
-                      }}
-                    >
-                      Net
-                    </Text>
-                    <Text
-                      style={{
-                        fontSize: 7,
-                        flex: 2,
-                        textAlign: "right",
-                        color: "#94a3b8",
-                      }}
-                    >
-                      VAT
-                    </Text>
-                  </View>
-                  {Object.entries(taxSummary).map(
-                    ([rate, data]: [string, any]) => (
-                      <View
-                        key={rate}
-                        style={{ flexDirection: "row", marginBottom: 1 }}
-                      >
-                        <Text style={{ fontSize: 7, flex: 1 }}>
-                          {Number(rate).toFixed(1)}%
-                        </Text>
-                        <Text
-                          style={{ fontSize: 7, flex: 2, textAlign: "right" }}
-                        >
-                          {data.netAmount.toFixed(2)}
-                        </Text>
-                        <Text
-                          style={{ fontSize: 7, flex: 2, textAlign: "right" }}
-                        >
-                          {data.taxAmount.toFixed(2)}
-                        </Text>
-                      </View>
-                    ),
-                  )}
-                </View>
-              ) : null}
-            </View>
+            <View style={s.taxTable}></View>
 
             <View style={s.totalsBox}>
               <View style={s.totalRow}>
@@ -561,48 +506,37 @@ export const PaymentReceiptPDF = ({
                 </Text>
               </View>
 
-              <View
-                style={{
-                  marginTop: 8,
-                  paddingTop: 8,
-                  borderTopWidth: 1,
-                  borderTopColor: "#f1f5f9",
-                  borderTopStyle: "dashed",
-                }}
-              >
-                <View style={s.totalRow}>
-                  <Text
-                    style={[s.totalLabel, { fontSize: 7, color: "#94a3b8" }]}
-                  >
-                    Overall Statement Balance:
-                  </Text>
-                  <Text
-                    style={[
-                      s.totalValue,
-                      {
-                        fontSize: 8,
-                        color:
-                          (overallBalance || 0) > 0 ? "#e11d48" : "#059669",
-                      },
-                    ]}
-                  >
-                    {overallBalance !== undefined
-                      ? `${currency} ${Number(overallBalance).toFixed(2)}`
-                      : "N/A"}
-                  </Text>
+              {overallBalance !== undefined && (
+                <View
+                  style={{
+                    marginTop: 8,
+                    paddingTop: 8,
+                    borderTopWidth: 1,
+                    borderTopColor: "#f1f5f9",
+                    borderTopStyle: "dashed",
+                  }}
+                >
+                  <View style={s.totalRow}>
+                    <Text
+                      style={[s.totalLabel, { fontSize: 7, color: "#94a3b8" }]}
+                    >
+                      Overall Statement Balance:
+                    </Text>
+                    <Text
+                      style={[
+                        s.totalValue,
+                        {
+                          fontSize: 8,
+                          color:
+                            (overallBalance || 0) > 0 ? "#e11d48" : "#059669",
+                        },
+                      ]}
+                    >
+                      {`${currency} ${Number(overallBalance).toFixed(2)}`}
+                    </Text>
+                  </View>
                 </View>
-                {overallBalance === undefined && (
-                  <Text
-                    style={{
-                      fontSize: 6,
-                      color: "#94a3b8",
-                      textAlign: "right",
-                    }}
-                  >
-                    No customer linked to this payment
-                  </Text>
-                )}
-              </View>
+              )}
             </View>
           </View>
 

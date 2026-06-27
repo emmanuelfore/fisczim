@@ -1571,10 +1571,6 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
         // Perform calculation
         const calcs = ZimbabwePayrollEngine.calculateEmployeeLine({
           baseSalary: parseFloat(contract.baseSalary),
-          taxableAllowances,
-          nontaxableAllowances,
-          otherDeductions: loanDeduction + recurringDeductionTotal,
-          taxDeductibleDeductions,
           pensionEmployeeRate: 0,
           pensionEmployerRate: 0,
           necRate: parseFloat(necRate),
@@ -1583,12 +1579,26 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
           usdPercentage: parseFloat(contract.usdPercentage),
           zigPercentage: parseFloat(contract.zigPercentage),
           exchangeRate: parseFloat(parsed.data.exchangeRate),
+          elements: [],
           taxConfig: {
             brackets: taxConfig.brackets as TaxBracket[],
+          },
+          statutoryConfig: {
+            aidsLevyRate: parseFloat(taxConfig.aidsLevyRate),
             nssaRateEmployee: parseFloat(taxConfig.nssaRateEmployee),
             nssaRateEmployer: parseFloat(taxConfig.nssaRateEmployer),
             nssaCeilingLimit: parseFloat(taxConfig.nssaCeilingLimit),
-            aidsLevyRate: parseFloat(taxConfig.aidsLevyRate),
+            zimdefRate: 0.01,
+            standardsLevyRate: 0.005,
+            taxFreeBonusThreshold: 400,
+            medicalAidCreditMonthly: 75,
+            blindPersonCreditAnnual: 900,
+            elderlyPersonCreditAnnual: 900,
+            maxTaxDeductiblePensionAnnual: 54000,
+            hoursPerDay: 8,
+            workingDaysPerMonth: 22,
+            overtimeMultiplierStandard: 1.5,
+            overtimeMultiplierSunday: 2.0
           }
         });
 
@@ -1795,11 +1805,7 @@ router.put("/runs/:id/adjustments", requirePayrollWrite, async (req, res) => {
 
     // Recompute
     const calcs = ZimbabwePayrollEngine.calculateEmployeeLine({
-      baseSalary: parseFloat(contract.baseSalary),
-      taxableAllowances,
-      nontaxableAllowances,
-      otherDeductions: loanDeduction + recurringDeductionTotal,
-      taxDeductibleDeductions,
+      baseSalary: parseFloat(line.basicSalary),
       pensionEmployeeRate,
       pensionEmployerRate,
       necRate: parseFloat(necRate),
@@ -1808,12 +1814,26 @@ router.put("/runs/:id/adjustments", requirePayrollWrite, async (req, res) => {
       usdPercentage: parseFloat(line.usdPercentage),
       zigPercentage: parseFloat(line.zigPercentage),
       exchangeRate: parseFloat(run.exchangeRate),
+      elements: [],
       taxConfig: {
         brackets: taxConfig.brackets as TaxBracket[],
+      },
+      statutoryConfig: {
+        aidsLevyRate: parseFloat(taxConfig.aidsLevyRate),
         nssaRateEmployee: parseFloat(taxConfig.nssaRateEmployee),
         nssaRateEmployer: parseFloat(taxConfig.nssaRateEmployer),
         nssaCeilingLimit: parseFloat(taxConfig.nssaCeilingLimit),
-        aidsLevyRate: parseFloat(taxConfig.aidsLevyRate),
+        zimdefRate: 0.01,
+        standardsLevyRate: 0.005,
+        taxFreeBonusThreshold: 400,
+        medicalAidCreditMonthly: 75,
+        blindPersonCreditAnnual: 900,
+        elderlyPersonCreditAnnual: 900,
+        maxTaxDeductiblePensionAnnual: 54000,
+        hoursPerDay: 8,
+        workingDaysPerMonth: 22,
+        overtimeMultiplierStandard: 1.5,
+        overtimeMultiplierSunday: 2.0
       }
     });
 
@@ -3365,6 +3385,127 @@ router.get("/audit", async (req, res) => {
       .orderBy(desc(auditLogs.createdAt))
       .limit(250);
     res.json(logs);
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
+
+import { reportService } from '../../services/reportService.js';
+
+router.get("/report/csv", async (req, res) => {
+  try {
+    const companyId = getTargetCompanyId(req);
+    const month = typeof req.query.month === "string" ? req.query.month : monthStartIso().slice(0, 7);
+    const csvData = await reportService.generatePayrollReport(companyId, month);
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="payroll_report_${month}.csv"`);
+    res.send(csvData);
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
+router.get("/report/payslip/:employeeId", async (req, res) => {
+  try {
+    const employeeId = parseInt(req.params.employeeId, 10);
+    const period = typeof req.query.period === "string" ? req.query.period : monthStartIso().slice(0, 7);
+    const pdfData = await reportService.generatePayslip(employeeId, period);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="payslip_${employeeId}_${period}.pdf"`);
+    res.send(Buffer.from(pdfData));
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
+
+
+// Get detailed payslips for a specific payroll run
+router.get("/runs/:runId/payslips", async (req, res) => {
+  try {
+    const companyId = getTargetCompanyId(req);
+    const runId = parseInt(req.params.runId);
+    
+    // Verify run belongs to company
+    const [run] = await db.select().from(payrollRuns).where(and(eq(payrollRuns.id, runId), eq(payrollRuns.companyId, companyId)));
+    if (!run) return res.status(404).json({ error: "NOT_FOUND" });
+
+    // Join with employees
+    const records = await db.select({
+      runData: payrollRunEmployees,
+      employee: employees,
+    })
+      .from(payrollRunEmployees)
+      .innerJoin(employees, eq(payrollRunEmployees.employeeId, employees.id))
+      .where(eq(payrollRunEmployees.payrollRunId, runId))
+      .orderBy(employees.firstName);
+
+    res.json({ run, payslips: records });
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
+// Download Bank Export CSV
+router.get("/runs/:runId/bank-export", async (req, res) => {
+  try {
+    const companyId = getTargetCompanyId(req);
+    const runId = parseInt(req.params.runId);
+    
+    // Verify run and get company details
+    const [company] = await db.select().from(companies).where(eq(companies.id, companyId));
+    if (!company) return res.status(404).json({ error: "NOT_FOUND", message: "Company not found" });
+
+    const [run] = await db.select().from(payrollRuns).where(and(eq(payrollRuns.id, runId), eq(payrollRuns.companyId, companyId)));
+    if (!run) return res.status(404).json({ error: "NOT_FOUND", message: "Run not found" });
+
+    const records = await db.select({
+      runData: payrollRunEmployees,
+      employee: employees,
+    })
+      .from(payrollRunEmployees)
+      .innerJoin(employees, eq(payrollRunEmployees.employeeId, employees.id))
+      .where(eq(payrollRunEmployees.payrollRunId, runId))
+      .orderBy(employees.firstName);
+
+    // Get formatting config from company metadata, or fallback to default
+    const formatConfig = company.payrollBankExportFormat || {
+      columns: [
+        { label: "Account Name", field: "employee.lastName" },
+        { label: "Account Number", field: "employee.bankAccountNumber" },
+        { label: "Bank Name", field: "employee.bankName" },
+        { label: "Branch Code", field: "employee.bankBranch" },
+        { label: "Amount", field: "runData.netSalary" },
+        { label: "Reference", field: "static", value: `SALARY ${run.periodStart}` }
+      ]
+    };
+
+    let csvContent = "";
+    
+    // Add headers
+    // @ts-ignore
+    csvContent += formatConfig.columns.map((c: any) => `"${c.label}"`).join(",") + "\n";
+
+    // Add rows
+    records.forEach(({ runData, employee }) => {
+      // @ts-ignore
+      const row = formatConfig.columns.map((col: any) => {
+        let val = "";
+        if (col.field === 'employee.lastName') val = `${employee.firstName} ${employee.lastName}`;
+        else if (col.field === 'employee.bankAccountNumber') val = employee.bankAccountNumber || "";
+        else if (col.field === 'employee.bankName') val = employee.bankName || "";
+        else if (col.field === 'employee.bankBranch') val = employee.bankBranch || "";
+        else if (col.field === 'runData.netSalary') val = runData.netSalary || "0.00";
+        else if (col.field === 'static') val = col.value;
+        return `"${val}"`;
+      });
+      csvContent += row.join(",") + "\n";
+    });
+
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="bank_export_run_${runId}.csv"`);
+    res.send(csvContent);
   } catch (err: any) {
     res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
   }

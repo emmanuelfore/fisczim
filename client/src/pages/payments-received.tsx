@@ -109,16 +109,15 @@ function ReceiptDownloader({
             id: p.id,
             amount: p.amount,
             paymentMethod: p.paymentMethod,
-            reference: p.reference || `REC-${p.id}`,
+            reference: p.reference,
             notes: p.notes,
             currency: p.currency,
             paymentDate: safeDate(p.paymentDate),
             invoiceNumber: p.invoiceNumber || invoice?.invoiceNumber || "N/A",
-            customerName: p.customerName || invoice?.customerName,
-            customerEmail: p.customerEmail || (invoice as any)?.customerEmail,
+            customerName: p.customerName || invoice?.customer?.name,
+            customerEmail: p.customerEmail || invoice?.customer?.email,
           }}
           allPayments={[p]}
-          overallBalance={p.invoiceTotal - p.invoicePaidAmount}
           company={company}
           invoice={invoiceWithTotals}
           taxTypes={taxTypes.data}
@@ -216,7 +215,7 @@ function PaymentDetailsDialog({ p, company }: { p: any; company: any }) {
                 Customer
               </p>
               <p className=" font-bold text-slate-800">
-                {p.customerName || "Walk-in Customer"}
+                {p.customerName || p.invoice?.customer?.name || "Walk-in Customer"}
               </p>
               {p.customerEmail && (
                 <p className="text-xs text-slate-500">{p.customerEmail}</p>
@@ -616,7 +615,7 @@ export default function PaymentsReceivedPage() {
                         </TableCell>
                         <TableCell className="py-2 pr-2">
                           <span className="block truncate text-xs font-medium text-[#64748B]">
-                            {payment.reference || `REC-${payment.id}`}
+                            {payment.reference || "N/A"}
                           </span>
                         </TableCell>
                         <TableCell className="whitespace-nowrap py-2 text-right text-xs font-bold text-[#0F172A]">
@@ -728,10 +727,11 @@ function PaymentDetailView({
             : new Date(),
           invoiceNumber:
             payment.invoiceNumber || invoice?.invoiceNumber || "N/A",
-          reference: payment.reference || `REC-${payment.id}`,
+          reference: payment.reference,
+          customerName: payment?.customerName || payment?.customer?.name || invoice?.customer?.name,
+          customerEmail: payment?.customerEmail || payment?.customer?.email || invoice?.customer?.email,
         }}
         allPayments={allInvoicePayments}
-        overallBalance={statement?.closingBalance}
         company={company}
         invoice={invoice}
         taxTypes={taxTypesData}

@@ -29,7 +29,7 @@ export default function CreateGrv() {
 
   const [taxInclusive, setTaxInclusive] = useState(false);
   const [lines, setLines] = useState<any[]>([
-    { type: "stock", productId: "", accountCode: "", description: "", quantity: 1, unitCost: 0, taxTypeId: null, taxRate: 0, taxAmount: 0, isRecoverable: true }
+    { type: "stock", productId: "", accountCode: "", description: "", quantity: 1, unitCost: 0, taxTypeId: null, taxRate: 0, taxAmount: 0, isRecoverable: true, serialNumbers: [] }
   ]);
 
   const { data: taxTypes = [] } = useQuery({
@@ -39,6 +39,14 @@ export default function CreateGrv() {
 
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
   const [activeLineIndex, setActiveLineIndex] = useState<number | null>(null);
+
+  const [activeSerialLineIndex, setActiveSerialLineIndex] = useState<number | null>(null);
+  const [isSerialModalOpen, setIsSerialModalOpen] = useState(false);
+  const [tempSerials, setTempSerials] = useState<string>("");
+
+  const [activeBatchLineIndex, setActiveBatchLineIndex] = useState<number | null>(null);
+  const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
+  const [tempBatchInfo, setTempBatchInfo] = useState({ batchNumber: "", manufacturingDate: "", expiryDate: "" });
 
   const { data: suppliers = [] } = useQuery<any[]>({
     queryKey: [`/api/companies/${companyId}/suppliers`],
@@ -77,7 +85,7 @@ export default function CreateGrv() {
   };
 
   const addLine = (type: "stock" | "expense") => {
-    setLines([...lines, { type, productId: "", accountCode: "", description: "", quantity: 1, unitCost: 0, taxTypeId: null, taxRate: 0, taxAmount: 0, isRecoverable: true }]);
+    setLines([...lines, { type, productId: "", accountCode: "", description: "", quantity: 1, unitCost: 0, taxTypeId: null, taxRate: 0, taxAmount: 0, isRecoverable: true, serialNumbers: [] }]);
   };
 
   const removeLine = (index: number) => {
@@ -98,6 +106,48 @@ export default function CreateGrv() {
       handleLineChange(activeLineIndex, "description", description);
     }
     setIsAccountModalOpen(false);
+  };
+
+  const openSerialModal = (index: number) => {
+    setActiveSerialLineIndex(index);
+    setTempSerials((lines[index].serialNumbers || []).join("\n"));
+    setIsSerialModalOpen(true);
+  };
+
+  const saveSerials = () => {
+    if (activeSerialLineIndex !== null) {
+      const qty = lines[activeSerialLineIndex].quantity;
+      const serials = tempSerials.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+      if (serials.length > 0 && serials.length !== qty) {
+        toast({ title: "Quantity Mismatch", description: `You entered ${serials.length} serials for a quantity of ${qty}.`, variant: "destructive" });
+        return;
+      }
+      handleLineChange(activeSerialLineIndex, "serialNumbers", serials);
+    }
+    setIsSerialModalOpen(false);
+  };
+
+  const openBatchModal = (index: number) => {
+    setActiveBatchLineIndex(index);
+    setTempBatchInfo({
+      batchNumber: lines[index].batchNumber || "",
+      manufacturingDate: lines[index].manufacturingDate || "",
+      expiryDate: lines[index].expiryDate || new Date().toISOString().split("T")[0]
+    });
+    setIsBatchModalOpen(true);
+  };
+
+  const saveBatchInfo = () => {
+    if (activeBatchLineIndex !== null) {
+      if (!tempBatchInfo.batchNumber || !tempBatchInfo.expiryDate) {
+        toast({ title: "Missing Information", description: "Batch Number and Expiry Date are required.", variant: "destructive" });
+        return;
+      }
+      handleLineChange(activeBatchLineIndex, "batchNumber", tempBatchInfo.batchNumber);
+      handleLineChange(activeBatchLineIndex, "manufacturingDate", tempBatchInfo.manufacturingDate);
+      handleLineChange(activeBatchLineIndex, "expiryDate", tempBatchInfo.expiryDate);
+    }
+    setIsBatchModalOpen(false);
   };
 
   const subtotal = lines.reduce((sum, line) => sum + (Number(line.quantity || 0) * Number(line.unitCost || 0)), 0);
@@ -125,7 +175,11 @@ export default function CreateGrv() {
         taxTypeId: l.taxTypeId ? Number(l.taxTypeId) : null,
         taxRate: Number(l.taxRate || 0),
         taxAmount: Number(l.taxAmount || 0),
-        isRecoverable: l.isRecoverable !== false
+        isRecoverable: l.isRecoverable !== false,
+        serialNumbers: l.serialNumbers || [],
+        batchNumber: l.batchNumber || null,
+        manufacturingDate: l.manufacturingDate || null,
+        expiryDate: l.expiryDate || null,
       }))
     });
   };
@@ -251,37 +305,59 @@ export default function CreateGrv() {
                           </Select>
                           
                           {line.type === "stock" ? (
-                            <Select
-                              value={line.productId?.toString()}
-                              onValueChange={(val) => {
-                                const product = (products || []).find((p: any) => String(p.id) === val);
-                                const newCost = Number(product?.costPrice || line.unitCost || 0);
-                                const rate = Number(line.taxRate || 0);
-                                const qty = Number(line.quantity || 0);
-                                const baseAmt = qty * newCost;
-                                const taxAmt = taxInclusive ? baseAmt - (baseAmt / (1 + (rate / 100))) : baseAmt * (rate / 100);
-                                
-                                const updated = [...lines];
-                                updated[idx] = { 
-                                  ...updated[idx], 
-                                  productId: Number(val), 
-                                  unitCost: newCost, 
-                                  taxAmount: taxAmt.toFixed(2) 
-                                };
-                                setLines(updated);
-                              }}
-                            >
-                              <SelectTrigger className="flex-1 bg-white">
-                                <SelectValue placeholder="Select product..." />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {(products || []).map((p: any) => (
-                                  <SelectItem key={p.id} value={p.id.toString()}>
-                                    {p.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                            <>
+                              <Select
+                                value={line.productId?.toString()}
+                                onValueChange={(val) => {
+                                  const product = (products || []).find((p: any) => String(p.id) === val);
+                                  const newCost = Number(product?.costPrice || line.unitCost || 0);
+                                  const rate = Number(line.taxRate || 0);
+                                  const qty = Number(line.quantity || 0);
+                                  const baseAmt = qty * newCost;
+                                  const taxAmt = taxInclusive ? baseAmt - (baseAmt / (1 + (rate / 100))) : baseAmt * (rate / 100);
+                                  
+                                  const updated = [...lines];
+                                  updated[idx] = { 
+                                    ...updated[idx], 
+                                    productId: Number(val), 
+                                    unitCost: newCost, 
+                                    taxAmount: taxAmt.toFixed(2) 
+                                  };
+                                  setLines(updated);
+                                }}
+                              >
+                                <SelectTrigger className="flex-1 bg-white">
+                                  <SelectValue placeholder="Select product..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {(products || []).map((p: any) => (
+                                    <SelectItem key={p.id} value={p.id.toString()}>
+                                      {p.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              {(products || []).find((p: any) => String(p.id) === String(line.productId))?.serialTrackingEnabled && (
+                                <Button 
+                                  variant="outline" 
+                                  size="sm" 
+                                  onClick={() => openSerialModal(idx)}
+                                  className={`ml-2 ${line.serialNumbers?.length === line.quantity ? "border-emerald-500 text-emerald-600" : "border-amber-500 text-amber-600"}`}
+                                >
+                                  {line.serialNumbers?.length > 0 ? `${line.serialNumbers.length} Serials` : "Add Serials"}
+                                </Button>
+                              )}
+                              {(products || []).find((p: any) => String(p.id) === String(line.productId))?.batchTrackingEnabled && (
+                                <Button 
+                                  variant="outline" 
+                                  size="sm" 
+                                  onClick={() => openBatchModal(idx)}
+                                  className={`ml-2 ${line.batchNumber ? "border-emerald-500 text-emerald-600" : "border-amber-500 text-amber-600"}`}
+                                >
+                                  {line.batchNumber ? `Batch: ${line.batchNumber}` : "Add Batch Info"}
+                                </Button>
+                              )}
+                            </>
                           ) : (
                             <div className="flex-1 flex gap-2">
                               <Input 
@@ -442,6 +518,65 @@ export default function CreateGrv() {
                 <span className="font-mono text-xs text-slate-500">{acc.code} - {acc.type}</span>
               </div>
             ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isSerialModalOpen} onOpenChange={setIsSerialModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Enter Serial Numbers</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <p className="text-sm text-slate-500">
+              Enter serial or batch numbers separated by newlines or commas.
+            </p>
+            <Textarea
+              value={tempSerials}
+              onChange={(e) => setTempSerials(e.target.value)}
+              placeholder="e.g. SN123456\nSN789012"
+              className="font-mono h-48"
+            />
+            <Button onClick={saveSerials} className="w-full">
+              Save Serial Numbers
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isBatchModalOpen} onOpenChange={setIsBatchModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Enter Batch Information</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Batch Number <span className="text-red-500">*</span></Label>
+              <Input
+                placeholder="e.g. BATCH-001"
+                value={tempBatchInfo.batchNumber}
+                onChange={(e) => setTempBatchInfo({ ...tempBatchInfo, batchNumber: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Manufacturing Date</Label>
+              <Input
+                type="date"
+                value={tempBatchInfo.manufacturingDate}
+                onChange={(e) => setTempBatchInfo({ ...tempBatchInfo, manufacturingDate: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Expiry Date <span className="text-red-500">*</span></Label>
+              <Input
+                type="date"
+                value={tempBatchInfo.expiryDate}
+                onChange={(e) => setTempBatchInfo({ ...tempBatchInfo, expiryDate: e.target.value })}
+              />
+            </div>
+            <Button onClick={saveBatchInfo} className="w-full">
+              Save Batch Info
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

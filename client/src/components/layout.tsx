@@ -47,6 +47,9 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Eye,
+  Construction,
+  Wrench,
+  Settings2,
 } from "lucide-react";
 import { useBranding } from "@/hooks/use-branding";
 import {
@@ -302,7 +305,7 @@ export function Layout({
           label: "Locations",
           href: "/inventory/locations",
         },
-        { icon: Factory, label: "Production", href: "/inventory/production" },
+        
         {
           icon: ArrowRightLeft,
           label: "Stock Adjustments",
@@ -319,6 +322,15 @@ export function Layout({
           href: "/inventory/stock-counts",
         },
         { icon: History, label: "Stock Ledger", href: "/inventory" },
+      ],
+    },
+    {
+      icon: Factory,
+      label: "Manufacturing",
+      children: [
+        { icon: Construction, label: "Bill of Materials", href: "/manufacturing/bom" },
+        { icon: Wrench, label: "Work Orders", href: "/manufacturing/work-orders" },
+        { icon: Factory, label: "Production Runs", href: "/inventory/production" },
       ],
     },
     {

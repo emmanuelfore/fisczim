@@ -65,9 +65,11 @@ export const companies = pgTable("companies", {
   tin: text("tin").unique(),
   vatNumber: text("vat_number"),
   bpNumber: text("bp_number"),
+  nssaEmployerNumber: text("nssa_employer_number"),
   vatEnabled: boolean("vat_enabled").default(true),
   defaultPaymentTerms: text("default_payment_terms"),
   bankDetails: text("bank_details"),
+  payrollBankExportFormat: jsonb("payroll_bank_export_format"),
   fdmsDeviceId: text("fdms_device_id"),
   fdmsDeviceSerialNo: text("fdms_device_serial_no"), // ZIMRA Field [21] - Device Serial Number
   fdmsApiKey: text("fdms_api_key"),
@@ -589,6 +591,7 @@ export const productVariations = pgTable("product_variations", {
   sku: text("sku"),
   barcode: text("barcode"),
   price: decimal("price", { precision: 10, scale: 2 }).notNull(),
+  baseUnitMultiplier: decimal("base_unit_multiplier", { precision: 10, scale: 4 }).default("1.0000"), // UoM conversion
   stockLevel: decimal("stock_level", { precision: 10, scale: 2 }).default("0"),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
@@ -600,6 +603,7 @@ export const productBatches = pgTable("product_batches", {
   productId: integer("product_id").references(() => products.id).notNull(),
   variationId: integer("variation_id").references(() => productVariations.id),
   batchNumber: text("batch_number").notNull(),
+  manufacturingDate: date("manufacturing_date"),
   expiryDate: date("expiry_date").notNull(),
   stockLevel: decimal("stock_level", { precision: 10, scale: 2 }).default("0"),
   costPrice: decimal("cost_price", { precision: 10, scale: 2 }),
@@ -1018,7 +1022,7 @@ export const laybyItems = pgTable("layby_items", {
   unitPrice: decimal("unit_price", { precision: 10, scale: 2 }).notNull(),
   taxRate: decimal("tax_rate", { precision: 5, scale: 2 }).default("0.00").notNull(),
   lineTotal: decimal("line_total", { precision: 10, scale: 2 }).notNull(),
-  serialNumberId: integer("serial_number_id").references(() => productSerialNumbers.id),
+  serialNumber: text("serial_number"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
   laybyIdx: index("layby_items_layby_idx").on(table.laybyId),
@@ -1054,7 +1058,6 @@ export const laybysRelations = relations(laybys, ({ one, many }) => ({
 export const laybyItemsRelations = relations(laybyItems, ({ one }) => ({
   layby: one(laybys, { fields: [laybyItems.laybyId], references: [laybys.id] }),
   product: one(products, { fields: [laybyItems.productId], references: [products.id] }),
-  serialNumber: one(productSerialNumbers, { fields: [laybyItems.serialNumberId], references: [productSerialNumbers.id] }),
 }));
 
 export const laybyPaymentsRelations = relations(laybyPayments, ({ one }) => ({
@@ -2445,6 +2448,10 @@ export const financialPeriods = pgTable("financial_periods", {
   fiscalYear: integer("fiscal_year"),
   isAdjustmentPeriod: boolean("is_adjustment_period").default(false).notNull(),
   status: text("status").notNull().default("OPEN"), // OPEN, CLOSED, LOCKED
+  apLocked: boolean("ap_locked").default(false).notNull(),
+  arLocked: boolean("ar_locked").default(false).notNull(),
+  inventoryLocked: boolean("inventory_locked").default(false).notNull(),
+  glLocked: boolean("gl_locked").default(false).notNull(),
   closedBy: uuid("closed_by").references(() => users.id),
   closedAt: timestamp("closed_at"),
   lockedBy: uuid("locked_by").references(() => users.id),
@@ -3780,6 +3787,51 @@ export type InsertPayrollAllowance = z.infer<typeof insertPayrollAllowanceSchema
 export const insertPayrollDeductionSchema = createInsertSchema(payrollDeductions).omit({ id: true });
 export type PayrollDeduction = typeof payrollDeductions.$inferSelect;
 export type InsertPayrollDeduction = z.infer<typeof insertPayrollDeductionSchema>;
+// Unified Payroll Elements (Earnings & Deductions)
+export const payrollElements = pgTable("payroll_elements", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id),
+  countryCode: text("country_code").default("ZW").notNull(),
+  code: text("code").notNull(),
+  name: text("name").notNull(),
+  elementType: text("element_type").default("EARNING").notNull(), // EARNING or DEDUCTION
+  category: text("category").default("ALLOWANCE").notNull(),
+  taxTreatment: text("tax_treatment").default("TAXABLE").notNull(),
+  taxablePercentage: decimal("taxable_percentage", { precision: 5, scale: 2 }).default("100.00").notNull(),
+  isPensionable: boolean("is_pensionable").default(false).notNull(),
+  isNssaApplicable: boolean("is_nssa_applicable").default(false).notNull(),
+  isRecurring: boolean("is_recurring").default(false).notNull(),
+  calculationMethod: text("calculation_method").default("FIXED").notNull(),
+  formula: text("formula"),
+  employeeRate: decimal("employee_rate", { precision: 8, scale: 6 }).default("0.000000").notNull(),
+  employerRate: decimal("employer_rate", { precision: 8, scale: 6 }).default("0.000000").notNull(),
+  maxAmount: decimal("max_amount", { precision: 15, scale: 2 }),
+  priorityOrder: integer("priority_order").default(100).notNull(),
+  glAccountId: integer("gl_account_id").references(() => accounts.id),
+  effectiveFrom: date("effective_from").notNull(),
+  effectiveTo: date("effective_to"),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  elementCompanyIdx: index("payroll_elements_company_code_idx").on(table.companyId, table.code),
+  elementPriorityIdx: index("payroll_elements_priority_idx").on(table.priorityOrder),
+}));
+
+export const insertPayrollElementSchema = createInsertSchema(payrollElements).omit({ id: true, createdAt: true });
+export type PayrollElement = typeof payrollElements.$inferSelect;
+export type InsertPayrollElement = z.infer<typeof insertPayrollElementSchema>;
+
+// Payroll Calculation Audits for full auditability
+export const payrollCalculationAudits = pgTable("payroll_calculation_audits", {
+  id: serial("id").primaryKey(),
+  payrollRunEmployeeId: integer("payroll_run_employee_id").references(() => payrollRunEmployees.id).notNull(),
+  snapshotData: jsonb("snapshot_data").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertPayrollAuditSchema = createInsertSchema(payrollCalculationAudits).omit({ id: true });
+export type PayrollCalculationAudit = typeof payrollCalculationAudits.$inferSelect;
+export type InsertPayrollCalculationAudit = z.infer<typeof insertPayrollAuditSchema>;
 
 export const insertLeaveRequestSchema = createInsertSchema(leaveRequests).omit({ id: true, createdAt: true });
 export type LeaveRequest = typeof leaveRequests.$inferSelect;
@@ -3864,4 +3916,379 @@ export const insertCostCenterSchema = createInsertSchema(costCenters).omit({ id:
 export type CostCenter = typeof costCenters.$inferSelect;
 export type InsertCostCenter = z.infer<typeof insertCostCenterSchema>;
 
+// ==========================================
+// MANUFACTURING & BOM
+// ==========================================
 
+export const manufacturingWorkCenters = pgTable("manufacturing_work_centers", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  name: text("name").notNull(),
+  code: text("code").notNull(),
+  description: text("description"),
+  costPerHour: decimal("cost_per_hour", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  overheadRate: decimal("overhead_rate", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  capacityHoursPerDay: decimal("capacity_hours_per_day", { precision: 5, scale: 2 }).default("8.00").notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const manufacturingMachines = pgTable("manufacturing_machines", {
+  id: serial("id").primaryKey(),
+  workCenterId: integer("work_center_id").references(() => manufacturingWorkCenters.id).notNull(),
+  name: text("name").notNull(),
+  code: text("code").notNull(),
+  status: text("status").default("ACTIVE").notNull(), // ACTIVE, MAINTENANCE, DOWN
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const manufacturingRoutings = pgTable("manufacturing_routings", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  productId: integer("product_id").references(() => products.id).notNull(),
+  name: text("name").notNull(),
+  version: text("version").default("1.0").notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const manufacturingRoutingOperations = pgTable("manufacturing_routing_operations", {
+  id: serial("id").primaryKey(),
+  routingId: integer("routing_id").references(() => manufacturingRoutings.id).notNull(),
+  sequence: integer("sequence").notNull(),
+  operationName: text("operation_name").notNull(),
+  workCenterId: integer("work_center_id").references(() => manufacturingWorkCenters.id).notNull(),
+  defaultMachineId: integer("default_machine_id").references(() => manufacturingMachines.id),
+  setupTimeMinutes: decimal("setup_time_minutes", { precision: 10, scale: 2 }).default("0").notNull(),
+  cycleTimeMinutes: decimal("cycle_time_minutes", { precision: 10, scale: 2 }).default("0").notNull(),
+});
+
+export const billOfMaterials = pgTable("bill_of_materials", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  productId: integer("product_id").references(() => products.id).notNull(), // The finished good
+  name: text("name").notNull(),
+  version: text("version").default("1.0").notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const bomLines = pgTable("bom_lines", {
+  id: serial("id").primaryKey(),
+  bomId: integer("bom_id").references(() => billOfMaterials.id).notNull(),
+  componentProductId: integer("component_product_id").references(() => products.id).notNull(), // The raw material
+  type: text("type").default("COMPONENT").notNull(), // COMPONENT, BY_PRODUCT, CO_PRODUCT
+  quantity: decimal("quantity", { precision: 12, scale: 4 }).notNull(),
+  unitOfMeasure: text("unit_of_measure").notNull(),
+  scrapPercentage: decimal("scrap_percentage", { precision: 5, scale: 2 }).default("0").notNull(),
+});
+
+export const workOrders = pgTable("work_orders", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  type: text("type").default("STANDARD").notNull(), // STANDARD, REWORK
+  parentWorkOrderId: integer("parent_work_order_id"), // Self-reference for rework
+  routingId: integer("routing_id").references(() => manufacturingRoutings.id),
+  bomId: integer("bom_id").references(() => billOfMaterials.id).notNull(),
+  status: text("status").default("PLANNED").notNull(), // PLANNED, IN_PROGRESS, COMPLETED, CANCELLED
+  plannedQuantity: decimal("planned_quantity", { precision: 12, scale: 4 }).notNull(),
+  completedQuantity: decimal("completed_quantity", { precision: 12, scale: 4 }).default("0").notNull(),
+  startDate: timestamp("start_date"),
+  endDate: timestamp("end_date"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const manufacturingProductionRuns = pgTable("manufacturing_production_runs", {
+  id: serial("id").primaryKey(),
+  workOrderId: integer("work_order_id").references(() => workOrders.id).notNull(),
+  routingOperationId: integer("routing_operation_id").references(() => manufacturingRoutingOperations.id),
+  status: text("status").default("PENDING").notNull(), // PENDING, IN_PROGRESS, PAUSED, COMPLETED, CANCELLED
+  plannedQuantity: decimal("planned_quantity", { precision: 12, scale: 4 }).notNull(),
+  actualQuantity: decimal("actual_quantity", { precision: 12, scale: 4 }).default("0").notNull(),
+  goodQuantity: decimal("good_quantity", { precision: 12, scale: 4 }).default("0").notNull(),
+  rejectedQuantity: decimal("rejected_quantity", { precision: 12, scale: 4 }).default("0").notNull(),
+  startTime: timestamp("start_time"),
+  endTime: timestamp("end_time"),
+  machineId: integer("machine_id").references(() => manufacturingMachines.id),
+  operatorId: integer("operator_id").references(() => employees.id), // Using existing employees table
+  shift: text("shift"),
+  downtimeMinutes: decimal("downtime_minutes", { precision: 10, scale: 2 }).default("0").notNull(),
+  completionPercentage: decimal("completion_percentage", { precision: 5, scale: 2 }).default("0").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const workOrderConsumptions = pgTable("work_order_consumptions", {
+  id: serial("id").primaryKey(),
+  workOrderId: integer("work_order_id").references(() => workOrders.id).notNull(),
+  productId: integer("product_id").references(() => products.id).notNull(),
+  quantityConsumed: decimal("quantity_consumed", { precision: 12, scale: 4 }).notNull(),
+  date: timestamp("date").defaultNow().notNull(),
+});
+
+export const manufacturingMaterialTransactions = pgTable("manufacturing_material_transactions", {
+  id: serial("id").primaryKey(),
+  workOrderId: integer("work_order_id").references(() => workOrders.id).notNull(),
+  productionRunId: integer("production_run_id").references(() => manufacturingProductionRuns.id),
+  productId: integer("product_id").references(() => products.id).notNull(),
+  type: text("type").default("ISSUE").notNull(), // ISSUE, RETURN, FINISHED_GOOD, SCRAP, BY_PRODUCT, CO_PRODUCT
+  quantity: decimal("quantity", { precision: 12, scale: 4 }).notNull(),
+  date: timestamp("date").defaultNow().notNull(),
+  reason: text("reason"),
+});
+
+export const manufacturingProductionNotes = pgTable("manufacturing_production_notes", {
+  id: serial("id").primaryKey(),
+  workOrderId: integer("work_order_id").references(() => workOrders.id).notNull(),
+  productionRunId: integer("production_run_id").references(() => manufacturingProductionRuns.id),
+  noteType: text("note_type").default("GENERAL").notNull(), // GENERAL, DELAY, SCRAP, QUALITY
+  content: text("content").notNull(),
+  createdBy: uuid("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const manufacturingProductionAttachments = pgTable("manufacturing_production_attachments", {
+  id: serial("id").primaryKey(),
+  workOrderId: integer("work_order_id").references(() => workOrders.id).notNull(),
+  fileName: text("file_name").notNull(),
+  fileUrl: text("file_url").notNull(),
+  mimeType: text("mime_type"),
+  uploadedBy: uuid("uploaded_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Relations
+export const manufacturingWorkCentersRelations = relations(manufacturingWorkCenters, ({ one, many }) => ({
+  company: one(companies, { fields: [manufacturingWorkCenters.companyId], references: [companies.id] }),
+  machines: many(manufacturingMachines),
+  operations: many(manufacturingRoutingOperations),
+}));
+
+export const manufacturingMachinesRelations = relations(manufacturingMachines, ({ one }) => ({
+  workCenter: one(manufacturingWorkCenters, { fields: [manufacturingMachines.workCenterId], references: [manufacturingWorkCenters.id] }),
+}));
+
+export const manufacturingRoutingsRelations = relations(manufacturingRoutings, ({ one, many }) => ({
+  company: one(companies, { fields: [manufacturingRoutings.companyId], references: [companies.id] }),
+  product: one(products, { fields: [manufacturingRoutings.productId], references: [products.id] }),
+  operations: many(manufacturingRoutingOperations),
+}));
+
+export const manufacturingRoutingOperationsRelations = relations(manufacturingRoutingOperations, ({ one }) => ({
+  routing: one(manufacturingRoutings, { fields: [manufacturingRoutingOperations.routingId], references: [manufacturingRoutings.id] }),
+  workCenter: one(manufacturingWorkCenters, { fields: [manufacturingRoutingOperations.workCenterId], references: [manufacturingWorkCenters.id] }),
+  defaultMachine: one(manufacturingMachines, { fields: [manufacturingRoutingOperations.defaultMachineId], references: [manufacturingMachines.id] }),
+}));
+
+export const billOfMaterialsRelations = relations(billOfMaterials, ({ one, many }) => ({
+  company: one(companies, { fields: [billOfMaterials.companyId], references: [companies.id] }),
+  product: one(products, { fields: [billOfMaterials.productId], references: [products.id] }),
+  lines: many(bomLines),
+}));
+
+export const bomLinesRelations = relations(bomLines, ({ one }) => ({
+  bom: one(billOfMaterials, { fields: [bomLines.bomId], references: [billOfMaterials.id] }),
+  componentProduct: one(products, { fields: [bomLines.componentProductId], references: [products.id] }),
+}));
+
+export const workOrdersRelations = relations(workOrders, ({ one, many }) => ({
+  company: one(companies, { fields: [workOrders.companyId], references: [companies.id] }),
+  bom: one(billOfMaterials, { fields: [workOrders.bomId], references: [billOfMaterials.id] }),
+  routing: one(manufacturingRoutings, { fields: [workOrders.routingId], references: [manufacturingRoutings.id] }),
+  consumptions: many(workOrderConsumptions),
+  materialTransactions: many(manufacturingMaterialTransactions),
+  productionRuns: many(manufacturingProductionRuns),
+  notes: many(manufacturingProductionNotes),
+  attachments: many(manufacturingProductionAttachments),
+}));
+
+export const workOrderConsumptionsRelations = relations(workOrderConsumptions, ({ one }) => ({
+  workOrder: one(workOrders, { fields: [workOrderConsumptions.workOrderId], references: [workOrders.id] }),
+  product: one(products, { fields: [workOrderConsumptions.productId], references: [products.id] }),
+}));
+
+export const manufacturingProductionRunsRelations = relations(manufacturingProductionRuns, ({ one, many }) => ({
+  workOrder: one(workOrders, { fields: [manufacturingProductionRuns.workOrderId], references: [workOrders.id] }),
+  routingOperation: one(manufacturingRoutingOperations, { fields: [manufacturingProductionRuns.routingOperationId], references: [manufacturingRoutingOperations.id] }),
+  machine: one(manufacturingMachines, { fields: [manufacturingProductionRuns.machineId], references: [manufacturingMachines.id] }),
+  operator: one(employees, { fields: [manufacturingProductionRuns.operatorId], references: [employees.id] }),
+  materialTransactions: many(manufacturingMaterialTransactions),
+  notes: many(manufacturingProductionNotes),
+}));
+
+export const manufacturingMaterialTransactionsRelations = relations(manufacturingMaterialTransactions, ({ one }) => ({
+  workOrder: one(workOrders, { fields: [manufacturingMaterialTransactions.workOrderId], references: [workOrders.id] }),
+  productionRun: one(manufacturingProductionRuns, { fields: [manufacturingMaterialTransactions.productionRunId], references: [manufacturingProductionRuns.id] }),
+  product: one(products, { fields: [manufacturingMaterialTransactions.productId], references: [products.id] }),
+}));
+
+export const manufacturingProductionNotesRelations = relations(manufacturingProductionNotes, ({ one }) => ({
+  workOrder: one(workOrders, { fields: [manufacturingProductionNotes.workOrderId], references: [workOrders.id] }),
+  productionRun: one(manufacturingProductionRuns, { fields: [manufacturingProductionNotes.productionRunId], references: [manufacturingProductionRuns.id] }),
+  createdByUser: one(users, { fields: [manufacturingProductionNotes.createdBy], references: [users.id] }),
+}));
+
+export const manufacturingProductionAttachmentsRelations = relations(manufacturingProductionAttachments, ({ one }) => ({
+  workOrder: one(workOrders, { fields: [manufacturingProductionAttachments.workOrderId], references: [workOrders.id] }),
+  uploadedByUser: one(users, { fields: [manufacturingProductionAttachments.uploadedBy], references: [users.id] }),
+}));
+
+// Types & Insert Schemas
+export const insertManufacturingWorkCenterSchema = createInsertSchema(manufacturingWorkCenters).omit({ id: true, createdAt: true });
+export type ManufacturingWorkCenter = typeof manufacturingWorkCenters.$inferSelect;
+export type InsertManufacturingWorkCenter = z.infer<typeof insertManufacturingWorkCenterSchema>;
+
+export const insertManufacturingMachineSchema = createInsertSchema(manufacturingMachines).omit({ id: true, createdAt: true });
+export type ManufacturingMachine = typeof manufacturingMachines.$inferSelect;
+export type InsertManufacturingMachine = z.infer<typeof insertManufacturingMachineSchema>;
+
+export const insertManufacturingRoutingSchema = createInsertSchema(manufacturingRoutings).omit({ id: true, createdAt: true });
+export type ManufacturingRouting = typeof manufacturingRoutings.$inferSelect;
+export type InsertManufacturingRouting = z.infer<typeof insertManufacturingRoutingSchema>;
+
+export const insertManufacturingRoutingOperationSchema = createInsertSchema(manufacturingRoutingOperations).omit({ id: true });
+export type ManufacturingRoutingOperation = typeof manufacturingRoutingOperations.$inferSelect;
+export type InsertManufacturingRoutingOperation = z.infer<typeof insertManufacturingRoutingOperationSchema>;
+
+export const insertManufacturingProductionRunSchema = createInsertSchema(manufacturingProductionRuns).omit({ id: true, createdAt: true });
+export type ManufacturingProductionRun = typeof manufacturingProductionRuns.$inferSelect;
+export type InsertManufacturingProductionRun = z.infer<typeof insertManufacturingProductionRunSchema>;
+
+export const insertManufacturingMaterialTransactionSchema = createInsertSchema(manufacturingMaterialTransactions).omit({ id: true, date: true });
+export type ManufacturingMaterialTransaction = typeof manufacturingMaterialTransactions.$inferSelect;
+export type InsertManufacturingMaterialTransaction = z.infer<typeof insertManufacturingMaterialTransactionSchema>;
+
+export const insertManufacturingProductionNoteSchema = createInsertSchema(manufacturingProductionNotes).omit({ id: true, createdAt: true });
+export type ManufacturingProductionNote = typeof manufacturingProductionNotes.$inferSelect;
+export type InsertManufacturingProductionNote = z.infer<typeof insertManufacturingProductionNoteSchema>;
+
+export const insertManufacturingProductionAttachmentSchema = createInsertSchema(manufacturingProductionAttachments).omit({ id: true, createdAt: true });
+export type ManufacturingProductionAttachment = typeof manufacturingProductionAttachments.$inferSelect;
+export type InsertManufacturingProductionAttachment = z.infer<typeof insertManufacturingProductionAttachmentSchema>;
+
+export const insertBillOfMaterialSchema = createInsertSchema(billOfMaterials).omit({ id: true, createdAt: true });
+export type BillOfMaterial = typeof billOfMaterials.$inferSelect;
+export type InsertBillOfMaterial = z.infer<typeof insertBillOfMaterialSchema>;
+
+export const insertBomLineSchema = createInsertSchema(bomLines).omit({ id: true });
+export type BomLine = typeof bomLines.$inferSelect;
+export type InsertBomLine = z.infer<typeof insertBomLineSchema>;
+
+export const insertWorkOrderSchema = createInsertSchema(workOrders).omit({ id: true, createdAt: true, completedQuantity: true });
+export type WorkOrder = typeof workOrders.$inferSelect;
+export type InsertWorkOrder = z.infer<typeof insertWorkOrderSchema>;
+
+export const insertWorkOrderConsumptionSchema = createInsertSchema(workOrderConsumptions).omit({ id: true, date: true });
+export type WorkOrderConsumption = typeof workOrderConsumptions.$inferSelect;
+export type InsertWorkOrderConsumption = z.infer<typeof insertWorkOrderConsumptionSchema>;
+
+// --- Phase 2: Manufacturing Planning & MRP ---
+export const manufacturingProductionSchedules = pgTable("manufacturing_production_schedules", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  startDate: date("start_date").notNull(),
+  endDate: date("end_date").notNull(),
+  status: text("status").default("DRAFT").notNull(), // DRAFT, PUBLISHED
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const manufacturingProductionScheduleLines = pgTable("manufacturing_production_schedule_lines", {
+  id: serial("id").primaryKey(),
+  scheduleId: integer("schedule_id").references(() => manufacturingProductionSchedules.id).notNull(),
+  workOrderId: integer("work_order_id").references(() => workOrders.id).notNull(),
+  plannedStartDate: timestamp("planned_start_date"),
+  plannedEndDate: timestamp("planned_end_date"),
+});
+
+export const manufacturingMaterialReservations = pgTable("manufacturing_material_reservations", {
+  id: serial("id").primaryKey(),
+  workOrderId: integer("work_order_id").references(() => workOrders.id).notNull(),
+  productId: integer("product_id").references(() => products.id).notNull(),
+  quantityReserved: decimal("quantity_reserved", { precision: 15, scale: 4 }).notNull(),
+  status: text("status").default("RESERVED").notNull(), // RESERVED, CONSUMED, CANCELLED
+});
+
+export const manufacturingMrpRuns = pgTable("manufacturing_mrp_runs", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  date: timestamp("date").defaultNow().notNull(),
+  status: text("status").default("COMPLETED").notNull(), // COMPLETED, FAILED
+  notes: text("notes"),
+});
+
+export const manufacturingMaterialShortages = pgTable("manufacturing_material_shortages", {
+  id: serial("id").primaryKey(),
+  mrpRunId: integer("mrp_run_id").references(() => manufacturingMrpRuns.id),
+  productId: integer("product_id").references(() => products.id).notNull(),
+  shortageQuantity: decimal("shortage_quantity", { precision: 15, scale: 4 }).notNull(),
+  requiredDate: date("required_date"),
+  status: text("status").default("UNRESOLVED").notNull(), // UNRESOLVED, RESOLVED
+});
+
+export const manufacturingMrpRecommendations = pgTable("manufacturing_mrp_recommendations", {
+  id: serial("id").primaryKey(),
+  mrpRunId: integer("mrp_run_id").references(() => manufacturingMrpRuns.id).notNull(),
+  productId: integer("product_id").references(() => products.id).notNull(),
+  type: text("type").notNull(), // PURCHASE, TRANSFER, WORK_ORDER
+  quantity: decimal("quantity", { precision: 15, scale: 4 }).notNull(),
+  requiredDate: date("required_date"),
+  status: text("status").default("PENDING").notNull(), // PENDING, APPROVED, REJECTED
+  referenceId: integer("reference_id"), // Points to created PO/WO/Transfer
+});
+
+// Relations
+export const manufacturingProductionSchedulesRelations = relations(manufacturingProductionSchedules, ({ many }) => ({
+  lines: many(manufacturingProductionScheduleLines),
+}));
+
+export const manufacturingProductionScheduleLinesRelations = relations(manufacturingProductionScheduleLines, ({ one }) => ({
+  schedule: one(manufacturingProductionSchedules, { fields: [manufacturingProductionScheduleLines.scheduleId], references: [manufacturingProductionSchedules.id] }),
+  workOrder: one(workOrders, { fields: [manufacturingProductionScheduleLines.workOrderId], references: [workOrders.id] }),
+}));
+
+export const manufacturingMaterialReservationsRelations = relations(manufacturingMaterialReservations, ({ one }) => ({
+  workOrder: one(workOrders, { fields: [manufacturingMaterialReservations.workOrderId], references: [workOrders.id] }),
+  product: one(products, { fields: [manufacturingMaterialReservations.productId], references: [products.id] }),
+}));
+
+export const manufacturingMrpRunsRelations = relations(manufacturingMrpRuns, ({ many }) => ({
+  recommendations: many(manufacturingMrpRecommendations),
+  shortages: many(manufacturingMaterialShortages),
+}));
+
+export const manufacturingMaterialShortagesRelations = relations(manufacturingMaterialShortages, ({ one }) => ({
+  mrpRun: one(manufacturingMrpRuns, { fields: [manufacturingMaterialShortages.mrpRunId], references: [manufacturingMrpRuns.id] }),
+  product: one(products, { fields: [manufacturingMaterialShortages.productId], references: [products.id] }),
+}));
+
+export const manufacturingMrpRecommendationsRelations = relations(manufacturingMrpRecommendations, ({ one }) => ({
+  mrpRun: one(manufacturingMrpRuns, { fields: [manufacturingMrpRecommendations.mrpRunId], references: [manufacturingMrpRuns.id] }),
+  product: one(products, { fields: [manufacturingMrpRecommendations.productId], references: [products.id] }),
+}));
+
+// Types
+export const insertManufacturingProductionScheduleSchema = createInsertSchema(manufacturingProductionSchedules).omit({ id: true, createdAt: true });
+export type ManufacturingProductionSchedule = typeof manufacturingProductionSchedules.$inferSelect;
+export type InsertManufacturingProductionSchedule = z.infer<typeof insertManufacturingProductionScheduleSchema>;
+
+export const insertManufacturingMrpRunSchema = createInsertSchema(manufacturingMrpRuns).omit({ id: true, date: true });
+export type ManufacturingMrpRun = typeof manufacturingMrpRuns.$inferSelect;
+export type InsertManufacturingMrpRun = z.infer<typeof insertManufacturingMrpRunSchema>;
+
+// --- Bank Reconciliation Rules Engine ---
+export const bankRules = pgTable("bank_rules", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  name: text("name").notNull(),
+  priority: integer("priority").default(0).notNull(),
+  applyTo: text("apply_to").default("ALL").notNull(), // ALL, SPEND, RECEIVE
+  conditions: jsonb("conditions").notNull(), // Array of { field, operator, value }
+  actionType: text("action_type").notNull(), // CREATE_EXPENSE, CREATE_INCOME, ASSIGN_ACCOUNT
+  targetAccountId: integer("target_account_id").references(() => accounts.id),
+  taxTypeId: integer("tax_type_id").references(() => taxTypes.id),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertBankRuleSchema = createInsertSchema(bankRules).omit({ id: true, createdAt: true });
+export type BankRule = typeof bankRules.$inferSelect;
+export type InsertBankRule = z.infer<typeof insertBankRuleSchema>;

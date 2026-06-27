@@ -71,8 +71,13 @@ export default function CashbookPage() {
 
   // Filter for Cash and Bank equivalents
   const cashAccounts = accounts?.filter(
-    (acc) => acc.type === "ASSET" && acc.code.toString().startsWith("10"),
-  );
+    (acc) =>
+      acc.type === "ASSET" &&
+      (acc.category?.toLowerCase().includes("cash") ||
+        acc.category?.toLowerCase().includes("bank") ||
+        acc.name.toLowerCase().includes("bank") ||
+        acc.name.toLowerCase().includes("cash"))
+  ) || [];
 
   const { data: ledgerEntries, isLoading } = useQuery<any[]>({
     queryKey: ["/api/accounting/ledger", { accountId: selectedAccountId }],

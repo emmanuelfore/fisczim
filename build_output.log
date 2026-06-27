@@ -1,0 +1,51 @@
+
+> fiscal-stack@1.0.1 build
+> vite build && npm run build:server
+
+vite v7.3.0 building client environment for production...
+transforming...
+✓ 4198 modules transformed.
+rendering chunks...
+[plugin vite:reporter] 
+(!) /home/emmanuel/Documents/PROJECTS/fisczim/client/src/lib/offline-db.ts is dynamically imported by /home/emmanuel/Documents/PROJECTS/fisczim/client/src/hooks/use-auth.ts, /home/emmanuel/Documents/PROJECTS/fisczim/client/src/hooks/use-auth.ts, /home/emmanuel/Documents/PROJECTS/fisczim/client/src/hooks/use-auth.ts, /home/emmanuel/Documents/PROJECTS/fisczim/client/src/pages/pos.tsx but also statically imported by /home/emmanuel/Documents/PROJECTS/fisczim/client/src/components/reports/payments-reports.tsx, /home/emmanuel/Documents/PROJECTS/fisczim/client/src/hooks/use-auth.ts, /home/emmanuel/Documents/PROJECTS/fisczim/client/src/hooks/use-companies.ts, /home/emmanuel/Documents/PROJECTS/fisczim/client/src/hooks/use-currencies.ts, /home/emmanuel/Documents/PROJECTS/fisczim/client/src/hooks/use-customers.ts, /home/emmanuel/Documents/PROJECTS/fisczim/client/src/hooks/use-offline.ts, /home/emmanuel/Documents/PROJECTS/fisczim/client/src/hooks/use-products.ts, /home/emmanuel/Documents/PROJECTS/fisczim/client/src/hooks/use-tax-config.ts, /home/emmanuel/Documents/PROJECTS/fisczim/client/src/lib/offline-sync.ts, /home/emmanuel/Documents/PROJECTS/fisczim/client/src/pages/auth/FiscalStackAuth.tsx, /home/emmanuel/Documents/PROJECTS/fisczim/client/src/pages/auth/FiscalZoneAuth.tsx, /home/emmanuel/Documents/PROJECTS/fisczim/client/src/pages/pos-login.tsx, /home/emmanuel/Documents/PROJECTS/fisczim/client/src/pages/pos.tsx, dynamic import will not move module into another chunk.
+
+computing gzip size...
+../dist/public/registerSW.js                  0.13 kB
+../dist/public/manifest.webmanifest           0.45 kB
+../dist/public/index.html                     1.83 kB │ gzip:     0.83 kB
+../dist/public/assets/index-CC9cjArX.css    187.06 kB │ gzip:    27.86 kB
+../dist/public/assets/ui-iVCZhxhp.js         82.86 kB │ gzip:    27.82 kB
+../dist/public/assets/vendor-C7EEsvT6.js    262.09 kB │ gzip:    85.88 kB
+../dist/public/assets/index-D_1HPH8P.js   5,067.32 kB │ gzip: 1,390.16 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 26.15s
+
+PWA v1.2.0
+Building public/sw.js service worker ("es" format)...
+vite v7.3.0 building client environment for production...
+transforming...
+✓ 82 modules transformed.
+rendering chunks...
+computing gzip size...
+../dist/public/sw.mjs  27.21 kB │ gzip: 9.02 kB
+✓ built in 188ms
+
+PWA v1.2.0
+mode      injectManifest
+format:   es
+precache  19 entries (5816.13 KiB)
+files generated
+  ../dist/public/sw.js
+
+> fiscal-stack@1.0.1 build:server
+> tsx script/build.ts
+
+building server...
+
+  dist/index.cjs  2.8mb ⚠️
+
+⚡ Done in 381ms

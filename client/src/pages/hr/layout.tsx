@@ -1,0 +1,111 @@
+import { Link, useLocation } from "wouter";
+import {
+  Users,
+  CalendarCheck,
+  Banknote,
+  FileSpreadsheet,
+  Settings,
+  PieChart,
+  Briefcase,
+  DollarSign,
+  MinusCircle,
+  Calculator,
+  FileBarChart2,
+  ChevronDown,
+  ChevronRight,
+} from "lucide-react";
+import { Layout } from "@/components/layout";
+import { cn } from "@/lib/utils";
+
+const hrNavigation = [
+  { name: "Home", href: "/hr", icon: PieChart },
+  { name: "Employees", href: "/hr/employees", icon: Users },
+  { name: "Processing", href: "/hr/payroll", icon: FileSpreadsheet },
+  { name: "Leave", href: "/hr/leave", icon: CalendarCheck },
+  { name: "Loans & Advances", href: "/hr/loans", icon: Banknote },
+];
+
+const hrSetupNav = [
+  { name: "Statutory Settings", href: "/hr/setup/statutory", icon: Settings },
+  { name: "Tax Tables", href: "/hr/setup/taxes", icon: Calculator },
+  { name: "Pay Grades", href: "/hr/setup/pay-grades", icon: Briefcase },
+  { name: "Incomes Setup", href: "/hr/setup/incomes", icon: DollarSign },
+  { name: "Deductions Setup", href: "/hr/setup/deductions", icon: MinusCircle },
+];
+
+const hrReportsNav = [
+  { name: "ZIMRA Compliance", href: "/hr/reports/zimra", icon: FileBarChart2 },
+];
+
+export function HRLayout({ children }: { children: React.ReactNode }) {
+  const [location] = useLocation();
+
+  function NavItem({ item }: { item: { name: string; href: string; icon: any } }) {
+    const isActive = location === item.href || (item.href !== "/hr" && location.startsWith(item.href + "/"));
+    return (
+      <Link href={item.href}>
+        <a className={cn(
+          "flex items-center gap-2.5 rounded-lg px-3 py-2 text-base font-medium transition-all duration-200 group relative",
+          isActive
+            ? "bg-blue-50/60 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400 shadow-sm ring-1 ring-blue-500/10"
+            : "text-muted-foreground hover:bg-slate-100 hover:text-foreground dark:hover:bg-slate-800"
+        )}>
+          {isActive && <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-600 rounded-r-full" />}
+          <item.icon className={cn("h-4 w-4 shrink-0", isActive ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground")} />
+          {item.name}
+        </a>
+      </Link>
+    );
+  }
+
+  return (
+    <Layout>
+      <div className="flex flex-col md:flex-row gap-6 min-h-[calc(100vh-8rem)]">
+        {/* Sidebar */}
+        <aside className="w-full md:w-56 shrink-0">
+          <div className="sticky top-6 flex flex-col gap-1">
+            <div className="mb-3 px-3 py-2">
+              <h2 className="text-xl font-bold tracking-tight bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+                HR &amp; Payroll
+              </h2>
+              <p className="text-xs text-muted-foreground mt-0.5">Enterprise Management</p>
+            </div>
+
+            <nav className="flex flex-col gap-0.5 px-1">
+              {hrNavigation.map(item => <NavItem key={item.name} item={item} />)}
+            </nav>
+
+            <div className="mt-3 px-3">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 px-2">Setup</p>
+              <nav className="flex flex-col gap-0.5">
+                {hrSetupNav.map(item => <NavItem key={item.name} item={item} />)}
+              </nav>
+            </div>
+
+            <div className="mt-3 px-3">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 px-2">Reports</p>
+              <nav className="flex flex-col gap-0.5">
+                {hrReportsNav.map(item => <NavItem key={item.name} item={item} />)}
+              </nav>
+            </div>
+
+            <div className="mt-6 mx-3 px-4 py-5 bg-gradient-to-br from-indigo-50 to-blue-50 dark:from-indigo-950/30 dark:to-blue-950/30 rounded-xl border border-indigo-100 dark:border-indigo-900/50 relative overflow-hidden">
+              <div className="absolute top-0 right-0 -mt-4 -mr-4 w-20 h-20 bg-blue-500/10 rounded-full blur-2xl" />
+              <Briefcase className="h-5 w-5 text-indigo-600 dark:text-indigo-400 mb-2" />
+              <h3 className="font-semibold text-indigo-900 dark:text-indigo-300 text-xs">Need help?</h3>
+              <p className="text-xs text-indigo-700/70 dark:text-indigo-400/70 mt-1 leading-relaxed">
+                Click "Seed ZW Defaults" in Deductions Setup to pre-populate all statutory deductions.
+              </p>
+            </div>
+          </div>
+        </aside>
+
+        {/* Main */}
+        <main className="flex-1 min-w-0 bg-white/50 dark:bg-slate-950/50 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm backdrop-blur-xl">
+          <div className="p-6 md:p-8">{children}</div>
+        </main>
+      </div>
+    </Layout>
+  );
+}
+

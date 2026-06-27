@@ -39,9 +39,14 @@ import {
   ArrowLeft,
   Loader2,
   RefreshCw,
+  Calculator,
 } from "lucide-react";
 import { useState } from "react";
 import { Link } from "wouter";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { format } from "date-fns";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -74,7 +79,35 @@ export default function CurrencySettingsPage() {
   const updateCurrency = useUpdateCurrency();
   const deleteCurrency = useDeleteCurrency();
   const [isModalOpen, setModalOpen] = useState(false);
+  const [isRevalOpen, setRevalOpen] = useState(false);
+  const [cutOffDate, setCutOffDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [editingId, setEditingId] = useState<number | null>(null);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const revalueMutation = useMutation({
+    mutationFn: async (dateStr: string) => {
+      const res = await apiRequest("POST", "/api/accounting/revaluation", {
+        cutOffDate: dateStr,
+      });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Revaluation Complete",
+        description: data.message,
+      });
+      setRevalOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/accounting/ledger"] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Revaluation Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
 
   const form = useForm<CurrencyFormValues>({
     resolver: zodResolver(currencySchema),
@@ -130,7 +163,41 @@ export default function CurrencySettingsPage() {
   return (
     <Layout>
       <div className="mb-8">
-        <div className="flex justify-end">
+        <div className="flex justify-end gap-3">
+          <Dialog open={isRevalOpen} onOpenChange={setRevalOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" className="border-indigo-200 text-indigo-700 hover:bg-indigo-50 font-bold">
+                <Calculator className="w-4 h-4 mr-2" />
+                Run Revaluation
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Month-End Forex Revaluation</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 pt-4">
+                <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-3 text-indigo-900 text-sm">
+                  This will calculate unrealized exchange gains and losses for all foreign currency balances up to the selected date. Ensure exchange rates are up to date before running.
+                </div>
+                <div className="space-y-2">
+                  <Label>Cut-Off Date</Label>
+                  <Input 
+                    type="date" 
+                    value={cutOffDate}
+                    onChange={(e) => setCutOffDate(e.target.value)}
+                  />
+                </div>
+                <Button 
+                  className="w-full font-bold" 
+                  onClick={() => revalueMutation.mutate(cutOffDate)}
+                  disabled={revalueMutation.isPending}
+                >
+                  {revalueMutation.isPending ? "Calculating..." : "Execute Revaluation"}
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+
           <Dialog
             open={isModalOpen}
             onOpenChange={(open) => {

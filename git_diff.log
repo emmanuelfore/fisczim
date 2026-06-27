@@ -1,0 +1,1947 @@
+diff --git a/server/api/v1/payroll.ts b/server/api/v1/payroll.ts
+index 62d75dc..b08297c 100644
+--- a/server/api/v1/payroll.ts
++++ b/server/api/v1/payroll.ts
+@@ -5,16 +5,18 @@ import { db } from "../../db.js";
+ import { 
+   branches, employees, employeeContracts, departments, positions, 
+   necSectorsConfig, taxTablesConfig, payrollRuns, payrollRunEmployees,
+-  payrollAllowances, payrollDeductions, payrollRecurringItems, leaveRequests, leaveBalances,
++  payrollAllowances, payrollDeductions, employeePayrollElements, leaveRequests, leaveBalances,
+   employeeLoans, loanInstallments, tenantIntegrationCredentials,
+   paymentBatches, paymentBatchDetails, accounts, journalEntryDrafts,
+   journalEntryDraftLines, companyUsers, auditLogs, payrollAttendanceImports,
+   employeeDocuments, payslipDocuments, payrollIntegrationEvents, payrollPayGrades,
+   payrollEarningTypes, payrollDeductionTypes, payrollStatutoryRules,
+   payrollStatutoryReports, payrollReportExports, payrollReportValidationIssues,
+-  payrollStatutoryDeadlines, payrollImportBatches, payrollImportRows, companies
++  payrollStatutoryDeadlines, payrollImportBatches, payrollImportRows, companies,
++  payrollTaxTables as taxTables,
++  payrollTaxBrackets as taxBrackets, payrollStatutoryRules as statutorySettings
+ } from "../../../shared/schema.js";
+-import { eq, and, desc, asc, ne, sql, gte, lte } from "drizzle-orm";
++import { eq, and, desc, asc, ne, sql, gte, lte, inArray } from "drizzle-orm";
+ import { ZimbabwePayrollEngine, type TaxBracket } from "../../../shared/payroll-engine.js";
+ import { logAction } from "../../audit.js";
+ import crypto from "crypto";
+@@ -335,32 +337,79 @@ function classifyRecurringAllowance(name: string): string {
+   return "OTHER";
+ }
+ 
+-async function loadActiveRecurringItems(tx: any, employeeId: number, periodStart: string, periodEnd: string) {
+-  return tx.select()
+-    .from(payrollRecurringItems)
++async function loadActivePayrollElements(tx: any, employeeId: number, periodStart: string, periodEnd: string) {
++  const elements = await tx.select({
++    id: employeePayrollElements.id,
++    overrideAmount: employeePayrollElements.overrideAmount,
++    earning: payrollEarningTypes,
++    deduction: payrollDeductionTypes
++  })
++    .from(employeePayrollElements)
++    .leftJoin(payrollEarningTypes, eq(employeePayrollElements.earningTypeId, payrollEarningTypes.id))
++    .leftJoin(payrollDeductionTypes, eq(employeePayrollElements.deductionTypeId, payrollDeductionTypes.id))
+     .where(and(
+-      eq(payrollRecurringItems.employeeId, employeeId),
+-      eq(payrollRecurringItems.isActive, true),
+-      sql`${payrollRecurringItems.startDate} <= ${periodEnd}`,
+-      sql`(${payrollRecurringItems.endDate} IS NULL OR ${payrollRecurringItems.endDate} >= ${periodStart})`
++      eq(employeePayrollElements.employeeId, employeeId),
++      eq(employeePayrollElements.isActive, true),
++      sql`${employeePayrollElements.startDate} <= ${periodEnd}`,
++      sql`(${employeePayrollElements.endDate} IS NULL OR ${employeePayrollElements.endDate} >= ${periodStart})`
+     ));
++
++  return elements.map((e: any) => {
++    if (e.earning) {
++      return {
++        type: "EARNING",
++        categoryId: e.earning.id,
++        name: e.earning.name,
++        calculationMethod: e.earning.calculationMethod,
++        percentageRate: Number(e.earning.taxablePercentage || 100) / 100, // example
++        amount: e.overrideAmount ? Number(e.overrideAmount) : (e.earning.calculationMethod === "FIXED" ? 0 : 0),
++        isTaxable: e.earning.taxTreatment === "TAXABLE",
++        isTaxDeductible: false
++      };
++    } else if (e.deduction) {
++      return {
++        type: "DEDUCTION",
++        categoryId: e.deduction.id,
++        name: e.deduction.name,
++        calculationMethod: e.deduction.calculationMethod,
++        percentageRate: Number(e.deduction.employeeRate || 0),
++        amount: e.overrideAmount ? Number(e.overrideAmount) : 0,
++        isTaxable: false,
++        isTaxDeductible: e.deduction.timing === "PRE_TAX" || e.deduction.category === "PENSION"
++      };
++    }
++    return null;
++  }).filter(Boolean);
+ }
+ 
+-async function loadEffectiveTaxConfig(tx: any, currency: string, payFrequency: string, periodStart: string, periodEnd: string) {
++async function loadEffectiveTaxConfig(tx: any, companyId: number, currency: string, payFrequency: string, periodStart: string, periodEnd: string) {
+   const [config] = await tx.select()
+-    .from(taxTablesConfig)
++    .from(taxTables)
+     .where(and(
+-      eq(taxTablesConfig.currency, currency),
+-      eq(taxTablesConfig.isActive, true),
+-      sql`${taxTablesConfig.effectiveFrom} <= ${periodEnd}`,
+-      sql`(${taxTablesConfig.effectiveTo} IS NULL OR ${taxTablesConfig.effectiveTo} >= ${periodStart})`
++      eq(taxTables.companyId, companyId),
++      eq(taxTables.currency, currency),
++      eq(taxTables.isActive, true),
++      sql`${taxTables.effectiveFrom} <= ${periodEnd}`,
++      sql`(${taxTables.effectiveTo} IS NULL OR ${taxTables.effectiveTo} >= ${periodStart})`
+     ))
+-    .orderBy(desc(taxTablesConfig.effectiveFrom))
++    .orderBy(desc(taxTables.effectiveFrom))
+     .limit(1);
+ 
+   if (!config) return null;
++  
++  const bracketsList = await tx.select()
++    .from(taxBrackets)
++    .where(eq(taxBrackets.taxTableId, config.id))
++    .orderBy(asc(taxBrackets.minAmount));
++
+   return {
+     ...config,
++    brackets: bracketsList.map((b: any) => ({
++      min: parseFloat(b.minAmount),
++      max: b.maxAmount ? parseFloat(b.maxAmount) : null,
++      rate: parseFloat(b.rate),
++      deduction: parseFloat(b.deductionConstant),
++    })),
+     payFrequency,
+     effectivePeriod: { from: config.effectiveFrom, to: config.effectiveTo },
+   };
+@@ -879,6 +928,104 @@ router.post("/employees", requirePayrollWrite, async (req, res) => {
+     res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+   }
+ });
++router.get("/employees/export", async (req, res) => {
++  const companyId = getTargetCompanyId(req);
++  try {
++    const list = await db.query.employees.findMany({
++      where: eq(employees.companyId, companyId),
++      with: {
++        department: true,
++        position: true,
++        contracts: { where: eq(employeeContracts.isActive, true) }
++      },
++      orderBy: [asc(employees.lastName), asc(employees.firstName)]
++    });
++
++    // Generate CSV
++    const headers = ["Employee Number", "First Name", "Last Name", "National ID", "Email", "Phone", "Status", "Department", "Position", "Base Salary", "Currency", "USD %", "ZiG %", "Bank Name", "Account Number", "Ecocash Number"];
++    const rows = list.map(emp => {
++      const contract = emp.contracts?.[0];
++      return [
++        emp.employeeNumber || "",
++        emp.firstName,
++        emp.lastName,
++        emp.nationalId || "",
++        emp.email || "",
++        emp.phone || "",
++        emp.status,
++        emp.department?.name || "",
++        emp.position?.title || "",
++        contract?.baseSalary || "0",
++        contract?.currency || "USD",
++        contract?.usdPercentage || "100",
++        contract?.zigPercentage || "0",
++        emp.bankName || "",
++        emp.bankAccountNumber || "",
++        emp.ecocashNumber || ""
++      ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(",");
++    });
++
++    const csvStr = [headers.join(","), ...rows].join("\n");
++    res.setHeader("Content-Type", "text/csv");
++    res.setHeader("Content-Disposition", `attachment; filename=employees_export_${new Date().getTime()}.csv`);
++    res.send(csvStr);
++  } catch (err: any) {
++    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
++  }
++});
++
++router.post("/employees/import", requirePayrollWrite, async (req, res) => {
++  const companyId = getTargetCompanyId(req);
++  const { employees: importedEmployees } = req.body; // Expects JSON array parsed from CSV
++
++  if (!Array.isArray(importedEmployees) || importedEmployees.length === 0) {
++    return res.status(400).json({ error: "VALIDATION_ERROR", message: "Invalid or empty employees array" });
++  }
++
++  try {
++    let importedCount = 0;
++    await db.transaction(async (tx) => {
++      for (const row of importedEmployees) {
++        if (!row.firstName || !row.lastName) continue;
++
++        const [newEmp] = await tx.insert(employees).values({
++          companyId,
++          branchId: 1, // Defaulting to first branch, could be improved
++          employeeNumber: row.employeeNumber || `EMP-${Math.floor(Math.random() * 10000)}`,
++          firstName: row.firstName,
++          lastName: row.lastName,
++          nationalId: row.nationalId,
++          email: row.email,
++          phone: row.phone,
++          status: "ACTIVE",
++          joiningDate: row.joiningDate || new Date().toISOString(),
++          bankName: row.bankName,
++          bankAccountNumber: row.bankAccountNumber,
++          ecocashNumber: row.ecocashNumber,
++        }).returning();
++
++        // Create a default contract for them
++        await tx.insert(employeeContracts).values({
++          employeeId: newEmp.id,
++          contractType: "PERMANENT",
++          startDate: new Date().toISOString().slice(0, 10),
++          baseSalary: row.baseSalary ? String(row.baseSalary) : "0",
++          currency: row.currency || "USD",
++          usdPercentage: row.usdPercentage ? String(row.usdPercentage) : "100",
++          zigPercentage: row.zigPercentage ? String(row.zigPercentage) : "0",
++          isActive: true
++        });
++
++        importedCount++;
++      }
++    });
++
++    res.json({ success: true, count: importedCount, message: `Successfully imported ${importedCount} employees.` });
++  } catch (err: any) {
++    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
++  }
++});
++
+ 
+ router.get("/employees/:id", async (req, res) => {
+   const id = parseInt(req.params.id, 10);
+@@ -970,7 +1117,7 @@ router.post("/employees/:id/contract", requirePayrollWrite, async (req, res) =>
+ });
+ 
+ // --- 4B. RECURRING PAY ITEMS ---
+-router.get("/employees/:id/recurring-items", async (req, res) => {
++router.get("/employees/:id/elements", async (req, res) => {
+   const employeeId = parseInt(req.params.id, 10);
+   const companyId = getTargetCompanyId(req);
+   try {
+@@ -981,24 +1128,22 @@ router.get("/employees/:id/recurring-items", async (req, res) => {
+     if (!emp) return res.status(404).json({ message: "Employee not found" });
+ 
+     const items = await db.select()
+-      .from(payrollRecurringItems)
+-      .where(eq(payrollRecurringItems.employeeId, employeeId))
+-      .orderBy(desc(payrollRecurringItems.isActive), asc(payrollRecurringItems.name));
++      .from(employeePayrollElements)
++      .where(eq(employeePayrollElements.employeeId, employeeId))
++      .orderBy(desc(employeePayrollElements.isActive));
+     res.json(items);
+   } catch (err: any) {
+     res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+   }
+ });
+ 
+-router.post("/employees/:id/recurring-items", requirePayrollWrite, async (req, res) => {
++router.post("/employees/:id/elements", requirePayrollWrite, async (req, res) => {
+   const employeeId = parseInt(req.params.id, 10);
+   const companyId = getTargetCompanyId(req);
+   const schema = z.object({
+-    type: z.enum(["ALLOWANCE", "DEDUCTION"]),
+-    name: z.string().trim().min(1),
+-    amount: z.coerce.string(),
+-    isTaxable: z.boolean().default(true),
+-    isTaxDeductible: z.boolean().default(false),
++    earningTypeId: z.number().optional().nullable(),
++    deductionTypeId: z.number().optional().nullable(),
++    overrideAmount: z.coerce.string().optional().nullable(),
+     startDate: z.string(),
+     endDate: z.string().optional().nullable(),
+   });
+@@ -1012,14 +1157,14 @@ router.post("/employees/:id/recurring-items", requirePayrollWrite, async (req, r
+       .limit(1);
+     if (!emp) return res.status(404).json({ message: "Employee not found" });
+ 
+-    const [item] = await db.insert(payrollRecurringItems)
++    const [item] = await db.insert(employeePayrollElements)
+       .values({ employeeId, ...parsed.data, isActive: true })
+       .returning();
+ 
+-    await auditPayroll(req, "PAYROLL_RECURRING_ITEM_CREATED", "payroll_recurring_items", item.id, {
++    await auditPayroll(req, "PAYROLL_ELEMENT_CREATED", "employee_payroll_elements", item.id, {
+       employeeId,
+-      type: item.type,
+-      amount: item.amount,
++      earningTypeId: item.earningTypeId,
++      deductionTypeId: item.deductionTypeId,
+     });
+     res.status(201).json(item);
+   } catch (err: any) {
+@@ -1027,14 +1172,13 @@ router.post("/employees/:id/recurring-items", requirePayrollWrite, async (req, r
+   }
+ });
+ 
+-router.put("/recurring-items/:id", requirePayrollWrite, async (req, res) => {
++router.put("/elements/:id", requirePayrollWrite, async (req, res) => {
+   const id = parseInt(req.params.id, 10);
+   const companyId = getTargetCompanyId(req);
+   const schema = z.object({
+-    name: z.string().trim().min(1).optional(),
+-    amount: z.coerce.string().optional(),
+-    isTaxable: z.boolean().optional(),
+-    isTaxDeductible: z.boolean().optional(),
++    earningTypeId: z.number().optional().nullable(),
++    deductionTypeId: z.number().optional().nullable(),
++    overrideAmount: z.coerce.string().optional().nullable(),
+     startDate: z.string().optional(),
+     endDate: z.string().optional().nullable(),
+     isActive: z.boolean().optional(),
+@@ -1043,19 +1187,19 @@ router.put("/recurring-items/:id", requirePayrollWrite, async (req, res) => {
+   if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
+ 
+   try {
+-    const [existing] = await db.select({ itemId: payrollRecurringItems.id, employeeId: payrollRecurringItems.employeeId })
+-      .from(payrollRecurringItems)
+-      .innerJoin(employees, eq(payrollRecurringItems.employeeId, employees.id))
+-      .where(and(eq(payrollRecurringItems.id, id), eq(employees.companyId, companyId)))
++    const [existing] = await db.select({ itemId: employeePayrollElements.id, employeeId: employeePayrollElements.employeeId })
++      .from(employeePayrollElements)
++      .innerJoin(employees, eq(employeePayrollElements.employeeId, employees.id))
++      .where(and(eq(employeePayrollElements.id, id), eq(employees.companyId, companyId)))
+       .limit(1);
+-    if (!existing) return res.status(404).json({ message: "Recurring payroll item not found" });
++    if (!existing) return res.status(404).json({ message: "Payroll element not found" });
+ 
+-    const [item] = await db.update(payrollRecurringItems)
++    const [item] = await db.update(employeePayrollElements)
+       .set(parsed.data)
+-      .where(eq(payrollRecurringItems.id, id))
++      .where(eq(employeePayrollElements.id, id))
+       .returning();
+ 
+-    await auditPayroll(req, "PAYROLL_RECURRING_ITEM_UPDATED", "payroll_recurring_items", item.id, {
++    await auditPayroll(req, "PAYROLL_ELEMENT_UPDATED", "employee_payroll_elements", item.id, {
+       employeeId: existing.employeeId,
+       changedFields: Object.keys(parsed.data),
+     });
+@@ -1066,6 +1210,74 @@ router.put("/recurring-items/:id", requirePayrollWrite, async (req, res) => {
+ });
+ 
+ // --- 5. LEAVE REQUESTS & ACCRUALS ENDPOINTS ---
++router.get("/leave/balances", async (req, res) => {
++  try {
++    const companyId = getTargetCompanyId(req);
++    // Join leaveBalances with employees to enforce company isolation
++    const results = await db.select({
++      id: leaveBalances.id,
++      employeeId: leaveBalances.employeeId,
++      leaveType: leaveBalances.leaveType,
++      accruedDays: leaveBalances.accruedDays,
++      usedDays: leaveBalances.usedDays,
++      availableDays: leaveBalances.availableDays,
++      employee: employees
++    })
++      .from(leaveBalances)
++      .innerJoin(employees, eq(leaveBalances.employeeId, employees.id))
++      .where(eq(employees.companyId, companyId))
++      .orderBy(asc(employees.lastName));
++    res.json(results);
++  } catch (err: any) {
++    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
++  }
++});
++
++router.post("/leave/accrue", requirePayrollWrite, async (req, res) => {
++  // Enforces Labour Act: 2.5 days/month (30/yr), max 90 days.
++  const schema = z.object({ month: z.string() });
++  const parsed = schema.safeParse(req.body);
++  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
++
++  try {
++    const companyId = getTargetCompanyId(req);
++    const activeEmployees = await db.select({ id: employees.id })
++      .from(employees)
++      .where(and(eq(employees.companyId, companyId), eq(employees.status, "ACTIVE")));
++
++    let processedCount = 0;
++    for (const emp of activeEmployees) {
++      const [balance] = await db.select().from(leaveBalances)
++        .where(and(eq(leaveBalances.employeeId, emp.id), eq(leaveBalances.leaveType, "ANNUAL")))
++        .limit(1);
++
++      if (!balance) {
++        // Initial accrual
++        await db.insert(leaveBalances).values({
++          employeeId: emp.id, leaveType: "ANNUAL", accruedDays: "2.50", usedDays: "0.00", availableDays: "2.50"
++        });
++        processedCount++;
++      } else {
++        // Max 90 days statutory cap
++        let currentAvail = parseFloat(balance.availableDays);
++        if (currentAvail < 90) {
++          let nextAvail = Math.min(90, currentAvail + 2.5);
++          let newAccrued = parseFloat(balance.accruedDays) + (nextAvail - currentAvail);
++          await db.update(leaveBalances).set({
++            accruedDays: newAccrued.toFixed(2),
++            availableDays: nextAvail.toFixed(2)
++          }).where(eq(leaveBalances.id, balance.id));
++          processedCount++;
++        }
++      }
++    }
++    
++    res.json({ processedCount, month: parsed.data.month });
++  } catch (err: any) {
++    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
++  }
++});
++
+ router.get("/leave/requests", async (req, res) => {
+   try {
+     const companyId = getTargetCompanyId(req);
+@@ -1430,6 +1642,237 @@ router.post("/deduction-types", requirePayrollApproval, async (req, res) => {
+   }
+ });
+ 
++// --- 7.4 STATUTORY SETTINGS ---
++router.get("/statutory-settings", async (req, res) => {
++  const companyId = getTargetCompanyId(req);
++  try {
++    let [settings] = await db.select().from(statutorySettings).where(eq(statutorySettings.companyId, companyId)).limit(1);
++    
++    // Seed defaults if none exist
++    if (!settings) {
++      [settings] = await db.insert(statutorySettings).values({
++        companyId,
++        aidsLevyRate: "0.0300",
++        zimdefRate: "0.0100",
++        standardsLevyRate: "0.0050",
++        taxFreeBonusThreshold: "400.00",
++        nssaRateEmployee: "0.0450",
++        nssaRateEmployer: "0.0450",
++        nssaCeilingLimit: "700.00",
++        medicalAidCreditMonthly: "75.00",
++        blindPersonCreditAnnual: "900.00",
++        elderlyPersonCreditAnnual: "900.00",
++        hoursPerDay: 8,
++        workingDaysPerMonth: 22,
++        overtimeMultiplierStandard: "1.50",
++        overtimeMultiplierSunday: "2.00",
++      }).returning();
++    }
++    
++    res.json(settings);
++  } catch (err: any) {
++    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
++  }
++});
++
++router.post("/statutory-settings", requirePayrollWrite, async (req, res) => {
++  const companyId = getTargetCompanyId(req);
++  try {
++    const existing = await db.select().from(statutorySettings).where(eq(statutorySettings.companyId, companyId)).limit(1);
++    let settings;
++    if (existing.length > 0) {
++      [settings] = await db.update(statutorySettings).set(req.body).where(eq(statutorySettings.companyId, companyId)).returning();
++    } else {
++      [settings] = await db.insert(statutorySettings).values({ ...req.body, companyId }).returning();
++    }
++    await auditPayroll(req, "PAYROLL_CONFIG_UPDATED", "statutory_settings", settings.id, { companyId });
++    res.json(settings);
++  } catch (err: any) {
++    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
++  }
++});
++
++// --- 7.5 TAX TABLES ---
++router.get("/tax-tables", async (req, res) => {
++  const companyId = getTargetCompanyId(req);
++  try {
++    const list = await db.query.taxTables.findMany({
++      where: eq(taxTables.companyId, companyId),
++      with: {
++        brackets: {
++          orderBy: [asc(taxBrackets.minAmount)]
++        }
++      },
++      orderBy: [desc(taxTables.taxYear), asc(taxTables.currency)]
++    });
++    res.json(list);
++  } catch (err: any) {
++    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
++  }
++});
++
++router.post("/tax-tables", requirePayrollWrite, async (req, res) => {
++  const companyId = getTargetCompanyId(req);
++  const schema = z.object({
++    name: z.string(),
++    currency: z.string(),
++    taxYear: z.number().int(),
++    effectiveFrom: z.string(),
++    isActive: z.boolean().default(true),
++    brackets: z.array(z.object({
++      minAmount: z.coerce.string(),
++      maxAmount: z.coerce.string().nullable().optional(),
++      rate: z.coerce.string(),
++      deductionConstant: z.coerce.string().default("0"),
++    }))
++  });
++
++  const parsed = schema.safeParse(req.body);
++  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
++
++  try {
++    await db.transaction(async (tx) => {
++      // Create tax table
++      const [table] = await tx.insert(taxTables).values({
++        companyId,
++        name: parsed.data.name,
++        currency: parsed.data.currency,
++        taxYear: parsed.data.taxYear,
++        effectiveFrom: parsed.data.effectiveFrom,
++        isActive: parsed.data.isActive,
++      }).returning();
++
++      // Create brackets
++      if (parsed.data.brackets.length > 0) {
++        await tx.insert(taxBrackets).values(
++          parsed.data.brackets.map(b => ({
++            taxTableId: table.id,
++            minAmount: b.minAmount,
++            maxAmount: b.maxAmount || null,
++            rate: b.rate,
++            deductionConstant: b.deductionConstant,
++          }))
++        );
++      }
++    });
++    res.json({ success: true });
++  } catch (err: any) {
++    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
++  }
++});
++
++router.post("/tax-tables/seed", requirePayrollWrite, async (req, res) => {
++  const companyId = getTargetCompanyId(req);
++  const year = req.body.year || new Date().getFullYear();
++  try {
++    // Basic standard ZiG and USD tables for Zimbabwe
++    await db.transaction(async (tx) => {
++      // ZIG Table
++      const [zigTable] = await tx.insert(taxTables).values({
++        companyId, name: `ZIMRA ZiG Tax Tables ${year}`, currency: "ZiG", taxYear: year, effectiveFrom: `${year}-01-01`
++      }).returning();
++      await tx.insert(taxBrackets).values([
++        { taxTableId: zigTable.id, minAmount: "0", maxAmount: "1250000", rate: "0", deductionConstant: "0" },
++        { taxTableId: zigTable.id, minAmount: "1250001", maxAmount: "4000000", rate: "0.20", deductionConstant: "250000" },
++        { taxTableId: zigTable.id, minAmount: "4000001", maxAmount: "10000000", rate: "0.25", deductionConstant: "450000" },
++        { taxTableId: zigTable.id, minAmount: "10000001", maxAmount: "20000000", rate: "0.30", deductionConstant: "950000" },
++        { taxTableId: zigTable.id, minAmount: "20000001", maxAmount: "30000000", rate: "0.35", deductionConstant: "1950000" },
++        { taxTableId: zigTable.id, minAmount: "30000001", maxAmount: null, rate: "0.40", deductionConstant: "3450000" },
++      ]);
++
++      // USD Table
++      const [usdTable] = await tx.insert(taxTables).values({
++        companyId, name: `ZIMRA USD Tax Tables ${year}`, currency: "USD", taxYear: year, effectiveFrom: `${year}-01-01`
++      }).returning();
++      await tx.insert(taxBrackets).values([
++        { taxTableId: usdTable.id, minAmount: "0", maxAmount: "100", rate: "0", deductionConstant: "0" },
++        { taxTableId: usdTable.id, minAmount: "101", maxAmount: "300", rate: "0.20", deductionConstant: "20" },
++        { taxTableId: usdTable.id, minAmount: "301", maxAmount: "1000", rate: "0.25", deductionConstant: "35" },
++        { taxTableId: usdTable.id, minAmount: "1001", maxAmount: "2000", rate: "0.30", deductionConstant: "85" },
++        { taxTableId: usdTable.id, minAmount: "2001", maxAmount: "3000", rate: "0.35", deductionConstant: "185" },
++        { taxTableId: usdTable.id, minAmount: "3001", maxAmount: null, rate: "0.40", deductionConstant: "335" },
++      ]);
++    });
++    res.json({ success: true, message: "ZIMRA default tax tables seeded successfully" });
++  } catch (err: any) {
++    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
++  }
++});
++
++router.post("/seed-defaults", requirePayrollWrite, async (req, res) => {
++  try {
++    const companyId = getTargetCompanyId(req);
++    
++    // Seed Earnings
++    const ZIMBABWE_EARNING_TYPES = [
++      { code: 'BASIC', name: 'Basic Pay', category: 'BASIC', taxTreatment: 'TAXABLE', isNssaApplicable: true, isRecurring: true, calculationMethod: 'FIXED', effectiveFrom: '2024-01-01' },
++      { code: 'OT_STD', name: 'Standard Overtime (1.5x)', category: 'OVERTIME', taxTreatment: 'TAXABLE', isNssaApplicable: true, isRecurring: false, calculationMethod: 'FORMULA', formula: 'BASIC/22/8*OT_HOURS*1.5', effectiveFrom: '2024-01-01' },
++      { code: 'OT_SUN', name: 'Sunday/Public Holiday Overtime (2x)', category: 'OVERTIME', taxTreatment: 'TAXABLE', isNssaApplicable: true, isRecurring: false, calculationMethod: 'FORMULA', formula: 'BASIC/22/8*OT_HOURS*2.0', effectiveFrom: '2024-01-01' },
++      { code: 'TRANSPORT', name: 'Transport Allowance', category: 'ALLOWANCE', taxTreatment: 'NON_TAXABLE', isNssaApplicable: false, isRecurring: true, calculationMethod: 'FIXED', effectiveFrom: '2024-01-01' },
++      { code: 'HOUSING', name: 'Housing Allowance', category: 'ALLOWANCE', taxTreatment: 'TAXABLE', isNssaApplicable: true, isRecurring: true, calculationMethod: 'FIXED', effectiveFrom: '2024-01-01' },
++      { code: 'AIRTIME', name: 'Airtime Allowance', category: 'BENEFIT', taxTreatment: 'TAXABLE', isNssaApplicable: false, isRecurring: true, calculationMethod: 'FIXED', effectiveFrom: '2024-01-01' },
++      { code: 'MEDICAL', name: 'Medical Aid Allowance', category: 'BENEFIT', taxTreatment: 'NON_TAXABLE', isNssaApplicable: false, isRecurring: true, calculationMethod: 'FIXED', effectiveFrom: '2024-01-01' },
++      { code: 'BONUS_PERF', name: 'Performance Bonus', category: 'BONUS', taxTreatment: 'TAXABLE', isNssaApplicable: false, isRecurring: false, calculationMethod: 'FIXED', effectiveFrom: '2024-01-01' },
++      { code: 'BONUS_13TH', name: '13th Cheque / Annual Bonus', category: 'BONUS', taxTreatment: 'TAXABLE', isNssaApplicable: false, isRecurring: false, calculationMethod: 'FORMULA', formula: 'BASIC*1', effectiveFrom: '2024-01-01' },
++      { code: 'COMMISSION', name: 'Sales Commission', category: 'COMMISSION', taxTreatment: 'TAXABLE', isNssaApplicable: true, isRecurring: false, calculationMethod: 'FIXED', effectiveFrom: '2024-01-01' },
++      { code: 'LEAVE_PAY', name: 'Leave Encashment', category: 'LEAVE_PAY', taxTreatment: 'TAXABLE', isNssaApplicable: false, isRecurring: false, calculationMethod: 'FORMULA', formula: 'BASIC/30*LEAVE_DAYS', effectiveFrom: '2024-01-01' },
++      { code: 'BACK_PAY', name: 'Back Pay', category: 'BACK_PAY', taxTreatment: 'TAXABLE', isNssaApplicable: true, isRecurring: false, calculationMethod: 'FIXED', effectiveFrom: '2024-01-01' },
++      { code: 'SUBSISTENCE', name: 'Subsistence / Safari Allowance', category: 'ALLOWANCE', taxTreatment: 'NON_TAXABLE', isNssaApplicable: false, isRecurring: false, calculationMethod: 'FIXED', effectiveFrom: '2024-01-01' },
++      { code: 'UNIFORM', name: 'Uniform Allowance', category: 'ALLOWANCE', taxTreatment: 'NON_TAXABLE', isNssaApplicable: false, isRecurring: false, calculationMethod: 'FIXED', effectiveFrom: '2024-01-01' },
++      { code: 'RETRENCH', name: 'Retrenchment Package', category: 'OTHER', taxTreatment: 'PARTIAL', isNssaApplicable: false, isRecurring: false, calculationMethod: 'FIXED', effectiveFrom: '2024-01-01' },
++      { code: 'SEVERANCE', name: 'Severance Pay (Labour Act)', category: 'OTHER', taxTreatment: 'TAXABLE', isNssaApplicable: false, isRecurring: false, calculationMethod: 'FORMULA', formula: 'BASIC*YEARS_SERVED', effectiveFrom: '2024-01-01' },
++    ];
++
++    let earningsSeeded = 0;
++    const existingEarnings = await db.select({ code: payrollEarningTypes.code }).from(payrollEarningTypes).where(eq(payrollEarningTypes.companyId, companyId));
++    const existingEarningsCodes = new Set(existingEarnings.map(e => e.code));
++
++    for (const item of ZIMBABWE_EARNING_TYPES) {
++      if (!existingEarningsCodes.has(item.code)) {
++        await db.insert(payrollEarningTypes).values({ ...item, companyId, countryCode: 'ZW', isActive: true });
++        earningsSeeded++;
++      }
++    }
++
++    // Seed Deductions
++    const ZIMBABWE_DEDUCTION_TYPES = [
++      { code: 'PAYE', name: 'PAYE (Pay As You Earn)', category: 'STATUTORY', timing: 'STATUTORY', contributionSide: 'EMPLOYEE', calculationMethod: 'FORMULA', formula: 'TAX_TABLE', priorityOrder: 1, effectiveFrom: '2024-01-01' },
++      { code: 'AIDS_LEVY', name: 'AIDS Levy (3% of PAYE)', category: 'STATUTORY', timing: 'STATUTORY', contributionSide: 'EMPLOYEE', calculationMethod: 'PERCENTAGE', employeeRate: '0.030000', priorityOrder: 2, effectiveFrom: '2024-01-01' },
++      { code: 'NSSA_POBS_EE', name: 'NSSA POBS (Employee)', category: 'STATUTORY', timing: 'STATUTORY', contributionSide: 'EMPLOYEE', calculationMethod: 'PERCENTAGE', employeeRate: '0.045000', maxAmount: '700.00', priorityOrder: 3, effectiveFrom: '2024-01-01' },
++      { code: 'NSSA_POBS_ER', name: 'NSSA POBS (Employer)', category: 'STATUTORY', timing: 'STATUTORY', contributionSide: 'EMPLOYER', calculationMethod: 'PERCENTAGE', employerRate: '0.045000', maxAmount: '700.00', priorityOrder: 4, effectiveFrom: '2024-01-01' },
++      { code: 'APWCS', name: 'NSSA APWCS (Workers Compensation)', category: 'STATUTORY', timing: 'STATUTORY', contributionSide: 'EMPLOYER', calculationMethod: 'PERCENTAGE', employerRate: '0.010000', priorityOrder: 5, effectiveFrom: '2024-01-01' },
++      { code: 'NEC_EE', name: 'NEC Levy (Employee)', category: 'STATUTORY', timing: 'STATUTORY', contributionSide: 'EMPLOYEE', calculationMethod: 'PERCENTAGE', employeeRate: '0.010000', priorityOrder: 6, effectiveFrom: '2024-01-01' },
++      { code: 'NEC_ER', name: 'NEC Levy (Employer)', category: 'STATUTORY', timing: 'STATUTORY', contributionSide: 'EMPLOYER', calculationMethod: 'PERCENTAGE', employerRate: '0.010000', priorityOrder: 7, effectiveFrom: '2024-01-01' },
++      { code: 'ZIMDEF', name: 'ZIMDEF (Manpower Development Fund)', category: 'STATUTORY', timing: 'STATUTORY', contributionSide: 'EMPLOYER', calculationMethod: 'PERCENTAGE', employerRate: '0.010000', priorityOrder: 8, effectiveFrom: '2024-01-01' },
++      { code: 'STD_LEVY', name: 'Standards Development Levy', category: 'STATUTORY', timing: 'STATUTORY', contributionSide: 'EMPLOYER', calculationMethod: 'PERCENTAGE', employerRate: '0.005000', priorityOrder: 9, effectiveFrom: '2024-01-01' },
++      { code: 'PENSION_EE', name: 'Pension Contribution (Employee)', category: 'PENSION', timing: 'PRE_TAX', contributionSide: 'EMPLOYEE', calculationMethod: 'PERCENTAGE', employeeRate: '0.050000', priorityOrder: 10, effectiveFrom: '2024-01-01' },
++      { code: 'PENSION_ER', name: 'Pension Contribution (Employer)', category: 'PENSION', timing: 'PRE_TAX', contributionSide: 'EMPLOYER', calculationMethod: 'PERCENTAGE', employerRate: '0.050000', priorityOrder: 11, effectiveFrom: '2024-01-01' },
++      { code: 'MEDICAL_EE', name: 'Medical Aid (Employee)', category: 'COMPANY', timing: 'POST_TAX', contributionSide: 'EMPLOYEE', calculationMethod: 'FIXED', priorityOrder: 20, effectiveFrom: '2024-01-01' },
++      { code: 'LOAN_REPAY', name: 'Loan Repayment', category: 'LOAN', timing: 'POST_TAX', contributionSide: 'EMPLOYEE', calculationMethod: 'FIXED', priorityOrder: 30, effectiveFrom: '2024-01-01' },
++      { code: 'GARNISHEE', name: 'Court Garnishee Order', category: 'GARNISHEE', timing: 'POST_TAX', contributionSide: 'EMPLOYEE', calculationMethod: 'FIXED', priorityOrder: 31, effectiveFrom: '2024-01-01' },
++      { code: 'UNION_DUES', name: 'Trade Union Subscription', category: 'COMPANY', timing: 'POST_TAX', contributionSide: 'EMPLOYEE', calculationMethod: 'FIXED', priorityOrder: 32, effectiveFrom: '2024-01-01' },
++      { code: 'SAVINGS', name: 'Savings Club / SACCO', category: 'COMPANY', timing: 'POST_TAX', contributionSide: 'EMPLOYEE', calculationMethod: 'FIXED', priorityOrder: 33, effectiveFrom: '2024-01-01' },
++      { code: 'FUNERAL', name: 'Funeral Policy Premium', category: 'COMPANY', timing: 'POST_TAX', contributionSide: 'EMPLOYEE', calculationMethod: 'FIXED', priorityOrder: 34, effectiveFrom: '2024-01-01' },
++      { code: 'ADVANCE', name: 'Salary Advance Recovery', category: 'COMPANY', timing: 'PRE_TAX', contributionSide: 'EMPLOYEE', calculationMethod: 'FIXED', priorityOrder: 5, effectiveFrom: '2024-01-01' },
++    ];
++
++    let deductionsSeeded = 0;
++    const existingDeductions = await db.select({ code: payrollDeductionTypes.code }).from(payrollDeductionTypes).where(eq(payrollDeductionTypes.companyId, companyId));
++    const existingDeductionsCodes = new Set(existingDeductions.map(e => e.code));
++
++    for (const item of ZIMBABWE_DEDUCTION_TYPES) {
++      if (!existingDeductionsCodes.has(item.code)) {
++        await db.insert(payrollDeductionTypes).values({ ...item, companyId, countryCode: 'ZW', isActive: true });
++        deductionsSeeded++;
++      }
++    }
++
++    res.status(200).json({ seeded: { earningTypes: earningsSeeded, deductionTypes: deductionsSeeded } });
++  } catch (err: any) {
++    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
++  }
++});
++
+ // --- 8. PAYROLL RUNS & engine COMPUTATIONS ---
+ router.get("/runs", async (req, res) => {
+   try {
+@@ -1517,13 +1960,33 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
+         .returning();
+ 
+       // 2. Fetch active tax configurations
+-      const taxConfig = await loadEffectiveTaxConfig(tx, parsed.data.currency, parsed.data.payFrequency, parsed.data.periodStart, parsed.data.periodEnd);
++      const taxConfig = await loadEffectiveTaxConfig(tx, companyId, parsed.data.currency, parsed.data.payFrequency, parsed.data.periodStart, parsed.data.periodEnd);
++
++      const [statutoryConfig] = await tx.select().from(statutorySettings).where(eq(statutorySettings.companyId, companyId)).limit(1);
++      if (!statutoryConfig) {
++        throw new Error("Statutory settings not configured for this company. Please configure them in Setup.");
++      }
+ 
+       if (!taxConfig) {
+         throw new Error(`Effective tax configuration not found for ${parsed.data.currency} ${parsed.data.payFrequency} covering ${parsed.data.periodStart} to ${parsed.data.periodEnd}`);
+       }
+ 
+       // 3. For each employee, fetch contract details and perform payroll calculations
++      const currentYear = new Date(parsed.data.periodStart).getFullYear();
++      const previousLockedRun = await tx.query.payrollRuns.findFirst({
++        where: and(
++          eq(payrollRuns.companyId, companyId),
++          eq(payrollRuns.status, "LOCKED"),
++          gte(payrollRuns.periodStart, `${currentYear}-01-01`),
++          lt(payrollRuns.periodStart, parsed.data.periodStart)
++        ),
++        orderBy: desc(payrollRuns.periodStart)
++      });
++      
++      const previousLines = previousLockedRun ? await tx.query.payrollRunEmployees.findMany({
++        where: eq(payrollRunEmployees.payrollRunId, previousLockedRun.id)
++      }) : [];
++
+       for (const emp of activeEmployees) {
+         const contract = emp.contracts[0];
+         if (!contract) continue; // Skip if no active contract
+@@ -1541,22 +2004,11 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
+           }
+         }
+ 
+-        // Fetch recurring allowances/deductions active in the run period.
+-        const recurringItems = await loadActiveRecurringItems(tx, emp.id, parsed.data.periodStart, parsed.data.periodEnd);
+-        const recurringAllowances = recurringItems.filter((item: any) => item.type === "ALLOWANCE");
+-        const recurringDeductions = recurringItems.filter((item: any) => item.type === "DEDUCTION");
+-        const taxableAllowances = recurringAllowances
+-          .filter((item: any) => item.isTaxable)
+-          .reduce((sum: number, item: any) => sum + toMoney(item.amount), 0);
+-        const nontaxableAllowances = recurringAllowances
+-          .filter((item: any) => !item.isTaxable)
+-          .reduce((sum: number, item: any) => sum + toMoney(item.amount), 0);
+-        const recurringDeductionTotal = recurringDeductions
+-          .reduce((sum: number, item: any) => sum + toMoney(item.amount), 0);
+-        const taxDeductibleDeductions = recurringDeductions
+-          .filter((item: any) => item.isTaxDeductible)
+-          .reduce((sum: number, item: any) => sum + toMoney(item.amount), 0);
+-
++        // Fetch active earning and deduction elements for this employee
++        const elements = await loadActivePayrollElements(tx, emp.id, parsed.data.periodStart, parsed.data.periodEnd);
++        const prevLine = previousLines.find(l => l.employeeId === emp.id);
++        const rolledOverCredits = prevLine ? parseFloat(prevLine.rolledOverCredits || "0") : 0;
++        
+         // Fetch outstanding loan repayment defaults
+         const [activeLoan] = await tx.select()
+           .from(employeeLoans)
+@@ -1568,13 +2020,21 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
+         
+         const loanDeduction = activeLoan ? Math.min(parseFloat(activeLoan.remainingBalance), parseFloat(activeLoan.monthlyRepaymentAmount)) : 0;
+ 
++        if (loanDeduction > 0) {
++          elements.push({
++            type: "DEDUCTION",
++            name: "Loan Repayment",
++            calculationMethod: "FIXED",
++            amount: loanDeduction,
++            isTaxable: false,
++            isTaxDeductible: false,
++          });
++        }
++
+         // Perform calculation
+         const calcs = ZimbabwePayrollEngine.calculateEmployeeLine({
+           baseSalary: parseFloat(contract.baseSalary),
+-          taxableAllowances,
+-          nontaxableAllowances,
+-          otherDeductions: loanDeduction + recurringDeductionTotal,
+-          taxDeductibleDeductions,
++          elements,
+           pensionEmployeeRate: 0,
+           pensionEmployerRate: 0,
+           necRate: parseFloat(necRate),
+@@ -1583,12 +2043,28 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
+           usdPercentage: parseFloat(contract.usdPercentage),
+           zigPercentage: parseFloat(contract.zigPercentage),
+           exchangeRate: parseFloat(parsed.data.exchangeRate),
++          useFds: true,
++          fdsMethod: statutory?.fdsMethod || "FORECASTING",
++          rolledOverCredits,
+           taxConfig: {
+             brackets: taxConfig.brackets as TaxBracket[],
+-            nssaRateEmployee: parseFloat(taxConfig.nssaRateEmployee),
+-            nssaRateEmployer: parseFloat(taxConfig.nssaRateEmployer),
+-            nssaCeilingLimit: parseFloat(taxConfig.nssaCeilingLimit),
+-            aidsLevyRate: parseFloat(taxConfig.aidsLevyRate),
++          },
++          statutoryConfig: {
++            aidsLevyRate: parseFloat(statutoryConfig.aidsLevyRate),
++            zimdefRate: parseFloat(statutoryConfig.zimdefRate),
++            standardsLevyRate: parseFloat(statutoryConfig.standardsLevyRate),
++            taxFreeBonusThreshold: parseFloat(statutoryConfig.taxFreeBonusThreshold),
++            nssaRateEmployee: parseFloat(statutoryConfig.nssaRateEmployee),
++            nssaRateEmployer: parseFloat(statutoryConfig.nssaRateEmployer),
++            nssaCeilingLimit: parseFloat(statutoryConfig.nssaCeilingLimit),
++            medicalAidCreditMonthly: parseFloat(statutoryConfig.medicalAidCreditMonthly),
++            blindPersonCreditAnnual: parseFloat(statutoryConfig.blindPersonCreditAnnual),
++            elderlyPersonCreditAnnual: parseFloat(statutoryConfig.elderlyPersonCreditAnnual),
++            maxTaxDeductiblePensionAnnual: parseFloat(statutoryConfig.maxTaxDeductiblePensionAnnual),
++            hoursPerDay: statutoryConfig.hoursPerDay,
++            workingDaysPerMonth: statutoryConfig.workingDaysPerMonth,
++            overtimeMultiplierStandard: parseFloat(statutoryConfig.overtimeMultiplierStandard),
++            overtimeMultiplierSunday: parseFloat(statutoryConfig.overtimeMultiplierSunday),
+           }
+         });
+ 
+@@ -1616,6 +2092,7 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
+             nssaEmployeeZig: calcs.nssaEmployeeZig.toFixed(2),
+             totalAllowances: calcs.totalAllowances.toFixed(2),
+             totalDeductions: calcs.totalDeductions.toFixed(2),
++            rolledOverCredits: calcs.rolledOverCredits.toFixed(2),
+             snapshotData: buildPayrollSnapshot({
+               ...calcs,
+               taxConfigId: taxConfig.id,
+@@ -1623,64 +2100,48 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
+               calculationBasis: "INITIAL_RUN",
+               loanId: activeLoan?.id || null,
+               loanDeduction,
+-              recurringItemIds: recurringItems.map((item: any) => item.id),
+-              taxableAllowances,
+-              nontaxableAllowances,
+-              recurringDeductionTotal,
+-              taxDeductibleDeductions,
++              elementIds: elements.map((item: any) => item.id).filter(Boolean),
+               pensionEmployeeRate: 0,
+               pensionEmployerRate: 0
+             })
+           })
+           .returning();
+ 
+-        if (recurringAllowances.length > 0) {
+-          await tx.insert(payrollAllowances).values(recurringAllowances.map((item: any) => ({
++        if (calcs.processedEarnings.length > 0) {
++          await tx.insert(payrollAllowances).values(calcs.processedEarnings.map((item: any) => ({
+             payrollRunEmployeeId: runEmployeeLine.id,
++            earningTypeId: item.categoryId || null,
+             name: item.name,
+-            amount: toMoney(item.amount).toFixed(2),
++            amount: item.amount.toFixed(2),
+             isTaxable: item.isTaxable,
+             isCash: true,
+-            allowanceType: classifyRecurringAllowance(item.name),
+           })));
+         }
+ 
+         const statutoryDeductions = [
+-          { name: "PAYE", amount: calcs.payeRaw, isTaxDeductible: false, deductionType: "PAYE" },
+-          { name: "AIDS Levy", amount: calcs.aidsLevy, isTaxDeductible: false, deductionType: "AIDS_LEVY" },
+-          { name: "NSSA Employee", amount: calcs.nssaEmployee, isTaxDeductible: true, deductionType: "NSSA" },
+-          { name: "NEC Employee", amount: calcs.necEmployee, isTaxDeductible: false, deductionType: "NEC" },
+-          { name: "Pension Employee", amount: calcs.pensionEmployee, isTaxDeductible: true, deductionType: "PENSION" },
++          { name: "PAYE", amount: calcs.payeRaw, isTaxDeductible: false },
++          { name: "AIDS Levy", amount: calcs.aidsLevy, isTaxDeductible: false },
++          { name: "NSSA Employee", amount: calcs.nssaEmployee, isTaxDeductible: true },
++          { name: "NEC Employee", amount: calcs.necEmployee, isTaxDeductible: false },
++          { name: "Pension Employee", amount: calcs.pensionEmployee, isTaxDeductible: true },
+         ].filter((item) => item.amount > 0);
+ 
+-        const employeeDeductions = recurringDeductions.map((item: any) => ({
+-          payrollRunEmployeeId: runEmployeeLine.id,
+-          name: item.name,
+-          amount: toMoney(item.amount).toFixed(2),
+-          isTaxDeductible: item.isTaxDeductible,
+-          deductionType: classifyRecurringDeduction(item.name),
+-        }));
+-
+-        if (loanDeduction > 0) {
+-          employeeDeductions.push({
+-            payrollRunEmployeeId: runEmployeeLine.id,
+-            name: "Loan repayment",
+-            amount: loanDeduction.toFixed(2),
+-            isTaxDeductible: false,
+-            deductionType: "LOAN_REPAYMENT",
+-          });
+-        }
+-
+         const deductionLines = [
+           ...statutoryDeductions.map((item) => ({
+             payrollRunEmployeeId: runEmployeeLine.id,
+             name: item.name,
+             amount: item.amount.toFixed(2),
+             isTaxDeductible: item.isTaxDeductible,
+-            deductionType: item.deductionType,
+           })),
+-          ...employeeDeductions,
++          ...calcs.processedDeductions.map((item: any) => ({
++            payrollRunEmployeeId: runEmployeeLine.id,
++            deductionTypeId: item.categoryId || null,
++            name: item.name,
++            amount: item.amount.toFixed(2),
++            isTaxDeductible: item.isTaxDeductible,
++          }))
+         ];
++
+         if (deductionLines.length > 0) {
+           await tx.insert(payrollDeductions).values(deductionLines);
+         }
+@@ -1759,7 +2220,7 @@ router.put("/runs/:id/adjustments", requirePayrollWrite, async (req, res) => {
+     if (!contract) return res.status(400).json({ message: "Employee does not have active contract" });
+ 
+     // Fetch tax tables configurations
+-    const taxConfig = await loadEffectiveTaxConfig(db, run.currency, run.payFrequency, run.periodStart, run.periodEnd);
++    const taxConfig = await loadEffectiveTaxConfig(db, companyId, run.currency, run.payFrequency, run.periodStart, run.periodEnd);
+     if (!taxConfig) throw new Error("Active tax configuration not found");
+ 
+     const previousSnapshot = (line.snapshotData as any) || {};
+@@ -1796,10 +2257,7 @@ router.put("/runs/:id/adjustments", requirePayrollWrite, async (req, res) => {
+     // Recompute
+     const calcs = ZimbabwePayrollEngine.calculateEmployeeLine({
+       baseSalary: parseFloat(contract.baseSalary),
+-      taxableAllowances,
+-      nontaxableAllowances,
+-      otherDeductions: loanDeduction + recurringDeductionTotal,
+-      taxDeductibleDeductions,
++      elements: [],
+       pensionEmployeeRate,
+       pensionEmployerRate,
+       necRate: parseFloat(necRate),
+@@ -1810,10 +2268,23 @@ router.put("/runs/:id/adjustments", requirePayrollWrite, async (req, res) => {
+       exchangeRate: parseFloat(run.exchangeRate),
+       taxConfig: {
+         brackets: taxConfig.brackets as TaxBracket[],
+-        nssaRateEmployee: parseFloat(taxConfig.nssaRateEmployee),
+-        nssaRateEmployer: parseFloat(taxConfig.nssaRateEmployer),
+-        nssaCeilingLimit: parseFloat(taxConfig.nssaCeilingLimit),
+-        aidsLevyRate: parseFloat(taxConfig.aidsLevyRate),
++      },
++      statutoryConfig: {
++        aidsLevyRate: 0.03, // Will be fetched from statutoryConfig correctly in future
++        zimdefRate: 0.01,
++        standardsLevyRate: 0.005,
++        taxFreeBonusThreshold: 400,
++        nssaRateEmployee: 0.045,
++        nssaRateEmployer: 0.045,
++        nssaCeilingLimit: 700,
++        medicalAidCreditMonthly: 75,
++        blindPersonCreditAnnual: 900,
++        elderlyPersonCreditAnnual: 900,
++        maxTaxDeductiblePensionAnnual: 54000,
++        hoursPerDay: 8,
++        workingDaysPerMonth: 22,
++        overtimeMultiplierStandard: 1.5,
++        overtimeMultiplierSunday: 2.0,
+       }
+     });
+ 
+@@ -1847,8 +2318,7 @@ router.put("/runs/:id/adjustments", requirePayrollWrite, async (req, res) => {
+             loanId,
+             loanDeduction,
+             recurringItemIds: previousSnapshot.recurringItemIds || [],
+-            taxableAllowances,
+-            nontaxableAllowances,
++            elementIds: previousSnapshot.elementIds || [],
+             recurringDeductionTotal,
+             taxDeductibleDeductions,
+             pensionEmployeeRate,
+@@ -1943,6 +2413,38 @@ router.get("/runs/:id/variances", async (req, res) => {
+   }
+ });
+ 
++// POST /runs/:id/submit-for-approval - Submit a draft payroll run for formal approval
++router.post("/runs/:id/submit-for-approval", requirePayrollWrite, async (req, res) => {
++  const runId = parseInt(req.params.id, 10);
++  const companyId = getTargetCompanyId(req);
++  const userId = (req as any).user?.id;
++  try {
++    const [run] = await db.select().from(payrollRuns)
++      .where(and(eq(payrollRuns.id, runId), eq(payrollRuns.companyId, companyId)))
++      .limit(1);
++    if (!run) return res.status(404).json({ message: "Payroll run not found" });
++    if (run.status !== "DRAFT") return res.status(422).json({ message: "Only DRAFT runs can be submitted for approval" });
++
++    const [updated] = await db.update(payrollRuns)
++      .set({
++        status: "PENDING_APPROVAL",
++        preparedBy: userId || null,
++        updatedAt: new Date(),
++      })
++      .where(eq(payrollRuns.id, runId))
++      .returning();
++
++    await auditPayroll(req, "PAYROLL_RUN_SUBMITTED", "payroll_runs", runId, {
++      periodStart: updated.periodStart,
++      periodEnd: updated.periodEnd,
++    });
++
++    res.json(updated);
++  } catch (err: any) {
++    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
++  }
++});
++
+ // POST /runs/:id/approve - Formal approval before locking and accounting postings
+ router.post("/runs/:id/approve", requirePayrollApproval, async (req, res) => {
+   const runId = parseInt(req.params.id, 10);
+@@ -1953,7 +2455,8 @@ router.post("/runs/:id/approve", requirePayrollApproval, async (req, res) => {
+       .where(and(eq(payrollRuns.id, runId), eq(payrollRuns.companyId, companyId)))
+       .limit(1);
+     if (!run) return res.status(404).json({ message: "Payroll run not found" });
+-    if (run.status === "LOCKED") return res.status(422).json({ message: "Locked payroll runs cannot be approved again" });
++    if (run.status !== "PENDING_APPROVAL") return res.status(422).json({ message: "Only PENDING_APPROVAL runs can be approved" });
++    if (run.preparedBy === userId) return res.status(403).json({ message: "The user who prepared the run cannot approve it. Separation of duties is required." });
+ 
+     const [updated] = await db.update(payrollRuns)
+       .set({
+@@ -2058,12 +2561,52 @@ router.post("/runs/:id/lock", requirePayrollApproval, async (req, res) => {
+       const payeAcc = getAccount("LIABILITY", "2100");
+       const nssaAcc = getAccount("LIABILITY", "2110");
+       
+-      const journalLines = [
++      const journalLines: any[] = [
+         { draftId: draft.id, accountId: basicSalariesAcc.id, type: "DEBIT", amount: totalBasic.toFixed(2), currency: run.currency },
+         { draftId: draft.id, accountId: netSalariesAcc.id, type: "CREDIT", amount: totalNet.toFixed(2), currency: run.currency },
+         { draftId: draft.id, accountId: payeAcc.id, type: "CREDIT", amount: totalPaye.toFixed(2), currency: run.currency },
+         { draftId: draft.id, accountId: nssaAcc.id, type: "CREDIT", amount: (totalNssaEmployee + totalNssaEmployer).toFixed(2), currency: run.currency },
+       ];
++
++      if (lines.length > 0) {
++        const allowanceLines = await tx.select({
++          amount: payrollAllowances.amount,
++          glAccountId: payrollEarningTypes.glAccountId
++        })
++        .from(payrollAllowances)
++        .leftJoin(payrollEarningTypes, eq(payrollAllowances.earningTypeId, payrollEarningTypes.id))
++        .where(inArray(payrollAllowances.payrollRunEmployeeId, lines.map(l => l.id)));
++
++        const allowanceTotals = new Map<number, number>();
++        for (const al of allowanceLines) {
++          const accId = al.glAccountId || basicSalariesAcc.id; // fallback to basic salaries
++          allowanceTotals.set(accId, (allowanceTotals.get(accId) || 0) + parseFloat(al.amount));
++        }
++
++        for (const [accId, total] of allowanceTotals.entries()) {
++          journalLines.push({ draftId: draft.id, accountId: accId, type: "DEBIT", amount: total.toFixed(2), currency: run.currency });
++        }
++
++        const deductionLines = await tx.select({
++          amount: payrollDeductions.amount,
++          glAccountId: payrollDeductionTypes.glAccountId
++        })
++        .from(payrollDeductions)
++        .leftJoin(payrollDeductionTypes, eq(payrollDeductions.deductionTypeId, payrollDeductionTypes.id))
++        .where(inArray(payrollDeductions.payrollRunEmployeeId, lines.map(l => l.id)));
++
++        const deductionTotals = new Map<number, number>();
++        for (const dl of deductionLines) {
++          if (dl.glAccountId) {
++            deductionTotals.set(dl.glAccountId, (deductionTotals.get(dl.glAccountId) || 0) + parseFloat(dl.amount));
++          }
++        }
++
++        for (const [accId, total] of deductionTotals.entries()) {
++          journalLines.push({ draftId: draft.id, accountId: accId, type: "CREDIT", amount: total.toFixed(2), currency: run.currency });
++        }
++      }
++
+       await tx.insert(journalEntryDraftLines).values(journalLines);
+ 
+       // 2. Lock Payroll Run
+@@ -2735,18 +3278,7 @@ async function commitImportRow(companyId: number, importType: ImportType, row: I
+ 
+   const employee = await findEmployeeByNumber(companyId, row.employeeNumber, tx);
+   if (importType === "recurring-items") {
+-    const [item] = await tx.insert(payrollRecurringItems).values({
+-      employeeId: employee.id,
+-      type: textOrDefault(row.type, "ALLOWANCE"),
+-      name: textOrNull(row.name)!,
+-      amount: moneyString(row.amount),
+-      isTaxable: parseBool(row.isTaxable, true),
+-      isTaxDeductible: parseBool(row.isTaxDeductible),
+-      startDate: dateOrNull(row.startDate)!,
+-      endDate: dateOrNull(row.endDate),
+-      isActive: true,
+-    }).returning();
+-    return { entityType: "payroll_recurring_items", entityId: item.id };
++    throw new Error("Recurring Items import is deprecated. Please use the new Payroll Elements UI.");
+   }
+   if (importType === "leave-balances") {
+     const leaveType = textOrDefault(row.leaveType, "ANNUAL");
+@@ -3370,4 +3902,310 @@ router.get("/audit", async (req, res) => {
+   }
+ });
+ 
++// --- 9. ZIMRA COMPLIANCE REPORTS ---
++router.get("/exports/itf16", async (req, res) => {
++  const companyId = getTargetCompanyId(req);
++  const taxYear = req.query.taxYear ? String(req.query.taxYear) : String(new Date().getFullYear());
++  
++  try {
++    // 1. Fetch all payroll runs for the given tax year
++    const startDate = `${taxYear}-01-01`;
++    const endDate = `${taxYear}-12-31`;
++
++    const runs = await db.select({ id: payrollRuns.id }).from(payrollRuns)
++      .where(and(
++        eq(payrollRuns.companyId, companyId),
++        gte(payrollRuns.periodStart, startDate),
++        lte(payrollRuns.periodEnd, endDate)
++      ));
++      
++    if (runs.length === 0) {
++      res.setHeader('Content-Type', 'text/csv');
++      res.setHeader('Content-Disposition', `attachment; filename=ITF16_${taxYear}.csv`);
++      return res.send("Employee ID,Surname,First Name,Tax Year,Period Employed (months),Total Gross Income,Total Taxable Income,Total PAYE,Total AIDS Levy,Total Medical Aid Credits,Total Net PAYE Payable\n");
++    }
++
++    const runIds = runs.map(r => r.id);
++
++    // 2. Fetch all employee lines for those runs
++    const lines = await db.query.payrollRunEmployees.findMany({
++      where: inArray(payrollRunEmployees.payrollRunId, runIds),
++      with: { employee: true }
++    });
++
++    // 3. Aggregate per employee
++    const agg: Record<number, any> = {};
++    for (const line of lines) {
++      const eid = line.employeeId;
++      if (!agg[eid]) {
++        agg[eid] = {
++          emp: line.employee,
++          months: 0,
++          gross: 0,
++          taxable: 0,
++          paye: 0,
++          aids: 0,
++          medical: 0,
++          netPaye: 0
++        };
++      }
++      agg[eid].months++;
++      agg[eid].gross += parseFloat(line.grossSalary);
++      // Derive taxable income from basic + taxable allowances (simplification for report)
++      agg[eid].taxable += parseFloat(line.basicSalary) + parseFloat(line.totalAllowances);
++      agg[eid].paye += parseFloat(line.paye);
++      agg[eid].aids += parseFloat(line.aidsLevy);
++      agg[eid].netPaye += parseFloat(line.paye) + parseFloat(line.aidsLevy);
++    }
++
++    // 4. Generate CSV
++    let csv = "Employee ID,Surname,First Name,Tax Year,Period Employed (months),Total Gross Income,Total Taxable Income,Total PAYE,Total AIDS Levy,Total Medical Aid Credits,Total Net PAYE Payable\n";
++    
++    for (const [eid, data] of Object.entries(agg)) {
++      csv += `${data.emp.nationalId || eid},${data.emp.lastName || ''},${data.emp.firstName || ''},${taxYear},${data.months},${data.gross.toFixed(2)},${data.taxable.toFixed(2)},${data.paye.toFixed(2)},${data.aids.toFixed(2)},0.00,${data.netPaye.toFixed(2)}\n`;
++    }
++
++    res.setHeader('Content-Type', 'text/csv');
++    res.setHeader('Content-Disposition', `attachment; filename=ITF16_${taxYear}.csv`);
++    res.send(csv);
++
++  } catch (err: any) {
++    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
++  }
++});
++
++router.get("/exports/p6", async (req, res) => {
++  const companyId = getTargetCompanyId(req);
++  const employeeId = parseInt(req.query.employeeId as string, 10);
++  const taxYear = req.query.taxYear ? String(req.query.taxYear) : new Date().getFullYear().toString();
++
++  if (!employeeId) return res.status(400).json({ message: "Employee ID is required" });
++
++  try {
++    const periodStart = `${taxYear}-01-01`;
++    const periodEnd = `${taxYear}-12-31`; // Zimbabwe tax year is Jan-Dec
++
++    const [company] = await db.select().from(companies).where(eq(companies.id, companyId)).limit(1);
++    const [emp] = await db.select().from(employees).where(and(eq(employees.id, employeeId), eq(employees.companyId, companyId))).limit(1);
++    if (!emp) return res.status(404).json({ message: "Employee not found" });
++
++    const runs = await db.query.payrollRuns.findMany({
++      where: and(
++        eq(payrollRuns.companyId, companyId),
++        gte(payrollRuns.periodStart, periodStart),
++        lte(payrollRuns.periodStart, periodEnd),
++        eq(payrollRuns.status, "LOCKED")
++      )
++    });
++    const runIds = runs.map(r => r.id);
++
++    let monthsEmployed = 0;
++    let totalGross = 0;
++    let totalPaye = 0;
++    let totalNssa = 0;
++
++    if (runIds.length > 0) {
++      const lines = await db.query.payrollRunEmployees.findMany({
++        where: and(inArray(payrollRunEmployees.payrollRunId, runIds), eq(payrollRunEmployees.employeeId, employeeId))
++      });
++      monthsEmployed = lines.length;
++      totalGross = lines.reduce((acc, line) => acc + parseFloat(line.grossSalary), 0);
++      totalPaye = lines.reduce((acc, line) => acc + parseFloat(line.paye) + parseFloat(line.aidsLevy), 0);
++      totalNssa = lines.reduce((acc, line) => acc + parseFloat(line.nssaEmployee), 0);
++    }
++
++    res.json({
++      employer: { name: company?.name, bpNumber: company?.bpNumber, address: company?.address },
++      employee: { name: `${emp.firstName} ${emp.lastName}`, nationalId: emp.nationalId, nssaNumber: emp.nssaNumber, taxNumber: emp.zimraTaxNumber },
++      taxYear,
++      isFDS: monthsEmployed === 12, // Mark as F.D.S. if employed for full tax year
++      totals: { monthsEmployed, totalGross, totalPaye, totalNssa }
++    });
++  } catch (err: any) {
++    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
++  }
++});
++
++router.get("/exports/p2", async (req, res) => {
++  const companyId = getTargetCompanyId(req);
++  const month = req.query.month ? String(req.query.month) : new Date().toISOString().slice(0, 7);
++  
++  try {
++    const periodStart = `${month}-01`;
++    const periodEnd = `${month}-31`;
++
++    const runs = await db.query.payrollRuns.findMany({
++      where: and(
++        eq(payrollRuns.companyId, companyId),
++        gte(payrollRuns.periodStart, periodStart),
++        lte(payrollRuns.periodStart, periodEnd)
++      )
++    });
++
++    let totalGross = 0;
++    let totalPaye = 0;
++    let totalAids = 0;
++    let count = 0;
++
++    for (const run of runs) {
++      totalGross += parseFloat(run.totalGross || "0");
++      
++      const lines = await db.select({ paye: payrollRunEmployees.paye, aids: payrollRunEmployees.aidsLevy })
++        .from(payrollRunEmployees)
++        .where(eq(payrollRunEmployees.payrollRunId, run.id));
++        
++      count += lines.length;
++      for (const line of lines) {
++        totalPaye += parseFloat(line.paye);
++        totalAids += parseFloat(line.aids);
++      }
++    }
++
++    res.json({
++      month,
++      employeeCount: count,
++      totalGross: totalGross.toFixed(2),
++      totalPaye: totalPaye.toFixed(2),
++      totalAids: totalAids.toFixed(2),
++      totalRemittable: (totalPaye + totalAids).toFixed(2),
++    });
++
++  } catch (err: any) {
++    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
++  }
++});
++
++router.get("/exports/zimdef", async (req, res) => {
++  const companyId = getTargetCompanyId(req);
++  const month = req.query.month ? String(req.query.month) : new Date().toISOString().slice(0, 7);
++  
++  try {
++    const periodStart = `${month}-01`;
++    const periodEnd = `${month}-31`;
++
++    const runs = await db.query.payrollRuns.findMany({
++      where: and(
++        eq(payrollRuns.companyId, companyId),
++        gte(payrollRuns.periodStart, periodStart),
++        lte(payrollRuns.periodStart, periodEnd)
++      )
++    });
++
++    let totalGross = 0;
++    for (const run of runs) {
++      totalGross += parseFloat(run.totalGross || "0");
++    }
++
++    const zimdef = totalGross * 0.01;
++    const standards = totalGross * 0.005;
++
++    res.json({
++      month,
++      totalGrossWageBill: totalGross.toFixed(2),
++      zimdefAmount: zimdef.toFixed(2),
++      standardsLevyAmount: standards.toFixed(2),
++      totalDue: (zimdef + standards).toFixed(2),
++    });
++
++  } catch (err: any) {
++    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
++  }
++});
++
++router.get("/exports/nec", async (req, res) => {
++  const companyId = getTargetCompanyId(req);
++  const month = req.query.month ? String(req.query.month) : new Date().toISOString().slice(0, 7);
++  
++  try {
++    const periodStart = `${month}-01`;
++    const periodEnd = `${month}-31`;
++
++    const runs = await db.query.payrollRuns.findMany({
++      where: and(
++        eq(payrollRuns.companyId, companyId),
++        gte(payrollRuns.periodStart, periodStart),
++        lte(payrollRuns.periodStart, periodEnd)
++      )
++    });
++
++    let necEmployeeTotal = 0;
++    let necEmployerTotal = 0;
++
++    for (const run of runs) {
++      const lines = await db.select({ necEmployee: payrollRunEmployees.necEmployee, necEmployer: payrollRunEmployees.necEmployer })
++        .from(payrollRunEmployees)
++        .where(eq(payrollRunEmployees.payrollRunId, run.id));
++        
++      for (const line of lines) {
++        necEmployeeTotal += parseFloat(line.necEmployee || "0");
++        necEmployerTotal += parseFloat(line.necEmployer || "0");
++      }
++    }
++
++    res.json({
++      month,
++      necEmployeeTotal: necEmployeeTotal.toFixed(2),
++      necEmployerTotal: necEmployerTotal.toFixed(2),
++      totalDue: (necEmployeeTotal + necEmployerTotal).toFixed(2),
++    });
++
++  } catch (err: any) {
++    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
++  }
++});
++
++router.get("/exports/bank", async (req, res) => {
++  const companyId = getTargetCompanyId(req);
++  const runId = req.query.runId ? Number(req.query.runId) : null;
++  const format = req.query.format ? String(req.query.format) : "csv"; // csv, ecocash
++  
++  if (!runId) return res.status(400).json({ error: "Missing runId parameter" });
++  
++  try {
++    const run = await db.query.payrollRuns.findFirst({
++      where: and(eq(payrollRuns.id, runId), eq(payrollRuns.companyId, companyId))
++    });
++    
++    if (!run) return res.status(404).json({ error: "Run not found" });
++
++    const lines = await db.select({
++      netSalary: payrollRunEmployees.netSalary,
++      firstName: employees.firstName,
++      lastName: employees.lastName,
++      bankName: employees.bankName,
++      bankBranch: employees.bankBranch,
++      bankAccountNumber: employees.bankAccountNumber,
++      ecocashNumber: employees.ecocashNumber,
++    })
++    .from(payrollRunEmployees)
++    .innerJoin(employees, eq(payrollRunEmployees.employeeId, employees.id))
++    .where(eq(payrollRunEmployees.payrollRunId, runId));
++
++    if (format === 'csv') {
++      let csv = "Employee Name,Bank Name,Branch Code,Account Number,Net Pay\n";
++      for (const line of lines) {
++        if (!line.bankAccountNumber) continue; // Skip if no bank account
++        csv += `${line.firstName} ${line.lastName},${line.bankName || ''},${line.bankBranch || ''},${line.bankAccountNumber},${parseFloat(line.netSalary).toFixed(2)}\n`;
++      }
++      res.setHeader('Content-Type', 'text/csv');
++      res.setHeader('Content-Disposition', `attachment; filename=Bank_Remittance_${runId}.csv`);
++      return res.send(csv);
++    } else if (format === 'ecocash') {
++      let csv = "Mobile Number,Amount,Reference\n";
++      for (const line of lines) {
++        if (!line.ecocashNumber) continue; // Skip if no ecocash
++        csv += `${line.ecocashNumber},${parseFloat(line.netSalary).toFixed(2)},Salary\n`;
++      }
++      res.setHeader('Content-Type', 'text/csv');
++      res.setHeader('Content-Disposition', `attachment; filename=Ecocash_Remittance_${runId}.csv`);
++      return res.send(csv);
++    } else {
++      res.status(400).json({ error: "Unsupported format" });
++    }
++
++  } catch (err: any) {
++    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
++  }
++});
++
+ export default router;
+diff --git a/server/storage.ts b/server/storage.ts
+index ca3f47a..2d5f48f 100644
+--- a/server/storage.ts
++++ b/server/storage.ts
+@@ -61,7 +61,15 @@ import {
+   type LaybyPayment, type InsertLaybyPayment,
+   inventoryValuationSnapshots,
+   inventoryLocations,
+-  inventoryLocationStocks
++  inventoryLocationStocks,
++  employees, employeeContracts, taxTablesConfig, payrollRuns, payrollRunEmployees,
++  necSectorsConfig, departments, positions, leaveRequests, employeeLoans,
++  type Employee, type InsertEmployee,
++  type EmployeeContract, type InsertEmployeeContract,
++  type PayrollRun, type InsertPayrollRun,
++  type PayrollRunEmployee, type InsertPayrollRunEmployee,
++  type LeaveRequest, type InsertLeaveRequest,
++  type EmployeeLoan, type InsertEmployeeLoan
+ } from "../shared/schema.js";
+ import { db } from "./db.js";
+ import { eq, and, asc, desc, lte, gte, lt, ne, or, isNull, sql, ilike, count, inArray, gt, not } from "drizzle-orm";
+@@ -148,6 +156,7 @@ type LedgerPostLine = {
+   accountId?: number;
+   type?: "DEBIT" | "CREDIT";
+   amount?: number;
++  baseAmount?: number;
+   debit?: string | number;
+   credit?: string | number;
+   branchId?: number;
+@@ -162,6 +171,8 @@ type LedgerPostData = {
+   referenceId?: string;
+   reference?: string;
+   createdBy?: string;
++  baseCurrency?: string;
++  exchangeRate?: number;
+   branchId?: number; // Optional branch context for GL segregation
+   lines: LedgerPostLine[];
+ };
+@@ -227,7 +238,7 @@ export interface IStorage {
+   // Tax Config
+   getTaxTypes(companyId?: number): Promise<TaxType[]>;
+   createTaxType(taxType: InsertTaxType & { companyId: number }): Promise<TaxType>;
+-  updateTaxType(id: number, companyId: number, taxType: Partial<InsertTaxType>): Promise<TaxType | undefined>;
++  updateTaxType(id: number, companyId: number, taxType: Partial<InsertTaxType>, userId?: string): Promise<TaxType | undefined>;
+   getTaxCategories(companyId?: number): Promise<TaxCategory[]>;
+   createTaxCategory(category: InsertTaxCategory & { companyId: number }): Promise<TaxCategory>;
+   updateTaxCategory(id: number, companyId: number, category: Partial<InsertTaxCategory>): Promise<TaxCategory | undefined>;
+@@ -383,7 +394,7 @@ export interface IStorage {
+   // Financial Periods
+   getFinancialPeriods(companyId: number): Promise<FinancialPeriod[]>;
+   createFinancialPeriod(data: InsertFinancialPeriod): Promise<FinancialPeriod>;
+-  toggleFinancialPeriod(id: number, status: string): Promise<FinancialPeriod>;
++  toggleFinancialPeriod(id: number, status: string, userId?: string): Promise<FinancialPeriod>;
+   runYearEndClose(companyId: number, asOfDate: Date, currentYearEarningsCode?: string, retainedEarningsCode?: string): Promise<void>;
+   createPosShift(data: InsertPosShift): Promise<PosShift>;
+   updatePosShift(id: number, userId: string, data: Partial<PosShift>): Promise<PosShift>;
+@@ -526,16 +537,19 @@ export interface IStorage {
+   getAccounts(companyId: number): Promise<Account[]>;
+   getAccountById(id: number): Promise<Account | undefined>;
+   getAccountByCode(companyId: number, code: string): Promise<Account | undefined>;
+-  createAccount(data: InsertAccount): Promise<Account>;
++  createAccount(data: InsertAccount, userId?: string): Promise<Account>;
++  updateAccount(id: number, data: Partial<InsertAccount>, userId?: string): Promise<Account>;
+   initializeCompanyAccounts(companyId: number): Promise<void>;
+   getJournalEntries(companyId: number, dateFrom?: Date, dateTo?: Date): Promise<any[]>;
+   getJournalEntryDrafts(companyId: number): Promise<any[]>;
+   createJournalEntryDraft(companyId: number, data: InsertJournalEntryDraft & { lines: LedgerPostLine[] }): Promise<any>;
+   postJournalEntryDraft(companyId: number, draftId: number, userId?: string): Promise<JournalEntry>;
++  reverseJournalEntry(companyId: number, journalEntryId: number, userId: string, reversalDate: Date, reason: string): Promise<JournalEntry>;
+   getLedgerEntries(companyId: number, accountId?: number, dateFrom?: Date, dateTo?: Date): Promise<any[]>;
+   getTrialBalance(companyId: number, date?: Date): Promise<any[]>;
+   getVatReturn(companyId: number, fromDate?: Date, toDate?: Date): Promise<{ outputVat: number; inputVat: number; netVat: number; inputVatBreakdown?: any[]; outputVatBreakdown?: any[] }>;
+   postToLedger(companyId: number, entryData: LedgerPostData, tx?: any): Promise<JournalEntry>;
++  checkPeriodStatus(companyId: number, targetDate: Date, subLedger: "AR" | "AP" | "INVENTORY" | "BANK" | "GL", tx?: any): Promise<void>;
+   
+   // Bank Reconciliation
+   uploadBankStatement(data: InsertBankStatement, lines: InsertBankStatementLine[]): Promise<BankStatement>;
+@@ -545,6 +559,21 @@ export interface IStorage {
+   reconcileBankLine(lineId: number, ledgerEntryId: number): Promise<void>;
+   autoReconcile(statementId: number): Promise<number>;
+   createCashTransaction(data: { companyId: number, type: 'RECEIPT' | 'PAYMENT', bankAccountId: number, counterpartyAccountId: number, amount: number, date: Date, description: string, reference?: string, createdBy?: string }): Promise<JournalEntry>;
++
++  // --- HR & Payroll ---
++  getEmployees(companyId: number): Promise<Employee[]>;
++  getEmployee(id: number, companyId: number): Promise<Employee | undefined>;
++  createEmployee(employee: InsertEmployee & { companyId: number }): Promise<Employee>;
++  updateEmployee(id: number, companyId: number, employee: Partial<InsertEmployee>): Promise<Employee | undefined>;
++
++  getPayrollRuns(companyId: number): Promise<PayrollRun[]>;
++  getPayrollRun(id: number, companyId: number): Promise<PayrollRun | undefined>;
++  createPayrollRun(run: InsertPayrollRun & { companyId: number }): Promise<PayrollRun>;
++  updatePayrollRun(id: number, companyId: number, run: Partial<InsertPayrollRun>): Promise<PayrollRun | undefined>;
++
++  getPayrollRunEmployees(payrollRunId: number): Promise<PayrollRunEmployee[]>;
++  createPayrollRunEmployee(runEmployee: InsertPayrollRunEmployee): Promise<PayrollRunEmployee>;
++  updatePayrollRunEmployee(id: number, data: Partial<InsertPayrollRunEmployee>): Promise<PayrollRunEmployee | undefined>;
+ }
+ 
+ export class DatabaseStorage implements IStorage {
+@@ -558,6 +587,7 @@ export class DatabaseStorage implements IStorage {
+     accountName: string;
+     type: "DEBIT" | "CREDIT";
+     amount: number;
++    baseAmount: number;
+     memo?: string;
+   }>> {
+     const normalized = [];
+@@ -566,6 +596,7 @@ export class DatabaseStorage implements IStorage {
+       const debit = Number(line.debit || 0);
+       const credit = Number(line.credit || 0);
+       const amount = Number(line.amount ?? (debit > 0 ? debit : credit));
++      const baseAmount = Number(line.baseAmount ?? amount);
+       const type = line.type ?? (debit > 0 ? "DEBIT" : "CREDIT");
+       if (!amount || amount <= 0) continue;
+ 
+@@ -588,6 +619,7 @@ export class DatabaseStorage implements IStorage {
+         accountName: account.name,
+         type,
+         amount,
++        baseAmount,
+         memo: line.memo,
+       });
+     }
+@@ -595,20 +627,20 @@ export class DatabaseStorage implements IStorage {
+     return normalized;
+   }
+ 
+-  private assertBalancedLedgerLines(lines: Array<{ type: "DEBIT" | "CREDIT"; amount: number }>) {
++  private assertBalancedLedgerLines(lines: Array<{ type: "DEBIT" | "CREDIT"; amount: number; baseAmount: number }>) {
+     if (lines.length < 2) {
+       throw new Error("A journal entry must contain at least two lines");
+     }
+ 
+     const totalDebit = lines
+       .filter((line) => line.type === "DEBIT")
+-      .reduce((sum, line) => sum + Number(line.amount), 0);
++      .reduce((sum, line) => sum + Number(line.baseAmount), 0);
+     const totalCredit = lines
+       .filter((line) => line.type === "CREDIT")
+-      .reduce((sum, line) => sum + Number(line.amount), 0);
++      .reduce((sum, line) => sum + Number(line.baseAmount), 0);
+ 
+     if (Math.abs(totalDebit - totalCredit) > 0.005) {
+-      throw new Error(`Journal entry is out of balance. Debits: ${totalDebit.toFixed(2)}, Credits: ${totalCredit.toFixed(2)}`);
++      throw new Error(`Journal entry is out of balance in base currency. Base Debits: ${totalDebit.toFixed(2)}, Base Credits: ${totalCredit.toFixed(2)}`);
+     }
+   }
+ 
+@@ -638,6 +670,34 @@ export class DatabaseStorage implements IStorage {
+     }
+   }
+ 
++  async checkPeriodStatus(companyId: number, targetDate: Date, subLedger: "AR" | "AP" | "INVENTORY" | "BANK" | "GL", tx: any = db): Promise<void> {
++    const periods = await tx.select().from(financialPeriods).where(eq(financialPeriods.companyId, companyId));
++    const applicablePeriod = periods.find((p: any) => {
++      const pStart = new Date(p.startDate);
++      const pEnd = new Date(p.endDate);
++      return targetDate >= pStart && targetDate <= pEnd;
++    });
++
++    if (!applicablePeriod) return;
++
++    if (applicablePeriod.status === "CLOSED" || applicablePeriod.status === "LOCKED") {
++       throw new Error(`The financial period '${applicablePeriod.name}' is globally closed.`);
++    }
++
++    if (subLedger === "AR" && applicablePeriod.arClosed) {
++       throw new Error(`Accounts Receivable is closed for the financial period '${applicablePeriod.name}'.`);
++    }
++    if (subLedger === "AP" && applicablePeriod.apClosed) {
++       throw new Error(`Accounts Payable is closed for the financial period '${applicablePeriod.name}'.`);
++    }
++    if (subLedger === "INVENTORY" && applicablePeriod.inventoryClosed) {
++       throw new Error(`Inventory is closed for the financial period '${applicablePeriod.name}'.`);
++    }
++    if (subLedger === "BANK" && applicablePeriod.bankClosed) {
++       throw new Error(`Bank/Cash transactions are closed for the financial period '${applicablePeriod.name}'.`);
++    }
++  }
++
+   async getUser(id: string): Promise<User | undefined> {
+     const [user] = await db.select().from(users).where(eq(users.id, id));
+     return user;
+@@ -1533,6 +1593,7 @@ export class DatabaseStorage implements IStorage {
+     const enriched = await applyPartnershipToInvoiceData(data);
+ 
+     return await db.transaction(async (tx) => {
++      await this.checkPeriodStatus(data.companyId, new Date(data.issueDate || new Date()), "AR", tx);
+       const { items, ...invoiceData } = enriched;
+ 
+       if (!Array.isArray(items) || items.length === 0) {
+@@ -2245,17 +2306,33 @@ export class DatabaseStorage implements IStorage {
+     return newTaxType;
+   }
+ 
+-  async updateTaxType(id: number, companyId: number, taxType: Partial<InsertTaxType>): Promise<TaxType | undefined> {
++  async updateTaxType(id: number, companyId: number, taxType: Partial<InsertTaxType>, userId?: string): Promise<TaxType | undefined> {
+     const updateData = { ...taxType };
+     if (updateData.rate !== undefined) {
+       updateData.rate = updateData.rate.toString();
+     }
+-    const [updated] = await db
+-      .update(taxTypes)
+-      .set(updateData as any)
+-      .where(and(eq(taxTypes.id, id), eq(taxTypes.companyId, companyId)))
+-      .returning();
+-    return updated;
++    
++    return await db.transaction(async (tx) => {
++      const [oldTaxType] = await tx.select().from(taxTypes).where(and(eq(taxTypes.id, id), eq(taxTypes.companyId, companyId)));
++      if (!oldTaxType) return undefined;
++
++      const [updated] = await tx
++        .update(taxTypes)
++        .set(updateData as any)
++        .where(and(eq(taxTypes.id, id), eq(taxTypes.companyId, companyId)))
++        .returning();
++      
++      await tx.insert(auditLogs).values({
++        companyId,
++        userId: userId || null,
++        action: "UPDATE",
++        entityType: "TAX_TYPE",
++        entityId: String(updated.id),
++        details: { oldData: oldTaxType, newData: updated }
++      });
++      
++      return updated;
++    });
+   }
+ 
+   async getTaxCategories(companyId?: number): Promise<TaxCategory[]> {
+@@ -3159,6 +3236,8 @@ export class DatabaseStorage implements IStorage {
+   // Payments
+   async createPayment(payment: InsertPayment & { companyId: number; skipLedger?: boolean }): Promise<Payment> {
+     return await db.transaction(async (tx) => {
++      await this.checkPeriodStatus(payment.companyId, payment.paymentDate ? new Date(payment.paymentDate) : new Date(), "AR", tx);
++      await this.checkPeriodStatus(payment.companyId, payment.paymentDate ? new Date(payment.paymentDate) : new Date(), "BANK", tx);
+       const { skipLedger, ...paymentData } = payment;
+       let [newPayment] = await tx.insert(payments).values(paymentData).returning();
+       
+@@ -4182,9 +4261,24 @@ export class DatabaseStorage implements IStorage {
+     return period;
+   }
+ 
+-  async toggleFinancialPeriod(id: number, status: string): Promise<FinancialPeriod> {
+-    const [period] = await db.update(financialPeriods).set({ status }).where(eq(financialPeriods.id, id)).returning();
+-    return period;
++  async toggleFinancialPeriod(id: number, status: string, userId?: string): Promise<FinancialPeriod> {
++    return await db.transaction(async (tx) => {
++      const [oldPeriod] = await tx.select().from(financialPeriods).where(eq(financialPeriods.id, id));
++      if (!oldPeriod) throw new Error("Financial period not found");
++
++      const [period] = await tx.update(financialPeriods).set({ status }).where(eq(financialPeriods.id, id)).returning();
++      
++      await tx.insert(auditLogs).values({
++        companyId: period.companyId,
++        userId: userId || null,
++        action: "UPDATE_STATUS",
++        entityType: "FINANCIAL_PERIOD",
++        entityId: String(period.id),
++        details: { oldData: oldPeriod, newData: period }
++      });
++      
++      return period;
++    });
+   }
+ 
+   async runYearEndClose(companyId: number, asOfDate: Date, currentYearEarningsCode: string = "3100", retainedEarningsCode: string = "3110"): Promise<void> {
+@@ -5242,6 +5336,7 @@ export class DatabaseStorage implements IStorage {
+ 
+   async createSupplierInvoice(data: InsertSupplierInvoice & { items: InsertSupplierInvoiceItem[], createdBy?: string }): Promise<SupplierInvoice> {
+     return await db.transaction(async (tx) => {
++      await this.checkPeriodStatus(data.companyId, data.date ? new Date(data.date) : new Date(), "AP", tx);
+       const { items, createdBy, ...invoiceData } = data;
+       const invoiceTotal = Number(invoiceData.totalAmount || 0);
+       const invoiceTax = Number(invoiceData.taxAmount || 0);
+@@ -5337,6 +5432,8 @@ export class DatabaseStorage implements IStorage {
+ 
+   async createSupplierPayment(data: InsertSupplierPayment): Promise<SupplierPayment> {
+     return await db.transaction(async (tx) => {
++      await this.checkPeriodStatus(data.companyId, new Date(data.paymentDate || new Date()), "AP", tx);
++      await this.checkPeriodStatus(data.companyId, new Date(data.paymentDate || new Date()), "BANK", tx);
+       const [payment] = await tx.insert(supplierPayments).values(data).returning();
+ 
+       // Automated Journaling: Debit Accounts Payable (2000), Credit Cash/Bank (1000)
+@@ -5485,8 +5582,11 @@ export class DatabaseStorage implements IStorage {
+   }
+ 
+   async createInventoryTransaction(data: InsertInventoryTransaction & { companyId: number }): Promise<InventoryTransaction> {
+-    const [transaction] = await db.insert(inventoryTransactions).values(data).returning();
+-    return transaction;
++    return await db.transaction(async (tx) => {
++      await this.checkPeriodStatus(data.companyId, new Date(), "INVENTORY", tx);
++      const [transaction] = await tx.insert(inventoryTransactions).values(data).returning();
++      return transaction;
++    });
+   }
+ 
+   // Price Adjustments
+@@ -5516,10 +5616,13 @@ export class DatabaseStorage implements IStorage {
+   }
+ 
+   async adjustInventory(companyId: number, data: { productId: number, variationId?: number, branchId?: number, quantity: string | number, type: string, notes?: string, userId: string }): Promise<void> {
+-    const { recordAdjustment } = await import("./lib/inventory.js");
+-    await recordAdjustment(companyId, {
+-      ...data,
+-      quantity: Number(data.quantity)
++    await db.transaction(async (tx) => {
++      await this.checkPeriodStatus(companyId, new Date(), "INVENTORY", tx);
++      const { recordAdjustment } = await import("./lib/inventory.js");
++      await recordAdjustment(companyId, {
++        ...data,
++        quantity: Number(data.quantity)
++      });
+     });
+   }
+ 
+@@ -8036,14 +8139,46 @@ export class DatabaseStorage implements IStorage {
+     return String(nextCode);
+   }
+ 
+-  async createAccount(data: InsertAccount): Promise<Account> {
++  async createAccount(data: InsertAccount, userId?: string): Promise<Account> {
+     return await db.transaction(async (tx) => {
+       const code = data.code?.trim() || await this.generateAccountCode(data.companyId, data.type, data.category || undefined, tx);
+       const [account] = await tx.insert(accounts).values({ ...data, code }).returning();
++      
++      // Audit trail
++      await tx.insert(auditLogs).values({
++        companyId: data.companyId,
++        userId: userId || null,
++        action: "CREATE",
++        entityType: "ACCOUNT",
++        entityId: String(account.id),
++        details: { newData: account }
++      });
++      
+       return account;
+     });
+   }
+ 
++  async updateAccount(id: number, data: Partial<InsertAccount>, userId?: string): Promise<Account> {
++    return await db.transaction(async (tx) => {
++      const [oldAccount] = await tx.select().from(accounts).where(eq(accounts.id, id));
++      if (!oldAccount) throw new Error("Account not found");
++
++      const [newAccount] = await tx.update(accounts).set(data).where(eq(accounts.id, id)).returning();
++      
++      // Audit trail
++      await tx.insert(auditLogs).values({
++        companyId: newAccount.companyId,
++        userId: userId || null,
++        action: "UPDATE",
++        entityType: "ACCOUNT",
++        entityId: String(newAccount.id),
++        details: { oldData: oldAccount, newData: newAccount }
++      });
++
++      return newAccount;
++    });
++  }
++
+   async initializeCompanyAccounts(companyId: number, tx?: any): Promise<void> {
+     const executeInTx = async (t: any) => {
+       const defaultAccounts = [
+@@ -8211,6 +8346,7 @@ export class DatabaseStorage implements IStorage {
+ 
+   async createCashTransaction(data: { companyId: number, type: 'RECEIPT' | 'PAYMENT', bankAccountId: number, counterpartyAccountId: number, amount: number, date: Date, description: string, reference?: string, createdBy?: string }): Promise<JournalEntry> {
+     return await db.transaction(async (tx) => {
++      await this.checkPeriodStatus(data.companyId, new Date(data.date), "BANK", tx);
+       const [bankAcc] = await tx.select().from(accounts).where(eq(accounts.id, data.bankAccountId));
+       const [cpAcc] = await tx.select().from(accounts).where(eq(accounts.id, data.counterpartyAccountId));
+ 
+@@ -8323,6 +8459,7 @@ export class DatabaseStorage implements IStorage {
+           accountId: line.accountId,
+           type: line.type,
+           amount: line.amount.toFixed(2),
++          baseAmount: line.baseAmount.toFixed(2),
+           memo: line.memo,
+         });
+       }
+@@ -8335,6 +8472,7 @@ export class DatabaseStorage implements IStorage {
+           accountName: line.accountName,
+           type: line.type,
+           amount: line.amount.toFixed(2),
++          baseAmount: line.baseAmount.toFixed(2),
+           memo: line.memo,
+         })),
+       };
+@@ -8356,6 +8494,7 @@ export class DatabaseStorage implements IStorage {
+         accountName: accounts.name,
+         type: journalEntryDraftLines.type,
+         amount: journalEntryDraftLines.amount,
++        baseAmount: journalEntryDraftLines.baseAmount,
+       })
+       .from(journalEntryDraftLines)
+       .innerJoin(accounts, eq(journalEntryDraftLines.accountId, accounts.id))
+@@ -8367,6 +8506,7 @@ export class DatabaseStorage implements IStorage {
+         accountName: line.accountName,
+         type: line.type as "DEBIT" | "CREDIT",
+         amount: Number(line.amount),
++        baseAmount: Number(line.baseAmount),
+       }));
+       this.assertBalancedLedgerLines(normalizedLines);
+ 
+@@ -8404,6 +8544,7 @@ export class DatabaseStorage implements IStorage {
+       description: journalEntries.description,
+       type: ledgerEntries.type,
+       amount: ledgerEntries.amount,
++      baseAmount: ledgerEntries.baseAmount,
+       referenceType: journalEntries.referenceType,
+       referenceId: journalEntries.referenceId,
+       account: accounts
+@@ -8426,7 +8567,7 @@ export class DatabaseStorage implements IStorage {
+     for (const acc of allAccounts) {
+       const entries = await db.select({
+         type: ledgerEntries.type,
+-        amount: ledgerEntries.amount
++        amount: ledgerEntries.baseAmount
+       })
+       .from(ledgerEntries)
+       .innerJoin(journalEntries, eq(ledgerEntries.journalEntryId, journalEntries.id))
+@@ -8461,6 +8602,84 @@ export class DatabaseStorage implements IStorage {
+     return result;
+   }
+ 
++  async reverseJournalEntry(companyId: number, journalEntryId: number, userId: string, reversalDate: Date, reason: string): Promise<JournalEntry> {
++    return await db.transaction(async (tx) => {
++      // 1. Fetch original journal entry
++      const [original] = await tx.select().from(journalEntries)
++        .where(and(eq(journalEntries.id, journalEntryId), eq(journalEntries.companyId, companyId)));
++      
++      if (!original) throw new Error("Journal entry not found");
++      if (original.status === "REVERSED") throw new Error("Journal entry is already reversed");
++      
++      // 2. Prevent duplicate reversals
++      const [existingReversal] = await tx.select().from(journalEntries)
++        .where(eq(journalEntries.reversalOfJournalEntryId, journalEntryId));
++      if (existingReversal) {
++        throw new Error(`Journal entry has already been reversed by entry ${existingReversal.id}`);
++      }
++      
++      // 3. Period closure checks
++      await this.checkPeriodStatus(companyId, reversalDate, "GL", tx);
++
++      // 4. Fetch original ledger lines
++      const lines = await tx.select().from(ledgerEntries)
++        .where(eq(ledgerEntries.journalEntryId, journalEntryId));
++        
++      if (lines.length === 0) throw new Error("Journal entry has no lines to reverse");
++
++      // 5. Create new reversal journal entry
++      const [reversalJournal] = await tx.insert(journalEntries).values({
++        companyId,
++        branchId: original.branchId,
++        entryDate: reversalDate,
++        description: `Reversal of Journal Entry #${journalEntryId}: ${reason}`,
++        referenceType: "REVERSAL",
++        referenceId: String(journalEntryId),
++        journalType: original.journalType,
++        createdBy: userId,
++        status: "POSTED",
++        reversalOfJournalEntryId: journalEntryId
++      }).returning();
++
++      // 6. Insert inverted ledger lines
++      const invertedLines = lines.map(line => ({
++        companyId,
++        branchId: line.branchId,
++        accountId: line.accountId,
++        journalEntryId: reversalJournal.id,
++        entryDate: reversalDate,
++        type: line.type === "DEBIT" ? "CREDIT" : "DEBIT", // Invert the side
++        amount: line.amount, // Keep amount positive but opposite side
++        baseAmount: line.baseAmount,
++        currency: line.currency,
++        exchangeRate: line.exchangeRate,
++        memo: `Reversal of line ${line.id}`,
++        createdBy: userId
++      }));
++
++      await tx.insert(ledgerEntries).values(invertedLines);
++
++      // 7. Mark original as REVERSED
++      await tx.update(journalEntries).set({ status: "REVERSED" }).where(eq(journalEntries.id, journalEntryId));
++
++      // 8. Audit trail
++      await tx.insert(auditLogs).values({
++        companyId,
++        userId: userId || null,
++        action: "REVERSE_JOURNAL",
++        entityType: "JOURNAL_ENTRY",
++        entityId: String(journalEntryId),
++        details: { 
++          reason, 
++          reversalJournalId: reversalJournal.id,
++          reversalDate
++        }
++      });
++
++      return reversalJournal;
++    });
++  }
++
+   async postToLedger(companyId: number, data: LedgerPostData, tx?: any): Promise<JournalEntry> {
+     const executeInTx = async (t: any) => {
+       // POSTING GUARD: Cannot post to a CLOSED period
+@@ -8485,6 +8704,7 @@ export class DatabaseStorage implements IStorage {
+         description: data.description,
+         referenceType: data.referenceType,
+         referenceId: data.referenceId ?? data.reference,
++        baseCurrency: data.baseCurrency ?? "USD",
+         createdBy: data.createdBy,
+       }).returning();
+ 
+@@ -8494,12 +8714,19 @@ export class DatabaseStorage implements IStorage {
+ 
+       // 2. Create Ledger Entries (denormalize branchId for efficient branch-level querying)
+       for (const line of normalizedLines) {
++        let finalBaseAmount = line.baseAmount;
++        if (data.exchangeRate && line.baseAmount === line.amount) {
++           finalBaseAmount = line.amount * data.exchangeRate;
++        }
++
+         await t.insert(ledgerEntries).values({
+           journalEntryId: je.id,
+           accountId: line.accountId,
+           branchId: data.branchId ?? null,
+           type: line.type,
+           amount: line.amount.toFixed(2),
++          baseAmount: finalBaseAmount.toFixed(2),
++          exchangeRate: data.exchangeRate ? data.exchangeRate.toFixed(6) : "1.000000"
+         });
+       }
+ 
+@@ -8568,6 +8795,59 @@ export class DatabaseStorage implements IStorage {
+       outputVatBreakdown: salesInvoices
+     };
+   }
++
++  // --- HR & Payroll Implementations ---
++  async getEmployees(companyId: number): Promise<Employee[]> {
++    return await db.select().from(employees).where(eq(employees.companyId, companyId));
++  }
++
++  async getEmployee(id: number, companyId: number): Promise<Employee | undefined> {
++    const [employee] = await db.select().from(employees).where(and(eq(employees.id, id), eq(employees.companyId, companyId)));
++    return employee;
++  }
++
++  async createEmployee(employee: InsertEmployee & { companyId: number }): Promise<Employee> {
++    const [newEmployee] = await db.insert(employees).values(employee).returning();
++    return newEmployee;
++  }
++
++  async updateEmployee(id: number, companyId: number, employeeUpdate: Partial<InsertEmployee>): Promise<Employee | undefined> {
++    const [updated] = await db.update(employees).set(employeeUpdate).where(and(eq(employees.id, id), eq(employees.companyId, companyId))).returning();
++    return updated;
++  }
++
++  async getPayrollRuns(companyId: number): Promise<PayrollRun[]> {
++    return await db.select().from(payrollRuns).where(eq(payrollRuns.companyId, companyId)).orderBy(desc(payrollRuns.periodStart));
++  }
++
++  async getPayrollRun(id: number, companyId: number): Promise<PayrollRun | undefined> {
++    const [run] = await db.select().from(payrollRuns).where(and(eq(payrollRuns.id, id), eq(payrollRuns.companyId, companyId)));
++    return run;
++  }
++
++  async createPayrollRun(run: InsertPayrollRun & { companyId: number }): Promise<PayrollRun> {
++    const [newRun] = await db.insert(payrollRuns).values(run).returning();
++    return newRun;
++  }
++
++  async updatePayrollRun(id: number, companyId: number, runUpdate: Partial<InsertPayrollRun>): Promise<PayrollRun | undefined> {
++    const [updated] = await db.update(payrollRuns).set(runUpdate).where(and(eq(payrollRuns.id, id), eq(payrollRuns.companyId, companyId))).returning();
++    return updated;
++  }
++
++  async getPayrollRunEmployees(payrollRunId: number): Promise<PayrollRunEmployee[]> {
++    return await db.select().from(payrollRunEmployees).where(eq(payrollRunEmployees.payrollRunId, payrollRunId));
++  }
++
++  async createPayrollRunEmployee(runEmployee: InsertPayrollRunEmployee): Promise<PayrollRunEmployee> {
++    const [newRunEmployee] = await db.insert(payrollRunEmployees).values(runEmployee).returning();
++    return newRunEmployee;
++  }
++
++  async updatePayrollRunEmployee(id: number, data: Partial<InsertPayrollRunEmployee>): Promise<PayrollRunEmployee | undefined> {
++    const [updated] = await db.update(payrollRunEmployees).set(data).where(eq(payrollRunEmployees.id, id)).returning();
++    return updated;
++  }
+ }
+ 
+ export const storage = new DatabaseStorage();

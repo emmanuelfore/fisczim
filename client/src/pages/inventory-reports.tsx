@@ -3,6 +3,7 @@ import {
   useStockValuation,
   useStockAdjustmentsReport,
 } from "@/hooks/use-reports";
+import { ExpiringBatchesDashboard } from "@/components/inventory/expiring-batches";
 import { Layout } from "@/components/layout";
 import {
   Card,
@@ -490,6 +491,9 @@ export default function InventoryReportsPage() {
             </Table>
           </CardContent>
         </Card>
+
+        {/* Expiring Batches */}
+        <ExpiringBatchesDashboard companyId={companyId} />
 
         {/* Stock Adjustments Reporting */}
         <Card className="border-none shadow-xl bg-white rounded-[2rem] overflow-hidden">

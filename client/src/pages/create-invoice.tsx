@@ -14,6 +14,7 @@ import { useCompany } from "@/hooks/use-companies";
 import { usePartners } from "@/hooks/use-partners";
 import { useTaxConfig } from "@/hooks/use-tax-config";
 import { useToast } from "@/hooks/use-toast";
+import { useProductSerials } from "@/hooks/use-auto-spares";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -95,6 +96,7 @@ type LineItem = {
   segmentId?: number | null;
   hsCode?: string;
   taxTypeId?: number | null;
+  serialNumber?: string;
 };
 
 export default function CreateInvoicePage() {
@@ -130,6 +132,7 @@ export default function CreateInvoicePage() {
   const createInvoice = useCreateInvoice(companyId);
   const createCustomer = useCreateCustomer(companyId);
   const { taxTypes } = useTaxConfig(companyId);
+  const { data: serialNumbers = [] } = useProductSerials(companyId, undefined, "IN_STOCK");
   const { toast } = useToast();
   const updateInvoice = useUpdateInvoice();
   const fiscalizeInvoice = useFiscalizeInvoice();
@@ -251,6 +254,7 @@ export default function CreateInvoicePage() {
             segmentId: (item as any).segmentId,
             hsCode: (item as any).product?.hsCode || undefined,
             taxTypeId: item.taxTypeId,
+            serialNumber: (item as any).serialNumber || undefined,
           })),
         );
       }
@@ -647,6 +651,7 @@ export default function CreateInvoicePage() {
         segmentId: item.segmentId,
         lineTotal: (item.quantity * item.unitPrice).toString(),
         taxTypeId: item.taxTypeId,
+        serialNumber: item.serialNumber,
       })),
     };
 
@@ -735,6 +740,7 @@ export default function CreateInvoicePage() {
         segmentId: item.segmentId,
         lineTotal: (item.quantity * item.unitPrice).toString(),
         taxTypeId: item.taxTypeId,
+        serialNumber: item.serialNumber,
       })),
     };
 
@@ -831,6 +837,7 @@ export default function CreateInvoicePage() {
         segmentId: item.segmentId,
         lineTotal: (item.quantity * item.unitPrice).toString(),
         taxTypeId: item.taxTypeId,
+        serialNumber: item.serialNumber,
       })),
     };
 
@@ -1985,6 +1992,29 @@ export default function CreateInvoicePage() {
                                       }
                                       className="h-8 rounded-lg border-slate-100 bg-slate-50/50 px-2 text-[12px] transition-all hover:border-slate-200 focus:border-primary focus:bg-white"
                                     />
+                                    {products?.find(p => p.id === item.productId)?.serialTrackingEnabled && (
+                                      <Select
+                                        value={item.serialNumber || ""}
+                                        onValueChange={(val) => updateItem(item.localId, "serialNumber", val)}
+                                      >
+                                        <SelectTrigger className="h-8 text-[12px] w-full bg-slate-50 border-slate-200 rounded-lg">
+                                          <SelectValue placeholder="Select Serial Number" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {serialNumbers
+                                            .filter(
+                                              (s: any) =>
+                                                s.productId === item.productId &&
+                                                (s.status === "IN_STOCK" || s.serialNumber === item.serialNumber),
+                                            )
+                                            .map((s: any) => (
+                                              <SelectItem key={s.id} value={s.serialNumber}>
+                                                {s.serialNumber}
+                                              </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                      </Select>
+                                    )}
                                   </div>
                                 </TableCell>
                                 <TableCell className="align-top py-3">

@@ -56,9 +56,11 @@ export function BatchVariationManager({ productId, companyId }: Props) {
     name: "",
     price: "",
     sku: "",
+    baseUnitMultiplier: "1",
   });
   const [newBatch, setNewBatch] = useState({
     batchNumber: "",
+    manufacturingDate: "",
     expiryDate: new Date().toISOString().split("T")[0],
     stockLevel: "",
     variationId: "none",
@@ -98,7 +100,7 @@ export function BatchVariationManager({ productId, companyId }: Props) {
       });
       toast({ title: "Format added successfully" });
       setIsVariationDialogOpen(false);
-      setNewVariation({ name: "", price: "", sku: "" });
+      setNewVariation({ name: "", price: "", sku: "", baseUnitMultiplier: "1" });
     },
     onError: (err: any) => {
       toast({
@@ -114,6 +116,8 @@ export function BatchVariationManager({ productId, companyId }: Props) {
       const payload = { ...data };
       if (payload.variationId === "none") delete payload.variationId;
       else payload.variationId = parseInt(payload.variationId);
+      
+      if (!payload.manufacturingDate) delete payload.manufacturingDate;
 
       const res = await apiFetch(`/api/products/${productId}/batches`, {
         method: "POST",
@@ -130,6 +134,7 @@ export function BatchVariationManager({ productId, companyId }: Props) {
       setIsBatchDialogOpen(false);
       setNewBatch({
         batchNumber: "",
+        manufacturingDate: "",
         expiryDate: new Date().toISOString().split("T")[0],
         stockLevel: "",
         variationId: "none",
@@ -150,6 +155,7 @@ export function BatchVariationManager({ productId, companyId }: Props) {
       productId,
       name: newVariation.name,
       price: newVariation.price || "0",
+      baseUnitMultiplier: newVariation.baseUnitMultiplier || "1",
       sku:
         newVariation.sku ||
         `${productId}-${newVariation.name.replace(/\s+/g, "-").toLowerCase()}`,
@@ -221,6 +227,14 @@ export function BatchVariationManager({ productId, companyId }: Props) {
                         </div>
                       </div>
                       <div className="flex items-center gap-4">
+                        <div className="text-right">
+                          <p className="text-xs font-black text-indigo-600">
+                            x{Number(v.baseUnitMultiplier || 1).toFixed(2)}
+                          </p>
+                          <p className="text-[10px] text-slate-400 font-bold uppercase">
+                            Multiplier
+                          </p>
+                        </div>
                         <div className="text-right">
                           <p className="text-xs font-black text-indigo-600">
                             ${Number(v.price).toFixed(2)}
@@ -415,6 +429,22 @@ export function BatchVariationManager({ productId, companyId }: Props) {
                   className="rounded-xl border-slate-100 bg-slate-50/50 focus:bg-white transition-all font-bold"
                 />
               </div>
+              <div className="space-y-2">
+                <Label className="text-xs font-black uppercase text-slate-500 ml-1">
+                  Base Unit Multiplier
+                </Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  placeholder="e.g. 10 (for a box of 10)"
+                  value={newVariation.baseUnitMultiplier}
+                  onChange={(e) =>
+                    setNewVariation({ ...newVariation, baseUnitMultiplier: e.target.value })
+                  }
+                  className="rounded-xl border-slate-100 bg-slate-50/50 focus:bg-white transition-all font-bold"
+                />
+              </div>
             </div>
           </div>
           <DialogFooter>
@@ -474,18 +504,33 @@ export function BatchVariationManager({ productId, companyId }: Props) {
                 />
               </div>
             </div>
-            <div className="space-y-2">
-              <Label className="text-xs font-black uppercase text-slate-500 ml-1">
-                Expiration Date
-              </Label>
-              <Input
-                type="date"
-                value={newBatch.expiryDate}
-                onChange={(e) =>
-                  setNewBatch({ ...newBatch, expiryDate: e.target.value })
-                }
-                className="rounded-xl border-slate-100 bg-slate-50/50 focus:bg-white transition-all font-bold"
-              />
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="text-xs font-black uppercase text-slate-500 ml-1">
+                  Manufacturing Date
+                </Label>
+                <Input
+                  type="date"
+                  value={newBatch.manufacturingDate}
+                  onChange={(e) =>
+                    setNewBatch({ ...newBatch, manufacturingDate: e.target.value })
+                  }
+                  className="rounded-xl border-slate-100 bg-slate-50/50 focus:bg-white transition-all font-bold"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs font-black uppercase text-slate-500 ml-1">
+                  Expiration Date
+                </Label>
+                <Input
+                  type="date"
+                  value={newBatch.expiryDate}
+                  onChange={(e) =>
+                    setNewBatch({ ...newBatch, expiryDate: e.target.value })
+                  }
+                  className="rounded-xl border-slate-100 bg-slate-50/50 focus:bg-white transition-all font-bold"
+                />
+              </div>
             </div>
             <div className="space-y-2">
               <Label className="text-xs font-black uppercase text-slate-500 ml-1">

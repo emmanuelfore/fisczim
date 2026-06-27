@@ -6,6 +6,7 @@ import { createServer } from "http";
 import { setupSwagger } from "./swagger.js";
 import { startRecurringInvoiceWorker, startFiscalDayClosingWorker } from "./jobs.js";
 import { seedGlobalPayrollDefaults } from "./lib/payroll-seeding.js";
+import { initializeScheduler } from "./scheduler.js";
 
 import cors from "cors";
 import compression from "compression";

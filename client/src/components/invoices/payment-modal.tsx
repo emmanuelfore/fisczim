@@ -175,6 +175,7 @@ export function PaymentModal({
           amount: values.amount,
           currency: invoice.currency || "USD",
           createdAt: (payment as any)?.createdAt || new Date().toISOString(),
+          balanceDue: Math.max(0, remainingBalance - Number(values.amount)),
         });
       }
       onOpenChange(false);

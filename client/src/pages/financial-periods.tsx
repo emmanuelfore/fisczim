@@ -37,6 +37,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 
 type FinancialPeriod = {
   id: number;
@@ -44,6 +45,10 @@ type FinancialPeriod = {
   startDate: string;
   endDate: string;
   status: "OPEN" | "CLOSED" | string;
+  apLocked: boolean;
+  arLocked: boolean;
+  inventoryLocked: boolean;
+  glLocked: boolean;
 };
 
 const periodQueryKey = (companyId?: number | null) => [
@@ -207,19 +212,21 @@ export default function FinancialPeriodsPage() {
     },
   });
 
+  // --- Mutations ---
   const toggleMutation = useMutation({
-    mutationFn: async ({ id, status }: { id: number; status: string }) => {
+    mutationFn: async (payload: { id: number; status?: string; apLocked?: boolean; arLocked?: boolean; inventoryLocked?: boolean; glLocked?: boolean }) => {
+      const { id, ...updates } = payload;
       const res = await apiRequest(
         "PATCH",
         `/api/accounting/periods/${id}/toggle`,
-        { status },
+        updates,
       );
       return res.json();
     },
     onSuccess: (data) => {
       toast({
         title: "Period updated",
-        description: `${data.name} is now ${data.status.toLowerCase()}.`,
+        description: `${data.name} locks have been updated.`,
       });
       invalidatePeriods();
     },
@@ -591,69 +598,78 @@ export default function FinancialPeriodsPage() {
                         )}
                       </TableCell>
                       <TableCell className="text-right pr-6">
-                        {period.status === "OPEN" ? (
-                          <Dialog>
-                            <DialogTrigger asChild>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-8 rounded-lg text-rose-600 hover:text-rose-700 hover:bg-rose-50 border-rose-200"
-                              >
-                                <Lock className="h-3.5 w-3.5 mr-1" /> Close
-                              </Button>
-                            </DialogTrigger>
-                            <DialogContent className="rounded-2xl">
-                              <DialogHeader>
-                                <DialogTitle>Close {period.name}</DialogTitle>
-                              </DialogHeader>
-                              <div className="space-y-4 pt-3">
-                                <div className="rounded-xl border border-amber-200 bg-amber-50 p-3  font-medium text-amber-800">
-                                  Closing blocks normal journal posting inside
-                                  this period.
-                                </div>
-                                <div className="space-y-2">
-                                  {closeChecklist.map((item) => (
-                                    <div
-                                      key={item}
-                                      className="flex items-center gap-2  text-slate-700"
-                                    >
-                                      <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                                      {item}
-                                    </div>
-                                  ))}
-                                </div>
-                                <Button
-                                  variant="destructive"
-                                  className="w-full"
-                                  onClick={() =>
-                                    toggleMutation.mutate({
-                                      id: period.id,
-                                      status: "CLOSED",
-                                    })
-                                  }
-                                  disabled={toggleMutation.isPending}
-                                >
-                                  Close Period
-                                </Button>
+                        <Dialog>
+                          <DialogTrigger asChild>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-8 rounded-lg text-slate-600 hover:text-slate-700 hover:bg-slate-50 border-slate-200"
+                            >
+                              <Lock className="h-3.5 w-3.5 mr-1" /> Locks
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent className="rounded-2xl">
+                            <DialogHeader>
+                              <DialogTitle>Sub-Ledger Locks for {period.name}</DialogTitle>
+                            </DialogHeader>
+                            <div className="space-y-4 pt-3">
+                              <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 font-medium text-blue-800 text-sm">
+                                Manage granular module locks for this financial period.
                               </div>
-                            </DialogContent>
-                          </Dialog>
-                        ) : (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-8 rounded-lg text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 border-emerald-200"
-                            onClick={() =>
-                              toggleMutation.mutate({
-                                id: period.id,
-                                status: "OPEN",
-                              })
-                            }
-                            disabled={toggleMutation.isPending}
-                          >
-                            <Unlock className="h-3.5 w-3.5 mr-1" /> Reopen
-                          </Button>
-                        )}
+                              <div className="space-y-4">
+                                <div className="flex items-center justify-between">
+                                  <Label>Accounts Payable (AP)</Label>
+                                  <Switch checked={period.apLocked} onCheckedChange={(checked) => toggleMutation.mutate({ id: period.id, apLocked: checked })} disabled={toggleMutation.isPending} />
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <Label>Accounts Receivable (AR)</Label>
+                                  <Switch checked={period.arLocked} onCheckedChange={(checked) => toggleMutation.mutate({ id: period.id, arLocked: checked })} disabled={toggleMutation.isPending} />
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <Label>Inventory & Procurement</Label>
+                                  <Switch checked={period.inventoryLocked} onCheckedChange={(checked) => toggleMutation.mutate({ id: period.id, inventoryLocked: checked })} disabled={toggleMutation.isPending} />
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <Label>General Ledger (GL)</Label>
+                                  <Switch checked={period.glLocked} onCheckedChange={(checked) => toggleMutation.mutate({ id: period.id, glLocked: checked })} disabled={toggleMutation.isPending} />
+                                </div>
+                              </div>
+                              <div className="border-t pt-4">
+                                {period.status === "OPEN" ? (
+                                  <Button
+                                    variant="destructive"
+                                    className="w-full"
+                                    onClick={() =>
+                                      toggleMutation.mutate({
+                                        id: period.id,
+                                        status: "CLOSED",
+                                        apLocked: true, arLocked: true, inventoryLocked: true, glLocked: true
+                                      })
+                                    }
+                                    disabled={toggleMutation.isPending}
+                                  >
+                                    Close Entire Period
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    variant="outline"
+                                    className="w-full"
+                                    onClick={() =>
+                                      toggleMutation.mutate({
+                                        id: period.id,
+                                        status: "OPEN",
+                                        apLocked: false, arLocked: false, inventoryLocked: false, glLocked: false
+                                      })
+                                    }
+                                    disabled={toggleMutation.isPending}
+                                  >
+                                    Reopen Period
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                          </DialogContent>
+                        </Dialog>
                       </TableCell>
                     </TableRow>
                   ))

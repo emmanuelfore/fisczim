@@ -164,7 +164,7 @@ export default function InvoiceDetailsPage() {
 
   const totalPaid = Number(
     paymentSummary?.allocatedTotal ??
-      payments?.reduce((sum: number, p: any) => sum + Number(p.amount), 0) ??
+      payments?.reduce((sum: number, p: any) => sum + Number(p.allocatedToThisInvoice ?? p.amount ?? 0), 0) ??
       0,
   );
   const balanceDue = Math.max(0, Number(invoice?.total || 0) - totalPaid);
@@ -1265,6 +1265,7 @@ export default function InvoiceDetailsPage() {
             notes: receiptPayment.notes,
             currency: receiptPayment.currency || invoice.currency,
             createdAt: receiptPayment.paymentDate,
+            balanceDue: balanceDue,
           }}
           invoice={invoice}
           company={company}

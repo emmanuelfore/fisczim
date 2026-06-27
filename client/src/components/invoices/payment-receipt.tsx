@@ -24,6 +24,7 @@ interface PaymentReceiptProps {
     notes?: string;
     currency?: string;
     createdAt?: string;
+    balanceDue?: number;
   };
   invoice: any; // Accept full invoice object
   company: any;
@@ -118,6 +119,7 @@ export function PaymentReceipt({
                     invoiceNumber: invoice?.invoiceNumber,
                     customerName: customer?.name || invoice?.customer?.name,
                     customerEmail: customer?.email || invoice?.customer?.email,
+                    balanceDue: payment.balanceDue,
                     id: (payment as any).id || 0,
                   }}
                   company={company}
@@ -211,6 +213,15 @@ export function PaymentReceipt({
               {currency} {Number(payment.amount).toFixed(2)}
             </span>
           </div>
+          
+          {payment.balanceDue !== undefined && (
+            <div className="flex justify-between font-black mt-1">
+              <span>BALANCE DUE:</span>
+              <span>
+                {currency} {Number(payment.balanceDue).toFixed(2)}
+              </span>
+            </div>
+          )}
 
           <div className="border-t border-dashed border-black my-2" />
 

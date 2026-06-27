@@ -1,0 +1,45 @@
+--- server/api/v1/payroll.ts
++++ server/api/v1/payroll.ts
+@@ -194,6 +194,22 @@
+         where: and(eq(payrollRuns.companyId, companyId), eq(payrollRuns.status, "LOCKED"))
+       }).orderBy(desc(payrollRuns.periodStart)).limit(1);
+       
++      // Get tax year for this run (Jan-Dec for Zim)
++      const currentYear = new Date(run.periodStart).getFullYear();
++      
++      const previousLockedRun = await db.query.payrollRuns.findFirst({
++        where: and(
++          eq(payrollRuns.companyId, companyId),
++          eq(payrollRuns.status, "LOCKED"),
++          gte(payrollRuns.periodStart, `${currentYear}-01-01`),
++          lt(payrollRuns.periodStart, run.periodStart)
++        ),
++        orderBy: desc(payrollRuns.periodStart)
++      });
++      
++      const previousLines = previousLockedRun ? await db.query.payrollRunEmployees.findMany({
++        where: eq(payrollRunEmployees.payrollRunId, previousLockedRun.id)
++      }) : [];
+ 
+       // Prepare calculation inputs
+       const calcInputs = employeesList.map(emp => {
+@@ -204,6 +220,10 @@
+ 
+         const elementInputs = processElements(companyElements, overrides);
+ 
++        const prevLine = previousLines.find(l => l.employeeId === emp.id);
++        const rolledOverCredits = prevLine ? parseFloat(prevLine.rolledOverCredits || "0") : 0;
++
+         return {
+           employeeId: emp.id,
+           input: {
+@@ -211,6 +231,8 @@
+             usdPercentage: parseFloat(emp.contractUsdRatio || "100"),
+             zigPercentage: parseFloat(emp.contractZigRatio || "0"),
+             exchangeRate: parseFloat(run.exchangeRate || "1"),
++            useFds: true, // Auto FDS
++            fdsMethod: statutory.fdsMethod || "FORECASTING",
++            rolledOverCredits,
+             elements: elementInputs,
+             pensionEmployeeRate: 0.05,
+             pensionEmployerRate: 0.05,

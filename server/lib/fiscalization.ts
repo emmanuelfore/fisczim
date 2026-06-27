@@ -304,9 +304,22 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
             console.warn("Failed to fetch ZIMRA config, falling back to database for tax mapping");
         }
 
+        const explicitlyNotVatRegistered = company.vatRegistered === false || company.vatEnabled === false;
+
         // Map Invoice to ReceiptData
         const receiptLines = invoice.items.map((item, index) => {
             let taxPercent = parseFloat(item.taxRate as any);
+            let unitPrice = parseFloat(item.unitPrice as any);
+            let lineTotal = parseFloat(item.lineTotal as any);
+
+            if (explicitlyNotVatRegistered && taxPercent > 0) {
+                if (!invoice.taxInclusive) {
+                    const taxFactor = 1 + (taxPercent / 100);
+                    unitPrice = parseFloat((unitPrice * taxFactor).toFixed(2));
+                    lineTotal = parseFloat((lineTotal * taxFactor).toFixed(2));
+                }
+                taxPercent = 0;
+            }
 
             let taxID = 0;
 
@@ -418,13 +431,13 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
 
             // Build receipt line, conditionally omitting taxPercent for exempt items
             const receiptLine: any = {
-                receiptLineType: ((invoice.transactionType || 'FiscalInvoice') !== 'CreditNote' && (invoice.transactionType || 'FiscalInvoice') !== 'DebitNote' && Number(item.unitPrice) < 0) ? 'Discount' : 'Sale',
+                receiptLineType: ((invoice.transactionType || 'FiscalInvoice') !== 'CreditNote' && (invoice.transactionType || 'FiscalInvoice') !== 'DebitNote' && Number(unitPrice) < 0) ? 'Discount' : 'Sale',
                 receiptLineNo: index + 1,
                 receiptLineHSCode: (item.product?.hsCode || '04021099').trim(),
                 receiptLineName: (item.description || '').trim(),
-                receiptLinePrice: parseFloat(Number(item.unitPrice).toFixed(2)),
+                receiptLinePrice: parseFloat(Number(unitPrice).toFixed(2)),
                 receiptLineQuantity: parseFloat(Number(item.quantity).toFixed(2)),
-                receiptLineTotal: parseFloat(Number(item.lineTotal).toFixed(2)),
+                receiptLineTotal: parseFloat(Number(lineTotal).toFixed(2)),
                 taxID: taxID,
             };
 

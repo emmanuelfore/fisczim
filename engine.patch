@@ -1,0 +1,143 @@
+--- shared/payroll-engine.ts
++++ shared/payroll-engine.ts
+@@ -38,6 +38,7 @@
+   amount?: number; // Fixed or Override amount
+   isTaxable?: boolean;
+   isTaxDeductible?: boolean;
++  isRecurring?: boolean;
+ }
+ 
+ export interface CalculationInput {
+@@ -88,6 +89,8 @@
+   monthNumber?: number;
+   /** Enable FDS mode (if false, calculate month in isolation) */
+   useFds?: boolean;
++  fdsMethod?: "FORECASTING" | "AVERAGING";
++  rolledOverCredits?: number;
+ 
+   // ── Split Currency ────────────────────────────────────────────────────────
+   usdPercentage: number;  // contract split ratio e.g. 70.00
+@@ -126,6 +129,7 @@
+   amount: number;
+   isTaxable?: boolean;
+   isTaxDeductible?: boolean;
++  isRecurring?: boolean;
+ }
+ 
+ export interface CalculationResult {
+@@ -168,6 +172,7 @@
+ 
+   // ── FDS ───────────────────────────────────────────────────────────────────
+   fdsAdjustment: number;         // positive = extra collected, negative = refund
++  rolledOverCredits: number;     // unutilized credits to carry forward
+ 
+   // ── Totals ───────────────────────────────────────────────────────────────
+   totalAllowances: number;
+@@ -244,6 +249,7 @@
+ 
+     // ── Dynamic Elements (Earnings & Deductions) ───────────────────────────
+     let taxableAllowances = 0;
++    let regularTaxableAllowances = 0;
+     let nontaxableAllowances = 0;
+     let taxDeductibleDeductions = 0;
+     let otherDeductions = 0;
+@@ -262,8 +268,12 @@
+       }
+ 
+       if (el.type === "EARNING") {
+-        if (el.isTaxable) taxableAllowances += calcAmount;
+-        else nontaxableAllowances += calcAmount;
++        if (el.isTaxable) {
++          taxableAllowances += calcAmount;
++          if (el.isRecurring) regularTaxableAllowances += calcAmount;
++        } else {
++          nontaxableAllowances += calcAmount;
++        }
+         
+         processedEarnings.push({ ...el, amount: calcAmount });
+       } else {
+@@ -321,27 +331,43 @@
+     const taxableIncome = Math.max(0, r2(earningsSubjectToTaxes - nssaEmployee - totalTaxDeductible));
+ 
+     // ── 10. PAYE (FDS or Standalone) ──────────────────────────────────────
+     const brackets = input.taxConfig.brackets || [];
+     const useFds = input.useFds ?? false;
++    const fdsMethod = input.fdsMethod || "FORECASTING";
+     const monthNum = Math.max(1, Math.min(12, Number(input.monthNumber || 12)));
+     const ytdTaxable = Number(input.ytdTaxableIncome || 0);
+     const ytdPaid = Number(input.ytdPayePaid || 0);
+ 
+     let payeRaw: number;
+     let fdsAdjustment = 0;
++    const standalonePaye = Math.max(0, r2(ZimbabwePayrollEngine.computeAnnualPAYE(taxableIncome * 12, brackets) / 12));
+ 
+     if (useFds && monthNum > 0) {
+-      // FDS: Annualize YTD + current month taxable income
+-      const cumulativeTaxable = ytdTaxable + taxableIncome;
+-      const annualizedTaxable = r2(cumulativeTaxable * (12 / monthNum));
+-      const annualPAYE = ZimbabwePayrollEngine.computeAnnualPAYE(annualizedTaxable, brackets);
+-      // Month's PAYE = projected annual liability / 12 - already paid
+-      const projectedMonthly = r2(annualPAYE / 12);
+-      payeRaw = Math.max(0, r2(projectedMonthly * monthNum - ytdPaid));
+-      fdsAdjustment = r2(payeRaw - ZimbabwePayrollEngine.computeAnnualPAYE(taxableIncome * 12, brackets) / 12);
++      if (fdsMethod === "FORECASTING") {
++        const remainingMonths = 12 - monthNum;
++        const regularTaxableIncome = r2(input.baseSalary + regularTaxableAllowances - totalTaxDeductible - nssaEmployee);
++        // YTD + Current + Forecasted Regular
++        const annualizedTaxable = r2(ytdTaxable + taxableIncome + (Math.max(0, regularTaxableIncome) * remainingMonths));
++        const annualPAYE = ZimbabwePayrollEngine.computeAnnualPAYE(annualizedTaxable, brackets);
++        
++        // The tax balance for remaining months
++        const taxBalance = Math.max(0, annualPAYE - ytdPaid);
++        payeRaw = r2(taxBalance / (remainingMonths + 1));
++        
++      } else { // AVERAGING
++        const averageTaxable = r2((ytdTaxable + taxableIncome) / monthNum);
++        const annualizedTaxable = r2(averageTaxable * 12);
++        const annualPAYE = ZimbabwePayrollEngine.computeAnnualPAYE(annualizedTaxable, brackets);
++        
++        const cumulativeTaxToDate = r2((annualPAYE / 12) * monthNum);
++        payeRaw = Math.max(0, r2(cumulativeTaxToDate - ytdPaid));
++      }
++      
++      fdsAdjustment = r2(payeRaw - standalonePaye);
+     } else {
+-      payeRaw = Math.max(0, r2(ZimbabwePayrollEngine.computeAnnualPAYE(taxableIncome * 12, brackets) / 12));
++      payeRaw = standalonePaye;
+     }
+ 
+     // ── 11. Tax Credits ───────────────────────────────────────────────────
+     const medicalCredit = Math.min(
+@@ -345,15 +371,22 @@
+     // ── 11. Tax Credits ───────────────────────────────────────────────────
+     const medicalCredit = Math.min(
+-      Number(input.medicalAidMonthlyContribution || 0),
++      r2(Number(input.medicalAidMonthlyContribution || 0) * 0.5), // 50% for medical
+       input.statutoryConfig.medicalAidCreditMonthly
+     );
+     const otherAnnualCredits = Number(input.annualTaxCreditAmount || 0);
+     const monthlyOtherCredits = r2(otherAnnualCredits / 12);
+-    const totalMonthlyCredit = r2(medicalCredit + monthlyOtherCredits);
+-    const taxCreditApplied = Math.min(payeRaw, totalMonthlyCredit);
++    
++    // Add rolled over credits, but reset in month 1 (Jan/April depending on start)
++    // Assuming monthNum=1 means first month, we ignore prior carry overs
++    const carriedOver = monthNum === 1 ? 0 : Number(input.rolledOverCredits || 0);
++    const totalMonthlyCredit = r2(medicalCredit + monthlyOtherCredits + carriedOver);
++    
++    let taxCreditApplied = Math.min(payeRaw, totalMonthlyCredit);
+     const payeAfterCredit = Math.max(0, r2(payeRaw - taxCreditApplied));
++    
++    // Calculate what rolls over to next month (0 in month 12)
++    const rolledOverCredits = monthNum === 12 ? 0 : r2(totalMonthlyCredit - taxCreditApplied);
+ 
+     // ── 12. AIDS Levy (3% of net PAYE after credits) ──────────────────────
+     const aidsLevy = r2(payeAfterCredit * input.statutoryConfig.aidsLevyRate);
+@@ -412,6 +445,7 @@
+       payeFinal,
+ 
+       fdsAdjustment,
++      rolledOverCredits,
+ 
+       totalAllowances,
+       totalDeductions,

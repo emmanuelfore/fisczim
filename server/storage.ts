@@ -61,7 +61,10 @@ import {
   type LaybyPayment, type InsertLaybyPayment,
   inventoryValuationSnapshots,
   inventoryLocations,
-  inventoryLocationStocks
+  inventoryLocationStocks,
+  payrollElements, payrollCalculationAudits,
+  type PayrollElement, type InsertPayrollElement,
+  type PayrollCalculationAudit, type InsertPayrollCalculationAudit
 } from "../shared/schema.js";
 import { db } from "./db.js";
 import { eq, and, asc, desc, lte, gte, lt, ne, or, isNull, sql, ilike, count, inArray, gt, not } from "drizzle-orm";
@@ -488,6 +491,7 @@ export interface IStorage {
   getProductVariations(productId: number): Promise<ProductVariation[]>;
   createProductVariation(variation: InsertProductVariation): Promise<ProductVariation>;
   getProductBatches(productId: number): Promise<ProductBatch[]>;
+  getExpiringBatches(companyId: number, days: number): Promise<any[]>;
   createProductBatch(batch: InsertProductBatch): Promise<ProductBatch>;
   getActiveBatches(productId: number): Promise<ProductBatch[]>;
 
@@ -545,6 +549,29 @@ export interface IStorage {
   reconcileBankLine(lineId: number, ledgerEntryId: number): Promise<void>;
   autoReconcile(statementId: number): Promise<number>;
   createCashTransaction(data: { companyId: number, type: 'RECEIPT' | 'PAYMENT', bankAccountId: number, counterpartyAccountId: number, amount: number, date: Date, description: string, reference?: string, createdBy?: string }): Promise<JournalEntry>;
+
+  // Recovered Methods
+  getBudgets(companyId: number): Promise<any[]>;
+  createBudget(data: any): Promise<any>;
+  getCostAllocationRules(companyId: number): Promise<any[]>;
+  createCostAllocationRule(data: any): Promise<any>;
+  runCostAllocations(companyId: number, asOfDate: Date, userId: string): Promise<any>;
+  getConsolidatedTrialBalance(companyId: number, asOfDate: Date): Promise<any[]>;
+  runConsolidationEliminations(companyId: number, asOfDate: Date, userId: string): Promise<any>;
+  createBillOfMaterial(data: any): Promise<any>;
+  createWorkOrder(data: any): Promise<any>;
+  completeWorkOrder(id: number, qty: number, userId: string): Promise<any>;
+  disposeFixedAsset(assetId: number, companyId: number, disposalDate: Date, disposalType: string, proceedsAmount: string, notes: string, userId: string): Promise<any>;
+  runForexRevaluation(companyId: number, date: Date, userId: string): Promise<any>;
+  createAndReconcile(statementLineId: number, targetAccountId: number, description: string, userId: string): Promise<any>;
+
+  // Payroll Elements & Audits
+  createPayrollElement(data: InsertPayrollElement): Promise<PayrollElement>;
+  updatePayrollElement(id: number, data: Partial<InsertPayrollElement>): Promise<PayrollElement>;
+  deletePayrollElement(id: number): Promise<void>;
+  listPayrollElements(companyId: number): Promise<PayrollElement[]>;
+  createPayrollAudit(data: InsertPayrollCalculationAudit): Promise<PayrollCalculationAudit>;
+  listPayrollAudits(runEmployeeId: number): Promise<PayrollCalculationAudit[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1735,13 +1762,50 @@ export class DatabaseStorage implements IStorage {
           if (item.productId) {
             const [product] = await tx.select().from(products).where(eq(products.id, item.productId));
 
+            let actualQuantity = parseFloat(item.quantity.toString());
+            let baseUnitMultiplier = 1;
+
+            if (item.variationId) {
+              const [variation] = await tx.select().from(productVariations).where(eq(productVariations.id, item.variationId));
+              if (variation && variation.baseUnitMultiplier) {
+                baseUnitMultiplier = parseFloat(variation.baseUnitMultiplier.toString());
+                actualQuantity = actualQuantity * baseUnitMultiplier;
+              }
+            }
+
+            if (product && product.batchTrackingEnabled && invoiceData.transactionType !== 'CreditNote') {
+              if (item.batchId) {
+                const [batch] = await tx.select().from(productBatches).where(eq(productBatches.id, item.batchId));
+                if (!batch) throw new Error(`Batch not found for product ${product.name}`);
+                if (new Date(batch.expiryDate) <= new Date() || batch.isExpired) {
+                  throw new Error(`Cannot sell expired batch ${batch.batchNumber} for product ${product.name}`);
+                }
+              } else {
+                // FEFO: Find oldest unexpired batch with enough stock
+                const availableBatches = await tx.select().from(productBatches)
+                  .where(and(
+                    eq(productBatches.productId, product.id),
+                    gt(productBatches.expiryDate, new Date().toISOString()),
+                    sql`${productBatches.stockLevel}::numeric >= ${actualQuantity}`
+                  ))
+                  .orderBy(productBatches.expiryDate)
+                  .limit(1);
+
+                if (availableBatches.length > 0) {
+                  item.batchId = availableBatches[0].id;
+                  item.batchNumber = availableBatches[0].batchNumber;
+                  item.expiryDate = availableBatches[0].expiryDate;
+                }
+              }
+            }
+
             // --- BOM / Recipe Deduction Logic ---
             if (product && product.hasRecipe) {
               const recipes = await tx.select().from(recipeItems).where(eq(recipeItems.parentProductId, product.id));
               let totalRecipeCogs = 0;
 
               for (const recipe of recipes) {
-                const ingredientQty = parseFloat(item.quantity.toString()) * parseFloat(recipe.quantity.toString());
+                const ingredientQty = actualQuantity * parseFloat(recipe.quantity.toString());
                 const [ingredient] = await tx.select().from(products).where(eq(products.id, recipe.ingredientProductId));
 
                 if (ingredient && ingredient.isTracked) {
@@ -1784,7 +1848,7 @@ export class DatabaseStorage implements IStorage {
             }
             // --- Standard Tracked Product Logic ---
             else if (product && product.isTracked) {
-              const quantity = parseFloat(item.quantity.toString());
+              const quantity = actualQuantity;
 
               if (invoiceData.transactionType !== 'CreditNote') {
                 // Calculate and deduct for sales
@@ -1960,14 +2024,17 @@ export class DatabaseStorage implements IStorage {
         postLines.push({ accountCode: salesAccountCode, type: isCreditNote ? "DEBIT" : "CREDIT", amount: ledgerSubtotal });
       }
 
-      await this.postToLedger(invoice.companyId, {
-        entryDate: invoice.issueDate || new Date(),
-        description,
-        referenceType: "INVOICE",
-        referenceId: invoice.id.toString(),
-        createdBy: invoice.createdBy || undefined,
-        lines: postLines.filter(line => Number(line.amount) > 0)
-      }, tx);
+      const validPostLines = postLines.filter(line => Number(line.amount) > 0);
+      if (validPostLines.length >= 2) {
+        await this.postToLedger(invoice.companyId, {
+          entryDate: invoice.issueDate || new Date(),
+          description,
+          referenceType: "INVOICE",
+          referenceId: invoice.id.toString(),
+          createdBy: invoice.createdBy || undefined,
+          lines: validPostLines
+        }, tx);
+      }
 
       if (totalCogs > 0) {
         await this.postToLedger(invoice.companyId, {
@@ -7773,6 +7840,31 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(productBatches).where(eq(productBatches.productId, productId)).orderBy(productBatches.expiryDate);
   }
 
+  async getExpiringBatches(companyId: number, days: number): Promise<any[]> {
+    const thresholdDate = new Date();
+    thresholdDate.setDate(thresholdDate.getDate() + days);
+
+    const rows = await db.select({
+      batch: productBatches,
+      product: products
+    })
+    .from(productBatches)
+    .innerJoin(products, eq(productBatches.productId, products.id))
+    .where(and(
+      eq(products.companyId, companyId),
+      eq(products.batchTrackingEnabled, true),
+      sql`${productBatches.expiryDate} <= ${thresholdDate.toISOString()}`,
+      sql`${productBatches.stockLevel}::numeric > 0`
+    ))
+    .orderBy(productBatches.expiryDate);
+
+    return rows.map(r => ({
+      ...r.batch,
+      productName: r.product.name,
+      productSku: r.product.sku
+    }));
+  }
+
   async createProductBatch(batch: InsertProductBatch): Promise<ProductBatch> {
     const [newBatch] = await db.insert(productBatches).values(batch).returning();
     return newBatch;
@@ -7828,14 +7920,53 @@ export class DatabaseStorage implements IStorage {
       .where(eq(recipeItems.parentProductId, productId));
   }
 
-  async setRecipeItems(productId: number, items: InsertRecipeItem[]): Promise<void> {
+    async setRecipeItems(productId: number, items: InsertRecipeItem[]): Promise<void> {
     await db.transaction(async (tx) => {
+      const { recipeItems, products, billOfMaterials, bomLines } = await import("@shared/schema.js");
+      const { eq, and } = await import("drizzle-orm");
+
       await tx.delete(recipeItems).where(eq(recipeItems.parentProductId, productId));
+      
+      const [prod] = await tx.select().from(products).where(eq(products.id, productId));
+      if (!prod) return;
+
       if (items.length > 0) {
         await tx.insert(recipeItems).values(items);
         await tx.update(products).set({ hasRecipe: true }).where(eq(products.id, productId));
+        
+        // Sync with Bill of Materials system
+        const bomName = `${prod.name} Recipe`;
+        let [bom] = await tx.select().from(billOfMaterials).where(and(eq(billOfMaterials.productId, productId), eq(billOfMaterials.name, bomName)));
+        
+        if (!bom) {
+           [bom] = await tx.insert(billOfMaterials).values({
+               companyId: prod.companyId,
+               productId: prod.id,
+               name: bomName,
+               version: "1.0",
+               isActive: true
+           }).returning();
+        } else {
+           await tx.update(billOfMaterials).set({ isActive: true }).where(eq(billOfMaterials.id, bom.id));
+        }
+        
+        await tx.delete(bomLines).where(eq(bomLines.bomId, bom.id));
+        
+        const linesToInsert = items.map(item => ({
+            bomId: bom.id,
+            componentProductId: item.ingredientProductId,
+            quantity: String(item.quantity),
+            unitOfMeasure: item.unit
+        }));
+        await tx.insert(bomLines).values(linesToInsert);
+
       } else {
         await tx.update(products).set({ hasRecipe: false }).where(eq(products.id, productId));
+        const bomName = `${prod.name} Recipe`;
+        const [bom] = await tx.select().from(billOfMaterials).where(and(eq(billOfMaterials.productId, productId), eq(billOfMaterials.name, bomName)));
+        if (bom) {
+           await tx.update(billOfMaterials).set({ isActive: false }).where(eq(billOfMaterials.id, bom.id));
+        }
       }
     });
   }
@@ -8567,6 +8698,80 @@ export class DatabaseStorage implements IStorage {
       inputVatBreakdown: purchases,
       outputVatBreakdown: salesInvoices
     };
+  }
+
+  // ==============================================================================
+  // RECOVERED METHODS (DUMMY/MINIMAL IMPLEMENTATION)
+  // ==============================================================================
+
+  async getBudgets(companyId: number): Promise<any[]> { return []; }
+  async createBudget(data: any): Promise<any> { return data; }
+  async getCostAllocationRules(companyId: number): Promise<any[]> { return []; }
+  async createCostAllocationRule(data: any): Promise<any> { return data; }
+  async runCostAllocations(companyId: number, asOfDate: Date, userId: string): Promise<any> { return { processed: 0 }; }
+  async getConsolidatedTrialBalance(companyId: number, asOfDate: Date): Promise<any[]> { return []; }
+  async runConsolidationEliminations(companyId: number, asOfDate: Date, userId: string): Promise<any> { return { processed: 0 }; }
+  
+  async createBillOfMaterial(data: any): Promise<any> {
+    return await db.transaction(async (tx) => {
+      const { billOfMaterials, bomLines } = await import("@shared/schema.js");
+      const { lines, ...bomData } = data;
+      const [bom] = await tx.insert(billOfMaterials).values(bomData).returning();
+      if (lines && lines.length > 0) {
+        const linesToInsert = lines.map((line: any) => ({ ...line, bomId: bom.id }));
+        await tx.insert(bomLines).values(linesToInsert);
+      }
+      return bom;
+    });
+  }
+
+  async createWorkOrder(data: any): Promise<any> {
+    const { workOrders } = await import("@shared/schema.js");
+    const [wo] = await db.insert(workOrders).values(data).returning();
+    return wo;
+  }
+
+  async completeWorkOrder(id: number, qty: number, userId: string): Promise<any> {
+    const { workOrders } = await import("@shared/schema.js");
+    const { eq } = await import("drizzle-orm");
+    const [wo] = await db.update(workOrders)
+      .set({ status: 'COMPLETED', completedQuantity: String(qty) })
+      .where(eq(workOrders.id, id))
+      .returning();
+    return wo;
+  }
+
+  async disposeFixedAsset(assetId: number, companyId: number, disposalDate: Date, disposalType: string, proceedsAmount: string, notes: string, userId: string): Promise<any> { return null; }
+  async runForexRevaluation(companyId: number, date: Date, userId: string): Promise<any> { return { processed: 0 }; }
+  async createAndReconcile(statementLineId: number, targetAccountId: number, description: string, userId: string): Promise<any> { return null; }
+
+  // Payroll Elements & Audits
+  async createPayrollElement(data: InsertPayrollElement): Promise<PayrollElement> {
+    const [element] = await db.insert(payrollElements).values(data as any).returning();
+    return element;
+  }
+
+  async updatePayrollElement(id: number, data: Partial<InsertPayrollElement>): Promise<PayrollElement> {
+    const [updated] = await db.update(payrollElements).set(data as any).where(eq(payrollElements.id, id)).returning();
+    if (!updated) throw new Error("Payroll element not found");
+    return updated;
+  }
+
+  async deletePayrollElement(id: number): Promise<void> {
+    await db.delete(payrollElements).where(eq(payrollElements.id, id));
+  }
+
+  async listPayrollElements(companyId: number): Promise<PayrollElement[]> {
+    return await db.select().from(payrollElements).where(eq(payrollElements.companyId, companyId)).orderBy(asc(payrollElements.priorityOrder));
+  }
+
+  async createPayrollAudit(data: InsertPayrollCalculationAudit): Promise<PayrollCalculationAudit> {
+    const [audit] = await db.insert(payrollCalculationAudits).values(data as any).returning();
+    return audit;
+  }
+
+  async listPayrollAudits(runEmployeeId: number): Promise<PayrollCalculationAudit[]> {
+    return await db.select().from(payrollCalculationAudits).where(eq(payrollCalculationAudits.payrollRunEmployeeId, runEmployeeId)).orderBy(desc(payrollCalculationAudits.createdAt));
   }
 }
 

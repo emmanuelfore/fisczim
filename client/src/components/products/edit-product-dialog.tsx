@@ -672,14 +672,31 @@ export function EditProductDialog({ product, trigger, children }: Props) {
                     </FormItem>
                   )}
                 />
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="batchTrackingEnabled"
+                    render={({ field }) => (
+                      <FormItem className="flex items-center justify-between rounded-xl bg-white border border-slate-200 p-3">
+                        <FormLabel className="text-xs font-bold text-slate-700">
+                          Batch Tracking
+                        </FormLabel>
+                        <FormControl>
+                          <Switch
+                            checked={!!field.value}
+                            onCheckedChange={field.onChange}
+                          />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
                   <FormField
                     control={form.control}
                     name="serialTrackingEnabled"
                     render={({ field }) => (
                       <FormItem className="flex items-center justify-between rounded-xl bg-white border border-slate-200 p-3">
                         <FormLabel className="text-xs font-bold text-slate-700">
-                          Serial / Batch Tracking
+                          Serial Tracking
                         </FormLabel>
                         <FormControl>
                           <Switch

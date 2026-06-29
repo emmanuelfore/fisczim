@@ -311,15 +311,15 @@ export default function SettingsPage() {
                     <button
                       key={item.id}
                       onClick={() => setActiveTab(item.id)}
-                      className={`w-full flex items-center justify-between px-3 py-2 text-sm font-medium rounded-xl transition-all ${
+                      className={`w-full flex items-center justify-between px-3 py-2.5 text-[16px] font-semibold rounded-xl transition-all ${
                         isActive 
-                          ? "bg-blue-50 text-blue-600 font-semibold"
+                          ? "bg-blue-50 text-blue-600 font-bold"
                           : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
                       }`}
                     >
-                      <div className="flex items-center gap-2.5">
-                        <Icon className={`w-4 h-4 ${isActive ? 'text-blue-600' : 'text-slate-400'}`} />
-                        <span>{item.label}</span>
+                      <div className="flex items-center gap-3">
+                        <Icon className={`w-[18px] h-[18px] ${isActive ? 'text-blue-600' : 'text-slate-400'}`} />
+                        <span className="font-display tracking-tight">{item.label}</span>
                       </div>
                       {isActive && <div className="w-1.5 h-1.5 rounded-full bg-blue-600" />}
                     </button>

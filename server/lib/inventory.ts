@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { inventoryTransactions, products, companies, stockTakes, stockTakeItems, branchStocks, inventoryCostComponents, purchaseOrderItems, goodsDeliveryNotes, accounts, productSerialNumbers, productVariations } from "@shared/schema";
+import { inventoryTransactions, products, companies, stockTakes, stockTakeItems, branchStocks, inventoryCostComponents, purchaseOrderItems, goodsDeliveryNotes, accounts, productSerialNumbers, productVariations, productBatches } from "@shared/schema";
 import { eq, and, asc, desc, sql } from "drizzle-orm";
 import { createCostLayer, consumeInventory, recalculateBranchAVCO, type CostComponentType } from "./costing";
 
@@ -338,7 +338,6 @@ export async function recordBatchStockIn(
                         .where(eq(productBatches.id, existingBatch.id));
                 } else {
                     await tx.insert(productBatches).values({
-                        companyId,
                         productId: item.productId,
                         variationId: (item as any).variationId || null,
                         batchNumber: (item as any).batchNumber,

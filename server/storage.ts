@@ -1823,7 +1823,8 @@ export class DatabaseStorage implements IStorage {
                       totalCost: ingredientCogs?.toString() || null,
                       referenceType: "INVOICE",
                       referenceId: invoice.id.toString(),
-                      notes: `Recipe Ingredient for ${product.name} - Invoice ${invoice.invoiceNumber}`
+                      notes: `Recipe Ingredient for ${product.name} - Invoice ${invoice.invoiceNumber}`,
+                      remainingQuantity: (Number(ingredient.stockLevel) - ingredientQty).toString()
                     });
                   } else {
                     await tx.insert(inventoryTransactions).values({
@@ -1865,7 +1866,8 @@ export class DatabaseStorage implements IStorage {
                   totalCost: cogsAmount?.toString() || null,
                   referenceType: "INVOICE",
                   referenceId: invoice.id.toString(),
-                  notes: `Sale - Invoice ${invoice.invoiceNumber}`
+                  notes: `Sale - Invoice ${invoice.invoiceNumber}`,
+                  remainingQuantity: (Number(product.stockLevel) - quantity).toString()
                 });
               } else {
                 // Restoring stock for Credit Note

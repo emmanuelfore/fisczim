@@ -29,6 +29,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 import * as XLSX from "xlsx";
+import { PDFDownloadLink } from "@react-pdf/renderer";
+import { StockCountSheetPDF } from "@/components/inventory/stock-count-sheet-pdf";
 
 type StockTakeProduct = Product & {
   branchStock?: number | string | null;
@@ -39,8 +41,8 @@ type StockTakeProduct = Product & {
 
 export default function StockTakePage() {
   const [, setLocation] = useLocation();
-  const { activeCompanyId } = useActiveCompany();
-  const { selectedBranchId } = useBranchContext();
+  const { activeCompany, activeCompanyId } = useActiveCompany();
+  const { selectedBranch, selectedBranchId } = useBranchContext();
   const companyId = activeCompanyId || 0;
   const branchId = selectedBranchId || undefined;
 
@@ -150,6 +152,33 @@ export default function StockTakePage() {
       wb,
       `Stock-Take-${new Date().toISOString().split("T")[0]}.xlsx`,
     );
+  };
+
+  const exportCsvCountSheet = () => {
+    const productsToExport = selectedProducts.size > 0 
+      ? Array.from(selectedProducts.values()) 
+      : trackedProducts;
+
+    const data = productsToExport.map((p) => ({
+      ID: p.id,
+      "Product Name": p.name,
+      SKU: p.sku || "N/A",
+      "Expected Stock": Number(p.branchStock || p.stockLevel || 0),
+      "Physical Count": "", 
+      Notes: "", 
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(data);
+    const csvOutput = XLSX.utils.sheet_to_csv(ws);
+    const blob = new Blob([csvOutput], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `Stock-Count-Sheet-${new Date().toISOString().split("T")[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -362,12 +391,37 @@ export default function StockTakePage() {
             </ScrollArea>
 
             <div className="flex flex-col sm:flex-row items-center justify-between px-6 py-4 border-t border-slate-100 bg-slate-50/30 gap-4">
-              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                Selected {selectedProducts.size} items
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                <span>Selected {selectedProducts.size} items</span>
+                <span className="text-slate-300">|</span>
+                <span className="text-slate-400 lowercase">({trackedProducts.length} total available)</span>
               </div>
-              <Button className="rounded-xl" onClick={handleNextToCount}>
-                Proceed to Counting
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <PDFDownloadLink
+                  document={
+                    <StockCountSheetPDF
+                      products={selectedProducts.size > 0 ? Array.from(selectedProducts.values()) : trackedProducts}
+                      companyName={activeCompany?.tradingName || activeCompany?.name || "Company"}
+                      branchName={selectedBranch?.name}
+                    />
+                  }
+                  fileName={`Stock-Count-Sheet-${new Date().toISOString().split("T")[0]}.pdf`}
+                >
+                  {({ loading }) => (
+                    <Button variant="outline" className="rounded-xl border-slate-200" disabled={loading}>
+                      {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Download className="w-4 h-4 mr-2" />}
+                      Print PDF Count Sheet
+                    </Button>
+                  )}
+                </PDFDownloadLink>
+                <Button variant="outline" className="rounded-xl border-slate-200" onClick={exportCsvCountSheet}>
+                  <Download className="w-4 h-4 mr-2" />
+                  CSV Count Sheet
+                </Button>
+                <Button className="rounded-xl" onClick={handleNextToCount}>
+                  Proceed to Counting
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -386,20 +440,41 @@ export default function StockTakePage() {
                 </p>
               </div>
               <div className="flex gap-2">
+                <PDFDownloadLink
+                  document={
+                    <StockCountSheetPDF
+                      products={Array.from(selectedProducts.values())}
+                      companyName={activeCompany?.tradingName || activeCompany?.name || "Company"}
+                      branchName={selectedBranch?.name}
+                    />
+                  }
+                  fileName={`Stock-Count-Sheet-${new Date().toISOString().split("T")[0]}.pdf`}
+                >
+                  {({ loading }) => (
+                    <Button variant="outline" className="rounded-xl" disabled={loading}>
+                      {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Download className="w-4 h-4 mr-2" />}
+                      Print PDF Sheet
+                    </Button>
+                  )}
+                </PDFDownloadLink>
+                <Button variant="outline" className="rounded-xl" onClick={exportCsvCountSheet}>
+                  <Download className="w-4 h-4 mr-2" />
+                  Download CSV Sheet
+                </Button>
                 <Button
                   variant="outline"
                   className="rounded-xl"
                   onClick={exportSheet}
                 >
                   <Download className="w-4 h-4 mr-2" />
-                  Export
+                  Export Excel Data
                 </Button>
                 <Button
                   className="rounded-xl"
                   onClick={() => fileInputRef.current?.click()}
                 >
                   <Upload className="w-4 h-4 mr-2" />
-                  Import
+                  Import Counts
                 </Button>
                 <input
                   type="file"

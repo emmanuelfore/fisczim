@@ -2,6 +2,7 @@ import { db } from "../db";
 import { inventoryTransactions, products, companies, stockTakes, stockTakeItems, branchStocks, inventoryCostComponents, purchaseOrderItems, goodsDeliveryNotes, accounts, productSerialNumbers, productVariations, productBatches } from "@shared/schema";
 import { eq, and, asc, desc, sql } from "drizzle-orm";
 import { createCostLayer, consumeInventory, recalculateBranchAVCO, type CostComponentType } from "./costing";
+import { adjustLocationStock, resolveReceivingLocation } from "./location-stock";
 
 export function generateGrvReference() {
     const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
@@ -111,57 +112,48 @@ export async function recordStockIn(
 ) {
     const grvReference = grvNumber?.trim() || generateGrvReference();
 
-    // 1. Record the transaction
-    const [transaction] = await db.insert(inventoryTransactions).values({
-        companyId,
-        productId,
-        branchId: branchId,
-        supplierId: supplierId || null,
-        type: "STOCK_IN",
-        quantity: quantity.toString(),
-        unitCost: unitCost.toString(), // Store base unit cost
-        totalCost: (quantity * unitCost).toString(),
-        referenceType: "GRN",
-        referenceId: grvReference,
-        remainingQuantity: quantity.toString(),
-        notes: notes,
-    }).returning();
+    return await db.transaction(async (tx) => {
+        const receivingLocation = await resolveReceivingLocation(tx, companyId, branchId);
 
-    // 2. Create Cost Layers
-    const components: Array<{ type: CostComponentType; unitCost: number; totalCost: number }> = [
-        { type: 'BASE', unitCost, totalCost: quantity * unitCost }
-    ];
-    
-    if (landedCost > 0) {
-        components.push({ 
-            type: 'FREIGHT' as const, 
-            unitCost: landedCost / quantity, 
-            totalCost: landedCost 
-        });
-    }
+        const [transaction] = await tx.insert(inventoryTransactions).values({
+            companyId,
+            productId,
+            branchId: branchId,
+            locationId: receivingLocation.id,
+            supplierId: supplierId || null,
+            type: "STOCK_IN",
+            quantity: quantity.toString(),
+            unitCost: unitCost.toString(),
+            totalCost: (quantity * unitCost).toString(),
+            referenceType: "GRN",
+            referenceId: grvReference,
+            remainingQuantity: quantity.toString(),
+            notes: notes,
+        }).returning();
 
-    await createCostLayer(transaction.id, components);
+        const components: Array<{ type: CostComponentType; unitCost: number; totalCost: number }> = [
+            { type: 'BASE', unitCost, totalCost: quantity * unitCost }
+        ];
 
-    // 3. Update product stock level and standard cost price
-    const { avgCost } = await recalculateBranchAVCO(productId, branchId, companyId);
-
-    if (branchId) {
-        const [existing] = await db.select().from(branchStocks).where(and(eq(branchStocks.branchId, branchId), eq(branchStocks.productId, productId)));
-        if (existing) {
-            await db.update(branchStocks).set({ stockLevel: sql`stock_level + ${quantity}` }).where(eq(branchStocks.id, existing.id));
-        } else {
-            await db.insert(branchStocks).values({ branchId, productId, stockLevel: quantity.toString() });
+        if (landedCost > 0) {
+            components.push({
+                type: 'FREIGHT' as const,
+                unitCost: landedCost / quantity,
+                totalCost: landedCost
+            });
         }
-    } else {
-        await db.update(products)
-            .set({
-                stockLevel: sql`stock_level + ${quantity}`,
-                costPrice: avgCost.toFixed(2), // Keep global costPrice as moving average
-            })
-            .where(eq(products.id, productId));
-    }
 
-    return { grvNumber: grvReference, transactionId: transaction.id };
+        await createCostLayer(transaction.id, components, tx);
+
+        const { avgCost } = await recalculateBranchAVCO(productId, branchId, companyId, tx);
+        await adjustLocationStock(tx, productId, quantity, receivingLocation);
+        await tx
+            .update(products)
+            .set({ costPrice: avgCost.toFixed(2) })
+            .where(eq(products.id, productId));
+
+        return { grvNumber: grvReference, transactionId: transaction.id };
+    });
 }
 
 export async function recordBatchStockIn(
@@ -269,6 +261,8 @@ export async function recordBatchStockIn(
 
     // Wrap in a transaction to ensure all or nothing
     await db.transaction(async (tx) => {
+        const receivingLocation = await resolveReceivingLocation(tx, companyId, null);
+
         for (const item of allocatedItems) {
             const quantity = item.quantity;
             const baseUnitCost = item.baseUnitCost;
@@ -298,6 +292,7 @@ export async function recordBatchStockIn(
             const [transaction] = await tx.insert(inventoryTransactions).values({
                 companyId,
                 productId: item.productId,
+                locationId: receivingLocation.id,
                 supplierId: supplierId || null,
                 type: "STOCK_IN",
                 quantity: quantity.toString(),
@@ -363,16 +358,12 @@ export async function recordBatchStockIn(
 
             await createCostLayer(transaction.id, components, tx);
 
-            // 3. Update product stock level and moving average cost
-            // We use null for branchId in batchStockIn for now as it doesn't specify branch per item yet
+            // 3. Update location stock (and derived product stock) plus moving average cost
             const { avgCost } = await recalculateBranchAVCO(item.productId, null, companyId, tx);
-
+            await adjustLocationStock(tx, item.productId, quantity, receivingLocation);
             await tx
                 .update(products)
-                .set({
-                    stockLevel: sql`stock_level + ${quantity}`,
-                    costPrice: avgCost.toFixed(2),
-                })
+                .set({ costPrice: avgCost.toFixed(2) })
                 .where(eq(products.id, item.productId));
 
             // 4. If linked to a PO, update quantity received for 3-way match tracking

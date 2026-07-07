@@ -290,6 +290,7 @@ export default function POSPage() {
     phone: "",
     email: "",
     tin: "",
+    vatNumber: "",
   });
   const [isCreatingCustomer, setIsCreatingCustomer] = useState(false);
 
@@ -303,13 +304,14 @@ export default function POSPage() {
         phone: newCustomer.phone,
         email: newCustomer.email,
         tin: newCustomer.tin,
+        vatNumber: newCustomer.vatNumber,
         isActive: true,
         customerType: "individual",
         currency: "USD",
       });
       setSelectedCustomerId(result.id.toString());
       setIsQuickAddCustomerOpen(false);
-      setNewCustomer({ name: "", phone: "", email: "", tin: "" });
+      setNewCustomer({ name: "", phone: "", email: "", tin: "", vatNumber: "" });
       toast({
         title: "Customer Added",
         description: `${result.name} is now selected.`,
@@ -6351,6 +6353,22 @@ export default function POSPage() {
                       setNewCustomer((prev) => ({
                         ...prev,
                         email: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-1">
+                    VAT Number (Optional)
+                  </Label>
+                  <Input
+                    placeholder="e.g. V12345678"
+                    className="h-12 rounded-2xl bg-slate-50 border-none font-bold"
+                    value={newCustomer.vatNumber}
+                    onChange={(e) =>
+                      setNewCustomer((prev) => ({
+                        ...prev,
+                        vatNumber: e.target.value,
                       }))
                     }
                   />

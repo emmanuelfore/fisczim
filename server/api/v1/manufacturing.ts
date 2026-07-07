@@ -131,6 +131,18 @@ router.post("/work-orders", async (req, res) => {
     res.status(400).json({ message: err.message });
   }
 });
+router.post("/work-orders/:id/start", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const [wo] = await db.update(workOrders)
+      .set({ status: 'IN_PROGRESS', startDate: new Date() })
+      .where(eq(workOrders.id, id))
+      .returning();
+    res.json(wo);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+});
 
 router.post("/work-orders/:id/complete", async (req, res) => {
   try {
@@ -338,34 +350,40 @@ router.post("/mrp/run", async (req, res) => {
       const lines = await db.select().from(bomLines).where(eq(bomLines.bomId, wo.bomId));
       for (const line of lines) {
         // Calculate needed qty: work order planned qty * bom line qty
-        const totalNeeded = Number(wo.plannedQuantity) * Number(line.quantity);
+        const scrapFactor = 1 + (Number(line.scrapPercentage || 0) / 100);
+        const totalNeeded = Number(wo.plannedQuantity) * Number(line.quantity) * scrapFactor;
         
-        // Simulating shortage detection: let's assume 100% shortage for this iteration
-        // In enterprise ERP: Available = StockOnHand - ReservedQty
-        const shortageQty = totalNeeded; 
-        
-        await db.insert(manufacturingMaterialShortages).values({
-          mrpRunId: run.id,
-          productId: line.componentProductId,
-          shortageQuantity: shortageQty.toString(),
-          status: "UNRESOLVED"
-        });
+        // Find actual stock
+        const [product] = await db.select({ stockLevel: products.stockLevel }).from(products).where(eq(products.id, line.componentProductId));
+        const currentStock = Number(product?.stockLevel || 0);
 
-        // Generate recommendation
-        // Check if product has its own BOM (Manufactured) or is bought (Purchase)
-        const subBom = await db.select().from(billOfMaterials).where(eq(billOfMaterials.productId, line.componentProductId)).limit(1);
+        // Simple MRP: shortage = needed - current
+        const shortageQty = Math.max(0, totalNeeded - currentStock);
         
-        const type = subBom.length > 0 ? "WORK_ORDER" : "PURCHASE";
-        
-        await db.insert(manufacturingMrpRecommendations).values({
-          mrpRunId: run.id,
-          productId: line.componentProductId,
-          type,
-          quantity: shortageQty.toString(),
-          status: "PENDING"
-        });
-        
-        newRecommendations++;
+        if (shortageQty > 0) {
+          await db.insert(manufacturingMaterialShortages).values({
+            mrpRunId: run.id,
+            productId: line.componentProductId,
+            shortageQuantity: shortageQty.toString(),
+            status: "UNRESOLVED"
+          });
+
+          // Generate recommendation
+          // Check if product has its own BOM (Manufactured) or is bought (Purchase)
+          const subBom = await db.select().from(billOfMaterials).where(eq(billOfMaterials.productId, line.componentProductId)).limit(1);
+          
+          const type = subBom.length > 0 ? "WORK_ORDER" : "PURCHASE";
+          
+          await db.insert(manufacturingMrpRecommendations).values({
+            mrpRunId: run.id,
+            productId: line.componentProductId,
+            type,
+            quantity: shortageQty.toString(),
+            status: "PENDING"
+          });
+          
+          newRecommendations++;
+        }
       }
     }
 

@@ -6748,6 +6748,138 @@ export async function registerRoutes(
     res.json(items);
   });
 
+  // MB51: Material Document Ledger (Detailed Transaction History)
+  app.get("/api/companies/:companyId/inventory/ledger", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const productId = req.query.productId ? Number(req.query.productId) : undefined;
+      const type = typeof req.query.type === "string" ? req.query.type : undefined;
+      const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
+      const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
+
+      let conditions: any[] = [eq(inventoryTransactions.companyId, companyId)];
+      if (productId) conditions.push(eq(inventoryTransactions.productId, productId));
+      if (type) conditions.push(eq(inventoryTransactions.type, type));
+      if (startDate) conditions.push(gte(inventoryTransactions.createdAt, startDate));
+      if (endDate) conditions.push(lte(inventoryTransactions.createdAt, endDate));
+
+      const rows = await db.select({
+        id: inventoryTransactions.id,
+        type: inventoryTransactions.type,
+        quantity: inventoryTransactions.quantity,
+        unitCost: inventoryTransactions.unitCost,
+        totalCost: inventoryTransactions.totalCost,
+        referenceType: inventoryTransactions.referenceType,
+        referenceId: inventoryTransactions.referenceId,
+        date: inventoryTransactions.createdAt,
+        productName: products.name,
+        productSku: products.sku,
+        userName: users.username,
+      })
+      .from(inventoryTransactions)
+      .leftJoin(products, eq(inventoryTransactions.productId, products.id))
+      .leftJoin(users, eq(inventoryTransactions.createdBy, users.id))
+      .where(and(...conditions))
+      .orderBy(desc(inventoryTransactions.createdAt));
+      
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // MB52: Current Stock Overview
+  app.get("/api/companies/:companyId/inventory/stock-overview", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const rows = await db.select({
+        productId: products.id,
+        name: products.name,
+        sku: products.sku,
+        costPrice: products.costPrice,
+        globalStock: products.stockLevel,
+        locationId: inventoryLocations.id,
+        locationName: inventoryLocations.name,
+        locationStock: inventoryLocationStocks.stockLevel,
+        reservedStock: inventoryLocationStocks.reservedQuantity,
+      })
+      .from(products)
+      .leftJoin(inventoryLocationStocks, eq(products.id, inventoryLocationStocks.productId))
+      .leftJoin(inventoryLocations, eq(inventoryLocationStocks.locationId, inventoryLocations.id))
+      .where(eq(products.companyId, companyId))
+      .orderBy(products.name);
+      
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // MB5B: Historical Stock Balances (Stock for Posting Date)
+  app.post("/api/companies/:companyId/inventory/historical-stock", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const targetDate = req.body.targetDate ? new Date(req.body.targetDate) : new Date();
+      const productId = req.body.productId ? Number(req.body.productId) : undefined;
+      
+      let prodConditions: any[] = [eq(products.companyId, companyId), eq(products.isTracked, true)];
+      if (productId) prodConditions.push(eq(products.id, productId));
+      
+      const trackedProducts = await db.select({
+        id: products.id,
+        name: products.name,
+        sku: products.sku,
+        currentStock: products.stockLevel,
+        currentCost: products.costPrice,
+      }).from(products).where(and(...prodConditions));
+
+      const productIds = trackedProducts.map(p => p.id);
+      
+      if (productIds.length === 0) {
+        return res.json([]);
+      }
+
+      // Find all transactions that occurred AFTER the target date
+      // We will reverse these out of the current balance
+      const futureTransactions = await db.select()
+        .from(inventoryTransactions)
+        .where(and(
+          eq(inventoryTransactions.companyId, companyId),
+          inArray(inventoryTransactions.productId, productIds),
+          gt(inventoryTransactions.createdAt, targetDate)
+        ));
+
+      const historicalBalances = trackedProducts.map(prod => {
+        let historicalQty = Number(prod.currentStock || 0);
+        let totalValue = historicalQty * Number(prod.currentCost || 0);
+        
+        // Reverse transactions
+        const prodTx = futureTransactions.filter(tx => tx.productId === prod.id);
+        for (const tx of prodTx) {
+          const txQty = Number(tx.quantity);
+          const txVal = Number(tx.totalCost || (txQty * Number(tx.unitCost || 0)));
+          
+          historicalQty -= txQty;
+          totalValue -= txVal;
+        }
+
+        return {
+          productId: prod.id,
+          name: prod.name,
+          sku: prod.sku,
+          historicalQuantity: historicalQty,
+          historicalValue: totalValue,
+          impliedUnitCost: historicalQty > 0 ? (totalValue / historicalQty) : 0,
+        };
+      });
+
+      res.json(historicalBalances);
+    } catch (err: any) {
+      console.error(err);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   app.post("/api/companies/:companyId/inventory/stock-in", requireAuth, async (req, res) => {
     const { productId, quantity, unitCost, supplierId, notes, landedCost } = req.body;
     const { recordStockIn } = await import("./lib/inventory.js");
@@ -12610,6 +12742,117 @@ export async function registerRoutes(
 
   app.get("/api/companies/:companyId/reports/tax-summary", requireAuth,
     reportRouteHandler((id, s, e) => storage.getReportTaxSummary(id, s, e)));
+
+  // Operational reports (daily / weekly / monthly / stock movement)
+  app.get("/api/companies/:companyId/reports/operational-daily", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = parseInt(req.params.companyId);
+      if (isNaN(companyId)) return res.status(400).json({ message: "Invalid companyId" });
+      const hasAccess = await checkCompanyAccess(req.user, companyId);
+      if (!hasAccess) return res.status(403).json({ message: "Forbidden" });
+
+      const now = new Date();
+      const startDate = req.query.startDate ? new Date(req.query.startDate as string) : new Date(now.getFullYear(), now.getMonth(), 1);
+      const endDate = req.query.endDate ? new Date(req.query.endDate as string) : new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        return res.status(400).json({ message: "Invalid date range" });
+      }
+
+      const data = await storage.getOperationalDailyReport(companyId, startDate, endDate);
+      res.json(data);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/companies/:companyId/reports/operational-weekly", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = parseInt(req.params.companyId);
+      if (isNaN(companyId)) return res.status(400).json({ message: "Invalid companyId" });
+      const hasAccess = await checkCompanyAccess(req.user, companyId);
+      if (!hasAccess) return res.status(403).json({ message: "Forbidden" });
+
+      const now = new Date();
+      const startDate = req.query.startDate ? new Date(req.query.startDate as string) : new Date(now.getFullYear(), now.getMonth(), 1);
+      const endDate = req.query.endDate ? new Date(req.query.endDate as string) : new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        return res.status(400).json({ message: "Invalid date range" });
+      }
+
+      const data = await storage.getOperationalWeeklyReport(companyId, startDate, endDate);
+      res.json(data);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/companies/:companyId/reports/operational-monthly", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = parseInt(req.params.companyId);
+      if (isNaN(companyId)) return res.status(400).json({ message: "Invalid companyId" });
+      const hasAccess = await checkCompanyAccess(req.user, companyId);
+      if (!hasAccess) return res.status(403).json({ message: "Forbidden" });
+
+      const now = new Date();
+      const startDate = req.query.startDate ? new Date(req.query.startDate as string) : new Date(now.getFullYear(), 0, 1);
+      const endDate = req.query.endDate ? new Date(req.query.endDate as string) : new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        return res.status(400).json({ message: "Invalid date range" });
+      }
+
+      const data = await storage.getOperationalMonthlyReport(companyId, startDate, endDate);
+      res.json(data);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/companies/:companyId/reports/stock-movement", requireAuth, async (req: any, res: any) => {
+    try {
+      const companyId = parseInt(req.params.companyId);
+      if (isNaN(companyId)) return res.status(400).json({ message: "Invalid companyId" });
+      const hasAccess = await checkCompanyAccess(req.user, companyId);
+      if (!hasAccess) return res.status(403).json({ message: "Forbidden" });
+
+      const now = new Date();
+      const startDate = req.query.startDate ? new Date(req.query.startDate as string) : new Date(now.getFullYear(), now.getMonth(), 1);
+      const endDate = req.query.endDate ? new Date(req.query.endDate as string) : new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        return res.status(400).json({ message: "Invalid date range" });
+      }
+
+      const data = await storage.getStockMovementReport(companyId, startDate, endDate);
+      res.json(data);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Auto-spares & inventory analytics reports
+  app.get("/api/companies/:companyId/reports/profit-margins", requireAuth,
+    reportRouteHandler((id, s, e) => storage.getReportProfitMargins(id, s, e)));
+  app.get("/api/companies/:companyId/reports/purchase-report", requireAuth,
+    reportRouteHandler((id, s, e) => storage.getReportPurchaseHistory(id, s, e)));
+  app.get("/api/companies/:companyId/reports/auto-spares-daily-sales", requireAuth,
+    reportRouteHandler((id, s, e) => storage.getReportAutoSparesDailySales(id, s, e)));
+  app.get("/api/companies/:companyId/reports/top-selling-parts", requireAuth,
+    reportRouteHandler((id, s, e) => storage.getReportTopSellingParts(id, s, e)));
+  app.get("/api/companies/:companyId/reports/dead-stock", requireAuth,
+    reportRouteHandler((id, s, e) => storage.getReportDeadStock(id, s, e)));
+  app.get("/api/companies/:companyId/reports/supplier-performance", requireAuth,
+    reportRouteHandler((id, s, e) => storage.getReportSupplierPerformance(id, s, e)));
+  app.get("/api/companies/:companyId/reports/customer-credit", requireAuth,
+    reportRouteHandler((id, s, e) => storage.getReportCustomerCredit(id, s, e)));
+  app.get("/api/companies/:companyId/reports/salesperson-performance", requireAuth,
+    reportRouteHandler((id, s, e) => storage.getReportSalespersonPerformance(id, s, e)));
+  app.get("/api/companies/:companyId/reports/category-brand-performance", requireAuth,
+    reportRouteHandler((id, s, e) => storage.getReportCategoryBrandPerformance(id, s, e)));
+  app.get("/api/companies/:companyId/reports/return-warranty", requireAuth,
+    reportRouteHandler((id, s, e) => storage.getReportReturnWarranty(id, s, e)));
+  app.get("/api/companies/:companyId/reports/reorder-suggestions", requireAuth,
+    reportRouteHandler((id, s, e) => storage.getReportReorderSuggestions(id, s, e)));
+  app.get("/api/companies/:companyId/reports/price-changes", requireAuth,
+    reportRouteHandler((id, s, e) => storage.getReportPriceChanges(id, s, e)));
 
   // Currency-aware reports for Dashboard
   app.get("/api/companies/:companyId/reports/receivables-aging", requireAuth, async (req: any, res: any) => {

@@ -468,6 +468,10 @@ export interface IStorage {
   getReportReturnWarranty(companyId: number, start: Date, end: Date): Promise<any[]>;
   getReportReorderSuggestions(companyId: number, start: Date, end: Date): Promise<any[]>;
   getReportPriceChanges(companyId: number, start: Date, end: Date): Promise<any[]>;
+  getOperationalDailyReport(companyId: number, start: Date, end: Date): Promise<any>;
+  getOperationalWeeklyReport(companyId: number, start: Date, end: Date): Promise<any>;
+  getOperationalMonthlyReport(companyId: number, start: Date, end: Date): Promise<any>;
+  getStockMovementReport(companyId: number, start: Date, end: Date): Promise<any>;
 
   // Stock Takes
   getStockTakes(companyId: number): Promise<StockTake[]>;
@@ -8734,13 +8738,223 @@ export class DatabaseStorage implements IStorage {
   }
 
   async completeWorkOrder(id: number, qty: number, userId: string): Promise<any> {
-    const { workOrders } = await import("@shared/schema.js");
-    const { eq } = await import("drizzle-orm");
-    const [wo] = await db.update(workOrders)
-      .set({ status: 'COMPLETED', completedQuantity: String(qty) })
-      .where(eq(workOrders.id, id))
-      .returning();
-    return wo;
+    const { 
+      workOrders, billOfMaterials, bomLines, workOrderConsumptions, 
+      manufacturingMaterialTransactions, products, inventoryLocations,
+      inventoryLocationStocks, branchStocks, accounts, journalEntries, ledgerEntries,
+      financialPeriods
+    } = await import("@shared/schema.js");
+    const { eq, and, inArray, sql } = await import("drizzle-orm");
+
+    return await db.transaction(async (tx) => {
+      // 1. Fetch work order
+      const [wo] = await tx.select().from(workOrders).where(eq(workOrders.id, id));
+      if (!wo) throw new Error("Work order not found");
+      if (wo.status === "COMPLETED") throw new Error("Work order already completed");
+
+      // 2. Fetch BOM + lines (components)
+      const [bom] = await tx.select().from(billOfMaterials).where(eq(billOfMaterials.id, wo.bomId));
+      if (!bom) throw new Error("BOM not found for this work order");
+
+      const lines = await tx.select({
+        line: bomLines,
+        product: products,
+      })
+        .from(bomLines)
+        .leftJoin(products, eq(bomLines.componentProductId, products.id))
+        .where(eq(bomLines.bomId, wo.bomId));
+
+      // 3. Find a default inventory location for this company
+      const [defaultLocation] = await tx
+        .select()
+        .from(inventoryLocations)
+        .where(eq(inventoryLocations.companyId, wo.companyId))
+        .limit(1);
+
+      const adjustProductStock = async (productId: number, qtyDelta: number) => {
+        if (!defaultLocation) {
+          // Fallback: just update the products.stockLevel directly
+          const [prod] = await tx.select().from(products).where(eq(products.id, productId));
+          const newLevel = (Number(prod?.stockLevel || 0) + qtyDelta).toString();
+          await tx.update(products).set({ stockLevel: newLevel }).where(eq(products.id, productId));
+          return;
+        }
+
+        // Update inventory_location_stocks
+        const [locStock] = await tx
+          .select()
+          .from(inventoryLocationStocks)
+          .where(and(eq(inventoryLocationStocks.locationId, defaultLocation.id), eq(inventoryLocationStocks.productId, productId)))
+          .limit(1);
+
+        const current = Number(locStock?.stockLevel || 0);
+        const next = (current + qtyDelta).toString();
+
+        if (locStock) {
+          await tx.update(inventoryLocationStocks)
+            .set({ stockLevel: next, availableQuantity: next, updatedAt: new Date() })
+            .where(eq(inventoryLocationStocks.id, locStock.id));
+        } else {
+          await tx.insert(inventoryLocationStocks).values({
+            locationId: defaultLocation.id,
+            productId,
+            stockLevel: next,
+            reservedQuantity: "0",
+            availableQuantity: next,
+          });
+        }
+
+        // Sync branch stock if location has a branch
+        if (defaultLocation.branchId) {
+          const branchLocs = await tx.select({ id: inventoryLocations.id })
+            .from(inventoryLocations)
+            .where(eq(inventoryLocations.branchId, defaultLocation.branchId));
+          const locIds = branchLocs.map((l: any) => l.id);
+          let branchTotal = 0;
+          if (locIds.length > 0) {
+            const [sumRow] = await tx.select({ total: sql<string>`coalesce(sum(${inventoryLocationStocks.stockLevel}::numeric), 0)` })
+              .from(inventoryLocationStocks)
+              .where(and(inArray(inventoryLocationStocks.locationId, locIds), eq(inventoryLocationStocks.productId, productId)));
+            branchTotal = Number(sumRow?.total || 0);
+          }
+          const [bs] = await tx.select().from(branchStocks)
+            .where(and(eq(branchStocks.branchId, defaultLocation.branchId), eq(branchStocks.productId, productId))).limit(1);
+          if (bs) {
+            await tx.update(branchStocks).set({ stockLevel: branchTotal.toString() }).where(eq(branchStocks.id, bs.id));
+          } else {
+            await tx.insert(branchStocks).values({ branchId: defaultLocation.branchId, productId, stockLevel: branchTotal.toString() });
+          }
+        }
+
+        // Sync global product stock
+        const companyLocs = await tx.select({ id: inventoryLocations.id })
+          .from(inventoryLocations)
+          .where(eq(inventoryLocations.companyId, wo.companyId));
+        const compLocIds = companyLocs.map((l: any) => l.id);
+        let globalTotal = 0;
+        if (compLocIds.length > 0) {
+          const [gSum] = await tx.select({ total: sql<string>`coalesce(sum(${inventoryLocationStocks.stockLevel}::numeric), 0)` })
+            .from(inventoryLocationStocks)
+            .where(and(inArray(inventoryLocationStocks.locationId, compLocIds), eq(inventoryLocationStocks.productId, productId)));
+          globalTotal = Number(gSum?.total || 0);
+        }
+        await tx.update(products).set({ stockLevel: globalTotal.toString() }).where(eq(products.id, productId));
+      };
+
+      // 4. Deduct raw materials (Goods Issue) & log consumptions
+      let totalMaterialCost = 0;
+      for (const { line, product } of lines) {
+        const neededQty = Number(line.quantity) * qty;
+        const scrapFactor = 1 + (Number(line.scrapPercentage || 0) / 100);
+        const actualQty = neededQty * scrapFactor;
+
+        // Deduct from stock (negative delta)
+        await adjustProductStock(line.componentProductId, -actualQty);
+
+        // Log consumption
+        await tx.insert(workOrderConsumptions).values({
+          workOrderId: id,
+          productId: line.componentProductId,
+          quantityConsumed: actualQty.toString(),
+          date: new Date(),
+        });
+
+        // Log material transaction
+        await tx.insert(manufacturingMaterialTransactions).values({
+          workOrderId: id,
+          productId: line.componentProductId,
+          type: "ISSUE",
+          quantity: actualQty.toString(),
+          date: new Date(),
+          reason: `Auto-issued for WO #${id} completion`,
+        });
+
+        totalMaterialCost += actualQty * Number(product?.costPrice || 0);
+      }
+
+      // 5. Credit finished good stock (Goods Receipt)
+      await adjustProductStock(bom.productId, qty);
+
+      // Log finished good material transaction
+      await tx.insert(manufacturingMaterialTransactions).values({
+        workOrderId: id,
+        productId: bom.productId,
+        type: "FINISHED_GOOD",
+        quantity: qty.toString(),
+        date: new Date(),
+        reason: `Finished good receipt for WO #${id}`,
+      });
+
+      // 6. Update finished good cost price (weighted average with material cost)
+      if (totalMaterialCost > 0 && qty > 0) {
+        const unitCost = totalMaterialCost / qty;
+        const [fg] = await tx.select().from(products).where(eq(products.id, bom.productId));
+        if (fg) {
+          const existingStock = Number(fg.stockLevel || 0);
+          const existingCost = Number(fg.costPrice || 0);
+          // Weighted average cost
+          const totalStock = existingStock + qty;
+          const newCost = totalStock > 0
+            ? ((existingStock * existingCost) + (qty * unitCost)) / totalStock
+            : unitCost;
+          await tx.update(products).set({ costPrice: newCost.toFixed(4) } as any).where(eq(products.id, bom.productId));
+        }
+      }
+
+      // 7. Post GL Journal: Dr Inventory (1300) / Cr WIP (1005)
+      try {
+        const [invAccount] = await tx.select().from(accounts)
+          .where(and(eq(accounts.companyId, wo.companyId), eq(accounts.code, "1300")));
+        const [wipAccount] = await tx.select().from(accounts)
+          .where(and(eq(accounts.companyId, wo.companyId), eq(accounts.code, "1005")));
+
+        if (invAccount && wipAccount && totalMaterialCost > 0) {
+          const entryDate = new Date();
+          // Check no closed period
+          const periods = await tx.select().from(financialPeriods).where(eq(financialPeriods.companyId, wo.companyId));
+          const period = periods.find((p: any) => {
+            const s = new Date(p.startDate); const e = new Date(p.endDate);
+            return entryDate >= s && entryDate <= e;
+          });
+          if (!period || period.status !== "CLOSED") {
+            const [je] = await tx.insert(journalEntries).values({
+              companyId: wo.companyId,
+              entryDate,
+              description: `Manufacturing WO #${id} Completion — ${bom.name}`,
+              referenceType: "MANUFACTURING",
+              referenceId: `WO-${id}`,
+              createdBy: userId || null,
+            }).returning();
+
+            // Dr Inventory (finished good value)
+            await tx.insert(ledgerEntries).values({
+              journalEntryId: je.id,
+              accountId: invAccount.id,
+              type: "DEBIT",
+              amount: totalMaterialCost.toFixed(2),
+            });
+            // Cr WIP
+            await tx.insert(ledgerEntries).values({
+              journalEntryId: je.id,
+              accountId: wipAccount.id,
+              type: "CREDIT",
+              amount: totalMaterialCost.toFixed(2),
+            });
+          }
+        }
+      } catch (glErr) {
+        // GL posting failure should not block WO completion - just log it
+        console.warn("Manufacturing GL posting failed (non-fatal):", glErr);
+      }
+
+      // 8. Mark work order as completed
+      const [updated] = await tx.update(workOrders)
+        .set({ status: "COMPLETED", completedQuantity: String(qty) })
+        .where(eq(workOrders.id, id))
+        .returning();
+
+      return { ...updated, materialCost: totalMaterialCost };
+    });
   }
 
   async disposeFixedAsset(assetId: number, companyId: number, disposalDate: Date, disposalType: string, proceedsAmount: string, notes: string, userId: string): Promise<any> { return null; }
@@ -8774,6 +8988,26 @@ export class DatabaseStorage implements IStorage {
 
   async listPayrollAudits(runEmployeeId: number): Promise<PayrollCalculationAudit[]> {
     return await db.select().from(payrollCalculationAudits).where(eq(payrollCalculationAudits.payrollRunEmployeeId, runEmployeeId)).orderBy(desc(payrollCalculationAudits.createdAt));
+  }
+
+  async getOperationalDailyReport(companyId: number, start: Date, end: Date) {
+    const { getOperationalDailyReport } = await import("./services/operationalReports.js");
+    return getOperationalDailyReport(companyId, start, end);
+  }
+
+  async getOperationalWeeklyReport(companyId: number, start: Date, end: Date) {
+    const { getOperationalWeeklyReport } = await import("./services/operationalReports.js");
+    return getOperationalWeeklyReport(companyId, start, end);
+  }
+
+  async getOperationalMonthlyReport(companyId: number, start: Date, end: Date) {
+    const { getOperationalMonthlyReport } = await import("./services/operationalReports.js");
+    return getOperationalMonthlyReport(companyId, start, end);
+  }
+
+  async getStockMovementReport(companyId: number, start: Date, end: Date) {
+    const { getStockMovementReport } = await import("./services/operationalReports.js");
+    return getStockMovementReport(companyId, start, end);
   }
 }
 

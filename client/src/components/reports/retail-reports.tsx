@@ -291,7 +291,35 @@ export function InventoryHealthReport({ companyId, search }: ReportProps) {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {filteredData?.length === 0 && (
+              {filteredData?.map((item, index) => {
+                const stock = Number(item.stockLevel || 0);
+                const threshold = Number(item.lowStockThreshold || 0);
+                const isOut = stock <= 0;
+                const isLow = !isOut && stock <= threshold;
+                return (
+                  <tr key={item.id || index} className="hover:bg-rose-50/30">
+                    <td className="px-6 py-3 font-semibold text-slate-800">{item.name}</td>
+                    <td className="px-6 py-3 text-slate-500">{item.sku || "-"}</td>
+                    <td className="px-6 py-3 text-center font-black text-slate-700">{stock.toFixed(0)}</td>
+                    <td className="px-6 py-3 text-center text-slate-500">{threshold.toFixed(0)}</td>
+                    <td className="px-6 py-3 text-right">
+                      <span
+                        className={cn(
+                          "text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-full",
+                          isOut
+                            ? "bg-rose-100 text-rose-700"
+                            : isLow
+                              ? "bg-amber-100 text-amber-700"
+                              : "bg-emerald-100 text-emerald-700",
+                        )}
+                      >
+                        {isOut ? "Out of Stock" : isLow ? "Low Stock" : "OK"}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+              {(!filteredData || filteredData.length === 0) && (
                 <tr>
                   <td
                     colSpan={5}

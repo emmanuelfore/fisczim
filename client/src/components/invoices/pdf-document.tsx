@@ -665,9 +665,7 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                                 ));
                             })()}
                         </View>
-                    ) : (
-                        <View style={[styles.taxTable, { borderColor: 'transparent' }]} />
-                    )}
+                    ) : null}
 
                     {/* Totals */}
                     <View style={[styles.totalsBox, { borderColor, backgroundColor: sectionBg, borderRadius: template.radius }]}>

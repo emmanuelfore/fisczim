@@ -22,6 +22,8 @@ import {
   MonitorCheck,
   TrendingUp,
   TrendingDown,
+  LineChart,
+  Target,
   ShieldCheck,
   History,
   Receipt,
@@ -325,11 +327,24 @@ export function Layout({
       ],
     },
     {
+      icon: LineChart,
+      label: "Inventory Reports",
+      children: [
+        { icon: Activity, label: "MB51 Transaction Ledger", href: "/inventory/reports/ledger" },
+        { icon: Target, label: "MB52 Stock Overview", href: "/inventory/reports/overview" },
+        { icon: History, label: "MB5B Historical Stock", href: "/inventory/reports/historical" },
+      ],
+    },
+    {
       icon: Factory,
       label: "Manufacturing",
       children: [
+        { icon: LayoutDashboard, label: "Mfg Dashboard", href: "/manufacturing" },
+        { icon: TrendingUp, label: "MRP Analysis", href: "/manufacturing/mrp" },
         { icon: Construction, label: "Bill of Materials", href: "/manufacturing/bom" },
         { icon: Wrench, label: "Work Orders", href: "/manufacturing/work-orders" },
+        { icon: Building2, label: "Work Centers", href: "/manufacturing/work-centers" },
+        { icon: ClipboardList, label: "Routings", href: "/manufacturing/routings" },
         { icon: Factory, label: "Production Runs", href: "/inventory/production" },
       ],
     },
@@ -342,29 +357,14 @@ export function Layout({
           label: "Finance Dashboard",
           href: "/accounting/dashboard",
         },
-        {
-          icon: Calculator,
-          label: "Core Accounting",
-          children: [
-            { icon: ClipboardList, label: "Chart of Accounts", href: "/accounting/coa" },
-            { icon: History, label: "Journal Vouchers", href: "/accounting/journal" },
-            { icon: CreditCard, label: "Cashbook", href: "/accounting/cashbook" },
-            { icon: ArrowRightLeft, label: "Bank Reconciliation", href: "/accounting/reconciliation" },
-          ],
-        },
-        {
-          icon: Users,
-          label: "Payables & Receivables",
-          children: [
-            { icon: Receipt, label: "Supplier Bills", href: "/supplier-invoices" },
-            { icon: Receipt, label: "Supplier Credit Notes", href: "/supplier-credit-notes" },
-            { icon: Receipt, label: "Supplier Balances", href: "/accounting/accounts-payable" },
-            { icon: TrendingDown, label: "Payables Aging", href: "/accounting/reports/aging?tab=ap" },
-            { icon: Users, label: "Customer Balances", href: "/accounting/accounts-receivable" },
-            { icon: TrendingUp, label: "Receivables Aging", href: "/accounting/reports/aging?tab=ar" },
-            { icon: ArrowRightLeft, label: "Payment Allocation", href: "/accounting/allocations" },
-          ],
-        },
+        { icon: ClipboardList, label: "Chart of Accounts", href: "/accounting/coa" },
+        { icon: History, label: "Journal Vouchers", href: "/accounting/journal" },
+        { icon: CreditCard, label: "Cashbook", href: "/accounting/cashbook" },
+        { icon: ArrowRightLeft, label: "Bank Reconciliation", href: "/accounting/reconciliation" },
+        { icon: Receipt, label: "Supplier Bills", href: "/supplier-invoices" },
+        { icon: Receipt, label: "Supplier Credit Notes", href: "/supplier-credit-notes" },
+        { icon: ArrowRightLeft, label: "Payment Allocation", href: "/accounting/allocations" },
+        { icon: Calculator, label: "Expenses", href: "/expenses" },
         {
           icon: Settings,
           label: "Configuration",
@@ -372,10 +372,8 @@ export function Layout({
             { icon: BarChart3, label: "Accounting Segments", href: "/accounting/segments" },
             { icon: CalendarDays, label: "Financial Periods", href: "/accounting/periods" },
             { icon: Scale, label: "Opening Balances", href: "/accounting/opening-balances" },
-            { icon: ShieldCheck, label: "Posting Audit Trail", href: "/accounting/audit-trail" },
           ],
         },
-        { icon: Calculator, label: "Expenses", href: "/expenses" },
       ],
     },
     {
@@ -415,94 +413,78 @@ export function Layout({
       icon: BarChart3,
       label: "Reports",
       children: [
-        { icon: LayoutDashboard, label: "Executive Overview", href: "/reports" },
+        { icon: LayoutDashboard, label: "Reports Hub", href: "/reports" },
         {
-          icon: Receipt,
-          label: "Sales Reports",
+          icon: CalendarDays,
+          label: "Operational",
           children: [
-            { icon: Receipt, label: "Daily Sales", href: "/reports/daily" },
-            { icon: CreditCard, label: "POS Reports", href: "/reports/pos" },
-            {
-              icon: FileText,
-              label: "Customer Statements",
-              href: "/reports/customer-statements",
-            },
-            {
-              icon: Coins,
-              label: "Cash Collection",
-              href: "/reports/cash-collection",
-            },
-            {
-              icon: Building2,
-              label: "Partnership Sales",
-              href: "/reports/partnership-sales",
-            },
-          ],
-        },
-        {
-          icon: Package,
-          label: "Inventory Reports",
-          children: [
-            { icon: Package, label: "Stock Reports", href: "/reports/inventory" },
-            {
-              icon: Building2,
-              label: "Branch Performance",
-              href: "/reports/branches",
-            },
-            {
-              icon: ArrowRightLeft,
-              label: "Stock Adjustments",
-              href: "/inventory/adjustments/report",
-            },
-          ],
+            { icon: FileText, label: "Daily Report", href: "/reports/view/operational-daily" },
+            { icon: FileText, label: "Weekly Report", href: "/reports/view/operational-weekly" },
+            { icon: FileText, label: "Monthly Report", href: "/reports/view/operational-monthly" },
+            { icon: Package, label: "Stock Movement", href: "/reports/view/stock-movement" },
+          ]
         },
         {
           icon: Calculator,
-          label: "Accounting Reports",
+          label: "Financials",
           children: [
-            {
-              icon: TrendingUp,
-              label: "Financial Statements",
-              href: "/accounting/reports/financial",
-            },
-            {
-              icon: BarChart3,
-              label: "Trial Balance",
-              href: "/accounting/reports/trial-balance",
-            },
-            {
-              icon: FileText,
-              label: "General Ledger",
-              href: "/accounting/reports/ledger",
-            },
-            {
-              icon: Users,
-              label: "Aging Reports",
-              href: "/accounting/reports/aging",
-            },
-            {
-              icon: Building2,
-              label: "Cost Centers",
-              href: "/accounting/reports/cost-centers",
-            },
-          ],
+            { icon: TrendingUp, label: "Profit & Loss", href: "/accounting/reports/financial?tab=pl" },
+            { icon: TrendingUp, label: "Balance Sheet", href: "/accounting/reports/financial?tab=bs" },
+            { icon: TrendingUp, label: "Cash Flow", href: "/accounting/reports/financial?tab=cf" },
+            { icon: TrendingUp, label: "Trial Balance", href: "/accounting/reports/trial-balance" },
+            { icon: History, label: "General Ledger", href: "/accounting/reports/ledger" },
+          ]
+        },
+        {
+          icon: BarChart3,
+          label: "Sales",
+          children: [
+            { icon: BarChart3, label: "Sales Summary", href: "/reports/view/sales" },
+            { icon: Users, label: "Sales by Customer", href: "/reports/view/sales-by-customer" },
+            { icon: Package, label: "Sales by Item", href: "/reports/view/sales-by-item" },
+            { icon: Receipt, label: "Daily Sales Ledger", href: "/reports/daily" },
+            { icon: MonitorCheck, label: "POS Reports", href: "/reports/pos" },
+          ]
+        },
+        {
+          icon: FileText,
+          label: "Receivables",
+          children: [
+            { icon: Clock, label: "AR Aging Summary", href: "/reports/view/ar-aging-summary" },
+            { icon: Users, label: "Customer Balances", href: "/reports/view/customer-balance-summary" },
+            { icon: FileText, label: "Receivable Details", href: "/reports/view/receivable-details" },
+            { icon: FileText, label: "Customer Statements", href: "/reports/customer-statements" },
+          ]
+        },
+        {
+          icon: CreditCard,
+          label: "Payments",
+          children: [
+            { icon: CreditCard, label: "Payments Received", href: "/reports/view/payments-received" },
+            { icon: Coins, label: "Cash Collection", href: "/reports/cash-collection" },
+          ]
         },
         {
           icon: ShieldCheck,
-          label: "Audit Reports",
+          label: "Taxes & Audit",
           children: [
-            {
-              icon: ShieldCheck,
-              label: "Posting Audit Trail",
-              href: "/accounting/audit-trail",
-            },
-            {
-              icon: History,
-              label: "Stock Adjustment Audit",
-              href: "/inventory/adjustments/report",
-            },
-          ],
+            { icon: FileText, label: "Tax Summary", href: "/reports/view/tax-summary" },
+            { icon: ShieldCheck, label: "Tax & ZIMRA", href: "/reports/tax" },
+            { icon: Coins, label: "VAT Returns", href: "/accounting/reports/vat-return" },
+            { icon: History, label: "Posting Audit Trail", href: "/accounting/audit-trail" },
+          ]
         },
+        {
+          icon: Package,
+          label: "Inventory",
+          children: [
+            { icon: ShoppingBag, label: "Stock on Hand", href: "/reports/view/stock-on-hand" },
+            { icon: Activity, label: "Low Stock Alerts", href: "/reports/view/stock-alerts" },
+            { icon: History, label: "Inventory Movements", href: "/reports/view/inventory-movements" },
+            { icon: TrendingUp, label: "Profit Margins", href: "/reports/view/profit-margins-product" },
+            { icon: ShoppingCart, label: "Purchases Report", href: "/reports/view/purchase-report" },
+          ]
+        }
       ],
     },
     {
@@ -586,20 +568,9 @@ export function Layout({
       icon: BarChart3,
       label: "Reports",
       children: [
-        { icon: LayoutDashboard, label: "Executive Overview", href: "/reports" },
-        {
-          icon: Receipt,
-          label: "Sales Reports",
-          children: [
-            { icon: Receipt, label: "Daily Sales", href: "/reports/daily" },
-            { icon: CreditCard, label: "POS Reports", href: "/reports/pos" },
-          ],
-        },
-        {
-          icon: ShieldCheck,
-          label: "Compliance Reports",
-          children: [{ icon: FileText, label: "Tax & ZIMRA", href: "/reports/tax" }],
-        },
+        { icon: LayoutDashboard, label: "Reports Dashboard", href: "/reports" },
+        { icon: Receipt, label: "Daily Sales", href: "/reports/daily" },
+        { icon: ShieldCheck, label: "Tax & ZIMRA Report", href: "/reports/tax" },
       ],
     },
     { icon: UserCog, label: "User Management", href: "/team-settings" },

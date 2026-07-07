@@ -17,6 +17,10 @@ import BomForm from "@/pages/manufacturing/bom-form";
 import WorkOrderList from "@/pages/manufacturing/work-order-list";
 import WorkOrderForm from "@/pages/manufacturing/work-order-form";
 import WorkOrderDetails from "@/pages/manufacturing/work-order-details";
+import WorkCenters from "@/pages/manufacturing/work-centers";
+import Routings from "@/pages/manufacturing/routings";
+import ManufacturingDashboard from "@/pages/manufacturing/index";
+import MrpDashboard from "@/pages/manufacturing/mrp-dashboard";
 
 import InvoicesPage from "@/pages/invoices";
 import CreateInvoicePage from "@/pages/create-invoice";
@@ -125,6 +129,9 @@ import HRLeave from "@/pages/hr/leave";
 import HRPayGrades from "@/pages/hr/pay-grades";
 import HRZimraReports from "@/pages/hr/zimra-reports";
 import SuperadminVisibilityPage from "@/pages/superadmin-visibility";
+import MaterialDocumentLedger from "@/pages/inventory/reports/ledger";
+import StockOverview from "@/pages/inventory/reports/overview";
+import HistoricalStock from "@/pages/inventory/reports/historical";
 import { useAuth } from "@/hooks/use-auth";
 import { usePermissions } from "@/hooks/use-permissions";
 import { NAV_PERMISSION_MAP } from "@shared/permissions";
@@ -343,6 +350,15 @@ function Router() {
       <Route path="/expenses">
         {() => <ProtectedRoute component={ExpensesPage} />}
       </Route>
+      <Route path="/inventory/reports/ledger">
+        {() => <ProtectedRoute component={MaterialDocumentLedger} />}
+      </Route>
+      <Route path="/inventory/reports/overview">
+        {() => <ProtectedRoute component={StockOverview} />}
+      </Route>
+      <Route path="/inventory/reports/historical">
+        {() => <ProtectedRoute component={HistoricalStock} />}
+      </Route>
       <Route path="/inventory/production">
         {() => <ProtectedRoute component={ProductionPage} />}
       </Route>
@@ -360,6 +376,18 @@ function Router() {
       </Route>
       <Route path="/manufacturing/work-orders/:id">
         {() => <ProtectedRoute component={WorkOrderDetails} />}
+      </Route>
+      <Route path="/manufacturing/work-centers">
+        {() => <ProtectedRoute component={WorkCenters} />}
+      </Route>
+      <Route path="/manufacturing/routings">
+        {() => <ProtectedRoute component={Routings} />}
+      </Route>
+      <Route path="/manufacturing/mrp">
+        {() => <ProtectedRoute component={MrpDashboard} />}
+      </Route>
+      <Route path="/manufacturing">
+        {() => <ProtectedRoute component={ManufacturingDashboard} />}
       </Route>
       <Route path="/inventory/purchase-orders">
         {() => <ProtectedRoute component={PurchaseOrdersPage} />}

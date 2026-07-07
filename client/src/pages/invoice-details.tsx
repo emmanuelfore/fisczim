@@ -1218,14 +1218,10 @@ export default function InvoiceDetailsPage() {
                               </div>
                             </div>
                           </div>
-                          {(invoice as any)?.validationErrors?.length > 0 ? (
+                          {(invoice as any)?.validationErrors?.length > 0 && (
                             <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-xs text-red-700">
                               {(invoice as any).validationErrors.length}{" "}
                               validation issue(s) need review.
-                            </div>
-                          ) : (
-                            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs font-semibold text-emerald-700">
-                              No validation errors recorded.
                             </div>
                           )}
                         </TabsContent>

@@ -29,6 +29,21 @@ export default function WorkOrderDetails() {
     enabled: !!companyId && !!(wo as any)?.bomId,
   });
 
+  const startMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/companies/${companyId}/manufacturing/work-orders/${id}/start`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/manufacturing/work-orders/${id}`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/manufacturing/work-orders`] });
+      toast({ title: "Started", description: "Work order is now in progress." });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
+  });
+
   const completeMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", `/api/companies/${companyId}/manufacturing/work-orders/${id}/complete`);
@@ -60,7 +75,12 @@ export default function WorkOrderDetails() {
             {(wo as any)?.status === "COMPLETED" ? <CheckCircle className="mr-2 h-4 w-4" /> : <Clock className="mr-2 h-4 w-4" />}
             {(wo as any)?.status}
           </Badge>
-          {(wo as any)?.status !== "COMPLETED" && (
+          {(wo as any)?.status === "PLANNED" && (
+            <Button onClick={() => startMutation.mutate()} disabled={startMutation.isPending || !bom} variant="outline" className="border-indigo-600 text-indigo-600 hover:bg-indigo-50">
+              {startMutation.isPending ? "Processing..." : "Start Production"}
+            </Button>
+          )}
+          {(wo as any)?.status === "IN_PROGRESS" && (
             <Button onClick={() => completeMutation.mutate()} disabled={completeMutation.isPending || !bom}>
               {completeMutation.isPending ? "Processing..." : "Finalize Production"}
             </Button>

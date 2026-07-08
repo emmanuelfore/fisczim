@@ -2233,21 +2233,24 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateCompany(id: number, data: Partial<InsertCompany>): Promise<Company> {
-    // Check if we are switching environment to production
-    if (data.zimraEnvironment === 'production') {
+    // Check if we are switching environment
+    if (data.zimraEnvironment) {
       const current = await this.getCompany(id);
-      if (current && current.zimraEnvironment !== 'production') {
-        console.log(`[ZIMRA] Environment switch to PRODUCTION for company ${id}. Performing full cleanup.`);
+      if (current && current.zimraEnvironment && current.zimraEnvironment !== data.zimraEnvironment) {
+        console.log(`[ZIMRA] Environment switch to ${data.zimraEnvironment} for company ${id}. Resetting counters.`);
 
-        // 1. Reset global counters
+        // 1. Reset global counters AND force sync
         data.lastReceiptGlobalNo = 0;
         data.dailyReceiptCount = 0;
         data.lastFiscalHash = null;
+        data.fiscalDayOpen = false;
+        data.currentFiscalDayNo = null;
 
-        // 2. Delete all test data associated with the company
-        try {
-          // Get all invoice IDs for this company
-          const companyInvoices = await db
+        if (data.zimraEnvironment === 'production') {
+          // 2. Delete all test data associated with the company
+          try {
+            // Get all invoice IDs for this company
+            const companyInvoices = await db
             .select({ id: invoices.id })
             .from(invoices)
             .where(eq(invoices.companyId, id));
@@ -2268,6 +2271,7 @@ export class DatabaseStorage implements IStorage {
           console.error(`[ZIMRA] Error during production cleanup for company ${id}:`, cleanupErr);
           // We continue with the update even if cleanup fails, but log the error
         }
+      }
       }
     }
 

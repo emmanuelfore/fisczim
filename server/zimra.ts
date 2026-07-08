@@ -867,7 +867,7 @@ export class ZimraDevice {
                 ...line,
                 receiptLineType: line.receiptLineType || 'Sale',
                 receiptLineHSCode: (line.receiptLineHSCode || '04021099').trim(), // Default per Python
-                receiptLineName: (line.receiptLineName || '').trim(),
+                receiptLineName: (line.receiptLineName || '').trim() || 'Item without description',
                 receiptLinePrice: linePrice,
                 receiptLineTotal: lineTotal,
                 taxID,
@@ -1167,7 +1167,7 @@ export class ZimraDevice {
                     receiptLineType: 'Sale',
                     receiptLineNo: index + 1,
                     receiptLineHSCode: item.hscode || '00000000',
-                    receiptLineName: item.description,
+                    receiptLineName: (item.description || '').trim() || 'Item without description',
                     receiptLinePrice: parseFloat(item.unitPrice),
                     receiptLineQuantity: parseFloat(item.quantity),
                     receiptLineTotal: parseFloat(item.total),

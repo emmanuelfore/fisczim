@@ -236,6 +236,17 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
                     }
                 }
             }
+
+            // Always re-fetch the latest fiscal config after potential sync
+            if (activeBranch) {
+                activeBranch = await storage.getBranch(activeBranch.id);
+                if (!activeBranch) throw new Error("Branch not found after sync");
+                fiscalConfig = { ...fiscalConfig, ...activeBranch };
+            } else {
+                company = await storage.getCompany(company.id);
+                if (!company) throw new Error("Company not found after sync");
+                fiscalConfig = { ...fiscalConfig, ...company };
+            }
         } else {
             // Re-fetch the latest fiscal config
             if (activeBranch) {
@@ -449,7 +460,7 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
                 receiptLineType: ((invoice.transactionType || 'FiscalInvoice') !== 'CreditNote' && (invoice.transactionType || 'FiscalInvoice') !== 'DebitNote' && Number(unitPrice) < 0) ? 'Discount' : 'Sale',
                 receiptLineNo: index + 1,
                 receiptLineHSCode: (item.product?.hsCode || '04021099').trim(),
-                receiptLineName: (item.description || '').trim(),
+                receiptLineName: (item.description || '').trim() || 'Item without description',
                 receiptLinePrice: parseFloat(Number(unitPrice).toFixed(2)),
                 receiptLineQuantity: parseFloat(Number(item.quantity).toFixed(2)),
                 receiptLineTotal: parseFloat(Number(lineTotal).toFixed(2)),

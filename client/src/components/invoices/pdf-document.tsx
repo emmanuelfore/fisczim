@@ -465,8 +465,7 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                 {/* 4. Items Table */}
                 <View style={styles.table}>
                     <View style={[styles.tableHeader, { backgroundColor: accentColor, borderRadius: template.radius }]}>
-                        {company?.vatRegistered ? (
-                            isExclusive ? (
+                        {isExclusive ? (
                                 <>
                                     <Text style={[styles.colExCode, styles.headerText]}>Code</Text>
                                     <Text style={[styles.colExDesc, styles.headerText]}>Description</Text>
@@ -485,16 +484,7 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                                     <Text style={[styles.colVat, styles.headerText]}>VAT</Text>
                                     <Text style={[styles.colTotal, styles.headerText]}>Total{"\n"}(incl.)</Text>
                                 </>
-                            )
-                        ) : (
-                            <>
-                                <Text style={[styles.colCode, styles.headerText, { width: '15%' }]}>Code</Text>
-                                <Text style={[styles.colDesc, styles.headerText, { width: '45%' }]}>Description</Text>
-                                <Text style={[styles.colQty, styles.headerText, { width: '10%' }]}>Qty</Text>
-                                <Text style={[styles.colPrice, styles.headerText, { width: '15%' }]}>Price</Text>
-                                <Text style={[styles.colTotal, styles.headerText, { width: '15%' }]}>Total</Text>
-                            </>
-                        )}
+                            )}
                     </View>
 
                     {invoice.items?.map((item: any, i: number) => {
@@ -535,8 +525,7 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
 
                         return (
                             <View key={i} style={[styles.tableRow, { borderBottomColor: borderColor }, i % 2 === 1 ? { backgroundColor: sectionBg } : {}]}>
-                                {company?.vatRegistered ? (
-                                    isExclusive ? (
+                                {isExclusive ? (
                                         <>
                                             <Text style={styles.colExCode}>{item.product?.hsCode || "0000"}</Text>
                                             <View style={styles.colExDesc}>
@@ -579,23 +568,7 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                                             <Text style={styles.colVat}>{isExempt ? "-" : (isZeroRated || vatAmt === 0 ? "0.00" : vatAmt.toFixed(2))}</Text>
                                             <Text style={styles.colTotal}>{displayTotalIncl.toFixed(2)}</Text>
                                         </>
-                                    )
-                                ) : (
-                                    <>
-                                        <Text style={[styles.colCode, { width: '15%' }]}>{item.product?.hsCode || "0000"}</Text>
-                                        <View style={[styles.colDesc, { width: '45%' }]}>
-                                            <Text>{item.description}</Text>
-                                            {item.serialNumber && (
-                                                <Text style={{ fontSize: 7, color: accentColor, fontWeight: 700, marginTop: 1 }}>
-                                                    S/N: {item.serialNumber}
-                                                </Text>
-                                            )}
-                                        </View>
-                                        <Text style={[styles.colQty, { width: '10%' }]}>{qty}</Text>
-                                        <Text style={[styles.colPrice, { width: '15%' }]}>{displayPrice.toFixed(2)}</Text>
-                                        <Text style={[styles.colTotal, { width: '15%' }]}>{displayTotalIncl.toFixed(2)}</Text>
-                                    </>
-                                )}
+                                    )}
                             </View>
                         );
                     })}
@@ -604,10 +577,9 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                 {/* 5. Summary & Totals */}
                 <View style={styles.summarySection}>
                     {/* Tax Analysis */}
-                    {company?.vatRegistered ? (
-                        <View style={[styles.taxTable, { borderColor, borderRadius: template.radius }]}>
-                            <Text style={[styles.sectionTitle, { marginBottom: 6, color: accentColor }]}>Tax Analysis</Text>
-                            <View style={{ flexDirection: 'row', borderBottomWidth: 1, borderColor: '#e2e8f0', paddingBottom: 2 }}>
+                    <View style={[styles.taxTable, { borderColor, borderRadius: template.radius }]}>
+                        <Text style={[styles.sectionTitle, { marginBottom: 6, color: accentColor }]}>Tax Analysis</Text>
+                        <View style={{ flexDirection: 'row', borderBottomWidth: 1, borderColor: '#e2e8f0', paddingBottom: 2 }}>
                                 <Text style={{ fontSize: 8, width: '25%', color: '#64748b' }}>VAT %</Text>
                                 <Text style={{ fontSize: 8, width: '25%', textAlign: 'right', color: '#64748b' }}>Net.Amt</Text>
                                 <Text style={{ fontSize: 8, width: '25%', textAlign: 'right', color: '#64748b' }}>VAT</Text>
@@ -665,7 +637,6 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                                 ));
                             })()}
                         </View>
-                    ) : null}
 
                     {/* Totals */}
                     <View style={[styles.totalsBox, { borderColor, backgroundColor: sectionBg, borderRadius: template.radius }]}>
@@ -676,26 +647,20 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                             </Text>
                         </View>
 
-                        {company?.vatRegistered && (
-                            <View style={styles.totalRow}>
-                                <Text>Total (excl. tax)</Text>
-                                <Text>{Number(invoice.subtotal).toFixed(2)}</Text>
-                            </View>
-                        )}
+                        <View style={styles.totalRow}>
+                            <Text>Total (excl. tax)</Text>
+                            <Text>{Number(invoice.subtotal).toFixed(2)}</Text>
+                        </View>
 
-                        {company?.vatRegistered && (
-                            <View style={styles.totalRow}>
-                                <Text>Total VAT</Text>
-                                <Text>{Number(invoice.taxAmount).toFixed(2)}</Text>
-                            </View>
-                        )}
+                        <View style={styles.totalRow}>
+                            <Text>Total VAT</Text>
+                            <Text>{Number(invoice.taxAmount).toFixed(2)}</Text>
+                        </View>
 
-                        {company?.vatRegistered && (
-                            <View style={styles.totalRow}>
-                                <Text>Invoice total, {invoice.currency}</Text>
-                                <Text>{Number(invoice.total).toFixed(2)}</Text>
-                            </View>
-                        )}
+                        <View style={styles.totalRow}>
+                            <Text>Invoice total, {invoice.currency}</Text>
+                            <Text>{Number(invoice.total).toFixed(2)}</Text>
+                        </View>
 
                         <View style={[styles.grandTotal, { borderTopColor: accentColor }]}>
                             <Text>Total amount {company?.vatRegistered ? "(incl. tax)" : ""}</Text>

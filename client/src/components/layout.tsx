@@ -263,9 +263,34 @@ export function Layout({
         },
         { icon: Users, label: "Customer List", href: "/customers" },
         {
+          icon: BarChart3,
+          label: "Sales Reports",
+          children: [
+            { icon: LayoutDashboard, label: "Reports Hub", href: "/reports" },
+            { icon: BarChart3, label: "Sales Summary", href: "/reports/sales" },
+            { icon: Users, label: "Sales by Customer", href: "/reports/sales-by-customer" },
+            { icon: Package, label: "Sales by Item", href: "/reports/sales-by-item" },
+            { icon: Receipt, label: "Daily Sales Ledger", href: "/reports/daily" },
+            { icon: MonitorCheck, label: "POS Reports", href: "/reports/pos" },
+          ]
+        },
+        {
           icon: FileText,
-          label: "Customer Statements",
-          href: "/reports/customer-statements",
+          label: "Receivable Reports",
+          children: [
+            { icon: Clock, label: "AR Aging Summary", href: "/reports/ar-aging-summary" },
+            { icon: Users, label: "Customer Balances", href: "/reports/customer-balance-summary" },
+            { icon: FileText, label: "Receivable Details", href: "/reports/receivable-details" },
+            { icon: FileText, label: "Customer Statements", href: "/reports/customer-statements" },
+          ]
+        },
+        {
+          icon: CreditCard,
+          label: "Payment Reports",
+          children: [
+            { icon: CreditCard, label: "Payments Received", href: "/reports/payments-received" },
+            { icon: Coins, label: "Cash Collection", href: "/reports/cash-collection" },
+          ]
         },
       ],
     },
@@ -289,19 +314,25 @@ export function Layout({
           href: "/inventory/purchase-returns",
         },
         { icon: Truck, label: "Suppliers", href: "/suppliers" },
+        {
+          icon: ShoppingCart,
+          label: "Procurement Reports",
+          children: [
+            { icon: ShoppingCart, label: "Purchases Report", href: "/reports/purchase-report" },
+          ]
+        },
       ],
     },
     {
       icon: Package,
       label: "Inventory",
       children: [
-        { icon: Package, label: "Products", href: "/products" },
+        { icon: Package, label: "Products & Services", href: "/products" },
         {
           icon: ShieldCheck,
           label: "Serial & Warranty Items",
           href: "/serial-tracking",
         },
-        { icon: Briefcase, label: "Services", href: "/services" },
         {
           icon: ArrowRightLeft,
           label: "Stock Transfers",
@@ -329,16 +360,21 @@ export function Layout({
           href: "/inventory/stock-counts",
         },
         { icon: History, label: "Stock Ledger", href: "/inventory" },
-      ],
-    },
-    {
-      icon: LineChart,
-      label: "Inventory Reports",
-      children: [
-        { icon: Activity, label: "Transaction Ledger", href: "/inventory/reports/ledger" },
-        { icon: Target, label: "Stock Overview", href: "/inventory/reports/overview" },
-        { icon: History, label: "Historical Stock Balance", href: "/inventory/reports/historical" },
-        { icon: AlertTriangle, label: "Dead Stock Report", href: "/inventory/reports/dead-stock" },
+        {
+          icon: LineChart,
+          label: "Inventory Reports",
+          children: [
+            { icon: Activity, label: "Transaction Ledger", href: "/inventory/reports/ledger" },
+            { icon: Target, label: "Stock Overview", href: "/inventory/reports/overview" },
+            { icon: History, label: "Historical Stock Balance", href: "/inventory/reports/historical" },
+            { icon: AlertTriangle, label: "Dead Stock Report", href: "/inventory/reports/dead-stock" },
+            { icon: ShoppingBag, label: "Stock on Hand", href: "/reports/stock-on-hand" },
+            { icon: Activity, label: "Low Stock Alerts", href: "/reports/stock-alerts" },
+            { icon: History, label: "Inventory Movements", href: "/reports/inventory-movements" },
+            { icon: TrendingUp, label: "Profit Margins", href: "/reports/profit-margins-product" },
+            { icon: Package, label: "Stock Movement", href: "/reports/stock-movement" },
+          ]
+        },
       ],
     },
     {
@@ -380,6 +416,17 @@ export function Layout({
             { icon: Scale, label: "Opening Balances", href: "/accounting/opening-balances" },
           ],
         },
+        {
+          icon: Calculator,
+          label: "Financial Reports",
+          children: [
+            { icon: TrendingUp, label: "Profit & Loss", href: "/accounting/reports/financial?tab=pl" },
+            { icon: TrendingUp, label: "Balance Sheet", href: "/accounting/reports/financial?tab=bs" },
+            { icon: TrendingUp, label: "Cash Flow", href: "/accounting/reports/financial?tab=cf" },
+            { icon: TrendingUp, label: "Trial Balance", href: "/accounting/reports/trial-balance" },
+            { icon: History, label: "General Ledger", href: "/accounting/reports/ledger" },
+          ]
+        },
       ],
     },
     {
@@ -413,84 +460,14 @@ export function Layout({
         { icon: Activity, label: "FDMS Test", href: "/fdms-test" },
         { icon: FileText, label: "Tax & ZIMRA Report", href: "/reports/tax" },
         { icon: Coins, label: "VAT Returns", href: "/accounting/reports/vat-return" },
-      ],
-    },
-    {
-      icon: BarChart3,
-      label: "Reports",
-      children: [
-        { icon: LayoutDashboard, label: "Reports Hub", href: "/reports" },
-        {
-          icon: CalendarDays,
-          label: "Operational",
-          children: [
-            { icon: FileText, label: "Daily Report", href: "/reports/operational-daily" },
-            { icon: FileText, label: "Weekly Report", href: "/reports/operational-weekly" },
-            { icon: FileText, label: "Monthly Report", href: "/reports/operational-monthly" },
-            { icon: Package, label: "Stock Movement", href: "/reports/stock-movement" },
-          ]
-        },
-        {
-          icon: Calculator,
-          label: "Financials",
-          children: [
-            { icon: TrendingUp, label: "Profit & Loss", href: "/accounting/reports/financial?tab=pl" },
-            { icon: TrendingUp, label: "Balance Sheet", href: "/accounting/reports/financial?tab=bs" },
-            { icon: TrendingUp, label: "Cash Flow", href: "/accounting/reports/financial?tab=cf" },
-            { icon: TrendingUp, label: "Trial Balance", href: "/accounting/reports/trial-balance" },
-            { icon: History, label: "General Ledger", href: "/accounting/reports/ledger" },
-          ]
-        },
-        {
-          icon: BarChart3,
-          label: "Sales",
-          children: [
-            { icon: BarChart3, label: "Sales Summary", href: "/reports/sales" },
-            { icon: Users, label: "Sales by Customer", href: "/reports/sales-by-customer" },
-            { icon: Package, label: "Sales by Item", href: "/reports/sales-by-item" },
-            { icon: Receipt, label: "Daily Sales Ledger", href: "/reports/daily" },
-            { icon: MonitorCheck, label: "POS Reports", href: "/reports/pos" },
-          ]
-        },
-        {
-          icon: FileText,
-          label: "Receivables",
-          children: [
-            { icon: Clock, label: "AR Aging Summary", href: "/reports/ar-aging-summary" },
-            { icon: Users, label: "Customer Balances", href: "/reports/customer-balance-summary" },
-            { icon: FileText, label: "Receivable Details", href: "/reports/receivable-details" },
-            { icon: FileText, label: "Customer Statements", href: "/reports/customer-statements" },
-          ]
-        },
-        {
-          icon: CreditCard,
-          label: "Payments",
-          children: [
-            { icon: CreditCard, label: "Payments Received", href: "/reports/payments-received" },
-            { icon: Coins, label: "Cash Collection", href: "/reports/cash-collection" },
-          ]
-        },
         {
           icon: ShieldCheck,
-          label: "Taxes & Audit",
+          label: "Tax Reports",
           children: [
             { icon: FileText, label: "Tax Summary", href: "/reports/tax-summary" },
-            { icon: ShieldCheck, label: "Tax & ZIMRA", href: "/reports/tax" },
-            { icon: Coins, label: "VAT Returns", href: "/accounting/reports/vat-return" },
             { icon: History, label: "Posting Audit Trail", href: "/accounting/audit-trail" },
           ]
         },
-        {
-          icon: Package,
-          label: "Inventory",
-          children: [
-            { icon: ShoppingBag, label: "Stock on Hand", href: "/reports/stock-on-hand" },
-            { icon: Activity, label: "Low Stock Alerts", href: "/reports/stock-alerts" },
-            { icon: History, label: "Inventory Movements", href: "/reports/inventory-movements" },
-            { icon: TrendingUp, label: "Profit Margins", href: "/reports/profit-margins-product" },
-            { icon: ShoppingCart, label: "Purchases Report", href: "/reports/purchase-report" },
-          ]
-        }
       ],
     },
     {
@@ -514,6 +491,15 @@ export function Layout({
       icon: Settings,
       label: "Administration",
       children: [
+        {
+          icon: CalendarDays,
+          label: "Operational Reports",
+          children: [
+            { icon: FileText, label: "Daily Report", href: "/reports/operational-daily" },
+            { icon: FileText, label: "Weekly Report", href: "/reports/operational-weekly" },
+            { icon: FileText, label: "Monthly Report", href: "/reports/operational-monthly" },
+          ]
+        },
         {
           icon: ClipboardCheck,
           label: "Approvals",
@@ -740,8 +726,8 @@ export function Layout({
       };
     if (location.startsWith("/products"))
       return {
-        title: "Products",
-        subtitle: "Manage inventory items, pricing, tax, and stock controls.",
+        title: "Products & Services",
+        subtitle: "Manage inventory items, services, pricing, tax, and stock controls.",
       };
     if (location.startsWith("/serial-tracking"))
       return {
@@ -751,7 +737,7 @@ export function Layout({
       };
     if (location.startsWith("/services"))
       return {
-        title: "Services",
+        title: "Products & Services",
         subtitle: "Manage service offerings for invoices and sales.",
       };
     if (location.startsWith("/inventory/adjustments/report"))

@@ -43,13 +43,16 @@ import { HsCodeAssistant } from "@/components/products/hs-code-assistant";
 
 export function CreateProductDialog({
   companyId,
-  triggerLabel = "Add Product",
+  triggerLabel,
+  defaultType = "good",
 }: {
   companyId: number;
   triggerLabel?: string;
+  defaultType?: "good" | "service";
 }) {
+  const resolvedLabel = triggerLabel ?? (defaultType === "service" ? "Add Service" : "Add Product");
   const [open, setOpen] = useState(false);
-  const [isService, setIsService] = useState(false);
+  const [isService, setIsService] = useState(defaultType === "service");
   const createProduct = useCreateProduct(companyId);
   const { taxCategories, taxTypes } = useTaxConfig(companyId);
   const { toast } = useToast();
@@ -160,9 +163,13 @@ export function CreateProductDialog({
       }}
     >
       <DialogTrigger asChild>
-        <Button className="gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white shadow-lg shadow-indigo-500/20 rounded-xl transition-all duration-300 hover:-translate-y-0.5">
+        <Button className={`gap-2 rounded-xl transition-all duration-300 hover:-translate-y-0.5 ${
+          defaultType === "service"
+            ? "bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 shadow-sm"
+            : "bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white shadow-lg shadow-indigo-500/20"
+        }`}>
           <Plus className="w-4 h-4" />
-          {triggerLabel}
+          {resolvedLabel}
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl">

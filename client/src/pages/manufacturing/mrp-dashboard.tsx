@@ -80,7 +80,7 @@ export default function MrpDashboard() {
                 </div>
                 <div className="text-right">
                   <p className="text-sm font-medium text-slate-500">Date</p>
-                  <p className="text-sm font-bold">{new Date(latestRun.createdAt).toLocaleString()}</p>
+                  <p className="text-sm font-bold">{new Date(latestRun.date).toLocaleString()}</p>
                 </div>
               </CardContent>
             </Card>

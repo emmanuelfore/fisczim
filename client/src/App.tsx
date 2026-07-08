@@ -469,7 +469,7 @@ function Router() {
         {() => <ProtectedRoute component={SerialTrackingPage} />}
       </Route>
       <Route path="/services">
-        {() => <ProtectedRoute component={ServicesPage} />}
+        {() => <Redirect to="/products" />}
       </Route>
       <Route path="/tax-config">
         {() => <ProtectedRoute component={TaxConfigPage} />}

@@ -11,11 +11,11 @@ import { useTaxConfig } from "@/hooks/use-tax-config";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Package,
-  AlertCircle,
   Search,
   ChevronLeft,
   ChevronRight,
   FileDown,
+  Briefcase,
 } from "lucide-react";
 import { CreateProductDialog } from "@/components/products/create-product-dialog";
 import { EditProductDialog } from "@/components/products/edit-product-dialog";
@@ -67,8 +67,9 @@ import {
   History,
   TrendingUp,
   PackagePlus,
-  AlertTriangle,
 } from "lucide-react";
+
+type TypeFilter = "all" | "product" | "service";
 
 export default function ProductsPage() {
   const [itemsPerPage, setItemsPerPage] = useState(10);
@@ -83,6 +84,7 @@ export default function ProductsPage() {
   const { taxTypes } = useTaxConfig(companyId || undefined);
   const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState("");
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [stockFilter, setStockFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
@@ -113,8 +115,8 @@ export default function ProductsPage() {
     onSuccess: () => {
       refreshProductQueries(queryClient, companyId);
       toast({
-        title: "Products Deleted",
-        description: "All products have been successfully deleted.",
+        title: "Items Deleted",
+        description: "All products and services have been successfully deleted.",
         variant: "default",
       });
     },
@@ -127,31 +129,30 @@ export default function ProductsPage() {
     },
   });
 
-  // Filter for products (goods)
-  const products = allItems?.filter((item) => item.productType !== "service"); // Treat undefined/'good' as product
+  // Type-filtered base list
+  const typeFilteredItems = useMemo(() => {
+    if (!allItems) return [];
+    if (typeFilter === "product") return allItems.filter(i => i.productType !== "service");
+    if (typeFilter === "service") return allItems.filter(i => i.productType === "service");
+    return allItems;
+  }, [allItems, typeFilter]);
 
   const categoryOptions = useMemo(() => {
     const categories = new Set<string>();
-
-    products?.forEach((product) => {
-      const category = product.category?.trim();
+    typeFilteredItems.forEach((item) => {
+      const category = item.category?.trim();
       if (category) categories.add(category);
     });
-
     return Array.from(categories).sort((a, b) => a.localeCompare(b));
-  }, [products]);
+  }, [typeFilteredItems]);
 
-  // Filter by search term
-  // Filter logic
-  const filteredProducts = products?.filter((p) => {
-    // 1. Search Term
+  const filteredItems = typeFilteredItems?.filter((p) => {
     const matchesSearch =
       p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (p.sku && p.sku.toLowerCase().includes(searchTerm.toLowerCase())) ||
       (p.description &&
         p.description.toLowerCase().includes(searchTerm.toLowerCase()));
 
-    // 2. Status Filter
     const matchesStatus =
       statusFilter === "all"
         ? true
@@ -161,61 +162,63 @@ export default function ProductsPage() {
             ? !p.isActive
             : true;
 
-    // 3. Stock Filter
     let matchesStock = true;
     if (stockFilter !== "all" && p.isTracked) {
       const stock = Number(p.stockLevel);
       const lowThreshold = Number(p.lowStockThreshold || 0);
-
-      if (stockFilter === "in_stock") matchesStock = stock > 0; // Show everything available including low stock
-      if (stockFilter === "low_stock")
-        matchesStock = stock <= lowThreshold && stock > 0;
+      if (stockFilter === "in_stock") matchesStock = stock > 0;
+      if (stockFilter === "low_stock") matchesStock = stock <= lowThreshold && stock > 0;
       if (stockFilter === "out_of_stock") matchesStock = stock <= 0;
     } else if (stockFilter !== "all" && !p.isTracked) {
-      // Decide how to handle unlimited items when filtering by stock
-      // Usually "In Stock" includes unlimited. Low/Out don't apply.
-      if (stockFilter === "low_stock" || stockFilter === "out_of_stock")
-        matchesStock = false;
+      if (stockFilter === "low_stock" || stockFilter === "out_of_stock") matchesStock = false;
     }
 
-    // 4. Category Filter
     const matchesCategory =
       categoryFilter === "all" ? true : p.category === categoryFilter;
 
-    // 5. Tax Filter
-    // We compare strings or loose equality
     const matchesTax =
       taxFilter === "all"
         ? true
         : parseFloat(p.taxRate || "0") === parseFloat(taxFilter);
 
-    return (
-      matchesSearch &&
-      matchesStatus &&
-      matchesStock &&
-      matchesCategory &&
-      matchesTax
-    );
+    return matchesSearch && matchesStatus && matchesStock && matchesCategory && matchesTax;
   });
 
-  // Pagination logic
-  const totalPages = Math.ceil((filteredProducts?.length || 0) / itemsPerPage);
+  const totalPages = Math.ceil((filteredItems?.length || 0) / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
-  const paginatedProducts = filteredProducts?.slice(
-    startIndex,
-    startIndex + itemsPerPage,
-  );
+  const paginatedItems = filteredItems?.slice(startIndex, startIndex + itemsPerPage);
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchTerm(e.target.value);
-    setCurrentPage(1); // Reset to first page on search
+    setCurrentPage(1);
   };
+
+  const resetFilters = () => {
+    setSearchTerm("");
+    setTypeFilter("all");
+    setStatusFilter("all");
+    setStockFilter("all");
+    setCategoryFilter("all");
+    setTaxFilter("all");
+    setCurrentPage(1);
+  };
+
+  const productCount = allItems?.filter(i => i.productType !== "service").length ?? 0;
+  const serviceCount = allItems?.filter(i => i.productType === "service").length ?? 0;
+
+  const hasActiveFilters =
+    searchTerm ||
+    typeFilter !== "all" ||
+    statusFilter !== "all" ||
+    stockFilter !== "all" ||
+    categoryFilter !== "all" ||
+    taxFilter !== "all";
 
   return (
     <Layout>
       <PageHeader
-        title="Products"
-        subtitle="Inventory and goods"
+        title="Products & Services"
+        subtitle="Inventory, goods and service offerings"
         actions={
           <>
             <Button
@@ -250,7 +253,7 @@ export default function ProductsPage() {
               Export CSV
             </Button>
 
-            {companyId > 0 && products && products.length > 0 && (
+            {companyId > 0 && allItems && allItems.length > 0 && (
               <AlertDialog>
                 <AlertDialogTrigger asChild>
                   <Button
@@ -259,16 +262,12 @@ export default function ProductsPage() {
                     disabled={bulkDeleteMutation.isPending}
                   >
                     <Trash2 className="w-4 h-4 mr-2" />
-                    {bulkDeleteMutation.isPending
-                      ? "Deleting..."
-                      : "Delete All"}
+                    {bulkDeleteMutation.isPending ? "Deleting..." : "Delete All"}
                   </Button>
                 </AlertDialogTrigger>
                 <AlertDialogContent>
                   <AlertDialogHeader>
-                    <AlertDialogTitle>
-                      Are you absolutely sure?
-                    </AlertDialogTitle>
+                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
                     <AlertDialogDescription>
                       This will permanently delete ALL products and services
                       from your inventory for this company. This action cannot
@@ -310,17 +309,20 @@ export default function ProductsPage() {
               </Link>
             )}
             {companyId > 0 ? (
-              <CreateProductDialog
-                companyId={companyId}
-                defaultType="good"
-                triggerLabel="Add Product"
-              />
+              <>
+                <CreateProductDialog
+                  companyId={companyId}
+                  defaultType="service"
+                  triggerLabel="Add Service"
+                />
+                <CreateProductDialog
+                  companyId={companyId}
+                  defaultType="good"
+                  triggerLabel="Add Product"
+                />
+              </>
             ) : (
-              <Button
-                disabled
-                variant="outline"
-                className="rounded-xl flex-1 sm:flex-none"
-              >
+              <Button disabled variant="outline" className="rounded-xl flex-1 sm:flex-none">
                 Select a Company First
               </Button>
             )}
@@ -328,11 +330,42 @@ export default function ProductsPage() {
         }
       />
 
+      {/* Type filter tabs */}
+      <div className="flex items-center gap-1 mb-4 bg-slate-100 p-1 rounded-xl w-fit">
+        {(["all", "product", "service"] as TypeFilter[]).map((t) => {
+          const count = t === "all" ? (allItems?.length ?? 0) : t === "product" ? productCount : serviceCount;
+          const label = t === "all" ? "All" : t === "product" ? "Products" : "Services";
+          return (
+            <button
+              key={t}
+              onClick={() => { setTypeFilter(t); setCurrentPage(1); setStockFilter("all"); }}
+              className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+                typeFilter === t
+                  ? "bg-white text-slate-900 shadow-sm"
+                  : "text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              {t === "service" ? (
+                <Briefcase className="w-3.5 h-3.5" />
+              ) : (
+                <Package className="w-3.5 h-3.5" />
+              )}
+              {label}
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
+                typeFilter === t ? "bg-slate-100 text-slate-600" : "bg-slate-200 text-slate-500"
+              }`}>
+                {count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
       <div className="admin-panel mb-4 flex flex-col gap-3 p-4 md:flex-row md:items-center">
         <div className="relative flex-1 w-full sm:max-w-sm group">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#64748B] transition-colors" />
           <Input
-            placeholder="Search products, SKU..."
+            placeholder="Search products, services, SKU..."
             className="pl-9"
             value={searchTerm}
             onChange={handleSearch}
@@ -342,10 +375,7 @@ export default function ProductsPage() {
         <div className="flex gap-2 flex-wrap">
           <Select
             value={statusFilter}
-            onValueChange={(v) => {
-              setStatusFilter(v);
-              setCurrentPage(1);
-            }}
+            onValueChange={(v) => { setStatusFilter(v); setCurrentPage(1); }}
           >
             <SelectTrigger className="w-[130px]">
               <SelectValue placeholder="Status" />
@@ -357,30 +387,27 @@ export default function ProductsPage() {
             </SelectContent>
           </Select>
 
-          <Select
-            value={stockFilter}
-            onValueChange={(v) => {
-              setStockFilter(v);
-              setCurrentPage(1);
-            }}
-          >
-            <SelectTrigger className="w-[140px]">
-              <SelectValue placeholder="Stock Level" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Stock</SelectItem>
-              <SelectItem value="in_stock">In Stock</SelectItem>
-              <SelectItem value="low_stock">Low Stock</SelectItem>
-              <SelectItem value="out_of_stock">Out of Stock</SelectItem>
-            </SelectContent>
-          </Select>
+          {/* Only show stock filter when not viewing services-only */}
+          {typeFilter !== "service" && (
+            <Select
+              value={stockFilter}
+              onValueChange={(v) => { setStockFilter(v); setCurrentPage(1); }}
+            >
+              <SelectTrigger className="w-[140px]">
+                <SelectValue placeholder="Stock Level" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Stock</SelectItem>
+                <SelectItem value="in_stock">In Stock</SelectItem>
+                <SelectItem value="low_stock">Low Stock</SelectItem>
+                <SelectItem value="out_of_stock">Out of Stock</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
 
           <Select
             value={categoryFilter}
-            onValueChange={(v) => {
-              setCategoryFilter(v);
-              setCurrentPage(1);
-            }}
+            onValueChange={(v) => { setCategoryFilter(v); setCurrentPage(1); }}
           >
             <SelectTrigger className="w-[170px]">
               <SelectValue placeholder="Category" />
@@ -397,10 +424,7 @@ export default function ProductsPage() {
 
           <Select
             value={taxFilter}
-            onValueChange={(v) => {
-              setTaxFilter(v);
-              setCurrentPage(1);
-            }}
+            onValueChange={(v) => { setTaxFilter(v); setCurrentPage(1); }}
           >
             <SelectTrigger className="w-[140px]">
               <SelectValue placeholder="Tax Class" />
@@ -416,23 +440,8 @@ export default function ProductsPage() {
           </Select>
         </div>
 
-        {(searchTerm ||
-          statusFilter !== "all" ||
-          stockFilter !== "all" ||
-          categoryFilter !== "all" ||
-          taxFilter !== "all") && (
-          <Button
-            variant="ghost"
-            onClick={() => {
-              setSearchTerm("");
-              setStatusFilter("all");
-              setStockFilter("all");
-              setCategoryFilter("all");
-              setTaxFilter("all");
-              setCurrentPage(1);
-            }}
-            className="text-[#64748B]"
-          >
+        {hasActiveFilters && (
+          <Button variant="ghost" onClick={resetFilters} className="text-[#64748B]">
             Reset
           </Button>
         )}
@@ -473,27 +482,31 @@ export default function ProductsPage() {
                   <td colSpan={8} className="p-12 text-center text-slate-500">
                     <div className="flex flex-col items-center justify-center gap-3">
                       <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-violet-600"></div>
-                      Loading products...
+                      Loading...
                     </div>
                   </td>
                 </tr>
-              ) : paginatedProducts?.length === 0 ? (
+              ) : paginatedItems?.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="p-12 text-center text-slate-500">
                     <div className="flex flex-col items-center justify-center">
-                      <Package className="w-12 h-12 text-slate-200 mb-4" />
-                      <p className="font-bold text-lg">No products found</p>
-                      <p className="">Try adjusting your filters</p>
+                      {typeFilter === "service" ? (
+                        <Briefcase className="w-12 h-12 text-slate-200 mb-4" />
+                      ) : (
+                        <Package className="w-12 h-12 text-slate-200 mb-4" />
+                      )}
+                      <p className="font-bold text-lg">
+                        No {typeFilter === "service" ? "services" : typeFilter === "product" ? "products" : "items"} found
+                      </p>
+                      <p>Try adjusting your filters</p>
                     </div>
                   </td>
                 </tr>
               ) : (
-                paginatedProducts?.map((p) => {
-                  // Match tax rate to a known tax type if possible
-                  // We use loose comparison for string/number match on rate
+                paginatedItems?.map((p) => {
+                  const isService = p.productType === "service";
                   const matchedType = taxTypes.data?.find((t: any) => {
                     if (p.taxTypeId) return t.id === p.taxTypeId;
-                    // Fallback for legacy data
                     if (parseFloat(t.rate) === parseFloat(p.taxRate || "0")) {
                       if (parseFloat(p.taxRate || "0") === 0) {
                         const isExempt =
@@ -508,10 +521,7 @@ export default function ProductsPage() {
                             t.name.toLowerCase().includes("exempt")
                           );
                         }
-                        return (
-                          t.zimraTaxId === "2" ||
-                          t.name.toLowerCase().includes("zero")
-                        );
+                        return t.zimraTaxId === "2" || t.name.toLowerCase().includes("zero");
                       }
                       return true;
                     }
@@ -530,19 +540,35 @@ export default function ProductsPage() {
                               src={resolveMediaUrl(p.imageUrl)}
                               alt={p.name}
                               className="w-8 h-8 md:w-10 md:h-10 rounded-lg object-cover shadow-sm bg-slate-100 ring-1 ring-slate-200 shrink-0"
-                              onError={(e) =>
-                                (e.currentTarget.style.display = "none")
-                              }
+                              onError={(e) => (e.currentTarget.style.display = "none")}
                             />
                           ) : (
-                            <div className="w-8 h-8 md:w-10 md:h-10 rounded-lg bg-slate-100 flex items-center justify-center ring-1 ring-slate-200 shrink-0">
-                              <Package className="w-4 h-4 md:w-5 md:h-5 text-slate-300" />
+                            <div className={`w-8 h-8 md:w-10 md:h-10 rounded-lg flex items-center justify-center ring-1 shrink-0 ${
+                              isService
+                                ? "bg-blue-50 ring-blue-100"
+                                : "bg-slate-100 ring-slate-200"
+                            }`}>
+                              {isService ? (
+                                <Briefcase className="w-4 h-4 md:w-5 md:h-5 text-blue-400" />
+                              ) : (
+                                <Package className="w-4 h-4 md:w-5 md:h-5 text-slate-300" />
+                              )}
                             </div>
                           )}
                           <div className="flex flex-col min-w-0">
-                            <span className="font-semibold tracking-tight  truncate">
-                              {p.name}
-                            </span>
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold tracking-tight truncate">
+                                {p.name}
+                              </span>
+                              {isService && (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[9px] text-blue-600 border-blue-200 bg-blue-50 px-1.5 py-0 shrink-0 font-bold uppercase tracking-wider"
+                                >
+                                  Service
+                                </Badge>
+                              )}
+                            </div>
                             {!p.isActive && (
                               <span className="text-[9px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-md font-bold uppercase tracking-wider w-fit mt-0.5">
                                 Inactive
@@ -577,16 +603,18 @@ export default function ProductsPage() {
                             {p.category}
                           </Badge>
                         ) : (
-                          <span className="text-slate-300 text-xs font-bold">
-                            —
-                          </span>
+                          <span className="text-slate-300 text-xs font-bold">—</span>
                         )}
                       </td>
-                      <td className="px-5 py-4 font-bold text-[#0F172A] tracking-tight ">
+                      <td className="px-5 py-4 font-bold text-[#0F172A] tracking-tight">
                         ${Number(p.price).toFixed(2)}
                       </td>
                       <td className="px-5 py-4">
-                        {p.isTracked ? (
+                        {isService ? (
+                          <span className="text-[10px] text-slate-400 font-bold uppercase">
+                            N/A
+                          </span>
+                        ) : p.isTracked ? (
                           <div className="flex items-center gap-2">
                             <span
                               className={`${Number(p.branchStock || p.stockLevel) <= Number(p.lowStockThreshold || 0) ? "text-red-600 bg-red-50" : "text-slate-700 bg-slate-100"} px-2 py-0.5 rounded-md font-mono text-[11px] font-bold`}
@@ -631,20 +659,17 @@ export default function ProductsPage() {
                           >
                             <div className="px-3 py-2 border-b border-slate-100 mb-1">
                               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                                Inventory Management
+                                {isService ? "Service Management" : "Inventory Management"}
                               </p>
                             </div>
 
-                            {p.isTracked && (
+                            {!isService && p.isTracked && (
                               <>
                                 <DropdownMenuItem
                                   onSelect={(e) => e.preventDefault()}
                                   className="p-0 rounded-xl mb-1 focus:bg-transparent"
                                 >
-                                  <StockInDialog
-                                    product={p}
-                                    companyId={companyId}
-                                  >
+                                  <StockInDialog product={p} companyId={companyId}>
                                     <div className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-emerald-700 hover:bg-emerald-50 cursor-pointer font-bold transition-all text-xs">
                                       <PackagePlus className="w-4 h-4" />
                                       <span>Stock In</span>
@@ -673,10 +698,7 @@ export default function ProductsPage() {
                               onSelect={(e) => e.preventDefault()}
                               className="p-0 rounded-xl mb-1 focus:bg-transparent"
                             >
-                              <PriceAdjustmentDialog
-                                product={p}
-                                companyId={companyId}
-                              >
+                              <PriceAdjustmentDialog product={p} companyId={companyId}>
                                 <div className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-indigo-700 hover:bg-indigo-50 cursor-pointer font-bold transition-all text-xs">
                                   <TrendingUp className="w-4 h-4" />
                                   <span>Manage Price</span>
@@ -703,7 +725,7 @@ export default function ProductsPage() {
                               className="p-0 rounded-xl focus:bg-transparent"
                             >
                               <DeleteButton
-                                title="Delete Product"
+                                title={`Delete ${isService ? "Service" : "Product"}`}
                                 description={`Are you sure you want to delete ${p.name}? This will remove it from active inventory.`}
                                 onConfirm={async () => {
                                   await updateProduct.mutateAsync({
@@ -753,11 +775,11 @@ export default function ProductsPage() {
                   <SelectItem value="100">100</SelectItem>
                 </SelectContent>
               </Select>
-              {filteredProducts && (
+              {filteredItems && (
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-2">
                   Showing {startIndex + 1}–
-                  {Math.min(startIndex + itemsPerPage, filteredProducts.length)}{" "}
-                  of {filteredProducts.length}
+                  {Math.min(startIndex + itemsPerPage, filteredItems.length)}{" "}
+                  of {filteredItems.length}
                 </span>
               )}
             </div>
@@ -780,9 +802,7 @@ export default function ProductsPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() =>
-                  setCurrentPage((p) => Math.min(totalPages, p + 1))
-                }
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                 disabled={currentPage >= totalPages}
                 className="rounded-xl h-8 text-[10px] font-bold border-slate-200"
               >

@@ -2534,28 +2534,51 @@ export class DatabaseStorage implements IStorage {
       const toDelete = existing.filter(t => !zimraTaxIds.has(t.zimraTaxId));
       for (const tax of toDelete) {
         // Check if any product references this tax type
-        const [refCheck] = await tx.select({ count: sql<number>`count(*)` })
+        const [productRefCheck] = await tx.select({ count: sql<number>`count(*)` })
           .from(products)
           .where(eq(products.taxTypeId, tax.id))
           .limit(1);
 
-        if (!refCheck || refCheck.count === 0) {
-          // Safe to delete
+        // Check if any invoice_items references this tax type (FK constraint)
+        const [itemRefCheck] = await tx.select({ count: sql<number>`count(*)` })
+          .from(invoiceItems)
+          .where(eq(invoiceItems.taxTypeId, tax.id))
+          .limit(1);
+
+        const isReferenced = (productRefCheck?.count ?? 0) > 0 || (itemRefCheck?.count ?? 0) > 0;
+
+        if (!isReferenced) {
+          // Safe to delete — nothing references this tax type
           await tx.delete(taxTypes).where(eq(taxTypes.id, tax.id));
         } else {
-          // Find a replacement tax from the new list
+          // Find a replacement tax from the new list (same rate)
           const replacement = results.find(t => parseFloat(t.rate) === parseFloat(tax.rate));
           const newTaxId = replacement?.id || (explicitlyNotVatRegistered ? nonVatTaxId : null);
 
-          if (newTaxId) {
-            // Update products to use the new tax type
+          if (newTaxId && (productRefCheck?.count ?? 0) > 0) {
+            // Migrate products to the replacement tax type
             await tx.update(products)
               .set({ taxTypeId: newTaxId })
               .where(eq(products.taxTypeId, tax.id));
+          }
+
+          // If invoice_items still references this tax type we cannot delete it
+          // (FK constraint). Re-check after migrating products.
+          const [itemRefCheckAfter] = await tx.select({ count: sql<number>`count(*)` })
+            .from(invoiceItems)
+            .where(eq(invoiceItems.taxTypeId, tax.id))
+            .limit(1);
+
+          const [productRefCheckAfter] = await tx.select({ count: sql<number>`count(*)` })
+            .from(products)
+            .where(eq(products.taxTypeId, tax.id))
+            .limit(1);
+
+          if ((itemRefCheckAfter?.count ?? 0) === 0 && (productRefCheckAfter?.count ?? 0) === 0) {
             // Now safe to delete
             await tx.delete(taxTypes).where(eq(taxTypes.id, tax.id));
           } else {
-            // Mark as inactive instead of deleting
+            // Still referenced — soft-delete only
             await tx.update(taxTypes)
               .set({ isActive: false })
               .where(eq(taxTypes.id, tax.id));

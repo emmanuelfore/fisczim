@@ -27,7 +27,7 @@ export default function WorkCenters() {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
 
-  const { data: workCenters, isLoading } = useQuery({
+  const { data: workCenters, isLoading } = useQuery<any[]>({
     queryKey: [`/api/companies/${companyId}/manufacturing/work-centers`],
     enabled: !!companyId,
   });

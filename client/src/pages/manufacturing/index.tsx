@@ -10,17 +10,17 @@ import { Button } from "@/components/ui/button";
 export default function ManufacturingDashboard() {
   const { activeCompanyId: companyId } = useActiveCompany();
 
-  const { data: wos } = useQuery({
+  const { data: wos } = useQuery<any[]>({
     queryKey: [`/api/companies/${companyId}/manufacturing/work-orders`],
     enabled: !!companyId,
   });
 
-  const { data: boms } = useQuery({
+  const { data: boms } = useQuery<any[]>({
     queryKey: [`/api/companies/${companyId}/manufacturing/bom`],
     enabled: !!companyId,
   });
 
-  const { data: wcs } = useQuery({
+  const { data: wcs } = useQuery<any[]>({
     queryKey: [`/api/companies/${companyId}/manufacturing/work-centers`],
     enabled: !!companyId,
   });

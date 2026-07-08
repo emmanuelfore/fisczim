@@ -350,20 +350,15 @@ export function Layout({
           href: "/inventory/adjustments",
         },
         {
-          icon: History,
-          label: "Past Adjustments",
-          href: "/inventory/adjustments/report",
-        },
-        {
           icon: Package,
           label: "Stock Counts",
           href: "/inventory/stock-counts",
         },
-        { icon: History, label: "Stock Ledger", href: "/inventory" },
         {
           icon: LineChart,
           label: "Inventory Reports",
           children: [
+            { icon: History, label: "Past Adjustments", href: "/inventory/adjustments/report" },
             { icon: Activity, label: "Transaction Ledger", href: "/inventory/reports/ledger" },
             { icon: Target, label: "Stock Overview", href: "/inventory/reports/overview" },
             { icon: History, label: "Historical Stock Balance", href: "/inventory/reports/historical" },

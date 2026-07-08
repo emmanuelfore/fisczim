@@ -16,14 +16,14 @@ export default function MrpDashboard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: mrpRuns, isLoading } = useQuery({
+  const { data: mrpRuns, isLoading } = useQuery<any[]>({
     queryKey: [`/api/companies/${companyId}/manufacturing/mrp/runs`],
     enabled: !!companyId,
   });
 
   const latestRun = mrpRuns?.[0];
 
-  const { data: recommendations } = useQuery({
+  const { data: recommendations } = useQuery<any[]>({
     queryKey: [`/api/companies/${companyId}/manufacturing/mrp/runs/${latestRun?.id}/recommendations`],
     enabled: !!companyId && !!latestRun?.id,
   });

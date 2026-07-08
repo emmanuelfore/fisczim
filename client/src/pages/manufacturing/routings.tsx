@@ -29,12 +29,12 @@ export default function Routings() {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
 
-  const { data: routings, isLoading } = useQuery({
+  const { data: routings, isLoading } = useQuery<any[]>({
     queryKey: [`/api/companies/${companyId}/manufacturing/routings`],
     enabled: !!companyId,
   });
 
-  const { data: products } = useQuery({
+  const { data: products } = useQuery<any[]>({
     queryKey: [`/api/companies/${companyId}/products`],
     enabled: !!companyId,
   });

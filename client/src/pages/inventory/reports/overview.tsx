@@ -14,7 +14,7 @@ export default function StockOverview() {
   const [search, setSearch] = useState("");
   const [locationFilter, setLocationFilter] = useState("ALL");
 
-  const { data: stock, isLoading } = useQuery({
+  const { data: stock, isLoading } = useQuery<any[]>({
     queryKey: [`/api/companies/${companyId}/inventory/stock-overview`],
     enabled: !!companyId,
   });

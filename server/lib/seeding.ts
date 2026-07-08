@@ -6,7 +6,7 @@ import { type Product } from "../../shared/schema";
 const DEFAULT_TAX_TYPES = [
     {
         "code": "NON",
-        "name": "NON",
+        "name": "ZERO RATED",
         "description": "",
         "rate": "0.00",
         "is_active": true,
@@ -39,12 +39,24 @@ const DEFAULT_TAX_TYPES = [
         "zimra_code": "V",
         "calculation_method": "INCLUSIVE",
         "zimra_tax_id": "517",
+    },
+    {
+        "code": "NON-VAT",
+        "name": "NON VAT",
+        "description": "",
+        "rate": "0.00",
+        "is_active": true,
+        "effective_from": "2026-02-07",
+        "effective_to": null,
+        "zimra_code": "N",
+        "calculation_method": "INCLUSIVE",
+        "zimra_tax_id": "3",
     }
 ];
 
 const DEFAULT_PRODUCTS = [
     {
-        "name": "TEST VATABLE PRODCT",
+        "name": "TEST VATABLE",
         "description": "",
         "sku": "PRO-VAT",
         "hsCode": "99001000",
@@ -56,7 +68,7 @@ const DEFAULT_PRODUCTS = [
         "forVatCompanies": true
     },
     {
-        "name": "TEST NON-VATABLE PRODUCT",
+        "name": "TEST ZERO RATED",
         "description": "",
         "sku": "PRO-NON",
         "hsCode": "99002000",
@@ -68,7 +80,7 @@ const DEFAULT_PRODUCTS = [
         "forVatCompanies": true
     },
     {
-        "name": "TEST EXEMPT PRODUCT",
+        "name": "TEST EXEMPT",
         "description": "",
         "sku": "PRO-EXE",
         "hsCode": "99003000",
@@ -80,7 +92,7 @@ const DEFAULT_PRODUCTS = [
         "forVatCompanies": true
     },
     {
-        "name": "TEST NON-VAT PRODUCT",
+        "name": "TEST NON VATABLE",
         "description": "Product for non-VAT registered companies",
         "sku": "PRO-NON-VAT",
         "hsCode": "99004000",
@@ -88,7 +100,7 @@ const DEFAULT_PRODUCTS = [
         "taxRate": "0.00",
         "isActive": true,
         "productType": "good",
-        "taxCode": "NON",
+        "taxCode": "NON-VAT", // Needs to match one of the default tax types
         "forVatCompanies": false
     }
 ];
@@ -167,14 +179,12 @@ export async function seedCompanyDefaults(companyId: number) {
             const existing = await storage.getProducts(companyId);
             let prodId = existing.find(p => p.sku === prod.sku)?.id;
 
+            const taxTypeInfo = taxTypesMap.get(prod.taxCode);
+            if (!taxTypeInfo) {
+                console.warn(`[SEED] Tax Type ${prod.taxCode} not found for product ${prod.sku}`);
+            }
+
             if (!prodId) {
-                // Determine tax type ID based on taxCode
-                const taxTypeInfo = taxTypesMap.get(prod.taxCode);
-
-                if (!taxTypeInfo) {
-                    console.warn(`[SEED] Tax Type ${prod.taxCode} not found for product ${prod.sku}`);
-                }
-
                 // Create clean product object (removing helper fields)
                 const { taxCode, forVatCompanies, ...productData } = prod;
 
@@ -184,6 +194,14 @@ export async function seedCompanyDefaults(companyId: number) {
                     taxTypeId: taxTypeInfo?.id
                 } as any);
                 prodId = created.id;
+            } else {
+                const existingProductToUpdate = existing.find(p => p.id === prodId);
+                if (existingProductToUpdate && (existingProductToUpdate.name !== prod.name || existingProductToUpdate.taxTypeId !== taxTypeInfo?.id)) {
+                    await storage.updateProduct(prodId, {
+                        name: prod.name,
+                        taxTypeId: taxTypeInfo?.id
+                    } as any);
+                }
             }
             productsMap.set(prod.sku, prodId!);
         }

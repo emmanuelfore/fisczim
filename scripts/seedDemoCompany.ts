@@ -66,10 +66,10 @@ async function seedDemoCompany() {
   ]);
 
   await db.insert(payrollDeductionTypes).values([
-    { companyId: demoCompany.id, code: 'PAYE', name: 'PAYE Tax', category: 'STATUTORY', timing: 'POST_TAX', contributionSide: 'EMPLOYEE', isRecurring: true, effectiveFrom: '2023-01-01' },
-    { companyId: demoCompany.id, code: 'NSSA', name: 'NSSA Contribution', category: 'STATUTORY', timing: 'POST_TAX', contributionSide: 'EMPLOYEE', isRecurring: true, effectiveFrom: '2023-01-01' },
-    { companyId: demoCompany.id, code: 'AIDS', name: 'AIDS Levy', category: 'STATUTORY', timing: 'POST_TAX', contributionSide: 'EMPLOYEE', isRecurring: true, effectiveFrom: '2023-01-01' },
-    { companyId: demoCompany.id, code: 'MEDICAL', name: 'Medical Aid', category: 'VOLUNTARY', timing: 'PRE_TAX', contributionSide: 'EMPLOYEE', isRecurring: true, effectiveFrom: '2023-01-01' }
+    { companyId: demoCompany.id, code: 'PAYE', name: 'PAYE Tax', category: 'STATUTORY', timing: 'POST_TAX', contributionSide: 'EMPLOYEE', effectiveFrom: '2023-01-01' },
+    { companyId: demoCompany.id, code: 'NSSA', name: 'NSSA Contribution', category: 'STATUTORY', timing: 'POST_TAX', contributionSide: 'EMPLOYEE', effectiveFrom: '2023-01-01' },
+    { companyId: demoCompany.id, code: 'AIDS', name: 'AIDS Levy', category: 'STATUTORY', timing: 'POST_TAX', contributionSide: 'EMPLOYEE', effectiveFrom: '2023-01-01' },
+    { companyId: demoCompany.id, code: 'MEDICAL', name: 'Medical Aid', category: 'VOLUNTARY', timing: 'PRE_TAX', contributionSide: 'EMPLOYEE', effectiveFrom: '2023-01-01' }
   ]);
   console.log(`Created Payroll Earning/Deduction Types`);
 
@@ -90,8 +90,7 @@ async function seedDemoCompany() {
 
   const [demoPosition] = await db.insert(positions).values({
     companyId: demoCompany.id,
-    title: 'Staff',
-    code: 'STF'
+    title: 'Staff'
   }).returning();
 
   // 5. Create 20 Employees

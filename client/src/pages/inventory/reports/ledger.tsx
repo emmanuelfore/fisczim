@@ -21,7 +21,7 @@ export default function MaterialDocumentLedger() {
   const queryUrl = `/api/companies/${companyId}/inventory/ledger` + 
     (urlParams.toString() ? `?${urlParams.toString()}` : "");
 
-  const { data: ledger, isLoading } = useQuery({
+  const { data: ledger, isLoading } = useQuery<any[]>({
     queryKey: [queryUrl],
     enabled: !!companyId,
   });

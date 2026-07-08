@@ -1,6 +1,6 @@
 {
   "name": "fisczim-pos",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Standalone POS for Fiscal Stack",
   "author": "Fiscal Stack",
   "main": "main.js",

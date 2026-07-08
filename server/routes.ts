@@ -36,7 +36,7 @@ import { resolveActionAccess } from "./lib/approval-policies.js";
 import { createApprovalRequest } from "./lib/approvals.js";
 import { APPROVAL_TYPES, ALL_PERMISSION_KEYS } from "../shared/permissions.js";
 import { db } from "./db";
-import { eq, and, gte, lte, ne, desc, asc, sql, or, ilike, isNull, inArray } from "drizzle-orm";
+import { eq, and, gt, gte, lte, ne, desc, asc, sql, or, ilike, isNull, inArray } from "drizzle-orm";
 import { format } from "date-fns";
 import {
   invoices,
@@ -1848,7 +1848,7 @@ export async function registerRoutes(
           activationKey: company.fdmsApiKey || "",
           privateKey: company.zimraPrivateKey,
           certificate: company.zimraCertificate,
-          baseUrl: company.zimraEnvironment === 'production' ? 'https://fdmsapi.zimra.co.zw' : 'https://fdmsapitest.zimra.co.zw'
+          baseUrl: getZimraBaseUrl((company.zimraEnvironment as "test" | "production") || 'test')
         }, getZimraLogger(company.id));
 
         const config = await device.getConfig();
@@ -2305,9 +2305,7 @@ export async function registerRoutes(
         message: `ZIMRA environment switched to ${environment}`,
         previousEnvironment: company.zimraEnvironment,
         currentEnvironment: environment,
-        baseUrl: environment === 'production'
-          ? 'https://fdmsapi.zimra.co.zw'
-          : 'https://fdmsapitest.zimra.co.zw',
+        baseUrl: getZimraBaseUrl(environment as "test" | "production"),
         warning: environment === 'production'
           ? 'You are now using the PRODUCTION ZIMRA environment. All transactions will be real and reported to ZIMRA.'
           : null
@@ -2553,9 +2551,7 @@ export async function registerRoutes(
 
       res.json({
         environment,
-        baseUrl: environment === 'production'
-          ? 'https://fdmsapi.zimra.co.zw'
-          : 'https://fdmsapitest.zimra.co.zw',
+        baseUrl: getZimraBaseUrl(environment as "test" | "production"),
         isProduction: environment === 'production',
         canSwitch: !company.fiscalDayOpen,
         fiscalDayOpen: company.fiscalDayOpen,
@@ -3501,9 +3497,7 @@ export async function registerRoutes(
           ? envOverride
           : ((company.zimraEnvironment as 'test' | 'production') || 'test');
 
-      const baseUrl = resolvedEnv === 'production'
-        ? 'https://fdmsapi.zimra.co.zw'
-        : 'https://fdmsapitest.zimra.co.zw';
+      const baseUrl = getZimraBaseUrl(resolvedEnv);
 
       console.log(`[ZIMRA] Register device ${deviceId} against ${resolvedEnv} environment: ${baseUrl}`);
 
@@ -3580,9 +3574,7 @@ export async function registerRoutes(
           ? envOverride
           : ((company.zimraEnvironment as 'test' | 'production') || 'test');
 
-      const baseUrl = resolvedEnv === 'production'
-        ? 'https://fdmsapi.zimra.co.zw'
-        : 'https://fdmsapitest.zimra.co.zw';
+      const baseUrl = getZimraBaseUrl(resolvedEnv);
 
       console.log(`[ZIMRA] Verify taxpayer for device ${deviceId} against ${resolvedEnv} environment: ${baseUrl}`);
 

@@ -10,6 +10,7 @@ interface ReportProps {
   companyId: number;
   dateRange: { from: Date; to: Date };
   search: string;
+  hideZeroActivity?: boolean;
 }
 
 function buildUrl(
@@ -38,7 +39,7 @@ function DetailEmpty() {
 
 // ── SalesReport ───────────────────────────────────────────────────────────────
 
-export function SalesReport({ companyId, dateRange, search }: ReportProps) {
+export function SalesReport({ companyId, dateRange, search, hideZeroActivity }: ReportProps) {
   const [selectedRow, setSelectedRow] = useState<any>(null);
 
   const {
@@ -63,7 +64,10 @@ export function SalesReport({ companyId, dateRange, search }: ReportProps) {
     enabled: !!companyId,
   });
 
-  const filtered = filterRecords(data, search, ["date"]);
+  let filtered = filterRecords(data, search, ["date"]);
+  if (hideZeroActivity) {
+    filtered = filtered.filter((row: any) => (row.invoiceCount || 0) > 0);
+  }
   const total = computeTotal(filtered, "total");
 
   if (isLoading)
@@ -183,6 +187,7 @@ export function SalesByCustomerReport({
   companyId,
   dateRange,
   search,
+  hideZeroActivity,
 }: ReportProps) {
   const [selectedRow, setSelectedRow] = useState<any>(null);
 
@@ -208,7 +213,10 @@ export function SalesByCustomerReport({
     enabled: !!companyId,
   });
 
-  const filtered = filterRecords(data, search, ["customerName"]);
+  let filtered = filterRecords(data, search, ["customerName"]);
+  if (hideZeroActivity) {
+    filtered = filtered.filter((row: any) => (row.invoiceCount || 0) > 0);
+  }
   const total = computeTotal(filtered, "total");
 
   if (isLoading)
@@ -309,6 +317,7 @@ export function SalesByItemReport({
   companyId,
   dateRange,
   search,
+  hideZeroActivity,
 }: ReportProps) {
   const [selectedRow, setSelectedRow] = useState<any>(null);
 
@@ -334,7 +343,10 @@ export function SalesByItemReport({
     enabled: !!companyId,
   });
 
-  const filtered = filterRecords(data, search, ["description"]);
+  let filtered = filterRecords(data, search, ["description"]);
+  if (hideZeroActivity) {
+    filtered = filtered.filter((row: any) => (row.quantitySold || 0) > 0);
+  }
   const total = computeTotal(filtered, "revenue");
 
   if (isLoading)
@@ -435,6 +447,7 @@ export function SalesBySalespersonReport({
   companyId,
   dateRange,
   search,
+  hideZeroActivity,
 }: ReportProps) {
   const [selectedRow, setSelectedRow] = useState<any>(null);
 
@@ -460,7 +473,10 @@ export function SalesBySalespersonReport({
     enabled: !!companyId,
   });
 
-  const filtered = filterRecords(data, search, ["userName"]);
+  let filtered = filterRecords(data, search, ["userName"]);
+  if (hideZeroActivity) {
+     filtered = filtered.filter((row: any) => (row.invoiceCount || 0) > 0);
+  }
   const total = computeTotal(filtered, "total");
 
   if (isLoading)

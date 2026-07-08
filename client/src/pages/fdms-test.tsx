@@ -190,6 +190,17 @@ export default function FdmsTestPage() {
                 variant="secondary"
                 className="w-full justify-start"
                 onClick={() =>
+                  runAction("Get Applicable Taxes", "/zimra/applicable-taxes", "GET")
+                }
+                disabled={!!loadingAction}
+              >
+                <FileText className="w-4 h-4 mr-2" />
+                Get Applicable Taxes
+              </Button>
+              <Button
+                variant="secondary"
+                className="w-full justify-start"
+                onClick={() =>
                   runAction(
                     "Verify Taxpayer",
                     "/zimra/verify-taxpayer",

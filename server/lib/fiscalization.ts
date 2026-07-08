@@ -328,37 +328,52 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
                 const effectiveTaxTypeId = (item as any).product?.taxTypeId || (item as any).taxTypeId;
                 const dbTax = effectiveTaxTypeId ? dbTaxTypes.find(t => t.id === effectiveTaxTypeId) : null;
 
-                // Strategy: Match by {Percent, Name} combination which is more stable than IDs
-                const targetPercent = dbTax ? parseFloat(dbTax.rate) : taxPercent;
-                const targetNameHint = (dbTax?.name || item.description || '').toLowerCase();
-
-                // 1. Precise Match (Percent + Name keyword correlation)
-                let match = zimraConfig.applicableTaxes.find(t => {
-                    const pctMatch = Math.abs((t.taxPercent || 0) - targetPercent) < 0.01;
-                    if (!pctMatch) return false;
-
-                    // For 0% rates, strictly disambiguate Exempt vs Zero Rated by name
-                    if (targetPercent === 0) {
-                        const isExempt = targetNameHint.includes('exempt');
-                        const liveIsExempt = t.taxName?.toLowerCase().includes('exempt');
-                        return isExempt === liveIsExempt;
+                // For non-VAT registered companies, force use of "Non-VAT 0%" tax
+                const explicitlyNotVatRegistered = fiscalConfig.vatRegistered === false || fiscalConfig.vatEnabled === false;
+                if (explicitlyNotVatRegistered) {
+                    const nonVatTax = zimraConfig.applicableTaxes.find(t =>
+                        t.taxPercent === 0 &&
+                        t.taxName?.toLowerCase().includes('non-vat')
+                    );
+                    if (nonVatTax) {
+                        taxID = nonVatTax.taxID;
                     }
-                    return true; // For non-zero, percent is usually sufficient
-                });
-
-                // 2. Fallback: Match by Percent only if name match failed
-                if (!match) {
-                    match = zimraConfig.applicableTaxes.find(t => Math.abs((t.taxPercent || 0) - targetPercent) < 0.01);
                 }
 
-                // 3. Fallback: Match by stored ZIMRA Tax ID from DB if all else fails
-                if (!match && dbTax?.zimraTaxId) {
-                    const storedId = parseInt(dbTax.zimraTaxId);
-                    match = zimraConfig.applicableTaxes.find(t => t.taxID === storedId);
-                }
+                // If not non-VAT or no match found, proceed with normal matching
+                if (taxID === 0) {
+                    // Strategy: Match by {Percent, Name} combination which is more stable than IDs
+                    const targetPercent = dbTax ? parseFloat(dbTax.rate) : taxPercent;
+                    const targetNameHint = (dbTax?.name || item.description || '').toLowerCase();
 
-                if (match) {
-                    taxID = match.taxID;
+                    // 1. Precise Match (Percent + Name keyword correlation)
+                    let match = zimraConfig.applicableTaxes.find(t => {
+                        const pctMatch = Math.abs((t.taxPercent || 0) - targetPercent) < 0.01;
+                        if (!pctMatch) return false;
+
+                        // For 0% rates, strictly disambiguate Exempt vs Zero Rated by name
+                        if (targetPercent === 0) {
+                            const isExempt = targetNameHint.includes('exempt');
+                            const liveIsExempt = t.taxName?.toLowerCase().includes('exempt');
+                            return isExempt === liveIsExempt;
+                        }
+                        return true; // For non-zero, percent is usually sufficient
+                    });
+
+                    // 2. Fallback: Match by Percent only if name match failed
+                    if (!match) {
+                        match = zimraConfig.applicableTaxes.find(t => Math.abs((t.taxPercent || 0) - targetPercent) < 0.01);
+                    }
+
+                    // 3. Fallback: Match by stored ZIMRA Tax ID from DB if all else fails
+                    if (!match && dbTax?.zimraTaxId) {
+                        const storedId = parseInt(dbTax.zimraTaxId);
+                        match = zimraConfig.applicableTaxes.find(t => t.taxID === storedId);
+                    }
+
+                    if (match) {
+                        taxID = match.taxID;
+                    }
                 }
             }
 

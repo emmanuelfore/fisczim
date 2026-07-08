@@ -865,7 +865,7 @@ export default function InvoiceDetailsPage() {
                 <div className="px-4 pt-2 shrink-0">
                   <ValidationErrorsDisplay
                     errors={(invoice as any).validationErrors}
-                    onEdit={() => setLocation(`/invoices/new?edit=${invoiceId}`)}
+                    onEdit={!invoice.syncedWithFdms ? () => setLocation(`/invoices/new?edit=${invoiceId}`) : undefined}
                   />
                 </div>
               )}

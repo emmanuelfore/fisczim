@@ -2419,39 +2419,162 @@ export class DatabaseStorage implements IStorage {
   // Tax Sync
   async syncTaxTypes(companyId: number, zimraTaxes: any[]): Promise<TaxType[]> {
     return await db.transaction(async (tx) => {
-      // Delete existing tax types for THIS company only
-      await tx.delete(taxTypes).where(eq(taxTypes.companyId, companyId));
+      // Get company to check VAT registration status
+      const [company] = await tx.select().from(companies).where(eq(companies.id, companyId));
+      const explicitlyNotVatRegistered = company?.vatRegistered === false || company?.vatEnabled === false;
+
+      // Get existing tax types for this company
+      const existing = await tx.select().from(taxTypes).where(eq(taxTypes.companyId, companyId));
+      const existingByZimraId = new Map(existing.map(t => [t.zimraTaxId, t]));
+      const zimraTaxIds = new Set(zimraTaxes.filter(t => t.taxID).map(t => t.taxID.toString()));
 
       const results: TaxType[] = [];
+      const processedZimraIds = new Set<string>();
 
+      // Helper for fuzzy name matching
+      const findSimilarTax = (targetName: string, targetRate: string) => {
+        const targetLower = targetName.toLowerCase();
+        const targetRateNum = parseFloat(targetRate);
+        return existing.find(t => {
+          const existingLower = t.name.toLowerCase();
+          const existingRateNum = parseFloat(t.rate);
+          // Check if names are similar (contains each other's keywords)
+          const nameSimilar = targetLower.includes(existingLower) || existingLower.includes(targetLower);
+          // Check if rates match
+          const rateMatch = Math.abs(targetRateNum - existingRateNum) < 0.01;
+          return nameSimilar && rateMatch;
+        });
+      };
+
+      // Upsert: update existing or insert new
       for (const zTax of zimraTaxes) {
         if (!zTax.taxID) continue;
 
-        // Default to 0 if taxPercent is missing (e.g. for Exempt)
+        const zimraTaxId = zTax.taxID.toString();
+
+        // Skip if we already processed this zimraTaxId (prevent duplicates from ZIMRA response)
+        if (processedZimraIds.has(zimraTaxId)) continue;
+        processedZimraIds.add(zimraTaxId);
+
         const percent = zTax.taxPercent !== undefined ? zTax.taxPercent : 0;
         const taxRate = percent.toFixed(2);
         const zimraCode = zTax.taxCode || zTax.taxName?.substring(0, 1).toUpperCase() || "V";
         const code = zTax.taxCode ? `VAT-${zTax.taxCode}` : `VAT-${zTax.taxID}`;
         const taxName = zTax.taxName || `VAT ${percent}%`;
-
-        // Use ZIMRA validFrom or current date, formatted for SQL DATE (YYYY-MM-DD)
         const effectiveFrom = (zTax.validFrom || new Date().toISOString()).split('T')[0];
 
-        // Create new tax type
-        const [created] = await tx.insert(taxTypes).values({
-          companyId: companyId,
-          code: code,
-          name: taxName,
-          rate: taxRate,
-          description: `ZIMRA Tax Level ${zTax.taxID} (${zTax.taxName})`,
-          zimraTaxId: zTax.taxID.toString(),
-          zimraCode: zimraCode, // Store A, B, C etc.
-          effectiveFrom: effectiveFrom,
-          isActive: true
-        }).returning();
+        const existingTax = existingByZimraId.get(zimraTaxId);
 
-        results.push(created);
+        if (existingTax) {
+          // Update existing by zimraTaxId
+          const [updated] = await tx.update(taxTypes)
+            .set({
+              code: code,
+              name: taxName,
+              rate: taxRate,
+              description: `ZIMRA Tax Level ${zTax.taxID} (${zTax.taxName})`,
+              zimraCode: zimraCode,
+              effectiveFrom: effectiveFrom,
+              isActive: true
+            })
+            .where(eq(taxTypes.id, existingTax.id))
+            .returning();
+          results.push(updated);
+        } else {
+          // Try fuzzy name matching before inserting new
+          const similarTax = findSimilarTax(taxName, taxRate);
+          if (similarTax && !existingByZimraId.has(similarTax.zimraTaxId)) {
+            // Update the similar tax with new zimraTaxId
+            const [updated] = await tx.update(taxTypes)
+              .set({
+                code: code,
+                name: taxName,
+                rate: taxRate,
+                description: `ZIMRA Tax Level ${zTax.taxID} (${zTax.taxName})`,
+                zimraTaxId: zimraTaxId,
+                zimraCode: zimraCode,
+                effectiveFrom: effectiveFrom,
+                isActive: true
+              })
+              .where(eq(taxTypes.id, similarTax.id))
+              .returning();
+            results.push(updated);
+            existingByZimraId.set(zimraTaxId, updated);
+          } else {
+            // Insert new
+            const [created] = await tx.insert(taxTypes).values({
+              companyId: companyId,
+              code: code,
+              name: taxName,
+              rate: taxRate,
+              description: `ZIMRA Tax Level ${zTax.taxID} (${zTax.taxName})`,
+              zimraTaxId: zimraTaxId,
+              zimraCode: zimraCode,
+              effectiveFrom: effectiveFrom,
+              isActive: true
+            }).returning();
+            results.push(created);
+          }
+        }
       }
+
+      // Find Non-VAT 0% tax for non-VAT companies
+      let nonVatTaxId: number | null = null;
+      if (explicitlyNotVatRegistered) {
+        const nonVatTax = results.find(t =>
+          t.rate === "0.00" &&
+          t.name.toLowerCase().includes('non-vat')
+        );
+        if (nonVatTax) {
+          nonVatTaxId = nonVatTax.id;
+        }
+      }
+
+      // Handle tax types that are no longer in ZIMRA response
+      const toDelete = existing.filter(t => !zimraTaxIds.has(t.zimraTaxId));
+      for (const tax of toDelete) {
+        // Check if any product references this tax type
+        const [refCheck] = await tx.select({ count: sql<number>`count(*)` })
+          .from(products)
+          .where(eq(products.taxTypeId, tax.id))
+          .limit(1);
+
+        if (!refCheck || refCheck.count === 0) {
+          // Safe to delete
+          await tx.delete(taxTypes).where(eq(taxTypes.id, tax.id));
+        } else {
+          // Find a replacement tax from the new list
+          const replacement = results.find(t => parseFloat(t.rate) === parseFloat(tax.rate));
+          const newTaxId = replacement?.id || (explicitlyNotVatRegistered ? nonVatTaxId : null);
+
+          if (newTaxId) {
+            // Update products to use the new tax type
+            await tx.update(products)
+              .set({ taxTypeId: newTaxId })
+              .where(eq(products.taxTypeId, tax.id));
+            // Now safe to delete
+            await tx.delete(taxTypes).where(eq(taxTypes.id, tax.id));
+          } else {
+            // Mark as inactive instead of deleting
+            await tx.update(taxTypes)
+              .set({ isActive: false })
+              .where(eq(taxTypes.id, tax.id));
+          }
+        }
+      }
+
+      // For non-VAT companies, update all products to use Non-VAT 0% tax
+      if (explicitlyNotVatRegistered && nonVatTaxId) {
+        await tx.update(products)
+          .set({ taxTypeId: nonVatTaxId })
+          .where(
+            and(
+              eq(products.companyId, companyId),
+              sql`${products.taxTypeId} IS NOT NULL`
+            )
+          );
+      }
+
       return results;
     });
   }

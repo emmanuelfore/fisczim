@@ -43,14 +43,13 @@ import { HsCodeAssistant } from "@/components/products/hs-code-assistant";
 
 export function CreateProductDialog({
   companyId,
-  defaultType = "good",
   triggerLabel = "Add Product",
 }: {
   companyId: number;
-  defaultType?: "good" | "service";
   triggerLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [isService, setIsService] = useState(false);
   const createProduct = useCreateProduct(companyId);
   const { taxCategories, taxTypes } = useTaxConfig(companyId);
   const { toast } = useToast();
@@ -91,22 +90,33 @@ export function CreateProductDialog({
       warrantyTrackingEnabled: false,
       warrantyMonths: 0,
       isActive: true,
-      isTracked: defaultType === "good",
+      isTracked: true,
       stockLevel: "0",
       lowStockThreshold: "10",
-      productType: defaultType,
+      productType: "good",
       companyId: companyId,
       taxTypeId: undefined,
     },
   });
 
+  // Update isTracked when isService changes
+  useEffect(() => {
+    if (isService) {
+      form.setValue("isTracked", false);
+      form.setValue("productType", "service");
+    } else {
+      form.setValue("isTracked", true);
+      form.setValue("productType", "good");
+    }
+  }, [isService, form]);
+
   const onSubmit = async (data: InsertProduct) => {
     try {
       const { companyId: _, ...rest } = data;
-      await createProduct.mutateAsync({ ...rest, productType: defaultType });
+      await createProduct.mutateAsync({ ...rest, productType: isService ? "service" : "good" });
       toast({
         title: "Success",
-        description: `${defaultType === "service" ? "Service" : "Product"} created successfully.`,
+        description: `${isService ? "Service" : "Product"} created successfully.`,
       });
       setOpen(false);
       form.reset({
@@ -126,7 +136,6 @@ export function CreateProductDialog({
   };
 
   const isTracked = form.watch("isTracked");
-  const isService = defaultType === "service";
 
   const [selectedTaxTypeId, setSelectedTaxTypeId] = useState<
     string | undefined
@@ -172,6 +181,35 @@ export function CreateProductDialog({
             onSubmit={form.handleSubmit(onSubmit)}
             className="space-y-5 py-4"
           >
+            {/* Type Toggle */}
+            <FormField
+              control={form.control}
+              name="productType"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-center justify-between rounded-xl border border-slate-200 p-4 bg-slate-50">
+                  <div className="space-y-0.5">
+                    <FormLabel className="text-base font-semibold text-slate-900">
+                      {isService ? "Service" : "Product"}
+                    </FormLabel>
+                    <FormDescription className="text-sm text-slate-600">
+                      {isService
+                        ? "This is a service offering (no inventory tracking)"
+                        : "This is a physical product (with inventory tracking)"}
+                    </FormDescription>
+                  </div>
+                  <FormControl>
+                    <Switch
+                      checked={isService}
+                      onCheckedChange={(checked) => {
+                        setIsService(checked);
+                        field.onChange(checked ? "service" : "good");
+                      }}
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+
             <FormField
               control={form.control}
               name="name"
@@ -287,7 +325,7 @@ export function CreateProductDialog({
               )}
             />
 
-            {/* Recipe / source deduction flags */}
+            {/* Recipe / source deduction flags - only for products */}
             {!isService && (
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                 <FormField

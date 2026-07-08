@@ -4,6 +4,7 @@ import { useActiveCompany } from "@/hooks/use-active-company";
 import { PageHeader } from "@/components/page-header";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DollarSign, Package } from "lucide-react";
@@ -11,19 +12,30 @@ import { DollarSign, Package } from "lucide-react";
 export default function StockOverview() {
   const { activeCompanyId: companyId } = useActiveCompany();
   const [search, setSearch] = useState("");
+  const [locationFilter, setLocationFilter] = useState("ALL");
 
   const { data: stock, isLoading } = useQuery({
     queryKey: [`/api/companies/${companyId}/inventory/stock-overview`],
     enabled: !!companyId,
   });
 
+  const locations = useMemo(() => {
+    if (!stock) return [];
+    const set = new Set<string>();
+    stock.forEach((row: any) => {
+      if (row.locationName) set.add(row.locationName);
+    });
+    return Array.from(set);
+  }, [stock]);
+
   const filtered = useMemo(() => {
     if (!stock) return [];
     return stock.filter((row: any) => {
+      if (locationFilter !== "ALL" && row.locationName !== locationFilter) return false;
       if (search && !row.name?.toLowerCase().includes(search.toLowerCase()) && !row.sku?.toLowerCase().includes(search.toLowerCase())) return false;
       return true;
     });
-  }, [stock, search]);
+  }, [stock, search, locationFilter]);
 
   const totalValue = filtered.reduce((acc: number, row: any) => {
     return acc + (Number(row.globalStock || 0) * Number(row.costPrice || 0));
@@ -35,7 +47,7 @@ export default function StockOverview() {
     <Layout>
       <div className="space-y-6 max-w-6xl mx-auto">
         <PageHeader 
-          title="Stock Overview (MB52)" 
+          title="Stock Overview" 
           subtitle="Real-time visibility into current stock quantities and financial valuation" 
         />
         
@@ -60,13 +72,24 @@ export default function StockOverview() {
           </Card>
         </div>
 
-        <div className="flex gap-4 items-center">
+        <div className="flex flex-wrap gap-4 items-center">
           <Input 
             placeholder="Search by product name or SKU..." 
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="max-w-sm"
           />
+          <Select value={locationFilter} onValueChange={setLocationFilter}>
+            <SelectTrigger className="w-[200px]">
+              <SelectValue placeholder="All Locations" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All Locations</SelectItem>
+              {locations.map(loc => (
+                <SelectItem key={loc} value={loc}>{loc}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="border rounded-md bg-card">

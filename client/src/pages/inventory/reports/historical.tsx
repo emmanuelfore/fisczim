@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/page-header";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -22,6 +22,7 @@ export default function HistoricalStock() {
   });
 
   const [results, setResults] = useState<any[]>([]);
+  const [search, setSearch] = useState("");
 
   const calculateMutation = useMutation({
     mutationFn: async (dateStr: string) => {
@@ -41,13 +42,24 @@ export default function HistoricalStock() {
     }
   });
 
-  const totalValue = results.reduce((acc: number, row: any) => acc + Number(row.historicalValue || 0), 0);
+  const filteredResults = useMemo(() => {
+    if (!search) return results;
+    return results.filter((row: any) => {
+      const term = search.toLowerCase();
+      return (
+        String(row.name || "").toLowerCase().includes(term) ||
+        String(row.sku || "").toLowerCase().includes(term)
+      );
+    });
+  }, [results, search]);
+
+  const totalValue = filteredResults.reduce((acc: number, row: any) => acc + Number(row.historicalValue || 0), 0);
 
   return (
     <Layout>
       <div className="space-y-6 max-w-6xl mx-auto">
         <PageHeader 
-          title="Historical Stock Balances (MB5B)" 
+          title="Historical Stock Balances" 
           subtitle="Retroactively calculate inventory balances and financial value for a specific past date." 
         />
         
@@ -76,11 +88,19 @@ export default function HistoricalStock() {
 
         {results.length > 0 && (
           <div className="space-y-4">
-            <div className="flex justify-between items-end">
+            <div className="flex flex-wrap justify-between items-center gap-4">
               <h3 className="text-lg font-semibold flex items-center"><History className="mr-2 h-5 w-5" /> Balances as of {targetDate}</h3>
-              <div className="text-right">
-                <p className="text-sm text-muted-foreground">Total Inventory Value</p>
-                <p className="text-xl font-bold">${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+              <div className="flex items-center gap-4">
+                <Input 
+                  placeholder="Filter by product or SKU..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="max-w-[240px] h-9"
+                />
+                <div className="text-right">
+                  <p className="text-xs text-muted-foreground">Total Inventory Value</p>
+                  <p className="text-lg font-bold">${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                </div>
               </div>
             </div>
 
@@ -95,7 +115,7 @@ export default function HistoricalStock() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {results.map((row: any) => (
+                  {filteredResults.map((row: any) => (
                     <TableRow key={row.productId}>
                       <TableCell>
                         <p className="font-medium">{row.name}</p>

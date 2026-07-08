@@ -9,6 +9,7 @@ interface ReportProps {
   companyId: number;
   dateRange: { from: Date; to: Date };
   search: string;
+  hideZeroActivity?: boolean;
 }
 
 function buildUrl(

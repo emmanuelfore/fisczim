@@ -132,6 +132,7 @@ import SuperadminVisibilityPage from "@/pages/superadmin-visibility";
 import MaterialDocumentLedger from "@/pages/inventory/reports/ledger";
 import StockOverview from "@/pages/inventory/reports/overview";
 import HistoricalStock from "@/pages/inventory/reports/historical";
+import DeadStockReportPage from "@/pages/inventory/reports/dead-stock";
 import { useAuth } from "@/hooks/use-auth";
 import { usePermissions } from "@/hooks/use-permissions";
 import { NAV_PERMISSION_MAP } from "@shared/permissions";
@@ -359,6 +360,9 @@ function Router() {
       <Route path="/inventory/reports/historical">
         {() => <ProtectedRoute component={HistoricalStock} />}
       </Route>
+      <Route path="/inventory/reports/dead-stock">
+        {() => <ProtectedRoute component={DeadStockReportPage} />}
+      </Route>
       <Route path="/inventory/production">
         {() => <ProtectedRoute component={ProductionPage} />}
       </Route>
@@ -495,7 +499,7 @@ function Router() {
         {() => <ProtectedRoute component={BranchReportsPage} />}
       </Route>
       <Route path="/reports-module">{() => <Redirect to="/reports" />}</Route>
-      <Route path="/reports">
+      <Route path="/reports/:reportKey?">
         {() => <ProtectedRoute component={ReportsPage} />}
       </Route>
       <Route path="/payments-received/:id?">

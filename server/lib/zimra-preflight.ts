@@ -161,17 +161,21 @@ export async function assertReceiptPreflight(args: {
       addIssue(issues, "RCPT024", `Line ${lineNo} total does not match price times quantity.`);
     }
 
-    if (!line.taxID || (liveTaxIds.size > 0 && !liveTaxIds.has(line.taxID))) {
-      addIssue(issues, "RCPT025", `Line ${lineNo} tax ID ${line.taxID || "missing"} is not valid for this ZIMRA device.`);
-    }
-
-    if (line.taxID !== 1 && !Number.isFinite(taxPercent)) {
-      addIssue(issues, "RCPT025", `Line ${lineNo} tax percent is invalid.`);
-    }
-
     const explicitlyNotVatRegistered = company.vatRegistered === false || company.vatEnabled === false;
-    if (explicitlyNotVatRegistered && taxPercent > 0) {
-      addIssue(issues, "RCPT021", `Line ${lineNo} uses VAT while this company is marked as not VAT registered.`);
+
+    // Skip tax ID validation for non-VAT registered companies
+    if (!explicitlyNotVatRegistered) {
+      if (!line.taxID || (liveTaxIds.size > 0 && !liveTaxIds.has(line.taxID))) {
+        addIssue(issues, "RCPT025", `Line ${lineNo} tax ID ${line.taxID || "missing"} is not valid for this ZIMRA device.`);
+      }
+
+      if (line.taxID !== 1 && !Number.isFinite(taxPercent)) {
+        addIssue(issues, "RCPT025", `Line ${lineNo} tax percent is invalid.`);
+      }
+
+      if (taxPercent > 0) {
+        addIssue(issues, "RCPT021", `Line ${lineNo} uses VAT while this company is marked as not VAT registered.`);
+      }
     }
 
     const hsCode = String(line.receiptLineHSCode || "").trim();
@@ -184,7 +188,9 @@ export async function assertReceiptPreflight(args: {
     expectedTotal += receiptData.receiptLinesTaxInclusive ? calculatedLineTotal : calculatedLineTotal + tax;
   }
 
-  if ((receiptData.receiptLines || []).length > 0 && expectedTaxRows === 0) {
+  // Skip tax rows validation for non-VAT registered companies
+  const explicitlyNotVatRegistered = company.vatRegistered === false || company.vatEnabled === false;
+  if (!explicitlyNotVatRegistered && (receiptData.receiptLines || []).length > 0 && expectedTaxRows === 0) {
     addIssue(issues, "RCPT017", "Taxes information is not provided for receipt lines.");
   }
 

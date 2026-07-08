@@ -52,6 +52,9 @@ import {
   Construction,
   Wrench,
   Settings2,
+  ShoppingBag,
+  ShoppingCart,
+  AlertTriangle,
 } from "lucide-react";
 import { useBranding } from "@/hooks/use-branding";
 import {
@@ -138,6 +141,8 @@ export function Layout({
     {},
   );
   const autoOpenedNavGroupsRef = useRef<Set<string>>(new Set());
+  const [openSubNavGroups, setOpenSubNavGroups] = useState<Record<string, boolean>>({});
+  const autoOpenedSubNavGroupsRef = useRef<Set<string>>(new Set());
   const seenPendingGdnCountRef = useRef<number | null>(null);
 
   // Close mobile menu on location change
@@ -330,9 +335,10 @@ export function Layout({
       icon: LineChart,
       label: "Inventory Reports",
       children: [
-        { icon: Activity, label: "MB51 Transaction Ledger", href: "/inventory/reports/ledger" },
-        { icon: Target, label: "MB52 Stock Overview", href: "/inventory/reports/overview" },
-        { icon: History, label: "MB5B Historical Stock", href: "/inventory/reports/historical" },
+        { icon: Activity, label: "Transaction Ledger", href: "/inventory/reports/ledger" },
+        { icon: Target, label: "Stock Overview", href: "/inventory/reports/overview" },
+        { icon: History, label: "Historical Stock Balance", href: "/inventory/reports/historical" },
+        { icon: AlertTriangle, label: "Dead Stock Report", href: "/inventory/reports/dead-stock" },
       ],
     },
     {
@@ -418,10 +424,10 @@ export function Layout({
           icon: CalendarDays,
           label: "Operational",
           children: [
-            { icon: FileText, label: "Daily Report", href: "/reports/view/operational-daily" },
-            { icon: FileText, label: "Weekly Report", href: "/reports/view/operational-weekly" },
-            { icon: FileText, label: "Monthly Report", href: "/reports/view/operational-monthly" },
-            { icon: Package, label: "Stock Movement", href: "/reports/view/stock-movement" },
+            { icon: FileText, label: "Daily Report", href: "/reports/operational-daily" },
+            { icon: FileText, label: "Weekly Report", href: "/reports/operational-weekly" },
+            { icon: FileText, label: "Monthly Report", href: "/reports/operational-monthly" },
+            { icon: Package, label: "Stock Movement", href: "/reports/stock-movement" },
           ]
         },
         {
@@ -439,9 +445,9 @@ export function Layout({
           icon: BarChart3,
           label: "Sales",
           children: [
-            { icon: BarChart3, label: "Sales Summary", href: "/reports/view/sales" },
-            { icon: Users, label: "Sales by Customer", href: "/reports/view/sales-by-customer" },
-            { icon: Package, label: "Sales by Item", href: "/reports/view/sales-by-item" },
+            { icon: BarChart3, label: "Sales Summary", href: "/reports/sales" },
+            { icon: Users, label: "Sales by Customer", href: "/reports/sales-by-customer" },
+            { icon: Package, label: "Sales by Item", href: "/reports/sales-by-item" },
             { icon: Receipt, label: "Daily Sales Ledger", href: "/reports/daily" },
             { icon: MonitorCheck, label: "POS Reports", href: "/reports/pos" },
           ]
@@ -450,9 +456,9 @@ export function Layout({
           icon: FileText,
           label: "Receivables",
           children: [
-            { icon: Clock, label: "AR Aging Summary", href: "/reports/view/ar-aging-summary" },
-            { icon: Users, label: "Customer Balances", href: "/reports/view/customer-balance-summary" },
-            { icon: FileText, label: "Receivable Details", href: "/reports/view/receivable-details" },
+            { icon: Clock, label: "AR Aging Summary", href: "/reports/ar-aging-summary" },
+            { icon: Users, label: "Customer Balances", href: "/reports/customer-balance-summary" },
+            { icon: FileText, label: "Receivable Details", href: "/reports/receivable-details" },
             { icon: FileText, label: "Customer Statements", href: "/reports/customer-statements" },
           ]
         },
@@ -460,7 +466,7 @@ export function Layout({
           icon: CreditCard,
           label: "Payments",
           children: [
-            { icon: CreditCard, label: "Payments Received", href: "/reports/view/payments-received" },
+            { icon: CreditCard, label: "Payments Received", href: "/reports/payments-received" },
             { icon: Coins, label: "Cash Collection", href: "/reports/cash-collection" },
           ]
         },
@@ -468,7 +474,7 @@ export function Layout({
           icon: ShieldCheck,
           label: "Taxes & Audit",
           children: [
-            { icon: FileText, label: "Tax Summary", href: "/reports/view/tax-summary" },
+            { icon: FileText, label: "Tax Summary", href: "/reports/tax-summary" },
             { icon: ShieldCheck, label: "Tax & ZIMRA", href: "/reports/tax" },
             { icon: Coins, label: "VAT Returns", href: "/accounting/reports/vat-return" },
             { icon: History, label: "Posting Audit Trail", href: "/accounting/audit-trail" },
@@ -478,11 +484,11 @@ export function Layout({
           icon: Package,
           label: "Inventory",
           children: [
-            { icon: ShoppingBag, label: "Stock on Hand", href: "/reports/view/stock-on-hand" },
-            { icon: Activity, label: "Low Stock Alerts", href: "/reports/view/stock-alerts" },
-            { icon: History, label: "Inventory Movements", href: "/reports/view/inventory-movements" },
-            { icon: TrendingUp, label: "Profit Margins", href: "/reports/view/profit-margins-product" },
-            { icon: ShoppingCart, label: "Purchases Report", href: "/reports/view/purchase-report" },
+            { icon: ShoppingBag, label: "Stock on Hand", href: "/reports/stock-on-hand" },
+            { icon: Activity, label: "Low Stock Alerts", href: "/reports/stock-alerts" },
+            { icon: History, label: "Inventory Movements", href: "/reports/inventory-movements" },
+            { icon: TrendingUp, label: "Profit Margins", href: "/reports/profit-margins-product" },
+            { icon: ShoppingCart, label: "Purchases Report", href: "/reports/purchase-report" },
           ]
         }
       ],
@@ -1201,23 +1207,56 @@ export function Layout({
       .filter((item) => item.children?.some(isChildGroupActive))
       .map((item) => item.label);
 
-    if (activeGroups.length === 0) return;
-
-    setOpenNavGroups((current) => {
-      let changed = false;
-      const next = { ...current };
-      for (const label of activeGroups) {
-        if (
-          current[label] === undefined &&
-          !autoOpenedNavGroupsRef.current.has(label)
-        ) {
-          next[label] = true;
-          autoOpenedNavGroupsRef.current.add(label);
-          changed = true;
+    if (activeGroups.length > 0) {
+      setOpenNavGroups((current) => {
+        let changed = false;
+        const next = { ...current };
+        for (const label of activeGroups) {
+          if (
+            current[label] === undefined &&
+            !autoOpenedNavGroupsRef.current.has(label)
+          ) {
+            next[label] = true;
+            autoOpenedNavGroupsRef.current.add(label);
+            changed = true;
+          }
         }
+        return changed ? next : current;
+      });
+    }
+
+    // Auto-open active subclasses/sub-nav folders
+    const activeSubGroups: string[] = [];
+    navItems.forEach((item) => {
+      if (item.children) {
+        item.children.forEach((child) => {
+          if (child.children?.length) {
+            const isSubActive = child.children.some((grandchild) => isHrefActive(grandchild.href));
+            if (isSubActive) {
+              activeSubGroups.push(`${item.label}:${child.label}`);
+            }
+          }
+        });
       }
-      return changed ? next : current;
     });
+
+    if (activeSubGroups.length > 0) {
+      setOpenSubNavGroups((current) => {
+        let changed = false;
+        const next = { ...current };
+        for (const key of activeSubGroups) {
+          if (
+            current[key] === undefined &&
+            !autoOpenedSubNavGroupsRef.current.has(key)
+          ) {
+            next[key] = true;
+            autoOpenedSubNavGroupsRef.current.add(key);
+            changed = true;
+          }
+        }
+        return changed ? next : current;
+      });
+    }
   }, [navItems, currentPathWithSearch]);
 
   if (!user) return null;
@@ -1593,58 +1632,103 @@ export function Layout({
                                 const isNestedActive = child.children.some(
                                   (grandchild) => isHrefActive(grandchild.href),
                                 );
+                                const subGroupKey = `${item.label}:${child.label}`;
+                                const isSubOpen = openSubNavGroups[subGroupKey] ?? false;
+                                const setSubOpen = (open: boolean) => {
+                                  setOpenSubNavGroups((current) => ({
+                                    ...current,
+                                    [subGroupKey]: open,
+                                  }));
+                                };
+
                                 return (
                                   <div
                                     key={child.label}
-                                    className="pt-2 first:pt-0"
+                                    className="pt-1.5 first:pt-0"
                                   >
-                                    <div
-                                      className={cn(
-                                        "flex items-center gap-2 px-2.5 pb-1 text-[12px] font-black uppercase tracking-wider",
-                                        isNestedActive
-                                          ? "text-[#2563EB]"
-                                          : "text-slate-400",
-                                      )}
+                                    <Collapsible
+                                      open={isSubOpen}
+                                      onOpenChange={setSubOpen}
+                                      className="space-y-1"
                                     >
-                                      <child.icon className="w-3.5 h-3.5 shrink-0" />
-                                      <span className="truncate">
-                                        {child.label}
-                                      </span>
-                                    </div>
-                                    <div className="space-y-1">
-                                      {child.children.map((grandchild) => {
-                                        const isGrandchildActive = isHrefActive(
-                                          grandchild.href,
-                                        );
-                                        return (
-                                          <Link
-                                            key={grandchild.label}
-                                            href={grandchild.href}
-                                          >
-                                            <div
+                                      <CollapsibleTrigger asChild>
+                                        <div
+                                          className={cn(
+                                            "flex items-center w-full px-2.5 py-2.5 rounded-lg font-medium transition-all duration-150 cursor-pointer select-none group/sub nav-sub-item",
+                                            isNestedActive
+                                              ? "bg-slate-800/30 text-white"
+                                              : "text-slate-400 hover:bg-slate-800/50 hover:text-white",
+                                          )}
+                                        >
+                                          <div className="flex items-center gap-3 min-w-0">
+                                            <child.icon
                                               className={cn(
-                                                "flex items-center gap-3 px-2.5 py-2.5 rounded-lg  font-medium transition-all duration-150 cursor-pointer nav-sub-item",
-                                                isGrandchildActive
-                                                  ? "bg-slate-800/80 text-white shadow-[inset_3px_0_0_#4925ee]"
-                                                  : "text-slate-400 hover:bg-slate-800/50 hover:text-white",
+                                                "w-[18px] h-[18px] shrink-0",
+                                                isNestedActive
+                                                  ? "text-[#2563EB]"
+                                                  : "text-[#94A3B8] group-hover/sub:text-[#475569]",
                                               )}
+                                            />
+                                            <span className="truncate">
+                                              {child.label}
+                                            </span>
+                                          </div>
+                                          <span className="ml-auto pl-3">
+                                            <svg
+                                              className={cn(
+                                                "w-3.5 h-3.5 transition-transform duration-200 text-slate-500 group-hover/sub:text-slate-300",
+                                                isSubOpen ? "rotate-180" : "rotate-0",
+                                              )}
+                                              viewBox="0 0 20 20"
+                                              fill="currentColor"
+                                              aria-hidden="true"
                                             >
-                                              <grandchild.icon
-                                                className={cn(
-                                                  "w-[18px] h-[18px] shrink-0",
-                                                  isGrandchildActive
-                                                    ? "text-[#2563EB]"
-                                                    : "text-[#94A3B8]",
-                                                )}
+                                              <path
+                                                fillRule="evenodd"
+                                                d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.168l3.71-3.94a.75.75 0 1 1 1.08 1.04l-4.25 4.5a.75.75 0 0 1-1.08 0l-4.25-4.5a.75.75 0 0 1 .02-1.06Z"
+                                                clipRule="evenodd"
                                               />
-                                              <span className="truncate">
-                                                {grandchild.label}
-                                              </span>
-                                            </div>
-                                          </Link>
-                                        );
-                                      })}
-                                    </div>
+                                            </svg>
+                                          </span>
+                                        </div>
+                                      </CollapsibleTrigger>
+                                      <CollapsibleContent className="pb-1 transition-all duration-200">
+                                        <div className="ml-4 pl-3.5 border-l border-slate-800/80 space-y-1 mt-1 nav-dropdown">
+                                          {child.children.map((grandchild) => {
+                                            const isGrandchildActive = isHrefActive(
+                                              grandchild.href,
+                                            );
+                                            return (
+                                              <Link
+                                                key={grandchild.label}
+                                                href={grandchild.href}
+                                              >
+                                                <div
+                                                  className={cn(
+                                                    "flex items-center gap-3 px-2.5 py-2.5 rounded-lg font-medium transition-all duration-150 cursor-pointer nav-sub-item",
+                                                    isGrandchildActive
+                                                      ? "bg-slate-800/80 text-white shadow-[inset_3px_0_0_#4925ee]"
+                                                      : "text-slate-400 hover:bg-slate-800/50 hover:text-white",
+                                                  )}
+                                                >
+                                                  <grandchild.icon
+                                                    className={cn(
+                                                      "w-[18px] h-[18px] shrink-0",
+                                                      isGrandchildActive
+                                                        ? "text-[#2563EB]"
+                                                        : "text-[#94A3B8]",
+                                                    )}
+                                                  />
+                                                  <span className="truncate">
+                                                    {grandchild.label}
+                                                  </span>
+                                                </div>
+                                              </Link>
+                                            );
+                                          })}
+                                        </div>
+                                      </CollapsibleContent>
+                                    </Collapsible>
                                   </div>
                                 );
                               }

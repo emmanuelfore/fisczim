@@ -4141,6 +4141,39 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/companies/:id/zimra/applicable-taxes", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.id);
+      const company = await storage.getCompany(companyId);
+      if (!company || !company.fdmsDeviceId) {
+        return res.status(400).json({ message: "Company not registered with ZIMRA" });
+      }
+
+      const device = new ZimraDevice({
+        deviceId: company.fdmsDeviceId,
+        deviceSerialNo: company.fdmsDeviceSerialNo || "UNKNOWN",
+        activationKey: company.fdmsApiKey || "",
+        privateKey: company.zimraPrivateKey || undefined,
+        certificate: company.zimraCertificate || undefined,
+        baseUrl: getZimraBaseUrl((company.zimraEnvironment as "test" | "production") || 'test')
+      }, getZimraLogger(companyId));
+
+      const config = await device.getConfig();
+      const taxes = config.applicableTaxes || config.taxLevels || [];
+
+      res.json({
+        applicableTaxes: taxes
+      });
+
+    } catch (err: any) {
+      console.error("ZIMRA Applicable Taxes Error:", err);
+      if (err instanceof ZimraApiError) {
+        return res.status(err.statusCode).json({ message: err.message, details: err.details });
+      }
+      res.status(500).json({ message: "Failed to fetch applicable taxes: " + err.message });
+    }
+  });
+
   app.post("/api/companies/:id/zimra/ping", requireAuth, async (req, res) => {
     try {
       const companyId = Number(req.params.id);
@@ -6748,7 +6781,7 @@ export async function registerRoutes(
     res.json(items);
   });
 
-  // MB51: Material Document Ledger (Detailed Transaction History)
+  // Material Document Ledger (Detailed Transaction History)
   app.get("/api/companies/:companyId/inventory/ledger", requireAuth, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
@@ -6757,30 +6790,51 @@ export async function registerRoutes(
       const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
       const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
 
-      let conditions: any[] = [eq(inventoryTransactions.companyId, companyId)];
-      if (productId) conditions.push(eq(inventoryTransactions.productId, productId));
-      if (type) conditions.push(eq(inventoryTransactions.type, type));
-      if (startDate) conditions.push(gte(inventoryTransactions.createdAt, startDate));
-      if (endDate) conditions.push(lte(inventoryTransactions.createdAt, endDate));
-
-      const rows = await db.select({
+      const subquery = db.select({
         id: inventoryTransactions.id,
+        companyId: inventoryTransactions.companyId,
+        productId: inventoryTransactions.productId,
         type: inventoryTransactions.type,
         quantity: inventoryTransactions.quantity,
         unitCost: inventoryTransactions.unitCost,
         totalCost: inventoryTransactions.totalCost,
         referenceType: inventoryTransactions.referenceType,
         referenceId: inventoryTransactions.referenceId,
-        date: inventoryTransactions.createdAt,
+        createdAt: inventoryTransactions.createdAt,
+        createdBy: inventoryTransactions.createdBy,
+        balanceAfter: sql<number>`sum(${inventoryTransactions.quantity}) over (
+          partition by ${inventoryTransactions.productId}
+          order by ${inventoryTransactions.createdAt} asc, ${inventoryTransactions.id} asc
+        )`.as("balance_after"),
+      })
+      .from(inventoryTransactions)
+      .as("it_sub");
+
+      let conditions: any[] = [eq(subquery.companyId, companyId)];
+      if (productId) conditions.push(eq(subquery.productId, productId));
+      if (type) conditions.push(eq(subquery.type, type));
+      if (startDate) conditions.push(gte(subquery.createdAt, startDate));
+      if (endDate) conditions.push(lte(subquery.createdAt, endDate));
+
+      const rows = await db.select({
+        id: subquery.id,
+        type: subquery.type,
+        quantity: subquery.quantity,
+        unitCost: subquery.unitCost,
+        totalCost: subquery.totalCost,
+        referenceType: subquery.referenceType,
+        referenceId: subquery.referenceId,
+        date: subquery.createdAt,
+        balanceAfter: subquery.balanceAfter,
         productName: products.name,
         productSku: products.sku,
         userName: users.username,
       })
-      .from(inventoryTransactions)
-      .leftJoin(products, eq(inventoryTransactions.productId, products.id))
-      .leftJoin(users, eq(inventoryTransactions.createdBy, users.id))
+      .from(subquery)
+      .leftJoin(products, eq(subquery.productId, products.id))
+      .leftJoin(users, eq(subquery.createdBy, users.id))
       .where(and(...conditions))
-      .orderBy(desc(inventoryTransactions.createdAt));
+      .orderBy(desc(subquery.createdAt));
       
       res.json(rows);
     } catch (err: any) {
@@ -6788,7 +6842,7 @@ export async function registerRoutes(
     }
   });
 
-  // MB52: Current Stock Overview
+  // Current Stock Overview
   app.get("/api/companies/:companyId/inventory/stock-overview", requireAuth, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
@@ -6815,7 +6869,7 @@ export async function registerRoutes(
     }
   });
 
-  // MB5B: Historical Stock Balances (Stock for Posting Date)
+  // Historical Stock Balances (Stock for Posting Date)
   app.post("/api/companies/:companyId/inventory/historical-stock", requireAuth, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
@@ -9617,13 +9671,15 @@ export async function registerRoutes(
         return res.status(400).json({ message: "TEST CUSTOMER could not be created or found" });
       }
 
-      const requiredSkus = ["PRO-VAT", "PRO-NON", "PRO-EXE"];
+      // Determine required SKUs based on VAT registration status
+      const explicitlyNotVatRegistered = company.vatRegistered === false || company.vatEnabled === false;
+      const requiredSkus = explicitlyNotVatRegistered ? ["PRO-NON-VAT"] : ["PRO-VAT", "PRO-NON", "PRO-EXE"];
       const sampleProducts = requiredSkus
         .map((sku) => allProducts.find((product) => product.sku === sku))
         .filter(Boolean) as typeof allProducts;
 
       if (sampleProducts.length !== requiredSkus.length) {
-        return res.status(400).json({ message: "Required test products could not be created or found" });
+        return res.status(400).json({ message: `Required test products could not be created or found. Expected: ${requiredSkus.join(", ")}` });
       }
 
       const activeCurrencies = allCurrencies.filter((currency) => currency.isActive !== false);

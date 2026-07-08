@@ -9,8 +9,8 @@ import { CashCollectionReport, PaymentsReceivedReport } from "@/components/repor
 import { ExpenseDetailsReport, ExpensesByCategoryReport } from "@/components/reports/expenses-reports";
 import { TaxSummaryReport } from "@/components/reports/tax-reports";
 import { cn } from "@/lib/utils";
-import { useState } from "react";
-import { Link } from "wouter";
+import { useState, useEffect } from "react";
+import { Link, useRoute, useLocation } from "wouter";
 import {
   Collapsible,
   CollapsibleContent,
@@ -165,6 +165,8 @@ interface ReportContentProps {
   onDateRangeChange: (range: DateRangeState) => void;
   search: string;
   onSearchChange: (s: string) => void;
+  hideZeroActivity?: boolean;
+  onHideZeroActivityChange: (hide: boolean) => void;
   children?: React.ReactNode;
   // For StatBar
   totalAmount?: number;
@@ -446,6 +448,8 @@ function ReportContent({
   onDateRangeChange,
   search,
   onSearchChange,
+  hideZeroActivity,
+  onHideZeroActivityChange,
   children,
   totalAmount,
   recordCount,
@@ -543,6 +547,20 @@ function ReportContent({
           ))}
         </div>
 
+        {/* Empty records toggle */}
+        <div className="flex items-center gap-2 select-none border-l border-slate-200 pl-4 py-1">
+          <input
+            type="checkbox"
+            id="hide-zero"
+            checked={hideZeroActivity}
+            onChange={(e) => onHideZeroActivityChange(e.target.checked)}
+            className="rounded border-slate-300 text-violet-600 focus:ring-violet-500 h-4 w-4 cursor-pointer"
+          />
+          <label htmlFor="hide-zero" className="text-xs font-semibold text-slate-500 cursor-pointer">
+            Hide empty records
+          </label>
+        </div>
+
         <div className="flex-1" />
 
         {/* Search input */}
@@ -614,13 +632,14 @@ function ReportContent({
 
 // ── ActiveReportComponent ─────────────────────────────────────────────────────
 
-function ActiveReportComponent({ reportKey, companyId, dateRange, search }: {
+function ActiveReportComponent({ reportKey, companyId, dateRange, search, hideZeroActivity }: {
   reportKey: string;
   companyId: number;
   dateRange: { from: Date; to: Date };
   search: string;
+  hideZeroActivity?: boolean;
 }) {
-  const props = { companyId, dateRange, search };
+  const props = { companyId, dateRange, search, hideZeroActivity };
   switch (reportKey) {
     case "sales": return <SalesReport {...props} />;
     case "sales-by-customer": return <SalesByCustomerReport {...props} />;
@@ -654,10 +673,15 @@ function ActiveReportComponent({ reportKey, companyId, dateRange, search }: {
 // ── ReportsPage ───────────────────────────────────────────────────────────────
 
 export default function ReportsPage() {
+  const [match, params] = useRoute("/reports/:reportKey");
+  const [, setLocation] = useLocation();
+  const reportKeyFromRoute = params?.reportKey || "overview";
+
   const { user } = useAuth();
   const { activeCompanyId, isLoading } = useActiveCompany(!!user);
 
-  const [activeReport, setActiveReport] = useState<string>("overview");
+  const activeReport = reportKeyFromRoute;
+
   const [openCategories, setOpenCategories] = useState<Set<string>>(
     new Set(["operational", "financials", "sales", "receivables", "payments-received", "stock-management"])
   );
@@ -666,6 +690,21 @@ export default function ReportsPage() {
     to: endOfMonth(new Date()),
   });
   const [search, setSearch] = useState("");
+  const [hideZeroActivity, setHideZeroActivity] = useState(true);
+
+  useEffect(() => {
+    if (activeReport && activeReport !== "overview") {
+      const category = REPORT_CATEGORIES.find(c => c.reports.some(r => r.key === activeReport));
+      if (category) {
+        setOpenCategories((prev) => {
+          if (prev.has(category.key)) return prev;
+          const next = new Set(prev);
+          next.add(category.key);
+          return next;
+        });
+      }
+    }
+  }, [activeReport]);
 
   const handleToggleCategory = (key: string) => {
     setOpenCategories((prev) => {
@@ -680,7 +719,7 @@ export default function ReportsPage() {
   };
 
   const handleSelectReport = (key: string) => {
-    setActiveReport(key);
+    setLocation(key === "overview" ? "/reports" : `/reports/${key}`);
     // Auto-expand the category containing this report
     const category = REPORT_CATEGORIES.find(c => c.reports.some(r => r.key === key));
     if (category) {
@@ -760,12 +799,15 @@ export default function ReportsPage() {
               onDateRangeChange={setDateRange}
               search={search}
               onSearchChange={setSearch}
+              hideZeroActivity={hideZeroActivity}
+              onHideZeroActivityChange={setHideZeroActivity}
             >
               <ActiveReportComponent
                 reportKey={activeReport}
                 companyId={activeCompanyId}
                 dateRange={dateRange}
                 search={search}
+                hideZeroActivity={hideZeroActivity}
               />
             </ReportContent>
           )}

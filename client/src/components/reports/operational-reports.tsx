@@ -10,6 +10,7 @@ interface ReportProps {
   companyId: number;
   dateRange: { from: Date; to: Date };
   search: string;
+  hideZeroActivity?: boolean;
 }
 
 function buildUrl(companyId: number, endpoint: string, dateRange: { from: Date; to: Date }) {
@@ -167,7 +168,7 @@ function ExpandableDayRow({ day, search }: { day: any; search: string }) {
   );
 }
 
-export function DailyOperationalReport({ companyId, dateRange, search }: ReportProps) {
+export function DailyOperationalReport({ companyId, dateRange, search, hideZeroActivity }: ReportProps) {
   const { data, isLoading, error } = useQuery<any>({
     queryKey: ["operational-daily", companyId, dateRange.from, dateRange.to],
     queryFn: async () => {
@@ -191,7 +192,16 @@ export function DailyOperationalReport({ companyId, dateRange, search }: ReportP
   }
 
   const totals = data?.totals || {};
-  const days = data?.days || [];
+  let days = data?.days || [];
+  if (hideZeroActivity) {
+    days = days.filter((day: any) => {
+      return Number(day.cashSales || 0) > 0 ||
+             Number(day.creditSales || 0) > 0 ||
+             Number(day.collections || 0) > 0 ||
+             Number(day.expenses || 0) > 0 ||
+             Number(day.moneyBanked || 0) > 0;
+    });
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -284,7 +294,7 @@ function PeriodRow({ period, search, type }: { period: any; search: string; type
   );
 }
 
-export function WeeklyOperationalReport({ companyId, dateRange, search }: ReportProps) {
+export function WeeklyOperationalReport({ companyId, dateRange, search, hideZeroActivity }: ReportProps) {
   const { data, isLoading, error } = useQuery<any>({
     queryKey: ["operational-weekly", companyId, dateRange.from, dateRange.to],
     queryFn: async () => {
@@ -308,7 +318,15 @@ export function WeeklyOperationalReport({ companyId, dateRange, search }: Report
   }
 
   const totals = data?.totals || {};
-  const weeks = data?.weeks || [];
+  let weeks = data?.weeks || [];
+  if (hideZeroActivity) {
+    weeks = weeks.filter((week: any) => {
+      return Number(week.sales || 0) > 0 ||
+             Number(week.collections || 0) > 0 ||
+             Number(week.expenses || 0) > 0 ||
+             Number(week.moneyBanked || 0) > 0;
+    });
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -340,7 +358,7 @@ export function WeeklyOperationalReport({ companyId, dateRange, search }: Report
   );
 }
 
-export function MonthlyOperationalReport({ companyId, dateRange, search }: ReportProps) {
+export function MonthlyOperationalReport({ companyId, dateRange, search, hideZeroActivity }: ReportProps) {
   const { data, isLoading, error } = useQuery<any>({
     queryKey: ["operational-monthly", companyId, dateRange.from, dateRange.to],
     queryFn: async () => {
@@ -364,7 +382,15 @@ export function MonthlyOperationalReport({ companyId, dateRange, search }: Repor
   }
 
   const totals = data?.totals || {};
-  const months = data?.months || [];
+  let months = data?.months || [];
+  if (hideZeroActivity) {
+    months = months.filter((month: any) => {
+      return Number(month.sales || 0) > 0 ||
+             Number(month.collections || 0) > 0 ||
+             Number(month.expenses || 0) > 0 ||
+             Number(month.moneyBanked || 0) > 0;
+    });
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -396,7 +422,7 @@ export function MonthlyOperationalReport({ companyId, dateRange, search }: Repor
   );
 }
 
-export function StockMovementReport({ companyId, dateRange, search }: ReportProps) {
+export function StockMovementReport({ companyId, dateRange, search, hideZeroActivity }: ReportProps) {
   const { data, isLoading, error } = useQuery<any>({
     queryKey: ["stock-movement", companyId, dateRange.from, dateRange.to],
     queryFn: async () => {
@@ -419,7 +445,17 @@ export function StockMovementReport({ companyId, dateRange, search }: ReportProp
     return <div className="p-8 text-center text-red-500 text-sm">Failed to load stock movement report</div>;
   }
 
-  const products = filterRecords(data?.products || [], search, ["productName", "sku"]);
+  let products = filterRecords(data?.products || [], search, ["productName", "sku"]);
+  if (hideZeroActivity) {
+    products = products.filter((row: any) => {
+      return Number(row.openingStock || 0) !== 0 ||
+             Number(row.production || 0) !== 0 ||
+             Number(row.purchases || 0) !== 0 ||
+             Number(row.sales || 0) !== 0 ||
+             Number(row.adjustments || 0) !== 0 ||
+             Number(row.closingStock || 0) !== 0;
+    });
+  }
   const totals = data?.totals || {};
 
   return (
@@ -499,7 +535,14 @@ export function ProductProfitMarginsReport(props: ReportProps) {
     enabled: !!props.companyId,
   });
 
-  const filtered = filterRecords(data, props.search, ["dimension"]);
+  let filtered = filterRecords(data, props.search, ["dimension"]);
+  if (props.hideZeroActivity) {
+    filtered = filtered.filter((row: any) => {
+      return Number(row.quantitySold || 0) > 0 ||
+             Number(row.revenue || 0) > 0 ||
+             Number(row.grossProfit || 0) > 0;
+    });
+  }
 
   if (isLoading) {
     return (

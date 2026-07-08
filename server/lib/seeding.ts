@@ -52,7 +52,8 @@ const DEFAULT_PRODUCTS = [
         "taxRate": "15.50",
         "isActive": true,
         "productType": "good",
-        "taxCode": "VAT" // Links to taxTypes via code
+        "taxCode": "VAT", // Links to taxTypes via code
+        "forVatCompanies": true
     },
     {
         "name": "TEST NON-VATABLE PRODUCT",
@@ -63,7 +64,8 @@ const DEFAULT_PRODUCTS = [
         "taxRate": "0.00",
         "isActive": true,
         "productType": "good",
-        "taxCode": "NON"
+        "taxCode": "NON",
+        "forVatCompanies": true
     },
     {
         "name": "TEST EXEMPT PRODUCT",
@@ -74,7 +76,20 @@ const DEFAULT_PRODUCTS = [
         "taxRate": "0.00",
         "isActive": true,
         "productType": "good",
-        "taxCode": "EXE"
+        "taxCode": "EXE",
+        "forVatCompanies": true
+    },
+    {
+        "name": "TEST NON-VAT PRODUCT",
+        "description": "Product for non-VAT registered companies",
+        "sku": "PRO-NON-VAT",
+        "hsCode": "99004000",
+        "price": "15.00",
+        "taxRate": "0.00",
+        "isActive": true,
+        "productType": "good",
+        "taxCode": "NON",
+        "forVatCompanies": false
     }
 ];
 
@@ -94,6 +109,10 @@ const DEFAULT_CUSTOMERS = [
 export async function seedCompanyDefaults(companyId: number) {
     try {
         console.log(`[SEED] Starting seed for company ${companyId}`);
+
+        // Get company to check VAT registration status
+        const company = await storage.getCompany(companyId);
+        const explicitlyNotVatRegistered = company?.vatRegistered === false || company?.vatEnabled === false;
 
         // 1. Tax Types
         const taxTypesMap = new Map<string, { id: number, rate: number }>(); // Code -> { ID, Rate }
@@ -137,10 +156,14 @@ export async function seedCompanyDefaults(companyId: number) {
 
         console.log(`[SEED] Currencies verified`);
 
-        // 3. Products
+        // 3. Products - Filter based on VAT registration status
         const productsMap = new Map<string, number>(); // SKU -> ID
 
         for (const prod of DEFAULT_PRODUCTS) {
+            // Skip products that don't match company VAT status
+            if (explicitlyNotVatRegistered && prod.forVatCompanies) continue;
+            if (!explicitlyNotVatRegistered && !prod.forVatCompanies) continue;
+
             const existing = await storage.getProducts(companyId);
             let prodId = existing.find(p => p.sku === prod.sku)?.id;
 
@@ -152,8 +175,8 @@ export async function seedCompanyDefaults(companyId: number) {
                     console.warn(`[SEED] Tax Type ${prod.taxCode} not found for product ${prod.sku}`);
                 }
 
-                // Create clean product object (removing helper taxCode)
-                const { taxCode, ...productData } = prod;
+                // Create clean product object (removing helper fields)
+                const { taxCode, forVatCompanies, ...productData } = prod;
 
                 const created = await storage.createProduct({
                     ...productData,
@@ -164,7 +187,7 @@ export async function seedCompanyDefaults(companyId: number) {
             }
             productsMap.set(prod.sku, prodId!);
         }
-        console.log(`[SEED] Products seeded`);
+        console.log(`[SEED] Products seeded (VAT registered: ${!explicitlyNotVatRegistered})`);
 
         // 4. Customers
         for (const cust of DEFAULT_CUSTOMERS) {

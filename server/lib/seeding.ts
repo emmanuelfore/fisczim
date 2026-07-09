@@ -1,6 +1,8 @@
 
 import { storage } from "../storage";
-import { type Product } from "../../shared/schema";
+import { type Product, taxTypes, products } from "../../shared/schema";
+import { db } from "../db";
+import { eq } from "drizzle-orm";
 
 // Snapshot from LIPVIEW INVESTMENTS (ID: 8) - Taken 2026-02-08
 const DEFAULT_TAX_TYPES = [
@@ -130,12 +132,12 @@ export async function seedCompanyDefaults(companyId: number) {
         const taxTypesMap = new Map<string, { id: number, rate: number }>(); // Code -> { ID, Rate }
 
         for (const tax of DEFAULT_TAX_TYPES) {
-            // Check if exists
-            const existing = await storage.getTaxTypes(companyId);
+            // Check if exists (including inactive)
+            const existing = await db.select().from(taxTypes).where(eq(taxTypes.companyId, companyId));
             const existingTax = existing.find(t => t.code === tax.code);
             let taxId = existingTax?.id;
             // Handle rate being string or number
-            let taxRate = existingTax ? parseFloat(existingTax.rate) : parseFloat(tax.rate.toString());
+            let taxRate = existingTax ? parseFloat(existingTax.rate as string) : parseFloat(tax.rate.toString());
 
             if (!taxId) {
                 const created = await storage.createTaxType({
@@ -153,6 +155,9 @@ export async function seedCompanyDefaults(companyId: number) {
                 });
                 taxId = created.id;
                 taxRate = parseFloat(created.rate);
+            } else if (!existingTax?.isActive) {
+                // If it was deactivated by ZIMRA sync, reactivate it so the user can use it manually
+                await db.update(taxTypes).set({ isActive: true }).where(eq(taxTypes.id, taxId));
             }
             taxTypesMap.set(tax.code, { id: taxId, rate: taxRate });
         }

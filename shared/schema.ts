@@ -957,7 +957,7 @@ export const paymentsRelations = relations(payments, ({ one }) => ({
 export const paymentAllocations = pgTable("payment_allocations", {
   id: serial("id").primaryKey(),
   companyId: integer("company_id").references(() => companies.id).notNull(),
-  paymentId: integer("payment_id").references(() => payments.id).notNull(),
+  paymentId: integer("payment_id").references(() => payments.id, { onDelete: "cascade" }).notNull(),
   invoiceId: integer("invoice_id").references(() => invoices.id).notNull(),
   amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
   allocatedAt: timestamp("allocated_at").defaultNow().notNull(),

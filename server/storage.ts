@@ -2535,7 +2535,9 @@ export class DatabaseStorage implements IStorage {
       }
 
       // Handle tax types that are no longer in ZIMRA response
-      const toDelete = existing.filter(t => !zimraTaxIds.has(t.zimraTaxId));
+      // Protect default essential tax types from being deleted/deactivated (even if ZIMRA omits them)
+      const protectedCodes = new Set(['NON', 'EXE', 'NON-VAT', 'VAT']);
+      const toDelete = existing.filter(t => !zimraTaxIds.has(t.zimraTaxId) && !protectedCodes.has(t.code));
       for (const tax of toDelete) {
         // Check if any product references this tax type
         const [productRefCheck] = await tx.select({ count: sql<number>`count(*)` })

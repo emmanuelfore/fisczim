@@ -163,18 +163,17 @@ export async function assertReceiptPreflight(args: {
 
     const explicitlyNotVatRegistered = company.vatRegistered === false || company.vatEnabled === false;
 
-    // Skip tax ID validation for non-VAT registered companies
-    if (!explicitlyNotVatRegistered) {
+    if (explicitlyNotVatRegistered) {
+      if (taxPercent > 0) {
+        addIssue(issues, "RCPT021", `Line ${lineNo} uses VAT while this company is marked as not VAT registered.`);
+      }
+    } else {
       if (!line.taxID || (liveTaxIds.size > 0 && !liveTaxIds.has(line.taxID))) {
         addIssue(issues, "RCPT025", `Line ${lineNo} tax ID ${line.taxID || "missing"} is not valid for this ZIMRA device.`);
       }
 
       if (line.taxID !== 1 && !Number.isFinite(taxPercent)) {
         addIssue(issues, "RCPT025", `Line ${lineNo} tax percent is invalid.`);
-      }
-
-      if (taxPercent > 0) {
-        addIssue(issues, "RCPT021", `Line ${lineNo} uses VAT while this company is marked as not VAT registered.`);
       }
     }
 

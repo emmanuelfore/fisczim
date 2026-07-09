@@ -454,10 +454,13 @@ export async function recordAdjustment(
 
         const absQty = Math.abs(qty);
 
+        const location = await resolveReceivingLocation(tx, companyId, data.branchId);
+
         // 1. Record the transaction
         await tx.insert(inventoryTransactions).values({
             companyId,
             branchId: data.branchId || null,
+            locationId: location.id,
             productId: data.productId,
             variationId: data.variationId || null,
             type: data.type,
@@ -470,27 +473,7 @@ export async function recordAdjustment(
         });
 
         // 2. Update stock level
-        if (data.branchId) {
-            const [existing] = await tx
-              .select()
-              .from(branchStocks)
-              .where(and(eq(branchStocks.branchId, data.branchId), eq(branchStocks.productId, data.productId)));
-
-            if (existing) {
-              const newLevel = (Number(existing.stockLevel) + qty).toString();
-              await tx.update(branchStocks).set({ stockLevel: newLevel }).where(eq(branchStocks.id, existing.id));
-            } else {
-              await tx.insert(branchStocks).values({
-                branchId: data.branchId,
-                productId: data.productId,
-                stockLevel: qty.toString()
-              });
-            }
-        } else {
-            await tx.update(products)
-                .set({ stockLevel: sql`stock_level + ${qty}` })
-                .where(eq(products.id, data.productId));
-        }
+        await adjustLocationStock(tx, data.productId, qty, location);
 
         // 3. If negative adjustment, reduce from existing batches (FIFO/AVCO)
         if (qty < 0) {
@@ -517,9 +500,13 @@ export async function processStockTake(stockTakeId: number, companyId: number) {
 
             const unitCost = parseFloat(item.unitCost?.toString() || "0");
 
+            const location = await resolveReceivingLocation(tx, companyId, stockTake.branchId);
+
             // 2. Record adjustment transaction
             await tx.insert(inventoryTransactions).values({
                 companyId,
+                branchId: stockTake.branchId || null,
+                locationId: location.id,
                 productId: item.productId,
                 type: "ADJUSTMENT",
                 quantity: variance.toString(),
@@ -531,10 +518,8 @@ export async function processStockTake(stockTakeId: number, companyId: number) {
                 remainingQuantity: variance > 0 ? variance.toString() : "0", // Gains add to remaining stock
             });
 
-            // 3. Update product stock level directly to physical count
-            await tx.update(products)
-                .set({ stockLevel: physical.toString() })
-                .where(eq(products.id, item.productId));
+            // 3. Update stock level using adjustLocationStock
+            await adjustLocationStock(tx, item.productId, variance, location);
             
             if (variance < 0) {
                 await calculateCOGS(item.productId, Math.abs(variance), companyId, null, tx);
@@ -570,10 +555,14 @@ export async function recordTransfer(
 
         const baseNotes = `${notes || "Branch stock transfer"}; from branch ${fromBranchId} to branch ${toBranchId}`;
 
+        const sourceLocation = await resolveReceivingLocation(activeDb, companyId, fromBranchId);
+        const destLocation = await resolveReceivingLocation(activeDb, companyId, toBranchId);
+
         // 2. Record TRANSFER_OUT
         const [outTx] = await activeDb.insert(inventoryTransactions).values({
             companyId,
             branchId: fromBranchId,
+            locationId: sourceLocation.id,
             productId,
             type: "TRANSFER_OUT",
             quantity: (-absQty).toString(),
@@ -590,6 +579,7 @@ export async function recordTransfer(
         const [inTx] = await activeDb.insert(inventoryTransactions).values({
             companyId,
             branchId: toBranchId,
+            locationId: destLocation.id,
             productId,
             type: "TRANSFER_IN",
             quantity: absQty.toString(),
@@ -608,18 +598,9 @@ export async function recordTransfer(
         ];
         await createCostLayer(inTx.id, components, activeDb);
 
-        // 5. Update branch stocks
-        const [source] = await activeDb.select().from(branchStocks).where(and(eq(branchStocks.branchId, fromBranchId), eq(branchStocks.productId, productId))).limit(1);
-        if (source) {
-            await activeDb.update(branchStocks).set({ stockLevel: (Number(source.stockLevel) - absQty).toString() }).where(eq(branchStocks.id, source.id));
-        }
-
-        const [dest] = await activeDb.select().from(branchStocks).where(and(eq(branchStocks.branchId, toBranchId), eq(branchStocks.productId, productId))).limit(1);
-        if (dest) {
-            await activeDb.update(branchStocks).set({ stockLevel: (Number(dest.stockLevel) + absQty).toString() }).where(eq(branchStocks.id, dest.id));
-        } else {
-            await activeDb.insert(branchStocks).values({ branchId: toBranchId, productId, stockLevel: absQty.toString() });
-        }
+        // 5. Update location stocks
+        await adjustLocationStock(activeDb, productId, -absQty, sourceLocation);
+        await adjustLocationStock(activeDb, productId, absQty, destLocation);
 
         // 6. Recalculate AVCO for destination
         await recalculateBranchAVCO(productId, toBranchId, companyId, activeDb);

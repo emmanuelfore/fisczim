@@ -1,9 +1,12 @@
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Layout } from "@/components/layout";
 import { PageHeader } from "@/components/page-header";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import {
   GdnListItem,
   useGrvs,
+  usePendingGdns,
+  useConfirmGdn,
 } from "@/hooks/use-grvs";
 import { useProducts } from "@/hooks/use-products";
 import { useSuppliers } from "@/hooks/use-suppliers";
@@ -56,11 +59,141 @@ import { format } from "date-fns";
 
 const ITEMS_PER_PAGE = 15;
 
+
+function ConfirmGdnModal({ 
+  gdn, 
+  onClose,
+  companyId 
+}: { 
+  gdn: GdnListItem | null, 
+  onClose: () => void,
+  companyId: number 
+}) {
+  const confirmGdn = useConfirmGdn(companyId);
+  const { toast } = useToast();
+  
+  const [items, setItems] = useState<any[]>([]);
+  const [grvNumber, setGrvNumber] = useState("");
+  const [landedCosts, setLandedCosts] = useState("0");
+  const [notes, setNotes] = useState("");
+  const [allocationMethod, setAllocationMethod] = useState<"value" | "quantity" | "manual">("value");
+
+  useEffect(() => {
+    if (gdn) {
+       setItems(gdn.items.map(i => ({ ...i, unitCost: String(i.costPrice || 0), landedCost: "0" })));
+       setGrvNumber(`GRV-${gdn.gdnNumber}`);
+       setNotes(gdn.notes || `Confirmed from GDN ${gdn.gdnNumber}`);
+       setLandedCosts("0");
+       setAllocationMethod("value");
+    }
+  }, [gdn]);
+
+  if (!gdn) return null;
+
+  const handleConfirm = () => {
+    if (!grvNumber.trim()) return toast({ title: "Required", description: "GRV Number is required.", variant: "destructive" });
+    
+    confirmGdn.mutate({
+      gdnId: gdn.id,
+      grvNumber,
+      notes,
+      landedCosts,
+      allocationMethod,
+      items: items.map(item => ({
+        productId: item.productId,
+        quantity: item.quantityReceived,
+        unitCost: item.unitCost,
+        landedCost: item.landedCost
+      }))
+    }, {
+      onSuccess: () => {
+        toast({ title: "Success", description: "GDN confirmed and converted to GRV." });
+        onClose();
+      },
+      onError: (err: any) => {
+        toast({ title: "Error", description: err.message || "Failed to confirm GDN.", variant: "destructive" });
+      }
+    });
+  };
+
+  return (
+    <Dialog open={!!gdn} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Confirm GDN {gdn.gdnNumber}</DialogTitle>
+        </DialogHeader>
+        <div className="grid gap-4 py-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>GRV Number *</Label>
+              <Input value={grvNumber} onChange={e => setGrvNumber(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Landed Costs</Label>
+              <Input type="number" value={landedCosts} onChange={e => setLandedCosts(e.target.value)} />
+            </div>
+          </div>
+          
+          <div className="space-y-2">
+            <Label>Items Received</Label>
+            <div className="border rounded-md overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 text-slate-500">
+                  <tr>
+                    <th className="px-3 py-2 text-left">Product</th>
+                    <th className="px-3 py-2 text-right">Qty</th>
+                    <th className="px-3 py-2 text-right">Unit Cost ($)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {items.map((item, idx) => (
+                    <tr key={idx}>
+                      <td className="px-3 py-2">{item.productName}</td>
+                      <td className="px-3 py-2 text-right">{item.quantityReceived}</td>
+                      <td className="px-3 py-2 text-right w-32">
+                        <Input 
+                          type="number" 
+                          className="h-8 text-right" 
+                          value={item.unitCost} 
+                          onChange={(e) => {
+                             const newItems = [...items];
+                             newItems[idx].unitCost = e.target.value;
+                             setItems(newItems);
+                          }} 
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Notes</Label>
+            <Textarea value={notes} onChange={e => setNotes(e.target.value)} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={handleConfirm} disabled={confirmGdn.isPending}>
+            {confirmGdn.isPending ? "Confirming..." : "Confirm & Post"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function InventoryAccountPage() {
   const { activeCompanyId } = useActiveCompany();
   const companyId = activeCompanyId || 0;
   const { data: grvs, isLoading } = useGrvs(companyId);
 
+
+  
+  const { data: pendingGdns, isLoading: loadingGdns } = usePendingGdns(companyId);
+  const [selectedGdn, setSelectedGdn] = useState<GdnListItem | null>(null);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -99,8 +232,25 @@ export default function InventoryAccountPage() {
 
 
 
-      <div className="flex flex-col md:flex-row gap-4 mb-6">
-        <div className="relative flex-1 w-full sm:max-w-sm group">
+      
+      <Tabs defaultValue="grvs" className="w-full">
+        <div className="flex flex-col md:flex-row gap-4 mb-6">
+          <TabsList className="bg-white/80 backdrop-blur-sm border border-slate-200 shadow-sm rounded-xl h-12 p-1">
+            <TabsTrigger value="grvs" className="rounded-lg data-[state=active]:bg-violet-600 data-[state=active]:text-white data-[state=active]:shadow-md font-bold text-slate-500">
+              Posted GRVs
+            </TabsTrigger>
+            <TabsTrigger value="gdns" className="rounded-lg data-[state=active]:bg-amber-500 data-[state=active]:text-white data-[state=active]:shadow-md font-bold text-slate-500 relative">
+              Pending GDNs
+              {pendingGdns && pendingGdns.length > 0 && (
+                <span className="ml-2 bg-amber-100 text-amber-700 text-xs px-2 py-0.5 rounded-full font-black">
+                  {pendingGdns.length}
+                </span>
+              )}
+            </TabsTrigger>
+          </TabsList>
+          
+          <div className="relative flex-1 w-full md:max-w-sm group ml-auto">
+
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400 group-hover:text-violet-500 transition-colors" />
           <Input
             placeholder="Search GRV number or supplier..."
@@ -111,10 +261,11 @@ export default function InventoryAccountPage() {
               setCurrentPage(1);
             }}
           />
+                  </div>
         </div>
-      </div>
 
-      <TooltipProvider>
+        <TabsContent value="grvs" className="m-0 mt-6">
+          <TooltipProvider>
         <Card className="border-none shadow-xl shadow-slate-200/50 bg-white/80 backdrop-blur-sm rounded-[2rem] overflow-hidden ring-1 ring-slate-100">
           <CardContent className="p-0 overflow-x-hidden">
             <table className="w-full text-left">
@@ -406,6 +557,77 @@ export default function InventoryAccountPage() {
         </CardContent>
       </Card>
       </TooltipProvider>
+
+        </TabsContent>
+        
+        <TabsContent value="gdns" className="m-0 mt-6">
+          <Card className="border-none shadow-xl shadow-slate-200/50 bg-white/80 backdrop-blur-sm rounded-[2rem] overflow-hidden ring-1 ring-slate-100">
+            <CardContent className="p-0 overflow-x-hidden">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="bg-slate-50/80 border-b border-slate-100">
+                    <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">GDN No</th>
+                    <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">Date</th>
+                    <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">Supplier</th>
+                    <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px]">Lines</th>
+                    <th className="p-5 font-black text-slate-400 uppercase tracking-widest text-[10px] text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loadingGdns ? (
+                    <tr>
+                      <td colSpan={5} className="p-12 text-center text-slate-500">
+                        <div className="flex flex-col items-center justify-center gap-3">
+                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-violet-600"></div>
+                          Loading pending GDNs...
+                        </div>
+                      </td>
+                    </tr>
+                  ) : !pendingGdns || pendingGdns.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="p-12 text-center text-slate-500">
+                        <p className="font-bold text-lg">No Pending GDNs</p>
+                        <p>All mobile stock ins have been processed.</p>
+                      </td>
+                    </tr>
+                  ) : (
+                    pendingGdns.filter(g => !searchTerm || g.gdnNumber.toLowerCase().includes(searchTerm.toLowerCase())).map((gdn) => (
+                      <tr key={gdn.id} className="group border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
+                        <td className="p-4">
+                          <Badge variant="outline" className="font-mono text-[10px] bg-amber-50 text-amber-700 border-amber-200">
+                            {gdn.gdnNumber}
+                          </Badge>
+                        </td>
+                        <td className="p-4 font-medium text-slate-700">
+                          {gdn.createdAt ? format(new Date(gdn.createdAt), "dd MMM yyyy HH:mm") : "-"}
+                        </td>
+                        <td className="p-4">
+                          <div className="flex items-center gap-2 text-slate-700">
+                            <Truck className="w-4 h-4 text-slate-400" />
+                            <span className="font-medium">{gdn.supplierName || "N/A"}</span>
+                          </div>
+                        </td>
+                        <td className="p-4 font-semibold text-slate-700">
+                          {gdn.lineCount}
+                        </td>
+                        <td className="p-4 text-right">
+                          <Button size="sm" className="rounded-xl h-8 text-[10px] font-bold bg-amber-500 hover:bg-amber-600 text-white" onClick={() => setSelectedGdn(gdn)}>
+                            <ClipboardCheck className="w-3.5 h-3.5 mr-1" />
+                            Confirm & Post
+                          </Button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+      
+      <ConfirmGdnModal gdn={selectedGdn} onClose={() => setSelectedGdn(null)} companyId={companyId} />
+
     </Layout>
   );
 }

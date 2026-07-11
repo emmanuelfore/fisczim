@@ -4843,14 +4843,34 @@ export async function registerRoutes(
 
       const status = await device.getStatus();
 
-      // Update local state
-      await storage.updateCompany(companyId, {
+      let zimraDailyCount = status.lastReceiptCounter || 0;
+      if (zimraDailyCount === 0 && (status as any).fiscalDayDocumentQuantities) {
+          zimraDailyCount = (status as any).fiscalDayDocumentQuantities.reduce((sum: number, dq: any) => sum + (dq.receiptQuantity || 0), 0);
+      }
+      if (zimraDailyCount === 0 && status.lastFiscalDayNo && (status.fiscalDayStatus === 'FiscalDayOpened' || status.fiscalDayStatus === 'FiscalDayCloseFailed')) {
+          const localDayInvoices = await storage.getInvoicesByFiscalDay(companyId, status.lastFiscalDayNo);
+          const localMaxReceiptCounter = localDayInvoices
+              .filter((inv: any) => inv.syncedWithFdms)
+              .reduce((max: number, inv: any) => Math.max(max, inv.receiptCounter || 0), 0);
+          if (localMaxReceiptCounter > 0) zimraDailyCount = localMaxReceiptCounter;
+      }
+
+      const updateData: any = {
         currentFiscalDayNo: status.lastFiscalDayNo,
         lastFiscalDayStatus: status.fiscalDayStatus,
-        lastReceiptGlobalNo: status.lastReceiptGlobalNo,
-        dailyReceiptCount: status.lastReceiptCounter, // Syncing daily receipt count
         fiscalDayOpen: status.fiscalDayStatus === 'FiscalDayOpened'
-      });
+      };
+
+      if (status.lastReceiptGlobalNo !== undefined && status.lastReceiptGlobalNo > (company.lastReceiptGlobalNo || 0)) {
+          updateData.lastReceiptGlobalNo = status.lastReceiptGlobalNo;
+      }
+
+      if (zimraDailyCount > (company.dailyReceiptCount || 0)) {
+          updateData.dailyReceiptCount = zimraDailyCount;
+      }
+
+      // Update local state
+      await storage.updateCompany(companyId, updateData);
 
       const response = formatRevMaxResponse("1", "Success", {
         fiscalDayStatus: status.fiscalDayStatus,

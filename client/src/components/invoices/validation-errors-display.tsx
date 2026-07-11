@@ -79,12 +79,15 @@ export function ValidationErrorsDisplay({
   onEdit,
   isResubmitting = false,
 }: ValidationErrorsDisplayProps) {
-  if (!errors || errors.length === 0) {
+  // Filter out minor RCPT041 warning
+  const displayErrors = errors?.filter(e => e.errorCode !== "RCPT041") || [];
+
+  if (displayErrors.length === 0) {
     return null;
   }
 
-  const hasRedErrors = errors.some((e) => e.errorColor.toLowerCase() === "red");
-  const hasGreyErrors = errors.some(
+  const hasRedErrors = displayErrors.some((e) => e.errorColor.toLowerCase() === "red");
+  const hasGreyErrors = displayErrors.some(
     (e) =>
       e.errorColor.toLowerCase() === "grey" ||
       e.errorColor.toLowerCase() === "gray",
@@ -151,7 +154,7 @@ export function ValidationErrorsDisplay({
 
         {/* Error List */}
         <div className="space-y-3">
-          {errors.map((error) => (
+          {displayErrors.map((error) => (
             <div
               key={error.id}
               className="flex items-start gap-3 p-3 rounded-lg border bg-white"

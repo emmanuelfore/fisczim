@@ -162,10 +162,10 @@ export function DayManagementControls({
           </p>
           <div className="flex items-center gap-2 mt-1">
             <p
-              className={`text-xl font-bold ${isCloseFailed ? "text-red-500" : textColor}`}
+              className={`text-xl font-bold ${isCloseFailed ? "text-amber-600" : textColor}`}
             >
               {isCloseFailed
-                ? "Status: CLOSE FAILED"
+                ? "Status: Close Failed"
                 : isOpen
                   ? "Status: OPEN"
                   : "Status: CLOSED"}

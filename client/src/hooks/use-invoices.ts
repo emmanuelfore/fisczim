@@ -142,11 +142,16 @@ export function useFiscalizeInvoice() {
       // Also invalidate list if we are viewing the list
       queryClient.invalidateQueries({ queryKey: [api.invoices.list.path] });
 
+      // Filter out RCPT041 (Minor "after fiscal day end" warning) that the user wants to ignore
+      const significantErrors = (fiscalizedInvoice.validationErrors || []).filter(
+        (err: any) => err.errorCode !== "RCPT041"
+      );
+
       // Check if there are validation errors
-      if (fiscalizedInvoice.validationErrors && fiscalizedInvoice.validationErrors.length > 0) {
+      if (significantErrors.length > 0) {
         toast({
           title: "Fiscalization Completed with Errors",
-          description: `Receipt submitted but ${fiscalizedInvoice.validationErrors.length} validation error(s) found. Please review and fix.`,
+          description: `Receipt submitted but ${significantErrors.length} validation error(s) found.`,
           variant: "destructive"
         });
       } else {

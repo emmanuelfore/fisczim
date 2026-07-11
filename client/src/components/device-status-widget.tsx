@@ -81,7 +81,7 @@ export function DeviceStatusWidget({ companyId }: { companyId: number }) {
                         ${state === "online" ? "bg-emerald-50 border-emerald-100 hover:bg-emerald-100" : ""}
                         ${state === "closed" ? "bg-slate-50 border-slate-200 hover:bg-slate-100" : ""}
                         ${state === "offline" ? "bg-slate-50 border-slate-100 hover:bg-slate-100" : ""}
-                        ${state === "error" ? "bg-red-50 border-red-100 hover:bg-red-100 shadow-[0_0_10px_rgba(239,68,68,0.2)]" : ""}
+                        ${state === "error" ? "bg-amber-50 border-amber-200 hover:bg-amber-100" : ""}
                     `}
             >
               <div
@@ -91,7 +91,7 @@ export function DeviceStatusWidget({ companyId }: { companyId: number }) {
                     : state === "closed"
                       ? "bg-slate-400"
                       : state === "error"
-                        ? "bg-red-500"
+                        ? "bg-amber-500"
                         : "bg-slate-400"
                 }`}
               />
@@ -102,7 +102,7 @@ export function DeviceStatusWidget({ companyId }: { companyId: number }) {
                     : state === "closed"
                       ? "text-slate-600"
                       : state === "error"
-                        ? "text-red-700"
+                        ? "text-amber-700"
                         : "text-slate-500"
                 }`}
               >
@@ -111,11 +111,11 @@ export function DeviceStatusWidget({ companyId }: { companyId: number }) {
                   : state === "closed"
                     ? "Fiscal Day Closed"
                     : state === "error"
-                      ? "CLOSE FAILED!"
+                      ? "Close Failed"
                       : "Offline"}
               </span>
               {state === "error" && (
-                <AlertCircle className="w-3 h-3 ml-1 text-red-500" />
+                <AlertCircle className="w-3 h-3 ml-1 text-amber-500" />
               )}
             </div>
           </Link>

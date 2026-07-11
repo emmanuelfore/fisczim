@@ -3279,6 +3279,10 @@ export class DatabaseStorage implements IStorage {
       return docStatsByCurrency.get(currency);
     };
 
+    // Pre-seed default currencies so they always show on the X/Z Report PDF
+    getDocStat("USD");
+    getDocStat("ZWG");
+
     invoicesInDay.forEach(inv => {
       const currency = inv.currency || "USD";
       const stats = getDocStat(currency);

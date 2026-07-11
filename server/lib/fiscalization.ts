@@ -214,18 +214,18 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
                 const localGlobal = company.lastReceiptGlobalNo ?? 0;
                 const localDaily = company.dailyReceiptCount ?? 0;
 
-                if (status.lastReceiptGlobalNo !== undefined && status.lastReceiptGlobalNo > localGlobal) {
-                    updateData.lastReceiptGlobalNo = status.lastReceiptGlobalNo;
-                    vLog(`[ZIMRA] Advancing globalNo from ${localGlobal} → ${status.lastReceiptGlobalNo} (ZIMRA is ahead)`);
-                } else if (status.lastReceiptGlobalNo !== undefined) {
-                    vLog(`[ZIMRA] Skipping globalNo sync: local ${localGlobal} >= ZIMRA ${status.lastReceiptGlobalNo} (keeping local)`);
+                if (zimraGlobalNo > localGlobal) {
+                    updateData.lastReceiptGlobalNo = zimraGlobalNo;
+                    vLog(`[ZIMRA] Advancing globalNo from ${localGlobal} → ${zimraGlobalNo} (ZIMRA is ahead)`);
+                } else {
+                    vLog(`[ZIMRA] Skipping globalNo sync: local ${localGlobal} >= ZIMRA ${zimraGlobalNo} (keeping local)`);
                 }
 
-                if (status.lastReceiptCounter !== undefined && status.lastReceiptCounter > localDaily) {
-                    updateData.dailyReceiptCount = status.lastReceiptCounter;
-                    vLog(`[ZIMRA] Advancing dailyCount from ${localDaily} → ${status.lastReceiptCounter} (ZIMRA is ahead)`);
-                } else if (status.lastReceiptCounter !== undefined) {
-                    vLog(`[ZIMRA] Skipping dailyCount sync: local ${localDaily} >= ZIMRA ${status.lastReceiptCounter} (keeping local)`);
+                if (zimraDailyCount > localDaily) {
+                    updateData.dailyReceiptCount = zimraDailyCount;
+                    vLog(`[ZIMRA] Advancing dailyCount from ${localDaily} → ${zimraDailyCount} (ZIMRA is ahead)`);
+                } else {
+                    vLog(`[ZIMRA] Skipping dailyCount sync: local ${localDaily} >= ZIMRA ${zimraDailyCount} (keeping local)`);
                 }
 
                 if (Object.keys(updateData).length > 0) {
@@ -671,7 +671,8 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
                     ...fiscalConfig,
                     currentFiscalDayNo: receiptData.fiscalDayNo,
                     lastReceiptGlobalNo: receiptData.receiptGlobalNo,
-                    dailyReceiptCount: receiptData.receiptCounter
+                    dailyReceiptCount: receiptData.receiptCounter,
+                    id: company.id // CRITICAL: Prevent activeBranch.id from overriding company.id
                 },
                 invoice,
                 receiptData,
@@ -780,7 +781,8 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
                                 ...fiscalConfig,
                                 currentFiscalDayNo: receiptData.fiscalDayNo,
                                 lastReceiptGlobalNo: receiptData.receiptGlobalNo,
-                                dailyReceiptCount: receiptData.receiptCounter
+                                dailyReceiptCount: receiptData.receiptCounter,
+                                id: company.id // CRITICAL: Prevent activeBranch.id from overriding company.id
                             },
                             invoice,
                             receiptData,

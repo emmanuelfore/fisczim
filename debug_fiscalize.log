@@ -2415,3 +2415,17 @@
         Calculated NextGlobalNo: 7
         Calculated NextReceiptCounter: 7
         --------------------------------
+[2026-07-14T18:39:48.112Z] Invoice 9393
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 8
+        Calculated NextReceiptCounter: 8
+        --------------------------------
+[2026-07-14T18:40:46.498Z] Invoice 9394
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 9
+        Calculated NextReceiptCounter: 9
+        --------------------------------

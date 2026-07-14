@@ -617,9 +617,9 @@ export default function ProductsPage() {
                         ) : p.isTracked ? (
                           <div className="flex items-center gap-2">
                             <span
-                              className={`${Number(p.branchStock || p.stockLevel) <= Number(p.lowStockThreshold || 0) ? "text-red-600 bg-red-50" : "text-slate-700 bg-slate-100"} px-2 py-0.5 rounded-md font-mono text-[11px] font-bold`}
+                              className={`${Number(p.stockLevel) <= Number(p.lowStockThreshold || 0) ? "text-red-600 bg-red-50" : "text-slate-700 bg-slate-100"} px-2 py-0.5 rounded-md font-mono text-[11px] font-bold`}
                             >
-                              {p.branchStock || p.stockLevel}
+                              {p.stockLevel}
                             </span>
                           </div>
                         ) : (

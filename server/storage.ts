@@ -958,20 +958,59 @@ export class DatabaseStorage implements IStorage {
       baseFilters.push(inArray(products.ownerGroup, ownerGroups));
     }
 
+    const stockSubquery = db.select({
+      productId: inventoryTransactions.productId,
+      globalStock: sql<string>`COALESCE(SUM(${inventoryTransactions.quantity}), '0')`.as("global_stock")
+    })
+    .from(inventoryTransactions)
+    .where(eq(inventoryTransactions.companyId, companyId))
+    .groupBy(inventoryTransactions.productId)
+    .as("stock_sub");
+
     if (branchId) {
+      const branchStockSubquery = db.select({
+        productId: inventoryTransactions.productId,
+        branchStock: sql<string>`COALESCE(SUM(${inventoryTransactions.quantity}), '0')`.as("branch_stock")
+      })
+      .from(inventoryTransactions)
+      .where(and(
+         eq(inventoryTransactions.companyId, companyId),
+         eq(inventoryTransactions.branchId, branchId)
+      ))
+      .groupBy(inventoryTransactions.productId)
+      .as("branch_stock_sub");
+
       const result = await db
         .select({
           product: products,
-          branchStock: branchStocks.stockLevel
+          globalStock: stockSubquery.globalStock,
+          branchStock: branchStockSubquery.branchStock
         })
         .from(products)
-        .leftJoin(branchStocks, and(eq(branchStocks.productId, products.id), eq(branchStocks.branchId, branchId)))
+        .leftJoin(stockSubquery, eq(stockSubquery.productId, products.id))
+        .leftJoin(branchStockSubquery, eq(branchStockSubquery.productId, products.id))
         .where(and(...baseFilters));
 
-      return result.map(r => ({ ...r.product, branchStock: r.branchStock || "0" }));
+      return result.map(r => ({
+        ...r.product,
+        stockLevel: r.product.isTracked ? (r.globalStock || "0") : r.product.stockLevel,
+        branchStock: r.product.isTracked ? (r.branchStock || "0") : undefined
+      }));
     }
 
-    return await db.select().from(products).where(and(...baseFilters));
+    const result = await db
+      .select({
+        product: products,
+        globalStock: stockSubquery.globalStock,
+      })
+      .from(products)
+      .leftJoin(stockSubquery, eq(stockSubquery.productId, products.id))
+      .where(and(...baseFilters));
+
+    return result.map(r => ({
+      ...r.product,
+      stockLevel: r.product.isTracked ? (r.globalStock || "0") : r.product.stockLevel
+    }));
   }
 
   async getProductBySku(companyId: number, sku: string): Promise<Product | undefined> {

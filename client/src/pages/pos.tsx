@@ -53,6 +53,7 @@ import {
   CheckCircle2,
   XCircle,
   ChevronRight,
+  ChevronLeft,
   ChevronDown,
   ChevronUp,
   Fullscreen,
@@ -74,7 +75,7 @@ import {
   Download,
   Store,
 } from "lucide-react";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, ClipboardCheck, Users } from "lucide-react";
 import { POSReceipt } from "@/components/pos-receipt";
 import { Receipt48 } from "@/components/pos/receipt-48";
 import { ManagerOverride } from "@/components/pos/manager-override";
@@ -131,6 +132,9 @@ interface CartItem {
   cartItemId?: string;
   serialNumber?: string;
 }
+
+import { normalizeAppMode } from "@shared/app-mode";
+import { RestaurantTableMap } from "@/components/pos/restaurant-table-map";
 
 import { useAuth } from "@/hooks/use-auth";
 
@@ -285,6 +289,7 @@ export default function POSPage() {
   // Customer Creation State
   const createCustomer = useCreateCustomer(companyId);
   const [isQuickAddCustomerOpen, setIsQuickAddCustomerOpen] = useState(false);
+  const [selectedTableId, setSelectedTableId] = useState<number | undefined>();
   const [newCustomer, setNewCustomer] = useState({
     name: "",
     phone: "",
@@ -332,6 +337,12 @@ export default function POSPage() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>("");
   const [orderDiscount, setOrderDiscount] = useState<number>(0);
+
+  // Restaurant Workflow State
+  const [coversCount, setCoversCount] = useState<number>(1);
+  const [isCoversDialogOpen, setIsCoversDialogOpen] = useState(false);
+  const [pendingTableSelection, setPendingTableSelection] = useState<any>(null);
+  const [activeDraftInvoiceId, setActiveDraftInvoiceId] = useState<number | undefined>();
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState("CASH");
   const [isProcessing, setIsProcessing] = useState(false);
@@ -1441,6 +1452,113 @@ export default function POSPage() {
     }
   };
 
+  const handleTableSelect = async (table: any) => {
+    if (table.status === "available") {
+      setPendingTableSelection(table);
+      setCoversCount(table.capacity > 0 ? table.capacity : 2);
+      setIsCoversDialogOpen(true);
+    } else if (table.status === "occupied" && table.currentInvoiceId) {
+      try {
+        const res = await apiFetch(`/api/invoices/${table.currentInvoiceId}`);
+        if (!res.ok) throw new Error("Failed to fetch ticket");
+        const invoice = await res.json();
+        
+        // Rebuild cart
+        const cartItems = invoice.items.map((item: any) => ({
+          productId: item.product?.id || item.productId,
+          name: item.product?.name || item.description,
+          price: Number(item.unitPrice),
+          quantity: Number(item.quantity),
+          discountAmount: Number(item.discountAmount || 0),
+          modifiers: item.modifiers || [],
+          taxRate: item.taxRate !== null && item.taxRate !== undefined ? Number(item.taxRate) : undefined,
+          taxTypeId: item.taxTypeId,
+          serialNumber: item.serialNumber,
+        }));
+        
+        setCart(cartItems);
+        setSelectedTableId(table.id);
+        setActiveDraftInvoiceId(table.currentInvoiceId);
+        setCoversCount(invoice.covers || 1);
+        setActiveView("cart");
+        toast({ title: "Ticket Reopened", description: `Reopened ticket for ${table.tableName}` });
+      } catch (err: any) {
+        toast({ title: "Error", description: err.message, variant: "destructive" });
+      }
+    } else {
+      setSelectedTableId(table.id);
+    }
+  };
+
+  const sendRestaurantOrder = async () => {
+    if (!selectedTableId) return;
+    if (cart.length === 0) return toast({ title: "Cart empty", variant: "destructive" });
+    
+    setIsProcessing(true);
+    try {
+      const payload = {
+        companyId,
+        branchId: currentShift?.branchId || undefined,
+        shiftId: currentShift?.id || undefined,
+        customerId: selectedCustomerId ? parseInt(selectedCustomerId) : (company?.posSettings as any)?.defaultCustomerId || undefined,
+        status: "draft",
+        orderStatus: "pending",
+        isPos: true,
+        tableId: selectedTableId,
+        covers: coversCount,
+        subtotal: subtotal.toString(),
+        taxAmount: taxAmount.toString(),
+        total: total.toString(),
+        currency: selectedCurrencyCode || "USD",
+        items: cart.map(item => ({
+          productId: item.productId,
+          description: item.name,
+          quantity: item.quantity.toString(),
+          unitPrice: item.price.toString(),
+          taxRate: item.taxRate !== undefined ? item.taxRate.toString() : "0",
+          taxTypeId: item.taxTypeId || null,
+          lineTotal: ((item.price * item.quantity) - item.discountAmount).toString(),
+          discountAmount: item.discountAmount?.toString() || "0",
+          modifiers: (item as any).modifiers || [],
+          serialNumber: item.serialNumber,
+        }))
+      };
+
+      let invoiceId = activeDraftInvoiceId;
+      if (invoiceId) {
+        const res = await apiFetch(`/api/invoices/${invoiceId}`, {
+          method: "PATCH",
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error("Failed to update ticket");
+      } else {
+        const res = await apiFetch("/api/invoices", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error("Failed to create ticket");
+        const newInvoice = await res.json();
+        invoiceId = newInvoice.id;
+      }
+      
+      await apiFetch(`/api/restaurant/tables/${selectedTableId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "occupied", currentInvoiceId: invoiceId })
+      });
+      
+      toast({ title: "Sent to Kitchen", description: "Order sent successfully." });
+      
+      setCart([]);
+      setActiveDraftInvoiceId(undefined);
+      setSelectedTableId(undefined);
+      setActiveView("products");
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handleCheckout = async () => {
     if (cart.length === 0) {
       toast({
@@ -1538,6 +1656,8 @@ export default function POSPage() {
       setSplitPayments([]);
       setIsCheckoutOpen(false);
       setActiveView("products");
+      setSelectedTableId(undefined);
+      setActiveDraftInvoiceId(undefined);
     };
 
     try {
@@ -1708,7 +1828,26 @@ export default function POSPage() {
         return;
       }
 
-      const result = await createInvoice.mutateAsync(invoiceData as any);
+      let result;
+      if (activeDraftInvoiceId) {
+        const res = await apiFetch(`/api/invoices/${activeDraftInvoiceId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ ...invoiceData, status: "issued" })
+        });
+        if (!res.ok) {
+           const dbError = await res.json().catch(() => ({}));
+           throw new Error(dbError.message || "Failed to checkout draft ticket");
+        }
+        result = await res.json();
+        if (selectedTableId) {
+          await apiFetch(`/api/restaurant/tables/${selectedTableId}`, {
+            method: "PATCH", body: JSON.stringify({ status: "available", currentInvoiceId: null })
+          }).catch(e => console.error("Failed to release table", e));
+        }
+      } else {
+        result = await createInvoice.mutateAsync(invoiceData as any);
+      }
+      
       // Refresh products to reflect new stock levels
       runOnIdle(() => {
         queryClient.invalidateQueries({
@@ -3196,18 +3335,30 @@ export default function POSPage() {
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <Button
-              variant="outline"
-              className="h-12 gap-2 font-black uppercase tracking-widest text-[10px] border-slate-200 hover:bg-slate-50 transition-all rounded-xl shadow-sm active:scale-95 group"
-              disabled={cart.length === 0}
-              onClick={holdOrder}
-            >
-              <Pause className="h-4 w-4 text-slate-400 group-hover:text-primary transition-colors" />
-              Hold
-            </Button>
+            {normalizeAppMode(resolvedCompany?.appMode) === "restaurant" && selectedTableId ? (
+              <Button
+                variant="outline"
+                className="h-12 gap-2 font-black uppercase tracking-widest text-[10px] border-orange-200 bg-orange-50 text-orange-600 hover:bg-orange-100 hover:text-orange-700 transition-all rounded-xl shadow-sm active:scale-95 group"
+                disabled={cart.length === 0 || isProcessing}
+                onClick={sendRestaurantOrder}
+              >
+                <ClipboardCheck className="h-4 w-4 group-hover:scale-110 transition-transform" />
+                Send
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                className="h-12 gap-2 font-black uppercase tracking-widest text-[10px] border-slate-200 hover:bg-slate-50 transition-all rounded-xl shadow-sm active:scale-95 group"
+                disabled={cart.length === 0}
+                onClick={holdOrder}
+              >
+                <Pause className="h-4 w-4 text-slate-400 group-hover:text-primary transition-colors" />
+                Hold
+              </Button>
+            )}
             <Button
               className="h-12 gap-2 font-black uppercase tracking-widest text-[10px] bg-primary hover:bg-primary/90 text-white transition-all rounded-xl shadow-lg shadow-primary/20 active:scale-95 group"
-              disabled={cart.length === 0}
+              disabled={cart.length === 0 || isProcessing}
               onClick={handleCheckout}
             >
               <ShoppingCart className="h-4 w-4 group-hover:scale-110 transition-transform" />
@@ -4189,13 +4340,53 @@ export default function POSPage() {
 
         {/* Main Content Area */}
         <div className="flex-1 flex flex-col md:flex-row overflow-hidden pb-0 md:pb-0 h-full relative">
-          {/* Products Grid */}
-          <div
-            className={cn(
+          {normalizeAppMode(resolvedCompany?.appMode) === "restaurant" && !selectedTableId ? (
+            <div className={cn(
               "flex-1 flex flex-col overflow-hidden p-2 md:p-4",
-              activeView === "cart" ? "hidden md:flex" : "flex",
-            )}
-          >
+              activeView === "cart" ? "hidden" : "flex",
+            )}>
+              <RestaurantTableMap 
+                companyId={companyId} 
+                onSelectTable={handleTableSelect}
+                selectedTableId={selectedTableId}
+              />
+              <Dialog open={isCoversDialogOpen} onOpenChange={setIsCoversDialogOpen}>
+                <DialogContent className="max-w-[320px] rounded-[2.5rem] p-8 border-none shadow-2xl bg-white">
+                  <div className="flex flex-col gap-5 text-center">
+                    <div className="bg-slate-100 p-4 rounded-full w-20 h-20 mx-auto flex items-center justify-center -mb-2">
+                       <Users className="w-10 h-10 text-slate-400" />
+                    </div>
+                    <div>
+                      <h2 className="text-2xl font-black text-slate-900 tracking-tight">Party Size</h2>
+                      <p className="text-sm text-slate-500 font-bold mt-1 uppercase tracking-widest">Table • {pendingTableSelection?.tableName}</p>
+                    </div>
+                    <div className="flex items-center justify-center gap-6 mt-4 mb-2">
+                       <Button variant="outline" className="w-14 h-14 rounded-2xl bg-slate-50 shadow-sm border-slate-200 hover:bg-slate-100 hover:border-slate-300" onClick={() => setCoversCount(Math.max(1, coversCount - 1))}><Minus className="w-6 h-6 text-slate-600" /></Button>
+                       <span className="text-5xl font-black text-slate-800 w-16 whitespace-nowrap">{coversCount}</span>
+                       <Button variant="outline" className="w-14 h-14 rounded-2xl bg-slate-50 shadow-sm border-slate-200 hover:bg-slate-100 hover:border-slate-300" onClick={() => setCoversCount(coversCount + 1)}><Plus className="w-6 h-6 text-slate-600" /></Button>
+                    </div>
+                    <Button 
+                      className="mt-2 h-14 rounded-2xl font-black tracking-widest uppercase bg-primary hover:bg-primary/90 text-white shadow-xl shadow-primary/20 transition-all active:scale-95"
+                      onClick={() => {
+                        setSelectedTableId(pendingTableSelection?.id);
+                        setIsCoversDialogOpen(false);
+                      }}
+                    >
+                      Open Table
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
+            </div>
+          ) : (
+            <>
+              {/* Products Grid */}
+              <div
+                className={cn(
+                  "flex-1 flex flex-col overflow-hidden p-2 md:p-4",
+                  activeView === "cart" ? "hidden md:flex" : "flex",
+                )}
+              >
             {/* Product Filter/Tabs (High End Pills) - Hidden on Mobile now */}
             <div
               className={cn(
@@ -4203,6 +4394,16 @@ export default function POSPage() {
                 activeView === "cart" ? "hidden md:flex" : "hidden md:flex",
               )}
             >
+              {normalizeAppMode(company?.appMode) === "restaurant" && selectedTableId && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSelectedTableId(undefined)}
+                  className="rounded-md mr-2 whitespace-nowrap h-7 md:h-8 px-2 md:px-3 text-[9px] md:text-[10px] font-black transition-all border-slate-300 text-slate-700 uppercase tracking-tighter"
+                >
+                  <ChevronLeft className="w-3 h-3 mr-1" /> Map
+                </Button>
+              )}
               {categories.map((cat) => (
                 <Button
                   key={cat}
@@ -4493,6 +4694,8 @@ export default function POSPage() {
           >
             <CartSection />
           </div>
+          </>
+          )}
         </div>
 
         {/* Mobile Bottom Navigation - Native App Style */}
@@ -6276,20 +6479,13 @@ export default function POSPage() {
             onOpenChange={setIsQuickAddCustomerOpen}
           >
             <DialogContent className="sm:max-w-[420px] rounded-[2.5rem] p-0 overflow-hidden border-none shadow-2xl bg-white">
-              <div className="bg-slate-900 p-8 text-white relative">
-                <button
-                  onClick={() => setIsQuickAddCustomerOpen(false)}
-                  className="absolute top-6 right-6 h-8 w-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all"
-                >
-                  <XCircle className="h-4 w-4 text-white" />
-                </button>
-                <UserPlus className="h-8 w-8 mb-4 text-primary" />
-                <h3 className="text-2xl font-black">Quick Add Customer</h3>
-                <p className="text-slate-400 text-xs mt-1 font-bold uppercase tracking-widest">
-                  Enroll new customer instantly
-                </p>
-              </div>
-              <div className="p-8 space-y-5">
+              <button
+                onClick={() => setIsQuickAddCustomerOpen(false)}
+                className="absolute top-4 right-4 h-8 w-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition-all z-10"
+              >
+                <XCircle className="h-4 w-4 text-slate-500" />
+              </button>
+              <div className="p-6 pt-12 space-y-4">
                 <div className="space-y-2">
                   <Label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-1">
                     Full Name

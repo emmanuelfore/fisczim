@@ -205,23 +205,32 @@ export default function CreateInvoicePage() {
 
       // If duplicating, set date to today, otherwise keep original issue date
       if (isDuplicating) {
-        setIssueDate(new Date().toISOString().split("T")[0]);
-        // Default due date to 14 days from now for duplicate? Or keep original offset?
-        // Let's just keep original due date logic or default to +14 days if we wanted smartness.
-        // For now, let's just default to today + 14 days to be safe, or keep blank?
-        // Actually, let's set it to today + 30 days default if duplicating to avoid stale dates
-        const nextMonth = new Date();
+        const today = new Date();
+        today.setMinutes(today.getMinutes() - today.getTimezoneOffset());
+        setIssueDate(today.toISOString().split("T")[0]);
+        
+        const nextMonth = new Date(today);
         nextMonth.setDate(nextMonth.getDate() + 30);
         setDueDate(nextMonth.toISOString().split("T")[0]);
       } else {
-        if (existingInvoice.issueDate)
-          setIssueDate(
-            new Date(existingInvoice.issueDate).toISOString().split("T")[0],
-          );
-        if (existingInvoice.dueDate)
+        if (existingInvoice.issueDate) {
+          if (existingInvoice.status === "draft") {
+            const today = new Date();
+            today.setMinutes(today.getMinutes() - today.getTimezoneOffset());
+            setIssueDate(today.toISOString().split("T")[0]);
+          } else {
+            setIssueDate(
+              new Date(existingInvoice.issueDate).toISOString().split("T")[0],
+            );
+          }
+        }
+        if (existingInvoice.dueDate) {
+          // You could optionally keep the original due date or recalculate it.
+          // We'll keep the original if it was set explicitly, or they can change it.
           setDueDate(
             new Date(existingInvoice.dueDate).toISOString().split("T")[0],
           );
+        }
       }
 
       setNotes(existingInvoice.notes || "");
@@ -264,9 +273,11 @@ export default function CreateInvoicePage() {
   // Form State
   const [customerId, setCustomerId] = useState<string>("");
   const [partnerId, setPartnerId] = useState<string>("none");
-  const [issueDate, setIssueDate] = useState<string>(
-    new Date().toISOString().split("T")[0],
-  ); // Default to today
+  const [issueDate, setIssueDate] = useState<string>(() => {
+    const d = new Date();
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().split("T")[0];
+  }); // Default to today
   const [dueDate, setDueDate] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
   const [poNumber, setPoNumber] = useState<string>("");
@@ -373,8 +384,6 @@ export default function CreateInvoicePage() {
         exchangeRate,
         paymentMethod,
         taxInclusive,
-        issueDate,
-        dueDate,
       };
       localStorage.setItem(
         `invoice_draft_${companyId}`,
@@ -394,8 +403,6 @@ export default function CreateInvoicePage() {
     exchangeRate,
     paymentMethod,
     taxInclusive,
-    issueDate,
-    dueDate,
     isEditing,
     isDuplicating,
     companyId,
@@ -419,8 +426,9 @@ export default function CreateInvoicePage() {
         if (state.exchangeRate) setExchangeRate(state.exchangeRate);
         if (state.paymentMethod) setPaymentMethod(state.paymentMethod);
         if (state.taxInclusive) setTaxInclusive(state.taxInclusive);
-        if (state.issueDate) setIssueDate(state.issueDate);
-        if (state.dueDate) setDueDate(state.dueDate);
+        
+        // Removed restoring of issueDate and dueDate to ensure a new drafting session always defaults to today
+        
         setIsRestored(true);
         toast({
           title: "Draft Restored",

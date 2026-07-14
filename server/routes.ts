@@ -6724,6 +6724,7 @@ export async function registerRoutes(
       await assertOpenAccountingPeriod(companyId, body.date || new Date(), "Supplier bill posting");
       const input = insertSupplierInvoiceSchema.parse({
         ...body,
+        companyId,
         purchaseOrderId: body.purchaseOrderId ? Number(body.purchaseOrderId) : null,
         grvReference: body.grvReference || null,
       });
@@ -6758,6 +6759,9 @@ export async function registerRoutes(
           isRecoverable: item.isRecoverable !== undefined ? Boolean(item.isRecoverable) : true,
           accountCode: item.accountCode || undefined,
           productId: item.productId ? Number(item.productId) : undefined,
+          quantity: item.quantity !== undefined ? String(item.quantity) : "1",
+          unitPrice: item.unitPrice !== undefined ? String(item.unitPrice) : (item.unitCost !== undefined ? String(item.unitCost) : "0.00"),
+          totalPrice: item.totalPrice !== undefined ? String(item.totalPrice) : "0.00",
         })),
         createdBy: (req.user as any)?.id
       });
@@ -6858,18 +6862,29 @@ export async function registerRoutes(
   app.get("/api/companies/:companyId/inventory/stock-overview", requireAuth, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
+
+      const stockSubquery = db.select({
+        productId: inventoryTransactions.productId,
+        globalStock: sql<string>`COALESCE(SUM(${inventoryTransactions.quantity}), '0')`.as("global_stock")
+      })
+      .from(inventoryTransactions)
+      .where(eq(inventoryTransactions.companyId, companyId))
+      .groupBy(inventoryTransactions.productId)
+      .as("stock_sub");
+
       const rows = await db.select({
         productId: products.id,
         name: products.name,
         sku: products.sku,
         costPrice: products.costPrice,
-        globalStock: products.stockLevel,
+        globalStock: sql<string>`CASE WHEN ${products.isTracked} = true THEN COALESCE(${stockSubquery.globalStock}, '0') ELSE ${products.stockLevel} END`.as('globalStock'),
         locationId: inventoryLocations.id,
         locationName: inventoryLocations.name,
         locationStock: inventoryLocationStocks.stockLevel,
         reservedStock: inventoryLocationStocks.reservedQuantity,
       })
       .from(products)
+      .leftJoin(stockSubquery, eq(products.id, stockSubquery.productId))
       .leftJoin(inventoryLocationStocks, eq(products.id, inventoryLocationStocks.productId))
       .leftJoin(inventoryLocations, eq(inventoryLocationStocks.locationId, inventoryLocations.id))
       .where(eq(products.companyId, companyId))

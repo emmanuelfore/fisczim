@@ -56,7 +56,11 @@ export default function SupplierInvoiceFormPage() {
   const [transactionType, setTransactionType] = useState(defaultType);
   const [referenceInvoiceId, setReferenceInvoiceId] = useState(defaultRefId);
   const [invoiceNumber, setInvoiceNumber] = useState("");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(() => {
+    const d = new Date();
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().slice(0, 10);
+  });
   const [dueDate, setDueDate] = useState("");
   const [purchaseOrderId, setPurchaseOrderId] = useState("");
   const [grvReference, setGrvReference] = useState("");

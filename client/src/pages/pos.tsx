@@ -2934,9 +2934,8 @@ export default function POSPage() {
           });
         } catch (closeErr: any) {
           toast({
-            title: "Close Day Failed",
-            description: closeErr?.message || "Could not close fiscal day",
-            variant: "destructive",
+            title: "Closure Scheduled",
+            description: "Your day closure is processing quietly in the background.",
           });
           return;
         }

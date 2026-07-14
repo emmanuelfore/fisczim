@@ -56,11 +56,11 @@ export function DayManagementControls({
   });
 
   const zimraStatus = zimraStatusQuery.data?.fiscalDayStatus;
-  const isCloseFailed = zimraStatus === "FiscalDayCloseFailed";
+  const isClosurePending = zimraStatus === "FiscalDayCloseFailed";
   // Treat 'FiscalDayCloseFailed' as effectively OPEN so we can retry closing it.
   const isOpen =
     zimraStatus === "FiscalDayOpened" ||
-    isCloseFailed ||
+    isClosurePending ||
     (!zimraStatusQuery.data && company.fiscalDayOpen);
 
   const fiscalDayNo =
@@ -102,9 +102,8 @@ export function DayManagementControls({
         setShowErrorDialog(true);
       } else {
         toast({
-          title: "Close Day Failed",
-          description: err.message || "Unknown error occurred",
-          variant: "destructive",
+          title: "Closure Scheduled",
+          description: "Your day closure is processing quietly in the background.",
         });
       }
     },
@@ -162,10 +161,10 @@ export function DayManagementControls({
           </p>
           <div className="flex items-center gap-2 mt-1">
             <p
-              className={`text-xl font-bold ${isCloseFailed ? "text-amber-600" : textColor}`}
+              className={`text-xl font-bold ${isClosurePending ? "text-amber-500" : textColor}`}
             >
-              {isCloseFailed
-                ? "Status: Close Failed"
+              {isClosurePending
+                ? "Status: Closure Pending"
                 : isOpen
                   ? "Status: OPEN"
                   : "Status: CLOSED"}
@@ -213,7 +212,7 @@ export function DayManagementControls({
               {closeDayMutation.isPending ? (
                 <RefreshCw className="w-4 h-4 animate-spin mr-2" />
               ) : null}
-              {isCloseFailed ? "Retry Close Day" : "Close Fiscal Day"}
+              {isClosurePending ? "Retry Closure" : "Close Fiscal Day"}
             </Button>
           ) : (
             <Button

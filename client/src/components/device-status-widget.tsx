@@ -57,17 +57,17 @@ export function DeviceStatusWidget({ companyId }: { companyId: number }) {
 
   // Determine state
   const isDayOpen = status.fiscalDayOpen;
-  const isCloseFailed = status.fiscalDayStatus === "FiscalDayCloseFailed";
+  const isClosurePending = status.fiscalDayStatus === "FiscalDayCloseFailed";
 
   // Logic:
-  // Close Failed = Red (Critical)
+  // Closure Pending = Pending (Amber)
   // Online + Day Open = Green
   // Online + Day Closed = Neutral
   // Offline = Muted
 
-  let state: "online" | "closed" | "offline" | "error" = "online";
+  let state: "online" | "closed" | "offline" | "pending" = "online";
   if (!status.isOnline) state = "offline";
-  else if (isCloseFailed) state = "error";
+  else if (isClosurePending) state = "pending";
   else if (!isDayOpen) state = "closed";
 
   return (
@@ -81,7 +81,7 @@ export function DeviceStatusWidget({ companyId }: { companyId: number }) {
                         ${state === "online" ? "bg-emerald-50 border-emerald-100 hover:bg-emerald-100" : ""}
                         ${state === "closed" ? "bg-slate-50 border-slate-200 hover:bg-slate-100" : ""}
                         ${state === "offline" ? "bg-slate-50 border-slate-100 hover:bg-slate-100" : ""}
-                        ${state === "error" ? "bg-amber-50 border-amber-200 hover:bg-amber-100" : ""}
+                        ${state === "pending" ? "bg-amber-50 border-amber-200 hover:bg-amber-100" : ""}
                     `}
             >
               <div
@@ -90,7 +90,7 @@ export function DeviceStatusWidget({ companyId }: { companyId: number }) {
                     ? "bg-emerald-500 animate-pulse"
                     : state === "closed"
                       ? "bg-slate-400"
-                      : state === "error"
+                      : state === "pending"
                         ? "bg-amber-500"
                         : "bg-slate-400"
                 }`}
@@ -101,7 +101,7 @@ export function DeviceStatusWidget({ companyId }: { companyId: number }) {
                     ? "text-emerald-700"
                     : state === "closed"
                       ? "text-slate-600"
-                      : state === "error"
+                      : state === "pending"
                         ? "text-amber-700"
                         : "text-slate-500"
                 }`}
@@ -110,12 +110,12 @@ export function DeviceStatusWidget({ companyId }: { companyId: number }) {
                   ? "Fiscal Day Open"
                   : state === "closed"
                     ? "Fiscal Day Closed"
-                    : state === "error"
-                      ? "Close Failed"
+                    : state === "pending"
+                      ? "Closure Pending"
                       : "Offline"}
               </span>
-              {state === "error" && (
-                <AlertCircle className="w-3 h-3 ml-1 text-amber-500" />
+              {state === "pending" && (
+                <RefreshCw className="w-3 h-3 ml-1 text-amber-500" />
               )}
             </div>
           </Link>

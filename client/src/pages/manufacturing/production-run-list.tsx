@@ -10,11 +10,11 @@ import { format } from "date-fns";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 
-export default function WorkOrderList() {
+export default function ProductionRunList() {
   const { activeCompanyId: companyId } = useActiveCompany();
 
-  const { data: workOrders, isLoading } = useQuery({
-    queryKey: [`/api/companies/${companyId}/manufacturing/work-orders`],
+  const { data: productionRuns, isLoading } = useQuery({
+    queryKey: [`/api/companies/${companyId}/manufacturing/production-runs`],
     enabled: !!companyId,
   });
 
@@ -23,13 +23,13 @@ export default function WorkOrderList() {
       <div className="space-y-6">
       <div className="flex justify-between items-center">
         <PageHeader 
-          title="Work Orders" 
+          title="Production Runs" 
            
         />
-        <Link href={`/manufacturing/work-orders/new`}>
+        <Link href={`/manufacturing/production-runs/new`}>
           <Button>
             <Plus className="mr-2 h-4 w-4" />
-            New Work Order
+            New Production Run
           </Button>
         </Link>
       </div>
@@ -38,12 +38,12 @@ export default function WorkOrderList() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>WO #</TableHead>
+              <TableHead>PR #</TableHead>
               <TableHead>Product / BOM</TableHead>
               <TableHead>Planned Qty</TableHead>
               <TableHead>Completed Qty</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead>Date</TableHead>
+              <TableHead>Planned Start</TableHead>
               <TableHead></TableHead>
             </TableRow>
           </TableHeader>
@@ -54,31 +54,31 @@ export default function WorkOrderList() {
                   <Skeleton className="h-10 w-full" />
                 </TableCell>
               </TableRow>
-            ) : (workOrders as any[])?.length === 0 ? (
+            ) : (productionRuns as any[])?.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={7} className="text-center h-32 text-muted-foreground">
-                  No work orders found.
+                  No production runs found.
                 </TableCell>
               </TableRow>
             ) : (
-              (workOrders as any[])?.map((wo: any) => (
-                <TableRow key={wo.id}>
-                  <TableCell className="font-medium">WO-{wo.id}</TableCell>
+              (productionRuns as any[])?.map((pr: any) => (
+                <TableRow key={pr.id}>
+                  <TableCell className="font-medium">PR-{pr.id}</TableCell>
                   <TableCell>
-                    <div className="font-medium">{wo.product?.name || "Unknown Product"}</div>
-                    <div className="text-xs text-muted-foreground">BOM: {wo.bom?.name} (v{wo.bom?.version})</div>
+                    <div className="font-medium">{pr.product?.name || "Unknown Product"}</div>
+                    <div className="text-xs text-muted-foreground">BOM: {pr.bom?.name} (v{pr.bom?.version})</div>
                   </TableCell>
-                  <TableCell>{wo.plannedQuantity}</TableCell>
-                  <TableCell>{wo.completedQuantity}</TableCell>
+                  <TableCell>{pr.plannedQuantity}</TableCell>
+                  <TableCell>{pr.goodQuantity || pr.completedQuantity || 0}</TableCell>
                   <TableCell>
-                    <Badge variant={wo.status === "COMPLETED" ? "default" : "secondary"} className="flex w-fit items-center gap-1">
-                      {wo.status === "COMPLETED" ? <CheckCircle className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
-                      {wo.status}
+                    <Badge variant={pr.status === "COMPLETED" || pr.status === "SETTLED" ? "default" : "secondary"} className="flex w-fit items-center gap-1">
+                      {pr.status === "COMPLETED" || pr.status === "SETTLED" ? <CheckCircle className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
+                      {pr.status}
                     </Badge>
                   </TableCell>
-                  <TableCell>{format(new Date(wo.createdAt), "MMM d, yyyy")}</TableCell>
+                  <TableCell>{pr.plannedStart ? format(new Date(pr.plannedStart), "MMM d, yyyy") : "N/A"}</TableCell>
                   <TableCell>
-                    <Link href={`/manufacturing/work-orders/${wo.id}`}>
+                    <Link href={`/manufacturing/production-runs/${pr.id}`}>
                       <Button variant="outline" size="sm">View</Button>
                     </Link>
                   </TableCell>

@@ -23,7 +23,9 @@ export default function CreateGrv() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  const [sourceType, setSourceType] = useState<"supplier" | "customer">("supplier");
   const [supplierId, setSupplierId] = useState<string>("");
+  const [customerId, setCustomerId] = useState<string>("");
   const [gdnNumber, setGdnNumber] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
 
@@ -50,6 +52,11 @@ export default function CreateGrv() {
 
   const { data: suppliers = [] } = useQuery<any[]>({
     queryKey: [`/api/companies/${companyId}/suppliers`],
+    enabled: !!companyId,
+  });
+
+  const { data: customers = [] } = useQuery<any[]>({
+    queryKey: [`/api/companies/${companyId}/customers`],
     enabled: !!companyId,
   });
 
@@ -156,13 +163,15 @@ export default function CreateGrv() {
 
   const handleSubmit = () => {
     if (!gdnNumber) return toast({ title: "Missing fields", description: "Please enter a reference number.", variant: "destructive" });
-    if (!supplierId) return toast({ title: "Missing fields", description: "Please select a supplier.", variant: "destructive" });
+    if (sourceType === "supplier" && !supplierId) return toast({ title: "Missing fields", description: "Please select a supplier.", variant: "destructive" });
+    if (sourceType === "customer" && !customerId) return toast({ title: "Missing fields", description: "Please select a customer.", variant: "destructive" });
     
     const validLines = lines.filter(l => (l.type === "stock" && l.productId) || (l.type === "expense" && l.accountCode));
     if (validLines.length === 0) return toast({ title: "Missing items", description: "Please add at least one valid item or charge.", variant: "destructive" });
 
     createGdn.mutate({
-      supplierId: Number(supplierId),
+      supplierId: sourceType === "supplier" ? Number(supplierId) : null,
+      customerId: sourceType === "customer" ? Number(customerId) : null,
       gdnNumber,
       notes,
       taxInclusive,
@@ -241,22 +250,48 @@ export default function CreateGrv() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Supplier <span className="text-red-500">*</span></Label>
-                <Select
-                  value={supplierId}
-                  onValueChange={setSupplierId}
-                >
-                  <SelectTrigger className="bg-slate-50">
-                    <SelectValue placeholder="Select Supplier" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(suppliers || []).map((s: any) => (
-                      <SelectItem key={s.id} value={s.id.toString()}>
-                        {s.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="flex justify-between items-center h-5">
+                  <Label>Source <span className="text-red-500">*</span></Label>
+                  <div className="flex items-center gap-2 text-xs text-slate-500">
+                    <span className={sourceType === "supplier" ? "font-bold text-slate-900" : ""}>Supplier</span>
+                    <Switch
+                      checked={sourceType === "customer"}
+                      onCheckedChange={(checked) => {
+                        setSourceType(checked ? "customer" : "supplier");
+                        setSupplierId("");
+                        setCustomerId("");
+                      }}
+                    />
+                    <span className={sourceType === "customer" ? "font-bold text-slate-900" : ""}>Customer</span>
+                  </div>
+                </div>
+                {sourceType === "supplier" ? (
+                  <Select value={supplierId} onValueChange={setSupplierId}>
+                    <SelectTrigger className="bg-slate-50">
+                      <SelectValue placeholder="Select Supplier" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(suppliers || []).map((s: any) => (
+                        <SelectItem key={s.id} value={s.id.toString()}>
+                          {s.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Select value={customerId} onValueChange={setCustomerId}>
+                    <SelectTrigger className="bg-slate-50">
+                      <SelectValue placeholder="Select Customer" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(customers || []).map((c: any) => (
+                        <SelectItem key={c.id} value={c.id.toString()}>
+                          {c.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
               <div className="space-y-2">
                 <Label>Notes & Instructions</Label>

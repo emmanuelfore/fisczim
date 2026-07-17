@@ -1480,7 +1480,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                             width: 34,
                             height: 34,
                             borderRadius: 12,
-                            backgroundColor: POS_SURFACE_RAISED,
+                            backgroundColor: hexAlpha(C.text.primary, 0.08),
                             alignItems: "center",
                             justifyContent: "center",
                           }}>
@@ -1513,7 +1513,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                           width: 44,
                           height: 44,
                           borderRadius: 14,
-                          backgroundColor: POS_SURFACE_RAISED,
+                          backgroundColor: hexAlpha(C.amber.primary, 0.1),
                           alignItems: "center",
                           justifyContent: "center",
                         }}>
@@ -1831,7 +1831,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                     paddingVertical: 10, borderRadius: 14,
                     backgroundColor: cart.length === 0 || isParking ? C.bg.card : hexAlpha(C.amber.primary, 0.07),
                     shadowColor: "#000", shadowOpacity: cart.length === 0 || isParking ? 0.1 : 0.2,
-                    shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 5
+                    shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: cart.length === 0 || isParking ? 5 : 0
                   }}>
                   {isParking ? (
                     <ActivityIndicator size="small" color={C.amber.primary} />

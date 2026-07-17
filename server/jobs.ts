@@ -1,21 +1,68 @@
 import { storage } from "./storage.js";
-import { type RecurringInvoice } from "../shared/schema.js";
+import { type RecurringInvoice, type InsertJobLog } from "../shared/schema.js";
 import { addDays, addWeeks, addMonths, addYears } from "date-fns";
 import { ZimraDevice } from "./zimra.js";
 import { getZimraLogger } from "./lib/fiscalization.js";
 
+// Helper function to log job execution
+async function logJobExecution(jobName: string, companyId: number | null, jobFn: () => Promise<any>, metadata?: any) {
+  const startTime = new Date();
+  const jobLog = await storage.createJobLog({
+    jobName,
+    status: 'started',
+    companyId: companyId || undefined,
+    metadata
+  });
+
+  try {
+    const result = await jobFn();
+    const completedAt = new Date();
+    const duration = completedAt.getTime() - startTime.getTime();
+    
+    await storage.updateJobLog(jobLog.id, {
+      status: 'completed',
+      completedAt,
+      duration,
+      resultData: result
+    });
+
+    return result;
+  } catch (error: any) {
+    const completedAt = new Date();
+    const duration = completedAt.getTime() - startTime.getTime();
+    
+    await storage.updateJobLog(jobLog.id, {
+      status: 'failed',
+      completedAt,
+      duration,
+      errorData: {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      }
+    });
+
+    throw error;
+  }
+}
+
 export async function processRecurringInvoices() {
-    console.log("[Job] Checking for due recurring invoices...");
-    try {
+    return logJobExecution('recurring_invoices', null, async () => {
+        console.log("[Job] Checking for due recurring invoices...");
         const dueInvoices = await storage.getDueRecurringInvoices();
         console.log(`[Job] Found ${dueInvoices.length} due invoices.`);
 
+        const results = [];
         for (const template of dueInvoices) {
-            await generateInvoiceFromTemplate(template);
+            const result = await generateInvoiceFromTemplate(template);
+            results.push(result);
         }
-    } catch (error) {
-        console.error("[Job] Error processing recurring invoices:", error);
-    }
+
+        return {
+            invoicesProcessed: results.length,
+            templates: dueInvoices.map(t => ({ id: t.id, name: t.description }))
+        };
+    });
 }
 
 async function generateInvoiceFromTemplate(template: RecurringInvoice) {
@@ -109,18 +156,35 @@ export function startRecurringInvoiceWorker() {
 }
 
 /**
- * Midnigh Job: Close Fiscal Days for all active companies
+ * Midnight Job: Close Fiscal Days for all active companies
  */
 export async function closeAllFiscalDays() {
-    console.log("[Job] Starting midnight fiscal day closure sweep...");
-    
-    try {
+    return logJobExecution('fiscal_day_closure', null, async () => {
+        console.log("[Job] Starting midnight fiscal day closure sweep...");
+        
         const allCompanies = await storage.getAllCompanies();
         const zimraCompanies = allCompanies.filter(c => c.fdmsDeviceId && c.zimraPrivateKey && c.zimraCertificate);
         
         console.log(`[Job] Found ${zimraCompanies.length} companies with ZIMRA integration.`);
         
+        const results = {
+            totalCompanies: zimraCompanies.length,
+            successfulClosures: 0,
+            failedClosures: 0,
+            alreadyClosed: 0,
+            closeFailed: 0,
+            companies: [] as any[]
+        };
+        
         for (const company of zimraCompanies) {
+            const companyResult = {
+                companyId: company.id,
+                companyName: company.name,
+                status: 'unknown',
+                fiscalDayNo: null as number | null,
+                error: null as string | null
+            };
+            
             try {
                 // Initialize Device
                 const device = new ZimraDevice({
@@ -135,6 +199,7 @@ export async function closeAllFiscalDays() {
                 // 1. Check Status
                 console.log(`[Job] Checking ZIMRA status for ${company.name}...`);
                 const status = await device.getStatus();
+                companyResult.fiscalDayNo = status.lastFiscalDayNo || null;
                 
                 if (status.fiscalDayStatus === 'FiscalDayOpened') {
                     const fiscalDayNo = status.lastFiscalDayNo!;
@@ -142,39 +207,73 @@ export async function closeAllFiscalDays() {
                     // 2. Calculate Counters
                     const counters = await storage.calculateFiscalCounters(company.id, fiscalDayNo);
                     
-                    // 3. Format Date for ZIMRA (ISO local, but just YYYY-MM-DD for closeDay usually? 
-                    // Actually spec says fiscalDayDate is YYYY-MM-DDTHH:mm:ss in signature base, but let's check ZimraDevice.closeDay)
-                    // ZimraDevice.closeDay uses fiscalDayDate as a string.
-                    const harareMsOffset = 2 * 60 * 60 * 1000;
-                    const nowAtHarare = new Date(Date.now() + harareMsOffset);
-                    const fiscalDayDate = nowAtHarare.toISOString().slice(0, 19); // YYYY-MM-DDTHH:mm:ss
+                    // 3. Format Date for ZIMRA
+                    const formatHarareDateOnly = (date: Date) => {
+                        const parts = new Intl.DateTimeFormat('en-GB', {
+                            timeZone: 'Africa/Harare',
+                            year: 'numeric', month: '2-digit', day: '2-digit'
+                        }).formatToParts(date);
+                        const p = (t: string) => parts.find(x => x.type === t)?.value;
+                        return `${p('year')}-${p('month')}-${p('day')}`;
+                    };
+                    let fiscalDayDate = formatHarareDateOnly(new Date());
+                    if (company.fiscalDayOpenedAt) {
+                        fiscalDayDate = formatHarareDateOnly(new Date(company.fiscalDayOpenedAt));
+                    }
 
                     console.log(`[Job] Closing Fiscal Day ${fiscalDayNo} for ${company.name} at ${fiscalDayDate}`);
                     
-                    const result = await device.closeDay(
-                        fiscalDayNo,
-                        fiscalDayDate,
-                        company.dailyReceiptCount || status.lastReceiptCounter || 0,
-                        counters
-                    ) as any;
+                    let lastError = null;
+                    for (let attempt = 1; attempt <= 3; attempt++) {
+                        try {
+                            await device.closeDay(
+                                fiscalDayNo,
+                                fiscalDayDate,
+                                company.dailyReceiptCount || status.lastReceiptCounter || 0,
+                                counters
+                            );
+                            lastError = null;
+                            break;
+                        } catch (err) {
+                            lastError = err;
+                            if (attempt < 3) await new Promise(r => setTimeout(r, 2000));
+                        }
+                    }
 
-                    const resultStatus = (result.fiscalDayStatus || "").toLowerCase();
-
-                    // 4. Update local state only after confirmed closure.
-                    if (resultStatus === 'fiscaldayclosed') {
-                        await storage.updateCompany(company.id, {
-                            fiscalDayOpen: false,
-                            lastFiscalDayStatus: 'FiscalDayClosed'
-                        });
-
-                        console.log(`[Job] Successfully closed day for ${company.name}`);
-                    } else {
+                    if (lastError) {
                         await storage.updateCompany(company.id, {
                             fiscalDayOpen: true,
-                            lastFiscalDayStatus: result.fiscalDayStatus || 'FiscalDayCloseFailed'
+                            lastFiscalDayStatus: 'FiscalDayCloseFailed'
                         });
+                        console.warn(`[Job] Close day attempts failed for ${company.name}; daily receipt counters preserved.`);
+                        companyResult.status = 'close_failed';
+                        companyResult.error = (lastError as Error).message;
+                        results.closeFailed++;
+                        continue;
+                    }
 
-                        console.warn(`[Job] Close day failed for ${company.name}; daily receipt counters preserved.`);
+                    // 4. Verify closure asynchronously
+                    console.log(`[Job] Verifying closure status for ${company.name}...`);
+                    await new Promise(r => setTimeout(r, 4000));
+                    const verifyStatus = await device.getStatus() as any;
+
+                    if (verifyStatus.fiscalDayStatus === 'FiscalDayCloseFailed') {
+                        await storage.updateCompany(company.id, {
+                            fiscalDayOpen: true,
+                            lastFiscalDayStatus: 'FiscalDayCloseFailed'
+                        });
+                        console.warn(`[Job] Close day failed verification for ${company.name}; daily receipt counters preserved.`);
+                        companyResult.status = 'close_failed';
+                        results.closeFailed++;
+                    } else {
+                        await storage.updateCompany(company.id, {
+                            fiscalDayOpen: false,
+                            lastFiscalDayStatus: 'FiscalDayClosed',
+                            dailyReceiptCount: 0 // Explicitly reset on success
+                        });
+                        console.log(`[Job] Successfully closed day for ${company.name}`);
+                        companyResult.status = 'success';
+                        results.successfulClosures++;
                     }
                 } else {
                     console.log(`[Job] Day for ${company.name} is already ${status.fiscalDayStatus}.`);
@@ -184,17 +283,27 @@ export async function closeAllFiscalDays() {
                             fiscalDayOpen: isCloseFailed,
                             lastFiscalDayStatus: status.fiscalDayStatus
                         });
+                        companyResult.status = isCloseFailed ? 'close_failed' : 'already_closed';
+                        if (isCloseFailed) results.closeFailed++;
+                        else results.alreadyClosed++;
+                    } else {
+                        companyResult.status = 'already_closed';
+                        results.alreadyClosed++;
                     }
                 }
             } catch (err) {
                 console.error(`[Job] Failed to process ${company.name}:`, err);
+                companyResult.status = 'error';
+                companyResult.error = (err as Error).message;
+                results.failedClosures++;
             }
+            
+            results.companies.push(companyResult);
         }
-    } catch (error) {
-        console.error("[Job] Fatal error in closeAllFiscalDays:", error);
-    }
-    
-    console.log("[Job] Fiscal day closure sweep completed.");
+        
+        console.log("[Job] Fiscal day closure sweep completed.");
+        return results;
+    });
 }
 
 export function startFiscalDayClosingWorker() {

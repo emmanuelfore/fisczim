@@ -51,6 +51,7 @@ import { EmailInvoiceDialog } from "@/components/invoices/email-invoice-dialog";
 import { pdf } from "@react-pdf/renderer";
 import { apiFetch } from "@/lib/api";
 import { useTaxConfig } from "@/hooks/use-tax-config";
+import { useConvertToSalesOrder } from "@/hooks/use-sales-orders";
 import { useToast } from "@/hooks/use-toast";
 import { ValidationErrorsDisplay } from "@/components/invoices/validation-errors-display";
 import { Input } from "@/components/ui/input";
@@ -149,6 +150,7 @@ export default function InvoiceDetailsPage() {
   const createCreditNote = useCreateCreditNote();
   const createDebitNote = useCreateDebitNote();
   const convertQuotation = useConvertQuotation();
+  const convertToSalesOrder = useConvertToSalesOrder();
 
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showEmailDialog, setShowEmailDialog] = useState(false);
@@ -733,19 +735,44 @@ export default function InvoiceDetailsPage() {
                     </Button>
                   )}
                   {invoice.status === "quote" && (
-                    <Button
-                      size="sm"
-                      className="h-8 px-3 text-xs gap-1.5 bg-primary hover:bg-primary/90"
-                      onClick={() => convertQuotation.mutate(invoiceId)}
-                      disabled={convertQuotation.isPending}
-                    >
-                      {convertQuotation.isPending ? (
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                      ) : (
-                        <ClipboardList className="w-3 h-3" />
-                      )}{" "}
-                      Convert
-                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          size="sm"
+                          className="h-8 px-3 text-xs gap-1.5 bg-primary hover:bg-primary/90"
+                          disabled={convertQuotation.isPending}
+                        >
+                          {convertQuotation.isPending ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <ClipboardList className="w-3 h-3" />
+                          )}{" "}
+                          Convert
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          onClick={async () => {
+                            try {
+                              const order = await convertToSalesOrder.mutateAsync(invoiceId);
+                              setLocation(`/sales-orders/${order.id}`);
+                              toast({ title: "Success", description: "Converted to Sales Order" });
+                            } catch (e: any) {
+                              toast({ title: "Error", description: e.message, variant: "destructive" });
+                            }
+                          }}
+                          className="cursor-pointer"
+                        >
+                          Convert to Sales Order
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => convertQuotation.mutate(invoiceId)}
+                          className="cursor-pointer"
+                        >
+                          Convert to Invoice
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   )}
                   {["issued", "paid", "fiscalized"].includes(
                     invoice.status || "",

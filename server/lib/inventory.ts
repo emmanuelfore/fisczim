@@ -166,7 +166,8 @@ export async function recordBatchStockIn(
     grvNumber?: string,
     createdBy?: string,
     purchaseOrderId?: number,
-    gdnId?: number
+    gdnId?: number,
+    customerId?: number
 ) {
     const grvReference = grvNumber?.trim() || generateGrvReference();
     
@@ -294,7 +295,7 @@ export async function recordBatchStockIn(
                 productId: item.productId,
                 locationId: receivingLocation.id,
                 supplierId: supplierId || null,
-                type: "STOCK_IN",
+                                type: "STOCK_IN",
                 quantity: quantity.toString(),
                 unitCost: baseUnitCost.toString(),
                 totalCost: (quantity * baseUnitCost).toString(),
@@ -359,12 +360,21 @@ export async function recordBatchStockIn(
             await createCostLayer(transaction.id, components, tx);
 
             // 3. Update location stock (and derived product stock) plus moving average cost
-            const { avgCost } = await recalculateBranchAVCO(item.productId, null, companyId, tx);
-            await adjustLocationStock(tx, item.productId, quantity, receivingLocation);
-            await tx
-                .update(products)
-                .set({ costPrice: avgCost.toFixed(2) })
-                .where(eq(products.id, item.productId));
+            if (customerId) {
+                const stockCheck = await tx.execute(sql`SELECT id FROM customer_stock WHERE customer_id = ${customerId} AND product_id = ${item.productId}`);
+                if (stockCheck.rows && stockCheck.rows.length > 0) {
+                    await tx.execute(sql`UPDATE customer_stock SET quantity = quantity + ${quantity}, last_movement_date = CURRENT_TIMESTAMP WHERE customer_id = ${customerId} AND product_id = ${item.productId}`);
+                } else {
+                    await tx.execute(sql`INSERT INTO customer_stock (company_id, location_id, product_id, customer_id, quantity) VALUES (${companyId}, ${receivingLocation.id}, ${item.productId}, ${customerId}, ${quantity})`);
+                }
+            } else {
+                const { avgCost } = await recalculateBranchAVCO(item.productId, null, companyId, tx);
+                await adjustLocationStock(tx, item.productId, quantity, receivingLocation);
+                await tx
+                    .update(products)
+                    .set({ costPrice: avgCost.toFixed(2) })
+                    .where(eq(products.id, item.productId));
+            }
 
             // 4. If linked to a PO, update quantity received for 3-way match tracking
             if (purchaseOrderId) {
@@ -406,7 +416,7 @@ export async function recordBatchStockIn(
         const totalInventoryCost = allocatedItems.reduce((sum, item) => sum + (item.quantity * item.baseUnitCost) + item.landedCost, 0);
         const grandTotal = totalInventoryCost + totalRecoverableVat;
 
-        if (inventoryAccCode && grniAccCode && grandTotal > 0) {
+        if (inventoryAccCode && grniAccCode && grandTotal > 0 && !customerId) {
             const lines: { accountCode: string, type: "DEBIT" | "CREDIT", amount: number }[] = [];
             
             if (totalInventoryCost > 0) {

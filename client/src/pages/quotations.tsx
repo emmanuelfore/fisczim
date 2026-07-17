@@ -5,7 +5,7 @@ import { Plus, Search, ClipboardList } from "lucide-react";
 import { DeleteButton } from "@/components/delete-button";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/status-badge";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { useState } from "react";
 import { PageHeader } from "@/components/page-header";
@@ -17,6 +17,23 @@ export default function QuotationsPage() {
   const { data: quotations, isLoading } = useQuotations(selectedCompanyId);
   const deleteQuotation = useDeleteQuotation();
   const [searchTerm, setSearchTerm] = useState("");
+  const [, setLocation] = useLocation();
+
+  const handleConvertToOrder = async (id: number) => {
+    try {
+      const res = await fetch("/api/sales-orders/from-quotation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ quotationId: id })
+      });
+      if (!res.ok) throw new Error("Conversion failed");
+      const data = await res.json();
+      setLocation(`/sales-orders/${data.id}`);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to convert quotation to sales order.");
+    }
+  };
 
   const filteredQuotations = quotations?.filter(
     (quote) =>
@@ -117,6 +134,9 @@ export default function QuotationsPage() {
                       </td>
                       <td className="data-table-cell text-right">
                         <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Button variant="outline" size="sm" onClick={() => handleConvertToOrder(quote.id)}>
+                            Convert to Order
+                          </Button>
                           <Link href={`/quotations/new?edit=${quote.id}`}>
                             <Button variant="ghost" size="sm">
                               Edit

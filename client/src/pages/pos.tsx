@@ -511,7 +511,10 @@ export default function POSPage() {
   const { data: zimraStatusData } = useQuery({
     queryKey: ["zimraStatus", companyId],
     queryFn: async () => {
-      const res = await apiFetch(`/api/companies/${companyId}/zimra/status`);
+      const url = selectedBranchId 
+        ? `/api/companies/${companyId}/zimra/status?branchId=${selectedBranchId}` 
+        : `/api/companies/${companyId}/zimra/status`;
+      const res = await apiFetch(url);
       if (!res.ok) return null;
       return await res.json();
     },

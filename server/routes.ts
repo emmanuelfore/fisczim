@@ -31,6 +31,7 @@ import payrollRouter from "./api/v1/payroll.js";
 import manufacturingRouter from "./api/v1/manufacturing.js";
 import { createRolesPermissionsRouter } from "./routes/roles-permissions.js";
 import { createPartnershipsRouter } from "./routes/partnerships.js";
+import { createCustomerFlowRouter } from "./routes/customer-flow.js";
 import { userHasPermission } from "./lib/permissions.js";
 import { resolveActionAccess } from "./lib/approval-policies.js";
 import { createApprovalRequest } from "./lib/approvals.js";
@@ -850,6 +851,49 @@ export async function registerRoutes(
     }
   });
 
+  // --- Job Logs & Reporting ---
+  
+  // Get all job logs with optional filters
+  app.get("/api/jobs/logs", requireAuth, async (req, res) => {
+    try {
+      const jobName = req.query.jobName as string | undefined;
+      const status = req.query.status as string | undefined;
+      const companyId = req.query.companyId ? Number(req.query.companyId) : undefined;
+      const limit = req.query.limit ? Number(req.query.limit) : undefined;
+
+      const logs = await storage.getJobLogs({ jobName, status, companyId, limit });
+      res.json(logs);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Get specific job log by ID
+  app.get("/api/jobs/logs/:id", requireAuth, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const log = await storage.getJobLogById(id);
+      if (!log) return res.status(404).json({ message: "Job log not found" });
+      res.json(log);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Get job report with statistics
+  app.get("/api/jobs/report", requireAuth, async (req, res) => {
+    try {
+      const jobName = req.query.jobName as string | undefined;
+      const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
+      const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
+
+      const report = await storage.getJobReport(jobName, startDate, endDate);
+      res.json(report);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // Health Check (Public)
   app.get("/api/health", async (_req, res) => {
     let internet = false;
@@ -1048,8 +1092,7 @@ export async function registerRoutes(
       // Convert Quote to Invoice Data
       const invoiceData = {
         companyId: quote.companyId,
-        customerId: quote.customerId,
-        issueDate: new Date(),
+                issueDate: new Date(),
         dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // Default 7 days
         currency: quote.currency || "USD",
         exchangeRate: "1.00", // Default
@@ -4023,44 +4066,58 @@ export async function registerRoutes(
   app.get("/api/companies/:id/zimra/status", requireAuth, async (req, res) => {
     try {
       const companyId = Number(req.params.id);
+      const branchId = req.query.branchId ? Number(req.query.branchId) : undefined;
       const company = await storage.getCompany(companyId);
       if (!company) {
         return res.status(404).json({ message: "Company not found" });
       }
 
+      let activeBranch = null;
+      if (branchId) {
+        activeBranch = await storage.getBranch(branchId);
+      }
+      
+      const configSource = activeBranch || company;
+
       // Provide more specific feedback about what's missing
       const missingFields = [];
-      if (!company.fdmsDeviceId) missingFields.push("Device ID");
-      if (!company.zimraPrivateKey) missingFields.push("Private Key");
-      if (!company.zimraCertificate) missingFields.push("Certificate");
+      if (!configSource.fdmsDeviceId) missingFields.push("Device ID");
+      if (!configSource.zimraPrivateKey) missingFields.push("Private Key");
+      if (!configSource.zimraCertificate) missingFields.push("Certificate");
 
       if (missingFields.length > 0) {
         return res.status(400).json({
-          message: "Company is not fully registered with ZIMRA",
+          message: "Device is not fully registered with ZIMRA",
           details: `Missing: ${missingFields.join(", ")}. Please complete registration in ZIMRA settings.`,
           isRegistered: false
         });
       }
 
       const device = new ZimraDevice({
-        deviceId: company.fdmsDeviceId || "0",
-        deviceSerialNo: "UNKNOWN", // Should be stored?
-        activationKey: company.fdmsApiKey || "",
-        privateKey: company.zimraPrivateKey || "",
-        certificate: company.zimraCertificate || "",
-        baseUrl: getZimraBaseUrl((company.zimraEnvironment as "test" | "production") || 'test')
+        deviceId: configSource.fdmsDeviceId || "0",
+        deviceSerialNo: "UNKNOWN",
+        activationKey: configSource.fdmsApiKey || "",
+        privateKey: configSource.zimraPrivateKey || "",
+        certificate: configSource.zimraCertificate || "",
+        baseUrl: getZimraBaseUrl((configSource.zimraEnvironment as "test" | "production") || 'test')
       }, getZimraLogger(companyId));
 
       const status = await device.getStatus();
 
       // Update local state
-      await storage.updateCompany(companyId, {
+      const updateData = {
         currentFiscalDayNo: status.lastFiscalDayNo,
         lastFiscalDayStatus: status.fiscalDayStatus,
         lastReceiptGlobalNo: status.lastReceiptGlobalNo,
         dailyReceiptCount: status.lastReceiptCounter, // Syncing daily receipt count
         fiscalDayOpen: status.fiscalDayStatus === 'FiscalDayOpened'
-      });
+      };
+
+      if (activeBranch) {
+        await storage.updateBranch(activeBranch.id, updateData);
+      } else {
+        await storage.updateCompany(companyId, updateData);
+      }
 
       res.json(status);
     } catch (err: any) {
@@ -4525,10 +4582,10 @@ export async function registerRoutes(
           // Map specific error codes to user-friendly messages
           const errorCode = status.fiscalDayClosingErrorCode || "UnknownError";
           const errorMessages: Record<string, string> = {
-            "BadCertificateSignature": "Close day is not allowed. Invalid certificate signature detected.",
-            "MissingReceipts": "Close day is not allowed. One or more receipts are missing form the sequence (Grey Error).",
-            "ReceiptsWithValidationErrors": "Close day is not allowed. There are receipts with validation errors (Red Error).",
-            "CountersMismatch": "Close day is not allowed. Internal device counters do not match submitted totals."
+            "BadCertificateSignature": "ZIMRA rejected closure: Invalid certificate signature detected.",
+            "MissingReceipts": "ZIMRA rejected closure: One or more receipts are missing from the sequence (Grey Error).",
+            "ReceiptsWithValidationErrors": "ZIMRA rejected closure: There are receipts with validation errors (Red Error).",
+            "CountersMismatch": "ZIMRA rejected closure: Internal device counters do not match submitted totals."
           };
 
           const userMessage = errorMessages[errorCode] || `Fiscal day closure failed with error: ${errorCode}`;
@@ -7268,11 +7325,11 @@ export async function registerRoutes(
   app.post("/api/companies/:companyId/gdns", requireAuth, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
-      const { gdnNumber, supplierId, purchaseOrderId, notes, taxInclusive, items } = req.body || {};
+      const { gdnNumber, supplierId, customerId, purchaseOrderId, notes, taxInclusive, items } = req.body || {};
       const cleanGdnNumber = String(gdnNumber || "").trim();
 
       if (!cleanGdnNumber) return res.status(400).json({ message: "GDN number is required." });
-      if (!supplierId) return res.status(400).json({ message: "Supplier is required." });
+      if (!supplierId && !customerId) return res.status(400).json({ message: "Supplier or Customer is required." });
       if (!Array.isArray(items) || items.length === 0) {
         return res.status(400).json({ message: "Add at least one item to the GDN." });
       }
@@ -7281,7 +7338,7 @@ export async function registerRoutes(
         const [gdn] = await tx.insert(goodsDeliveryNotes).values({
           companyId,
           supplierId: supplierId ? Number(supplierId) : null,
-          purchaseOrderId: purchaseOrderId ? Number(purchaseOrderId) : null,
+                    purchaseOrderId: purchaseOrderId ? Number(purchaseOrderId) : null,
           gdnNumber: cleanGdnNumber,
           status: "DRAFT",
           taxInclusive: !!taxInclusive,
@@ -7391,7 +7448,8 @@ export async function registerRoutes(
         typeof grvNumber === "string" && grvNumber.trim() ? grvNumber : undefined,
         (req.user as any)?.id,
         gdn.purchaseOrderId || undefined,
-        gdn.id
+        gdn.id,
+        undefined
       );
 
       await db.transaction(async (tx) => {
@@ -9769,8 +9827,7 @@ export async function registerRoutes(
         const basePayload = {
           companyId,
           branchId,
-          customerId: testCustomer.id,
-          issueDate: new Date(),
+                    issueDate: new Date(),
           dueDate,
           subtotal: totals.subtotal,
           taxAmount: totals.taxAmount,
@@ -9921,8 +9978,7 @@ export async function registerRoutes(
 
       const invoice = await storage.createInvoice({
         companyId: company.id,
-        customerId: genericCustomerId,
-        invoiceNumber: `EXT-${Date.now()}`,
+                invoiceNumber: `EXT-${Date.now()}`,
         issueDate: new Date(),
         dueDate: new Date(),
         subtotal: subtotal.toFixed(2),
@@ -10097,6 +10153,7 @@ export async function registerRoutes(
         qrCodeData: null,
         syncedWithFdms: false,
         createdBy: (req.user as any).id, // Set createdBy
+        transactionType: "FiscalInvoice",
       } as any);
 
       res.json(converted);
@@ -10156,9 +10213,9 @@ export async function registerRoutes(
 
       const cn = await storage.createInvoice({
         companyId: originalInvoice.companyId,
-        branchId: originalInvoice.branchId || getBranchId(req) || undefined,
         customerId: originalInvoice.customerId,
-        issueDate: new Date(),
+        branchId: originalInvoice.branchId || getBranchId(req) || undefined,
+                issueDate: new Date(),
         dueDate: new Date(),
         subtotal: totals.subtotal,
         taxAmount: totals.taxAmount,
@@ -10215,9 +10272,9 @@ export async function registerRoutes(
 
       const creditNote = await storage.createInvoice({
         companyId: originalInvoice.companyId,
-        branchId: originalInvoice.branchId || getBranchId(req) || undefined,
         customerId: originalInvoice.customerId,
-        issueDate: new Date(),
+        branchId: originalInvoice.branchId || getBranchId(req) || undefined,
+                issueDate: new Date(),
         dueDate: new Date(),
         subtotal: originalInvoice.subtotal,
         taxAmount: originalInvoice.taxAmount,
@@ -10272,9 +10329,9 @@ export async function registerRoutes(
 
       const dn = await storage.createInvoice({
         companyId: originalInvoice.companyId,
-        branchId: originalInvoice.branchId || getBranchId(req) || undefined,
         customerId: originalInvoice.customerId,
-        issueDate: new Date(),
+        branchId: originalInvoice.branchId || getBranchId(req) || undefined,
+                issueDate: new Date(),
         dueDate: new Date(),
         subtotal: totals.subtotal,
         taxAmount: totals.taxAmount,
@@ -10575,8 +10632,7 @@ export async function registerRoutes(
           notes: paymentsTable.notes,
           invoiceId: paymentsTable.invoiceId,
           invoiceNumber: invoicesTable.invoiceNumber,
-          customerId: customersTable.id,
-          customerName: customersTable.name,
+                    customerName: customersTable.name,
           customerEmail: customersTable.email,
         })
         .from(paymentsTable)
@@ -13848,8 +13904,7 @@ export async function registerRoutes(
 
           const [invoice] = await tx.insert(invoices).values({
             companyId,
-            customerId: customer.id,
-            invoiceNumber: `OB-AR-${customer.id}-${entry.id}`,
+                        invoiceNumber: `OB-AR-${customer.id}-${entry.id}`,
             issueDate: openingDate,
             dueDate: row.dueDate ? new Date(row.dueDate) : openingDate,
             subtotal: amount.toFixed(2),
@@ -14848,6 +14903,7 @@ export async function registerRoutes(
 
   app.use("/api", createRolesPermissionsRouter(requireAuth));
   app.use("/api", createPartnershipsRouter(requireAuth));
+  app.use("/api", createCustomerFlowRouter(requireAuth));
 
   app.use('/api/v1', v1Router);
 

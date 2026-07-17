@@ -24,7 +24,9 @@ const ResponsiveTable = React.forwardRef<
       const headers = Array.from(table.querySelectorAll("thead th")).map(
         (header) => (header.textContent || "").replace(/\s+/g, " ").trim(),
       );
-      table.dataset.mobileCards = headers.some(Boolean) ? "true" : "false";
+      if (table.getAttribute("data-mobile-cards") !== "false") {
+        table.dataset.mobileCards = headers.some(Boolean) ? "true" : "false";
+      }
 
       Array.from(table.querySelectorAll("tbody tr")).forEach((row) => {
         Array.from(row.children).forEach((cell, index) => {

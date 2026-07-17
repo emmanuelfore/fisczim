@@ -2,20 +2,13 @@ import { Layout } from "@/components/layout";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useActiveCompany } from "@/hooks/use-active-company";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Loader2,
-  Download,
-  FileText,
-  Search,
-  Calendar as CalendarIcon,
-  Printer,
-} from "lucide-react";
-import { useState, useMemo, useEffect } from "react";
-import { format, startOfMonth, endOfMonth, subMonths } from "date-fns";
-import { CustomerStatementPDF } from "@/components/reports/customer-statement-pdf";
+import { Loader2, Printer, Download } from "lucide-react";
+import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Select,
   SelectContent,
@@ -23,301 +16,457 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
-import { cn } from "@/lib/utils";
-import { pdf } from "@react-pdf/renderer";
-import { Badge } from "@/components/ui/badge";
-import { useLocation } from "wouter";
 import { useCustomers } from "@/hooks/use-customers";
+import { cn } from "@/lib/utils";
+import { PDFDownloadLink } from "@react-pdf/renderer";
+import { CustomerStatementPDF } from "@/components/reports/customer-statement-pdf";
+import { useCompany } from "@/hooks/use-companies";
+import { format } from "date-fns";
 
+/* ── helpers ── */
+function fmt(value: any, decimals = 2): string {
+  const n = Number(value);
+  if (isNaN(n)) return (0).toFixed(decimals);
+  return n.toFixed(decimals);
+}
+function fmtDate(d: any): string {
+  if (!d) return "—";
+  try {
+    return new Date(d).toLocaleDateString("en-GB", {
+      day: "2-digit", month: "short", year: "numeric",
+    });
+  } catch { return "—"; }
+}
+function defaultFrom() {
+  // Show full history by default
+  return "2020-01-01";
+}
+function defaultTo() {
+  return new Date().toISOString().split("T")[0];
+}
+
+/* ─────────────────────────────────────────────────────────── */
 export default function CustomerStatements() {
-  const { activeCompany: company, activeCompanyId } = useActiveCompany();
-  const [location] = useLocation();
-  const queryParams = new URLSearchParams(location.split("?")[1]);
-  const initialCustomerId = queryParams.get("customerId");
+  const { activeCompanyId } = useActiveCompany();
+  const { data: company } = useCompany(activeCompanyId);
 
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string>(
-    initialCustomerId || "",
-  );
-  const [startDate, setStartDate] = useState<Date>(
-    startOfMonth(subMonths(new Date(), 1)),
-  );
-  const [endDate, setEndDate] = useState<Date>(endOfMonth(new Date()));
-  const [currency, setCurrency] = useState<string>("USD");
-  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
-  const [isGenerating, setIsGenerating] = useState(false);
+  const qp = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
+  const [selectedCustomerId, setSelectedCustomerId] = useState(qp.get("customerId") || "");
+  const [dateFrom, setDateFrom] = useState(defaultFrom());
+  const [dateTo, setDateTo] = useState(defaultTo());
 
-  const { data: customers, isLoading: isLoadingCustomers } =
-    useCustomers(activeCompanyId);
+  const { data: customers } = useCustomers(activeCompanyId);
 
-  const { data: statementData, isLoading: isLoadingStatement } = useQuery<any>({
-    queryKey: [
-      "/api/customers",
-      selectedCustomerId,
-      "statement",
-      startDate.toISOString(),
-      endDate.toISOString(),
-      currency,
-    ],
+  const { data: stmt, isLoading } = useQuery<any>({
+    queryKey: ["/api/customers", selectedCustomerId, "statement-view", dateFrom, dateTo, activeCompanyId],
     queryFn: async () => {
-      const res = await apiFetch(
-        `/api/customers/${selectedCustomerId}/statement?startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}&currency=${currency}`,
-      );
+      const params = new URLSearchParams({
+        dateFrom,
+        dateTo,
+        ...(activeCompanyId ? { companyId: String(activeCompanyId) } : {}),
+      });
+      const res = await apiFetch(`/api/customers/${selectedCustomerId}/statement-view?${params}`);
       if (!res.ok) throw new Error("Failed to fetch statement");
       return res.json();
     },
-    enabled: !!selectedCustomerId && !!company,
+    enabled: !!selectedCustomerId,
   });
 
-  useEffect(() => {
-    if (statementData && company) {
-      generatePdf();
-    }
-  }, [statementData, company, startDate, endDate, currency]);
+  /* ── derived ── */
+  const companyName = stmt?.company?.trading_name || stmt?.company?.name || "";
+  const companyAddress = stmt?.company?.address || "";
+  const companyCity = stmt?.company?.city || "";
+  const companyPhone = stmt?.company?.phone || "";
+  const companyTin = stmt?.company?.tin || "";
+  const customerName = stmt?.customer?.name || stmt?.customer_name || "";
+  const customerAddress = stmt?.customer?.address || "";
+  const customerEmail = stmt?.customer?.email || "";
+  const customerPhone = stmt?.customer?.phone || "";
+  const printDate = fmtDate(new Date().toISOString());
 
-  const generatePdf = async () => {
-    if (!statementData || !company) return;
-    setIsGenerating(true);
-    try {
-      const doc = (
-        <CustomerStatementPDF
-          data={statementData}
-          company={company}
-          startDate={startDate}
-          endDate={endDate}
-          currency={currency}
-        />
-      );
-      const blob = await pdf(doc).toBlob();
-      const url = URL.createObjectURL(blob);
-      if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl);
-      setPdfBlobUrl(url);
-    } catch (error) {
-      console.error("PDF generation failed:", error);
-    } finally {
-      setIsGenerating(false);
-    }
-  };
+  const handlePrint = () => window.print();
 
+  /* ────────────────────────────── UI ────────────────────────────── */
   return (
-    <Layout
-      headerTitle="Customer Statements"
-      headerSubtitle="Generate official customer account statements."
-    >
-      <div className="space-y-4">
-        <div className="flex justify-end">
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              className="h-9 rounded-[10px] border-[#E5E7EB] bg-white px-3  font-semibold text-[#0F172A] shadow-none hover:bg-[#F8FAFC]"
-              onClick={() => window.print()}
-              disabled={!pdfBlobUrl}
-            >
-              <Printer className="mr-2 h-4 w-4 text-[#64748B]" />
-              Print
+    <Layout>
+      <style>{`
+        @media print {
+          /* hide everything except the statement */
+          body > * { visibility: hidden !important; }
+          #statement-root, #statement-root * { visibility: visible !important; }
+          #statement-root {
+            position: fixed; top: 0; left: 0;
+            width: 100%; padding: 20px;
+            background: white;
+          }
+          .no-print { display: none !important; }
+          @page { margin: 15mm; size: A4 portrait; }
+        }
+      `}</style>
+
+      {/* ── Controls bar (hidden on print) ── */}
+      <div className="no-print flex flex-wrap gap-4 items-end mb-6">
+        <div className="flex flex-col gap-1 flex-1 min-w-[220px]">
+          <Label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Customer</Label>
+          <Select value={selectedCustomerId} onValueChange={setSelectedCustomerId}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Select a customer…" />
+            </SelectTrigger>
+            <SelectContent>
+              {customers?.map((c) => (
+                <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex flex-col gap-1">
+          <Label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">From</Label>
+          <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="w-40" />
+        </div>
+        <div className="flex flex-col gap-1">
+          <Label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">To</Label>
+          <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="w-40" />
+        </div>
+        {stmt && (
+          <>
+            <Button onClick={handlePrint} className="gap-2 bg-slate-900 hover:bg-slate-700 text-white">
+              <Printer className="w-4 h-4" /> Print
             </Button>
-            {pdfBlobUrl && (
-              <a
-                href={pdfBlobUrl}
-                download={`Statement-${selectedCustomerId}-${format(new Date(), "yyyyMMdd")}.pdf`}
-              >
-                <Button className="h-9 rounded-[10px] bg-[#2563EB] px-3  font-semibold text-white shadow-[0_1px_2px_rgba(37,99,235,0.25)] hover:bg-[#1D4ED8]">
-                  <Download className="mr-2 h-4 w-4" />
-                  Download
-                </Button>
-              </a>
-            )}
-          </div>
-        </div>
-
-        <div className="flex flex-1 gap-4 items-start">
-          {/* Left Panel - Filters */}
-          <div className="w-80 shrink-0 space-y-4 flex flex-col sticky top-24">
-            <Card className="rounded-[14px] border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] overflow-hidden">
-              <CardHeader className="pb-3">
-                <CardTitle className=" font-semibold flex items-center gap-2 text-slate-900">
-                  <Search className="w-4 h-4 text-primary" />
-                  Filters
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="space-y-2">
-                  <Label className="text-xs text-[#64748B] font-medium">
-                    Customer
-                  </Label>
-                  <Select
-                    value={selectedCustomerId}
-                    onValueChange={setSelectedCustomerId}
-                  >
-                    <SelectTrigger className="h-10 rounded-[10px] border-[#E5E7EB] bg-white">
-                      <SelectValue
-                        placeholder={
-                          isLoadingCustomers ? "Loading..." : "Select Customer"
-                        }
-                      />
-                    </SelectTrigger>
-                    <SelectContent className="rounded-xl border-slate-200 shadow-xl">
-                      {customers?.map((c) => (
-                        <SelectItem key={c.id} value={c.id.toString()}>
-                          {c.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label className="text-xs text-[#64748B] font-medium">
-                    Currency
-                  </Label>
-                  <Select value={currency} onValueChange={setCurrency}>
-                    <SelectTrigger className="h-10 rounded-[10px] border-[#E5E7EB] bg-white">
-                      <SelectValue placeholder="Currency" />
-                    </SelectTrigger>
-                    <SelectContent className="rounded-xl border-slate-200 shadow-xl">
-                      <SelectItem value="USD">USD - US Dollar</SelectItem>
-                      <SelectItem value="ZiG">ZiG - Zimbabwe Gold</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label className="text-xs text-[#64748B] font-medium">
-                    From
-                  </Label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className={cn(
-                          "h-10 w-full justify-start rounded-[10px] border-[#E5E7EB] bg-white text-left  font-medium",
-                          !startDate && "text-muted-foreground",
-                        )}
-                      >
-                        <CalendarIcon className="mr-2 h-4 w-4 text-slate-400" />
-                        {startDate ? (
-                          format(startDate, "PPP")
-                        ) : (
-                          <span>Pick a date</span>
-                        )}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent
-                      className="w-auto p-0 rounded-2xl border-slate-200 shadow-2xl"
-                      align="start"
-                    >
-                      <Calendar
-                        mode="single"
-                        selected={startDate}
-                        onSelect={(d) => d && setStartDate(d)}
-                        initialFocus
-                        className="rounded-2xl"
-                      />
-                    </PopoverContent>
-                  </Popover>
-                </div>
-
-                <div className="space-y-2">
-                  <Label className="text-xs text-[#64748B] font-medium">
-                    To
-                  </Label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className={cn(
-                          "h-10 w-full justify-start rounded-[10px] border-[#E5E7EB] bg-white text-left  font-medium",
-                          !endDate && "text-muted-foreground",
-                        )}
-                      >
-                        <CalendarIcon className="mr-2 h-4 w-4 text-slate-400" />
-                        {endDate ? (
-                          format(endDate, "PPP")
-                        ) : (
-                          <span>Pick a date</span>
-                        )}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent
-                      className="w-auto p-0 rounded-2xl border-slate-200 shadow-2xl"
-                      align="start"
-                    >
-                      <Calendar
-                        mode="single"
-                        selected={endDate}
-                        onSelect={(d) => d && setEndDate(d)}
-                        initialFocus
-                        className="rounded-2xl"
-                      />
-                    </PopoverContent>
-                  </Popover>
-                </div>
-              </CardContent>
-            </Card>
-
-            {statementData && (
-              <Card className="rounded-[14px] border border-[#E5E7EB] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] space-y-4">
-                <div className="flex justify-between items-center">
-                  <span className="text-[10px] uppercase tracking-wider text-slate-500 font-bold">
-                    Balance
-                  </span>
-                  <Badge
-                    className={cn(
-                      "rounded-lg",
-                      statementData.closingBalance > 0
-                        ? "bg-red-100 text-red-700"
-                        : "bg-emerald-100 text-emerald-700",
-                    )}
-                  >
-                    {currency} {statementData.closingBalance.toFixed(2)}
-                  </Badge>
-                </div>
-              </Card>
-            )}
-          </div>
-
-          {/* Right Panel - Preview */}
-          <div className="flex-1 flex justify-center">
-            <div className="w-full max-w-[850px] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] border border-[#E5E7EB] rounded-[14px] overflow-hidden">
-              {pdfBlobUrl ? (
-                <iframe
-                  src={`${pdfBlobUrl}#toolbar=0&navpanes=0&scrollbar=0`}
-                  style={{
-                    width: "100%",
-                    height: "1400px",
-                    border: "none",
-                    display: "block",
+            <PDFDownloadLink
+              document={
+                <CustomerStatementPDF
+                  data={{
+                    customer: stmt.customer,
+                    openingBalance: stmt.opening_balance,
+                    closingBalance: stmt.balance_due,
+                    transactions: stmt.transactions || [],
                   }}
-                  scrolling="no"
-                  title="Statement Preview"
+                  company={company}
+                  startDate={new Date(dateFrom)}
+                  endDate={new Date(dateTo)}
+                  currency={stmt.customer?.currency || "USD"}
                 />
-              ) : (
-                <div className="flex flex-col items-center justify-center p-20 text-slate-400 gap-4">
-                  <div className="w-16 h-16 rounded-full bg-slate-50 flex items-center justify-center border border-slate-100 shadow-inner">
-                    <FileText className="w-8 h-8 text-slate-200" />
-                  </div>
-                  <p className=" font-bold uppercase tracking-widest">
-                    Select a customer to preview
-                  </p>
-                </div>
+              }
+              fileName={`Statement-${customerName}-${format(new Date(), "yyyyMMdd")}.pdf`}
+            >
+              {({ loading, error }) => (
+                <Button
+                  variant="outline"
+                  disabled={loading}
+                  title={error ? String(error) : undefined}
+                  className="gap-2"
+                >
+                  {loading ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4" />
+                  )}
+                  {error ? "PDF Error" : "Download PDF"}
+                </Button>
               )}
-            </div>
-          </div>
-        </div>
-        {isGenerating && (
-          <div className="fixed inset-0 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center z-50">
-            <Loader2 className="w-10 h-10 animate-spin text-primary mb-4" />
-            <p className="font-bold text-slate-900 uppercase tracking-widest text-xs">
-              Preparing Statement...
-            </p>
-          </div>
+            </PDFDownloadLink>
+          </>
         )}
       </div>
+
+      {/* Loading */}
+      {isLoading && (
+        <div className="flex justify-center py-20">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      )}
+
+      {/* Empty prompt */}
+      {!selectedCustomerId && !isLoading && (
+        <div className="flex flex-col items-center justify-center py-24 text-slate-400 gap-3">
+          <span className="text-5xl">📋</span>
+          <p className="text-base font-medium">Select a customer to generate their statement</p>
+        </div>
+      )}
+
+      {/* ── Printable Statement ── */}
+      {stmt && !isLoading && (
+        <div id="statement-root" className="space-y-0 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+
+          {/* ══ Statement Header ══ */}
+          <div className="border-b border-slate-200 px-8 py-6">
+            {/* Title row */}
+            <div className="flex justify-between items-start mb-6">
+              <div>
+                <h1 className="text-2xl font-black tracking-tight text-slate-900 uppercase">
+                  Statement of Account
+                </h1>
+                <p className="text-sm text-slate-500 mt-0.5">
+                  {fmtDate(stmt.date_from)} – {fmtDate(stmt.date_to)}
+                </p>
+              </div>
+              <div className="text-right text-xs text-slate-400">
+                <p>Printed: {printDate}</p>
+              </div>
+            </div>
+
+            {/* FROM / TO addresses */}
+            <div className="grid grid-cols-2 gap-8">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">FROM</p>
+                <p className="font-bold text-slate-900 text-sm">{companyName}</p>
+                {companyAddress && <p className="text-sm text-slate-600">{companyAddress}</p>}
+                {companyCity && <p className="text-sm text-slate-600">{companyCity}</p>}
+                {companyPhone && <p className="text-sm text-slate-600">{companyPhone}</p>}
+                {companyTin && <p className="text-sm text-slate-600">TIN: {companyTin}</p>}
+              </div>
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">TO</p>
+                <p className="font-bold text-slate-900 text-sm">{customerName}</p>
+                {customerAddress && <p className="text-sm text-slate-600">{customerAddress}</p>}
+                {customerEmail && <p className="text-sm text-slate-600">{customerEmail}</p>}
+                {customerPhone && <p className="text-sm text-slate-600">Phone: {customerPhone}</p>}
+              </div>
+            </div>
+          </div>
+
+          {/* ══ Summary Boxes ══ */}
+          <div className="grid grid-cols-4 divide-x divide-slate-200 border-b border-slate-200">
+            {[
+              { label: "Opening Balance", value: stmt.opening_balance, color: "text-slate-700" },
+              { label: "Total Invoiced", value: stmt.period_total_invoiced, color: "text-slate-700" },
+              { label: "Total Paid", value: stmt.period_total_paid, color: "text-green-700" },
+              { label: "Balance Due", value: stmt.balance_due, color: "text-red-600 font-black" },
+            ].map((box) => (
+              <div key={box.label} className="px-6 py-5">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">{box.label}</p>
+                <p className={cn("text-xl font-bold", box.color)}>
+                  {stmt.customer?.currency || "USD"} {fmt(box.value)}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          {/* ══ Transaction Ledger ══ */}
+          <div className="px-0">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-slate-800 text-white">
+                  <th className="py-3 px-4 text-left text-xs font-bold uppercase tracking-wide w-32">Date</th>
+                  <th className="px-4 text-left text-xs font-bold uppercase tracking-wide w-36">Reference</th>
+                  <th className="px-4 text-left text-xs font-bold uppercase tracking-wide">Description</th>
+                  <th className="px-4 text-right text-xs font-bold uppercase tracking-wide w-28">Debit</th>
+                  <th className="px-4 text-right text-xs font-bold uppercase tracking-wide w-28">Credit</th>
+                  <th className="px-4 text-right text-xs font-bold uppercase tracking-wide w-32">Balance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {/* Opening balance row */}
+                <tr className="border-b border-slate-100 bg-slate-50">
+                  <td className="py-2.5 px-4 text-slate-500 text-xs">
+                    {fmtDate(stmt.date_from)}
+                  </td>
+                  <td className="px-4 text-slate-400 text-xs">—</td>
+                  <td className="px-4 text-slate-500 text-xs italic">Opening Balance</td>
+                  <td className="px-4 text-right text-slate-400 text-xs">—</td>
+                  <td className="px-4 text-right text-slate-400 text-xs">—</td>
+                  <td className="px-4 text-right font-semibold text-slate-700 text-xs">
+                    {fmt(stmt.opening_balance)}
+                  </td>
+                </tr>
+
+                {/* Transaction rows */}
+                {stmt.transactions?.length > 0 ? (
+                  stmt.transactions.map((tx: any, i: number) => {
+                    const isPayment = tx.entry_type === "payment";
+                    return (
+                      <tr
+                        key={i}
+                        className={cn(
+                          "border-b border-slate-100",
+                          isPayment ? "bg-green-50/40" : "hover:bg-slate-50/50"
+                        )}
+                      >
+                        <td className="py-2.5 px-4 text-slate-600 text-xs whitespace-nowrap">
+                          {fmtDate(tx.date)}
+                        </td>
+                        <td className="px-4 font-mono text-xs font-semibold text-slate-800 whitespace-nowrap">
+                          {tx.reference}
+                        </td>
+                        <td className="px-4 text-slate-600 text-xs">{tx.description}</td>
+                        <td className="px-4 text-right font-mono text-xs text-slate-800">
+                          {tx.debit > 0 ? fmt(tx.debit) : "—"}
+                        </td>
+                        <td className={cn("px-4 text-right font-mono text-xs", isPayment ? "text-green-700 font-bold" : "text-slate-400")}>
+                          {tx.credit > 0 ? fmt(tx.credit) : "—"}
+                        </td>
+                        <td className={cn(
+                          "px-4 text-right font-mono font-semibold text-xs",
+                          tx.balance > 0 ? "text-slate-800" : tx.balance < 0 ? "text-green-700" : "text-slate-500"
+                        )}>
+                          {fmt(Math.abs(tx.balance))}
+                          {tx.balance < 0 && <span className="text-[9px] ml-1 text-green-600">CR</span>}
+                        </td>
+                      </tr>
+                    );
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan={6} className="py-10 text-center text-slate-400 text-sm">
+                      No transactions in this date range.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+              {/* Closing balance */}
+              <tfoot>
+                <tr className="bg-slate-800 text-white">
+                  <td colSpan={5} className="py-3 px-4 text-right font-bold text-xs uppercase tracking-wide">
+                    Closing Balance
+                  </td>
+                  <td className="px-4 text-right font-black text-base">
+                    {fmt(stmt.balance_due)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          {/* ══ Itemized Stock Ledger ══ */}
+          {(stmt.items_sold?.length > 0) && (
+            <div className="border-t border-slate-200 print-page-break">
+              <div className="px-8 py-4 bg-slate-50 border-b border-slate-200">
+                <h2 className="text-sm font-bold uppercase tracking-wide text-slate-700">
+                  Itemized Stock Ledger (Sales)
+                </h2>
+              </div>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <th className="py-2.5 px-4 text-left">Date</th>
+                    <th className="px-4 text-left">Reference</th>
+                    <th className="px-4 text-left">Product</th>
+                    <th className="px-4 text-left">SKU</th>
+                    <th className="px-4 text-right">IN (Qty)</th>
+                    <th className="px-4 text-right">OUT (Qty)</th>
+                    <th className="px-4 text-right">Unit Price</th>
+                    <th className="px-4 text-right">Total Value</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stmt.items_sold.map((s: any, i: number) => (
+                    <tr key={i} className={cn("border-b border-slate-100", s.type === "receipt" ? "bg-blue-50/40" : "hover:bg-slate-50/50")}>
+                      <td className="py-2.5 px-4 text-slate-600 text-xs whitespace-nowrap">{fmtDate(s.date)}</td>
+                      <td className="px-4 font-mono text-xs font-semibold text-slate-800 whitespace-nowrap">{s.reference}</td>
+                      <td className="px-4 font-medium text-slate-800">{s.product_name || "Unknown Product"}</td>
+                      <td className="px-4 font-mono text-xs text-slate-500">{s.sku || "—"}</td>
+                      <td className="px-4 text-right font-semibold text-blue-700">
+                        {Number(s.qty_in) > 0 ? Number(s.qty_in).toLocaleString() : "—"}
+                      </td>
+                      <td className="px-4 text-right font-semibold text-amber-700">
+                        {Number(s.qty_out) > 0 ? Number(s.qty_out).toLocaleString() : "—"}
+                      </td>
+                      <td className="px-4 text-right font-mono text-xs text-slate-500">{Number(s.unit_price) > 0 ? `$${fmt(s.unit_price)}` : "—"}</td>
+                      <td className="px-4 text-right font-semibold text-slate-800">{Number(s.total_value) > 0 ? `$${fmt(s.total_value)}` : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* ══ Exclusive / Linked Stock ══ */}
+          {(stmt.exclusive_stock?.length > 0) && (
+            <div className="border-t border-slate-200 print-page-break">
+              <div className="px-8 py-4 bg-slate-50 border-b border-slate-200">
+                <h2 className="text-sm font-bold uppercase tracking-wide text-slate-700">
+                  Exclusive Stock on Hand
+                </h2>
+              </div>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <th className="py-2.5 px-4 text-left">Product</th>
+                    <th className="px-4 text-left">SKU</th>
+                    <th className="px-4 text-left">Customer SKU</th>
+                    <th className="px-4 text-left">Type</th>
+                    <th className="px-4 text-right">Qty on Hand</th>
+                    <th className="px-4 text-right">Qty Available</th>
+                    <th className="px-4 text-left">UOM</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stmt.exclusive_stock.map((s: any, i: number) => (
+                    <tr key={i} className="border-b border-slate-100 hover:bg-slate-50/50">
+                      <td className="py-2.5 px-4 font-medium text-slate-800">{s.product_name}</td>
+                      <td className="px-4 font-mono text-xs text-slate-500">{s.sku || "—"}</td>
+                      <td className="px-4 font-mono text-xs text-slate-500">{s.customer_sku || "—"}</td>
+                      <td className="px-4">
+                        <span className={cn(
+                          "px-2 py-0.5 rounded-full text-[10px] font-bold uppercase",
+                          s.is_exclusive ? "bg-violet-100 text-violet-700" : "bg-slate-100 text-slate-600"
+                        )}>
+                          {s.is_exclusive ? "Exclusive" : "Shared"}
+                        </span>
+                      </td>
+                      <td className="px-4 text-right font-semibold">{Number(s.quantity_on_hand).toLocaleString()}</td>
+                      <td className="px-4 text-right font-semibold text-blue-700">{Number(s.available_quantity).toLocaleString()}</td>
+                      <td className="px-4 text-slate-500">{s.uom || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* ══ Open Sales Orders ══ */}
+          {stmt.open_orders?.length > 0 && (
+            <div className="border-t border-slate-200">
+              <div className="px-8 py-4 bg-slate-50 border-b border-slate-200">
+                <h2 className="text-sm font-bold uppercase tracking-wide text-slate-700">
+                  Open Sales Orders
+                </h2>
+              </div>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <th className="py-2.5 px-4 text-left">Order #</th>
+                    <th className="px-4 text-left">Date</th>
+                    <th className="px-4 text-right">Order Total</th>
+                    <th className="px-4 text-right">Invoiced</th>
+                    <th className="px-4 text-right">Remaining</th>
+                    <th className="px-4 text-left">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stmt.open_orders.map((o: any, i: number) => {
+                    const remaining = Number(o.total) - Number(o.invoiced_to_date || 0);
+                    return (
+                      <tr key={i} className="border-b border-slate-100 hover:bg-slate-50/50">
+                        <td className="py-2.5 px-4 font-semibold">{o.order_number}</td>
+                        <td className="px-4 text-slate-500 text-xs">{fmtDate(o.issue_date)}</td>
+                        <td className="px-4 text-right">{fmt(o.total)}</td>
+                        <td className="px-4 text-right text-green-700">{fmt(o.invoiced_to_date)}</td>
+                        <td className="px-4 text-right font-semibold text-amber-700">{fmt(remaining)}</td>
+                        <td className="px-4">
+                          <span className={cn(
+                            "px-2 py-0.5 rounded-full text-[10px] font-bold uppercase",
+                            o.status === "invoiced" ? "bg-green-100 text-green-700" :
+                            o.status === "partially_invoiced" ? "bg-blue-100 text-blue-700" :
+                            "bg-amber-100 text-amber-700"
+                          )}>
+                            {(o.status || "").replace(/_/g, " ")}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Print footer */}
+          <div className="border-t border-slate-200 px-8 py-4 text-center text-xs text-slate-400">
+            This is a computer-generated statement and requires no signature · {companyName} · {printDate}
+          </div>
+        </div>
+      )}
     </Layout>
   );
 }

@@ -639,7 +639,7 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
 
         const receiptData: ReceiptData = {
             receiptType: receiptType,
-            receiptCurrency: invoice.currency || 'USD',
+            receiptCurrency: (invoice.currency || 'USD').toUpperCase(),
             receiptCounter: nextReceiptCounter,
             receiptGlobalNo: nextGlobalNo,
             fiscalDayNo: activeFiscalDayNo, // Use refreshed day after auto-open, not stale company state.
@@ -736,41 +736,50 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
                 result = await device.submitReceipt(receiptData, prevHash, true);
                 vTimeEnd(`[ZIMRA] submitReceipt-${companyId}-${nextGlobalNo}`);
             } catch (submitErr: any) {
-                // Auto-Open Retry Logic: Only trigger on ZIMRA error code 310 (FiscalDayClosed).
-                const is310 = submitErr.statusCode === 310 || submitErr.toString().includes('310');
-                const isDayClosed = is310 || (submitErr instanceof ZimraApiError && (submitErr as any).details?.statusCode === 310);
+                // Auto-Open Retry Logic: Trigger on ZIMRA error code 310 or RCPT01 (FiscalDayClosed).
+                const errStr = submitErr.toString();
+                const isDayClosedError = errStr.includes('310') || 
+                                         errStr.includes('RCPT01') || 
+                                         errStr.toLowerCase().includes('fiscal day is closed') ||
+                                         (submitErr instanceof ZimraApiError && (submitErr as any).details?.statusCode === 310);
                 
-                if (isDayClosed) {
-                    vLog("[ZIMRA] Auto-Open Retry: ZIMRA returned 310 (FiscalDayClosed). Opening new day...");
+                if (isDayClosedError) {
+                    vLog("[ZIMRA] Auto-Open Retry: ZIMRA returned FiscalDayClosed (310, RCPT01, or text). Opening new day...");
 
                     try {
                         // 1. Open New Fiscal Day
                         const nextDay = (company.currentFiscalDayNo || 0) + 1;
-                        await device.openDay(nextDay);
+                        const openResult = await device.openDay(nextDay) as any;
+                        const actualNextDay = openResult.fiscalDayNo || nextDay;
 
-                        // 2. Update Local Company State — reset daily counter to 0 for the new day
-                        await storage.updateCompany(company.id, {
+                        // 2. Update Local State — reset daily counter to 0 for the new day
+                        // Set openedAt slightly in the past so the receipt date comes STRICTLY AFTER it
+                        const openedAt = new Date(Date.now() - 2000);
+                        const dayUpdate = {
                             fiscalDayOpen: true,
-                            currentFiscalDayNo: nextDay,
-                            fiscalDayOpenedAt: new Date(),
-                            dailyReceiptCount: 0,
-                            lastFiscalHash: null
-                        });
-                        fiscalConfig = {
-                            ...fiscalConfig,
-                            fiscalDayOpen: true,
-                            currentFiscalDayNo: nextDay,
-                            fiscalDayOpenedAt: new Date(),
+                            currentFiscalDayNo: actualNextDay,
+                            fiscalDayOpenedAt: openedAt,
                             dailyReceiptCount: 0,
                             lastFiscalHash: null
                         };
+                        await storage.updateCompany(company.id, dayUpdate);
+                        if (activeBranch) {
+                            await storage.updateBranch(activeBranch.id, dayUpdate);
+                        }
+                        
+                        fiscalConfig = {
+                            ...fiscalConfig,
+                            ...dayUpdate
+                        };
 
                         // 3. Atomically claim fresh numbers for the new day
-                        const newDayClaimed = await storage.claimNextReceiptNumbers(company.id);
+                        const newDayClaimed = await storage.claimNextReceiptNumbers(company.id, activeBranch?.id);
                         receiptData.receiptCounter = newDayClaimed.receiptCounter;
                         nextReceiptCounter = newDayClaimed.receiptCounter;
                         receiptData.receiptGlobalNo = newDayClaimed.receiptGlobalNo;
-                        receiptData.fiscalDayNo = nextDay;
+                        receiptData.fiscalDayNo = actualNextDay;
+                        receiptData.receiptDate = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+                        invoice.issueDate = new Date(receiptData.receiptDate);
                         prevHash = null; // First receipt of new day has no previous hash
 
                         vLog(`[ZIMRA] Retry: New day ${nextDay}, claimed Counter=${nextReceiptCounter}, GlobalNo=${newDayClaimed.receiptGlobalNo}`);

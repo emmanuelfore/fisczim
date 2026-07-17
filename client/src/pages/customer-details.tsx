@@ -26,6 +26,9 @@ import {
   Printer,
   Calendar as CalendarIcon,
   FileText,
+  ShoppingCart,
+  FileEdit,
+  Plus,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
@@ -39,6 +42,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
 import { PDFDownloadLink } from "@react-pdf/renderer";
 import { CustomerStatementPDF } from "@/components/reports/customer-statement-pdf";
+import { CustomerProductsTab } from "@/components/customer-products-tab";
 import {
   Table,
   TableBody,
@@ -222,25 +226,55 @@ export default function CustomerDetailsPage() {
           <h1 className="text-3xl font-bold text-slate-900">{customer.name}</h1>
           <p className="text-slate-500">{customer.email || "No email"}</p>
         </div>
-        <div className="flex gap-2">{/* Actions if needed */}</div>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setLocation(`/sales-orders/new?customerId=${customerId}`)}
+            className="gap-2"
+          >
+            <ShoppingCart className="w-4 h-4" />
+            Create Sales Order
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setLocation(`/invoices/new?customerId=${customerId}`)}
+            className="gap-2"
+          >
+            <FileEdit className="w-4 h-4" />
+            Create Invoice
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setLocation(`/quotations/new?customerId=${customerId}`)}
+            className="gap-2"
+          >
+            <Plus className="w-4 h-4" />
+            Create Quotation
+          </Button>
+        </div>
       </div>
 
       <Tabs defaultValue="overview" className="space-y-4">
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="statement">Statement of Account</TabsTrigger>
+          <TabsTrigger value="products">Exclusive Products</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview">
-          <Card>
-            <CardHeader>
-              <CardTitle>Customer Details</CardTitle>
-              <CardDescription>
-                View and edit customer information
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Customer Details</CardTitle>
+                <CardDescription>
+                  View and edit customer information
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Name</Label>
                   <Input
@@ -311,6 +345,46 @@ export default function CustomerDetailsPage() {
               </div>
             </CardContent>
           </Card>
+          
+          <Card>
+            <CardHeader>
+              <CardTitle>Quick Actions</CardTitle>
+              <CardDescription>
+                View related documents and transactions
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <Button
+                  variant="outline"
+                  className="justify-start h-auto py-3"
+                  onClick={() => setLocation(`/invoices?customerId=${customerId}`)}
+                >
+                  <FileText className="w-5 h-5 mr-3" />
+                  <div className="text-left">
+                    <div className="font-semibold">View All Invoices</div>
+                    <div className="text-xs text-slate-500">
+                      {customerInvoices?.length || 0} invoices
+                    </div>
+                  </div>
+                </Button>
+                <Button
+                  variant="outline"
+                  className="justify-start h-auto py-3"
+                  onClick={() => setLocation(`/sales-orders?customerId=${customerId}`)}
+                >
+                  <ShoppingCart className="w-5 h-5 mr-3" />
+                  <div className="text-left">
+                    <div className="font-semibold">View All Sales Orders</div>
+                    <div className="text-xs text-slate-500">
+                      Customer order history
+                    </div>
+                  </div>
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+          </div>
         </TabsContent>
 
         <TabsContent value="statement">
@@ -518,6 +592,10 @@ export default function CustomerDetailsPage() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="products">
+          <CustomerProductsTab customerId={customerId} />
         </TabsContent>
       </Tabs>
     </Layout>

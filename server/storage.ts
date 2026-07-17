@@ -64,7 +64,8 @@ import {
   inventoryLocationStocks,
   payrollElements, payrollCalculationAudits,
   type PayrollElement, type InsertPayrollElement,
-  type PayrollCalculationAudit, type InsertPayrollCalculationAudit
+  type PayrollCalculationAudit, type InsertPayrollCalculationAudit,
+  jobLogs, type JobLog, type InsertJobLog
 } from "../shared/schema.js";
 import { db } from "./db.js";
 import { eq, and, asc, desc, lte, gte, lt, ne, or, isNull, sql, ilike, count, inArray, gt, not } from "drizzle-orm";
@@ -354,6 +355,13 @@ export interface IStorage {
   resolveGreyErrors(companyId: number, fiscalDayNo: number, skipInvoiceId?: number): Promise<void>;
   getInvoicesByFiscalDay(companyId: number, fiscalDayNo: number): Promise<Invoice[]>;
   getAllCompanies(): Promise<Company[]>;
+
+  // Job Logs
+  createJobLog(log: InsertJobLog): Promise<JobLog>;
+  updateJobLog(id: number, data: Partial<InsertJobLog>): Promise<JobLog>;
+  getJobLogs(filters?: { jobName?: string; status?: string; companyId?: number; limit?: number }): Promise<JobLog[]>;
+  getJobLogById(id: number): Promise<JobLog | null>;
+  getJobReport(jobName?: string, startDate?: Date, endDate?: Date): Promise<any>;
 
   // Subscriptions
   createSubscription(data: InsertSubscription): Promise<Subscription>;
@@ -1627,7 +1635,9 @@ export class DatabaseStorage implements IStorage {
         ...invoiceData,
         orderNumber,
         invoiceNumber: await this.getNextInvoiceNumber(invoiceData.companyId, invoiceData.transactionType === 'CreditNote' ? 'CN' : (invoiceData.transactionType === 'DebitNote' ? 'DN' : 'INV')),
-        dueDate: new Date(invoiceData.dueDate), // Ensure Date object
+        dueDate: invoiceData.dueDate 
+          ? new Date(invoiceData.dueDate) 
+          : (invoiceData.issueDate ? new Date(new Date(invoiceData.issueDate).getTime() + 7 * 24 * 60 * 60 * 1000) : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)),
       }).returning();
 
       // Enterprise Inventory Isolation:
@@ -3714,6 +3724,17 @@ export class DatabaseStorage implements IStorage {
       }
     }
 
+    // Fetch active production runs for this customer
+    const { productionRuns, products } = await import("@shared/schema.js");
+    const activeProductionRuns = await db
+      .select({ pr: productionRuns, product: products })
+      .from(productionRuns)
+      .leftJoin(products, eq(productionRuns.bomId, products.id))
+      .where(and(
+        eq(productionRuns.customerId, customerId),
+        inArray(productionRuns.status, ["PLANNED", "RELEASED", "IN_PROGRESS"])
+      ));
+
     // Filter invoices by currency if provided
     const filteredInvoices = currency
       ? userInvoices.filter(inv => inv.currency === currency)
@@ -3793,13 +3814,32 @@ export class DatabaseStorage implements IStorage {
       }
     }
 
+    // 3. Production in Progress (informational, no balance impact)
+    for (const { pr, product } of activeProductionRuns) {
+      const date = new Date(pr.createdAt);
+      if (date >= start && date <= end) {
+        transactions.push({
+          date: date,
+          type: 'Production',
+          reference: `PR-${pr.id}`,
+          description: `Production in Progress: ${product?.name || 'Product'} (${pr.status}) - Qty: ${pr.plannedQuantity}`,
+          debit: 0,
+          credit: 0,
+          id: pr.id,
+          isInformational: true
+        });
+      }
+    }
+
     // Sort by date
     transactions.sort((a, b) => a.date.getTime() - b.date.getTime());
 
     // Calculate Running Balance
     let runningBalance = openingBalance;
     const finalTransactions = transactions.map(t => {
-      runningBalance += (t.debit - t.credit);
+      if (!t.isInformational) {
+        runningBalance += (t.debit - t.credit);
+      }
       return { ...t, balance: runningBalance };
     });
 
@@ -4279,7 +4319,7 @@ export class DatabaseStorage implements IStorage {
       },
       invoices: unpaidInvoices.map(inv => ({
         ...inv,
-        daysOverdue: Math.max(0, Math.floor((new Date().getTime() - new Date(inv.dueDate).getTime()) / (1000 * 60 * 60 * 24)))
+        daysOverdue: Math.max(0, Math.floor((new Date().getTime() - new Date(inv.dueDate || inv.issueDate || new Date()).getTime()) / (1000 * 60 * 60 * 24)))
       }))
     };
   }
@@ -5690,8 +5730,8 @@ export class DatabaseStorage implements IStorage {
       };
     });
 
-    const totalQuantity = lines.reduce((sum, l) => sum + l.quantity, 0);
-    const totalValue = lines.reduce((sum, l) => sum + l.totalValue, 0);
+    const totalQuantity = lines.reduce((sum: any, l: any) => sum + l.quantity, 0);
+    const totalValue = lines.reduce((sum: any, l: any) => sum + l.totalValue, 0);
 
     const [snapshot] = await db
       .insert(inventoryValuationSnapshots)
@@ -8915,49 +8955,56 @@ export class DatabaseStorage implements IStorage {
   
   async createBillOfMaterial(data: any): Promise<any> {
     return await db.transaction(async (tx) => {
-      const { billOfMaterials, bomLines } = await import("@shared/schema.js");
+      const { billOfMaterials, bomItems } = await import("@shared/schema.js");
       const { lines, ...bomData } = data;
       const [bom] = await tx.insert(billOfMaterials).values(bomData).returning();
       if (lines && lines.length > 0) {
         const linesToInsert = lines.map((line: any) => ({ ...line, bomId: bom.id }));
-        await tx.insert(bomLines).values(linesToInsert);
+        await tx.insert(bomItems).values(linesToInsert);
       }
       return bom;
     });
   }
 
   async createWorkOrder(data: any): Promise<any> {
-    const { workOrders } = await import("@shared/schema.js");
-    const [wo] = await db.insert(workOrders).values(data).returning();
+    const { productionRuns } = await import("@shared/schema.js");
+    const [wo] = await db.insert(productionRuns).values(data).returning();
     return wo;
   }
 
-  async completeWorkOrder(id: number, qty: number, userId: string): Promise<any> {
-    const { 
-      workOrders, billOfMaterials, bomLines, workOrderConsumptions, 
+  async completeWorkOrder(id: number, goodQty: number, rejectedQty: number, userId: string): Promise<any> {
+    const totalQty = goodQty + rejectedQty;
+    const {
+      productionRuns, billOfMaterials, bomItems, productionRunConsumptions,
       manufacturingMaterialTransactions, products, inventoryLocations,
       inventoryLocationStocks, branchStocks, accounts, journalEntries, ledgerEntries,
-      financialPeriods
+      financialPeriods, customerStock
     } = await import("@shared/schema.js");
     const { eq, and, inArray, sql } = await import("drizzle-orm");
 
     return await db.transaction(async (tx) => {
-      // 1. Fetch work order
-      const [wo] = await tx.select().from(workOrders).where(eq(workOrders.id, id));
-      if (!wo) throw new Error("Work order not found");
-      if (wo.status === "COMPLETED") throw new Error("Work order already completed");
+      // 1. Fetch production run
+      const [wo] = await tx.select().from(productionRuns).where(eq(productionRuns.id, id));
+      if (!wo) throw new Error("Production run not found");
+      if (wo.status === "COMPLETED") throw new Error("Production run already completed");
 
-      // 2. Fetch BOM + lines (components)
-      const [bom] = await tx.select().from(billOfMaterials).where(eq(billOfMaterials.id, wo.bomId));
-      if (!bom) throw new Error("BOM not found for this work order");
+      // 2. For RECIPE type: Fetch BOM + lines (components)
+      // For SIMPLE type: Skip BOM, rely on direct material transactions
+      let bom = null;
+      let lines = [];
+      if (wo.type === "RECIPE" && wo.bomId != null) {
+        const bomId = wo.bomId;
+        [bom] = await tx.select().from(billOfMaterials).where(eq(billOfMaterials.id, bomId as number));
+        if (!bom) throw new Error("BOM not found for this production run");
 
-      const lines = await tx.select({
-        line: bomLines,
-        product: products,
-      })
-        .from(bomLines)
-        .leftJoin(products, eq(bomLines.componentProductId, products.id))
-        .where(eq(bomLines.bomId, wo.bomId));
+        lines = await tx.select({
+          line: bomItems,
+          product: products,
+        })
+          .from(bomItems)
+          .leftJoin(products, eq(bomItems.componentProductId, products.id))
+          .where(eq(bomItems.bomId, bomId as number));
+      }
 
       // 3. Find a default inventory location for this company
       const [defaultLocation] = await tx
@@ -9036,61 +9083,112 @@ export class DatabaseStorage implements IStorage {
         await tx.update(products).set({ stockLevel: globalTotal.toString() }).where(eq(products.id, productId));
       };
 
-      // 4. Deduct raw materials (Goods Issue) & log consumptions
+      // 4. Deduct raw materials (Goods Issue) & log consumptions based on total quantity attempted
+      // Only for RECIPE type - SIMPLE type relies on direct material transactions
       let totalMaterialCost = 0;
-      for (const { line, product } of lines) {
-        const neededQty = Number(line.quantity) * qty;
-        const scrapFactor = 1 + (Number(line.scrapPercentage || 0) / 100);
-        const actualQty = neededQty * scrapFactor;
+      if (wo.type === "RECIPE") {
+        for (const { line, product } of lines) {
+          const neededQty = Number(line.quantity) * totalQty;
+          const scrapFactor = 1 + (Number(line.scrapPercentage || 0) / 100);
+          const actualQty = neededQty * scrapFactor;
 
-        // Deduct from stock (negative delta)
-        await adjustProductStock(line.componentProductId, -actualQty);
+          // Deduct from stock (negative delta)
+          await adjustProductStock(line.componentProductId, -actualQty);
 
-        // Log consumption
-        await tx.insert(workOrderConsumptions).values({
-          workOrderId: id,
-          productId: line.componentProductId,
-          quantityConsumed: actualQty.toString(),
-          date: new Date(),
-        });
+          // Log consumption
+          await tx.insert(productionRunConsumptions).values({
+            productionRunId: id,
+            productId: line.componentProductId,
+            quantityConsumed: actualQty.toString(),
+            date: new Date(),
+          });
 
-        // Log material transaction
-        await tx.insert(manufacturingMaterialTransactions).values({
-          workOrderId: id,
-          productId: line.componentProductId,
-          type: "ISSUE",
-          quantity: actualQty.toString(),
-          date: new Date(),
-          reason: `Auto-issued for WO #${id} completion`,
-        });
+          // Log material transaction via manufacturingMaterialTransactions
+          await tx.insert(manufacturingMaterialTransactions).values({
+            productionRunId: id,
+            productId: line.componentProductId,
+            type: "ISSUE",
+            quantity: actualQty.toString(),
+            unitCost: product?.costPrice || "0",
+            postedAt: new Date(),
+            date: new Date(),
+          });
 
-        totalMaterialCost += actualQty * Number(product?.costPrice || 0);
+          totalMaterialCost += actualQty * Number(product?.costPrice || 0);
+        }
       }
 
-      // 5. Credit finished good stock (Goods Receipt)
-      await adjustProductStock(bom.productId, qty);
+      // 5. Credit finished good stock (Goods Receipt) using ONLY goodQty
+      // For RECIPE type: Use bom.productId as finished good
+      // For SIMPLE type: Look at existing FINISHED_GOOD material transactions
+      let finishedGoodProductId = null;
+      if (wo.type === "RECIPE" && bom) {
+        finishedGoodProductId = bom.productId;
+        
+        if (wo.customerId) {
+          // Customer specific stock allocation
+          const locationId = defaultLocation ? defaultLocation.id : 1; 
+          
+          const [cStock] = await tx.select().from(customerStock)
+            .where(and(
+              eq(customerStock.customerId, wo.customerId), 
+              eq(customerStock.productId, bom.productId)
+            )).limit(1);
 
-      // Log finished good material transaction
-      await tx.insert(manufacturingMaterialTransactions).values({
-        workOrderId: id,
-        productId: bom.productId,
-        type: "FINISHED_GOOD",
-        quantity: qty.toString(),
-        date: new Date(),
-        reason: `Finished good receipt for WO #${id}`,
-      });
+          if (cStock) {
+             await tx.update(customerStock)
+               .set({ quantity: (Number(cStock.quantity) + goodQty).toString() })
+               .where(eq(customerStock.id, cStock.id));
+          } else {
+             await tx.insert(customerStock).values({
+               companyId: wo.companyId,
+               locationId: locationId,
+               productId: bom.productId,
+               customerId: wo.customerId,
+               quantity: goodQty.toString(),
+             });
+          }
+        } else {
+          // General inventory
+          await adjustProductStock(bom.productId, goodQty);
+        }
+
+        // Log finished good material transaction via manufacturingMaterialTransactions
+        await tx.insert(manufacturingMaterialTransactions).values({
+          productionRunId: id,
+          productId: bom.productId,
+          type: "FINISHED_GOOD",
+          quantity: goodQty.toString(),
+          unitCost: (totalMaterialCost / goodQty).toFixed(4),
+          postedAt: new Date(),
+          date: new Date(),
+        });
+      } else if (wo.type === "SIMPLE") {
+        // For SIMPLE type, material transactions are already posted manually
+        // Just aggregate the actual material costs from existing transactions
+        const [materialCostSum] = await tx.select({ 
+          total: sql<number>`COALESCE(SUM(${manufacturingMaterialTransactions.quantity}::numeric * ${manufacturingMaterialTransactions.unitCost}::numeric), 0)` 
+        })
+          .from(manufacturingMaterialTransactions)
+          .where(and(
+            eq(manufacturingMaterialTransactions.productionRunId, id),
+            eq(manufacturingMaterialTransactions.type, "ISSUE")
+          ));
+        totalMaterialCost = Number(materialCostSum?.total || 0);
+      }
 
       // 6. Update finished good cost price (weighted average with material cost)
-      if (totalMaterialCost > 0 && qty > 0) {
-        const unitCost = totalMaterialCost / qty;
+      // Only for RECIPE type where we have a known finished good product
+      if (wo.type === "RECIPE" && bom && totalMaterialCost > 0 && goodQty > 0) {
+        const unitCost = totalMaterialCost / goodQty;
         const [fg] = await tx.select().from(products).where(eq(products.id, bom.productId));
         if (fg) {
           const existingStock = Number(fg.stockLevel || 0);
           const existingCost = Number(fg.costPrice || 0);
           // Weighted average cost
-          const totalStock = existingStock + qty;
+          const totalStock = existingStock + goodQty;
           const newCost = totalStock > 0
-            ? ((existingStock * existingCost) + (qty * unitCost)) / totalStock
+            ? ((existingStock * existingCost) + (goodQty * unitCost)) / totalStock
             : unitCost;
           await tx.update(products).set({ costPrice: newCost.toFixed(4) } as any).where(eq(products.id, bom.productId));
         }
@@ -9142,13 +9240,20 @@ export class DatabaseStorage implements IStorage {
         console.warn("Manufacturing GL posting failed (non-fatal):", glErr);
       }
 
-      // 8. Mark work order as completed
-      const [updated] = await tx.update(workOrders)
-        .set({ status: "COMPLETED", completedQuantity: String(qty) })
-        .where(eq(workOrders.id, id))
+      // 8. Mark production run as completed with quantities
+      const [updated] = await tx.update(productionRuns)
+        .set({ 
+          status: "COMPLETED", 
+          actualCompletion: new Date(), 
+          updatedAt: new Date(),
+          completedQuantity: goodQty.toString(),
+          goodQuantity: goodQty.toString(),
+          rejectedQuantity: rejectedQty.toString(),
+        } as any)
+        .where(eq(productionRuns.id, id))
         .returning();
 
-      return { ...updated, materialCost: totalMaterialCost };
+      return updated;
     });
   }
 
@@ -9183,6 +9288,81 @@ export class DatabaseStorage implements IStorage {
 
   async listPayrollAudits(runEmployeeId: number): Promise<PayrollCalculationAudit[]> {
     return await db.select().from(payrollCalculationAudits).where(eq(payrollCalculationAudits.payrollRunEmployeeId, runEmployeeId)).orderBy(desc(payrollCalculationAudits.createdAt));
+  }
+
+  // Job Logs
+  async createJobLog(log: InsertJobLog): Promise<JobLog> {
+    const [jobLog] = await db.insert(jobLogs).values(log).returning();
+    return jobLog;
+  }
+
+  async updateJobLog(id: number, data: Partial<InsertJobLog>): Promise<JobLog> {
+    const [updated] = await db.update(jobLogs).set(data).where(eq(jobLogs.id, id)).returning();
+    if (!updated) throw new Error("Job log not found");
+    return updated;
+  }
+
+  async getJobLogs(filters?: { jobName?: string; status?: string; companyId?: number; limit?: number }): Promise<JobLog[]> {
+    let query: any = db.select().from(jobLogs);
+    
+    if (filters?.jobName) {
+      query = query.where(eq(jobLogs.jobName, filters.jobName));
+    }
+    if (filters?.status) {
+      query = query.where(eq(jobLogs.status, filters.status));
+    }
+    if (filters?.companyId) {
+      query = query.where(eq(jobLogs.companyId, filters.companyId));
+    }
+    
+    query = query.orderBy(desc(jobLogs.startedAt));
+    
+    if (filters?.limit) {
+      query = query.limit(filters.limit);
+    }
+    
+    return await query;
+  }
+
+  async getJobLogById(id: number): Promise<JobLog | null> {
+    const [log] = await db.select().from(jobLogs).where(eq(jobLogs.id, id));
+    return log || null;
+  }
+
+  async getJobReport(jobName?: string, startDate?: Date, endDate?: Date): Promise<any> {
+    let query: any = db.select().from(jobLogs);
+    
+    if (jobName) {
+      query = query.where(eq(jobLogs.jobName, jobName));
+    }
+    if (startDate) {
+      query = query.where(gte(jobLogs.startedAt, startDate));
+    }
+    if (endDate) {
+      query = query.where(lte(jobLogs.startedAt, endDate));
+    }
+    
+    const logs = await query.orderBy(desc(jobLogs.startedAt));
+    
+    // Calculate statistics
+    const total = logs.length;
+    const completed = logs.filter((l: any) => l.status === 'completed').length;
+    const failed = logs.filter((l: any) => l.status === 'failed').length;
+    const started = logs.filter((l: any) => l.status === 'started').length;
+    
+    const avgDuration = logs
+      .filter((l: any) => l.duration !== null)
+      .reduce((sum: any, l: any) => sum + (l.duration || 0), 0) / (logs.filter((l: any) => l.duration !== null).length || 1);
+    
+    return {
+      total,
+      completed,
+      failed,
+      started,
+      successRate: total > 0 ? (completed / total) * 100 : 0,
+      avgDuration: Math.round(avgDuration),
+      logs
+    };
   }
 
   async getOperationalDailyReport(companyId: number, start: Date, end: Date) {

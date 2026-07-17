@@ -249,6 +249,7 @@ export function Layout({
       label: "Sales",
       children: [
         { icon: MonitorCheck, label: "POS Terminal", href: "/pos" },
+        { icon: FileText, label: "Sales Orders", href: "/sales-orders" },
         { icon: FileText, label: "Invoices", href: "/invoices" },
         {
           icon: Palette,
@@ -328,6 +329,7 @@ export function Layout({
       label: "Inventory",
       children: [
         { icon: Package, label: "Products & Services", href: "/products" },
+        { icon: Package, label: "Stock Receipt", href: "/stock-receipt" },
         {
           icon: ShieldCheck,
           label: "Serial & Warranty Items",
@@ -379,7 +381,7 @@ export function Layout({
         { icon: LayoutDashboard, label: "Mfg Dashboard", href: "/manufacturing" },
         { icon: TrendingUp, label: "MRP Analysis", href: "/manufacturing/mrp" },
         { icon: Construction, label: "Bill of Materials", href: "/manufacturing/bom" },
-        { icon: Wrench, label: "Work Orders", href: "/manufacturing/work-orders" },
+        { icon: Wrench, label: "Production Runs", href: "/manufacturing/production-runs" },
         { icon: Building2, label: "Work Centers", href: "/manufacturing/work-centers" },
         { icon: ClipboardList, label: "Routings", href: "/manufacturing/routings" },
         { icon: Factory, label: "Production Runs", href: "/inventory/production" },

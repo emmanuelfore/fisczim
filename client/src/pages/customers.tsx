@@ -15,6 +15,7 @@ import {
   Eye,
   FileDown,
   Pencil,
+  FileText,
 } from "lucide-react";
 import { CreateCustomerDialog } from "@/components/customers/create-customer-dialog";
 import { EditCustomerDialog } from "@/components/customers/edit-customer-dialog";
@@ -337,6 +338,16 @@ export default function CustomersPage() {
                     </td>
                     <td className="px-5 py-4 text-right align-middle">
                       <div className="flex justify-end items-center gap-1">
+                        <Link href={`/customer-statements?customerId=${c.id}`}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 rounded-[9px] text-slate-500 hover:text-[#2563EB] hover:bg-blue-50 transition-all"
+                            title="View Statement"
+                          >
+                            <FileText className="h-3.5 w-3.5" />
+                          </Button>
+                        </Link>
                         <EditCustomerDialog
                           customer={c}
                           trigger={

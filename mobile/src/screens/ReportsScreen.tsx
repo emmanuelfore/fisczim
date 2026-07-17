@@ -29,7 +29,7 @@ const getStyles = (C: any) => StyleSheet.create({
   title: { color: C.text.primary, fontSize: 18, fontWeight: "800" },
   tabRow: { flexDirection: "row", paddingHorizontal: 16, paddingTop: 12, gap: 8 },
   tab: { flex: 1, paddingVertical: 10, borderRadius: 12, backgroundColor: C.bg.hover, alignItems: "center", shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 5, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
-  tabActive: { backgroundColor: hexAlpha(C.amber.primary, 0.15), shadowColor: C.amber.primary, shadowOpacity: 0.2, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 4 },
+  tabActive: { backgroundColor: hexAlpha(C.amber.primary, 0.15), shadowColor: C.amber.primary, shadowOpacity: 0.2, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 0 },
   tabText: { color: C.text.secondary, fontSize: 13, fontWeight: "700" },
   tabTextActive: { color: C.amber.primary, fontWeight: "800" },
   filterRow: { flexDirection: "row", justifyContent: "space-between", gap: 8 },

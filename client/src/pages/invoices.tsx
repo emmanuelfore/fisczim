@@ -1,3 +1,4 @@
+import { useConvertToSalesOrder } from "@/hooks/use-sales-orders";
 import { Layout } from "@/components/layout";
 import { cn } from "@/lib/utils";
 import {
@@ -550,6 +551,7 @@ function BillingPageActions({
   onExport: () => void;
   onSync: () => void;
 }) {
+  const [, setLocation] = useLocation();
   return (
     <div className="flex w-full flex-col justify-end gap-2 sm:flex-row sm:flex-wrap">
       <Button
@@ -565,6 +567,13 @@ function BillingPageActions({
         onClick={onSync}
       >
         <RefreshCw className="h-4 w-4 text-[#64748B]" /> Sync FDMS
+      </Button>
+      <Button
+        variant="outline"
+        className="h-10 w-full rounded-[10px] border-[#E5E7EB] bg-white px-4  font-semibold text-[#0F172A] shadow-none hover:bg-[#F8FAFC] sm:w-auto"
+        onClick={() => setLocation("/invoices/new?type=Quotation")}
+      >
+        <ClipboardList className="h-4 w-4 text-[#64748B]" /> New Quotation
       </Button>
       <Link href="/invoices/new">
         <Button className="h-10 w-full rounded-[10px] border border-[#0F172A] bg-[#0F172A] px-4  font-semibold text-white shadow-[0_1px_2px_rgba(15,23,42,0.18)] hover:bg-[#1E293B] sm:w-auto">
@@ -624,14 +633,23 @@ function DocumentTypePill({ invoice }: { invoice: any }) {
   const isCredit = rawType.includes("credit");
   const isDebit = rawType.includes("debit");
   const isQuote = rawType.includes("quote") || rawType.includes("quotation");
-  const label = isCredit
-    ? "Credit note"
-    : isDebit
-      ? "Debit note"
-      : isQuote
-        ? "Quotation"
-        : "Invoice";
-  const className = "bg-white text-slate-600 border-slate-200";
+  
+  let label = "Invoice";
+  let className = "bg-[#EFF6FF] text-[#1D4ED8] border-[#BFDBFE]"; // default Invoice (Blue)
+
+  if (isCredit) {
+    label = "Credit note";
+    className = "bg-[#FFF7ED] text-[#9A3412] border-[#FED7AA]"; // Orange
+  } else if (isDebit) {
+    label = "Debit note";
+    className = "bg-[#F0FDF4] text-[#166534] border-[#BBF7D0]"; // Green
+  } else if (invoice.salesOrderId || invoice.status === "converted") {
+    label = "Sales Order";
+    className = "bg-[#ECFDF5] text-[#047857] border-[#A7F3D0]"; // Emerald
+  } else if (isQuote) {
+    label = "Quotation";
+    className = "bg-[#F5F3FF] text-[#6D28D9] border-[#DDD6FE]"; // Purple
+  }
 
   return (
     <span
@@ -750,6 +768,7 @@ function formatCustomerName(name: string | null | undefined): string {
 }
 
 export default function InvoicesPage() {
+  const convertToSalesOrder = useConvertToSalesOrder();
   const { can } = usePermissions();
   const { user } = useAuth();
   const [, setLocation] = useLocation();
@@ -889,6 +908,7 @@ export default function InvoicesPage() {
     else if (filter === "pending") setStatusFilter("issued");
     else if (filter === "failed") setStatusFilter("all");
     else if (filter === "draft") setStatusFilter("draft");
+    else if (filter === "quotation") setStatusFilter("quote");
     else if (filter === "paid") setStatusFilter("paid");
     else if (filter === "unpaid") setStatusFilter("all");
     else if (filter === "today") {
@@ -1065,6 +1085,7 @@ export default function InvoicesPage() {
                     <SelectContent>
                       <SelectItem value="all">All Types</SelectItem>
                       <SelectItem value="FiscalInvoice">Invoices</SelectItem>
+                      <SelectItem value="Quotation">Quotations</SelectItem>
                       <SelectItem value="CreditNote">Credit Notes</SelectItem>
                       <SelectItem value="DebitNote">Debit Notes</SelectItem>
                     </SelectContent>
@@ -1170,6 +1191,12 @@ export default function InvoicesPage() {
                   onClick={() => applyQuickFilter("draft")}
                 />
                 <QuickChip
+                  label="Quotations"
+                  active={quickFilter === "quotation"}
+                  tone="default"
+                  onClick={() => applyQuickFilter("quotation")}
+                />
+                <QuickChip
                   label="Paid"
                   active={quickFilter === "paid"}
                   tone="green"
@@ -1226,7 +1253,7 @@ export default function InvoicesPage() {
                 </div>
               ) : (
                 <TooltipProvider>
-                  <Table>
+                  <Table data-mobile-cards="false" className="min-w-[1000px]">
                     <TableHeader>
                       <TableRow className="border-[#E5E7EB] bg-[#F8FAFC] hover:bg-[#F8FAFC]">
                         <TableHead className="h-11 w-12 pl-5">
@@ -1508,6 +1535,22 @@ export default function InvoicesPage() {
                                       >
                                         <User className="h-3.5 w-3.5 mr-2" />{" "}
                                         Customer
+                                      </DropdownMenuItem>
+                                    )}
+                                    {/* Convert to Sales Order – only for quotation-type documents */}
+                                    {(String(invoice.transactionType || "").toLowerCase().includes("quot") ||
+                                      String(invoice.documentType || "").toLowerCase().includes("quot") ||
+                                      String(invoice.status || "").toLowerCase() === "quote" ||
+                                      String(invoice.invoiceNumber || "").startsWith("QT-")) && (
+                                      <DropdownMenuItem
+                                        onClick={async (e) => {
+                                          e.stopPropagation();
+                                          try { const order = await convertToSalesOrder.mutateAsync(invoice.id); setLocation(`/sales-orders/${order.id}`); toast({ title: "Success", description: "Converted to Sales Order" }); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
+                                        }}
+                                        className="rounded-[10px] text-xs text-violet-700 focus:bg-violet-50"
+                                      >
+                                        <ClipboardList className="h-3.5 w-3.5 mr-2" />
+                                        Convert to Sales Order
                                       </DropdownMenuItem>
                                     )}
                                     <DropdownMenuSeparator />

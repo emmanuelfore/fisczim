@@ -225,6 +225,13 @@
       "when": 1781372910050,
       "tag": "0031_strong_komodo",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1784138195275,
+      "tag": "0032_young_archangel",
+      "breakpoints": true
     }
   ]
 }

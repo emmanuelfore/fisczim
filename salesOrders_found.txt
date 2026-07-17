@@ -1,0 +1,97 @@
+Created At: 2026-07-16T06:37:17Z
+Completed At: 2026-07-16T06:37:17Z
+
+				The command completed successfully.
+				Output:
+				<truncated 1 lines>
+  fiscalSignature: text("fiscal_signature"),
+  qrCodeData: text("qr_code_data"),
+  verificationCode: text("verification_code"),
+  syncedWithFdms: boolean("synced_with_fdms").default(false),
+  fdmsStatus: text("fdms_status").default("pending"), // pending, issued, failed
+  submissionId: text("submission_id"),
+  fiscalDayNo: integer("fiscal_day_no"), // To track which fiscal day this invoi
+ce belongs to
+  receiptCounter: integer("receipt_counter"), // ZIMRA Field [17] - Daily receip
+t counter
+  receiptGlobalNo: integer("receipt_global_no"), // ZIMRA Field [18] - Global re
+ceipt number
+
+  // Validation Status
+  validationStatus: text("validation_status"), // valid, invalid, grey, null
+  lastValidationAttempt: timestamp("last_validation_attempt"),
+
+  currency: text("currency").default("USD"),
+  paymentMethod: text("payment_method").default("CASH"), // Legacy/Primary metho
+d
+  splitPayments: jsonb("split_payments"), // Array of { method: string, amount:
+number }
+  exchangeRate: decimal("exchange_rate", { precision: 10, scale: 6 }).default("1
+.000000"),
+
+  transactionType: text("transaction_type").default("FiscalInvoice"), // FiscalI
+nvoice, CreditNote, DebitNote
+  relatedInvoiceId: integer("related_invoice_id"), // Self-reference for CN/DN
+
+  notes: text("notes"),
+  poNumber: text("po_number"),
+  invoiceTemplate: text("invoice_template").default("modern"),
+  isFiscalized: boolean("is_fiscalized").default(true),
+
+  // Partnership / co-branding
+  partnerId: integer("partner_id").references(() => companyPartners.id),
+  partnerSnapshot: jsonb("partner_snapshot"),
+  revenueSharePercent: decimal("revenue_share_percent", { precision: 5, scale: 2
+ }),
+  partnerShareAmount: decimal("partner_share_amount", { precision: 10, scale: 2
+}),
+  issuerShareAmount: decimal("issuer_share_amount", { precision: 10, scale: 2 })
+,
+
+  // Restaurant & Online Orders
+  tableId: integer("table_id"), // R
+<truncated 4227 bytes>
+ecimal("tax_rate", { precision: 5, scale: 2 }).notNull(),
+  lineTotal: decimal("line_total", { precision: 10, scale: 2 }).notNull(),
+  taxTypeId: integer("tax_type_id").references(() => taxTypes.id),
+  cogsAmount: decimal("cogs_amount", { precision: 10, scale: 2 }), // Cost of Go
+ods Sold for this line
+});
+export const salesOrders = pgTable("sales_orders", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  branchId: integer("branch_id").references(() => branches.id),
+  customerId: integer("customer_id").references(() => customers.id).notNull(),
+  quotationId: integer("quotation_id").references(() => quotations.id),
+
+  orderNumber: text("order_number").notNull(),
+  issueDate: timestamp("issue_date").defaultNow(),
+  dueDate: timestamp("due_date"),
+
+  // Amounts
+  subtotal: decimal("subtotal", { precision: 10, scale: 2 }).notNull(),
+  taxAmount: decimal("tax_amount", { precision: 10, scale: 2 }).notNull(),
+  total: decimal("total", { precision: 10, scale: 2 }).notNull(),
+
+  status: text("status").default("draft").notNull(), // draft, confirmed, partia
+lly_invoiced, invoiced, closed
+  currency: text("currency").default("USD"),
+  notes: text("notes"),
+
+  createdAt: timestamp("created_at").defaultNow(),
+});
+export const salesOrderItems = pgTable("sales_order_items", {
+  id: serial("id").primaryKey(),
+  salesOrderId: integer("sales_order_id").references(() => salesOrders.id).notNu
+ll(),
+  productId: integer("product_id").references(() => products.id),
+  description: text("description").notNull(),
+  quantity: decimal("quantity", { precision: 10, scale: 2 }).notNull(),
+  invoicedQuantity: decimal("invoiced_quantity", { precision: 10, scale: 2 }).de
+fault("0.00").notNull(),
+  unitPrice: decimal("unit_price", { precision: 10, scale: 2 }).notNull(),
+  taxRate: decimal("tax_rate", { precision: 5, scale: 2 }).notNull(),
+  lineTotal: decimal("line_total", { precision: 10, scale: 2 }).notNull(),
+  taxTypeId: integer("tax_type_id").references(() => taxTypes.id),
+});
+

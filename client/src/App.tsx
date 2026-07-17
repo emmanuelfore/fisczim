@@ -14,13 +14,15 @@ import OnboardingPage from "@/pages/onboarding";
 import Dashboard from "@/pages/dashboard";
 import BomList from "@/pages/manufacturing/bom-list";
 import BomForm from "@/pages/manufacturing/bom-form";
-import WorkOrderList from "@/pages/manufacturing/work-order-list";
-import WorkOrderForm from "@/pages/manufacturing/work-order-form";
-import WorkOrderDetails from "@/pages/manufacturing/work-order-details";
+import ProductionRunList from "@/pages/manufacturing/production-run-list";
+import ProductionRunForm from "@/pages/manufacturing/production-run-form";
+import ProductionRunDetails from "@/pages/manufacturing/production-run-details";
 import WorkCenters from "@/pages/manufacturing/work-centers";
 import Routings from "@/pages/manufacturing/routings";
 import ManufacturingDashboard from "@/pages/manufacturing/index";
+import ManufacturingReports from "@/pages/manufacturing/reports";
 import MrpDashboard from "@/pages/manufacturing/mrp-dashboard";
+import StandardCostsPage from "@/pages/manufacturing/standard-costs";
 
 import InvoicesPage from "@/pages/invoices";
 import CreateInvoicePage from "@/pages/create-invoice";
@@ -99,6 +101,10 @@ import SupplierInvoicesPage from "@/pages/supplier-invoices";
 import SupplierCreditNotesPage from "@/pages/supplier-credit-notes";
 import SupplierInvoiceDetailsPage from "@/pages/supplier-invoice-details";
 import SupplierInvoiceFormPage from "@/pages/supplier-invoice-form";
+import SalesOrdersPage from "@/pages/sales-orders";
+import CreateSalesOrderPage from "@/pages/create-sales-order";
+import SalesOrderDetailsPage from "@/pages/sales-order-details";
+import StockReceiptPage from "@/pages/stock-receipt";
 import CashbookPage from "@/pages/cashbook";
 import AgingReportsPage from "@/pages/aging-reports";
 import CostCentersPage from "@/pages/cost-centers";
@@ -372,23 +378,32 @@ function Router() {
       <Route path="/manufacturing/bom/new">
         {() => <ProtectedRoute component={BomForm} />}
       </Route>
+      <Route path="/manufacturing/production-runs">
+        {() => <ProtectedRoute component={ProductionRunList} />}
+      </Route>
       <Route path="/manufacturing/work-orders">
-        {() => <ProtectedRoute component={WorkOrderList} />}
+        {() => <Redirect to="/manufacturing/production-runs" />}
       </Route>
-      <Route path="/manufacturing/work-orders/new">
-        {() => <ProtectedRoute component={WorkOrderForm} />}
+      <Route path="/manufacturing/production-runs/new">
+        {() => <ProtectedRoute component={ProductionRunForm} />}
       </Route>
-      <Route path="/manufacturing/work-orders/:id">
-        {() => <ProtectedRoute component={WorkOrderDetails} />}
+      <Route path="/manufacturing/production-runs/:id">
+        {() => <ProtectedRoute component={ProductionRunDetails} />}
       </Route>
       <Route path="/manufacturing/work-centers">
         {() => <ProtectedRoute component={WorkCenters} />}
+      </Route>
+      <Route path="/manufacturing/standard-costs">
+        {() => <ProtectedRoute component={StandardCostsPage} />}
       </Route>
       <Route path="/manufacturing/routings">
         {() => <ProtectedRoute component={Routings} />}
       </Route>
       <Route path="/manufacturing/mrp">
         {() => <ProtectedRoute component={MrpDashboard} />}
+      </Route>
+      <Route path="/manufacturing/reports">
+        {() => <ProtectedRoute component={ManufacturingReports} />}
       </Route>
       <Route path="/manufacturing">
         {() => <ProtectedRoute component={ManufacturingDashboard} />}
@@ -498,6 +513,15 @@ function Router() {
       <Route path="/reports/branches">
         {() => <ProtectedRoute component={BranchReportsPage} />}
       </Route>
+      <Route path="/reports/customer-statements">
+        {() => <ProtectedRoute component={CustomerStatementsPage} />}
+      </Route>
+      <Route path="/reports/cash-collection">
+        {() => <ProtectedRoute component={CashCollectionReportPage} />}
+      </Route>
+      <Route path="/reports/partnership-sales">
+        {() => <ProtectedRoute component={PartnershipSalesReportPage} />}
+      </Route>
       <Route path="/reports-module">{() => <Redirect to="/reports" />}</Route>
       <Route path="/reports/:reportKey?">
         {() => <ProtectedRoute component={ReportsPage} />}
@@ -507,15 +531,6 @@ function Router() {
       </Route>
       <Route path="/payments/:id/preview">
         {() => <ProtectedRoute component={PaymentPreviewPage} />}
-      </Route>
-      <Route path="/reports/customer-statements">
-        {() => <ProtectedRoute component={CustomerStatementsPage} />}
-      </Route>
-      <Route path="/reports/cash-collection">
-        {() => <ProtectedRoute component={CashCollectionReportPage} />}
-      </Route>
-      <Route path="/reports/partnership-sales">
-        {() => <ProtectedRoute component={PartnershipSalesReportPage} />}
       </Route>
       <Route path="/profile">
         {() => <ProtectedRoute component={UserProfilePage} />}
@@ -537,6 +552,21 @@ function Router() {
       </Route>
       <Route path="/quotations">
         {() => <ProtectedRoute component={QuotationsPage} />}
+      </Route>
+      <Route path="/sales-orders">
+        {() => <ProtectedRoute component={SalesOrdersPage} />}
+      </Route>
+      <Route path="/sales-orders/new">
+        <ProtectedRoute component={CreateSalesOrderPage} />
+      </Route>
+      <Route path="/sales-orders/:id/edit">
+        <ProtectedRoute component={CreateSalesOrderPage} />
+      </Route>
+      <Route path="/sales-orders/:id">
+        {() => <ProtectedRoute component={SalesOrderDetailsPage} />}
+      </Route>
+      <Route path="/stock-receipt">
+        {() => <ProtectedRoute component={StockReceiptPage} />}
       </Route>
       <Route path="/quotations/new">
         {() => <ProtectedRoute component={CreateQuotationPage} />}

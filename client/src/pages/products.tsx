@@ -1,5 +1,5 @@
 import { Layout } from "@/components/layout";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import {
   refreshProductQueries,
   refreshProductQueriesAsync,
@@ -67,11 +67,15 @@ import {
   History,
   TrendingUp,
   PackagePlus,
+  ShoppingCart,
+  FileText,
+  ArrowRight,
 } from "lucide-react";
 
 type TypeFilter = "all" | "product" | "service";
 
 export default function ProductsPage() {
+  const [, setLocation] = useLocation();
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const { activeCompanyId } = useActiveCompany();
   const { selectedBranchId } = useBranchContext();
@@ -705,6 +709,49 @@ export default function ProductsPage() {
                                 </div>
                               </PriceAdjustmentDialog>
                             </DropdownMenuItem>
+
+                            <DropdownMenuSeparator className="my-1 bg-slate-100" />
+
+                            <DropdownMenuItem
+                              className="rounded-xl mb-1"
+                              asChild
+                            >
+                              <Link href={`/sales-orders/new?productId=${p.id}`}>
+                                <div className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-indigo-700 hover:bg-indigo-50 cursor-pointer font-bold transition-all text-xs">
+                                  <ShoppingCart className="w-4 h-4" />
+                                  <span>Create Sales Order</span>
+                                  <ArrowRight className="w-3 h-3 ml-auto" />
+                                </div>
+                              </Link>
+                            </DropdownMenuItem>
+
+                            <DropdownMenuItem
+                              className="rounded-xl mb-1"
+                              asChild
+                            >
+                              <Link href={`/invoices?productId=${p.id}`}>
+                                <div className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-slate-700 hover:bg-slate-50 cursor-pointer font-bold transition-all text-xs">
+                                  <FileText className="w-4 h-4" />
+                                  <span>View Sales History</span>
+                                  <ArrowRight className="w-3 h-3 ml-auto" />
+                                </div>
+                              </Link>
+                            </DropdownMenuItem>
+
+                            {!isService && (
+                              <DropdownMenuItem
+                                className="rounded-xl mb-1"
+                                asChild
+                              >
+                                <Link href={`/inventory/purchase-orders/new?productId=${p.id}`}>
+                                  <div className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-slate-700 hover:bg-slate-50 cursor-pointer font-bold transition-all text-xs">
+                                    <ShoppingCart className="w-4 h-4" />
+                                    <span>Create Purchase Order</span>
+                                    <ArrowRight className="w-3 h-3 ml-auto" />
+                                  </div>
+                                </Link>
+                              </DropdownMenuItem>
+                            )}
 
                             <DropdownMenuSeparator className="my-1 bg-slate-100" />
 

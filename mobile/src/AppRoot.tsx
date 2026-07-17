@@ -672,6 +672,8 @@ export function AppRoot() {
           <DashboardScreen
             companyId={companyId}
             userName={userName}
+            userRole={userRole}
+            appMode={effectiveAppMode}
             onOpenDrawer={() => setShowDrawer(true)}
             onNavigate={(screen, options) => {
               if (screen === "pos" && options?.openCashCollection) {

@@ -1,5 +1,5 @@
 
-import { pgTable, text, serial, integer, boolean, timestamp, decimal, numeric, jsonb, primaryKey, uuid, date, unique, index } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, decimal, numeric, jsonb, primaryKey, uuid, date, unique, index, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -77,7 +77,7 @@ export const companies = pgTable("companies", {
   apiKeyCreatedAt: timestamp("api_key_created_at"),
   zimraPrivateKey: text("zimra_private_key"),
   zimraCertificate: text("zimra_certificate"),
-  zimraEnvironment: text("zimra_environment").default("test"), // 'test' or 'production'
+  zimraEnvironment: text("zimra_environment").default("test"), // "test" or "production"
   fiscalDayOpen: boolean("fiscal_day_open").default(false),
   currentFiscalDayNo: integer("current_fiscal_day_no").default(0),
   fiscalDayOpenedAt: timestamp("fiscal_day_opened_at"),
@@ -139,7 +139,7 @@ export const branches = pgTable("branches", {
   fdmsApiKey: text("fdms_api_key"),
   zimraPrivateKey: text("zimra_private_key"),
   zimraCertificate: text("zimra_certificate"),
-  zimraEnvironment: text("zimra_environment"), // 'test' or 'production'
+  zimraEnvironment: text("zimra_environment"), // "test" or "production"
   
   // Fiscal State
   fiscalDayOpen: boolean("fiscal_day_open").default(false),
@@ -487,7 +487,7 @@ export const products = pgTable("products", {
   lowStockThreshold: decimal("low_stock_threshold", { precision: 10, scale: 2 }).default("10"),
 
   isActive: boolean("is_active").default(true),
-  productType: text("product_type").default("good").notNull(), // 'good' or 'service'
+  productType: text("product_type").default("good").notNull(), // "good" or "service"
   taxCategoryId: integer("tax_category_id").references(() => taxCategories.id),
   taxTypeId: integer("tax_type_id").references(() => taxTypes.id),
   
@@ -664,6 +664,7 @@ export const invoices = pgTable("invoices", {
   companyId: integer("company_id").references(() => companies.id).notNull(),
   branchId: integer("branch_id").references(() => branches.id), // Nullable for migration
   customerId: integer("customer_id").references(() => customers.id).notNull(),
+  salesOrderId: integer("sales_order_id").references((): AnyPgColumn => salesOrders.id),
 
   invoiceNumber: text("invoice_number").notNull(),
   issueDate: timestamp("issue_date").defaultNow(),
@@ -1102,6 +1103,8 @@ export const quotations = pgTable("quotations", {
   companyId: integer("company_id").references(() => companies.id).notNull(),
   branchId: integer("branch_id").references(() => branches.id),
   customerId: integer("customer_id").references(() => customers.id).notNull(),
+  salesOrderId: integer("sales_order_id").references((): AnyPgColumn => salesOrders.id),
+  convertedAt: timestamp("converted_at"),
 
   quotationNumber: text("quotation_number").notNull(),
   issueDate: timestamp("issue_date").defaultNow(),
@@ -1323,7 +1326,7 @@ export const posShiftTransactions = pgTable("pos_shift_transactions", {
   id: serial("id").primaryKey(),
   shiftId: integer("shift_id").references(() => posShifts.id).notNull(),
   items: jsonb("items").notNull(), // Array of { description, amount } or similar if needed, or just simple
-  type: text("type").notNull(), // 'DROP', 'PAYOUT'
+  type: text("type").notNull(), // "DROP", "PAYOUT"
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   reason: text("reason"),
   userId: uuid("user_id").references(() => users.id).notNull(),
@@ -1379,12 +1382,12 @@ export const inventoryTransactions = pgTable("inventory_transactions", {
   variationId: integer("variation_id"), // Added for pharma/variant tracking
   supplierId: integer("supplier_id").references(() => suppliers.id),
 
-  type: text("type").notNull(), // 'STOCK_IN' (GRN), 'STOCK_OUT' (Invoice), 'ADJUSTMENT'
+  type: text("type").notNull(), // "STOCK_IN" (GRN), "STOCK_OUT" (Invoice), "ADJUSTMENT"
   quantity: decimal("quantity", { precision: 10, scale: 2 }).notNull(),
   unitCost: decimal("unit_cost", { precision: 10, scale: 2 }),
   totalCost: decimal("total_cost", { precision: 10, scale: 2 }),
 
-  referenceType: text("reference_type"), // 'GRN', 'INVOICE', 'MANUAL'
+  referenceType: text("reference_type"), // "GRN", "INVOICE", "MANUAL"
   referenceId: text("reference_id"), // ID of the GRN or Invoice
 
   remainingQuantity: decimal("remaining_quantity", { precision: 10, scale: 2 }), // For FIFO/LIFO tracking
@@ -1733,6 +1736,7 @@ export const expenses = pgTable("expenses", {
   debitAccountId: integer("debit_account_id").references(() => accounts.id),
   creditAccountId: integer("credit_account_id").references(() => accounts.id),
   segmentId: integer("segment_id").references(() => accountingSegments.id),
+  productionRunId: integer("production_run_id").references(() => productionRuns.id),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => {
   return {
@@ -2441,7 +2445,7 @@ export type JournalEntry = typeof journalEntries.$inferSelect;
 export const financialPeriods = pgTable("financial_periods", {
   id: serial("id").primaryKey(),
   companyId: integer("company_id").references(() => companies.id).notNull(),
-  name: text("name").notNull(), // e.g. 'January 2026'
+  name: text("name").notNull(), // e.g. "January 2026"
   startDate: timestamp("start_date").notNull(),
   endDate: timestamp("end_date").notNull(),
   periodNumber: integer("period_number"),
@@ -3973,7 +3977,7 @@ export const billOfMaterials = pgTable("bill_of_materials", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const bomLines = pgTable("bom_lines", {
+export const bomItems = pgTable("bom_items", {
   id: serial("id").primaryKey(),
   bomId: integer("bom_id").references(() => billOfMaterials.id).notNull(),
   componentProductId: integer("component_product_id").references(() => products.id).notNull(), // The raw material
@@ -3983,52 +3987,87 @@ export const bomLines = pgTable("bom_lines", {
   scrapPercentage: decimal("scrap_percentage", { precision: 5, scale: 2 }).default("0").notNull(),
 });
 
-export const workOrders = pgTable("work_orders", {
+// ==========================================
+// PRODUCTION RUNS (renamed from work_orders)
+// ==========================================
+
+export const productionRuns = pgTable("production_runs", {
   id: serial("id").primaryKey(),
   companyId: integer("company_id").references(() => companies.id).notNull(),
-  type: text("type").default("STANDARD").notNull(), // STANDARD, REWORK
-  parentWorkOrderId: integer("parent_work_order_id"), // Self-reference for rework
+  type: text("type").default("RECIPE").notNull(), // RECIPE (uses BOM), SIMPLE (manual input/output)
+  parentProductionRunId: integer("parent_production_run_id"), // Self-reference for rework
   routingId: integer("routing_id").references(() => manufacturingRoutings.id),
-  bomId: integer("bom_id").references(() => billOfMaterials.id).notNull(),
-  status: text("status").default("PLANNED").notNull(), // PLANNED, IN_PROGRESS, COMPLETED, CANCELLED
+  bomId: integer("bom_id").references(() => billOfMaterials.id), // Nullable for SIMPLE type
+  // Status: PLANNED → RELEASED → IN_PROGRESS → COMPLETED → SETTLED | CANCELLED
+  status: text("status").default("PLANNED").notNull(),
   plannedQuantity: decimal("planned_quantity", { precision: 12, scale: 4 }).notNull(),
   completedQuantity: decimal("completed_quantity", { precision: 12, scale: 4 }).default("0").notNull(),
-  startDate: timestamp("start_date"),
-  endDate: timestamp("end_date"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+  goodQuantity: decimal("good_quantity", { precision: 12, scale: 4 }).default("0"),
+  rejectedQuantity: decimal("rejected_quantity", { precision: 12, scale: 4 }).default("0"),
+  completionPercentage: decimal("completion_percentage", { precision: 5, scale: 2 }).default("0"),
 
-export const manufacturingProductionRuns = pgTable("manufacturing_production_runs", {
-  id: serial("id").primaryKey(),
-  workOrderId: integer("work_order_id").references(() => workOrders.id).notNull(),
+  // Customer / Sales Order linkage
+  customerId: integer("customer_id").references(() => customers.id),
+  salesOrderId: integer("sales_order_id").references(() => salesOrders.id),
+  artworkVersionSnapshot: text("artwork_version_snapshot"), // Copied from customer_products.artwork_version at creation
+
+  // Scheduling
+  plannedStart: timestamp("planned_start"),
+  plannedCompletion: timestamp("planned_completion"),
+  actualCompletion: timestamp("actual_completion"),
+
+  // Operation / machine / operator (absorbed from manufacturing_production_runs)
   routingOperationId: integer("routing_operation_id").references(() => manufacturingRoutingOperations.id),
-  status: text("status").default("PENDING").notNull(), // PENDING, IN_PROGRESS, PAUSED, COMPLETED, CANCELLED
-  plannedQuantity: decimal("planned_quantity", { precision: 12, scale: 4 }).notNull(),
-  actualQuantity: decimal("actual_quantity", { precision: 12, scale: 4 }).default("0").notNull(),
-  goodQuantity: decimal("good_quantity", { precision: 12, scale: 4 }).default("0").notNull(),
-  rejectedQuantity: decimal("rejected_quantity", { precision: 12, scale: 4 }).default("0").notNull(),
-  startTime: timestamp("start_time"),
-  endTime: timestamp("end_time"),
   machineId: integer("machine_id").references(() => manufacturingMachines.id),
-  operatorId: integer("operator_id").references(() => employees.id), // Using existing employees table
+  operatorId: integer("operator_id").references(() => employees.id),
   shift: text("shift"),
-  downtimeMinutes: decimal("downtime_minutes", { precision: 10, scale: 2 }).default("0").notNull(),
-  completionPercentage: decimal("completion_percentage", { precision: 5, scale: 2 }).default("0").notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+  downtimeMinutes: decimal("downtime_minutes", { precision: 10, scale: 2 }).default("0"),
 
-export const workOrderConsumptions = pgTable("work_order_consumptions", {
+  // Planned costs (snapshotted at creation from standard_costs + routing)
+  plannedMaterialCost: decimal("planned_material_cost", { precision: 15, scale: 2 }).default("0"),
+  plannedLaborCost: decimal("planned_labor_cost", { precision: 15, scale: 2 }).default("0"),
+  plannedOverheadCost: decimal("planned_overhead_cost", { precision: 15, scale: 2 }).default("0"),
+
+  // Actual costs (accumulated from goods_issues + time_confirmations)
+  actualMaterialCost: decimal("actual_material_cost", { precision: 15, scale: 2 }).default("0"),
+  actualLaborCost: decimal("actual_labor_cost", { precision: 15, scale: 2 }).default("0"),
+  actualOverheadCost: decimal("actual_overhead_cost", { precision: 15, scale: 2 }).default("0"),
+
+  // Variances (set on COMPLETED)
+  varianceMaterial: decimal("variance_material", { precision: 15, scale: 2 }).default("0"),
+  varianceLabor: decimal("variance_labor", { precision: 15, scale: 2 }).default("0"),
+  varianceOverhead: decimal("variance_overhead", { precision: 15, scale: 2 }).default("0"),
+
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  companyIdx: index("production_runs_company_idx").on(table.companyId),
+  customerIdx: index("production_runs_customer_idx").on(table.customerId),
+  salesOrderIdx: index("production_runs_sales_order_idx").on(table.salesOrderId),
+  statusIdx: index("production_runs_status_idx").on(table.status),
+}));
+
+// Keep old workOrders alias for backward-compat with any remaining references
+/** @deprecated Use productionRuns instead */
+export const workOrders = productionRuns;
+
+export const productionRunConsumptions = pgTable("production_run_consumptions", {
   id: serial("id").primaryKey(),
-  workOrderId: integer("work_order_id").references(() => workOrders.id).notNull(),
+  productionRunId: integer("production_run_id").references(() => productionRuns.id).notNull(),
   productId: integer("product_id").references(() => products.id).notNull(),
   quantityConsumed: decimal("quantity_consumed", { precision: 12, scale: 4 }).notNull(),
   date: timestamp("date").defaultNow().notNull(),
 });
 
+// Keep old alias for backward-compat
+/** @deprecated Use productionRunConsumptions instead */
+export const workOrderConsumptions = productionRunConsumptions;
+
 export const manufacturingMaterialTransactions = pgTable("manufacturing_material_transactions", {
   id: serial("id").primaryKey(),
-  workOrderId: integer("work_order_id").references(() => workOrders.id).notNull(),
-  productionRunId: integer("production_run_id").references(() => manufacturingProductionRuns.id),
+  // Legacy FK to work_orders — kept for historical data. New records use goodsIssues/goodsReceipts.
+  workOrderId: integer("work_order_id"),
+  productionRunId: integer("production_run_id").references(() => productionRuns.id),
   productId: integer("product_id").references(() => products.id).notNull(),
   type: text("type").default("ISSUE").notNull(), // ISSUE, RETURN, FINISHED_GOOD, SCRAP, BY_PRODUCT, CO_PRODUCT
   quantity: decimal("quantity", { precision: 12, scale: 4 }).notNull(),
@@ -4038,8 +4077,7 @@ export const manufacturingMaterialTransactions = pgTable("manufacturing_material
 
 export const manufacturingProductionNotes = pgTable("manufacturing_production_notes", {
   id: serial("id").primaryKey(),
-  workOrderId: integer("work_order_id").references(() => workOrders.id).notNull(),
-  productionRunId: integer("production_run_id").references(() => manufacturingProductionRuns.id),
+  productionRunId: integer("production_run_id").references(() => productionRuns.id).notNull(),
   noteType: text("note_type").default("GENERAL").notNull(), // GENERAL, DELAY, SCRAP, QUALITY
   content: text("content").notNull(),
   createdBy: uuid("created_by").references(() => users.id),
@@ -4048,7 +4086,7 @@ export const manufacturingProductionNotes = pgTable("manufacturing_production_no
 
 export const manufacturingProductionAttachments = pgTable("manufacturing_production_attachments", {
   id: serial("id").primaryKey(),
-  workOrderId: integer("work_order_id").references(() => workOrders.id).notNull(),
+  productionRunId: integer("production_run_id").references(() => productionRuns.id).notNull(),
   fileName: text("file_name").notNull(),
   fileUrl: text("file_url").notNull(),
   mimeType: text("mime_type"),
@@ -4056,11 +4094,95 @@ export const manufacturingProductionAttachments = pgTable("manufacturing_product
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// ==========================================
+// GOODS ISSUES — material pulls from stock
+// ==========================================
+export const goodsIssues = pgTable("goods_issues", {
+  id: serial("id").primaryKey(),
+  productionRunId: integer("production_run_id").references(() => productionRuns.id).notNull(),
+  productId: integer("product_id").references(() => products.id).notNull(),
+  locationId: integer("location_id").references(() => inventoryLocations.id),
+  quantity: decimal("quantity", { precision: 12, scale: 4 }).notNull(),
+  unitCost: decimal("unit_cost", { precision: 15, scale: 2 }),
+  totalCost: decimal("total_cost", { precision: 15, scale: 2 }),
+  type: text("type").default("ISSUE").notNull(), // ISSUE, RETURN, SCRAP
+  postedAt: timestamp("posted_at").defaultNow(),
+  createdBy: uuid("created_by").references(() => users.id),
+  notes: text("notes"),
+}, (table) => ({
+  productionRunIdx: index("goods_issues_production_run_idx").on(table.productionRunId),
+  productIdx: index("goods_issues_product_idx").on(table.productId),
+}));
+
+// ==========================================
+// GOODS RECEIPTS — finished goods credited to stock
+// ==========================================
+export const goodsReceipts = pgTable("goods_receipts", {
+  id: serial("id").primaryKey(),
+  productionRunId: integer("production_run_id").references(() => productionRuns.id).notNull(),
+  productId: integer("product_id").references(() => products.id).notNull(),
+  locationId: integer("location_id").references(() => inventoryLocations.id),
+  customerId: integer("customer_id").references(() => customers.id), // Set if run has customer_id → goes to customer_stock
+  quantity: decimal("quantity", { precision: 12, scale: 4 }).notNull(),
+  unitCost: decimal("unit_cost", { precision: 15, scale: 2 }),
+  totalCost: decimal("total_cost", { precision: 15, scale: 2 }),
+  postedAt: timestamp("posted_at").defaultNow(),
+  createdBy: uuid("created_by").references(() => users.id),
+  notes: text("notes"),
+}, (table) => ({
+  productionRunIdx: index("goods_receipts_production_run_idx").on(table.productionRunId),
+  productIdx: index("goods_receipts_product_idx").on(table.productId),
+  customerIdx: index("goods_receipts_customer_idx").on(table.customerId),
+}));
+
+// ==========================================
+// TIME CONFIRMATIONS — labor bookings
+// ==========================================
+export const timeConfirmations = pgTable("time_confirmations", {
+  id: serial("id").primaryKey(),
+  productionRunId: integer("production_run_id").references(() => productionRuns.id).notNull(),
+  workCenterId: integer("work_center_id").references(() => manufacturingWorkCenters.id).notNull(),
+  employeeId: integer("employee_id").references(() => employees.id), // Nullable — anonymous booking allowed
+  hours: decimal("hours", { precision: 10, scale: 2 }).notNull(),
+  hourlyRate: decimal("hourly_rate", { precision: 15, scale: 2 }),
+  laborCost: decimal("labor_cost", { precision: 15, scale: 2 }), // hours * hourlyRate
+  overheadCost: decimal("overhead_cost", { precision: 15, scale: 2 }), // hours * workCenter.overheadRate
+  postedAt: timestamp("posted_at").defaultNow(),
+  createdBy: uuid("created_by").references(() => users.id),
+  notes: text("notes"),
+}, (table) => ({
+  productionRunIdx: index("time_confirmations_production_run_idx").on(table.productionRunId),
+  workCenterIdx: index("time_confirmations_work_center_idx").on(table.workCenterId),
+  employeeIdx: index("time_confirmations_employee_idx").on(table.employeeId),
+}));
+
+// ==========================================
+// STANDARD COSTS — planned cost per product
+// ==========================================
+export const standardCosts = pgTable("standard_costs", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  productId: integer("product_id").references(() => products.id).notNull(),
+  materialCost: decimal("material_cost", { precision: 15, scale: 2 }).default("0").notNull(),
+  laborCost: decimal("labor_cost", { precision: 15, scale: 2 }).default("0").notNull(),
+  overheadCost: decimal("overhead_cost", { precision: 15, scale: 2 }).default("0").notNull(),
+  totalCost: decimal("total_cost", { precision: 15, scale: 2 }).default("0").notNull(), // materialCost + laborCost + overheadCost
+  effectiveFrom: date("effective_from").defaultNow().notNull(),
+  effectiveTo: date("effective_to"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  companyProductFromUnique: unique("standard_costs_company_product_from_idx").on(table.companyId, table.productId, table.effectiveFrom),
+  companyIdx: index("standard_costs_company_idx").on(table.companyId),
+  productIdx: index("standard_costs_product_idx").on(table.productId),
+}));
+
 // Relations
 export const manufacturingWorkCentersRelations = relations(manufacturingWorkCenters, ({ one, many }) => ({
   company: one(companies, { fields: [manufacturingWorkCenters.companyId], references: [companies.id] }),
   machines: many(manufacturingMachines),
   operations: many(manufacturingRoutingOperations),
+  timeConfirmations: many(timeConfirmations),
 }));
 
 export const manufacturingMachinesRelations = relations(manufacturingMachines, ({ one }) => ({
@@ -4082,54 +4204,77 @@ export const manufacturingRoutingOperationsRelations = relations(manufacturingRo
 export const billOfMaterialsRelations = relations(billOfMaterials, ({ one, many }) => ({
   company: one(companies, { fields: [billOfMaterials.companyId], references: [companies.id] }),
   product: one(products, { fields: [billOfMaterials.productId], references: [products.id] }),
-  lines: many(bomLines),
+  lines: many(bomItems),
 }));
 
-export const bomLinesRelations = relations(bomLines, ({ one }) => ({
-  bom: one(billOfMaterials, { fields: [bomLines.bomId], references: [billOfMaterials.id] }),
-  componentProduct: one(products, { fields: [bomLines.componentProductId], references: [products.id] }),
+export const bomItemsRelations = relations(bomItems, ({ one }) => ({
+  bom: one(billOfMaterials, { fields: [bomItems.bomId], references: [billOfMaterials.id] }),
+  componentProduct: one(products, { fields: [bomItems.componentProductId], references: [products.id] }),
 }));
 
-export const workOrdersRelations = relations(workOrders, ({ one, many }) => ({
-  company: one(companies, { fields: [workOrders.companyId], references: [companies.id] }),
-  bom: one(billOfMaterials, { fields: [workOrders.bomId], references: [billOfMaterials.id] }),
-  routing: one(manufacturingRoutings, { fields: [workOrders.routingId], references: [manufacturingRoutings.id] }),
-  consumptions: many(workOrderConsumptions),
+export const productionRunsRelations = relations(productionRuns, ({ one, many }) => ({
+  company: one(companies, { fields: [productionRuns.companyId], references: [companies.id] }),
+  bom: one(billOfMaterials, { fields: [productionRuns.bomId], references: [billOfMaterials.id] }),
+  routing: one(manufacturingRoutings, { fields: [productionRuns.routingId], references: [manufacturingRoutings.id] }),
+  routingOperation: one(manufacturingRoutingOperations, { fields: [productionRuns.routingOperationId], references: [manufacturingRoutingOperations.id] }),
+  machine: one(manufacturingMachines, { fields: [productionRuns.machineId], references: [manufacturingMachines.id] }),
+  operator: one(employees, { fields: [productionRuns.operatorId], references: [employees.id] }),
+  customer: one(customers, { fields: [productionRuns.customerId], references: [customers.id] }),
+  salesOrder: one(salesOrders, { fields: [productionRuns.salesOrderId], references: [salesOrders.id] }),
+  consumptions: many(productionRunConsumptions),
   materialTransactions: many(manufacturingMaterialTransactions),
-  productionRuns: many(manufacturingProductionRuns),
+  goodsIssues: many(goodsIssues),
+  goodsReceipts: many(goodsReceipts),
+  timeConfirmations: many(timeConfirmations),
   notes: many(manufacturingProductionNotes),
   attachments: many(manufacturingProductionAttachments),
 }));
 
-export const workOrderConsumptionsRelations = relations(workOrderConsumptions, ({ one }) => ({
-  workOrder: one(workOrders, { fields: [workOrderConsumptions.workOrderId], references: [workOrders.id] }),
-  product: one(products, { fields: [workOrderConsumptions.productId], references: [products.id] }),
-}));
-
-export const manufacturingProductionRunsRelations = relations(manufacturingProductionRuns, ({ one, many }) => ({
-  workOrder: one(workOrders, { fields: [manufacturingProductionRuns.workOrderId], references: [workOrders.id] }),
-  routingOperation: one(manufacturingRoutingOperations, { fields: [manufacturingProductionRuns.routingOperationId], references: [manufacturingRoutingOperations.id] }),
-  machine: one(manufacturingMachines, { fields: [manufacturingProductionRuns.machineId], references: [manufacturingMachines.id] }),
-  operator: one(employees, { fields: [manufacturingProductionRuns.operatorId], references: [employees.id] }),
-  materialTransactions: many(manufacturingMaterialTransactions),
-  notes: many(manufacturingProductionNotes),
+export const productionRunConsumptionsRelations = relations(productionRunConsumptions, ({ one }) => ({
+  productionRun: one(productionRuns, { fields: [productionRunConsumptions.productionRunId], references: [productionRuns.id] }),
+  product: one(products, { fields: [productionRunConsumptions.productId], references: [products.id] }),
 }));
 
 export const manufacturingMaterialTransactionsRelations = relations(manufacturingMaterialTransactions, ({ one }) => ({
-  workOrder: one(workOrders, { fields: [manufacturingMaterialTransactions.workOrderId], references: [workOrders.id] }),
-  productionRun: one(manufacturingProductionRuns, { fields: [manufacturingMaterialTransactions.productionRunId], references: [manufacturingProductionRuns.id] }),
+  productionRun: one(productionRuns, { fields: [manufacturingMaterialTransactions.productionRunId], references: [productionRuns.id] }),
   product: one(products, { fields: [manufacturingMaterialTransactions.productId], references: [products.id] }),
 }));
 
 export const manufacturingProductionNotesRelations = relations(manufacturingProductionNotes, ({ one }) => ({
-  workOrder: one(workOrders, { fields: [manufacturingProductionNotes.workOrderId], references: [workOrders.id] }),
-  productionRun: one(manufacturingProductionRuns, { fields: [manufacturingProductionNotes.productionRunId], references: [manufacturingProductionRuns.id] }),
+  productionRun: one(productionRuns, { fields: [manufacturingProductionNotes.productionRunId], references: [productionRuns.id] }),
   createdByUser: one(users, { fields: [manufacturingProductionNotes.createdBy], references: [users.id] }),
 }));
 
 export const manufacturingProductionAttachmentsRelations = relations(manufacturingProductionAttachments, ({ one }) => ({
-  workOrder: one(workOrders, { fields: [manufacturingProductionAttachments.workOrderId], references: [workOrders.id] }),
+  productionRun: one(productionRuns, { fields: [manufacturingProductionAttachments.productionRunId], references: [productionRuns.id] }),
   uploadedByUser: one(users, { fields: [manufacturingProductionAttachments.uploadedBy], references: [users.id] }),
+}));
+
+export const goodsIssuesRelations = relations(goodsIssues, ({ one }) => ({
+  productionRun: one(productionRuns, { fields: [goodsIssues.productionRunId], references: [productionRuns.id] }),
+  product: one(products, { fields: [goodsIssues.productId], references: [products.id] }),
+  location: one(inventoryLocations, { fields: [goodsIssues.locationId], references: [inventoryLocations.id] }),
+  createdByUser: one(users, { fields: [goodsIssues.createdBy], references: [users.id] }),
+}));
+
+export const goodsReceiptsRelations = relations(goodsReceipts, ({ one }) => ({
+  productionRun: one(productionRuns, { fields: [goodsReceipts.productionRunId], references: [productionRuns.id] }),
+  product: one(products, { fields: [goodsReceipts.productId], references: [products.id] }),
+  location: one(inventoryLocations, { fields: [goodsReceipts.locationId], references: [inventoryLocations.id] }),
+  customer: one(customers, { fields: [goodsReceipts.customerId], references: [customers.id] }),
+  createdByUser: one(users, { fields: [goodsReceipts.createdBy], references: [users.id] }),
+}));
+
+export const timeConfirmationsRelations = relations(timeConfirmations, ({ one }) => ({
+  productionRun: one(productionRuns, { fields: [timeConfirmations.productionRunId], references: [productionRuns.id] }),
+  workCenter: one(manufacturingWorkCenters, { fields: [timeConfirmations.workCenterId], references: [manufacturingWorkCenters.id] }),
+  employee: one(employees, { fields: [timeConfirmations.employeeId], references: [employees.id] }),
+  createdByUser: one(users, { fields: [timeConfirmations.createdBy], references: [users.id] }),
+}));
+
+export const standardCostsRelations = relations(standardCosts, ({ one }) => ({
+  company: one(companies, { fields: [standardCosts.companyId], references: [companies.id] }),
+  product: one(products, { fields: [standardCosts.productId], references: [products.id] }),
 }));
 
 // Types & Insert Schemas
@@ -4149,10 +4294,6 @@ export const insertManufacturingRoutingOperationSchema = createInsertSchema(manu
 export type ManufacturingRoutingOperation = typeof manufacturingRoutingOperations.$inferSelect;
 export type InsertManufacturingRoutingOperation = z.infer<typeof insertManufacturingRoutingOperationSchema>;
 
-export const insertManufacturingProductionRunSchema = createInsertSchema(manufacturingProductionRuns).omit({ id: true, createdAt: true });
-export type ManufacturingProductionRun = typeof manufacturingProductionRuns.$inferSelect;
-export type InsertManufacturingProductionRun = z.infer<typeof insertManufacturingProductionRunSchema>;
-
 export const insertManufacturingMaterialTransactionSchema = createInsertSchema(manufacturingMaterialTransactions).omit({ id: true, date: true });
 export type ManufacturingMaterialTransaction = typeof manufacturingMaterialTransactions.$inferSelect;
 export type InsertManufacturingMaterialTransaction = z.infer<typeof insertManufacturingMaterialTransactionSchema>;
@@ -4169,17 +4310,44 @@ export const insertBillOfMaterialSchema = createInsertSchema(billOfMaterials).om
 export type BillOfMaterial = typeof billOfMaterials.$inferSelect;
 export type InsertBillOfMaterial = z.infer<typeof insertBillOfMaterialSchema>;
 
-export const insertBomLineSchema = createInsertSchema(bomLines).omit({ id: true });
-export type BomLine = typeof bomLines.$inferSelect;
-export type InsertBomLine = z.infer<typeof insertBomLineSchema>;
+export const insertBomItemSchema = createInsertSchema(bomItems).omit({ id: true });
+export type BomItem = typeof bomItems.$inferSelect;
+export type InsertBomItem = z.infer<typeof insertBomItemSchema>;
 
-export const insertWorkOrderSchema = createInsertSchema(workOrders).omit({ id: true, createdAt: true, completedQuantity: true });
-export type WorkOrder = typeof workOrders.$inferSelect;
-export type InsertWorkOrder = z.infer<typeof insertWorkOrderSchema>;
+export const insertProductionRunSchema = createInsertSchema(productionRuns).omit({ id: true, createdAt: true, updatedAt: true, completedQuantity: true });
+export type ProductionRun = typeof productionRuns.$inferSelect;
+export type InsertProductionRun = z.infer<typeof insertProductionRunSchema>;
 
-export const insertWorkOrderConsumptionSchema = createInsertSchema(workOrderConsumptions).omit({ id: true, date: true });
-export type WorkOrderConsumption = typeof workOrderConsumptions.$inferSelect;
-export type InsertWorkOrderConsumption = z.infer<typeof insertWorkOrderConsumptionSchema>;
+/** @deprecated Use insertProductionRunSchema / ProductionRun */
+export const insertWorkOrderSchema = insertProductionRunSchema;
+export type WorkOrder = ProductionRun;
+export type InsertWorkOrder = InsertProductionRun;
+
+export const insertProductionRunConsumptionSchema = createInsertSchema(productionRunConsumptions).omit({ id: true, date: true });
+export type ProductionRunConsumption = typeof productionRunConsumptions.$inferSelect;
+export type InsertProductionRunConsumption = z.infer<typeof insertProductionRunConsumptionSchema>;
+
+/** @deprecated Use insertProductionRunConsumptionSchema / ProductionRunConsumption */
+export const insertWorkOrderConsumptionSchema = insertProductionRunConsumptionSchema;
+export type WorkOrderConsumption = ProductionRunConsumption;
+export type InsertWorkOrderConsumption = InsertProductionRunConsumption;
+
+export const insertGoodsIssueSchema = createInsertSchema(goodsIssues).omit({ id: true, postedAt: true });
+export type GoodsIssue = typeof goodsIssues.$inferSelect;
+export type InsertGoodsIssue = z.infer<typeof insertGoodsIssueSchema>;
+
+export const insertGoodsReceiptSchema = createInsertSchema(goodsReceipts).omit({ id: true, postedAt: true });
+export type GoodsReceipt = typeof goodsReceipts.$inferSelect;
+export type InsertGoodsReceipt = z.infer<typeof insertGoodsReceiptSchema>;
+
+export const insertTimeConfirmationSchema = createInsertSchema(timeConfirmations).omit({ id: true, postedAt: true });
+export type TimeConfirmation = typeof timeConfirmations.$inferSelect;
+export type InsertTimeConfirmation = z.infer<typeof insertTimeConfirmationSchema>;
+
+export const insertStandardCostSchema = createInsertSchema(standardCosts).omit({ id: true, createdAt: true, updatedAt: true });
+export type StandardCost = typeof standardCosts.$inferSelect;
+export type InsertStandardCost = z.infer<typeof insertStandardCostSchema>;
+
 
 // --- Phase 2: Manufacturing Planning & MRP ---
 export const manufacturingProductionSchedules = pgTable("manufacturing_production_schedules", {
@@ -4194,14 +4362,14 @@ export const manufacturingProductionSchedules = pgTable("manufacturing_productio
 export const manufacturingProductionScheduleLines = pgTable("manufacturing_production_schedule_lines", {
   id: serial("id").primaryKey(),
   scheduleId: integer("schedule_id").references(() => manufacturingProductionSchedules.id).notNull(),
-  workOrderId: integer("work_order_id").references(() => workOrders.id).notNull(),
+  productionRunId: integer("production_run_id").references(() => productionRuns.id).notNull(),
   plannedStartDate: timestamp("planned_start_date"),
   plannedEndDate: timestamp("planned_end_date"),
 });
 
 export const manufacturingMaterialReservations = pgTable("manufacturing_material_reservations", {
   id: serial("id").primaryKey(),
-  workOrderId: integer("work_order_id").references(() => workOrders.id).notNull(),
+  productionRunId: integer("production_run_id").references(() => productionRuns.id).notNull(),
   productId: integer("product_id").references(() => products.id).notNull(),
   quantityReserved: decimal("quantity_reserved", { precision: 15, scale: 4 }).notNull(),
   status: text("status").default("RESERVED").notNull(), // RESERVED, CONSUMED, CANCELLED
@@ -4242,11 +4410,11 @@ export const manufacturingProductionSchedulesRelations = relations(manufacturing
 
 export const manufacturingProductionScheduleLinesRelations = relations(manufacturingProductionScheduleLines, ({ one }) => ({
   schedule: one(manufacturingProductionSchedules, { fields: [manufacturingProductionScheduleLines.scheduleId], references: [manufacturingProductionSchedules.id] }),
-  workOrder: one(workOrders, { fields: [manufacturingProductionScheduleLines.workOrderId], references: [workOrders.id] }),
+  productionRun: one(productionRuns, { fields: [manufacturingProductionScheduleLines.productionRunId], references: [productionRuns.id] }),
 }));
 
 export const manufacturingMaterialReservationsRelations = relations(manufacturingMaterialReservations, ({ one }) => ({
-  workOrder: one(workOrders, { fields: [manufacturingMaterialReservations.workOrderId], references: [workOrders.id] }),
+  productionRun: one(productionRuns, { fields: [manufacturingMaterialReservations.productionRunId], references: [productionRuns.id] }),
   product: one(products, { fields: [manufacturingMaterialReservations.productId], references: [products.id] }),
 }));
 
@@ -4292,3 +4460,201 @@ export const bankRules = pgTable("bank_rules", {
 export const insertBankRuleSchema = createInsertSchema(bankRules).omit({ id: true, createdAt: true });
 export type BankRule = typeof bankRules.$inferSelect;
 export type InsertBankRule = z.infer<typeof insertBankRuleSchema>;
+
+
+export const salesOrders = pgTable("sales_orders", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  branchId: integer("branch_id").references(() => branches.id),
+  customerId: integer("customer_id").references(() => customers.id).notNull(),
+  quotationId: integer("quotation_id").references((): AnyPgColumn => invoices.id),
+
+  orderNumber: text("order_number").notNull(),
+  issueDate: timestamp("issue_date").defaultNow(),
+  dueDate: timestamp("due_date"),
+
+  // Amounts
+  subtotal: decimal("subtotal", { precision: 10, scale: 2 }).notNull(),
+  taxAmount: decimal("tax_amount", { precision: 10, scale: 2 }).notNull(),
+  total: decimal("total", { precision: 10, scale: 2 }).notNull(),
+
+  status: text("status").default("draft").notNull(), // draft, confirmed, partially_invoiced, invoiced, closed
+  currency: text("currency").default("USD"),
+  notes: text("notes"),
+
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const salesOrderItems = pgTable("sales_order_items", {
+  id: serial("id").primaryKey(),
+  salesOrderId: integer("sales_order_id").references((): AnyPgColumn => salesOrders.id).notNull(),
+  quotationItemId: integer("quotation_item_id").references((): AnyPgColumn => invoiceItems.id),
+  productId: integer("product_id").references(() => products.id),
+  description: text("description").notNull(),
+  quantity: decimal("quantity", { precision: 10, scale: 2 }).notNull(),
+  invoicedQuantity: decimal("invoiced_quantity", { precision: 10, scale: 2 }).default("0.00").notNull(),
+  unitPrice: decimal("unit_price", { precision: 10, scale: 2 }).notNull(),
+  taxRate: decimal("tax_rate", { precision: 5, scale: 2 }).notNull(),
+  lineTotal: decimal("line_total", { precision: 10, scale: 2 }).notNull(),
+  taxTypeId: integer("tax_type_id").references(() => taxTypes.id),
+});
+
+export const salesOrdersRelations = relations(salesOrders, ({ one, many }) => ({
+  company: one(companies, { fields: [salesOrders.companyId], references: [companies.id] }),
+  customer: one(customers, { fields: [salesOrders.customerId], references: [customers.id] }),
+  quotation: one(quotations, { fields: [salesOrders.quotationId], references: [quotations.id] }),
+  items: many(salesOrderItems),
+  invoices: many(invoices),
+}));
+
+export const salesOrderItemsRelations = relations(salesOrderItems, ({ one }) => ({
+  salesOrder: one(salesOrders, { fields: [salesOrderItems.salesOrderId], references: [salesOrders.id] }),
+  product: one(products, { fields: [salesOrderItems.productId], references: [products.id] }),
+}));
+
+// Customer Exclusive Products
+export const customerProducts = pgTable("customer_products", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  customerId: integer("customer_id").references(() => customers.id).notNull(),
+  productId: integer("product_id").references(() => products.id).notNull(),
+  isExclusive: boolean("is_exclusive").default(false).notNull(),
+  negotiatedPrice: decimal("negotiated_price", { precision: 10, scale: 2 }),
+  customerSku: text("customer_sku"),
+  artworkVersion: text("artwork_version"),
+  specReference: text("spec_reference"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => {
+  return {
+    customerProductUnique: unique("customer_products_customer_product_idx").on(table.customerId, table.productId),
+  };
+});
+
+export const customerProductsRelations = relations(customerProducts, ({ one }) => ({
+  customer: one(customers, { fields: [customerProducts.customerId], references: [customers.id] }),
+  product: one(products, { fields: [customerProducts.productId], references: [products.id] }),
+}));
+
+// Granular Stock Table (Customer-Linked)
+
+export const stockAllocations = pgTable("stock_allocations", {
+  id: serial("id").primaryKey(),
+  stockId: integer("stock_id").references(() => customerStock.id).notNull(),
+  salesOrderLineId: integer("sales_order_line_id").references(() => salesOrderItems.id).notNull(),
+  quantityAllocated: decimal("quantity_allocated", { precision: 10, scale: 2 }).notNull(),
+  allocatedAt: timestamp("allocated_at").defaultNow().notNull(),
+  releasedAt: timestamp("released_at"),
+});
+
+export const stockAllocationsRelations = relations(stockAllocations, ({ one }) => ({
+  stock: one(customerStock, { fields: [stockAllocations.stockId], references: [customerStock.id] }),
+  salesOrderLine: one(salesOrderItems, { fields: [stockAllocations.salesOrderLineId], references: [salesOrderItems.id] }),
+}));
+
+export const insertStockAllocationSchema = createInsertSchema(stockAllocations).omit({ id: true, allocatedAt: true });
+
+export const customerStock = pgTable("customer_stock", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  locationId: integer("location_id").references(() => inventoryLocations.id).notNull(),
+  productId: integer("product_id").references(() => products.id).notNull(),
+  customerId: integer("customer_id").references(() => customers.id), // Null for shared stock
+  batchId: integer("batch_id").references(() => productBatches.id), // Nullable
+
+  quantity: decimal("quantity", { precision: 10, scale: 2 }).default("0").notNull(),
+  uom: text("uom"),
+  status: text("status").default("AVAILABLE").notNull(), // AVAILABLE, ALLOCATED, QA_HOLD
+
+  lastMovementDate: timestamp("last_movement_date").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => {
+  return {
+    locationIdx: index("customer_stock_location_idx").on(table.locationId),
+    productIdx: index("customer_stock_product_idx").on(table.productId),
+    customerIdx: index("customer_stock_customer_idx").on(table.customerId),
+  };
+});
+
+export const customerStockRelations = relations(customerStock, ({ one }) => ({
+  location: one(inventoryLocations, { fields: [customerStock.locationId], references: [inventoryLocations.id] }),
+  product: one(products, { fields: [customerStock.productId], references: [products.id] }),
+  customer: one(customers, { fields: [customerStock.customerId], references: [customers.id] }),
+  batch: one(productBatches, { fields: [customerStock.batchId], references: [productBatches.id] }),
+}));
+
+// Ledger for Customer Stock Movements (IN, OUT, ADJUSTMENT)
+export const customerStockTransactions = pgTable("customer_stock_transactions", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  customerId: integer("customer_id").references(() => customers.id).notNull(),
+  productId: integer("product_id").references(() => products.id).notNull(),
+
+  type: text("type").notNull(), // "STOCK_IN", "STOCK_OUT", "ADJUSTMENT"
+  quantity: decimal("quantity", { precision: 10, scale: 2 }).notNull(),
+
+  referenceType: text("reference_type").notNull(), // "INVOICE", "MANUAL", "RETURN"
+  referenceId: text("reference_id"), // E.g., Invoice Number
+
+  notes: text("notes"),
+  createdBy: uuid("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => {
+  return {
+    customerIdx: index("cst_trans_customer_idx").on(table.customerId),
+    productIdx: index("cst_trans_product_idx").on(table.productId),
+  };
+});
+
+export const customerStockTransactionsRelations = relations(customerStockTransactions, ({ one }) => ({
+  company: one(companies, { fields: [customerStockTransactions.companyId], references: [companies.id] }),
+  customer: one(customers, { fields: [customerStockTransactions.customerId], references: [customers.id] }),
+  product: one(products, { fields: [customerStockTransactions.productId], references: [products.id] }),
+  user: one(users, { fields: [customerStockTransactions.createdBy], references: [users.id] }),
+}));
+
+// Job Execution Logs
+export const jobLogs = pgTable("job_logs", {
+  id: serial("id").primaryKey(),
+  jobName: text("job_name").notNull(), // "recurring_invoices", "fiscal_day_closure", etc.
+  status: text("status").notNull(), // "started", "completed", "failed"
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+  duration: integer("duration"), // Duration in milliseconds
+  resultData: jsonb("result_data"), // Success results (e.g., invoices created, days closed)
+  errorData: jsonb("error_data"), // Error details if failed
+  companyId: integer("company_id").references(() => companies.id), // Optional: for company-specific jobs
+  metadata: jsonb("metadata"), // Additional context (e.g., parameters, job-specific data)
+}, (table) => {
+  return {
+    jobNameIdx: index("job_logs_job_name_idx").on(table.jobName),
+    statusIdx: index("job_logs_status_idx").on(table.status),
+    startedAtIdx: index("job_logs_started_at_idx").on(table.startedAt),
+    companyIdIdx: index("job_logs_company_id_idx").on(table.companyId),
+  };
+});
+
+export const jobLogsRelations = relations(jobLogs, ({ one }) => ({
+  company: one(companies, { fields: [jobLogs.companyId], references: [companies.id] }),
+}));
+
+export const insertJobLogSchema = createInsertSchema(jobLogs).omit({ id: true, startedAt: true });
+export type InsertJobLog = z.infer<typeof insertJobLogSchema>;
+export type JobLog = typeof jobLogs.$inferSelect;
+
+export const insertSalesOrderSchema = createInsertSchema(salesOrders).omit({ id: true, createdAt: true });
+export const insertSalesOrderItemSchema = createInsertSchema(salesOrderItems).omit({ id: true });
+export const insertCustomerProductSchema = createInsertSchema(customerProducts).omit({ id: true, createdAt: true });
+export const insertCustomerStockSchema = createInsertSchema(customerStock).omit({ id: true, createdAt: true });
+
+
+export const salesOrderAuditLogs = pgTable("sales_order_audit_logs", {
+  id: serial("id").primaryKey(),
+  salesOrderId: integer("sales_order_id").references(() => salesOrders.id).notNull(),
+  fieldChanged: text("field_changed").notNull(),
+  oldValue: text("old_value"),
+  newValue: text("new_value"),
+  changedBy: integer("changed_by").references(() => users.id),
+  changedAt: timestamp("changed_at").defaultNow().notNull()
+});
+export const insertSalesOrderAuditLogSchema = createInsertSchema(salesOrderAuditLogs).omit({ id: true, changedAt: true });
+export type SalesOrderAuditLog = typeof salesOrderAuditLogs.$inferSelect;

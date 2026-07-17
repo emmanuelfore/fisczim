@@ -5,10 +5,7 @@ import { sql } from "drizzle-orm";
 
 async function run() {
   try {
-    await db.execute(sql.raw(`DROP TABLE IF EXISTS "purchase_return_items" CASCADE;`));
-    await db.execute(sql.raw(`DROP TABLE IF EXISTS "purchase_returns" CASCADE;`));
-    
-    const content = fs.readFileSync("./migrations/0030_powerful_green_goblin.sql", "utf8");
+    const content = fs.readFileSync("./migrations/0044_job_logs.sql", "utf8");
     const statements = content.split("--> statement-breakpoint");
     for (const stmt of statements) {
       const q = stmt.trim();

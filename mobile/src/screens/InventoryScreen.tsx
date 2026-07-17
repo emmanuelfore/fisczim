@@ -415,7 +415,7 @@ const getStyles = (C: Theme) => StyleSheet.create({
   fieldInput: { backgroundColor: C.bg.hover, color: C.text.primary, borderRadius: 10, paddingHorizontal: 14, height: 42, borderWidth: 1, borderColor: C.border.default, fontSize: 14 },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6 },
   chip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: C.bg.card, shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
-  chipActive: { backgroundColor: hexAlpha(C.amber.primary, 0.12), shadowColor: C.amber.primary, shadowOpacity: 0.1, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 5 },
+  chipActive: { backgroundColor: hexAlpha(C.amber.primary, 0.12), shadowColor: C.amber.primary, shadowOpacity: 0.1, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 0 },
   chipText: { color: C.text.secondary, fontSize: 11, fontWeight: "600" },
   chipTextActive: { color: C.amber.primary },
   chipTextActiveVibrant: { color: C.amber.primary, fontWeight: "900" },

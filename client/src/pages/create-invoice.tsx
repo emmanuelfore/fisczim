@@ -617,20 +617,14 @@ export default function CreateInvoicePage() {
       return;
     }
 
-    if (!dueDate) {
-      toast({
-        title: "Validation Error",
-        description: "Please select a due date.",
-        variant: "destructive",
-      });
-      setLoadingAction(null);
-      return;
-    }
+
 
     const invoiceNumber =
       isEditing && existingInvoice
         ? existingInvoice.invoiceNumber
         : `DRAFT-${Date.now().toString().slice(-6)}`;
+
+    const newTransactionType = existingInvoice?.transactionType === "Quotation" ? "FiscalInvoice" : (existingInvoice?.transactionType || "FiscalInvoice");
 
     const invoiceData = {
       companyId,
@@ -638,7 +632,7 @@ export default function CreateInvoicePage() {
       customerId: parseInt(customerId),
       partnerId: partnerId === "none" ? null : parseInt(partnerId),
       issueDate: issueDate ? new Date(issueDate) : new Date(),
-      dueDate: new Date(dueDate),
+      dueDate: dueDate ? new Date(dueDate) : null,
       notes,
       poNumber: poNumber.trim() || null,
       invoiceTemplate,
@@ -646,6 +640,7 @@ export default function CreateInvoicePage() {
       exchangeRate: exchangeRate,
       paymentMethod,
       status: "draft",
+      transactionType: newTransactionType,
       subtotal: subtotal.toString(),
       taxAmount: taxAmount.toString(),
       total: total.toString(),
@@ -667,14 +662,14 @@ export default function CreateInvoicePage() {
       if (isEditing && editId) {
         await updateInvoice.mutateAsync({
           id: parseInt(editId),
-          data: invoiceData,
+          data: invoiceData as any,
         });
         toast({
           title: "Draft Updated",
           description: "Draft invoice updated successfully.",
         });
       } else {
-        await createInvoice.mutateAsync(invoiceData);
+        await createInvoice.mutateAsync(invoiceData as any);
         toast({
           title: "Draft Saved",
           description: "Invoice saved as draft successfully.",
@@ -735,6 +730,7 @@ export default function CreateInvoicePage() {
       exchangeRate: exchangeRate,
       paymentMethod,
       status: "quote",
+      transactionType: "Quotation",
       subtotal: subtotal.toString(),
       taxAmount: taxAmount.toString(),
       total: total.toString(),
@@ -756,14 +752,14 @@ export default function CreateInvoicePage() {
       if (isEditing && editId) {
         await updateInvoice.mutateAsync({
           id: parseInt(editId),
-          data: invoiceData,
+          data: invoiceData as any,
         });
         toast({
           title: "Quotation Updated",
           description: "Quotation updated successfully.",
         });
       } else {
-        await createInvoice.mutateAsync(invoiceData);
+        await createInvoice.mutateAsync(invoiceData as any);
         toast({
           title: "Quotation Saved",
           description: "Quotation saved successfully.",
@@ -803,20 +799,14 @@ export default function CreateInvoicePage() {
       return;
     }
 
-    if (!dueDate) {
-      toast({
-        title: "Validation Error",
-        description: "Please select a due date.",
-        variant: "destructive",
-      });
-      setLoadingAction(null);
-      return;
-    }
+
 
     const invoiceNumber =
       isEditing && existingInvoice && existingInvoice.status === "issued"
         ? existingInvoice.invoiceNumber
         : `INV-${Date.now().toString().slice(-6)}`;
+
+    const newTransactionType = existingInvoice?.transactionType === "Quotation" ? "FiscalInvoice" : (existingInvoice?.transactionType || "FiscalInvoice");
 
     const invoiceData = {
       companyId,
@@ -824,7 +814,7 @@ export default function CreateInvoicePage() {
       customerId: parseInt(customerId),
       partnerId: partnerId === "none" ? null : parseInt(partnerId),
       issueDate: new Date(issueDate),
-      dueDate: new Date(dueDate),
+      dueDate: dueDate ? new Date(dueDate) : null,
       notes,
       poNumber: poNumber.trim() || null,
       invoiceTemplate,
@@ -832,6 +822,7 @@ export default function CreateInvoicePage() {
       exchangeRate: exchangeRate,
       paymentMethod,
       status: "issued",
+      transactionType: newTransactionType,
       subtotal: subtotal.toString(),
       taxAmount: taxAmount.toString(),
       total: total.toString(),
@@ -854,10 +845,10 @@ export default function CreateInvoicePage() {
       if (isEditing && editId) {
         savedInvoice = await updateInvoice.mutateAsync({
           id: parseInt(editId),
-          data: invoiceData,
+          data: invoiceData as any,
         });
       } else {
-        savedInvoice = await createInvoice.mutateAsync(invoiceData);
+        savedInvoice = await createInvoice.mutateAsync(invoiceData as any);
       }
 
       if (fiscalizeNow) {
@@ -993,8 +984,9 @@ export default function CreateInvoicePage() {
       return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
     })(),
     dueDate: (() => {
+      if (!dueDate) return null;
       const d = new Date(dueDate);
-      return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+      return isNaN(d.getTime()) ? null : d.toISOString();
     })(),
     status: "draft",
     items: items.map((item) => ({

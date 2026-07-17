@@ -76,8 +76,8 @@ export default defineConfig({
       injectManifest: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest}'],
         globIgnores: ['**/node_modules/**', '**/*.map'],
-        // Raised to 5 MB to cover the 3.29 MB index chunk
-        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+        // Raised to 10 MB to cover the 5.24 MB index chunk
+        maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
       },
 
       manifest: {

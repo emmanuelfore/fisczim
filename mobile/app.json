@@ -42,13 +42,12 @@
     },
     "extra": {
       "eas": {
-        "projectId": "e9e7bd23-9b42-4580-8827-3b6c3ab4d3d1"
+        "projectId": "75764377-70c6-4866-8672-9a1320483381"
       }
     },
     "plugins": [
       "expo-asset",
       "./scripts/withNetworkSecurityConfig"
-    ],
-    "owner": "rhymy"
+    ]
   }
 }

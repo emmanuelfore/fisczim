@@ -24,6 +24,8 @@ import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { QuantityInput } from "@/components/ui/quantity-input";
+
 
 type TransferLine = {
   localId: string;
@@ -327,7 +329,7 @@ export default function StockTransferFormPage() {
                   <thead>
                     <tr className="bg-slate-50 text-[10px] font-black uppercase tracking-widest text-slate-400 text-left border-b border-slate-100">
                       <th className="p-3">Product</th>
-                      <th className="p-3 w-28 text-right">Quantity</th>
+                      <th className="p-3 min-w-[140px] text-right">Quantity</th>
                       <th className="p-3 w-12 text-center"></th>
                     </tr>
                   </thead>
@@ -364,7 +366,7 @@ export default function StockTransferFormPage() {
                             )}
                           </td>
                           <td className="p-3 align-middle text-right">
-                            <Input
+                            <QuantityInput
                               value={line.quantity}
                               onChange={(e) => updateLine(line.localId, { quantity: e.target.value })}
                               type="number"

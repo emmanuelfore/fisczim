@@ -32,6 +32,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Settings2, Loader2, Info } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { QuantityInput } from "@/components/ui/quantity-input";
+
 
 const stockAdjustmentSchema = z.object({
   productId: z.number(),
@@ -201,7 +203,7 @@ export function StockAdjustmentDialog({
                       Actual Qty
                     </FormLabel>
                     <FormControl>
-                      <Input
+                      <QuantityInput
                         type="number"
                         step="0.01"
                         min="0"

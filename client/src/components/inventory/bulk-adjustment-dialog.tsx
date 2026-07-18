@@ -46,6 +46,8 @@ import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { QuantityInput } from "@/components/ui/quantity-input";
+
 
 const itemSchema = z.object({
   productId: z.number({ required_error: "Required" }),
@@ -415,7 +417,7 @@ export function BulkAdjustmentDialog({
                                       Actual Qty
                                     </FormLabel>
                                     <FormControl>
-                                      <Input
+                                      <QuantityInput
                                         type="number"
                                         min="0"
                                         step="0.01"

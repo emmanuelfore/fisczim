@@ -33,6 +33,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { PlusCircle, Loader2, Package, Plus } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { CreateSupplierDialog } from "@/components/suppliers/create-supplier-dialog";
+import { QuantityInput } from "@/components/ui/quantity-input";
+
 
 const stockInSchema = z.object({
   productId: z.number(),
@@ -132,7 +134,7 @@ export function StockInDialog({
                       Quantity Received
                     </FormLabel>
                     <FormControl>
-                      <Input
+                      <QuantityInput
                         type="number"
                         step="0.01"
                         placeholder="0.00"

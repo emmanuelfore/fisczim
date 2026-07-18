@@ -6,6 +6,8 @@ import { Label } from "@/components/ui/label";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { QuantityInput } from "@/components/ui/quantity-input";
+
 
 interface CompleteProductionRunDialogProps {
   companyId: string | number;
@@ -68,7 +70,7 @@ export function CompleteProductionRunDialog({
         <div className="grid gap-4 py-4">
           <div className="grid gap-2">
             <Label htmlFor="goodQuantity">Good Yield Quantity (Finished Goods)</Label>
-            <Input
+            <QuantityInput
               id="goodQuantity"
               type="number"
               step="any"
@@ -79,7 +81,7 @@ export function CompleteProductionRunDialog({
           
           <div className="grid gap-2">
             <Label htmlFor="rejectedQuantity">Scrap / Rejected Quantity</Label>
-            <Input
+            <QuantityInput
               id="rejectedQuantity"
               type="number"
               step="any"

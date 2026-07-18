@@ -29,6 +29,8 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
+import { QuantityInput } from "@/components/ui/quantity-input";
+
 
 const ITEMS_PER_PAGE = 20;
 const ADJUSTMENT_TYPES = [
@@ -551,7 +553,7 @@ export default function InventoryAdjustmentsPage() {
                       </td>
 
                       <td className="p-4">
-                        <Input
+                        <QuantityInput
                           type="number"
                           step="0.01"
                           placeholder={`${currentStock}`}

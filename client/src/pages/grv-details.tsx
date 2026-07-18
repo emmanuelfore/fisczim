@@ -7,7 +7,7 @@ import { usePurchaseReturns } from "@/hooks/use-purchase-returns";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Download, Loader2, Package, CheckCircle2, Truck, FileText, MoreHorizontal, Clock } from "lucide-react";
+import { ArrowLeft, Download, Loader2, Package, CheckCircle2, Truck, FileText, MoreHorizontal, Clock, Printer, Eye } from "lucide-react";
 import { format } from "date-fns";
 import { PDFDownloadLink } from "@react-pdf/renderer";
 import { GrvPdfDocument } from "@/components/inventory/grv-pdf-document";
@@ -30,6 +30,8 @@ import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useQuery } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react";
+import { QuantityInput } from "@/components/ui/quantity-input";
+
 
 type SupplierInvoiceLinePreview = {
   id: number;
@@ -62,6 +64,7 @@ export default function GrvDetailsPage() {
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [vatRate, setVatRate] = useState("");
   const [taxInclusive, setTaxInclusive] = useState(false);
+  const [viewMode, setViewMode] = useState<"manage" | "document">("manage");
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const currency = company?.currency || "USD";
@@ -302,7 +305,16 @@ export default function GrvDetailsPage() {
 
   return (
     <Layout>
-      <div className="mb-6 flex items-center justify-between">
+      {/* Print-only styles */}
+      <style>{`
+        @media print {
+          .print\\:hidden { display: none !important; }
+          body { margin: 0; padding: 0; background: white; }
+          .grv-a4-doc { box-shadow: none !important; border: none !important; margin: 0 !important; max-width: 100% !important; border-radius: 0 !important; }
+        }
+      `}</style>
+
+      <div className="mb-6 flex items-center justify-between print:hidden">
         <div className="flex items-center gap-3">
           <Button
             variant="outline"
@@ -317,7 +329,242 @@ export default function GrvDetailsPage() {
             Purchase Receipt Details
           </h1>
         </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant={viewMode === "manage" ? "default" : "outline"}
+            className="rounded-xl"
+            onClick={() => setViewMode("manage")}
+          >
+            Manage View
+          </Button>
+          <Button
+            variant={viewMode === "document" ? "default" : "outline"}
+            className="rounded-xl"
+            onClick={() => setViewMode("document")}
+          >
+            <Eye className="w-4 h-4 mr-2" />
+            Document View
+          </Button>
+        </div>
       </div>
+
+      {/* ─────────── A4 DOCUMENT VIEW ─────────── */}
+      {viewMode === "document" && (
+        <div className="flex flex-col">
+          {/* Document action bar */}
+          <div className="flex items-center justify-end gap-2 mb-4 print:hidden">
+            <Button
+              variant="outline"
+              className="rounded-xl"
+              onClick={() => window.print()}
+            >
+              <Printer className="w-4 h-4 mr-2" />
+              Print / Save PDF
+            </Button>
+            <PDFDownloadLink
+              document={<GrvPdfDocument grv={grv} company={company} />}
+              fileName={`${grv.grvNumber || "GRV"}.pdf`}
+            >
+              {({ loading }) => (
+                <Button variant="outline" className="rounded-xl" disabled={loading}>
+                  {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
+                  Download PDF
+                </Button>
+              )}
+            </PDFDownloadLink>
+          </div>
+
+          {/* A4 Sheet */}
+          <div className="flex-1 overflow-y-auto bg-slate-100/60 p-4 md:p-8 print:p-0 print:bg-white">
+            <div
+              className="grv-a4-doc mx-auto w-full max-w-[860px] bg-white shadow-xl ring-1 ring-slate-200 rounded-md print:shadow-none print:ring-0 print:m-0 print:max-w-full"
+              style={{ minHeight: "297mm" }}
+            >
+              <div className="p-10 md:p-14 flex flex-col gap-8">
+
+                {/* Document Header */}
+                <div className="flex justify-between items-start">
+                  <div className="max-w-[55%]">
+                    {company?.logo ? (
+                      <img src={company.logo} alt="Logo" className="max-h-16 mb-3 object-contain" />
+                    ) : (
+                      <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight mb-3">
+                        {company?.tradingName || company?.name || "Our Company"}
+                      </h2>
+                    )}
+                    <div className="text-sm text-slate-500 leading-relaxed space-y-0.5">
+                      {company?.address && <p>{company.address}</p>}
+                      {company?.city && <p>{company.city}</p>}
+                      {company?.phone && <p>Tel: {company.phone}</p>}
+                      {company?.tin && <p>TIN: {company.tin}</p>}
+                      {company?.vatNumber && <p>VAT Reg: {company.vatNumber}</p>}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <h1 className="text-4xl font-black text-slate-900 tracking-tighter uppercase mb-4">
+                      GOODS RECEIVED VOUCHER
+                    </h1>
+                    <div className="inline-block bg-slate-50 border border-slate-200 rounded-lg p-4 text-left min-w-[210px]">
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                        <span className="text-slate-500 font-medium">GRV #:</span>
+                        <span className="font-semibold text-slate-900 text-right font-mono">{grv.grvNumber}</span>
+                        <span className="text-slate-500 font-medium">Date:</span>
+                        <span className="font-semibold text-slate-900 text-right">
+                          {grv.createdAt ? format(new Date(grv.createdAt), "dd MMM yyyy") : "—"}
+                        </span>
+                        <span className="text-slate-500 font-medium">Status:</span>
+                        <span className="font-semibold text-slate-900 text-right">
+                          {grv.status === "DRAFT" ? "Draft" : "Posted"}
+                        </span>
+                        <span className="text-slate-500 font-medium">Currency:</span>
+                        <span className="font-semibold text-slate-900 text-right uppercase">{currency}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Supplier & Company Section */}
+                <div className="grid grid-cols-2 gap-6">
+                  <div>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 pb-2 border-b border-slate-100">Supplier</h3>
+                    <div className="text-sm text-slate-800 space-y-1">
+                      <p className="font-bold text-base text-slate-900">{grv.supplierName || "N/A"}</p>
+                    </div>
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 pb-2 border-b border-slate-100">Received By</h3>
+                    <div className="text-sm text-slate-800 space-y-1">
+                      <p className="font-bold text-base text-slate-900">{company?.tradingName || company?.name || "—"}</p>
+                      {company?.address && <p className="text-slate-500">{company.address}</p>}
+                      {company?.city && <p className="text-slate-500">{company.city}</p>}
+                      <p className="text-slate-500">Recorded by: {grv.createdBy || "System"}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Items Table */}
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 pb-2 border-b border-slate-100">Received Items</h3>
+                  <table className="w-full text-sm text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50 border-y border-slate-200">
+                        <th className="py-3 px-3 font-semibold text-slate-700 w-1/12">SKU</th>
+                        <th className="py-3 px-3 font-semibold text-slate-700 w-5/12">Description</th>
+                        <th className="py-3 px-3 font-semibold text-slate-700 text-right">Qty</th>
+                        <th className="py-3 px-3 font-semibold text-slate-700 text-right">Unit Cost</th>
+                        <th className="py-3 px-3 font-semibold text-slate-700 text-right">Tax</th>
+                        <th className="py-3 px-3 font-semibold text-slate-700 text-right">Line Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {grv.lines.filter(l => l.productId).map((line: any, idx: number) => (
+                        <tr key={line.id} className={`border-b border-slate-100 ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'}`}>
+                          <td className="py-3 px-3 font-mono text-xs text-slate-500">{line.sku || "—"}</td>
+                          <td className="py-3 px-3 font-medium text-slate-900">{line.productName}</td>
+                          <td className="py-3 px-3 text-right text-slate-700">{Number(line.quantity).toFixed(2)}</td>
+                          <td className="py-3 px-3 text-right text-slate-700">{currency} {Number(line.unitCost).toFixed(2)}</td>
+                          <td className="py-3 px-3 text-right text-slate-500 text-xs">
+                            {line.taxTypeName || "—"}
+                            {Number(line.taxAmount) > 0 && <span className="block">{currency} {Number(line.taxAmount).toFixed(2)}</span>}
+                          </td>
+                          <td className="py-3 px-3 text-right font-semibold text-slate-900">
+                            {currency} {(Number(line.unitCost) * Number(line.quantity) + Number(line.taxAmount || 0)).toFixed(2)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+
+                  {/* Landed Costs */}
+                  {grv.lines.some((l: any) => l.productId === null) && (
+                    <>
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mt-6 mb-3 pb-2 border-b border-slate-100">Landed Costs &amp; Additional Charges</h3>
+                      <table className="w-full text-sm text-left border-collapse">
+                        <thead>
+                          <tr className="bg-amber-50 border-y border-amber-100">
+                            <th className="py-2 px-3 font-semibold text-slate-700 w-1/2">Charge Description</th>
+                            <th className="py-2 px-3 font-semibold text-slate-700">Account</th>
+                            <th className="py-2 px-3 font-semibold text-slate-700 text-right">Qty</th>
+                            <th className="py-2 px-3 font-semibold text-slate-700 text-right">Unit Cost</th>
+                            <th className="py-2 px-3 font-semibold text-slate-700 text-right">Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {grv.lines.filter((l: any) => l.productId === null).map((line: any, idx: number) => (
+                            <tr key={line.id} className="border-b border-slate-100">
+                              <td className="py-2 px-3 text-slate-800">{line.productName || line.description || "—"}</td>
+                              <td className="py-2 px-3 font-mono text-xs text-slate-500">{line.accountCode || "—"}</td>
+                              <td className="py-2 px-3 text-right">{Number(line.quantity).toFixed(2)}</td>
+                              <td className="py-2 px-3 text-right">{currency} {Number(line.unitCost).toFixed(2)}</td>
+                              <td className="py-2 px-3 text-right font-semibold">{currency} {(Number(line.unitCost) * Number(line.quantity)).toFixed(2)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </>
+                  )}
+                </div>
+
+                {/* Totals */}
+                <div className="flex justify-end">
+                  <div className="w-1/2 min-w-[280px] border border-slate-200 rounded-xl overflow-hidden">
+                    <div className="bg-slate-50 p-4 space-y-3">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-500 font-medium">Subtotal</span>
+                        <span className="text-slate-900 font-semibold">
+                          {currency} {grv.lines.reduce((sum: number, l: any) => sum + Number(l.quantity || 0) * Number(l.unitCost || 0), 0).toFixed(2)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-500 font-medium">Total Tax</span>
+                        <span className="text-slate-900 font-semibold">
+                          {currency} {grv.lines.reduce((sum: number, l: any) => sum + Number(l.taxAmount || 0), 0).toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="bg-slate-900 p-4 flex justify-between items-center text-white">
+                      <span className="font-semibold uppercase tracking-wider text-xs text-slate-300">Total Value</span>
+                      <span className="text-xl font-bold">
+                        {currency} {grv.lines.reduce((sum: number, l: any) => sum + Number(l.quantity || 0) * Number(l.unitCost || 0) + Number(l.taxAmount || 0), 0).toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Notes */}
+                {grv.notes && (
+                  <div className="rounded-xl border border-amber-100 bg-amber-50 p-4">
+                    <p className="text-xs font-bold uppercase tracking-widest text-amber-600 mb-1">Notes / Instructions</p>
+                    <p className="text-sm text-amber-900">{grv.notes}</p>
+                  </div>
+                )}
+
+                {/* Signatures */}
+                <div className="mt-8 grid grid-cols-3 gap-8 pt-8 border-t border-slate-200">
+                  {["Received By", "Checked By", "Authorised By"].map((label) => (
+                    <div key={label} className="text-center">
+                      <div className="h-12 border-b border-slate-300 mb-2" />
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{label}</p>
+                      <p className="text-[10px] text-slate-400 mt-1">Name &amp; Date</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Footer */}
+                <div className="text-center border-t border-slate-100 pt-4">
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">Goods Received Voucher</p>
+                  <p className="text-[10px] text-slate-400">This document confirms the receipt of goods. GRV {grv.grvNumber} — Generated by {company?.tradingName || company?.name || "System"}</p>
+                </div>
+
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─────────── MANAGE VIEW ─────────── */}
+      {viewMode === "manage" && (
+        <>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         <div className="lg:col-span-3 space-y-6">
@@ -448,11 +695,11 @@ export default function GrvDetailsPage() {
                           <td className="p-3 font-bold text-right">
                             {grv.status === "DRAFT" ? (
                               <div className="flex justify-end items-center">
-                                <Input 
+                                <QuantityInput 
                                   type="number" 
                                   step="0.01" 
                                   min="0"
-                                  className="h-8 w-20 text-right font-mono" 
+                                  className="h-8  text-right font-mono" 
                                   value={line.quantity} 
                                   onChange={(e) => handleLineChange(idx, "quantity", e.target.value)} 
                                 />
@@ -601,11 +848,11 @@ export default function GrvDetailsPage() {
                             <td className="p-3 font-bold text-right">
                               {grv.status === "DRAFT" ? (
                                 <div className="flex justify-end items-center">
-                                  <Input 
+                                  <QuantityInput 
                                     type="number" 
                                     step="0.01" 
                                     min="0"
-                                    className="h-8 w-20 text-right font-mono" 
+                                    className="h-8  text-right font-mono" 
                                     value={line.quantity} 
                                     onChange={(e) => {
                                       const qty = Number(e.target.value || 0);
@@ -813,6 +1060,8 @@ export default function GrvDetailsPage() {
           </div>
         </DialogContent>
       </Dialog>
+        </>
+      )}
     </Layout>
   );
 }

@@ -10,6 +10,8 @@ import { useDeviceStatus } from "@/hooks/use-device-status";
 import { apiFetch } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
 import { buildUrl, api } from "@shared/routes";
+import { useToast } from "@/hooks/use-toast";
+import { useEffect, useRef } from "react";
 import {
   ArrowUp,
   CheckCircle2,
@@ -235,6 +237,22 @@ export default function Dashboard() {
     name: row.name,
     ...(row.byCurrency || {}),
   }));
+
+  const { toast } = useToast();
+  const alertShownRef = useRef(false);
+
+  useEffect(() => {
+    if (!activeCompany || stockAlerts.length === 0 || alertShownRef.current) return;
+    
+    if (outOfStockCount > 0 || lowStockCount > 0) {
+      alertShownRef.current = true;
+      toast({
+        title: "Inventory Alert",
+        description: `You have ${outOfStockCount} out of stock and ${lowStockCount} low stock items.`,
+        variant: "destructive",
+      });
+    }
+  }, [activeCompany, stockAlerts, outOfStockCount, lowStockCount, toast]);
 
   if (!activeCompany) {
     return (

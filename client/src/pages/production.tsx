@@ -31,6 +31,8 @@ import { useProducts } from "@/hooks/use-products";
 import { useBranchContext } from "@/lib/branch-context";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { QuantityInput } from "@/components/ui/quantity-input";
+
 
 type ProductionLine = {
   id: string;
@@ -256,7 +258,7 @@ export default function ProductionPage() {
                     </div>
                   )}
                 </div>
-                <Input
+                <QuantityInput
                   type="number"
                   min="0"
                   step="0.0001"

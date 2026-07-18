@@ -9,6 +9,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Plus, Trash2, Search, Loader2, ChefHat, Save } from "lucide-react";
 import { useProducts } from "@/hooks/use-products";
 import { useToast } from "@/hooks/use-toast";
+import { QuantityInput } from "@/components/ui/quantity-input";
+
 
 interface RecipeItem {
   ingredientId: number;
@@ -175,7 +177,7 @@ export function RecipeManager({ productId, companyId }: Props) {
                       </div>
                       <div className="flex items-center gap-3">
                         <div className="w-24">
-                          <Input
+                          <QuantityInput
                             type="number"
                             step="0.0001"
                             value={item.quantity}

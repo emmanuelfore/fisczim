@@ -26,6 +26,8 @@ import { useLocation } from "wouter";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
+import { QuantityInput } from "@/components/ui/quantity-input";
+
 
 type InvoiceLine = {
   isFreetext?: boolean;
@@ -520,7 +522,7 @@ export default function SupplierInvoiceFormPage() {
                         </div>
                       </div>
                       <div className="col-span-1">
-                        <Input
+                        <QuantityInput
                           type="number" min="0" value={line.quantity}
                           onChange={(e) => {
                             const qty = Number(e.target.value || 0);

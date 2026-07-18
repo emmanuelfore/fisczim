@@ -11,6 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { Textarea } from "@/components/ui/textarea";
 import { useActiveCompany } from "@/hooks/use-active-company";
+import { QuantityInput } from "@/components/ui/quantity-input";
+
 
 const goodsIssueSchema = z.object({
   productId: z.coerce.number().min(1, "Product is required"),
@@ -95,7 +97,7 @@ export function GoodsIssueForm({ productionRunId, onSuccess }: { productionRunId
         <FormField control={form.control} name="quantity" render={({ field }) => (
           <FormItem>
             <FormLabel>Quantity</FormLabel>
-            <FormControl><Input type="number" step="any" {...field} /></FormControl>
+            <FormControl><QuantityInput type="number" step="any" {...field} /></FormControl>
             <FormMessage />
           </FormItem>
         )} />

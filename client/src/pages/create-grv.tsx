@@ -15,6 +15,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ArrowLeft, Plus, Trash2, PackagePlus, Receipt, Truck } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { QuantityInput } from "@/components/ui/quantity-input";
+
 
 export default function CreateGrv() {
   const { activeCompanyId } = useActiveCompany();
@@ -410,7 +412,7 @@ export default function CreateGrv() {
                         </div>
                       </td>
                       <td className="p-4">
-                        <Input 
+                        <QuantityInput 
                           type="number" 
                           min="0" 
                           value={line.quantity}

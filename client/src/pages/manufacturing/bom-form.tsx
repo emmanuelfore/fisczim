@@ -15,6 +15,8 @@ import { Trash2, Plus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent } from "@/components/ui/card";
+import { QuantityInput } from "@/components/ui/quantity-input";
+
 
 const bomSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -142,7 +144,7 @@ export default function BomForm() {
                   <FormField control={form.control} name={`lines.${index}.quantity`} render={({ field }) => (
                     <FormItem className="w-32">
                       <FormLabel>Quantity</FormLabel>
-                      <FormControl><Input type="number" step="any" {...field} /></FormControl>
+                      <FormControl><QuantityInput type="number" step="any" {...field} /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )} />

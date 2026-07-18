@@ -21,6 +21,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCompany } from "@/hooks/use-companies";
 import { ArrowLeft, Printer, Send, Package, FileText, Download, User, ShoppingCart, FileEdit } from "lucide-react";
 import { format } from "date-fns";
+import { QuantityInput } from "@/components/ui/quantity-input";
+
 
 export default function SalesOrderDetailsPage() {
   const params = useParams();
@@ -162,7 +164,7 @@ export default function SalesOrderDetailsPage() {
                   </div>
                   <div className="grid gap-2">
                     <Label>Quantity to Allocate</Label>
-                    <Input type="number" value={allocQty} onChange={(e) => setAllocQty(e.target.value)} />
+                    <QuantityInput type="number" value={allocQty} onChange={(e) => setAllocQty(e.target.value)} />
                   </div>
                 </div>
                 <DialogFooter>
@@ -200,9 +202,9 @@ export default function SalesOrderDetailsPage() {
                           <td className="py-3 text-center">{item.quantity}</td>
                           <td className="py-3 text-center text-slate-500">{item.invoicedQuantity}</td>
                           <td className="py-3 text-right">
-                            <Input 
+                            <QuantityInput 
                               type="number" 
-                              className="w-20 ml-auto text-right h-8"
+                              className=" ml-auto text-right h-8"
                               defaultValue="0"
                               max={item.quantity - item.invoicedQuantity}
                               min="0"
@@ -236,10 +238,10 @@ export default function SalesOrderDetailsPage() {
         {/* Main Document Area */}
         <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-slate-100/50 print:p-0 print:bg-white">
           
-          {/* A4 Document Container */}
-          <div className="mx-auto aspect-[210/297] w-full max-w-[860px] overflow-hidden rounded-md bg-white shadow-xl ring-1 ring-slate-200 print:shadow-none print:ring-0 print:m-0 print:max-w-full">
+          {/* A4 Document Container — min-height ensures A4 proportions, content can extend naturally */}
+          <div className="mx-auto w-full max-w-[860px] rounded-md bg-white shadow-xl ring-1 ring-slate-200 print:shadow-none print:ring-0 print:m-0 print:max-w-full" style={{ minHeight: "297mm" }}>
             
-            <div className="p-10 md:p-14 h-full flex flex-col relative">
+            <div className="p-10 md:p-14 flex flex-col relative">
               
               {/* Header Section */}
               <div className="flex justify-between items-start mb-12">

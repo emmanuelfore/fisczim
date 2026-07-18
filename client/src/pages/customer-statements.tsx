@@ -327,48 +327,7 @@ export default function CustomerStatements() {
             </table>
           </div>
 
-          {/* ══ Itemized Stock Ledger ══ */}
-          {(stmt.items_sold?.length > 0) && (
-            <div className="border-t border-slate-200 print-page-break">
-              <div className="px-8 py-4 bg-slate-50 border-b border-slate-200">
-                <h2 className="text-sm font-bold uppercase tracking-wide text-slate-700">
-                  Itemized Stock Ledger (Sales)
-                </h2>
-              </div>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    <th className="py-2.5 px-4 text-left">Date</th>
-                    <th className="px-4 text-left">Reference</th>
-                    <th className="px-4 text-left">Product</th>
-                    <th className="px-4 text-left">SKU</th>
-                    <th className="px-4 text-right">IN (Qty)</th>
-                    <th className="px-4 text-right">OUT (Qty)</th>
-                    <th className="px-4 text-right">Unit Price</th>
-                    <th className="px-4 text-right">Total Value</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {stmt.items_sold.map((s: any, i: number) => (
-                    <tr key={i} className={cn("border-b border-slate-100", s.type === "receipt" ? "bg-blue-50/40" : "hover:bg-slate-50/50")}>
-                      <td className="py-2.5 px-4 text-slate-600 text-xs whitespace-nowrap">{fmtDate(s.date)}</td>
-                      <td className="px-4 font-mono text-xs font-semibold text-slate-800 whitespace-nowrap">{s.reference}</td>
-                      <td className="px-4 font-medium text-slate-800">{s.product_name || "Unknown Product"}</td>
-                      <td className="px-4 font-mono text-xs text-slate-500">{s.sku || "—"}</td>
-                      <td className="px-4 text-right font-semibold text-blue-700">
-                        {Number(s.qty_in) > 0 ? Number(s.qty_in).toLocaleString() : "—"}
-                      </td>
-                      <td className="px-4 text-right font-semibold text-amber-700">
-                        {Number(s.qty_out) > 0 ? Number(s.qty_out).toLocaleString() : "—"}
-                      </td>
-                      <td className="px-4 text-right font-mono text-xs text-slate-500">{Number(s.unit_price) > 0 ? `$${fmt(s.unit_price)}` : "—"}</td>
-                      <td className="px-4 text-right font-semibold text-slate-800">{Number(s.total_value) > 0 ? `$${fmt(s.total_value)}` : "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+
 
           {/* ══ Exclusive / Linked Stock ══ */}
           {(stmt.exclusive_stock?.length > 0) && (

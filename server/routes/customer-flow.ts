@@ -225,7 +225,7 @@ export function createCustomerFlowRouter(requireAuth: any) {
         subtotal: invoiceSubtotal.toString(),
         taxAmount: invoiceTax.toString(),
         total: invoiceTotal.toString(),
-        status: "issued",
+        status: "draft",
       }).returning();
 
       await db.insert(invoiceItems).values(
@@ -410,20 +410,17 @@ export function createCustomerFlowRouter(requireAuth: any) {
         SELECT
           cp.id, p.id AS product_id, p.name AS product_name, p.sku, p.unit_of_measure AS uom,
           cp.customer_sku, cp.is_exclusive,
-          CASE WHEN cp.is_exclusive = true THEN
+          (
             COALESCE((
               SELECT SUM(s.quantity) FROM customer_stock s
               WHERE s.product_id = p.id
                 AND s.customer_id = ${id}
             ), 0)
-          ELSE
-            COALESCE((
-              SELECT SUM(bs.stock_level) FROM branch_stocks bs
-              WHERE bs.product_id = p.id
-            ), 0)
-          END AS quantity_on_hand,
+            +
+            COALESCE(p.stock_level, 0)
+          ) AS quantity_on_hand,
           
-          CASE WHEN cp.is_exclusive = true THEN
+          (
             COALESCE((
               SELECT SUM(s.quantity) - COALESCE((
                 SELECT SUM(sa.quantity_allocated) 
@@ -437,12 +434,9 @@ export function createCustomerFlowRouter(requireAuth: any) {
               WHERE s.product_id = p.id
                 AND s.customer_id = ${id}
             ), 0)
-          ELSE
-            COALESCE((
-              SELECT SUM(bs.stock_level) FROM branch_stocks bs
-              WHERE bs.product_id = p.id
-            ), 0)
-          END AS available_quantity
+            +
+            COALESCE(p.stock_level, 0)
+          ) AS available_quantity
         FROM customer_products cp
         JOIN products p ON p.id = cp.product_id
         WHERE cp.customer_id = ${id}

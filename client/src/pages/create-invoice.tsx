@@ -85,6 +85,8 @@ import {
 } from "@/lib/invoice-templates";
 import { usePermissions } from "@/hooks/use-permissions";
 import { apiFetch } from "@/lib/api";
+import { QuantityInput } from "@/components/ui/quantity-input";
+
 
 type LineItem = {
   localId: string;
@@ -2042,7 +2044,7 @@ export default function CreateInvoicePage() {
                                   </Select>
                                 </TableCell>
                                 <TableCell className="align-top py-3">
-                                  <Input
+                                  <QuantityInput
                                     type="number"
                                     min="1"
                                     value={item.quantity}

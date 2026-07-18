@@ -54,6 +54,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useCustomers } from "@/hooks/use-customers";
+import { QuantityInput } from "@/components/ui/quantity-input";
+
 
 interface PosTerminalSettingsProps {
   formData: any;
@@ -701,7 +703,7 @@ export function PosTerminalSettings({
                     </p>
                   </div>
                   <div className="w-24">
-                    <Input
+                    <QuantityInput
                       type="number"
                       min={0}
                       max={4}
@@ -944,7 +946,7 @@ export function PosTerminalSettings({
                           <Label className="text-[10px] font-black uppercase text-slate-400">
                             Qty Divisor
                           </Label>
-                          <Input
+                          <QuantityInput
                             type="number"
                             value={rule.quantityDivisor}
                             onChange={(e) =>
@@ -1001,7 +1003,7 @@ export function PosTerminalSettings({
                           <Label className="text-[10px] font-black uppercase text-slate-400">
                             Qty Start
                           </Label>
-                          <Input
+                          <QuantityInput
                             type="number"
                             value={rule.quantityStart}
                             onChange={(e) =>
@@ -1020,7 +1022,7 @@ export function PosTerminalSettings({
                           <Label className="text-[10px] font-black uppercase text-slate-400">
                             Qty Length
                           </Label>
-                          <Input
+                          <QuantityInput
                             type="number"
                             value={rule.quantityLength}
                             onChange={(e) =>
@@ -1077,7 +1079,7 @@ export function PosTerminalSettings({
                           <p className="text-[9px] font-black uppercase tracking-widest text-violet-400">
                             Test a Barcode
                           </p>
-                          <Input
+                          <QuantityInput
                             placeholder={`e.g. ${rule.prefix || "20"}${"1234".slice(0, rule.skuLength || 4)}${"001382".slice(0, rule.quantityLength || 6)}4`}
                             className="h-8 text-xs font-mono bg-white border-violet-200 rounded-lg"
                             onChange={(e) => {

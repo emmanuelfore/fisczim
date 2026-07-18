@@ -1,3 +1,4 @@
+import { QuantityInput } from "@/components/ui/quantity-input";
 import { Layout } from "@/components/layout";
 import { useCustomers, useCreateCustomer } from "@/hooks/use-customers";
 import { useProducts, useCreateProduct } from "@/hooks/use-products";
@@ -60,6 +61,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import {
+
   Table,
   TableBody,
   TableCell,
@@ -605,7 +607,7 @@ export default function CreateQuotationPage() {
                       />
                     </TableCell>
                     <TableCell>
-                      <Input
+                      <QuantityInput
                         type="number"
                         value={item.quantity}
                         onChange={(e) =>

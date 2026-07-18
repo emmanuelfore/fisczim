@@ -8,6 +8,8 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
 import { useActiveCompany } from "@/hooks/use-active-company";
+import { QuantityInput } from "@/components/ui/quantity-input";
+
 
 export default function StockReceiptPage() {
   const { activeCompanyId } = useActiveCompany();
@@ -97,7 +99,7 @@ export default function StockReceiptPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Quantity</Label>
-                  <Input 
+                  <QuantityInput 
                     type="number" 
                     step="0.01" 
                     required 

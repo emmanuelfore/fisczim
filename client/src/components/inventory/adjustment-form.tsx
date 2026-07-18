@@ -32,6 +32,8 @@ import { useProducts } from "@/hooks/use-products";
 import { useInventoryAdjust } from "@/hooks/use-inventory";
 import { useToast } from "@/hooks/use-toast";
 import { SlidersHorizontal, Package, AlertTriangle } from "lucide-react";
+import { QuantityInput } from "@/components/ui/quantity-input";
+
 
 const adjustmentSchema = z.object({
     productId: z.string().min(1, "Product is required"),
@@ -188,7 +190,7 @@ export function AdjustmentForm() {
                                 <FormItem>
                                     <FormLabel className="text-[10px] font-black uppercase tracking-widest text-slate-400">Actual Quantity Counted</FormLabel>
                                     <FormControl>
-                                        <Input {...field} type="number" min="0" step="0.01" placeholder={selectedProduct ? systemQuantity.toString() : "Select a product first"} className="h-12 font-mono text-lg border-slate-200 rounded-xl focus:ring-orange-500/20" />
+                                        <QuantityInput {...field} type="number" min="0" step="0.01" placeholder={selectedProduct ? systemQuantity.toString() : "Select a product first"} className="h-12 font-mono text-lg border-slate-200 rounded-xl focus:ring-orange-500/20" />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>

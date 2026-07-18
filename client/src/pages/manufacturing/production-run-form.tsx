@@ -13,6 +13,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent } from "@/components/ui/card";
+import { QuantityInput } from "@/components/ui/quantity-input";
+
 
 const productionRunSchema = z.object({
   type: z.enum(["RECIPE", "SIMPLE"]).default("RECIPE"),
@@ -119,7 +121,7 @@ export default function ProductionRunForm() {
               <FormField control={form.control} name="plannedQuantity" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Planned Production Quantity</FormLabel>
-                  <FormControl><Input type="number" step="any" {...field} /></FormControl>
+                  <FormControl><QuantityInput type="number" step="any" {...field} /></FormControl>
                   <FormMessage />
                 </FormItem>
               )} />

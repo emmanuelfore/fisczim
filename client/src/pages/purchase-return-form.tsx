@@ -27,6 +27,8 @@ import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { QuantityInput } from "@/components/ui/quantity-input";
+
 
 type DraftLine = {
   productId: string;
@@ -334,7 +336,7 @@ export default function PurchaseReturnFormPage({
                             />
                           </div>
                           <div className="col-span-2">
-                            <Input
+                            <QuantityInput
                               type="number"
                               min="0"
                               value={line.quantity}

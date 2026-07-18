@@ -1,3 +1,4 @@
+import { QuantityInput } from "@/components/ui/quantity-input";
 import { Layout } from "@/components/layout";
 import { useState } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
@@ -58,6 +59,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import {
+
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -439,7 +441,7 @@ export default function BulkAdjustmentPage() {
                                   render={({ field }) => (
                                     <FormItem>
                                       <FormControl>
-                                        <Input
+                                        <QuantityInput
                                           type="number"
                                           min="0"
                                           step="0.01"

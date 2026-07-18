@@ -2492,3 +2492,59 @@
         Calculated NextGlobalNo: 17
         Calculated NextReceiptCounter: 17
         --------------------------------
+[2026-07-18T09:43:42.948Z] Invoice 9700
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 18
+        Calculated NextReceiptCounter: 18
+        --------------------------------
+[2026-07-18T09:44:39.793Z] Invoice 9701
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 19
+        Calculated NextReceiptCounter: 19
+        --------------------------------
+[2026-07-18T09:48:40.178Z] Invoice 9703
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 20
+        Calculated NextReceiptCounter: 20
+        --------------------------------
+[2026-07-18T09:51:19.316Z] Invoice 9704
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 21
+        Calculated NextReceiptCounter: 21
+        --------------------------------
+[2026-07-18T09:52:43.759Z] Invoice 9705
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 22
+        Calculated NextReceiptCounter: 22
+        --------------------------------
+[2026-07-18T09:53:19.584Z] Invoice 9706
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 23
+        Calculated NextReceiptCounter: 23
+        --------------------------------
+[2026-07-18T10:04:36.483Z] Invoice 9709
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 24
+        Calculated NextReceiptCounter: 24
+        --------------------------------
+[2026-07-18T10:24:25.157Z] Invoice 9713
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 25
+        Calculated NextReceiptCounter: 25
+        --------------------------------

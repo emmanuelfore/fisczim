@@ -324,7 +324,7 @@ export const companyUsers = pgTable("company_users", {
   id: serial("id").primaryKey(),
   userId: uuid("user_id").references(() => users.id).notNull(),
   companyId: integer("company_id").references(() => companies.id).notNull(),
-  role: text("role").default("member"), // owner, admin, member, cashier (legacy)
+  role: text("role").default("member"), // owner, admin, member, cashier, manufacturing (legacy)
   accessRoleId: integer("access_role_id").references(() => companyAccessRoles.id),
   companyRoleId: integer("company_role_id").references(() => companyRoles.id),
 }, (table) => {
@@ -494,6 +494,9 @@ export const products = pgTable("products", {
   // Recipe Flags
   isIngredient: boolean("is_ingredient").default(false), // e.g. Flour, Sugar
   hasRecipe: boolean("has_recipe").default(false), // e.g. Burger, Cake
+
+  // POS Visibility
+  isForSale: boolean("is_for_sale").default(true).notNull(), // When false, hides from POS/invoicing (raw materials)
   
   // Visuals
   imageUrl: text("image_url"),
@@ -861,14 +864,14 @@ export const currenciesRelations = relations(currencies, ({ one }) => ({
 export const insertUserSchema = createInsertSchema(users).omit({ createdAt: true });
 export const insertResetTokenSchema = createInsertSchema(resetTokens).omit({ id: true, createdAt: true });
 export const insertCompanySchema = createInsertSchema(companies).omit({ id: true, createdAt: true }).extend({
-  tin: z.string().regex(/^\d{10}$/, "TIN must be exactly 10 digits").or(z.string().length(0)).nullable().optional(),
-  vatNumber: z.string().regex(/^\d{9,10}$/, "VAT number must be 9 or 10 digits").or(z.string().length(0)).nullable().optional(),
-  bpNumber: z.string().regex(/^\d{10}$/, "BP number must be exactly 10 digits").or(z.string().length(0)).nullable().optional(),
+  tin: z.string().regex(/^\d{10}$/, "TIN must be exactly 10 digits").or(z.string().length(0)).nullable().optional().transform(v => v === "" ? null : v),
+  vatNumber: z.string().regex(/^\d{9,10}$/, "VAT number must be 9 or 10 digits").or(z.string().length(0)).nullable().optional().transform(v => v === "" ? null : v),
+  bpNumber: z.string().regex(/^\d{10}$/, "BP number must be exactly 10 digits").or(z.string().length(0)).nullable().optional().transform(v => v === "" ? null : v),
 });
 export const insertCustomerSchema = createInsertSchema(customers).omit({ id: true, createdAt: true }).extend({
-  tin: z.string().regex(/^\d{10}$/, "TIN must be exactly 10 digits").or(z.string().length(0)).nullable().optional(),
-  vatNumber: z.string().regex(/^\d{9,10}$/, "VAT number must be 9 or 10 digits").or(z.string().length(0)).nullable().optional(),
-  bpNumber: z.string().regex(/^\d{10}$/, "BP number must be exactly 10 digits").or(z.string().length(0)).nullable().optional(),
+  tin: z.string().regex(/^\d{10}$/, "TIN must be exactly 10 digits").or(z.string().length(0)).nullable().optional().transform(v => v === "" ? null : v),
+  vatNumber: z.string().regex(/^\d{9,10}$/, "VAT number must be 9 or 10 digits").or(z.string().length(0)).nullable().optional().transform(v => v === "" ? null : v),
+  bpNumber: z.string().regex(/^\d{10}$/, "BP number must be exactly 10 digits").or(z.string().length(0)).nullable().optional().transform(v => v === "" ? null : v),
 });
 export const insertProductSchema = createInsertSchema(products).omit({ id: true, createdAt: true }).extend({
   sku: z.string().min(1, "Code/SKU is required")

@@ -77,7 +77,8 @@ export default function CreateGrv() {
     },
     onSuccess: () => {
       toast({ title: "Draft GRV Created", description: "You can now review and post it to stock." });
-      queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/gdns`] });
+      queryClient.invalidateQueries({ queryKey: ["gdns", companyId, "DRAFT"] });
+      queryClient.invalidateQueries({ queryKey: ["grvs", companyId] });
       setLocation("/inventory/account");
     },
     onError: (err: any) => {

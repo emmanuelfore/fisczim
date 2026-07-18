@@ -26,6 +26,7 @@ export const PERMISSION_GROUPS = [
   "Restaurant",
   "Administration",
   "Transport & Bus Ticketing",
+  "Manufacturing",
 ] as const;
 
 export const ALL_PERMISSIONS: PermissionDefinition[] = [
@@ -45,6 +46,12 @@ export const ALL_PERMISSIONS: PermissionDefinition[] = [
   { key: "nav.approvals", label: "Approvals Inbox", description: "View pending approval requests", group: "Navigation" },
   { key: "nav.payroll", label: "Payroll & HR", description: "Access payroll and employee records", group: "Navigation" },
   { key: "nav.bus", label: "Bus Ticketing", description: "Access bus transport modules", group: "Navigation" },
+  { key: "nav.manufacturing", label: "Manufacturing", description: "Access manufacturing modules", group: "Navigation" },
+
+  // Manufacturing
+  { key: "manufacturing.bom", label: "Manage BOMs", description: "Create and edit Bill of Materials", group: "Manufacturing" },
+  { key: "manufacturing.work_orders", label: "Manage Work Orders", description: "Create, start, and complete production runs", group: "Manufacturing" },
+  { key: "manufacturing.view", label: "View Manufacturing", description: "View manufacturing dashboard and runs", group: "Manufacturing" },
 
   // POS
   { key: "pos.sell", label: "Process Sales", description: "Ring up sales on POS", group: "Sales" },
@@ -164,6 +171,17 @@ export const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     "stock.adjust.request",
     "nav.bus",
     "bus.view",
+  ],
+  manufacturing: [
+    "nav.dashboard",
+    "nav.inventory",
+    "stock.view",
+    "stock.adjust.request",
+    "stock.count",
+    "nav.manufacturing",
+    "manufacturing.bom",
+    "manufacturing.work_orders",
+    "manufacturing.view",
   ],
 };
 

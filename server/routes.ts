@@ -1867,11 +1867,14 @@ export async function registerRoutes(
       seedCompanyDefaults(company.id).catch(err => console.error("Seeding Failed:", err));
 
       res.status(201).json(company);
-    } catch (err) {
+    } catch (err: any) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ message: err.errors[0].message });
       }
       console.error("Create Company Error:", err);
+      if (err.code === "23505" && err.constraint === "companies_tin_unique") {
+        return res.status(409).json({ message: "A company with this TIN already exists. Please use a unique TIN." });
+      }
       res.status(500).json({ message: "Failed to create company: " + (err instanceof Error ? err.message : "Internal Error") });
     }
   });
@@ -1912,12 +1915,21 @@ export async function registerRoutes(
   app.patch("/api/companies/:id", requireAuth, async (req, res) => {
     try {
       const companyId = Number(req.params.id);
+      
+      // Transform empty strings to null to avoid unique constraint violations
+      if (req.body.tin === "") req.body.tin = null;
+      if (req.body.vatNumber === "") req.body.vatNumber = null;
+      if (req.body.bpNumber === "") req.body.bpNumber = null;
+
       console.log(`[STORAGE] PATCH /api/companies/${companyId} Body:`, JSON.stringify(req.body, null, 2));
       // Ideally verify user owns this company
       const updated = await storage.updateCompany(companyId, req.body);
       res.json(updated);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Update Company Error:", err);
+      if (err.code === "23505" && err.constraint === "companies_tin_unique") {
+        return res.status(409).json({ message: "A company with this TIN already exists. Please use a unique TIN." });
+      }
       res.status(500).json({ message: "Failed to update company" });
     }
   });
@@ -3789,7 +3801,7 @@ export async function registerRoutes(
       if (!email) return res.status(400).json({ message: "Email is required" });
 
       // Validate role
-      const validRoles = ['owner', 'admin', 'member', 'cashier'];
+      const validRoles = ['owner', 'admin', 'member', 'cashier', 'manufacturing'];
       if (role && !validRoles.includes(role)) {
         return res.status(400).json({ message: "Invalid role" });
       }
@@ -3909,7 +3921,7 @@ export async function registerRoutes(
       const { role, ownerGroupScope, branchIds, accessRoleId } = req.body;
 
       // Validate role
-      const validRoles = ['owner', 'admin', 'member', 'cashier'];
+      const validRoles = ['owner', 'admin', 'member', 'cashier', 'manufacturing'];
       if (role && !validRoles.includes(role)) {
         return res.status(400).json({ message: "Invalid role" });
       }
@@ -13449,7 +13461,7 @@ export async function registerRoutes(
   app.post("/api/manufacturing/work-orders/:id/complete", requireAuth, async (req: any, res: any) => {
     try {
       const { completedQuantity } = req.body;
-      const wo = await storage.completeWorkOrder(Number(req.params.id), Number(completedQuantity), req.user?.id || 'system');
+      const wo = await storage.completeWorkOrder(Number(req.params.id), Number(completedQuantity), 0, req.user?.id || 'system');
       res.json(wo);
     } catch (err: any) {
       res.status(500).json({ message: err.message });

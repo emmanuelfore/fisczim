@@ -13,7 +13,7 @@ import {
   productionRuns,
   standardCosts,
   billOfMaterials,
-  bomLines,
+  bomItems,
   manufacturingRoutingOperations,
   manufacturingWorkCenters,
   goodsIssues,

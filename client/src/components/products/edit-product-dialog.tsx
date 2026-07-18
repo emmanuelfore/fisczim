@@ -95,6 +95,7 @@ export function EditProductDialog({ product, trigger, children }: Props) {
       imageUrl: product.imageUrl || "",
       isIngredient: product.isIngredient ?? false,
       hasRecipe: product.hasRecipe ?? false,
+      ...(("isForSale" in product) ? { isForSale: product.isForSale ?? true } : { isForSale: true }),
       isPrescriptionOnly: product.isPrescriptionOnly ?? false,
       batchTrackingEnabled: product.batchTrackingEnabled ?? false,
       brandName: product.brandName || "",
@@ -423,6 +424,28 @@ export function EditProductDialog({ product, trigger, children }: Props) {
                       <FormControl>
                         <Switch
                           checked={field.value || false}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name={"isForSale" as any}
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-center justify-between rounded-xl border border-dashed border-orange-200 p-3 bg-orange-50/30 col-span-full">
+                      <div className="space-y-0.5">
+                        <FormLabel className="text-xs font-bold text-orange-900">
+                          Available for Sale (POS / Invoicing)
+                        </FormLabel>
+                        <FormDescription className="text-[10px]">
+                          Turn OFF to hide this product from the POS and invoice product picker (e.g. raw materials for internal use only)
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value !== false}
                           onCheckedChange={field.onChange}
                         />
                       </FormControl>

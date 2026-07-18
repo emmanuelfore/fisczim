@@ -675,6 +675,8 @@ export default function POSPage() {
     if (!resolvedProducts || resolvedProducts.length === 0) return [];
     return resolvedProducts
       .filter((p: any) => {
+        // Exclude products explicitly marked as not for sale (e.g. raw materials)
+        if (p.isForSale === false) return false;
         const matchesSearch =
           p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
           (p.sku && p.sku.toLowerCase().includes(searchQuery.toLowerCase()));

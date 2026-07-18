@@ -278,7 +278,11 @@ export default function CreateInvoicePage() {
     d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
     return d.toISOString().split("T")[0];
   }); // Default to today
-  const [dueDate, setDueDate] = useState<string>("");
+  const [dueDate, setDueDate] = useState<string>(() => {
+    const d = new Date();
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().split("T")[0];
+  });
   const [notes, setNotes] = useState<string>("");
   const [poNumber, setPoNumber] = useState<string>("");
   const [invoiceTemplate, setInvoiceTemplate] = useState<InvoiceTemplateId>(

@@ -13,7 +13,7 @@ import {
   purchaseOrders, stockTransfers,
   timeConfirmations, standardCosts,
   inventoryLocations, inventoryLocationStocks, customerProducts, salesOrders,
-  customerStock,
+  customerStock, goodsIssues, goodsReceipts,
 } from "../../../shared/schema.js";
 import {
   snapshotPlannedCosts,
@@ -178,7 +178,7 @@ router.post("/production-runs", async (req, res) => {
     // Snapshot planned costs (handles both RECIPE and SIMPLE types internally)
     await snapshotPlannedCosts(
       created.id,
-      created.bomId ?? undefined,
+      created.bomId!,
       created.routingId ?? undefined,
       parseFloat(created.plannedQuantity)
     );
@@ -496,7 +496,7 @@ router.post("/work-orders/:id/complete", async (req, res) => {
     const completedQty = req.body.completedQuantity
       ? Number(req.body.completedQuantity)
       : Number(run.plannedQuantity);
-    const result = await storage.completeWorkOrder(productionRunId, completedQty, userId);
+    const result = await storage.completeWorkOrder(productionRunId, completedQty, 0, userId);
     await calculateVariances(productionRunId);
     res.json(result);
   } catch (err: any) {

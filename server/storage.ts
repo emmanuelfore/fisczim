@@ -572,7 +572,7 @@ export interface IStorage {
   runConsolidationEliminations(companyId: number, asOfDate: Date, userId: string): Promise<any>;
   createBillOfMaterial(data: any): Promise<any>;
   createWorkOrder(data: any): Promise<any>;
-  completeWorkOrder(id: number, qty: number, userId: string): Promise<any>;
+  completeWorkOrder(id: number, goodQty: number, rejectedQty: number, userId: string): Promise<any>;
   disposeFixedAsset(assetId: number, companyId: number, disposalDate: Date, disposalType: string, proceedsAmount: string, notes: string, userId: string): Promise<any>;
   runForexRevaluation(companyId: number, date: Date, userId: string): Promise<any>;
   createAndReconcile(statementLineId: number, targetAccountId: number, description: string, userId: string): Promise<any>;
@@ -2726,8 +2726,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   async seedDefaultRolesForCompany(companyId: number): Promise<void> {
-    const existing = await db.select({ id: companyRoles.id }).from(companyRoles).where(eq(companyRoles.companyId, companyId)).limit(1);
-    if (existing.length > 0) return;
+    const existing = await db.select({ id: companyRoles.id, legacyRole: companyRoles.legacyRole }).from(companyRoles).where(eq(companyRoles.companyId, companyId));
+    const existingMap = new Map(existing.map(r => [r.legacyRole, r.id]));
 
     const { LEGACY_ROLE_PERMISSIONS } = await import("../shared/permissions.js");
     const templates = [
@@ -2735,22 +2735,37 @@ export class DatabaseStorage implements IStorage {
       { name: "Administrator", legacyRole: "admin", description: "Manage operations and settings" },
       { name: "Staff Member", legacyRole: "member", description: "Day-to-day operations with approval workflows" },
       { name: "Cashier", legacyRole: "cashier", description: "POS and limited stock operations" },
+      { name: "Manufacturing", legacyRole: "manufacturing", description: "Manage production runs and BOMs" },
     ];
 
     for (const template of templates) {
-      const [role] = await db.insert(companyRoles).values({
-        companyId,
-        name: template.name,
-        description: template.description,
-        isSystem: true,
-        legacyRole: template.legacyRole,
-      }).returning();
-
       const perms = LEGACY_ROLE_PERMISSIONS[template.legacyRole] || [];
+      let roleId = existingMap.get(template.legacyRole);
+
+      if (!roleId) {
+        // Insert new role
+        const [role] = await db.insert(companyRoles).values({
+          companyId,
+          name: template.name,
+          description: template.description,
+          isSystem: true,
+          legacyRole: template.legacyRole,
+        }).returning();
+        roleId = role.id;
+      }
+
+      // Sync permissions: insert any missing ones (do not remove custom additions)
       if (perms.length > 0) {
-        await db.insert(companyRolePermissions).values(
-          perms.map((permission) => ({ roleId: role.id, permission }))
-        );
+        const existingPerms = await db.select({ permission: companyRolePermissions.permission })
+          .from(companyRolePermissions)
+          .where(eq(companyRolePermissions.roleId, roleId));
+        const existingPermSet = new Set(existingPerms.map(p => p.permission));
+        const missing = perms.filter(p => !existingPermSet.has(p));
+        if (missing.length > 0) {
+          await db.insert(companyRolePermissions).values(
+            missing.map((permission) => ({ roleId: roleId!, permission }))
+          );
+        }
       }
     }
   }
@@ -8163,7 +8178,7 @@ export class DatabaseStorage implements IStorage {
 
     async setRecipeItems(productId: number, items: InsertRecipeItem[]): Promise<void> {
     await db.transaction(async (tx) => {
-      const { recipeItems, products, billOfMaterials, bomLines } = await import("@shared/schema.js");
+      const { recipeItems, products, billOfMaterials, bomItems } = await import("@shared/schema.js");
       const { eq, and } = await import("drizzle-orm");
 
       await tx.delete(recipeItems).where(eq(recipeItems.parentProductId, productId));
@@ -8191,7 +8206,7 @@ export class DatabaseStorage implements IStorage {
            await tx.update(billOfMaterials).set({ isActive: true }).where(eq(billOfMaterials.id, bom.id));
         }
         
-        await tx.delete(bomLines).where(eq(bomLines.bomId, bom.id));
+        await tx.delete(bomItems).where(eq(bomItems.bomId, bom.id));
         
         const linesToInsert = items.map(item => ({
             bomId: bom.id,
@@ -8199,7 +8214,7 @@ export class DatabaseStorage implements IStorage {
             quantity: String(item.quantity),
             unitOfMeasure: item.unit
         }));
-        await tx.insert(bomLines).values(linesToInsert);
+        await tx.insert(bomItems).values(linesToInsert);
 
       } else {
         await tx.update(products).set({ hasRecipe: false }).where(eq(products.id, productId));
@@ -8991,7 +9006,7 @@ export class DatabaseStorage implements IStorage {
       // 2. For RECIPE type: Fetch BOM + lines (components)
       // For SIMPLE type: Skip BOM, rely on direct material transactions
       let bom = null;
-      let lines = [];
+      let lines: { line: typeof bomItems.$inferSelect; product: typeof products.$inferSelect | null }[] = [];
       if (wo.type === "RECIPE" && wo.bomId != null) {
         const bomId = wo.bomId;
         [bom] = await tx.select().from(billOfMaterials).where(eq(billOfMaterials.id, bomId as number));
@@ -9109,8 +9124,6 @@ export class DatabaseStorage implements IStorage {
             productId: line.componentProductId,
             type: "ISSUE",
             quantity: actualQty.toString(),
-            unitCost: product?.costPrice || "0",
-            postedAt: new Date(),
             date: new Date(),
           });
 
@@ -9159,15 +9172,13 @@ export class DatabaseStorage implements IStorage {
           productId: bom.productId,
           type: "FINISHED_GOOD",
           quantity: goodQty.toString(),
-          unitCost: (totalMaterialCost / goodQty).toFixed(4),
-          postedAt: new Date(),
           date: new Date(),
         });
       } else if (wo.type === "SIMPLE") {
         // For SIMPLE type, material transactions are already posted manually
         // Just aggregate the actual material costs from existing transactions
         const [materialCostSum] = await tx.select({ 
-          total: sql<number>`COALESCE(SUM(${manufacturingMaterialTransactions.quantity}::numeric * ${manufacturingMaterialTransactions.unitCost}::numeric), 0)` 
+          total: sql<number>`COALESCE(SUM(${manufacturingMaterialTransactions.quantity}::numeric), 0)` 
         })
           .from(manufacturingMaterialTransactions)
           .where(and(
@@ -9213,7 +9224,7 @@ export class DatabaseStorage implements IStorage {
             const [je] = await tx.insert(journalEntries).values({
               companyId: wo.companyId,
               entryDate,
-              description: `Manufacturing WO #${id} Completion — ${bom.name}`,
+              description: `Manufacturing WO #${id} Completion${bom ? ` — ${bom.name}` : ''}`,
               referenceType: "MANUFACTURING",
               referenceId: `WO-${id}`,
               createdBy: userId || null,

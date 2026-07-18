@@ -291,6 +291,7 @@ export default function TeamSettingsPage() {
     "nav.settings": ["Administration"],
     "nav.payroll": ["HR & Payroll"],
     "nav.bus": ["Transport & Bus Ticketing"],
+    "nav.manufacturing": ["Manufacturing"],
   };
 
   const togglePermission = (permission: string, checked: boolean) => {
@@ -326,6 +327,46 @@ export default function TeamSettingsPage() {
       }
       return { ...prev, permissions: Array.from(next) };
     });
+  };
+
+  const toggleGroup = (groupLabel: string, checked: boolean) => {
+    setRoleForm((prev) => {
+      const next = new Set(prev.permissions);
+      const groupItems = ALL_PERMISSIONS.filter((p) => p.group === groupLabel);
+      
+      groupItems.forEach(p => {
+        if (checked) {
+          next.add(p.key);
+          // Auto-check parent nav item
+          if (p.group !== "Navigation") {
+            const navKeys = Object.keys(NAV_GROUP_MAP).filter((navKey) =>
+              NAV_GROUP_MAP[navKey].includes(p.group)
+            );
+            navKeys.forEach((navKey) => next.add(navKey));
+          }
+        } else {
+          next.delete(p.key);
+          // If unchecking a nav item, clear children
+          if (NAV_GROUP_MAP[p.key]) {
+            const groupsToClear = NAV_GROUP_MAP[p.key];
+            ALL_PERMISSIONS.forEach((subP) => {
+              if (groupsToClear.includes(subP.group)) {
+                next.delete(subP.key);
+              }
+            });
+          }
+        }
+      });
+      return { ...prev, permissions: Array.from(next) };
+    });
+  };
+
+  const selectAllPermissions = () => {
+    setRoleForm(p => ({ ...p, permissions: ALL_PERMISSIONS.map(def => def.key) }));
+  };
+
+  const deselectAllPermissions = () => {
+    setRoleForm(p => ({ ...p, permissions: [] }));
   };
 
   const accessRoleById = useMemo(
@@ -659,14 +700,31 @@ export default function TeamSettingsPage() {
                 <Textarea className="min-h-[40px]" value={roleForm.description} onChange={(e) => setRoleForm((p) => ({ ...p, description: e.target.value }))} disabled={editingRole?.isSystem} />
               </div>
             </div>
+            <div className="flex items-center justify-between mb-2">
+              <Label className="text-base">Permissions</Label>
+              <div className="flex gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={selectAllPermissions} disabled={editingRole?.isSystem}>Select All</Button>
+                <Button type="button" variant="outline" size="sm" onClick={deselectAllPermissions} disabled={editingRole?.isSystem}>Deselect All</Button>
+              </div>
+            </div>
             <div className="grid gap-4 md:grid-cols-2">
-              {systemPermissionGroups.map((group) => (
-                <div key={group.label} className="rounded-lg border border-slate-200 p-4">
-                  <p className="mb-3 font-bold text-slate-900">{group.label}</p>
+              {systemPermissionGroups.map((group) => {
+                const isAllSelected = group.items.length > 0 && group.items.every(([key]) => roleForm.permissions.includes(key));
+                const isIndeterminate = !isAllSelected && group.items.some(([key]) => roleForm.permissions.includes(key));
+                return (
+                  <div key={group.label} className="rounded-lg border border-slate-200 p-4">
+                    <label className="flex items-center gap-2 mb-3 cursor-pointer">
+                      <Checkbox 
+                        checked={isAllSelected || (isIndeterminate ? "indeterminate" : false)} 
+                        onCheckedChange={(checked) => toggleGroup(group.label, checked === true)} 
+                        disabled={editingRole?.isSystem}
+                      />
+                      <p className="font-bold text-slate-900">{group.label}</p>
+                    </label>
                   <div className="space-y-3">
                     {group.items.map(([key, label, description]) => (
                       <label key={key} className="flex items-start gap-3 text-sm font-medium text-slate-700 hover:bg-slate-50 p-1.5 rounded-md cursor-pointer">
-                        <Checkbox checked={roleForm.permissions.includes(key)} onCheckedChange={(checked) => togglePermission(key, checked === true)} />
+                        <Checkbox checked={roleForm.permissions.includes(key)} onCheckedChange={(checked) => togglePermission(key, checked === true)} disabled={editingRole?.isSystem} />
                         <div>
                           <span className="block">{label}</span>
                           {description && <span className="block text-xs text-slate-400 font-normal">{description}</span>}
@@ -675,7 +733,7 @@ export default function TeamSettingsPage() {
                     ))}
                   </div>
                 </div>
-              ))}
+              )})}
             </div>
           </div>
           <DialogFooter className="mt-4">

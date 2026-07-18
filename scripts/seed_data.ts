@@ -17,7 +17,7 @@ const SAMPLE_CUSTOMERS = [
         name: "Acme Corp Zimbabwe",
         email: "accounts@acme.co.zw",
         phone: "+263 242 123456",
-        address: "1 Granite Street, Msasa, Harare",
+        address: "185 Lorely Close. Msasa, Harare",
         city: "Harare",
         tin: "2000100010",
         vatNumber: "100555",

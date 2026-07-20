@@ -220,7 +220,7 @@ export default function AllocationWorkbenchPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid gap-3 md:grid-cols-5">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
                   <div className="space-y-2 md:col-span-2">
                     <Label>Customer</Label>
                     <Select value={customerId} onValueChange={setCustomerId}>
@@ -284,6 +284,7 @@ export default function AllocationWorkbenchPage() {
                     !customerId || !receipt.amount || customerMutation.isPending
                   }
                   onClick={() => customerMutation.mutate()}
+                  className="w-full sm:w-auto"
                 >
                   <Send className="mr-2 h-4 w-4" /> Post Receipt
                 </Button>
@@ -299,7 +300,7 @@ export default function AllocationWorkbenchPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid gap-3 md:grid-cols-5">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
                   <div className="space-y-2 md:col-span-2">
                     <Label>Supplier</Label>
                     <Select value={supplierId} onValueChange={setSupplierId}>
@@ -363,6 +364,7 @@ export default function AllocationWorkbenchPage() {
                     !supplierId || !payment.amount || supplierMutation.isPending
                   }
                   onClick={() => supplierMutation.mutate()}
+                  className="w-full sm:w-auto"
                 >
                   <Send className="mr-2 h-4 w-4" /> Post Payment
                 </Button>
@@ -395,7 +397,7 @@ function AllocationTable({
   setAllocations: Dispatch<SetStateAction<Record<number, string>>>;
 }) {
   return (
-    <div className="rounded-lg border">
+    <div className="rounded-lg border overflow-x-auto min-w-0">
       <Table>
         <TableHeader>
           <TableRow>

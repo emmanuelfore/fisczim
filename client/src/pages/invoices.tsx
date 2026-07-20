@@ -525,7 +525,7 @@ type StatCardProps = {
 
 function StatCard({ label, value, trend, trendTone = "green" }: StatCardProps) {
   return (
-    <div className="rounded-[12px] border border-[#E5E7EB] bg-white px-4 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+    <div className="rounded-xl border bg-card text-card-foreground px-4 py-3 shadow-sm">
       <p className="text-[11px] font-bold uppercase tracking-wide text-[#64748B]">
         {label}
       </p>
@@ -1042,7 +1042,7 @@ export default function InvoicesPage() {
               </>
             )}
           </div>
-          <Card className="overflow-hidden rounded-[14px] border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+          <Card className="overflow-hidden">
             <CardContent className="space-y-4 p-4">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
                 <div className="relative min-w-0 flex-1">
@@ -1227,7 +1227,7 @@ export default function InvoicesPage() {
             </CardContent>
           </Card>
 
-          <Card className="overflow-hidden rounded-[14px] border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+          <Card className="overflow-hidden">
             <CardContent className="p-0">
               {/* Table */}
               {isLoading ? (
@@ -1253,42 +1253,42 @@ export default function InvoicesPage() {
                 </div>
               ) : (
                 <TooltipProvider>
-                  <Table data-mobile-cards="false" className="min-w-[1000px]">
-                    <TableHeader>
-                      <TableRow className="border-[#E5E7EB] bg-[#F8FAFC] hover:bg-[#F8FAFC]">
-                        <TableHead className="h-11 w-12 pl-5">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="bg-[#F8FAFC] border-b border-[#E5E7EB]">
+                        <th className="px-5 py-3 w-12 font-semibold text-[#64748B] uppercase tracking-wide text-[12px]">
                           <Checkbox
                             aria-label="Select all invoices"
                             className="border-[#CBD5E1]"
                           />
-                        </TableHead>
-                        <TableHead className="h-11 text-xs font-semibold uppercase tracking-wide text-[#64748B]">
+                        </th>
+                        <th className="px-5 py-3 font-semibold text-[#64748B] uppercase tracking-wide text-[12px] w-[30%] md:w-auto">
                           Invoice #
-                        </TableHead>
-                        <TableHead className="h-11 text-xs font-semibold uppercase tracking-wide text-[#64748B]">
+                        </th>
+                        <th className="px-5 py-3 font-semibold text-[#64748B] uppercase tracking-wide text-[12px]">
                           Customer
-                        </TableHead>
-                        <TableHead className="h-11 text-xs font-semibold uppercase tracking-wide text-[#64748B]">
+                        </th>
+                        <th className="hidden md:table-cell px-5 py-3 font-semibold text-[#64748B] uppercase tracking-wide text-[12px]">
                           Date
-                        </TableHead>
-                        <TableHead className="h-11 text-xs font-semibold uppercase tracking-wide text-[#64748B]">
+                        </th>
+                        <th className="hidden lg:table-cell px-5 py-3 font-semibold text-[#64748B] uppercase tracking-wide text-[12px]">
                           Issuer / Actor
-                        </TableHead>
-                        <TableHead className="h-11 text-right text-xs font-semibold uppercase tracking-wide text-[#64748B]">
+                        </th>
+                        <th className="px-5 py-3 text-right font-semibold text-[#64748B] uppercase tracking-wide text-[12px]">
                           Amount
-                        </TableHead>
-                        <TableHead className="h-11 text-xs font-semibold uppercase tracking-wide text-[#64748B]">
+                        </th>
+                        <th className="hidden sm:table-cell px-5 py-3 font-semibold text-[#64748B] uppercase tracking-wide text-[12px]">
                           {useFiscalWorkflow ? "FDMS Status" : "Invoice Status"}
-                        </TableHead>
-                        <TableHead className="h-11 text-xs font-semibold uppercase tracking-wide text-[#64748B]">
+                        </th>
+                        <th className="hidden sm:table-cell px-5 py-3 font-semibold text-[#64748B] uppercase tracking-wide text-[12px]">
                           Payment Status
-                        </TableHead>
-                        <TableHead className="h-11 pr-5 text-right text-xs font-semibold uppercase tracking-wide text-[#64748B]">
+                        </th>
+                        <th className="px-5 py-3 text-right font-semibold text-[#64748B] uppercase tracking-wide text-[12px]">
                           Actions
-                        </TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
                       {displayedInvoices.map((invoice: any) => {
                         const hasError =
                           useFiscalWorkflow &&
@@ -1300,19 +1300,19 @@ export default function InvoicesPage() {
                         );
                         const paymentStatus = getPaymentStatus(invoice);
                         return (
-                          <TableRow
+                          <tr
                             key={invoice.id}
                             className={cn(
-                              "group h-14 cursor-pointer border-b border-[#F1F5F9] bg-white transition-colors hover:bg-[#F8FAFC]",
+                              "group border-b border-[#F1F5F9] transition-colors hover:bg-[#F8FAFC] cursor-pointer",
                               hasError && "bg-red-50/40 hover:bg-red-50/70",
                             )}
                             onClick={() =>
                               setLocation(`/invoices/${invoice.id}`)
                             }
                           >
-                            <TableCell
+                            <td
                               className={cn(
-                                "py-3 pl-5",
+                                "px-5 py-4",
                                 hasError && "border-l-2 border-l-[#EF4444]",
                               )}
                               onClick={(e) => e.stopPropagation()}
@@ -1321,8 +1321,8 @@ export default function InvoicesPage() {
                                 aria-label={`Select invoice ${invoice.invoiceNumber}`}
                                 className="border-[#CBD5E1]"
                               />
-                            </TableCell>
-                            <TableCell className="py-3">
+                            </td>
+                            <td className="px-5 py-4">
                               <div className="flex min-w-[110px] items-center gap-2">
                                 {hasError && (
                                   <Tooltip>
@@ -1340,44 +1340,44 @@ export default function InvoicesPage() {
                                   </Tooltip>
                                 )}
                                 <div className="flex flex-col gap-1">
-                                  <span className="font-mono  font-bold text-[#0F172A]">
+                                  <span className="font-mono font-bold text-[#0F172A]">
                                     {invoice.invoiceNumber}
                                   </span>
                                   <DocumentTypePill invoice={invoice} />
                                 </div>
                               </div>
-                            </TableCell>
-                            <TableCell className="py-3">
+                            </td>
+                            <td className="px-5 py-4">
                               {invoice.customerId ? (
                                 <Link
                                   href={`/customers/${invoice.customerId}`}
                                   onClick={(e) => e.stopPropagation()}
                                 >
-                                  <span className=" font-semibold text-[#0F172A] hover:text-[#475569]">
+                                  <span className="font-semibold text-[#0F172A] hover:text-[#475569]">
                                     {formatCustomerName(invoice.customer?.name)}
                                   </span>
                                 </Link>
                               ) : (
-                                <span className=" font-medium text-[#64748B]">
+                                <span className="font-medium text-[#64748B]">
                                   {formatCustomerName(invoice.customer?.name)}
                                 </span>
                               )}
-                            </TableCell>
-                            <TableCell className="whitespace-nowrap py-3  font-medium text-[#64748B]">
+                            </td>
+                            <td className="hidden md:table-cell whitespace-nowrap px-5 py-4 font-medium text-[#64748B]">
                               {invoice.issueDate
                                 ? format(
                                     new Date(invoice.issueDate),
                                     "dd MMM yyyy",
                                   )
                                 : "-"}
-                            </TableCell>
-                            <TableCell className="whitespace-nowrap py-3 font-semibold text-slate-700">
+                            </td>
+                            <td className="hidden lg:table-cell whitespace-nowrap px-5 py-4 font-semibold text-slate-700">
                               {invoice.createdByName || "System"}
-                            </TableCell>
-                            <TableCell className="whitespace-nowrap py-3 text-right  font-bold text-[#0F172A]">
+                            </td>
+                            <td className="whitespace-nowrap px-5 py-4 text-right font-bold text-[#0F172A]">
                               {formatMoney(invoice.currency, invoice.total)}
-                            </TableCell>
-                            <TableCell className="py-3">
+                            </td>
+                            <td className="hidden sm:table-cell px-5 py-4">
                               <StatusPill
                                 status={fiscalStatus}
                                 label={
@@ -1390,16 +1390,16 @@ export default function InvoicesPage() {
                                       : fiscalStatus
                                 }
                               />
-                            </TableCell>
-                            <TableCell className="py-3">
+                            </td>
+                            <td className="hidden sm:table-cell px-5 py-4">
                               <StatusPill
                                 status={paymentStatus}
                                 label={
                                   paymentStatus === "paid" ? "Paid" : "Open"
                                 }
                               />
-                            </TableCell>
-                            <TableCell className="py-3 pr-5 text-right">
+                            </td>
+                            <td className="px-5 py-4 text-right">
                               <div className="flex items-center justify-end gap-1">
                                 <Tooltip>
                                   <TooltipTrigger asChild>
@@ -1588,12 +1588,12 @@ export default function InvoicesPage() {
                                   </DropdownMenuContent>
                                 </DropdownMenu>
                               </div>
-                            </TableCell>
-                          </TableRow>
+                            </td>
+                          </tr>
                         );
                       })}
-                    </TableBody>
-                  </Table>
+                    </tbody>
+                  </table>
                 </TooltipProvider>
               )}
 

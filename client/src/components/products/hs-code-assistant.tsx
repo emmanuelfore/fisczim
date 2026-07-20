@@ -14,11 +14,13 @@ import { findHsCodeSuggestions } from "@/lib/hs-code-suggestions";
 
 interface HsCodeAssistantProps {
   initialQuery?: string;
+  getQuery?: () => string;
   onSelect: (code: string) => void;
 }
 
 export function HsCodeAssistant({
   initialQuery = "",
+  getQuery,
   onSelect,
 }: HsCodeAssistantProps) {
   const [open, setOpen] = useState(false);
@@ -26,7 +28,14 @@ export function HsCodeAssistant({
   const suggestions = useMemo(() => findHsCodeSuggestions(query), [query]);
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={(isOpen) => {
+      setOpen(isOpen);
+      if (isOpen && getQuery) {
+        setQuery(getQuery());
+      } else if (isOpen && initialQuery) {
+        setQuery(initialQuery);
+      }
+    }}>
       <DialogTrigger asChild>
         <Button
           type="button"

@@ -643,7 +643,9 @@ export function createCustomerFlowRouter(requireAuth: any) {
 
   router.get("/sales-orders", async (req, res) => {
     try {
+      const companyId = req.query.companyId ? parseInt(req.query.companyId as string) : undefined;
       const orders = await db.query.salesOrders.findMany({
+        where: companyId ? eq(salesOrders.companyId, companyId) : undefined,
         with: { customer: true, items: true },
         orderBy: (salesOrders, { desc }) => [desc(salesOrders.issueDate)],
       });

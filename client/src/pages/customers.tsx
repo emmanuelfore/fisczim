@@ -1,6 +1,7 @@
 import { Layout } from "@/components/layout";
 import { Link } from "wouter";
 import { useState } from "react";
+import { downloadExcel } from "@/lib/export-utils";
 
 import { useCustomers, useUpdateCustomer } from "@/hooks/use-customers";
 import { Card, CardContent } from "@/components/ui/card";
@@ -94,7 +95,7 @@ export default function CustomersPage() {
             <Button
               variant="outline"
               onClick={() => {
-                window.location.href = `/api/export/customers?companyId=${companyId}`;
+                downloadExcel(`/api/export/customers?companyId=${companyId}`, `customers_export_${new Date().toISOString().split("T")[0]}.csv`);
               }}
               disabled={!companyId}
               className="rounded-xl shadow-sm hover:shadow-md transition-all duration-300 border-slate-200"

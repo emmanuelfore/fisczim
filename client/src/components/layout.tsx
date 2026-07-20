@@ -82,6 +82,10 @@ import {
 } from "@shared/bus-settings";
 import { normalizeAppMode } from "@shared/app-mode";
 
+import { useQuery } from "@tanstack/react-query";
+import { apiFetch } from "@/lib/api";
+import { buildUrl, api } from "@shared/routes";
+
 type NavItem = {
   icon: any;
   label: string;
@@ -331,6 +335,7 @@ export function Layout({
             { icon: Target, label: "Stock Overview", href: "/inventory/reports/overview" },
             { icon: History, label: "Historical Stock Balance", href: "/inventory/reports/historical" },
             { icon: AlertTriangle, label: "Dead Stock Report", href: "/inventory/reports/dead-stock" },
+
             { icon: ShoppingBag, label: "Stock on Hand", href: "/reports/stock-on-hand" },
             { icon: Activity, label: "Low Stock Alerts", href: "/reports/stock-alerts" },
             { icon: History, label: "Inventory Movements", href: "/reports/inventory-movements" },
@@ -347,10 +352,17 @@ export function Layout({
         { icon: LayoutDashboard, label: "Mfg Dashboard", href: "/manufacturing" },
         { icon: TrendingUp, label: "MRP Analysis", href: "/manufacturing/mrp" },
         { icon: Construction, label: "Bill of Materials", href: "/manufacturing/bom" },
-        { icon: Wrench, label: "Production Runs", href: "/manufacturing/production-runs" },
+        { icon: Wrench, label: "Manufacturing Runs", href: "/manufacturing/production-runs" },
         { icon: Building2, label: "Work Centers", href: "/manufacturing/work-centers" },
         { icon: ClipboardList, label: "Routings", href: "/manufacturing/routings" },
-        { icon: Factory, label: "Production Runs", href: "/inventory/production" },
+        {
+          icon: Factory,
+          label: "Quick Production",
+          children: [
+            { icon: Factory, label: "Production Runs", href: "/inventory/production" },
+            { icon: BarChart3, label: "Production Report", href: "/inventory/reports/production" },
+          ],
+        },
       ],
     },
     {
@@ -578,6 +590,25 @@ export function Layout({
     isCashier ? 0 : selectedCompanyId || 0,
   );
   const pendingGdnCount = pendingGdns.length;
+
+  const { data: stockAlerts = [] } = useQuery<any[]>({
+    queryKey: [api.reports.stockAlerts.path, selectedCompanyId],
+    queryFn: async () => {
+      if (!selectedCompanyId) return [];
+      const res = await apiFetch(
+        buildUrl(api.reports.stockAlerts.path, { companyId: selectedCompanyId }),
+      );
+      if (!res.ok) return [];
+      return await res.json();
+    },
+    enabled: !!selectedCompanyId,
+  });
+
+  const lowStockCount = stockAlerts.filter(
+    (x: any) => Number(x?.stockLevel || 0) <= Number(x?.lowStockThreshold || 0),
+  ).length;
+
+  const totalNotifications = pendingGdnCount + lowStockCount;
 
   useEffect(() => {
     if (isCashier) return;
@@ -1955,9 +1986,9 @@ export function Layout({
                     className="relative h-10 w-10 rounded-full border border-[#E5E7EB] bg-white text-[#64748B] shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
                   >
                     <Bell className="w-4 h-4" />
-                    {pendingGdnCount > 0 && !isCashier && (
-                      <span className="absolute -right-1 -top-1 min-w-5 h-5 rounded-full bg-amber-500 px-1.5 text-[10px] font-black leading-5 text-white shadow-sm">
-                        {pendingGdnCount > 9 ? "9+" : pendingGdnCount}
+                    {totalNotifications > 0 && !isCashier && (
+                      <span className="absolute -right-1 -top-1 min-w-5 h-5 rounded-full bg-amber-500 px-1.5 text-[10px] font-black leading-5 text-white shadow-sm flex items-center justify-center">
+                        {totalNotifications > 9 ? "9+" : totalNotifications}
                       </span>
                     )}
                   </Button>
@@ -1975,7 +2006,7 @@ export function Layout({
                   {!isCashier && pendingGdnCount > 0 ? (
                     <DropdownMenuItem
                       onClick={() => setLocation("/inventory/account")}
-                      className="p-3 rounded-xl cursor-pointer focus:bg-amber-50"
+                      className="p-3 rounded-xl cursor-pointer focus:bg-amber-50 mb-1"
                     >
                       <div className="flex items-start gap-3">
                         <div className="h-9 w-9 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
@@ -1988,6 +2019,27 @@ export function Layout({
                           </p>
                           <p className="text-[11px] font-semibold text-slate-500">
                             Review cashier delivery notes and post stock.
+                          </p>
+                        </div>
+                      </div>
+                    </DropdownMenuItem>
+                  ) : null}
+                  {!isCashier && lowStockCount > 0 ? (
+                    <DropdownMenuItem
+                      onClick={() => setLocation("/reports/stock-alerts")}
+                      className="p-3 rounded-xl cursor-pointer focus:bg-amber-50"
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="h-9 w-9 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+                          <AlertTriangle className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <p className=" font-black text-slate-900">
+                            {lowStockCount} low stock item
+                            {lowStockCount === 1 ? "" : "s"}
+                          </p>
+                          <p className="text-[11px] font-semibold text-slate-500">
+                            Review items running low on stock.
                           </p>
                         </div>
                       </div>

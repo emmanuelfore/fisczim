@@ -31,6 +31,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useQuery } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react";
 import { QuantityInput } from "@/components/ui/quantity-input";
+import { ProductCombobox } from "@/components/ui/product-combobox";
 
 
 type SupplierInvoiceLinePreview = {
@@ -645,21 +646,12 @@ export default function GrvDetailsPage() {
                         <tr key={line.id} className="border-t border-slate-50">
                           <td className="p-3 font-semibold text-slate-800">
                             {line.isNew ? (
-                              <Select
-                                value={line.productId?.toString()}
-                                onValueChange={(val) => handleLineChange(idx, "productId", Number(val))}
-                              >
-                                <SelectTrigger className="bg-white min-w-[200px]">
-                                  <SelectValue placeholder="Select product..." />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {(products || []).map((p: any) => (
-                                    <SelectItem key={p.id} value={p.id.toString()}>
-                                      {p.name}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
+                              <ProductCombobox
+                                value={line.productId?.toString() || ""}
+                                products={products || []}
+                                onChange={(val) => handleLineChange(idx, "productId", Number(val))}
+                                className="min-w-[200px]"
+                              />
                             ) : (
                               line.productName
                             )}

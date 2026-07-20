@@ -16,7 +16,7 @@ import { ArrowLeft, Plus, Trash2, PackagePlus, Receipt, Truck } from "lucide-rea
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { QuantityInput } from "@/components/ui/quantity-input";
-
+import { ProductCombobox } from "@/components/ui/product-combobox";
 
 export default function CreateGrv() {
   const { activeCompanyId } = useActiveCompany();
@@ -344,9 +344,10 @@ export default function CreateGrv() {
                           
                           {line.type === "stock" ? (
                             <>
-                              <Select
-                                value={line.productId?.toString()}
-                                onValueChange={(val) => {
+                              <ProductCombobox
+                                value={line.productId?.toString() || ""}
+                                products={products || []}
+                                onChange={(val) => {
                                   const product = (products || []).find((p: any) => String(p.id) === val);
                                   const newCost = Number(product?.costPrice || line.unitCost || 0);
                                   const rate = Number(line.taxRate || 0);
@@ -363,18 +364,8 @@ export default function CreateGrv() {
                                   };
                                   setLines(updated);
                                 }}
-                              >
-                                <SelectTrigger className="flex-1 bg-white">
-                                  <SelectValue placeholder="Select product..." />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {(products || []).map((p: any) => (
-                                    <SelectItem key={p.id} value={p.id.toString()}>
-                                      {p.name}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
+                                className="flex-1"
+                              />
                               {(products || []).find((p: any) => String(p.id) === String(line.productId))?.serialTrackingEnabled && (
                                 <Button 
                                   variant="outline" 

@@ -3291,9 +3291,13 @@ export async function registerRoutes(
           }
         };
 
+        let totalInputCost = 0;
         for (const line of inputLines) {
           const product = productMap.get(line.productId)!;
           const unitCost = Number(product.costPrice || 0);
+          const lineCost = line.quantity * unitCost;
+          totalInputCost += lineCost;
+
           await updateStock(line.productId, -line.quantity);
           await tx.insert(inventoryTransactions).values({
             companyId,
@@ -3302,7 +3306,7 @@ export async function registerRoutes(
             type: "PRODUCTION_OUT",
             quantity: (-line.quantity).toString(),
             unitCost: unitCost.toString(),
-            totalCost: (-line.quantity * unitCost).toString(),
+            totalCost: (-lineCost).toString(),
             referenceType: "PRODUCTION",
             referenceId,
             notes: `${notes} - input consumed`,
@@ -3310,23 +3314,47 @@ export async function registerRoutes(
           });
         }
 
+        let totalOutputCostWeights = 0;
         for (const line of outputLines) {
           const product = productMap.get(line.productId)!;
-          const unitCost = Number(product.costPrice || 0);
+          totalOutputCostWeights += line.quantity * Number(product.costPrice || 1);
+        }
+
+        for (const line of outputLines) {
+          const product = productMap.get(line.productId)!;
+          const weight = totalOutputCostWeights > 0 
+            ? (line.quantity * Number(product.costPrice || 1)) / totalOutputCostWeights 
+            : (1 / outputLines.length);
+            
+          const allocatedCost = totalInputCost * weight;
+          const unitCost = allocatedCost / line.quantity;
+
           await updateStock(line.productId, line.quantity);
+          
           await tx.insert(inventoryTransactions).values({
             companyId,
             branchId: branchId || null,
             productId: line.productId,
             type: "PRODUCTION_IN",
             quantity: line.quantity.toString(),
-            unitCost: unitCost.toString(),
-            totalCost: (line.quantity * unitCost).toString(),
+            unitCost: unitCost.toFixed(4),
+            totalCost: allocatedCost.toFixed(2),
             referenceType: "PRODUCTION",
             referenceId,
             notes: `${notes} - output produced`,
             createdBy: (req.user as any).id,
           });
+
+          const newGlobalStock = Number(productMap.get(line.productId)!.stockLevel || 0);
+          const oldStock = Math.max(0, newGlobalStock - line.quantity);
+          const oldCost = Number(product.costPrice || 0);
+          const oldTotalValue = oldStock * oldCost;
+          
+          const newCostPrice = newGlobalStock > 0 
+            ? (oldTotalValue + allocatedCost) / newGlobalStock 
+            : unitCost;
+
+          await tx.update(products).set({ costPrice: newCostPrice.toFixed(4) }).where(eq(products.id, line.productId));
         }
       });
 
@@ -9051,6 +9079,7 @@ export async function registerRoutes(
 
 
   // Import Routes
+
   app.post("/api/import/products", requireAuth, (req, res, next) => {
     csvUpload.single("file")(req, res, async (err) => {
       if (err) return res.status(400).json({ message: err.message });

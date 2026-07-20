@@ -203,8 +203,8 @@ export default function InvoiceTemplateDesignerPage() {
 
   return (
     <Layout>
-      <div className="mx-auto grid max-w-[1500px] gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
-        <aside className="space-y-4">
+      <div className="mx-auto flex flex-col xl:flex-row max-w-[1500px] gap-4">
+        <aside className="w-full xl:w-[360px] shrink-0 space-y-4">
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="mb-4 flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
@@ -389,7 +389,7 @@ export default function InvoiceTemplateDesignerPage() {
           </div>
         </aside>
 
-        <main className="rounded-2xl border border-slate-200 bg-slate-100 p-4 shadow-sm">
+        <main className="flex-1 min-w-0 rounded-2xl border border-slate-200 bg-slate-100 p-4 shadow-sm">
           <div className="flex min-h-[900px] items-start justify-center overflow-auto rounded-xl bg-slate-200/70 px-3 py-5">
             {previewLoading || !previewUrl ? (
               <div className="flex min-h-[720px] items-center justify-center gap-2 text-slate-500">
@@ -397,7 +397,7 @@ export default function InvoiceTemplateDesignerPage() {
                 preview...
               </div>
             ) : (
-              <div className="aspect-[210/297] w-full max-w-[794px] overflow-hidden rounded-sm bg-white shadow-[0_18px_45px_rgba(15,23,42,0.18)] ring-1 ring-slate-200">
+              <div className="aspect-[210/297] w-[794px] min-w-[794px] shrink-0 overflow-hidden rounded-sm bg-white shadow-[0_18px_45px_rgba(15,23,42,0.18)] ring-1 ring-slate-200">
                 <iframe
                   src={`${previewUrl}#toolbar=0&navpanes=0&scrollbar=0&view=Fit`}
                   title="Invoice template PDF preview"

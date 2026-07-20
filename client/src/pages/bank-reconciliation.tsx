@@ -244,8 +244,8 @@ export default function BankReconciliationPage() {
           </div>
         </div>
 
-        <div className="flex gap-4 items-center bg-white p-4 rounded-2xl border border-slate-200">
-          <div className="w-1/3">
+        <div className="flex flex-col md:flex-row gap-4 items-start md:items-center bg-white p-4 rounded-2xl border border-slate-200">
+          <div className="w-full md:w-1/3">
             <Label className="text-xs font-bold text-slate-500 uppercase">
               1. Selected GL Account
             </Label>
@@ -269,7 +269,7 @@ export default function BankReconciliationPage() {
             </Select>
           </div>
 
-          <div className="w-1/3">
+          <div className="w-full md:w-1/3">
             <Label className="text-xs font-bold text-slate-500 uppercase">
               2. Bank Statement
             </Label>
@@ -292,7 +292,7 @@ export default function BankReconciliationPage() {
             </Select>
           </div>
 
-          <div className="w-1/3 flex items-end pt-5">
+          <div className="w-full md:w-1/3 flex items-end md:pt-5 pt-2">
             <Dialog open={isUploadOpen} onOpenChange={setIsUploadOpen}>
               <DialogTrigger asChild>
                 <Button
@@ -352,7 +352,7 @@ export default function BankReconciliationPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Left side: External Bank Feed */}
             <Card className="rounded-2xl border-slate-200">
-              <CardHeader className="bg-slate-50/50 pb-4 border-b border-slate-100 flex flex-row items-center justify-between">
+              <CardHeader className="bg-slate-50/50 pb-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <CardTitle className="text-lg">
                     Bank Statement Lines
@@ -420,7 +420,7 @@ export default function BankReconciliationPage() {
 
             {/* Right side: Internal Unreconciled Ledger */}
             <Card className="rounded-2xl border-slate-200">
-              <CardHeader className="bg-slate-50/50 pb-4 border-b border-slate-100 flex flex-row items-center justify-between">
+              <CardHeader className="bg-slate-50/50 pb-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <CardTitle className="text-lg">
                     Unreconciled System Ledger
@@ -429,13 +429,13 @@ export default function BankReconciliationPage() {
                     Select an entry to pair with bank line.
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 w-full sm:w-auto">
                   <Dialog open={isCreateMatchOpen} onOpenChange={setIsCreateMatchOpen}>
                     <DialogTrigger asChild>
                       <Button
                         variant="outline"
                         disabled={!selectedBankLine}
-                        className="font-bold border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                        className="w-full sm:w-auto font-bold border-emerald-200 text-emerald-700 hover:bg-emerald-50"
                       >
                         Create Entry
                       </Button>
@@ -486,7 +486,7 @@ export default function BankReconciliationPage() {
                       !selectedLedgerLine ||
                       manualMatchMutation.isPending
                     }
-                    className="bg-emerald-600 hover:bg-emerald-700 font-bold"
+                    className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 font-bold"
                   >
                     Confirm Match
                   </Button>

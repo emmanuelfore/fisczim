@@ -75,8 +75,8 @@ export default function GeneralLedgerPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <div className="w-[300px]">
+          <div className="flex items-center gap-3 w-full md:w-auto">
+            <div className="w-full md:w-[300px]">
               <Select
                 value={selectedAccountId}
                 onValueChange={setSelectedAccountId}
@@ -159,7 +159,7 @@ export default function GeneralLedgerPage() {
               Ledger Movements
             </CardTitle>
           </CardHeader>
-          <CardContent className="p-0">
+          <CardContent className="p-0 overflow-x-auto min-w-0">
             <Table>
               <TableHeader className="bg-slate-50/50">
                 <TableRow className="hover:bg-transparent border-slate-100">

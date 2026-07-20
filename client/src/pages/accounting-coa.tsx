@@ -237,12 +237,12 @@ export default function AccountingCOAPage() {
   return (
     <Layout>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3 w-full sm:w-auto">
+            <div className="h-10 w-10 shrink-0 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
               <Search className="h-5 w-5" />
             </div>
-            <div className="relative group min-w-[320px]">
+            <div className="relative group w-full sm:w-[320px]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 group-focus-within:text-primary transition-colors" />
               <Input
                 placeholder="Search accounts by name, code or type..."
@@ -269,7 +269,7 @@ export default function AccountingCOAPage() {
             }}
           >
             <DialogTrigger asChild>
-              <Button className="h-11 px-6 rounded-xl font-bold bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/20 transition-all active:scale-95 flex items-center gap-2">
+              <Button className="w-full sm:w-auto h-11 px-6 rounded-xl font-bold bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/20 transition-all active:scale-95 flex items-center justify-center gap-2">
                 <Plus className="h-4 w-4" />
                 <span>Create Account</span>
               </Button>
@@ -468,14 +468,14 @@ export default function AccountingCOAPage() {
         </div>
 
         <Card className="border-slate-200/60 shadow-sm overflow-hidden rounded-2xl">
-          <CardHeader className="bg-white border-b border-slate-100 px-6 py-5">
-            <div className="flex items-center justify-between">
+          <CardHeader className="bg-white border-b border-slate-100 px-4 sm:px-6 py-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <CardTitle className="text-lg font-bold text-slate-800 font-display">
                 Financial Chart of Accounts
               </CardTitle>
               <Badge
                 variant="outline"
-                className="bg-slate-50 text-slate-500 font-bold border-slate-200 px-3 py-1 rounded-lg"
+                className="bg-slate-50 w-fit text-slate-500 font-bold border-slate-200 px-3 py-1 rounded-lg"
               >
                 {filteredAccounts?.length || 0} Accounts Total
               </Badge>

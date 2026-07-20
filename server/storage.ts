@@ -2726,8 +2726,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async seedDefaultRolesForCompany(companyId: number): Promise<void> {
-    const existing = await db.select({ id: companyRoles.id, legacyRole: companyRoles.legacyRole }).from(companyRoles).where(eq(companyRoles.companyId, companyId));
-    const existingMap = new Map(existing.map(r => [r.legacyRole, r.id]));
+    const existing = await db.select({ id: companyRoles.id, legacyRole: companyRoles.legacyRole, name: companyRoles.name })
+      .from(companyRoles)
+      .where(eq(companyRoles.companyId, companyId));
+      
+    const legacyMap = new Map(existing.filter(r => r.legacyRole).map(r => [r.legacyRole, r.id]));
+    const nameMap = new Map(existing.map(r => [r.name.toLowerCase(), r.id]));
 
     const { LEGACY_ROLE_PERMISSIONS } = await import("../shared/permissions.js");
     const templates = [
@@ -2748,18 +2752,28 @@ export class DatabaseStorage implements IStorage {
 
     for (const template of templates) {
       const perms = LEGACY_ROLE_PERMISSIONS[template.legacyRole] || [];
-      let roleId = existingMap.get(template.legacyRole);
+      let roleId = legacyMap.get(template.legacyRole);
 
       if (!roleId) {
-        // Insert new role
-        const [role] = await db.insert(companyRoles).values({
-          companyId,
-          name: template.name,
-          description: template.description,
-          isSystem: true,
-          legacyRole: template.legacyRole,
-        }).returning();
-        roleId = role.id;
+        // Check if name already exists to avoid unique constraint error
+        roleId = nameMap.get(template.name.toLowerCase());
+        
+        if (roleId) {
+          // Update existing role to be a system role with this legacyRole
+          await db.update(companyRoles)
+            .set({ legacyRole: template.legacyRole, isSystem: true })
+            .where(eq(companyRoles.id, roleId));
+        } else {
+          // Insert new role
+          const [role] = await db.insert(companyRoles).values({
+            companyId,
+            name: template.name,
+            description: template.description,
+            isSystem: true,
+            legacyRole: template.legacyRole,
+          }).returning();
+          roleId = role.id;
+        }
       }
 
       // Sync permissions: insert any missing ones (do not remove custom additions)
@@ -9196,10 +9210,12 @@ export class DatabaseStorage implements IStorage {
         totalMaterialCost = Number(materialCostSum?.total || 0);
       }
 
-      // 6. Update finished good cost price (weighted average with material cost)
+      const totalProductionCost = totalMaterialCost + Number(wo.actualLaborCost || 0) + Number(wo.actualOverheadCost || 0);
+
+      // 6. Update finished good cost price (weighted average with total production cost)
       // Only for RECIPE type where we have a known finished good product
-      if (wo.type === "RECIPE" && bom && totalMaterialCost > 0 && goodQty > 0) {
-        const unitCost = totalMaterialCost / goodQty;
+      if (wo.type === "RECIPE" && bom && totalProductionCost > 0 && goodQty > 0) {
+        const unitCost = totalProductionCost / goodQty;
         const [fg] = await tx.select().from(products).where(eq(products.id, bom.productId));
         if (fg) {
           const existingStock = Number(fg.stockLevel || 0);
@@ -9220,7 +9236,7 @@ export class DatabaseStorage implements IStorage {
         const [wipAccount] = await tx.select().from(accounts)
           .where(and(eq(accounts.companyId, wo.companyId), eq(accounts.code, "1005")));
 
-        if (invAccount && wipAccount && totalMaterialCost > 0) {
+        if (invAccount && wipAccount && totalProductionCost > 0) {
           const entryDate = new Date();
           // Check no closed period
           const periods = await tx.select().from(financialPeriods).where(eq(financialPeriods.companyId, wo.companyId));
@@ -9243,14 +9259,14 @@ export class DatabaseStorage implements IStorage {
               journalEntryId: je.id,
               accountId: invAccount.id,
               type: "DEBIT",
-              amount: totalMaterialCost.toFixed(2),
+              amount: totalProductionCost.toFixed(2),
             });
             // Cr WIP
             await tx.insert(ledgerEntries).values({
               journalEntryId: je.id,
               accountId: wipAccount.id,
               type: "CREDIT",
-              amount: totalMaterialCost.toFixed(2),
+              amount: totalProductionCost.toFixed(2),
             });
           }
         }

@@ -172,7 +172,7 @@ export function CreateProductDialog({
           {resolvedLabel}
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl">
+      <DialogContent className="w-[95vw] sm:max-w-3xl h-[95dvh] sm:h-[90vh] overflow-auto sm:overflow-auto rounded-3xl">
         <DialogHeader>
           <DialogTitle className="text-2xl font-display font-bold text-slate-900">
             Add New {isService ? "Service" : "Product"}
@@ -186,7 +186,8 @@ export function CreateProductDialog({
         <Form {...form}>
           <form
             onSubmit={form.handleSubmit(onSubmit)}
-            className="space-y-5 py-4"
+            onKeyDown={(e) => e.stopPropagation()}
+            className="space-y-6 mt-4"
           >
             {/* Type Toggle */}
             <FormField
@@ -665,10 +666,10 @@ export function CreateProductDialog({
                         <FormMessage />
                       </FormItem>
                       <HsCodeAssistant
-                        initialQuery={[
-                          form.watch("name"),
-                          form.watch("category"),
-                          form.watch("description"),
+                        getQuery={() => [
+                          form.getValues("name"),
+                          form.getValues("category"),
+                          form.getValues("description"),
                         ]
                           .filter(Boolean)
                           .join(" ")}
@@ -685,7 +686,28 @@ export function CreateProductDialog({
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <FormField
+                control={form.control}
+                name="costPrice"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-slate-700 font-semibold">
+                      Cost Price ($)
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        step="0.000001"
+                        min="0"
+                        {...field}
+                        className="rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-primary/20 font-mono"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
               <FormField
                 control={form.control}
                 name="price"

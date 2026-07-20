@@ -770,14 +770,37 @@ export default function ReportsPage() {
           line-height: 1rem !important;
         }
       `}</style>
-      <div className="reports-workspace flex gap-4">
+      <div className="reports-workspace flex flex-col lg:flex-row gap-4">
+        {/* Mobile Select Navigation */}
+        <div className="lg:hidden w-full bg-white border border-slate-200/80 rounded-xl p-3 shadow-sm shrink-0 z-10 sticky top-4">
+          <h4 className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-1 py-1 mb-1.5">Reports Menu</h4>
+          <select 
+            value={activeReport} 
+            onChange={(e) => handleSelectReport(e.target.value)}
+            className="w-full h-11 bg-slate-50 border border-slate-200 rounded-lg px-3 font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 text-sm"
+          >
+            <option value="overview">Overview Dashboard</option>
+            {REPORT_CATEGORIES.map((category) => (
+              <optgroup key={category.key} label={category.label}>
+                {category.reports.map((report) => (
+                  <option key={report.key} value={report.key}>
+                    {report.label}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </div>
+
         {/* Left: Report Sidebar */}
-        <ReportSidebar
-          activeReport={activeReport}
-          onSelect={handleSelectReport}
-          openCategories={openCategories}
-          onToggleCategory={handleToggleCategory}
-        />
+        <div className="hidden lg:block shrink-0">
+          <ReportSidebar
+            activeReport={activeReport}
+            onSelect={handleSelectReport}
+            openCategories={openCategories}
+            onToggleCategory={handleToggleCategory}
+          />
+        </div>
 
         {/* Right: Report Content */}
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[14px] border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">

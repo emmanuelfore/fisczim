@@ -131,9 +131,9 @@ export default function CashbookPage() {
   return (
     <Layout hideHeaderTitle>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-600">
+            <div className="h-10 w-10 shrink-0 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-600">
               <Wallet className="h-5 w-5" />
             </div>
             <div>
@@ -145,12 +145,12 @@ export default function CashbookPage() {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 w-full md:w-auto">
             <Select
               value={selectedAccountId}
               onValueChange={setSelectedAccountId}
             >
-              <SelectTrigger className="w-[200px] h-11 rounded-xl">
+              <SelectTrigger className="w-full sm:w-[200px] h-11 rounded-xl">
                 <SelectValue placeholder="Select Account" />
               </SelectTrigger>
               <SelectContent>
@@ -165,7 +165,7 @@ export default function CashbookPage() {
 
             <Dialog open={isTransferOpen} onOpenChange={setIsTransferOpen}>
               <DialogTrigger asChild>
-                <Button className="h-11 px-6 rounded-xl font-bold bg-primary hover:bg-primary/90 text-white flex items-center gap-2">
+                <Button className="w-full sm:w-auto h-11 px-6 rounded-xl font-bold bg-primary hover:bg-primary/90 text-white flex items-center justify-center gap-2">
                   <ArrowRightLeft className="h-4 w-4" />
                   <span>Funds Transfer</span>
                 </Button>
@@ -338,7 +338,7 @@ export default function CashbookPage() {
               View recent deposits, payments, and transfers.
             </CardDescription>
           </CardHeader>
-          <CardContent className="p-0">
+          <CardContent className="p-0 overflow-x-auto">
             <Table>
               <TableHeader className="bg-slate-50/50">
                 <TableRow>

@@ -297,7 +297,7 @@ export default function AccountingJournalPage() {
   return (
     <Layout hideHeaderTitle>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex flex-col">
             <h2 className="text-2xl font-bold text-slate-800 font-display">
               General Journal
@@ -308,7 +308,7 @@ export default function AccountingJournalPage() {
           </div>
           <Dialog open={isVoucherOpen} onOpenChange={setIsVoucherOpen}>
             <DialogTrigger asChild>
-              <Button className="h-11 px-6 rounded-xl font-bold bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/20 transition-all active:scale-95 flex items-center gap-2">
+              <Button className="w-full sm:w-auto h-11 px-6 rounded-xl font-bold bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/20 transition-all active:scale-95 flex items-center justify-center gap-2">
                 <Plus className="h-4 w-4" />
                 <span>New Journal Voucher</span>
               </Button>
@@ -351,7 +351,7 @@ export default function AccountingJournalPage() {
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-slate-200 overflow-hidden">
+                <div className="rounded-xl border border-slate-200 overflow-x-auto min-w-0">
                   <Table>
                     <TableHeader className="bg-slate-50">
                       <TableRow>
@@ -588,7 +588,7 @@ export default function AccountingJournalPage() {
                 Draft Journal Batches
               </CardTitle>
             </CardHeader>
-            <CardContent className="p-0">
+            <CardContent className="p-0 overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -681,16 +681,16 @@ export default function AccountingJournalPage() {
                 className="border-slate-200/60 shadow-sm overflow-hidden rounded-2xl group hover:shadow-md transition-all duration-300"
               >
                 <CardHeader className="bg-slate-50/50 border-b border-slate-100 px-6 py-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className="h-9 w-9 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-slate-500 shadow-sm">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div className="flex items-start md:items-center gap-4">
+                      <div className="h-9 w-9 shrink-0 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-slate-500 shadow-sm">
                         <History className="h-4 w-4" />
                       </div>
                       <div className="flex flex-col">
                         <span className=" font-bold text-slate-700">
                           {entry.description}
                         </span>
-                        <div className="flex items-center gap-3 mt-0.5">
+                        <div className="flex flex-wrap items-center gap-2 mt-1">
                           <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-400 bg-white px-2 py-0.5 rounded-md border border-slate-100">
                             <Calendar className="h-3 w-3" />
                             {format(new Date(entry.entryDate), "PPP")}
@@ -704,7 +704,7 @@ export default function AccountingJournalPage() {
                         </div>
                       </div>
                     </div>
-                     <div className="flex flex-col items-end">
+                     <div className="flex flex-col items-start md:items-end">
                       <div className="flex items-center gap-1 text-[11px] font-bold text-slate-400 mb-1">
                         <User className="h-3 w-3" />
                         {entry.createdByName || "System"}
@@ -715,7 +715,7 @@ export default function AccountingJournalPage() {
                     </div>
                   </div>
                 </CardHeader>
-                <CardContent className="p-0">
+                <CardContent className="p-0 overflow-x-auto">
                   <Table>
                     <TableHeader className="bg-white">
                       <TableRow className="hover:bg-transparent border-slate-100">

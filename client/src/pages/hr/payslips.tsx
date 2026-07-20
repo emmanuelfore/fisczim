@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useState } from "react";
 import { format } from "date-fns";
+import { downloadExcel } from "@/lib/export-utils";
 
 export default function HRPayslips() {
   const { runId } = useParams();
@@ -181,7 +182,7 @@ export default function HRPayslips() {
           <div className="ml-auto">
             <Button
               onClick={() => {
-                window.location.href = `/api/companies/${companyId}/payroll/runs/${runId}/bank-export`;
+                downloadExcel(`/api/companies/${companyId}/payroll/runs/${runId}/bank-export`, `bank_export_${runId}.csv`);
               }}
               className="bg-blue-600 hover:bg-blue-700 text-white"
             >

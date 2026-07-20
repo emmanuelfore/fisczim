@@ -28,7 +28,7 @@ import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { QuantityInput } from "@/components/ui/quantity-input";
-
+import { ProductCombobox } from "@/components/ui/product-combobox";
 
 type DraftLine = {
   productId: string;
@@ -298,9 +298,10 @@ export default function PurchaseReturnFormPage({
                       return (
                         <div key={index} className="grid grid-cols-12 gap-2 items-start border-t border-slate-50 px-3 py-3">
                           <div className="col-span-5 space-y-2">
-                            <Select
+                            <ProductCombobox
                               value={line.productId}
-                              onValueChange={(value) => {
+                              products={filteredProducts}
+                              onChange={(value) => {
                                 const product = (products as any[]).find((p) => String(p.id) === value);
                                 let unitCost = String(product?.costPrice || line.unitCost || "0");
                                 if (goodsDeliveryNoteId && selectedGdn) {
@@ -311,18 +312,7 @@ export default function PurchaseReturnFormPage({
                                 }
                                 updateLine(index, { productId: value, unitCost });
                               }}
-                            >
-                              <SelectTrigger className="h-9">
-                                <SelectValue placeholder="Select product" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {filteredProducts.map((product) => (
-                                  <SelectItem key={product.id} value={String(product.id)}>
-                                    {product.name}{product.sku ? ` (${product.sku})` : ""}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                            />
                             {goodsDeliveryNoteId && line.productId && (
                               <p className="text-[10px] text-slate-500 font-medium leading-none">
                                 Max returnable: <span className="font-bold text-slate-700">{remaining}</span> (Received {received}, Returned {returned})

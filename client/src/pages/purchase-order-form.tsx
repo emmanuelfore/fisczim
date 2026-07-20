@@ -36,7 +36,7 @@ import { Switch } from "@/components/ui/switch";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
 import { QuantityInput } from "@/components/ui/quantity-input";
-
+import { ProductCombobox } from "@/components/ui/product-combobox";
 
 type DraftLine = {
   isFreetext?: boolean;
@@ -311,9 +311,10 @@ export default function PurchaseOrderFormPage({
                       <div key={index} className="grid grid-cols-12 gap-2 items-start border-t border-slate-50 px-3 py-3">
                         <div className="col-span-3 space-y-1">
                           {!line.isFreetext ? (
-                            <Select
+                            <ProductCombobox
                               value={line.productId}
-                              onValueChange={(value) => {
+                              products={products as any[]}
+                              onChange={(value) => {
                                 const product = (products as any[]).find((p) => String(p.id) === value);
                                 const newCost = String(product?.costPrice || line.unitCost || "0");
                                 const rate = Number(line.taxRate || 0);
@@ -323,18 +324,8 @@ export default function PurchaseOrderFormPage({
                                 const taxAmt = taxInclusive ? baseAmt - (baseAmt / (1 + (rate / 100))) : baseAmt * (rate / 100);
                                 updateLine(index, { productId: value, unitCost: newCost, taxAmount: String(taxAmt.toFixed(2)) });
                               }}
-                            >
-                              <SelectTrigger className="h-9">
-                                <SelectValue placeholder="Select product" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {(products as any[]).map((product) => (
-                                  <SelectItem key={product.id} value={String(product.id)}>
-                                    {product.name}{product.sku ? ` (${product.sku})` : ""}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                              className="w-[200px]"
+                            />
                           ) : (
                             <div className="flex gap-2">
                               <Input

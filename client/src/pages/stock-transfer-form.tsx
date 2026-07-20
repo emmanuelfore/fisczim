@@ -25,7 +25,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { QuantityInput } from "@/components/ui/quantity-input";
-
+import { ProductCombobox } from "@/components/ui/product-combobox";
 
 type TransferLine = {
   localId: string;
@@ -343,21 +343,12 @@ export default function StockTransferFormPage() {
                       return (
                         <tr key={line.localId} className="border-b border-slate-50 last:border-b-0">
                           <td className="p-3 align-middle">
-                            <Select
+                            <ProductCombobox
                               value={line.productId}
-                              onValueChange={(productId) => updateLine(line.localId, { productId })}
-                            >
-                              <SelectTrigger className={cn("rounded-xl bg-white", isShortage && "border-red-400")}>
-                                <SelectValue placeholder="Select product" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {(products as any[]).map((product) => (
-                                  <SelectItem key={product.id} value={String(product.id)}>
-                                    {product.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                              products={products as any[]}
+                              onChange={(productId) => updateLine(line.localId, { productId })}
+                              className={cn(isShortage && "border-red-400")}
+                            />
                             {pid > 0 && available !== null && (
                               <p className={cn("text-[11px] mt-1 pl-1 flex items-center gap-1 font-medium", isShortage ? "text-red-500" : "text-slate-400")}>
                                 {isShortage && <AlertCircle className="h-3 w-3" />}

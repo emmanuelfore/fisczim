@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link } from "wouter";
+import { downloadExcel } from "@/lib/export-utils";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { 
   FileSpreadsheet, 
@@ -264,7 +265,7 @@ export default function HRPayrollRuns() {
                               variant="ghost" 
                               size="sm" 
                               className="text-blue-600 dark:text-blue-400"
-                              onClick={() => window.open(`/api/companies/${companyId}/payroll/runs/${run.id}/bank-export`, '_blank')}
+                              onClick={() => downloadExcel(`/api/companies/${companyId}/payroll/runs/${run.id}/bank-export`, `bank_export_${run.id}.csv`)}
                             >
                               Export Bank File
                             </Button>

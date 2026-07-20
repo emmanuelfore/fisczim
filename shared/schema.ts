@@ -478,7 +478,7 @@ export const products = pgTable("products", {
   category: text("category"),
   ownerGroup: text("owner_group"),
   price: decimal("price", { precision: 10, scale: 2 }).notNull(),
-  costPrice: decimal("cost_price", { precision: 10, scale: 2 }),
+  costPrice: decimal("cost_price", { precision: 14, scale: 6 }),
   taxRate: decimal("tax_rate", { precision: 5, scale: 2 }).default("15.50"), // Default VAT
 
   // Inventory
@@ -609,7 +609,7 @@ export const productBatches = pgTable("product_batches", {
   manufacturingDate: date("manufacturing_date"),
   expiryDate: date("expiry_date").notNull(),
   stockLevel: decimal("stock_level", { precision: 10, scale: 2 }).default("0"),
-  costPrice: decimal("cost_price", { precision: 10, scale: 2 }),
+  costPrice: decimal("cost_price", { precision: 14, scale: 6 }),
   isExpired: boolean("is_expired").default(false),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({

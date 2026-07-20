@@ -1,5 +1,6 @@
 import { cn } from "@/lib/utils";
 import { useState } from "react";
+import { downloadExcel } from "@/lib/export-utils";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { 
   Plus, 
@@ -231,7 +232,7 @@ export default function HREmployees() {
   };
 
   const handleExport = () => {
-    window.location.href = `/api/companies/${companyId}/payroll/employees/export`;
+    downloadExcel(`/api/companies/${companyId}/payroll/employees/export`, `employees_export_${new Date().toISOString().split("T")[0]}.csv`);
   };
 
   const handleCreate = (e: React.FormEvent) => {

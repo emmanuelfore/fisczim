@@ -92,7 +92,7 @@ export default function TrialBalancePage() {
   return (
     <Layout hideHeaderTitle>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <div className="h-12 w-12 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shadow-sm">
               <Scale className="h-6 w-6" />
@@ -124,11 +124,11 @@ export default function TrialBalancePage() {
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
             <Button
               variant="outline"
               onClick={() => window.print()}
-              className="h-11 px-5 rounded-xl font-bold border-slate-200 hover:bg-slate-50 transition-all flex items-center gap-2"
+              className="w-full sm:w-auto h-11 px-5 rounded-xl font-bold border-slate-200 hover:bg-slate-50 transition-all flex items-center justify-center gap-2"
             >
               <Printer className="h-4 w-4 text-slate-500" />
               <span>Print Report</span>
@@ -137,7 +137,7 @@ export default function TrialBalancePage() {
               variant="outline"
               onClick={handleExport}
               disabled={!report?.lines?.length}
-              className="h-11 px-5 rounded-xl font-bold border-slate-200 hover:bg-slate-50 transition-all flex items-center gap-2"
+              className="w-full sm:w-auto h-11 px-5 rounded-xl font-bold border-slate-200 hover:bg-slate-50 transition-all flex items-center justify-center gap-2"
             >
               <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
               <span>Export Excel</span>
@@ -146,7 +146,7 @@ export default function TrialBalancePage() {
         </div>
 
         <Card className="border-slate-200/60 shadow-xl overflow-hidden rounded-3xl bg-white/50 backdrop-blur-sm">
-          <CardContent className="p-0">
+          <CardContent className="p-0 overflow-x-auto min-w-0">
             <Table>
               <TableHeader className="bg-slate-100/50">
                 <TableRow className="hover:bg-transparent border-slate-200/60">

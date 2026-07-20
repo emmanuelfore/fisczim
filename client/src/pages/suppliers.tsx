@@ -1,5 +1,6 @@
 import { Layout } from "@/components/layout";
 import { useState } from "react";
+import { downloadExcel } from "@/lib/export-utils";
 import { useSuppliers, useUpdateSupplier } from "@/hooks/use-suppliers";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -79,7 +80,7 @@ export default function SuppliersPage() {
             <Button
               variant="outline"
               onClick={() => {
-                window.location.href = `/api/export/suppliers?companyId=${companyId}`;
+                downloadExcel(`/api/export/suppliers?companyId=${companyId}`, `suppliers_export_${new Date().toISOString().split("T")[0]}.csv`);
               }}
               disabled={!companyId}
               className="rounded-xl shadow-sm hover:shadow-md transition-all duration-300 border-slate-200"

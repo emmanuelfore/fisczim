@@ -333,7 +333,7 @@ export function PosTerminalSettings({
             </h3>
             <Card className="card-depth border-none">
               <CardContent className="pt-6 space-y-6">
-                <div className="grid grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <Label className="text-xs font-bold uppercase tracking-wider text-slate-500">
                       Paper Size
@@ -723,7 +723,7 @@ export function PosTerminalSettings({
                   <Label className="text-xs font-bold uppercase tracking-wider text-slate-500">
                     Accepted Payment Methods
                   </Label>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  <div className="grid grid-cols-1 md:grid-cols-2 sm:grid-cols-3 gap-2">
                     {[
                       { id: "CASH", label: "ZWL Cash" },
                       { id: "CARD", label: "Card" },
@@ -906,7 +906,7 @@ export function PosTerminalSettings({
                       </div>
 
                       {/* Rule fields grid */}
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      <div className="grid grid-cols-1 md:grid-cols-2 sm:grid-cols-3 gap-3">
                         <div className="space-y-1">
                           <Label className="text-[10px] font-black uppercase text-slate-400">
                             Prefix

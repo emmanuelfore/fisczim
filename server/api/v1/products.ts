@@ -43,13 +43,20 @@ router.post("/", async (req, res) => {
   }
 
   try {
+    const productData = { ...parsed.data };
+    if (!productData.sku) {
+      const timestamp = Date.now().toString(36).toUpperCase();
+      const randomPart = Math.random().toString(36).substring(2, 6).toUpperCase();
+      productData.sku = `SKU-${timestamp}-${randomPart}`;
+    }
+
     const product = await storage.createProduct({
-      ...parsed.data,
-      price: parsed.data.price?.toString(),
-      taxRate: parsed.data.taxRate?.toString(),
-      stockLevel: parsed.data.stockLevel?.toString(),
-      lowStockThreshold: parsed.data.lowStockThreshold?.toString(),
-      costPrice: parsed.data.costPrice?.toString(),
+      ...productData,
+      price: productData.price?.toString(),
+      taxRate: productData.taxRate?.toString(),
+      stockLevel: productData.stockLevel?.toString(),
+      lowStockThreshold: productData.lowStockThreshold?.toString(),
+      costPrice: productData.costPrice?.toString(),
       companyId: company.id,
     } as any);
 

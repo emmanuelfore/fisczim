@@ -227,6 +227,26 @@ export const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     "users.view",
     "restaurant.orders", "restaurant.kds", "restaurant.menu",
   ],
+  hr: [
+    "nav.dashboard", "nav.payroll", "nav.users",
+    "payroll.view", "payroll.process",
+    "users.view",
+  ],
+  procurement: [
+    "nav.dashboard", "nav.inventory",
+    "stock.view", "grn.create", "grn.view",
+  ],
+  auditor: [
+    "nav.dashboard", "nav.invoices", "nav.customers", "nav.inventory", 
+    "nav.accounting", "nav.expenses", "nav.reports", "nav.payroll", "nav.compliance",
+    "invoices.view", "stock.view", "grn.view", "accounting.view",
+    "reports.sales", "reports.inventory", "reports.financial", "reports.tax",
+    "payroll.view", "users.view", "compliance.logs", "compliance.test"
+  ],
+  restaurant: [
+    "nav.restaurant",
+    "restaurant.orders", "restaurant.kds",
+  ],
 };
 
 /** Map nav hrefs to required permission */

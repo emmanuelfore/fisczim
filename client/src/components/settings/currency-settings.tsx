@@ -154,7 +154,7 @@ export function CurrencySettings({ companyId }: CurrencySettingsProps) {
               onSubmit={form.handleSubmit(onSubmit)}
               className="space-y-4 pt-4"
             >
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label className="text-xs font-bold uppercase tracking-wider text-slate-500">
                     Code (e.g. USD)

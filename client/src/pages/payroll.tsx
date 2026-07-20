@@ -1182,7 +1182,7 @@ export default function PayrollPage() {
                 </CardHeader>{" "}
                 <CardContent className="space-y-3">
                   {" "}
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {" "}
                     <Field label="Start">
                       {" "}
@@ -1208,7 +1208,7 @@ export default function PayrollPage() {
                       />{" "}
                     </Field>{" "}
                   </div>{" "}
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {" "}
                     <Field label="Currency">
                       {" "}
@@ -1485,7 +1485,7 @@ export default function PayrollPage() {
                       <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
                         Identity
                       </p>{" "}
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         {" "}
                         <Field label="Emp No">
                           <Input
@@ -1510,7 +1510,7 @@ export default function PayrollPage() {
                           />
                         </Field>{" "}
                       </div>{" "}
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         {" "}
                         <Field label="First Name">
                           <Input
@@ -1535,7 +1535,7 @@ export default function PayrollPage() {
                           />
                         </Field>{" "}
                       </div>{" "}
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         {" "}
                         <Field label="Email">
                           <Input
@@ -1593,7 +1593,7 @@ export default function PayrollPage() {
                           </SelectContent>{" "}
                         </Select>{" "}
                       </Field>{" "}
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         {" "}
                         <Field label="Department">
                           {" "}
@@ -1661,7 +1661,7 @@ export default function PayrollPage() {
                           </Select>{" "}
                         </Field>{" "}
                       </div>{" "}
-                      <div className="grid grid-cols-3 gap-3">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                         {" "}
                         <Field label="Status">
                           <Select
@@ -1715,7 +1715,7 @@ export default function PayrollPage() {
                       <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
                         Statutory & Payment
                       </p>{" "}
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         {" "}
                         <Field label="NSSA No">
                           <Input
@@ -1740,7 +1740,7 @@ export default function PayrollPage() {
                           />
                         </Field>{" "}
                       </div>{" "}
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         {" "}
                         <Field label="Bank">
                           <Input
@@ -1765,7 +1765,7 @@ export default function PayrollPage() {
                           />
                         </Field>{" "}
                       </div>{" "}
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         {" "}
                         <Field label="Account No">
                           <Input
@@ -1796,7 +1796,7 @@ export default function PayrollPage() {
                       <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
                         Contract
                       </p>{" "}
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         {" "}
                         <Field label="Type">
                           <Select
@@ -1840,7 +1840,7 @@ export default function PayrollPage() {
                           </Select>
                         </Field>{" "}
                       </div>{" "}
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         {" "}
                         <Field label="Base Salary">
                           <Input
@@ -1871,7 +1871,7 @@ export default function PayrollPage() {
                           </Select>
                         </Field>{" "}
                       </div>{" "}
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         {" "}
                         <Field label="USD %">
                           <Input
@@ -1896,7 +1896,7 @@ export default function PayrollPage() {
                           />
                         </Field>{" "}
                       </div>{" "}
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         {" "}
                         <Field label="Pay Grade">
                           <Select
@@ -1959,7 +1959,7 @@ export default function PayrollPage() {
                       <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
                         Emergency Contact
                       </p>{" "}
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         {" "}
                         <Field label="Name">
                           <Input
@@ -2007,7 +2007,7 @@ export default function PayrollPage() {
                     {" "}
                     <div className="space-y-3">
                       {" "}
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         {" "}
                         <Field label="Dept Code">
                           <Input
@@ -2054,7 +2054,7 @@ export default function PayrollPage() {
                           }
                         />
                       </Field>{" "}
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         {" "}
                         <Field label="Grade">
                           <Input
@@ -2233,7 +2233,7 @@ export default function PayrollPage() {
                 pending={createPayGrade.isPending}
               >
                 {" "}
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <Field label="Code">
                     <Input
                       value={payGradeForm.code}
@@ -2257,7 +2257,7 @@ export default function PayrollPage() {
                     />
                   </Field>
                 </div>{" "}
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <Field label="Min">
                     <Input
                       value={payGradeForm.minSalary}
@@ -2340,7 +2340,7 @@ export default function PayrollPage() {
                 pending={createEarningType.isPending}
               >
                 {" "}
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <Field label="Code">
                     <Input
                       value={earningTypeForm.code}
@@ -2381,7 +2381,7 @@ export default function PayrollPage() {
                     </SelectContent>
                   </Select>
                 </Field>{" "}
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <Field label="Pensionable">
                     <Select
                       value={earningTypeForm.isPensionable}
@@ -2429,7 +2429,7 @@ export default function PayrollPage() {
                 pending={createDeductionType.isPending}
               >
                 {" "}
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <Field label="Code">
                     <Input
                       value={deductionTypeForm.code}
@@ -2470,7 +2470,7 @@ export default function PayrollPage() {
                     </SelectContent>
                   </Select>
                 </Field>{" "}
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <Field label="Employee Rate">
                     <Input
                       value={deductionTypeForm.employeeRate}
@@ -2510,7 +2510,7 @@ export default function PayrollPage() {
                     setRecurringForm({ ...recurringForm, employeeId });
                   }}
                 />{" "}
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <Field label="Type">
                     <Select
                       value={recurringForm.type}
@@ -2550,7 +2550,7 @@ export default function PayrollPage() {
                     }
                   />
                 </Field>{" "}
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <Field label="Taxable">
                     <Select
                       value={recurringForm.isTaxable}
@@ -2657,7 +2657,7 @@ export default function PayrollPage() {
                   </SelectContent>{" "}
                 </Select>{" "}
               </Field>{" "}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {" "}
                 <Field label="Start">
                   <Input
@@ -2741,7 +2741,7 @@ export default function PayrollPage() {
                   }
                 />
               </Field>{" "}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {" "}
                 <Field label="Months">
                   <Input
@@ -2822,7 +2822,7 @@ export default function PayrollPage() {
                     </CardHeader>{" "}
                     <CardContent className="space-y-3">
                       {" "}
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         {" "}
                         <Field label="Currency">
                           <Select
@@ -2897,7 +2897,7 @@ export default function PayrollPage() {
                     </CardHeader>{" "}
                     <CardContent className="space-y-3">
                       {" "}
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         {" "}
                         <Field label="Currency">
                           <Select
@@ -2928,7 +2928,7 @@ export default function PayrollPage() {
                           />
                         </Field>{" "}
                       </div>{" "}
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         {" "}
                         <Field label="Employee Rate">
                           <Input
@@ -2997,7 +2997,7 @@ export default function PayrollPage() {
                     </CardHeader>{" "}
                     <CardContent className="space-y-3">
                       {" "}
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         {" "}
                         <Field label="Currency">
                           <Select
@@ -3181,7 +3181,7 @@ export default function PayrollPage() {
                       </SelectContent>{" "}
                     </Select>{" "}
                   </Field>{" "}
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {" "}
                     <Field label="From">
                       <Input
@@ -3495,7 +3495,7 @@ export default function PayrollPage() {
                       </SelectContent>{" "}
                     </Select>{" "}
                   </Field>{" "}
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {" "}
                     <Button
                       variant="outline"
@@ -3543,7 +3543,7 @@ export default function PayrollPage() {
                       placeholder="Paste CSV data here after downloading the template."
                     />{" "}
                   </Field>{" "}
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {" "}
                     <Button
                       variant="outline"

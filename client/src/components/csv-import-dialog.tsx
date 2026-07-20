@@ -240,7 +240,7 @@ export function CsvImportDialog({
                 )}
                 <span>Import Complete</span>
               </div>
-              <div className="grid grid-cols-2 gap-4 pt-1">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
                 <div className="bg-white/50 p-2 rounded">
                   <span className="text-slate-500 text-xs uppercase tracking-wider">
                     Success

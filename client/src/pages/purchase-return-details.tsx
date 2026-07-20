@@ -169,7 +169,7 @@ export default function PurchaseReturnDetailsPage() {
               <h3 className="font-bold text-slate-800 text-lg">{order.returnNumber}</h3>
             </div>
             <CardContent className="p-6">
-              <div className="grid grid-cols-2 sm:grid-cols-6 gap-6 mb-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 sm:grid-cols-6 gap-6 mb-8">
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Return Date</p>
                   <p className="text-sm font-semibold text-slate-800">

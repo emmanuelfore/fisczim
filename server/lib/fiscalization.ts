@@ -1,10 +1,12 @@
 import { storage } from "../storage.js";
 import { ZimraDevice, ReceiptData, ZimraConfigResponse, ZimraApiError, ZimraLogger } from "../zimra.js";
-import { Invoice } from "../../shared/schema.js";
+import { Invoice, products } from "../../shared/schema.js";
 import fs from "fs";
 import path from "path";
 import { logAction } from "../audit.js";
 import { assertReceiptPreflight, ZimraPreflightError } from "./zimra-preflight.js";
+import { db } from "../db.js";
+import { eq, and, isNotNull, ne } from "drizzle-orm";
 
 const POS_VERBOSE_LOGS = process.env.POS_VERBOSE_LOGS === "1";
 const vLog = (...args: any[]) => { if (POS_VERBOSE_LOGS) console.log(...args); };
@@ -318,7 +320,7 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
         const explicitlyNotVatRegistered = company.vatRegistered === false || company.vatEnabled === false;
 
         // Map Invoice to ReceiptData
-        const receiptLines = invoice.items.map((item, index) => {
+        const receiptLines = await Promise.all(invoice.items.map(async (item, index) => {
             let taxPercent = parseFloat(item.taxRate as any);
             let unitPrice = parseFloat(item.unitPrice as any);
             let lineTotal = parseFloat(item.lineTotal as any);
@@ -455,11 +457,34 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
                 taxID = ZimraDevice.getTaxID(taxPercent);
             }
 
+            let hsCode = (item.product?.hsCode || "").trim();
+            if (!hsCode || hsCode === "0000.00.00") {
+                const categoryMatch = await db
+                    .select()
+                    .from(products)
+                    .where(
+                        and(
+                            eq(products.companyId, company.id),
+                            item.product?.category ? eq(products.category, item.product.category) : eq(products.name, item.description),
+                            isNotNull(products.hsCode),
+                            ne(products.hsCode, "0000.00.00"),
+                            ne(products.hsCode, "")
+                        )
+                    )
+                    .limit(1);
+
+                if (categoryMatch.length > 0 && categoryMatch[0].hsCode) {
+                    hsCode = categoryMatch[0].hsCode.trim();
+                } else {
+                    hsCode = "99999999"; // Default fallback for services
+                }
+            }
+
             // Build receipt line, conditionally omitting taxPercent for exempt items
             const receiptLine: any = {
                 receiptLineType: ((invoice.transactionType || 'FiscalInvoice') !== 'CreditNote' && (invoice.transactionType || 'FiscalInvoice') !== 'DebitNote' && Number(unitPrice) < 0) ? 'Discount' : 'Sale',
                 receiptLineNo: index + 1,
-                receiptLineHSCode: (item.product?.hsCode || '04021099').trim(),
+                receiptLineHSCode: hsCode,
                 receiptLineName: (item.description || '').trim() || 'Item without description',
                 receiptLinePrice: parseFloat(Number(unitPrice).toFixed(2)),
                 receiptLineQuantity: parseFloat(Number(item.quantity).toFixed(2)),
@@ -473,7 +498,7 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
             }
 
             return receiptLine;
-        });
+        }));
 
         const getZimraPaymentMethodCode = (methodName: string): 'Cash' | 'Card' | 'Other' | 'BankTransfer' | 'MobileWallet' => {
             const m = methodName.toUpperCase();

@@ -179,7 +179,7 @@ export function TaxSummaryReport({
             <h3 className=" font-black text-slate-800 uppercase tracking-tight">
               {selectedRow.taxName}
             </h3>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <DetailCard label="Tax Code" value={selectedRow.taxCode} />
               <DetailCard label="Tax Name" value={selectedRow.taxName} />
               <DetailCard label="Tax Rate" value={selectedRow.taxRate} />

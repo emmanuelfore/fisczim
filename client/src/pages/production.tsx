@@ -356,7 +356,7 @@ export default function ProductionPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="rounded-xl bg-slate-50 p-3">
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
                   Input cost

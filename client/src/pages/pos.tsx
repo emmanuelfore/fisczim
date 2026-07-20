@@ -3046,7 +3046,7 @@ export default function POSPage() {
       "DEL",
     ];
     return (
-      <div className="grid grid-cols-3 gap-1 p-1 md:p-2 bg-slate-50/50 rounded-xl border border-slate-100">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-1 p-1 md:p-2 bg-slate-50/50 rounded-xl border border-slate-100">
         {buttons.map((btn) => (
           <Button
             key={btn}
@@ -3338,7 +3338,7 @@ export default function POSPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {normalizeAppMode(resolvedCompany?.appMode) === "restaurant" && selectedTableId ? (
               <Button
                 variant="outline"
@@ -3975,7 +3975,7 @@ export default function POSPage() {
                       </SheetHeader>
                     </div>
                     <div className="flex-1 overflow-y-auto p-6">
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         {categories.map((cat) => (
                           <Button
                             key={cat}
@@ -4481,7 +4481,7 @@ export default function POSPage() {
               ) : (
                 <>
                   {/* Mobile View */}
-                  <div className="md:hidden grid grid-cols-3 gap-1 pb-24 px-1 select-none touch-manipulation">
+                  <div className="md:hidden grid grid-cols-1 md:grid-cols-3 gap-1 pb-24 px-1 select-none touch-manipulation">
                     {(pagedProducts as any[]).map((product) => {
                       const hash = product.name
                         .split("")
@@ -5261,7 +5261,7 @@ export default function POSPage() {
                 </div>
               </div>
 
-              <div className="p-6 grid grid-cols-2 gap-6 bg-white">
+              <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6 bg-white">
                 <div className="space-y-4">
                   <div className="p-4 bg-slate-50 rounded-3xl border border-slate-100 space-y-3">
                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block px-1">
@@ -5284,7 +5284,7 @@ export default function POSPage() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div className="flex flex-col gap-2 p-3 bg-slate-50 rounded-2xl border border-slate-100">
                       <Label className="text-[10px] font-black text-slate-500 uppercase">
                         Auto-Print
@@ -5375,7 +5375,7 @@ export default function POSPage() {
                       ESC/POS Settings
                     </Label>
 
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div className="flex items-center justify-between p-2 bg-white rounded-xl border border-indigo-50">
                         <Label className="text-[9px] font-black text-slate-500 uppercase">
                           Auto-Cut
@@ -5405,7 +5405,7 @@ export default function POSPage() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div className="flex items-center justify-between p-2 bg-white rounded-xl border border-indigo-50">
                         <Label className="text-[9px] font-black text-slate-500 uppercase">
                           Large Header
@@ -6280,7 +6280,7 @@ export default function POSPage() {
                 {reportData && !reportData.error && (
                   <>
                     {/* Summary Stats */}
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div className="bg-slate-50 rounded-2xl p-4">
                         <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
                           Total Revenue
@@ -6506,7 +6506,7 @@ export default function POSPage() {
                     }
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-1">
                       Phone

@@ -192,7 +192,7 @@ export function ExpenseDetailsReport({
             <h3 className=" font-black text-slate-800 uppercase tracking-tight">
               {selectedRow.description}
             </h3>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <DetailCard
                 label="Date"
                 value={fmtDate(selectedRow.expenseDate)}
@@ -324,7 +324,7 @@ export function ExpensesByCategoryReport({
             <h3 className=" font-black text-slate-800 uppercase tracking-tight">
               {selectedRow.category}
             </h3>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <DetailCard label="Category" value={selectedRow.category} />
               <DetailCard label="Total" value={selectedRow.total} />
               <DetailCard
@@ -445,7 +445,7 @@ export function ExpensesByCustomerReport({
             <h3 className=" font-black text-slate-800 uppercase tracking-tight">
               {selectedRow.supplierName}
             </h3>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <DetailCard label="Supplier" value={selectedRow.supplierName} />
               <DetailCard label="Total" value={selectedRow.total} />
               <DetailCard label="Count" value={selectedRow.count} />
@@ -560,7 +560,7 @@ export function ExpensesByProjectReport({
             <h3 className=" font-black text-slate-800 uppercase tracking-tight">
               {selectedRow.project}
             </h3>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <DetailCard label="Project" value={selectedRow.project} />
               <DetailCard label="Total" value={selectedRow.total} />
               <DetailCard label="Count" value={selectedRow.count} />
@@ -693,7 +693,7 @@ export function BillableExpenseDetailsReport({
             <h3 className=" font-black text-slate-800 uppercase tracking-tight">
               {selectedRow.description}
             </h3>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <DetailCard
                 label="Date"
                 value={fmtDate(selectedRow.expenseDate)}

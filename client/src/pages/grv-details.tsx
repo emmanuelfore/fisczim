@@ -405,7 +405,7 @@ export default function GrvDetailsPage() {
                       GOODS RECEIVED VOUCHER
                     </h1>
                     <div className="inline-block bg-slate-50 border border-slate-200 rounded-lg p-4 text-left min-w-[210px]">
-                      <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2 text-sm">
                         <span className="text-slate-500 font-medium">GRV #:</span>
                         <span className="font-semibold text-slate-900 text-right font-mono">{grv.grvNumber}</span>
                         <span className="text-slate-500 font-medium">Date:</span>
@@ -424,7 +424,7 @@ export default function GrvDetailsPage() {
                 </div>
 
                 {/* Supplier & Company Section */}
-                <div className="grid grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
                     <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 pb-2 border-b border-slate-100">Supplier</h3>
                     <div className="text-sm text-slate-800 space-y-1">
@@ -540,7 +540,7 @@ export default function GrvDetailsPage() {
                 )}
 
                 {/* Signatures */}
-                <div className="mt-8 grid grid-cols-3 gap-8 pt-8 border-t border-slate-200">
+                <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-8 pt-8 border-t border-slate-200">
                   {["Received By", "Checked By", "Authorised By"].map((label) => (
                     <div key={label} className="text-center">
                       <div className="h-12 border-b border-slate-300 mb-2" />
@@ -575,7 +575,7 @@ export default function GrvDetailsPage() {
               <Badge variant="outline" className="ml-2 font-mono">{grv.grvNumber}</Badge>
             </div>
             <CardContent className="p-6">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 mb-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 sm:grid-cols-4 gap-6 mb-8">
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Receipt Date</p>
                   <p className="text-sm font-semibold text-slate-800">

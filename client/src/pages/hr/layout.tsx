@@ -63,7 +63,31 @@ export function HRLayout({ children }: { children: React.ReactNode }) {
       <div className="flex flex-col md:flex-row gap-6 min-h-[calc(100vh-8rem)]">
         {/* Sidebar */}
         <aside className="w-full md:w-56 shrink-0">
-          <div className="sticky top-6 flex flex-col gap-1">
+          {/* Mobile Navigation */}
+          <div className="md:hidden sticky top-4 z-10 mb-4 bg-white/80 backdrop-blur-md rounded-2xl p-4 shadow-sm border border-slate-200">
+            <h4 className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-1 py-1 mb-2">HR Menu</h4>
+            <select 
+              value={[...hrNavigation, ...hrSetupNav, ...hrReportsNav].find(item => location === item.href || (item.href !== "/hr" && location.startsWith(item.href + "/")))?.href || "/hr"} 
+              onChange={(e) => {
+                const href = e.target.value;
+                window.location.href = href;
+              }}
+              className="w-full h-12 bg-slate-50 border border-slate-200 rounded-xl px-4 font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+            >
+              <optgroup label="Main">
+                {hrNavigation.map(item => <option key={item.name} value={item.href}>{item.name}</option>)}
+              </optgroup>
+              <optgroup label="Setup">
+                {hrSetupNav.map(item => <option key={item.name} value={item.href}>{item.name}</option>)}
+              </optgroup>
+              <optgroup label="Reports">
+                {hrReportsNav.map(item => <option key={item.name} value={item.href}>{item.name}</option>)}
+              </optgroup>
+            </select>
+          </div>
+
+          {/* Desktop Navigation */}
+          <div className="hidden md:flex sticky top-6 flex-col gap-1">
             <div className="mb-3 px-3 py-2">
               <h2 className="text-xl font-bold tracking-tight bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
                 HR &amp; Payroll

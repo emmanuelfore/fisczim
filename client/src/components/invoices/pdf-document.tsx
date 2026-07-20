@@ -250,7 +250,7 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                 ? "DEBIT NOTE"
                 : (invoice.fiscalCode
                     ? (company?.vatRegistered ? "FISCAL TAX INVOICE" : "FISCAL INVOICE")
-                    : (invoice.status === 'draft' ? "DRAFT INVOICE" : "PROFORMA INVOICE"))));
+                    : (invoice.status === 'draft' ? "DRAFT INVOICE" : (company?.vatRegistered ? "PROFORMA INVOICE" : "TAX INVOICE")))));
 
     return (
         <Document>
@@ -752,8 +752,8 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                         {company?.phone ? ` | ${company.phone}` : ""}
                         {company?.email ? ` | ${company.email}` : ""}
                     </Text>
-                    <Text style={{ fontSize: 7, color: invoice.fiscalCode ? '#94a3b8' : '#b45309', textAlign: 'center' }}>
-                        {invoice.fiscalCode ? "Thank you for your business." : "PROFORMA - NOT VALID FOR TAX PURPOSES"}
+                    <Text style={{ fontSize: 7, color: (invoice.fiscalCode || !company?.vatRegistered) ? '#94a3b8' : '#b45309', textAlign: 'center' }}>
+                        {(invoice.fiscalCode || !company?.vatRegistered) ? "Thank you for your business." : "PROFORMA - NOT VALID FOR TAX PURPOSES"}
                     </Text>
                 </View>
 

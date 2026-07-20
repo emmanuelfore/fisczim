@@ -173,7 +173,7 @@ export function BatchVariationManager({ productId, companyId }: Props) {
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-2 rounded-2xl bg-slate-100 p-1 h-12">
+        <TabsList className="grid w-full grid-cols-1 md:grid-cols-2 rounded-2xl bg-slate-100 p-1 h-12">
           <TabsTrigger
             value="variations"
             className="rounded-xl font-black text-xs uppercase tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-sm"
@@ -401,7 +401,7 @@ export function BatchVariationManager({ productId, companyId }: Props) {
                 className="rounded-xl border-slate-100 bg-slate-50/50 focus:bg-white transition-all font-bold"
               />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label className="text-xs font-black uppercase text-slate-500 ml-1">
                   Price Override
@@ -475,7 +475,7 @@ export function BatchVariationManager({ productId, companyId }: Props) {
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label className="text-xs font-black uppercase text-slate-500 ml-1">
                   Batch ID / No.
@@ -504,7 +504,7 @@ export function BatchVariationManager({ productId, companyId }: Props) {
                 />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label className="text-xs font-black uppercase text-slate-500 ml-1">
                   Manufacturing Date

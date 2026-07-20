@@ -213,7 +213,7 @@ function DiagnosticShuffler() {
               </div>
             </div>
 
-            <div className="mt-4 grid grid-cols-3 gap-3">
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
               {["SNR", "Range", "Bias"].map((k) => (
                 <div key={k} className="rounded-2xl bg-black/[0.03] px-3 py-2">
                   <div className="text-[10px] font-semibold tracking-[0.18em] text-black/40">
@@ -306,7 +306,7 @@ function TelemetryTypewriter() {
             ▍
           </span>
         </div>
-        <div className="mt-4 grid grid-cols-3 gap-3">
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
           {[
             { k: "HRV", v: "72ms" },
             { k: "SpO₂", v: "98%" },
@@ -538,7 +538,7 @@ function LaserGridArtifact() {
       <div className="absolute inset-0 opacity-40 [background-image:linear-gradient(rgba(242,240,233,0.12)_1px,transparent_1px),linear-gradient(90deg,rgba(242,240,233,0.12)_1px,transparent_1px)] [background-size:20px_20px]" />
       <div className="laser absolute left-[-40%] top-0 h-full w-1/3 bg-gradient-to-r from-transparent via-nura-clay/70 to-transparent blur-sm" />
 
-      <div className="absolute inset-4 grid grid-cols-6 gap-2">
+      <div className="absolute inset-4 grid grid-cols-1 md:grid-cols-6 gap-2">
         {Array.from({ length: 24 }).map((_, i) => (
           <div key={i} className="rounded-xl bg-white/5" />
         ))}
@@ -1071,7 +1071,7 @@ export default function NuraLandingPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-10 sm:grid-cols-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-10 sm:grid-cols-3">
               {[
                 {
                   title: "Product",

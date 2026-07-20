@@ -210,7 +210,7 @@ export default function AccountingSegmentsPage() {
                   </Select>
                 </div>
 
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div className="col-span-1 space-y-1.5">
                     <Label htmlFor="segment-code">Code</Label>
                     <Input

@@ -350,7 +350,7 @@ export default function HREmployees() {
                 </DialogDescription>
               </DialogHeader>
               <form onSubmit={handleCreate} className="space-y-4 pt-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>First Name</Label>
                     <Input required value={formData.firstName} onChange={(e) => setFormData({...formData, firstName: e.target.value})} />
@@ -360,7 +360,7 @@ export default function HREmployees() {
                     <Input required value={formData.lastName} onChange={(e) => setFormData({...formData, lastName: e.target.value})} />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Employee Number</Label>
                     <Input required value={formData.employeeNumber} onChange={(e) => setFormData({...formData, employeeNumber: e.target.value})} />
@@ -370,7 +370,7 @@ export default function HREmployees() {
                     <Input required value={formData.nationalId} onChange={(e) => setFormData({...formData, nationalId: e.target.value})} />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Email</Label>
                     <Input type="email" value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} />
@@ -385,7 +385,7 @@ export default function HREmployees() {
                 <div className="border-t pt-4 mt-4 space-y-4">
                   <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100 uppercase tracking-wide">Payment Details</h4>
                   
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label>Bank Name</Label>
                       <Input placeholder="e.g. CABS, FBC" value={formData.bankName} onChange={(e) => setFormData({...formData, bankName: e.target.value})} />
@@ -395,7 +395,7 @@ export default function HREmployees() {
                       <Input placeholder="e.g. 112233" value={formData.bankBranch} onChange={(e) => setFormData({...formData, bankBranch: e.target.value})} />
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label>Account Number</Label>
                       <Input value={formData.bankAccountNumber} onChange={(e) => setFormData({...formData, bankAccountNumber: e.target.value})} />
@@ -425,7 +425,7 @@ export default function HREmployees() {
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleUpdateContract} className="space-y-4 pt-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Contract Type</Label>
                   <select 
@@ -456,7 +456,7 @@ export default function HREmployees() {
               </div>
 
               {contractData.currency === "SPLIT" && (
-                <div className="grid grid-cols-2 gap-4 p-3 bg-slate-50 dark:bg-slate-900/50 rounded-lg border border-slate-100 dark:border-slate-800">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-3 bg-slate-50 dark:bg-slate-900/50 rounded-lg border border-slate-100 dark:border-slate-800">
                   <div className="space-y-2">
                     <Label className="text-xs">USD %</Label>
                     <Input type="number" step="0.1" value={contractData.usdPercentage} onChange={(e) => setContractData({...contractData, usdPercentage: e.target.value})} className="h-8" />
@@ -468,7 +468,7 @@ export default function HREmployees() {
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Start Date</Label>
                   <Input type="date" required value={contractData.startDate} onChange={(e) => setContractData({...contractData, startDate: e.target.value})} />

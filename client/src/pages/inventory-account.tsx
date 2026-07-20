@@ -123,7 +123,7 @@ function ConfirmGdnModal({
           <DialogTitle>Confirm GDN {gdn.gdnNumber}</DialogTitle>
         </DialogHeader>
         <div className="grid gap-4 py-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>GRV Number *</Label>
               <Input value={grvNumber} onChange={e => setGrvNumber(e.target.value)} />

@@ -234,7 +234,7 @@ export function TaxTypesManager({ companyId }: { companyId: number }) {
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 items-center gap-4">
               <Label className="text-right">Name</Label>
               <Input
                 value={formData.name}
@@ -244,7 +244,7 @@ export function TaxTypesManager({ companyId }: { companyId: number }) {
                 className="col-span-3"
               />
             </div>
-            <div className="grid grid-cols-4 items-center gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 items-center gap-4">
               <Label className="text-right">Code</Label>
               <Input
                 value={formData.code}
@@ -255,7 +255,7 @@ export function TaxTypesManager({ companyId }: { companyId: number }) {
                 placeholder="VAT-STD"
               />
             </div>
-            <div className="grid grid-cols-4 items-center gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 items-center gap-4">
               <Label className="text-right">Rate (%)</Label>
               <Input
                 type="number"
@@ -266,7 +266,7 @@ export function TaxTypesManager({ companyId }: { companyId: number }) {
                 className="col-span-3"
               />
             </div>
-            <div className="grid grid-cols-4 items-center gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 items-center gap-4">
               <Label className="text-right">ZIMRA ID</Label>
               <Select
                 value={formData.zimraTaxId}

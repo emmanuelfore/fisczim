@@ -299,35 +299,58 @@ export default function SettingsPage() {
     <Layout>
       <div className="flex flex-col lg:flex-row gap-8 items-start mt-4">
         {/* Left Column: Sidebar Settings Navigation */}
-        <aside className="w-full lg:w-[260px] shrink-0 space-y-6 bg-white border border-slate-200/80 rounded-2xl p-4 shadow-sm">
-          {menuGroups.map((group) => (
-            <div key={group.title} className="space-y-1.5">
-              <h4 className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-3 py-1">{group.title}</h4>
-              <nav className="space-y-0.5">
-                {group.items.map((item) => {
-                  const Icon = getItemIcon(item.id);
-                  const isActive = visibleActiveTab === item.id;
-                  return (
-                    <button
-                      key={item.id}
-                      onClick={() => setActiveTab(item.id)}
-                      className={`w-full flex items-center justify-between px-3 py-2.5 text-[16px] font-semibold rounded-xl transition-all ${
-                        isActive 
-                          ? "bg-blue-50 text-blue-600 font-bold"
-                          : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <Icon className={`w-[18px] h-[18px] ${isActive ? 'text-blue-600' : 'text-slate-400'}`} />
-                        <span className="font-display tracking-tight">{item.label}</span>
-                      </div>
-                      {isActive && <div className="w-1.5 h-1.5 rounded-full bg-blue-600" />}
-                    </button>
-                  );
-                })}
-              </nav>
-            </div>
-          ))}
+        <aside className="w-full lg:w-[260px] shrink-0 bg-white border border-slate-200/80 rounded-2xl p-4 shadow-sm">
+          {/* Mobile Select Navigation */}
+          <div className="lg:hidden">
+            <h4 className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-1 py-1 mb-2">Settings Menu</h4>
+            <select 
+              value={activeTab} 
+              onChange={(e) => setActiveTab(e.target.value)}
+              className="w-full h-12 bg-slate-50 border border-slate-200 rounded-xl px-4 font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+            >
+              {menuGroups.map((group) => (
+                <optgroup key={group.title} label={group.title}>
+                  {group.items.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.label}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </div>
+          
+          {/* Desktop Navigation */}
+          <div className="hidden lg:block space-y-6">
+            {menuGroups.map((group) => (
+              <div key={group.title} className="space-y-1.5">
+                <h4 className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-3 py-1">{group.title}</h4>
+                <nav className="space-y-0.5">
+                  {group.items.map((item) => {
+                    const Icon = getItemIcon(item.id);
+                    const isActive = visibleActiveTab === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        onClick={() => setActiveTab(item.id)}
+                        className={`w-full flex items-center justify-between px-3 py-2.5 text-[16px] font-semibold rounded-xl transition-all ${
+                          isActive 
+                            ? "bg-blue-50 text-blue-600 font-bold"
+                            : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <Icon className={`w-[18px] h-[18px] ${isActive ? 'text-blue-600' : 'text-slate-400'}`} />
+                          <span className="font-display tracking-tight">{item.label}</span>
+                        </div>
+                        {isActive && <div className="w-1.5 h-1.5 rounded-full bg-blue-600" />}
+                      </button>
+                    );
+                  })}
+                </nav>
+              </div>
+            ))}
+          </div>
         </aside>
 
         {/* Right Column: Settings Content Container */}

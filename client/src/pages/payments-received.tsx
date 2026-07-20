@@ -180,7 +180,7 @@ function PaymentDetailsDialog({ p, company }: { p: any; company: any }) {
       </DialogHeader>
 
       <div className="p-6 space-y-6">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="bg-slate-50 p-4 rounded-2xl flex flex-col justify-center">
             <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">
               Amount Paid

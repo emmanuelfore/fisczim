@@ -202,7 +202,7 @@ export function OrganizationProfile({
                     className="h-10 rounded-[10px] border-[#E5E7EB] font-medium transition-all focus:ring-4 focus:ring-blue-500/10"
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label className="text-xs font-medium text-[#64748B]">
                       Base Currency

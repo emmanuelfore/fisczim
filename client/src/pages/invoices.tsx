@@ -993,7 +993,7 @@ export default function InvoicesPage() {
         </div>
 
         <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 xl:grid-cols-4">
             <StatCard
               label="Total Invoices"
               value={totalInvoices.toLocaleString()}

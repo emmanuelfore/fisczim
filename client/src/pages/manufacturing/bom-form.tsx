@@ -77,7 +77,7 @@ export default function BomForm() {
       <Form {...form}>
         <form onSubmit={form.handleSubmit((d) => mutation.mutate(d))} className="space-y-8">
           <Card>
-            <CardContent className="pt-6 grid grid-cols-2 gap-4">
+            <CardContent className="pt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
               <FormField control={form.control} name="name" render={({ field }) => (
                 <FormItem>
                   <FormLabel>BOM Name (Recipe Name)</FormLabel>

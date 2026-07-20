@@ -325,7 +325,7 @@ export default function InventoryLocationsPage() {
       />
 
       {/* ── Summary KPI cards ── */}
-      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-3 sm:grid-cols-4">
         {[
           { label: "Total Active", value: totalActive, icon: LayoutGrid, color: "text-slate-700", bg: "bg-slate-50 border-slate-200" },
           { label: "Warehouses", value: warehouses, icon: Warehouse, color: "text-blue-700", bg: "bg-blue-50 border-blue-200" },
@@ -542,7 +542,7 @@ export default function InventoryLocationsPage() {
             </div>
 
             {/* Name & Code */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="grid gap-1.5">
                 <Label>Name <span className="text-red-500">*</span></Label>
                 <Input

@@ -159,7 +159,7 @@ export function SalesReport({ companyId, dateRange, search, hideZeroActivity }: 
                 ? format(new Date(selectedRow.date), "dd MMM yyyy")
                 : selectedRow.date}
             </h3>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {[
                 { label: "Invoices", value: selectedRow.invoiceCount },
                 { label: "Subtotal", value: selectedRow.subtotal },
@@ -290,7 +290,7 @@ export function SalesByCustomerReport({
             <h3 className=" font-black text-slate-800 uppercase tracking-tight">
               {selectedRow.customerName}
             </h3>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {[
                 { label: "Customer ID", value: selectedRow.customerId },
                 { label: "Invoice Count", value: selectedRow.invoiceCount },
@@ -420,7 +420,7 @@ export function SalesByItemReport({
             <h3 className=" font-black text-slate-800 uppercase tracking-tight">
               {selectedRow.description}
             </h3>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {[
                 { label: "Product ID", value: selectedRow.productId ?? "N/A" },
                 { label: "Qty Sold", value: selectedRow.quantitySold },
@@ -550,7 +550,7 @@ export function SalesBySalespersonReport({
             <h3 className=" font-black text-slate-800 uppercase tracking-tight">
               {selectedRow.userName}
             </h3>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {[
                 { label: "User ID", value: selectedRow.userId },
                 { label: "Invoice Count", value: selectedRow.invoiceCount },

@@ -184,7 +184,7 @@ export function ArAgingSummaryReport({
             <h3 className=" font-black text-slate-800 uppercase tracking-tight">
               {selectedRow.customerName}
             </h3>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <DetailCard label="Current" value={selectedRow.current} />
               <DetailCard label="31-60 Days" value={selectedRow.days31_60} />
               <DetailCard label="61-90 Days" value={selectedRow.days61_90} />
@@ -338,7 +338,7 @@ export function ArAgingDetailsReport({
             <h3 className=" font-black text-slate-800 uppercase tracking-tight">
               {selectedRow.invoiceNumber}
             </h3>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <DetailCard label="Customer" value={selectedRow.customerName} />
               <DetailCard
                 label="Due Date"
@@ -509,7 +509,7 @@ export function InvoiceDetailsReport({
             <h3 className=" font-black text-slate-800 uppercase tracking-tight">
               {selectedRow.invoiceNumber}
             </h3>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <DetailCard label="Customer" value={selectedRow.customerName} />
               <DetailCard
                 label="Issue Date"
@@ -658,7 +658,7 @@ export function QuoteDetailsReport({
             <h3 className=" font-black text-slate-800 uppercase tracking-tight">
               {selectedRow.quotationNumber}
             </h3>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <DetailCard label="Customer" value={selectedRow.customerName} />
               <DetailCard
                 label="Issue Date"
@@ -791,7 +791,7 @@ export function CustomerBalanceSummaryReport({
             <h3 className=" font-black text-slate-800 uppercase tracking-tight">
               {selectedRow.customerName}
             </h3>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <DetailCard
                 label="Total Invoiced"
                 value={selectedRow.totalInvoiced}
@@ -844,7 +844,7 @@ export function ReceivableSummaryReport({
 
   return (
     <div className="p-6">
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {[
           {
             label: "Total Invoiced",
@@ -1010,7 +1010,7 @@ export function ReceivableDetailsReport({
             <h3 className=" font-black text-slate-800 uppercase tracking-tight">
               {selectedRow.invoiceNumber}
             </h3>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <DetailCard label="Customer" value={selectedRow.customerName} />
               <DetailCard
                 label="Issue Date"
@@ -1136,7 +1136,7 @@ export function BadDebtsReport({ companyId, dateRange, search }: ReportProps) {
             <h3 className=" font-black text-slate-800 uppercase tracking-tight">
               {selectedRow.invoiceNumber}
             </h3>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <DetailCard label="Customer" value={selectedRow.customerName} />
               <DetailCard
                 label="Due Date"
@@ -1271,7 +1271,7 @@ export function BankChargesReport({
             <h3 className=" font-black text-slate-800 uppercase tracking-tight">
               {selectedRow.invoiceNumber}
             </h3>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <DetailCard label="Customer" value={selectedRow.customerName} />
               <DetailCard
                 label="Payment Date"

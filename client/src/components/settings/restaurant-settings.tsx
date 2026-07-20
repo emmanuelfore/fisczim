@@ -353,7 +353,7 @@ export function RestaurantSettings({ company, onUpdate }: Props) {
                         <TableIcon className="absolute -right-8 -bottom-8 w-48 h-48 text-white/10 -rotate-12" />
                       </div>
                       <div className="p-10 space-y-8">
-                        <div className="grid grid-cols-2 gap-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                           <div className="space-y-2 col-span-2">
                             <Label className="text-xs font-black text-slate-400 uppercase tracking-widest px-1">
                               Display Name

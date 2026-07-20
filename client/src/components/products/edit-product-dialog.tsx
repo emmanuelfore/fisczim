@@ -457,7 +457,7 @@ export function EditProductDialog({ product, trigger, children }: Props) {
 
             {/* Pharmacy Brand/Generic Names */}
             {!isService && (
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
                   name="brandName"
@@ -780,7 +780,7 @@ export function EditProductDialog({ product, trigger, children }: Props) {
                 <span className="w-1.5 h-4 bg-blue-500 rounded-full"></span>
                 Tax Configuration
               </h4>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
                   name="taxRate"
@@ -870,7 +870,7 @@ export function EditProductDialog({ product, trigger, children }: Props) {
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <FormField
                 control={form.control}
                 name="price"
@@ -1013,7 +1013,7 @@ export function EditProductDialog({ product, trigger, children }: Props) {
                 />
 
                 {isTracked && (
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <FormField
                       control={form.control}
                       name="stockLevel"

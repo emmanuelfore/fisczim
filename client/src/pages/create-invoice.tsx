@@ -1399,7 +1399,7 @@ export default function CreateInvoicePage() {
                               "Company Name"}
                           </h4>
                           <div className="space-y-1.5 text-xs text-[#64748B]">
-                            <div className="grid grid-cols-2 gap-3">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                               <p>
                                 <span className="font-medium text-slate-500">
                                   TIN:
@@ -1601,7 +1601,7 @@ export default function CreateInvoicePage() {
                                   {c.name}
                                 </h4>
                                 <div className="space-y-1.5 text-xs text-[#64748B]">
-                                  <div className="grid grid-cols-2 gap-3">
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                     <p>
                                       <span className="font-medium text-slate-500">
                                         TIN:
@@ -2215,7 +2215,7 @@ export default function CreateInvoicePage() {
                       </h3>
                     </div>
                     <div className="space-y-3">
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div className="space-y-2">
                           <Label className="text-xs font-semibold uppercase text-slate-400">
                             Bank Name
@@ -2239,7 +2239,7 @@ export default function CreateInvoicePage() {
                           />
                         </div>
                       </div>
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div className="space-y-2">
                           <Label className="text-xs font-semibold uppercase text-slate-400">
                             Account Number
@@ -2312,7 +2312,7 @@ export default function CreateInvoicePage() {
                       <h4 className="text-[10px] font-bold text-slate-700 uppercase mb-2 text-center">
                         Tax Analysis
                       </h4>
-                      <div className="grid grid-cols-4 gap-2 text-[9px] font-bold text-slate-500 uppercase mb-1 border-b border-slate-200 pb-1">
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-2 text-[9px] font-bold text-slate-500 uppercase mb-1 border-b border-slate-200 pb-1">
                         <div className="text-left font-bold text-slate-500 uppercase">
                           VAT %
                         </div>
@@ -2343,7 +2343,7 @@ export default function CreateInvoicePage() {
                           return (
                             <div
                               key={key}
-                              className="grid grid-cols-4 gap-2 text-[10px] items-center py-1 border-b border-slate-100 last:border-0"
+                              className="grid grid-cols-1 md:grid-cols-4 gap-2 text-[10px] items-center py-1 border-b border-slate-100 last:border-0"
                             >
                               <div className="text-slate-600 truncate">
                                 {isExempt
@@ -2463,7 +2463,7 @@ export default function CreateInvoicePage() {
                     </div>
                   </div>
 
-                  <div className="mt-5 grid gap-2">
+                  <div className="mt-5 grid gap-2 sticky bottom-0 z-30 bg-white/90 backdrop-blur-md p-4 border-t border-slate-200 -mx-5 px-5 pb-6 xl:relative xl:p-0 xl:border-0 xl:bg-transparent xl:pb-0 xl:mx-0">
                     <Button
                       variant="outline"
                       className="h-11 rounded-xl gap-2"

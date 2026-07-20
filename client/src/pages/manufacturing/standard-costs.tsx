@@ -123,7 +123,7 @@ export default function StandardCostsPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Material Cost ($)</label>
                     <Input type="number" step="any" value={newCost.materialCost} onChange={e => setNewCost({...newCost, materialCost: Number(e.target.value)})} />

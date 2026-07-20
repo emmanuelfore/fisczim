@@ -3,7 +3,7 @@ import { z } from "zod";
 import { storage } from "../../storage.js";
 import { db } from "../../db.js";
 import { products } from "../../../shared/schema.js";
-import { eq, and } from "drizzle-orm";
+import { eq, and, ne, isNotNull } from "drizzle-orm";
 import { processInvoiceFiscalization } from "../../lib/fiscalization.js";
 
 // --- Zod Schemas ---
@@ -98,9 +98,32 @@ router.post("/", async (req, res) => {
 
       taxRate = parseFloat(product.taxRate ?? "15");
       hsCode = product.hsCode ?? null;
+
+      // Background lookup for HS Code if missing
+      if (!hsCode || hsCode === "0000.00.00") {
+        const categoryMatch = await db
+          .select()
+          .from(products)
+          .where(
+            and(
+              eq(products.companyId, company.id),
+              product.category ? eq(products.category, product.category) : eq(products.name, product.name),
+              isNotNull(products.hsCode),
+              ne(products.hsCode, "0000.00.00")
+            )
+          )
+          .limit(1);
+
+        if (categoryMatch.length > 0) {
+          hsCode = categoryMatch[0].hsCode;
+        } else {
+          hsCode = "99999999"; // Default fallback for services
+        }
+      }
     } else {
       // Use item taxRate, fall back to company default, then 15 (Req 3.4)
       taxRate = item.taxRate ?? company.defaultTaxRate ?? 15;
+      hsCode = "99999999"; // Default fallback for custom items without a product
     }
 
     const lineTotal = item.quantity * item.unitPrice;

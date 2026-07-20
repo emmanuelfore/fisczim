@@ -2740,6 +2740,10 @@ export class DatabaseStorage implements IStorage {
       { name: "Accountant", legacyRole: "accountant", description: "Manage accounting, invoices, and financial reports" },
       { name: "Logistics", legacyRole: "logistics", description: "Manage inventory, GRNs, and transport" },
       { name: "Manager", legacyRole: "manager", description: "Manage operations, approvals, and reporting" },
+      { name: "HR & Payroll Admin", legacyRole: "hr", description: "Manage employees, payroll, and HR reports" },
+      { name: "Procurement Officer", legacyRole: "procurement", description: "Manage purchase orders and incoming stock" },
+      { name: "Auditor (Read-Only)", legacyRole: "auditor", description: "View reports, invoices, and financials" },
+      { name: "Restaurant Staff", legacyRole: "restaurant", description: "Manage restaurant orders and KDS" },
     ];
 
     for (const template of templates) {

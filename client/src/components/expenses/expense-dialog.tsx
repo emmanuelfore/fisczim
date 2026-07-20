@@ -159,7 +159,7 @@ export function ExpenseDialog({ companyId, expense, trigger }: Props) {
             onSubmit={form.handleSubmit(onSubmit)}
             className="space-y-5 py-4"
           >
-            <div className="grid grid-cols-2 gap-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <FormField
                 control={form.control}
                 name="description"
@@ -211,7 +211,7 @@ export function ExpenseDialog({ companyId, expense, trigger }: Props) {
               />
             </div>
 
-            <div className="grid grid-cols-3 gap-5">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
               <FormField
                 control={form.control}
                 name="amount"
@@ -288,7 +288,7 @@ export function ExpenseDialog({ companyId, expense, trigger }: Props) {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <FormField
                 control={form.control}
                 name="expenseDate"
@@ -349,7 +349,7 @@ export function ExpenseDialog({ companyId, expense, trigger }: Props) {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <FormField
                 control={form.control}
                 name="segmentId"
@@ -417,7 +417,7 @@ export function ExpenseDialog({ companyId, expense, trigger }: Props) {
             </div>
 
 
-            <div className="grid grid-cols-2 gap-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <FormField
                 control={form.control}
                 name="paymentMethod"

@@ -352,7 +352,7 @@ export default function StockTakePage() {
                   No tracked products match your search.
                 </div>
               ) : (
-                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
                   {filteredProducts.map((p) => {
                     const isSelected = selectedProducts.has(p.id);
                     return (

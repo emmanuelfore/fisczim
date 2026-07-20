@@ -626,7 +626,7 @@ export function ZimraDeviceSettings({ company }: ZimraDeviceSettingsProps) {
               <h4 className=" font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
                 <RefreshCw className="w-4 h-4" /> Maintenance
               </h4>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 <Button
                   variant="outline"
                   size="sm"

@@ -199,7 +199,7 @@ export function TimeToGetPaidReport({
             <h3 className=" font-black text-slate-800 uppercase tracking-tight">
               {selectedRow.invoiceNumber}
             </h3>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <DetailCard label="Customer" value={selectedRow.customerName} />
               <DetailCard
                 label="Issue Date"
@@ -343,7 +343,7 @@ export function RefundHistoryReport({
             <h3 className=" font-black text-slate-800 uppercase tracking-tight">
               {selectedRow.invoiceNumber}
             </h3>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <DetailCard label="Customer" value={selectedRow.customerName} />
               <DetailCard
                 label="Issue Date"
@@ -482,7 +482,7 @@ export function WithholdingTaxReport({
             <h3 className=" font-black text-slate-800 uppercase tracking-tight">
               {selectedRow.invoiceNumber}
             </h3>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <DetailCard label="Customer" value={selectedRow.customerName} />
               <DetailCard
                 label="Issue Date"

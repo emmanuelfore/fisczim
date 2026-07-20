@@ -23,7 +23,7 @@ function Money({ value }: { value: string | number }) {
 
 function SummaryCards({ items }: { items: { label: string; value: string; accent?: string }[] }) {
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 p-4 border-b border-slate-100 bg-slate-50/60">
+    <div className="grid grid-cols-1 md:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 p-4 border-b border-slate-100 bg-slate-50/60">
       {items.map((item) => (
         <div key={item.label} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5">
           <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{item.label}</p>
@@ -264,7 +264,7 @@ function PeriodRow({ period, search, type }: { period: any; search: string; type
       </button>
       {open && (
         <div className="bg-slate-50/40">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 px-4 py-3 border-t border-slate-100">
+          <div className="grid grid-cols-1 md:grid-cols-2 md:grid-cols-4 gap-2 px-4 py-3 border-t border-slate-100">
             <div className="text-xs"><span className="text-slate-400">Cash Sales:</span> <Money value={period.cashSales} /></div>
             <div className="text-xs"><span className="text-slate-400">Credit Sales:</span> <Money value={period.creditSales} /></div>
           </div>

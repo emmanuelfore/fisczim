@@ -993,7 +993,7 @@ export default function InvoiceDetailsPage() {
                             }
                           />
                         </div>
-                        <div className="mt-4 grid grid-cols-2 gap-2 ">
+                        <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-2 ">
                           <div className="rounded-lg bg-white p-3 ring-1 ring-slate-200">
                             <p className="text-[10px] font-bold uppercase text-slate-400">
                               Paid
@@ -1030,7 +1030,7 @@ export default function InvoiceDetailsPage() {
                       </div>
 
                       <Tabs defaultValue="details" className="w-full">
-                        <TabsList className="grid h-9 w-full grid-cols-3 rounded-xl bg-slate-100 p-1">
+                        <TabsList className="grid h-9 w-full grid-cols-1 md:grid-cols-3 rounded-xl bg-slate-100 p-1">
                           <TabsTrigger
                             value="details"
                             className="rounded-lg text-xs"

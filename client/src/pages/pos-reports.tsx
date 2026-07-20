@@ -551,7 +551,7 @@ export default function PosReportsPage() {
         </div>
 
         <Tabs defaultValue="overview" className="w-full">
-          <TabsList className="grid w-full grid-cols-4 mb-8">
+          <TabsList className="grid w-full grid-cols-1 md:grid-cols-4 mb-8">
             <TabsTrigger value="overview" className="flex items-center gap-2">
               <BarChart3 className="w-4 h-4" /> Analytics Overview
             </TabsTrigger>
@@ -1384,7 +1384,7 @@ export default function PosReportsPage() {
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
-              <div className="grid grid-cols-2 gap-4 p-4 bg-slate-50 rounded-lg border border-slate-100">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-slate-50 rounded-lg border border-slate-100">
                 <div className="flex flex-col">
                   <span className="text-xs text-slate-500 uppercase font-black">
                     Expected Cash

@@ -93,7 +93,7 @@ export function EditSupplierDialog({ supplier, trigger }: Props) {
             onSubmit={form.handleSubmit(onSubmit)}
             className="space-y-5 py-4"
           >
-            <div className="grid grid-cols-2 gap-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <FormField
                 control={form.control}
                 name="name"
@@ -136,7 +136,7 @@ export function EditSupplierDialog({ supplier, trigger }: Props) {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <FormField
                 control={form.control}
                 name="email"
@@ -181,7 +181,7 @@ export function EditSupplierDialog({ supplier, trigger }: Props) {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-5 p-5 bg-emerald-50/50 rounded-2xl border border-emerald-100">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 p-5 bg-emerald-50/50 rounded-2xl border border-emerald-100">
               <div className="col-span-2 font-medium  text-emerald-900 mb-2 flex items-center gap-2">
                 <Truck className="w-4 h-4" />
                 Tax & Business IDs

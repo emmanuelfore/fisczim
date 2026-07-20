@@ -92,7 +92,7 @@ export function CreateCustomerDialog({ companyId }: { companyId: number }) {
             onSubmit={form.handleSubmit(onSubmit)}
             className="space-y-5 py-4"
           >
-            <div className="grid grid-cols-2 gap-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <FormField
                 control={form.control}
                 name="name"
@@ -141,7 +141,7 @@ export function CreateCustomerDialog({ companyId }: { companyId: number }) {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <FormField
                 control={form.control}
                 name="email"
@@ -187,7 +187,7 @@ export function CreateCustomerDialog({ companyId }: { companyId: number }) {
             </div>
 
             {customerType === "business" && (
-              <div className="grid grid-cols-3 gap-4 p-5 bg-blue-50/50 rounded-2xl border border-blue-100">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-5 bg-blue-50/50 rounded-2xl border border-blue-100">
                 <div className="col-span-3 font-medium  text-blue-900 mb-2 flex items-center justify-between">
                   <span className="flex items-center gap-2">
                     <Building2 className="w-4 h-4" />
@@ -260,7 +260,7 @@ export function CreateCustomerDialog({ companyId }: { companyId: number }) {
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <FormField
                 control={form.control}
                 name="address"

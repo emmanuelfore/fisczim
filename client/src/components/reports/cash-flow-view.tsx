@@ -253,7 +253,7 @@ export function CashFlowView({
           </div>
 
           {/* Section summary bar */}
-          <div className="grid grid-cols-3 gap-3 mt-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
             {[
               { label: "Operating", val: operating.net, color: "indigo" },
               { label: "Investing", val: investing.net, color: "amber" },

@@ -467,7 +467,7 @@ export default function CreateQuotationPage() {
             <CardTitle>Quotation Details</CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Customer</Label>
                 <Select value={customerId} onValueChange={setCustomerId}>
@@ -700,7 +700,7 @@ export default function CreateQuotationPage() {
                 <h4 className="text-[10px] font-bold text-slate-700 uppercase mb-2 text-center">
                   Tax Analysis
                 </h4>
-                <div className="grid grid-cols-4 gap-2 text-[9px] font-bold text-slate-500 uppercase mb-1 border-b border-slate-200 pb-1">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-2 text-[9px] font-bold text-slate-500 uppercase mb-1 border-b border-slate-200 pb-1">
                   <div>Vat %</div>
                   <div className="text-right">Net.Amt</div>
                   <div className="text-right">VAT</div>
@@ -725,7 +725,7 @@ export default function CreateQuotationPage() {
                     return (
                       <div
                         key={key}
-                        className="grid grid-cols-4 gap-2 text-[10px] items-center py-1 border-b border-slate-100 last:border-0"
+                        className="grid grid-cols-1 md:grid-cols-4 gap-2 text-[10px] items-center py-1 border-b border-slate-100 last:border-0"
                       >
                         <div className="text-slate-600 truncate">
                           {isExempt

@@ -208,7 +208,7 @@ export default function FixedAssetsPage() {
                   <DialogTitle>Register New Fixed Asset</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-6 pt-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2 col-span-2">
                       <Label>Asset Name</Label>
                       <Input
@@ -247,7 +247,7 @@ export default function FixedAssetsPage() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-4 p-4 bg-slate-50 rounded-xl border border-slate-100">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-slate-50 rounded-xl border border-slate-100">
                     <div className="space-y-2">
                       <Label>Purchase Cost</Label>
                       <Input

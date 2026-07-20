@@ -453,7 +453,7 @@ export function StockOnHandReport({ companyId, search }: ReportProps) {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="bg-white p-4 rounded-2xl shadow-sm space-y-1">
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
                   Inventory Category
@@ -643,7 +643,7 @@ export function InventoryMovementsReport({
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="bg-white p-4 rounded-2xl shadow-sm space-y-1 col-span-2">
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
                   Product Information
@@ -816,7 +816,7 @@ export function PurchaseHistoryReport({
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="bg-white p-4 rounded-2xl shadow-sm space-y-1 col-span-2">
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
                   Supplier

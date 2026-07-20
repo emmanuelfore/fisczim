@@ -595,7 +595,7 @@ export function CreateProductDialog({
                 <span className="w-1.5 h-4 bg-blue-500 rounded-full"></span>
                 Tax Configuration
               </h4>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
                   name="taxRate"
@@ -685,7 +685,7 @@ export function CreateProductDialog({
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <FormField
                 control={form.control}
                 name="price"
@@ -828,7 +828,7 @@ export function CreateProductDialog({
                 />
 
                 {isTracked && (
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <FormField
                       control={form.control}
                       name="stockLevel"

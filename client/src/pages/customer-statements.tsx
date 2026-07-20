@@ -206,7 +206,7 @@ export default function CustomerStatements() {
             </div>
 
             {/* FROM / TO addresses */}
-            <div className="grid grid-cols-2 gap-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">FROM</p>
                 <p className="font-bold text-slate-900 text-sm">{companyName}</p>
@@ -226,7 +226,7 @@ export default function CustomerStatements() {
           </div>
 
           {/* ══ Summary Boxes ══ */}
-          <div className="grid grid-cols-4 divide-x divide-slate-200 border-b border-slate-200">
+          <div className="grid grid-cols-1 md:grid-cols-4 divide-x divide-slate-200 border-b border-slate-200">
             {[
               { label: "Opening Balance", value: stmt.opening_balance, color: "text-slate-700" },
               { label: "Total Invoiced", value: stmt.period_total_invoiced, color: "text-slate-700" },

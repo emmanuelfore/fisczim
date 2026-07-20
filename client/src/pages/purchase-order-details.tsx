@@ -150,7 +150,7 @@ export default function PurchaseOrderDetailsPage() {
               <h3 className="font-bold text-slate-800 text-lg">{order.poNumber}</h3>
             </div>
             <CardContent className="p-6">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 mb-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 sm:grid-cols-4 gap-6 mb-8">
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Created Date</p>
                   <p className="text-sm font-semibold text-slate-800">

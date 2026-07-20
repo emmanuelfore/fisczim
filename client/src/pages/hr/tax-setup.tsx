@@ -99,7 +99,7 @@ export default function TaxSetupPage() {
               </DialogHeader>
               
               <form onSubmit={handleSave} className="space-y-4 mt-2">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Effective From Date</Label>
                     <Input 
@@ -121,7 +121,7 @@ export default function TaxSetupPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="space-y-2">
                     <Label>NSSA Rate Employee</Label>
                     <Input 

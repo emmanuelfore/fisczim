@@ -53,7 +53,6 @@ const ResponsiveTable = React.forwardRef<
     });
     return () => observer.disconnect();
   }, [props.children]);
-
   return (
     <div className="responsive-table-shell relative w-full overflow-x-auto">
       <table

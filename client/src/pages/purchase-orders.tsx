@@ -689,13 +689,13 @@ function PrintPODialog({
           </div>
 
           {/* Supplier + meta */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="rounded-lg bg-blue-50 border border-blue-100 p-3">
               <p className="text-[9px] font-black uppercase tracking-widest text-blue-500 mb-1">Supplier / Vendor</p>
               <p className="font-bold text-blue-900">{order.supplierName || "—"}</p>
               {order.branchName && <p className="text-xs text-blue-600 mt-1">Branch: {order.branchName}</p>}
             </div>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
               {[
                 { label: "PO Number", value: order.poNumber },
                 { label: "Date Issued", value: order.createdAt ? format(new Date(order.createdAt), "dd MMM yyyy") : "—" },
@@ -752,7 +752,7 @@ function PrintPODialog({
           )}
 
           {/* Signature lines */}
-          <div className="grid grid-cols-2 gap-12 pt-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-12 pt-6">
             {["Authorized by (Buyer)", "Accepted by (Supplier)"].map((role) => (
               <div key={role}>
                 <div className="h-12 border-b-2 border-slate-400 mb-2" />

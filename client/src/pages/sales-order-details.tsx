@@ -267,7 +267,7 @@ export default function SalesOrderDetailsPage() {
                     SALES ORDER
                   </h1>
                   <div className="inline-block bg-slate-50 border border-slate-200 rounded-lg p-4 text-left min-w-[200px]">
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2 text-sm">
                       <span className="text-slate-500 font-medium">Order #:</span>
                       <span className="font-semibold text-slate-900 text-right">{order.orderNumber}</span>
                       

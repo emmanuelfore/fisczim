@@ -159,7 +159,7 @@ export function createRolesPermissionsRouter(
 
       const body = z.object({
         companyRoleId: z.number().nullable().optional(),
-        legacyRole: z.enum(["owner", "admin", "member", "cashier", "manufacturing", "sales", "accountant", "logistics", "manager"]).optional(),
+        legacyRole: z.enum(["owner", "admin", "member", "cashier", "manufacturing", "sales", "accountant", "logistics", "manager", "hr", "procurement", "auditor", "restaurant"]).optional(),
       }).parse(req.body);
 
       if (body.legacyRole) {

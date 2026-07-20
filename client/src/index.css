@@ -133,11 +133,6 @@
     max-width: 100%;
     overflow-x: hidden;
   }
-
-  .responsive-table-shell {
-    overflow-x: visible;
-  }
-
   table[data-mobile-cards="true"] {
     display: block;
     width: 100%;
@@ -151,80 +146,56 @@
 
   table[data-mobile-cards="true"] tbody {
     display: grid;
-    gap: 0.75rem;
-    padding: 0.75rem;
+    gap: 1rem;
+    padding: 0.5rem 0;
   }
 
   table[data-mobile-cards="true"] tr {
-    display: grid;
-    gap: 0.6rem;
-    border: 1px solid #e5e7eb;
-    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.75rem;
     background: #ffffff;
-    padding: 0.85rem;
-    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-  }
-
-  table[data-mobile-cards="true"] tr:hover {
-    background: #ffffff;
+    padding: 1rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
   }
 
   table[data-mobile-cards="true"] td {
     display: flex;
-    min-width: 0;
+    flex-direction: column;
     align-items: flex-start;
-    justify-content: space-between;
-    gap: 1rem;
+    gap: 0.35rem;
     border: 0;
     padding: 0;
-    text-align: right;
+    text-align: left;
     white-space: normal;
+    word-break: break-word;
   }
 
   table[data-mobile-cards="true"] td::before {
     content: attr(data-label);
-    max-width: 42%;
-    flex: 0 0 42%;
-    text-align: left;
-    font-size: 0.68rem;
-    font-weight: 800;
-    line-height: 1.35;
-    letter-spacing: 0.06em;
+    display: block;
+    font-size: 0.7rem;
+    font-weight: 700;
     text-transform: uppercase;
+    letter-spacing: 0.05em;
     color: #64748b;
   }
 
-  table[data-mobile-cards="true"] td[data-mobile-full="true"] {
-    display: block;
-    text-align: center;
-    padding: 1.5rem 0.5rem;
-  }
-
-  table[data-mobile-cards="true"] td[data-mobile-full="true"]::before {
-    content: none;
-  }
-
-  table[data-mobile-cards="true"] td:first-child:not([data-mobile-full="true"]) {
-    display: block;
-    padding-bottom: 0.25rem;
-    text-align: left;
-  }
-
-  table[data-mobile-cards="true"] td:first-child:not([data-mobile-full="true"])::before {
-    display: block;
-    max-width: none;
-    margin-bottom: 0.35rem;
-  }
-
-  table[data-mobile-cards="true"] td:last-child:not([data-mobile-full="true"]) {
-    justify-content: flex-end;
-    padding-top: 0.25rem;
-  }
-
-  table[data-mobile-cards="true"] td:last-child:not([data-mobile-full="true"])::before {
+  table[data-mobile-cards="true"] td[data-label=""]::before {
     display: none;
   }
 
+  table[data-mobile-cards="true"] td[data-mobile-full="true"] {
+    align-items: center;
+    padding-top: 0.5rem;
+    border-top: 1px dashed #e2e8f0;
+  }
+
+  table[data-mobile-cards="true"] td[data-mobile-full="true"]::before {
+    display: none;
+  }
 }
 
 /* Card Depth */

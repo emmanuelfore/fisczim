@@ -254,7 +254,7 @@ export function PartnershipManagement({ companyId }: PartnershipManagementProps)
               </div>
             </div>
             
-            <div className="grid grid-cols-2 gap-3 rounded-md border border-blue-100 bg-blue-50/50 p-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 rounded-md border border-blue-100 bg-blue-50/50 p-3">
               <div className="col-span-2 space-y-1">
                 <Label className="text-blue-900 font-semibold">Automatic Split Rules</Label>
                 <p className="text-xs text-blue-700">Configure how revenue is automatically split when an invoice is issued with this partner.</p>

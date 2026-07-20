@@ -150,41 +150,7 @@ export function Layout({
     setIsMobileMenuOpen(false);
   }, [location]);
 
-  useEffect(() => {
-    if (typeof document === "undefined") return;
 
-    const enhanceTables = () => {
-      document.querySelectorAll("table").forEach((table) => {
-        const headers = Array.from(table.querySelectorAll("thead th")).map(
-          (header) => (header.textContent || "").replace(/\s+/g, " ").trim(),
-        );
-        if (!headers.some(Boolean)) return;
-
-        table.setAttribute("data-mobile-cards", "true");
-        table.querySelectorAll("tbody tr").forEach((row) => {
-          Array.from(row.children).forEach((cell, index) => {
-            if (!(cell instanceof HTMLElement)) return;
-            const span = Number(cell.getAttribute("colspan") || "1");
-            if (span > 1) {
-              cell.dataset.mobileFull = "true";
-              return;
-            }
-            const label = headers[index];
-            if (label) cell.dataset.label = label;
-          });
-        });
-      });
-    };
-
-    enhanceTables();
-    const observer = new MutationObserver(enhanceTables);
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-    });
-    return () => observer.disconnect();
-  }, [location]);
 
   const handleCompanyChange = (id: number) => {
     setCompany(id);
@@ -1938,7 +1904,7 @@ export function Layout({
           )}
         >
           {/* Top Header */}
-          <header className="admin-header h-[80px] bg-[#F8FAFC] flex items-center justify-between gap-3 px-4 sm:px-6 z-40 sticky top-0 relative">
+          <header className="admin-header h-[80px] bg-[#F8FAFC]/90 backdrop-blur-md flex items-center justify-between gap-3 px-4 sm:px-6 z-40 sticky top-0 border-b border-slate-200 lg:border-b-0 lg:bg-[#F8FAFC] lg:relative lg:backdrop-blur-none">
             {/* Mobile Menu Toggle */}
             <Button
               variant="ghost"

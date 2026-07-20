@@ -9102,6 +9102,8 @@ export async function registerRoutes(
           errors: [] as string[]
         };
 
+        const validProducts: any[] = [];
+
         for (const [index, rowRaw] of records.entries()) {
           const row = rowRaw as Record<string, any>;
           try {
@@ -9118,7 +9120,7 @@ export async function registerRoutes(
 
             const productType = (row["Type"] || "Good").toLowerCase() === "service" ? "service" : "good";
 
-            await storage.createProduct({
+            validProducts.push({
               companyId,
               name: name,
               description: row["Description"] || "",
@@ -9141,11 +9143,22 @@ export async function registerRoutes(
               warrantyMonths: Number(row["Warranty Months"] || 0),
               isTracked: isTracked
             });
-
-            results.success++;
           } catch (rowErr: any) {
             results.failed++;
             results.errors.push(`Row ${index + 2}: ${rowErr.message}`);
+          }
+        }
+
+        // Bulk insert in chunks to avoid timeout
+        const CHUNK_SIZE = 500;
+        for (let i = 0; i < validProducts.length; i += CHUNK_SIZE) {
+          const chunk = validProducts.slice(i, i + CHUNK_SIZE);
+          try {
+            await storage.createProducts(chunk);
+            results.success += chunk.length;
+          } catch (err: any) {
+            results.failed += chunk.length;
+            results.errors.push(`Batch insert failed for rows ${i + 2} to ${i + 2 + chunk.length}: ${err.message}`);
           }
         }
 

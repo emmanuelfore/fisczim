@@ -2102,6 +2102,13 @@ export function Layout({
                     <span>Dashboard Overview</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
+                    onClick={() => setLocation("/profile")}
+                    className="p-3 rounded-xl font-bold text-slate-600 cursor-pointer hover:bg-slate-50 hover:text-slate-900 transition-all"
+                  >
+                    <UserCog className="mr-3 h-4 w-4" />
+                    <span>My Profile</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
                     onClick={() => setLocation("/settings")}
                     className="p-3 rounded-xl font-bold text-slate-600 cursor-pointer hover:bg-slate-50 hover:text-slate-900 transition-all"
                   >

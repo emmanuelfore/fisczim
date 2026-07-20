@@ -202,6 +202,7 @@ export interface IStorage {
   // Products
   getProducts(companyId: number, branchId?: number, ownerGroup?: string): Promise<(Product & { branchStock?: string })[]>;
   createProduct(product: InsertProduct): Promise<Product>;
+  createProducts(productsData: InsertProduct[]): Promise<Product[]>;
   updateProduct(id: number, product: Partial<InsertProduct>): Promise<Product>;
   getProductBySku(companyId: number, sku: string): Promise<Product | undefined>;
   deleteCompanyProducts(companyId: number): Promise<void>;
@@ -1042,6 +1043,20 @@ export class DatabaseStorage implements IStorage {
     }
     const [newProduct] = await db.insert(products).values(data as any).returning();
     return newProduct;
+  }
+
+  async createProducts(productsData: InsertProduct[]): Promise<Product[]> {
+    if (!productsData.length) return [];
+    
+    const dataToInsert = productsData.map(p => {
+      const data = { ...p };
+      if (data.isTracked === false) {
+        data.productType = 'service';
+      }
+      return data;
+    });
+
+    return await db.insert(products).values(dataToInsert as any).returning();
   }
 
   async updateProduct(id: number, product: Partial<InsertProduct>): Promise<Product> {

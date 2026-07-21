@@ -82,8 +82,8 @@ async function run() {
                 }
             }
 
-            // Standard VAT = ID 194 (15.5%), Zero Rated = ID 175 (0%)
-            const taxTypeId = isZeroRated ? 175 : 194;
+            // Standard VAT = ID 188 (15.5%), Zero Rated = ID 175 (0%)
+            const taxTypeId = isZeroRated ? 175 : 188;
             const taxRate = isZeroRated ? "0.00" : "15.50";
 
             await db.update(products)

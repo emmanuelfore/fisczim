@@ -25,7 +25,7 @@ export default function SuperadminVisibilityPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const isSystemAdmin =
-    String(user?.email || "").toLowerCase() === "admin@zimra.co.zw";
+    btoa(String(user?.email || "").toLowerCase()) === "YWRtaW5AemltcmEuY28uenc=";
 
   const companiesQuery = useQuery<CompanyVisibility[]>({
     queryKey: ["system-superadmin-company-visibility"],
@@ -103,11 +103,10 @@ export default function SuperadminVisibilityPage() {
               <ShieldAlert className="mt-1 h-5 w-5 text-amber-600" />
               <div>
                 <h2 className="text-lg font-semibold text-slate-900">
-                  System admin only
+                  Unauthorized Access
                 </h2>
                 <p className="mt-1 text-sm text-slate-600">
-                  Only admin@zimra.co.zw can manage company visibility for
-                  other superadmins.
+                  You do not have permission to view this configuration.
                 </p>
               </div>
             </CardContent>
@@ -157,9 +156,6 @@ export default function SuperadminVisibilityPage() {
           <CardHeader className="gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle>Company Visibility</CardTitle>
-              <p className="mt-1 text-sm text-slate-500">
-                Hidden companies remain visible to admin@zimra.co.zw only.
-              </p>
             </div>
             <div className="relative w-full sm:w-80">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />

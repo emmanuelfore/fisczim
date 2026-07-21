@@ -3946,7 +3946,7 @@ export async function registerRoutes(
       const companyId = Number(req.params.companyId);
       const targetUserId = req.params.userId;
       const userId = (req as any).user.id;
-      const { role, ownerGroupScope, branchIds, accessRoleId } = req.body;
+      const { role, ownerGroupScope, branchIds, accessRoleId, name, password } = req.body;
 
       // Validate role
       const validRoles = ['owner', 'admin', 'member', 'cashier', 'manufacturing'];
@@ -4040,7 +4040,34 @@ export async function registerRoutes(
         });
       }
 
-      res.json({ message: "User access updated" });
+      if (name) {
+        await storage.updateUser(targetUserId, { name: name.trim() });
+        if (supabaseAdmin) {
+          await supabaseAdmin.auth.admin.updateUserById(targetUserId, {
+            user_metadata: { name: name.trim(), full_name: name.trim() }
+          });
+        }
+      }
+
+      if (password) {
+        if (password.length < 6) {
+          return res.status(400).json({ message: "Password must be at least 6 characters" });
+        }
+        if (supabaseAdmin) {
+          const { error: sbError } = await supabaseAdmin.auth.admin.updateUserById(targetUserId, {
+            password: password
+          });
+          if (sbError) {
+            console.error("Supabase Admin Update Password Error:", sbError);
+            return res.status(400).json({ message: "Failed to update password in auth system: " + sbError.message });
+          }
+          await storage.updateUser(targetUserId, { passwordChanged: true });
+        } else {
+          return res.status(500).json({ message: "Supabase Admin client not configured" });
+        }
+      }
+
+      res.json({ message: "User details and access updated" });
     } catch (err: any) {
       console.error("Update Role Error:", err);
       res.status(500).json({ message: "Failed to update role" });
@@ -4717,24 +4744,34 @@ export async function registerRoutes(
       todayEnd.setHours(23, 59, 59, 999);
       const todaySales = await storage.getPosSales(companyId, todayStart, todayEnd);
 
-      // Summarise by payment method
-      const byPayment: Record<string, { count: number; total: number }> = {};
-      let grandTotal = 0;
+      // Summarise by payment method and currency
+      const byPayment: Record<string, { count: number; total: number; currency: string; method: string }> = {};
+      const grandTotals: Record<string, number> = {};
+
       for (const s of todaySales) {
-        const pm = s.paymentMethod || "CASH";
-        if (!byPayment[pm]) byPayment[pm] = { count: 0, total: 0 };
-        byPayment[pm].count++;
-        byPayment[pm].total += Number(s.total || 0);
-        grandTotal += Number(s.total || 0);
+        const currency = s.currency || "USD";
+        const method = s.paymentMethod || "CASH";
+        const key = `${method}_${currency}`;
+        
+        if (!byPayment[key]) byPayment[key] = { count: 0, total: 0, currency, method };
+        byPayment[key].count++;
+        byPayment[key].total += Number(s.total || 0);
+
+        if (!grandTotals[currency]) grandTotals[currency] = 0;
+        grandTotals[currency] += Number(s.total || 0);
       }
 
       const todayPosTransactions = await getCompanyPosTransactions(companyId, todayStart, todayEnd);
 
       const posSummary = {
         totalTransactions: todaySales.length,
-        grandTotal: Math.round(grandTotal * 100) / 100,
-        byPaymentMethod: Object.entries(byPayment).map(([method, v]) => ({
-          method,
+        grandTotal: 0, // Fallback for older code
+        grandTotals: Object.entries(grandTotals).map(([currency, total]) => ({
+          currency,
+          total: Math.round(total * 100) / 100
+        })),
+        byPaymentMethod: Object.values(byPayment).map(v => ({
+          method: `${v.method} (${v.currency})`,
           count: v.count,
           total: Math.round(v.total * 100) / 100
         })),

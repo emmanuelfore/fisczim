@@ -41,6 +41,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import {
@@ -429,25 +430,35 @@ export default function HREmployees() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Contract Type</Label>
-                  <select 
-                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                    value={contractData.contractType} onChange={(e) => setContractData({...contractData, contractType: e.target.value})}
+                  <Select 
+                    value={contractData.contractType} 
+                    onValueChange={(v) => setContractData({...contractData, contractType: v})}
                   >
-                    <option value="PERMANENT">Permanent</option>
-                    <option value="FIXED_TERM">Fixed Term</option>
-                    <option value="CASUAL">Casual</option>
-                  </select>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select contract type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="PERMANENT">Permanent</SelectItem>
+                      <SelectItem value="FIXED_TERM">Fixed Term</SelectItem>
+                      <SelectItem value="CASUAL">Casual</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
                   <Label>Base Currency</Label>
-                  <select 
-                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                    value={contractData.currency} onChange={(e) => setContractData({...contractData, currency: e.target.value})}
+                  <Select 
+                    value={contractData.currency} 
+                    onValueChange={(v) => setContractData({...contractData, currency: v})}
                   >
-                    <option value="USD">USD</option>
-                    <option value="ZiG">ZiG</option>
-                    <option value="SPLIT">SPLIT (USD/ZiG)</option>
-                  </select>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select base currency" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="USD">USD</SelectItem>
+                      <SelectItem value="ZiG">ZiG</SelectItem>
+                      <SelectItem value="SPLIT">SPLIT (USD/ZiG)</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
 
@@ -678,13 +689,18 @@ export default function HREmployees() {
                   <form onSubmit={handleAddRecurringItem} className="space-y-3">
                     <div className="space-y-1">
                       <Label className="text-xs">Type</Label>
-                      <select 
-                        className="flex h-8 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                        value={newRecurringItem.type} onChange={(e) => setNewRecurringItem({...newRecurringItem, type: e.target.value})}
+                      <Select 
+                        value={newRecurringItem.type} 
+                        onValueChange={(v) => setNewRecurringItem({...newRecurringItem, type: v})}
                       >
-                        <option value="ALLOWANCE">Allowance (Income)</option>
-                        <option value="DEDUCTION">Deduction</option>
-                      </select>
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Select item type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="ALLOWANCE">Allowance (Income)</SelectItem>
+                          <SelectItem value="DEDUCTION">Deduction</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div className="space-y-1">
                       <Label className="text-xs">Name</Label>

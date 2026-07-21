@@ -219,11 +219,11 @@ export function Receipt48({ id = "receipt-48", invoice, company, customer, items
             <div className="mb-2 pb-2 border-b border-dashed border-black">
                 <div className="flex justify-between text-xs font-bold">
                     <span>TOTAL ({invoice.currency || "USD"})</span>
-                    <span>{Number(invoice.total || invoice.receiptTotal).toFixed(2)}</span>
+                    <span>{Number((invoice.total || invoice.receiptTotal) * (invoice.exchangeRate || 1)).toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between mt-1 pt-1 border-t border-dotted border-black/20">
                     <span className="uppercase text-[9px]">TENDERED:</span>
-                    <span>{Number(invoice.paymentAmount || invoice.total).toFixed(2)}</span>
+                    <span>{Number(invoice.paymentAmount || ((invoice.total || invoice.receiptTotal) * (invoice.exchangeRate || 1))).toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between">
                     <span className="uppercase text-[9px]">CHANGE:</span>

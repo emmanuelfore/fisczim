@@ -34,7 +34,20 @@ export function usePermissions() {
   const canAccessPath = (href: string) => {
     if (isSuperAdmin) return true;
     const path = href.split("?")[0];
-    const required = NAV_PERMISSION_MAP[path];
+    
+    let required = NAV_PERMISSION_MAP[path];
+    
+    if (!required) {
+      const parts = path.split('/').filter(Boolean);
+      for (let i = parts.length - 1; i >= 1; i--) {
+        const prefix = '/' + parts.slice(0, i).join('/');
+        if (NAV_PERMISSION_MAP[prefix]) {
+          required = NAV_PERMISSION_MAP[prefix];
+          break;
+        }
+      }
+    }
+
     if (!required) return true;
     if (Array.isArray(required)) return required.some((p) => permissions.has(p));
     return permissions.has(required);

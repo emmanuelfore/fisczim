@@ -29,7 +29,7 @@ import { downloadExcel } from "@/lib/export-utils";
 import { format } from "date-fns";
 import { PageHeader } from "@/components/page-header";
 
-const ITEMS_PER_PAGE = 10;
+const ITEMS_PER_PAGE = 20;
 
 export default function ExpensesPage() {
   const companyId = parseInt(localStorage.getItem("selectedCompanyId") || "0");
@@ -200,7 +200,85 @@ export default function ExpensesPage() {
 
       <Card className="border-none shadow-xl bg-white/50 backdrop-blur-sm rounded-[2rem] overflow-hidden hover:shadow-2xl transition-all duration-500">
         <CardContent className="p-0 overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[600px] md:min-w-full">
+          {/* Mobile Card View */}
+          <div className="grid grid-cols-1 gap-4 p-4 md:hidden bg-slate-50/50">
+            {isLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="w-6 h-6 border-2 border-amber-600 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : paginatedExpenses?.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12">
+                <div className="bg-slate-50 p-4 rounded-full mb-4">
+                  <ReceiptText className="w-8 h-8 text-slate-300" />
+                </div>
+                <p className="text-lg font-medium text-slate-900 mb-1">
+                  No expenses found
+                </p>
+                <p className=" text-slate-500">
+                  Record your first business expense to get started.
+                </p>
+              </div>
+            ) : (
+              paginatedExpenses?.map((e) => {
+                const supplier = suppliers?.find((s) => s.id === e.supplierId);
+                return (
+                  <div
+                    key={e.id}
+                    className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex flex-col gap-1">
+                        <span className="font-bold text-slate-700">
+                          {e.description}
+                        </span>
+                        <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-tight">
+                          <Calendar className="w-3 h-3" />
+                          {new Date(e.expenseDate).toLocaleDateString()}
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-end leading-tight text-right">
+                        <span className="text-base font-black text-slate-900 font-display">
+                          ${Number(e.amount).toFixed(2)}
+                        </span>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                          {e.currency}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap text-sm mt-1">
+                      <Badge
+                        variant="secondary"
+                        className="bg-slate-100 text-slate-600 border-none rounded-lg py-1 px-3 flex items-center gap-1.5 w-fit font-bold text-[10px] uppercase"
+                      >
+                        <Tag className="w-3 h-3" />
+                        {e.category}
+                      </Badge>
+                      {supplier && (
+                        <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 bg-slate-50 px-2 py-1 rounded-md border border-slate-100">
+                          <User className="w-3 h-3 text-slate-400" />
+                          {supplier.name}
+                        </div>
+                      )}
+                      {e.reference && (
+                        <span className="font-mono text-xs text-slate-500 bg-slate-50 px-2 py-1 rounded-md border border-slate-100">
+                          {e.reference}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex justify-end pt-3 border-t border-slate-100 mt-1">
+                      <ExpenseDialog expense={e} companyId={companyId} />
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Desktop Table View */}
+          <div className="hidden md:block overflow-x-auto min-w-0">
+            <table className="w-full text-left border-collapse min-w-[600px] md:min-w-full">
             <thead>
               <tr className="bg-slate-50/50 border-b border-slate-100 text-[10px] uppercase tracking-widest font-bold text-slate-500">
                 <th className="p-6 font-bold text-slate-400">Date & Desc</th>
@@ -312,6 +390,7 @@ export default function ExpensesPage() {
               )}
             </tbody>
           </table>
+          </div>
 
           {/* Pagination Controls */}
           {totalPages > 1 && (

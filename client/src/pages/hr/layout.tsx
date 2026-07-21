@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { Layout } from "@/components/layout";
 import { cn } from "@/lib/utils";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem, SelectGroup, SelectLabel } from "@/components/ui/select";
 
 const hrNavigation = [
   { name: "Home", href: "/hr", icon: PieChart },
@@ -66,24 +67,30 @@ export function HRLayout({ children }: { children: React.ReactNode }) {
           {/* Mobile Navigation */}
           <div className="md:hidden sticky top-4 z-10 mb-4 bg-white/80 backdrop-blur-md rounded-2xl p-4 shadow-sm border border-slate-200">
             <h4 className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-1 py-1 mb-2">HR Menu</h4>
-            <select 
+            <Select 
               value={[...hrNavigation, ...hrSetupNav, ...hrReportsNav].find(item => location === item.href || (item.href !== "/hr" && location.startsWith(item.href + "/")))?.href || "/hr"} 
-              onChange={(e) => {
-                const href = e.target.value;
+              onValueChange={(href) => {
                 window.location.href = href;
               }}
-              className="w-full h-12 bg-slate-50 border border-slate-200 rounded-xl px-4 font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
             >
-              <optgroup label="Main">
-                {hrNavigation.map(item => <option key={item.name} value={item.href}>{item.name}</option>)}
-              </optgroup>
-              <optgroup label="Setup">
-                {hrSetupNav.map(item => <option key={item.name} value={item.href}>{item.name}</option>)}
-              </optgroup>
-              <optgroup label="Reports">
-                {hrReportsNav.map(item => <option key={item.name} value={item.href}>{item.name}</option>)}
-              </optgroup>
-            </select>
+              <SelectTrigger className="w-full h-12 bg-slate-50 border border-slate-200 rounded-xl px-4 font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500">
+                <SelectValue placeholder="Select section" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectLabel>Main</SelectLabel>
+                  {hrNavigation.map(item => <SelectItem key={item.name} value={item.href}>{item.name}</SelectItem>)}
+                </SelectGroup>
+                <SelectGroup>
+                  <SelectLabel>Setup</SelectLabel>
+                  {hrSetupNav.map(item => <SelectItem key={item.name} value={item.href}>{item.name}</SelectItem>)}
+                </SelectGroup>
+                <SelectGroup>
+                  <SelectLabel>Reports</SelectLabel>
+                  {hrReportsNav.map(item => <SelectItem key={item.name} value={item.href}>{item.name}</SelectItem>)}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Desktop Navigation */}

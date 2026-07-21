@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useProducts } from "@/hooks/use-products";
@@ -67,16 +68,16 @@ export function CustomerProductsTab({ customerId }: { customerId: number }) {
         <div className="flex gap-4 items-end">
           <div className="space-y-2 flex-1">
             <Label>Select Product</Label>
-            <select 
-              className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
-              value={productId}
-              onChange={e => setProductId(e.target.value)}
-            >
-              <option value="">-- Choose a Product --</option>
-              {products?.map(p => (
-                <option key={p.id} value={p.id}>{p.name} ({p.sku || 'No SKU'})</option>
-              ))}
-            </select>
+            <Select value={productId} onValueChange={setProductId}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="-- Choose a Product --" />
+              </SelectTrigger>
+              <SelectContent>
+                {products?.map(p => (
+                  <SelectItem key={p.id} value={p.id.toString()}>{p.name} ({p.sku || 'No SKU'})</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <Button onClick={handleLinkProduct}>Link Product</Button>
         </div>

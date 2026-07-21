@@ -21,7 +21,7 @@ import { useMemo, useState } from "react";
 import { format } from "date-fns";
 import { Link } from "wouter";
 
-const ITEMS_PER_PAGE = 15;
+const ITEMS_PER_PAGE = 20;
 const ADJUSTMENT_TYPES = [
   "ADJUSTMENT",
   "SHRINKAGE",

@@ -76,7 +76,7 @@ type TypeFilter = "all" | "product" | "service";
 
 export default function ProductsPage() {
   const [, setLocation] = useLocation();
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [itemsPerPage, setItemsPerPage] = useState(20);
   const { activeCompanyId } = useActiveCompany();
   const { selectedBranchId } = useBranchContext();
   const companyId = activeCompanyId || 0;
@@ -453,7 +453,159 @@ export default function ProductsPage() {
 
       <Card className="overflow-hidden">
         <CardContent className="p-0 overflow-x-hidden">
-          <table className="w-full text-left">
+          {/* Mobile Card View */}
+          <div className="grid grid-cols-1 gap-4 p-4 md:hidden bg-slate-50/50">
+            {isLoading ? (
+              <div className="p-12 text-center text-slate-500">
+                <div className="flex flex-col items-center justify-center gap-3">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-violet-600"></div>
+                  Loading...
+                </div>
+              </div>
+            ) : paginatedItems?.length === 0 ? (
+              <div className="p-12 text-center text-slate-500">
+                <div className="flex flex-col items-center justify-center">
+                  {typeFilter === "service" ? (
+                    <Briefcase className="w-12 h-12 text-slate-200 mb-4" />
+                  ) : (
+                    <Package className="w-12 h-12 text-slate-200 mb-4" />
+                  )}
+                  <p className="font-bold text-lg">
+                    No {typeFilter === "service" ? "services" : typeFilter === "product" ? "products" : "items"} found
+                  </p>
+                  <p>Try adjusting your filters</p>
+                </div>
+              </div>
+            ) : (
+              paginatedItems?.map((p) => {
+                const isService = p.productType === "service";
+                const matchedType = taxTypes.data?.find((t: any) => {
+                  if (p.taxTypeId) return t.id === p.taxTypeId;
+                  if (parseFloat(t.rate) === parseFloat(p.taxRate || "0")) {
+                    if (parseFloat(p.taxRate || "0") === 0) {
+                      const isExempt =
+                        p.name.toLowerCase().includes("exempt") ||
+                        p.description?.toLowerCase().includes("exempt");
+                      if (isExempt) {
+                        const zimraTaxId = t.zimraTaxId?.toString();
+                        return (
+                          zimraTaxId == "1" ||
+                          t.zimraCode === "C" ||
+                          t.zimraCode === "E" ||
+                          t.name.toLowerCase().includes("exempt")
+                        );
+                      }
+                      return t.zimraTaxId === "2" || t.name.toLowerCase().includes("zero");
+                    }
+                    return true;
+                  }
+                  return false;
+                });
+
+                return (
+                  <div
+                    key={p.id}
+                    className={`flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm ${!p.isActive ? "opacity-50 grayscale" : ""}`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-3 overflow-hidden">
+                        {p.imageUrl ? (
+                          <img
+                            src={resolveMediaUrl(p.imageUrl)}
+                            alt={p.name}
+                            className="w-12 h-12 rounded-lg object-cover shadow-sm bg-slate-100 ring-1 ring-slate-200 shrink-0"
+                            onError={(e) => (e.currentTarget.style.display = "none")}
+                          />
+                        ) : (
+                          <div className={`w-12 h-12 rounded-lg flex items-center justify-center ring-1 shrink-0 ${
+                            isService
+                              ? "bg-blue-50 ring-blue-100"
+                              : "bg-slate-100 ring-slate-200"
+                          }`}>
+                            {isService ? (
+                              <Briefcase className="w-6 h-6 text-blue-400" />
+                            ) : (
+                              <Package className="w-6 h-6 text-slate-300" />
+                            )}
+                          </div>
+                        )}
+                        <div className="flex flex-col min-w-0">
+                          <span className="font-semibold tracking-tight truncate text-slate-900">
+                            {p.name}
+                          </span>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            {isService && (
+                              <Badge
+                                variant="outline"
+                                className="text-[9px] text-blue-600 border-blue-200 bg-blue-50 px-1.5 py-0 shrink-0 font-bold uppercase tracking-wider"
+                              >
+                                Service
+                              </Badge>
+                            )}
+                            {!p.isActive && (
+                              <span className="text-[9px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-md font-bold uppercase tracking-wider shrink-0">
+                                Inactive
+                              </span>
+                            )}
+                            <span className="text-[10px] text-slate-400 font-medium truncate">
+                              {p.sku || "—"}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <span className="font-bold text-[#0F172A] tracking-tight block text-lg">
+                          ${Number(p.price).toFixed(2)}
+                        </span>
+                        {p.category && (
+                          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                            {p.category}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between text-sm border-t border-slate-100 pt-2 mt-1">
+                      <div className="flex flex-col">
+                        <span className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">Stock</span>
+                        {isService ? (
+                          <span className="text-xs font-bold text-slate-500">N/A</span>
+                        ) : p.isTracked ? (
+                          <span className={`${Number(p.stockLevel) <= Number(p.lowStockThreshold || 0) ? "text-red-600 bg-red-50" : "text-slate-700 bg-slate-100"} px-2 py-0.5 rounded-md font-mono text-[11px] font-bold w-fit`}>
+                            {p.stockLevel}
+                          </span>
+                        ) : (
+                          <span className="text-xs font-bold text-slate-500">∞</span>
+                        )}
+                      </div>
+                      <div className="flex flex-col items-end">
+                        <span className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">Tax</span>
+                        {matchedType ? (
+                          <span className="text-xs font-bold text-slate-600 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">
+                            {matchedType.name}
+                          </span>
+                        ) : (
+                          <span className="text-xs font-bold text-slate-500">
+                            {p.taxRate}%
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex justify-end gap-2 border-t border-slate-100 pt-2">
+                      <EditProductDialog product={p}>
+                        <Button variant="outline" size="sm" className="h-8 rounded-lg text-slate-600 hover:text-blue-600">
+                          <Edit2 className="w-3.5 h-3.5 mr-1.5" /> Edit
+                        </Button>
+                      </EditProductDialog>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Desktop Table View */}
+          <div className="hidden md:block w-full overflow-x-auto min-w-0">
+            <table className="w-full text-left">
             <thead>
               <tr className="bg-[#F8FAFC] border-b border-[#E5E7EB]">
                 <th className="px-5 py-3 font-semibold text-[#64748B] uppercase tracking-wide text-[12px] w-[40%] md:w-auto">
@@ -797,7 +949,8 @@ export default function ProductsPage() {
                 })
               )}
             </tbody>
-          </table>
+            </table>
+          </div>
 
           {/* Pagination Controls */}
           <div className="flex flex-col sm:flex-row items-center justify-between px-5 py-4 border-t border-[#E5E7EB] bg-white gap-4">

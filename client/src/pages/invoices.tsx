@@ -1253,7 +1253,96 @@ export default function InvoicesPage() {
                 </div>
               ) : (
                 <TooltipProvider>
-                  <table className="w-full text-left">
+                  {/* Mobile Card View */}
+                  <div className="grid grid-cols-1 gap-4 p-4 md:hidden">
+                    {displayedInvoices.map((invoice: any) => {
+                      const hasError =
+                        useFiscalWorkflow &&
+                        (invoice.fdmsStatus?.toLowerCase() === "failed" ||
+                          invoice.validationStatus === "red");
+                      const fiscalStatus = getFiscalStatus(
+                        invoice,
+                        useFiscalWorkflow,
+                      );
+                      const paymentStatus = getPaymentStatus(invoice);
+
+                      return (
+                        <div
+                          key={invoice.id}
+                          className={cn(
+                            "flex flex-col gap-3 rounded-xl border border-[#E5E7EB] bg-white p-4 shadow-sm transition-shadow hover:shadow-md",
+                            hasError && "border-red-200 bg-red-50/40"
+                          )}
+                          onClick={() => setLocation(`/invoices/${invoice.id}`)}
+                        >
+                          <div className="flex items-start justify-between">
+                            <div className="flex items-center gap-2">
+                              {hasError && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <AlertCircle className="h-4 w-4 shrink-0 text-[#EF4444]" />
+                                  </TooltipTrigger>
+                                  <TooltipContent side="right" className="max-w-xs text-xs">
+                                    {invoice.validationStatus === "red"
+                                      ? "ZIMRA validation error. Resolve before closing fiscal day."
+                                      : "Fiscalisation failed."}
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
+                              <div className="flex flex-col">
+                                <span className="font-mono font-bold text-[#0F172A]">
+                                  {invoice.invoiceNumber}
+                                </span>
+                                <span className="text-xs text-[#64748B] font-medium">
+                                  {invoice.issueDate ? format(new Date(invoice.issueDate), "dd MMM yyyy") : "-"}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <span className="font-bold text-[#0F172A] block">
+                                {formatMoney(invoice.currency, invoice.total)}
+                              </span>
+                              <DocumentTypePill invoice={invoice} />
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between text-sm">
+                            <div className="flex flex-col">
+                              <span className="text-xs font-semibold text-[#64748B] uppercase">Customer</span>
+                              <span className="font-semibold text-[#0F172A]">
+                                {formatCustomerName(invoice.customer?.name)}
+                              </span>
+                            </div>
+                            <div className="flex flex-col items-end">
+                              <span className="text-xs font-semibold text-[#64748B] uppercase">Status</span>
+                              <div className="flex gap-1 mt-1">
+                                <StatusPill
+                                  status={fiscalStatus}
+                                  label={
+                                    fiscalStatus === "fiscalized"
+                                      ? "Fiscalised"
+                                      : fiscalStatus === "pending"
+                                        ? "Pending"
+                                        : fiscalStatus === "issued"
+                                          ? "Issued"
+                                          : fiscalStatus
+                                  }
+                                />
+                                <StatusPill
+                                  status={paymentStatus}
+                                  label={paymentStatus === "paid" ? "Paid" : "Open"}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Desktop Table View */}
+                  <div className="hidden md:block overflow-x-auto min-w-0">
+                    <table className="w-full text-left">
                     <thead>
                       <tr className="bg-[#F8FAFC] border-b border-[#E5E7EB]">
                         <th className="px-5 py-3 w-12 font-semibold text-[#64748B] uppercase tracking-wide text-[12px]">
@@ -1594,6 +1683,7 @@ export default function InvoicesPage() {
                       })}
                     </tbody>
                   </table>
+                  </div>
                 </TooltipProvider>
               )}
 

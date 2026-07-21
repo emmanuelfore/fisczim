@@ -22,7 +22,7 @@ export default function SalesOrdersPage() {
   const [customStartDate, setCustomStartDate] = useState("");
   const [customEndDate, setCustomEndDate] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
+  const itemsPerPage = 20;
 
   const getStatusColor = (status: string) => {
     switch (status?.toLowerCase()) {
@@ -154,7 +154,66 @@ export default function SalesOrdersPage() {
         </div>
 
         <CardContent className="p-0">
-          <div className="w-full overflow-x-auto">
+          {/* Mobile Card View */}
+          <div className="grid grid-cols-1 gap-4 p-4 md:hidden bg-slate-50/50">
+            {isLoading ? (
+              <div className="p-8 text-center text-slate-500">
+                Loading orders...
+              </div>
+            ) : filteredOrders?.length === 0 ? (
+              <div className="p-12 text-center text-slate-500">
+                <div className="flex flex-col items-center justify-center">
+                  <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mb-3">
+                    <ClipboardList className="w-6 h-6 text-slate-400" />
+                  </div>
+                  <p className="font-medium">No sales orders found</p>
+                  <p className="text-xs mt-1">
+                    Convert a quotation to create a sales order.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              paginatedOrders?.map((order) => (
+                <div
+                  key={order.id}
+                  className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex flex-col gap-1">
+                      <span className="font-mono font-bold text-slate-700">
+                        {order.orderNumber}
+                      </span>
+                      <span className="text-xs text-slate-500">
+                        {new Date(order.issueDate).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <div className="text-right">
+                      <span className="block font-semibold text-slate-900 mb-1">
+                        ${Number(order.total).toFixed(2)}
+                      </span>
+                      <Badge className={getStatusColor(order.status)}>
+                        {order.status}
+                      </Badge>
+                    </div>
+                  </div>
+                  <div className="text-sm font-medium text-slate-900 border-t border-slate-100 pt-2">
+                    <span className="text-[10px] uppercase text-slate-500 tracking-wider block mb-0.5">Customer</span>
+                    {order.customer?.name}
+                  </div>
+                  <div className="flex justify-end mt-1">
+                    <Link href={`/sales-orders/${order.id}`}>
+                      <Button variant="outline" size="sm" className="h-8 rounded-lg text-slate-600 hover:text-blue-600">
+                        View Order
+                      </Button>
+                    </Link>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Desktop Table View */}
+          <div className="hidden md:block w-full overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr>

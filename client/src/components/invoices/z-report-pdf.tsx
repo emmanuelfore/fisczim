@@ -535,21 +535,42 @@ export const ZReportPDF = ({ data, isZReport }: ZReportPDFProps) => {
                 </View>
               ))}
 
-            <View
-              style={[
-                styles.row,
-                styles.bold,
-                { marginTop: 5, borderTopWidth: 1, paddingTop: 5 },
-              ]}
-            >
-              <Text style={styles.label}>GRAND TOTAL SALES:</Text>
-              <Text style={styles.value}>
-                {Number(data.posSummary.grandTotal).toLocaleString(undefined, {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}
-              </Text>
-            </View>
+            {data.posSummary.grandTotals ? (
+              data.posSummary.grandTotals.map((gt: any, i: number) => (
+                <View
+                  key={i}
+                  style={[
+                    styles.row,
+                    styles.bold,
+                    { marginTop: i === 0 ? 5 : 2, borderTopWidth: i === 0 ? 1 : 0, paddingTop: i === 0 ? 5 : 0 },
+                  ]}
+                >
+                  <Text style={styles.label}>GRAND TOTAL SALES ({gt.currency}):</Text>
+                  <Text style={styles.value}>
+                    {Number(gt.total).toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </Text>
+                </View>
+              ))
+            ) : (
+              <View
+                style={[
+                  styles.row,
+                  styles.bold,
+                  { marginTop: 5, borderTopWidth: 1, paddingTop: 5 },
+                ]}
+              >
+                <Text style={styles.label}>GRAND TOTAL SALES:</Text>
+                <Text style={styles.value}>
+                  {Number(data.posSummary.grandTotal).toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}
+                </Text>
+              </View>
+            )}
           </View>
         )}
 

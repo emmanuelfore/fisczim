@@ -29,7 +29,7 @@ import {
 import { PageHeader } from "@/components/page-header";
 
 export default function SuppliersPage() {
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [itemsPerPage, setItemsPerPage] = useState(20);
   const companyId = parseInt(localStorage.getItem("selectedCompanyId") || "0");
   const { data: suppliers, isLoading } = useSuppliers(companyId);
   const updateSupplier = useUpdateSupplier();
@@ -153,7 +153,126 @@ export default function SuppliersPage() {
 
       <Card className="border-none shadow-xl bg-white/50 backdrop-blur-sm rounded-[2rem] overflow-hidden hover:shadow-2xl transition-all duration-500">
         <CardContent className="p-0">
-          <table className="w-full text-left border-collapse">
+          {/* Mobile Card View */}
+          <div className="grid grid-cols-1 gap-4 p-4 md:hidden bg-slate-50/50">
+            {isLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="w-6 h-6 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : paginatedSuppliers?.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12">
+                <div className="bg-slate-50 p-4 rounded-full mb-4">
+                  <Truck className="w-8 h-8 text-slate-300" />
+                </div>
+                <p className="text-lg font-medium text-slate-900 mb-1">
+                  No suppliers found
+                </p>
+                <p className=" text-slate-500">
+                  Try adding your first vendor.
+                </p>
+              </div>
+            ) : (
+              paginatedSuppliers?.map((s) => (
+                <div
+                  key={s.id}
+                  className={`flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md ${!s.isActive ? "opacity-60 bg-slate-50/30" : ""}`}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold shadow-sm ${s.isActive ? "bg-gradient-to-br from-emerald-100 to-teal-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}
+                      >
+                        {s.name.substring(0, 2).toUpperCase()}
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="font-bold text-slate-700">
+                          {s.name}
+                        </span>
+                        {!s.isActive && (
+                          <div className="flex items-center gap-1 mt-0.5">
+                            <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wide">
+                              Inactive
+                            </span>
+                          </div>
+                        )}
+                        {s.contactPerson && (
+                          <div className="flex items-center gap-1 mt-0.5 text-[10px] text-slate-400">
+                            <User className="w-2.5 h-2.5" />
+                            {s.contactPerson}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span className={`font-bold font-mono text-base block mb-1 ${Number((s as any).openingBalance) > 0 ? "text-rose-600" : "text-slate-600"}`}>
+                        ${Number((s as any).openingBalance || 0).toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 text-sm mt-1">
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Contact Info</span>
+                      {s.email && (
+                        <div className="flex items-center gap-2 text-slate-600">
+                          <Mail className="w-3.5 h-3.5 text-slate-400" />
+                          <span className="truncate">{s.email}</span>
+                        </div>
+                      )}
+                      {s.phone && (
+                        <div className="flex items-center gap-2 text-slate-600">
+                          <Phone className="w-3.5 h-3.5 text-slate-400" />
+                          <span className="truncate">{s.phone}</span>
+                        </div>
+                      )}
+                      {!s.email && !s.phone && (
+                        <span className="text-slate-400 text-xs italic">
+                          No contact info
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex flex-col gap-1 items-end text-right">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tax Details</span>
+                      {s.tin && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">TIN</span>
+                          <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded text-xs text-slate-700">{s.tin}</span>
+                        </div>
+                      )}
+                      {s.vatNumber && (
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">VAT</span>
+                          <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded text-xs text-slate-700">{s.vatNumber}</span>
+                        </div>
+                      )}
+                      {!s.tin && !s.vatNumber && (
+                        <span className="text-slate-400 italic text-xs">—</span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 mt-1">
+                    <EditSupplierDialog supplier={s} />
+                    <DeleteButton
+                      title="Delete Supplier"
+                      description={`Are you sure you want to delete ${s.name}?`}
+                      onConfirm={async () => {
+                        await updateSupplier.mutateAsync({
+                          id: s.id,
+                          data: { isActive: false },
+                        });
+                      }}
+                      isDeleting={updateSupplier.isPending}
+                    />
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Desktop Table View */}
+          <div className="hidden md:block overflow-x-auto min-w-0">
+            <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-50/50 border-b border-slate-100 text-[10px] uppercase tracking-widest font-bold text-slate-500">
                 <th className="p-6 font-bold text-slate-400">Supplier Name</th>
@@ -292,6 +411,7 @@ export default function SuppliersPage() {
               )}
             </tbody>
           </table>
+          </div>
 
           {/* Pagination Controls */}
           <div className="flex flex-col sm:flex-row items-center justify-between px-6 py-6 border-t border-slate-50 bg-slate-50/30 gap-4">

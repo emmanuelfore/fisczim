@@ -311,21 +311,28 @@ export function createCustomerFlowRouter(requireAuth: any) {
 
       // Get base data
       const result = await db.execute(`SELECT * FROM customer_statements_view WHERE customer_id = ${id}`);
-      if (!result.rows || result.rows.length === 0) return res.json({});
-      const stmt = result.rows[0] as any;
+      const stmt = result.rows && result.rows.length > 0 ? result.rows[0] as any : {};
 
       // Get full customer record
       const custResult = await db.execute(`SELECT * FROM customers WHERE id = ${id} LIMIT 1`);
+      if (!custResult.rows || custResult.rows.length === 0) {
+        return res.status(404).json({ error: "Customer not found" });
+      }
       const customer = custResult.rows[0] as any;
 
       // Get company details (use companyId param or customer's company_id)
-      const cid = companyId || stmt.company_id;
-      const compResult = await db.execute(`SELECT id, name, trading_name, address, city, country, phone, email, tin, vat_number FROM companies WHERE id = ${cid} LIMIT 1`);
-      const company = compResult.rows[0] as any;
+      const cid = companyId || stmt.company_id || customer.company_id;
+      let company = {};
+      if (cid) {
+        const compResult = await db.execute(`SELECT id, name, trading_name, address, city, country, phone, email, tin, vat_number FROM companies WHERE id = ${cid} LIMIT 1`);
+        company = compResult.rows[0] as any;
+      }
 
       // Date range for the ledger (default: full history starting 2020)
       const from = dateFrom || "2020-01-01";
       const to = dateTo || new Date().toISOString().split('T')[0];
+      const fromStart = `${from} 00:00:00`;
+      const toEnd = `${to} 23:59:59.999`;
 
       // Opening balance = opening_balance field + all transactions BEFORE the from date
       const obResult = await db.execute(`
@@ -338,7 +345,7 @@ export function createCustomerFlowRouter(requireAuth: any) {
             )
             FROM invoices i
             WHERE i.customer_id = ${id}
-              AND i.issue_date < '${from}'
+              AND i.issue_date < '${fromStart}'
               AND i.status NOT IN ('cancelled','quote')
           ), 0) -
           COALESCE((
@@ -346,7 +353,7 @@ export function createCustomerFlowRouter(requireAuth: any) {
             FROM payments p
             JOIN invoices i ON i.id = p.invoice_id
             WHERE i.customer_id = ${id}
-              AND p.payment_date < '${from}'
+              AND p.payment_date < '${fromStart}'
           ), 0) AS opening_balance
         FROM customers c WHERE c.id = ${id}
       `);
@@ -367,8 +374,8 @@ export function createCustomerFlowRouter(requireAuth: any) {
           'invoice' AS entry_type
         FROM invoices i
         WHERE i.customer_id = ${id}
-          AND i.issue_date >= '${from}'
-          AND i.issue_date <= '${to}'
+          AND i.issue_date >= '${fromStart}'
+          AND i.issue_date <= '${toEnd}'
           AND i.status NOT IN ('cancelled','quote')
         UNION ALL
         SELECT
@@ -381,8 +388,8 @@ export function createCustomerFlowRouter(requireAuth: any) {
         FROM payments p
         JOIN invoices i ON i.id = p.invoice_id
         WHERE i.customer_id = ${id}
-          AND p.payment_date >= '${from}'
-          AND p.payment_date <= '${to}'
+          AND p.payment_date >= '${fromStart}'
+          AND p.payment_date <= '${toEnd}'
         ORDER BY date ASC, entry_type DESC
       `);
 
@@ -460,8 +467,8 @@ export function createCustomerFlowRouter(requireAuth: any) {
         JOIN invoices i ON i.id = ii.invoice_id
         LEFT JOIN products p ON p.id = ii.product_id
         WHERE i.customer_id = ${id}
-          AND i.issue_date >= '${from}'
-          AND i.issue_date <= '${to}'
+          AND i.issue_date >= '${fromStart}'
+          AND i.issue_date <= '${toEnd}'
           AND i.status NOT IN ('cancelled','quote')
           
         UNION ALL
@@ -481,8 +488,8 @@ export function createCustomerFlowRouter(requireAuth: any) {
         JOIN products p ON p.id = cst.product_id
         WHERE cst.customer_id = ${id}
           AND cst.type = 'STOCK_IN'
-          AND cst.created_at::date >= '${from}'
-          AND cst.created_at::date <= '${to}'
+          AND cst.created_at >= '${fromStart}'
+          AND cst.created_at <= '${toEnd}'
           
         ORDER BY date ASC, reference ASC
       `);

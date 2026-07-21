@@ -589,7 +589,67 @@ export default function AccountingJournalPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0 overflow-x-auto">
-              <Table>
+              {/* Mobile Card View */}
+              <div className="grid grid-cols-1 gap-4 p-4 md:hidden bg-amber-50/20">
+                {drafts
+                  .filter((draft) => draft.status === "DRAFT")
+                  .map((draft) => {
+                    const debit = draft.lines
+                      .filter((line) => line.type === "DEBIT")
+                      .reduce((sum, line) => sum + Number(line.amount), 0);
+                    const credit = draft.lines
+                      .filter((line) => line.type === "CREDIT")
+                      .reduce((sum, line) => sum + Number(line.amount), 0);
+                    return (
+                      <div key={draft.id} className="flex flex-col gap-3 rounded-xl border border-amber-200/60 bg-white p-4 shadow-sm">
+                        <div className="flex items-start justify-between">
+                          <div className="flex flex-col gap-1">
+                            <span className="font-bold text-slate-800">{draft.description}</span>
+                            <span className="text-xs text-slate-500">
+                              {format(new Date(draft.entryDate), "dd MMM yyyy")}
+                            </span>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-0.5">Reference</span>
+                            <span className="text-xs font-mono text-slate-600 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">
+                              {draft.referenceType || "JOURNAL"} #{draft.referenceId || draft.id}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4 mt-2 pt-3 border-t border-slate-100">
+                          <div>
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-0.5">Debit</span>
+                            <span className="font-bold text-slate-700">
+                              {debit.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-0.5">Credit</span>
+                            <span className="font-bold text-slate-700">
+                              {credit.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex justify-end pt-3 border-t border-slate-100 mt-1">
+                          <Button
+                            size="sm"
+                            className="w-full"
+                            onClick={() => postDraftMutation.mutate(draft.id)}
+                            disabled={postDraftMutation.isPending || Math.abs(debit - credit) > 0.005}
+                          >
+                            {hasDirectAccess ? "Post Draft" : "Request Approval"}
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+
+              {/* Desktop Table View */}
+              <div className="hidden md:block w-full overflow-x-auto min-w-0">
+                <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead className="pl-6">Date</TableHead>
@@ -648,7 +708,8 @@ export default function AccountingJournalPage() {
                       );
                     })}
                 </TableBody>
-              </Table>
+                </Table>
+              </div>
             </CardContent>
           </Card>
         )}

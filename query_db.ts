@@ -1,16 +1,11 @@
+import 'dotenv/config';
 import { db } from './server/db';
 import { sql } from 'drizzle-orm';
-
-async function main() {
-  const companies = await db.execute(sql`SELECT id, name, current_fiscal_day_no FROM companies WHERE name ILIKE '%elimuz%'`);
-  console.log("Companies:", companies);
-
-  if (companies.length > 0) {
-    const cid = companies[0].id;
-    const invoices = await db.execute(sql`SELECT id, receipt_counter, fiscal_day_no, is_fiscalized FROM invoices WHERE company_id = ${cid} AND fiscal_day_no = 2 ORDER BY receipt_counter ASC`);
-    console.log("Invoices Day 2:", invoices);
-  }
-
+async function run() {
+  const pRes = await db.execute(sql.raw(`
+    SELECT id, amount, payment_date FROM payments WHERE invoice_id IS NULL ORDER BY id DESC LIMIT 5;
+  `));
+  console.log("Payments with NULL invoice_id:", pRes.rows);
   process.exit(0);
 }
-main();
+run();

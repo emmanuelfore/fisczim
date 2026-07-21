@@ -1639,10 +1639,15 @@ export default function POSPage() {
       return;
     }
 
+    const currencyInfoLocal = resolvedCurrencies?.find(
+      (c: any) => c.code === selectedCurrencyCode,
+    ) || { code: "USD", exchangeRate: "1" };
+    const exchangeRate = Number(currencyInfoLocal.exchangeRate) || 1;
+
     if (
       paymentMethod !== "CREDIT" &&
       !isLaybySale &&
-      sumTenders < total - 0.05
+      sumTenders < (total * exchangeRate) - 0.05
     ) {
       toast({
         title: "Insufficient Payment",
@@ -1798,7 +1803,7 @@ export default function POSPage() {
           invoiceNumber: offlineRef,
           customerReference: offlineRef,
           paymentAmount: sumTenders,
-          change: sumTenders - total,
+          change: sumTenders - (total * exchangeRate),
         };
         if (posSettings.printingEnabled) {
           setLastSuccessfulInvoice(offInvoice);
@@ -1870,7 +1875,7 @@ export default function POSPage() {
         setLastSuccessfulInvoice({
           ...result,
           paymentAmount: sumTenders,
-          change: sumTenders - total,
+          change: sumTenders - (total * exchangeRate),
         });
       } else {
         toast({
@@ -1936,7 +1941,7 @@ export default function POSPage() {
             invoiceNumber: offlineRef,
             customerReference: offlineRef,
             paymentAmount: sumTenders,
-            change: sumTenders - total,
+            change: sumTenders - (total * exchangeRate),
           };
           if (posSettings.printingEnabled) {
             setLastSuccessfulInvoice(offInvoice);
@@ -4903,7 +4908,8 @@ export default function POSPage() {
                                     )?.exchangeRate || 1,
                                   );
                                 const change = Math.max(0, sumParams - req);
-                                return `+ ${fmt(change)}`;
+                                const currencyInfoLocal = currencies?.find((c) => c.code === selectedCurrencyCode) || { symbol: "$", code: "USD" };
+                                return `+ ${currencyInfoLocal.symbol || currencyInfoLocal.code}${change.toFixed(2)}`;
                               })()}
                             </h3>
                             <Banknote className="h-5 w-5 sm:h-6 w-6 text-emerald-500 opacity-30" />

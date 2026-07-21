@@ -6359,15 +6359,18 @@ export class DatabaseStorage implements IStorage {
         ne(invoices.transactionType, 'CreditNote')
       ));
 
-    const byDate = new Map<string, { invoiceCount: number; subtotal: number; taxAmount: number; total: number }>();
+    const byDate = new Map<string, { invoiceCount: number; subtotal: number; taxAmount: number; total: number; currency: string }>();
     for (const { invoices: inv } of rows) {
       const dateKey = inv.issueDate ? inv.issueDate.toISOString().slice(0, 10) : 'unknown';
-      const existing = byDate.get(dateKey) ?? { invoiceCount: 0, subtotal: 0, taxAmount: 0, total: 0 };
+      const currencyKey = inv.currency || 'USD';
+      const mapKey = `${dateKey}_${currencyKey}`;
+      const existing = byDate.get(mapKey) ?? { invoiceCount: 0, subtotal: 0, taxAmount: 0, total: 0, currency: currencyKey };
+      const rate = Number(inv.exchangeRate || 1);
       existing.invoiceCount += 1;
-      existing.subtotal += Number(inv.subtotal);
-      existing.taxAmount += Number(inv.taxAmount);
-      existing.total += Number(inv.total);
-      byDate.set(dateKey, existing);
+      existing.subtotal += Number(inv.subtotal) * rate;
+      existing.taxAmount += Number(inv.taxAmount) * rate;
+      existing.total += Number(inv.total) * rate;
+      byDate.set(mapKey, existing);
     }
 
     return Array.from(byDate.entries())
@@ -6378,6 +6381,7 @@ export class DatabaseStorage implements IStorage {
         subtotal: v.subtotal.toFixed(2),
         taxAmount: v.taxAmount.toFixed(2),
         total: v.total.toFixed(2),
+        currency: v.currency,
       }));
   }
 
@@ -6393,20 +6397,24 @@ export class DatabaseStorage implements IStorage {
         ne(invoices.transactionType, 'CreditNote')
       ));
 
-    const byCustomer = new Map<number, { customerName: string; invoiceCount: number; total: number }>();
+    const byCustomer = new Map<string, { customerId: number; customerName: string; invoiceCount: number; total: number; currency: string }>();
     for (const { invoices: inv, customers: cust } of rows) {
       const custId = inv.customerId;
-      const existing = byCustomer.get(custId) ?? { customerName: cust?.name ?? 'Unknown', invoiceCount: 0, total: 0 };
+      const currencyKey = inv.currency || 'USD';
+      const mapKey = `${custId}_${currencyKey}`;
+      const existing = byCustomer.get(mapKey) ?? { customerId: custId, customerName: cust?.name ?? 'Unknown', invoiceCount: 0, total: 0, currency: currencyKey };
+      const rate = Number(inv.exchangeRate || 1);
       existing.invoiceCount += 1;
-      existing.total += Number(inv.total);
-      byCustomer.set(custId, existing);
+      existing.total += Number(inv.total) * rate;
+      byCustomer.set(mapKey, existing);
     }
 
-    return Array.from(byCustomer.entries()).map(([customerId, v]) => ({
-      customerId,
+    return Array.from(byCustomer.values()).map((v) => ({
+      customerId: v.customerId,
       customerName: v.customerName,
       invoiceCount: v.invoiceCount,
       total: v.total.toFixed(2),
+      currency: v.currency,
     }));
   }
 
@@ -6422,20 +6430,24 @@ export class DatabaseStorage implements IStorage {
         ne(invoices.transactionType, 'CreditNote')
       ));
 
-    const byItem = new Map<string, { productId: number | null; quantitySold: number; revenue: number }>();
-    for (const { invoice_items: item } of rows) {
-      const key = item.description;
-      const existing = byItem.get(key) ?? { productId: item.productId ?? null, quantitySold: 0, revenue: 0 };
+    const byItem = new Map<string, { productId: number | null; description: string; quantitySold: number; revenue: number; currency: string }>();
+    for (const { invoice_items: item, invoices: inv } of rows) {
+      const desc = item.description;
+      const currencyKey = inv.currency || 'USD';
+      const mapKey = `${desc}_${currencyKey}`;
+      const existing = byItem.get(mapKey) ?? { productId: item.productId ?? null, description: desc, quantitySold: 0, revenue: 0, currency: currencyKey };
+      const rate = Number(inv.exchangeRate || 1);
       existing.quantitySold += Number(item.quantity);
-      existing.revenue += Number(item.lineTotal);
-      byItem.set(key, existing);
+      existing.revenue += Number(item.lineTotal) * rate;
+      byItem.set(mapKey, existing);
     }
 
-    return Array.from(byItem.entries()).map(([description, v]) => ({
+    return Array.from(byItem.values()).map((v) => ({
       productId: v.productId,
-      description,
+      description: v.description,
       quantitySold: v.quantitySold.toFixed(2),
       revenue: v.revenue.toFixed(2),
+      currency: v.currency,
     }));
   }
 

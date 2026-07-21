@@ -534,6 +534,64 @@ export default function PaymentsReceivedPage() {
                 </p>
               </div>
             ) : (
+              <>
+              {/* Mobile Card View */}
+              <div className="grid grid-cols-1 gap-4 p-4 md:hidden bg-slate-50/50">
+                {filtered.map((payment) => {
+                  const date = new Date(payment.paymentDate);
+                  return (
+                    <div key={payment.id} className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm cursor-pointer" onClick={() => setLocation(`/payments-received/${payment.id}`)}>
+                      <div className="flex items-start justify-between">
+                        <div className="flex flex-col gap-1">
+                          <span className="font-bold text-slate-900">{payment.customerName || "Walk-in"}</span>
+                          {payment.customerEmail && <span className="text-[10px] text-slate-500">{payment.customerEmail}</span>}
+                          <span className="text-xs text-slate-400 mt-0.5">{isValid(date) ? format(date, "dd MMM yy") : "-"}</span>
+                        </div>
+                        <div className="text-right flex flex-col items-end gap-1">
+                          <span className="font-bold text-slate-900 text-base">{payment.currency} {Number(payment.amount || 0).toFixed(2)}</span>
+                          <PaymentMethodPill method={payment.paymentMethod} />
+                        </div>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-4 text-sm mt-1 pt-3 border-t border-slate-100">
+                        <div>
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-0.5">Invoice</span>
+                          {payment.invoiceId ? (
+                            <span className="block truncate font-mono text-xs font-bold text-blue-600">
+                              {payment.invoiceNumber || `#${payment.invoiceId}`}
+                            </span>
+                          ) : (
+                            <span className="text-xs font-medium text-slate-400">Unlinked</span>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-0.5">Reference</span>
+                          <span className="text-xs font-medium text-slate-600">{payment.reference || "N/A"}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end pt-3 border-t border-slate-100 mt-1 gap-2">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 rounded-[9px] text-slate-500 hover:bg-blue-50 hover:text-blue-600 border border-slate-100"
+                          onClick={(e) => { e.stopPropagation(); setLocation(`/payments-received/${payment.id}`); }}
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        {payment.invoiceId && (
+                          <div onClick={(e) => e.stopPropagation()}>
+                            <ReceiptDownloader p={payment} company={company} />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Desktop Table View */}
+              <div className="hidden md:block overflow-x-auto min-w-0">
               <Table className="w-full table-fixed">
                 <colgroup>
                   <col className="w-[13%]" />
@@ -650,6 +708,8 @@ export default function PaymentsReceivedPage() {
                   })}
                 </TableBody>
               </Table>
+              </div>
+              </>
             )}
           </CardContent>
         </Card>

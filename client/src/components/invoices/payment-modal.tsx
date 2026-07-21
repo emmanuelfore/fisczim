@@ -165,6 +165,7 @@ export function PaymentModal({
           queryKey: ["/api/invoices", invoice.id, "payment-summary"],
         });
         queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
       }
 
       // Store payment data for receipt, then close form and show receipt

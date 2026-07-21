@@ -35,7 +35,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "@/components/page-header";
 
 export default function CustomersPage() {
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [itemsPerPage, setItemsPerPage] = useState(20);
   const companyId = parseInt(localStorage.getItem("selectedCompanyId") || "0");
   const { data: customers, isLoading } = useCustomers(companyId);
   const updateCustomer = useUpdateCustomer();
@@ -192,7 +192,133 @@ export default function CustomersPage() {
 
       <Card className="overflow-hidden">
         <CardContent className="p-0 overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[600px] md:min-w-full">
+          {/* Mobile Card View */}
+          <div className="grid grid-cols-1 gap-4 p-4 md:hidden bg-slate-50/50">
+            {isLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : paginatedCustomers?.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12">
+                <div className="bg-slate-50 p-4 rounded-full mb-4">
+                  <Users className="w-8 h-8 text-slate-300" />
+                </div>
+                <p className="text-lg font-medium text-slate-900 mb-1">
+                  No customers found
+                </p>
+                <p className=" text-slate-500">
+                  Try adjusting your search or filters.
+                </p>
+              </div>
+            ) : (
+              paginatedCustomers?.map((c) => (
+                <div
+                  key={c.id}
+                  className={`flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md ${!c.isActive ? "opacity-60 bg-slate-50/30" : ""}`}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold ${c.isActive ? "bg-blue-50 text-blue-600" : "bg-slate-100 text-slate-500"}`}
+                      >
+                        {c.name.substring(0, 2).toUpperCase()}
+                      </div>
+                      <div className="flex flex-col">
+                        <Link href={`/customers/${c.id}`}>
+                          <span className="font-semibold text-slate-900 cursor-pointer hover:text-blue-600 transition-colors">
+                            {c.name}
+                          </span>
+                        </Link>
+                        {!c.isActive && (
+                          <div className="flex items-center gap-1 mt-0.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-slate-300" />
+                            <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wide">
+                              Inactive
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span className={`font-bold font-mono ${Number((c as any).openingBalance) > 0 ? "text-red-600" : "text-slate-600"}`}>
+                        ${Number((c as any).openingBalance || 0).toFixed(2)}
+                      </span>
+                      <span
+                        className={`mt-1 inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide border shadow-sm block w-fit ml-auto ${
+                          c.customerType === "business"
+                            ? "bg-blue-50 text-blue-700 border-blue-100"
+                            : "bg-emerald-50 text-emerald-700 border-emerald-100"
+                        }`}
+                      >
+                        {c.customerType === "business" ? (
+                          <Building2 className="w-3 h-3 mr-1" />
+                        ) : (
+                          <Users className="w-3 h-3 mr-1" />
+                        )}
+                        {c.customerType}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 text-sm mt-1">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Contact Info</span>
+                      {c.email && (
+                        <div className="flex items-center gap-2 text-slate-600">
+                          <Mail className="w-3.5 h-3.5 text-slate-400" />
+                          <span className="truncate">{c.email}</span>
+                        </div>
+                      )}
+                      {c.phone && (
+                        <div className="flex items-center gap-2 text-slate-600">
+                          <Phone className="w-3.5 h-3.5 text-slate-400" />
+                          <span className="truncate">{c.phone}</span>
+                        </div>
+                      )}
+                      {!c.email && !c.phone && (
+                        <span className="text-slate-400 text-xs italic">No contact info</span>
+                      )}
+                    </div>
+                    <div className="flex flex-col gap-1 items-end text-right">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tax Details</span>
+                      {c.tin && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">TIN</span>
+                          <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded text-xs text-slate-700">{c.tin}</span>
+                        </div>
+                      )}
+                      {c.vatNumber && (
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">VAT</span>
+                          <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded text-xs text-slate-700">{c.vatNumber}</span>
+                        </div>
+                      )}
+                      {!c.tin && !c.vatNumber && (
+                        <span className="text-slate-400 italic text-xs">—</span>
+                      )}
+                    </div>
+                  </div>
+                  
+                  <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 mt-1">
+                    <Link href={`/reports/customer-statements?customerId=${c.id}`}>
+                      <Button variant="outline" size="sm" className="h-8 rounded-lg text-slate-600 hover:text-blue-600">
+                        <FileText className="h-3.5 w-3.5 mr-1.5" /> Statement
+                      </Button>
+                    </Link>
+                    <Link href={`/customers/${c.id}`}>
+                      <Button variant="outline" size="sm" className="h-8 rounded-lg text-slate-600 hover:text-blue-600">
+                        <Eye className="h-3.5 w-3.5 mr-1.5" /> View
+                      </Button>
+                    </Link>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Desktop Table View */}
+          <div className="hidden md:block overflow-x-auto min-w-0">
+            <table className="w-full text-left border-collapse min-w-[600px] md:min-w-full">
             <thead>
               <tr className="bg-[#F8FAFC] border-b border-[#E5E7EB] text-[12px] uppercase tracking-wide font-semibold text-[#64748B]">
                 <th className="px-5 py-3 font-semibold">Name</th>
@@ -339,7 +465,7 @@ export default function CustomersPage() {
                     </td>
                     <td className="px-5 py-4 text-right align-middle">
                       <div className="flex justify-end items-center gap-1">
-                        <Link href={`/customer-statements?customerId=${c.id}`}>
+                        <Link href={`/reports/customer-statements?customerId=${c.id}`}>
                           <Button
                             variant="ghost"
                             size="icon"
@@ -410,6 +536,7 @@ export default function CustomersPage() {
               )}
             </tbody>
           </table>
+          </div>
 
           {/* Pagination Controls */}
           <div className="flex flex-col sm:flex-row items-center justify-between px-5 py-4 border-t border-[#E5E7EB] bg-white gap-4">

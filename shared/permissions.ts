@@ -291,6 +291,11 @@ export const NAV_PERMISSION_MAP: Record<string, PermissionKey | PermissionKey[]>
   "/currencies": "nav.settings",
   "/zimra-settings": "nav.settings",
   "/tax-config": "nav.settings",
+  "/sales-orders": "nav.invoices",
+  "/stock-receipt": "nav.inventory",
+  "/supplier-invoices": "nav.accounting",
+  "/supplier-credit-notes": "nav.accounting",
+  "/manufacturing": "nav.manufacturing",
 };
 
 export const APPROVAL_TYPES = {

@@ -269,7 +269,143 @@ export default function PurchaseOrdersPage() {
       {/* Table */}
       <Card className="overflow-hidden rounded-[18px] border-slate-200 shadow-sm">
         <CardContent className="p-0 overflow-x-auto">
-          <table className="w-full text-left">
+          {/* Mobile Card View */}
+          <div className="grid grid-cols-1 gap-4 p-4 md:hidden bg-slate-50/50">
+            {isLoading ? (
+              <div className="p-12 text-center text-slate-400">
+                <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" />
+                Loading purchase orders...
+              </div>
+            ) : filtered.length === 0 ? (
+              <div className="p-12 text-center text-slate-400">
+                <ClipboardList className="mx-auto mb-2 h-8 w-8 text-slate-200" />
+                <p className="font-bold text-slate-500">No purchase orders found</p>
+                <p className="text-sm">Create a PO to start tracking supplier orders.</p>
+              </div>
+            ) : (
+              filtered.map((order) => {
+                const totalOrdered = order.items?.reduce((sum, item) => sum + Number(item.quantity || 0), 0) || 0;
+                const totalReceived = order.items?.reduce((sum, item) => sum + Number(item.quantityReceived || 0), 0) || 0;
+                const fulfillmentRatio = totalOrdered > 0 ? totalReceived / totalOrdered : 0;
+
+                const getOverdueDays = (expectedDateStr?: string | null) => {
+                  if (!expectedDateStr) return 0;
+                  const expected = new Date(expectedDateStr);
+                  expected.setHours(0, 0, 0, 0);
+                  const today = new Date();
+                  today.setHours(0, 0, 0, 0);
+                  if (expected < today) {
+                    const diffTime = today.getTime() - expected.getTime();
+                    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                  }
+                  return 0;
+                };
+                const overdueDays = getOverdueDays(order.expectedDate);
+
+                return (
+                  <div key={order.id} className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <div className="flex items-start justify-between">
+                      <div className="flex flex-col gap-1">
+                        <span className="font-mono text-sm font-bold text-slate-900">{order.poNumber}</span>
+                        <p className="text-xs text-slate-400">
+                          {order.createdAt ? format(new Date(order.createdAt), "dd MMM yyyy") : "—"}
+                        </p>
+                        {order.approval ? (
+                          order.approval.status === "pending" ? (
+                            <div className="flex items-center gap-1 mt-1">
+                              <span className="inline-flex items-center font-bold text-[9px] uppercase tracking-wide text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
+                                Awaiting Approval
+                              </span>
+                            </div>
+                          ) : order.approval.status === "approved" ? (
+                            <p className="text-[10px] text-slate-500 flex items-center gap-1 font-semibold mt-1">
+                              <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+                              Auth: {order.approval.reviewerName || "Manager"}
+                            </p>
+                          ) : (
+                            <p className="text-[10px] text-red-500 flex items-center gap-1 font-bold mt-1">
+                              <Ban className="h-3 w-3" /> Rejected
+                            </p>
+                          )
+                        ) : null}
+                      </div>
+                      <div className="text-right">
+                        <span className="block font-bold text-slate-900 text-base mb-1.5">
+                          {order.currency || "USD"} {Number(order.totalCost || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                        <StatusBadge status={order.status} />
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-4 mt-2 pt-3 border-t border-slate-100 text-sm">
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-0.5">Supplier</p>
+                        <p className="font-semibold text-slate-700">{order.supplierName || "—"}</p>
+                        <p className="text-[10px] text-slate-400">{order.branchName ? `📍 ${order.branchName}` : ""}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-0.5">Expected</p>
+                        <p className="font-medium text-slate-600">
+                          {order.expectedDate ? format(new Date(order.expectedDate), "dd MMM yyyy") : "—"}
+                        </p>
+                        {order.status === "SENT" && overdueDays > 0 && (
+                          <Badge variant="destructive" className="mt-1 bg-red-50 text-red-700 border-red-200 font-bold text-[9px] gap-1 px-1.5 py-0 leading-none">
+                            <Clock className="h-2.5 w-2.5" />
+                            OVERDUE ({overdueDays}d)
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="mt-2 pt-3 border-t border-slate-100">
+                      <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 mb-1">
+                        <span>Fulfillment: {totalReceived}/{totalOrdered} items</span>
+                        <span>{Math.round(fulfillmentRatio * 100)}%</span>
+                      </div>
+                      <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                        <div 
+                          className={cn(
+                            "h-full rounded-full transition-all duration-300",
+                            fulfillmentRatio === 1 ? "bg-emerald-500" : fulfillmentRatio > 0 ? "bg-blue-500" : "bg-slate-200"
+                          )} 
+                          style={{ width: `${Math.min(fulfillmentRatio * 100, 100)}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2 mt-2 pt-3 border-t border-slate-100 justify-end">
+                      <Button size="sm" variant="outline" className="h-8 rounded-lg text-xs" onClick={() => setLocation(`/inventory/purchase-orders/${order.id}`)}>
+                        <Eye className="h-3.5 w-3.5 mr-1" /> View
+                      </Button>
+                      <Button size="sm" variant="outline" className="h-8 rounded-lg text-xs" onClick={() => setPrinting(order)}>
+                        <Printer className="h-3.5 w-3.5 mr-1" /> Print
+                      </Button>
+                      {["DRAFT", "SENT"].includes(order.status) && (
+                        <Button size="sm" variant="outline" className="h-8 rounded-lg text-xs" onClick={() => setLocation(`/inventory/purchase-orders/${order.id}?edit=true`)}>
+                          <Edit2 className="h-3.5 w-3.5 mr-1" /> Edit
+                        </Button>
+                      )}
+                      {order.status === "DRAFT" && (
+                        <Button size="sm" className="h-8 rounded-lg text-xs bg-blue-600 hover:bg-blue-700 text-white" onClick={() => handleStatusChange(order, "SENT")}>
+                          <Send className="h-3.5 w-3.5 mr-1" /> Send
+                        </Button>
+                      )}
+                      {order.status !== "CANCELLED" && order.status !== "RECEIVED" && (!order.items || !order.items.every((i: any) => Number(i.quantityReceived || 0) >= Number(i.quantity))) && (
+                        <Button size="sm" className="h-8 rounded-lg text-xs bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => handleCreateGdn(order)} disabled={createGdn.isPending && processingId === order.id}>
+                          {createGdn.isPending && processingId === order.id ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Truck className="h-3.5 w-3.5 mr-1" />}
+                          Receive
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Desktop Table View */}
+          <div className="hidden md:block w-full overflow-x-auto min-w-0">
+            <table className="w-full text-left">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-black uppercase tracking-widest text-slate-400">
                 <th className="p-4">PO Number & Status</th>
@@ -490,7 +626,8 @@ export default function PurchaseOrdersPage() {
               })
               )}
             </tbody>
-          </table>
+            </table>
+          </div>
         </CardContent>
       </Card>
 

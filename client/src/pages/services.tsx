@@ -47,7 +47,7 @@ import {
 import { PageHeader } from "@/components/page-header";
 
 export default function ServicesPage() {
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [itemsPerPage, setItemsPerPage] = useState(20);
   const { activeCompanyId } = useActiveCompany();
   const companyId = activeCompanyId || 0;
   const { data: allItems, isLoading } = useProducts(companyId);

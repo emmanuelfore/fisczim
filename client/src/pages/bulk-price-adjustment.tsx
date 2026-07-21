@@ -93,7 +93,7 @@ export default function BulkPriceAdjustmentPage() {
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(25);
+  const [itemsPerPage, setItemsPerPage] = useState(20);
 
   // Filter products
   const filteredProducts = useMemo(() => {

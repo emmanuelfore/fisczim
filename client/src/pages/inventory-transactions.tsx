@@ -21,7 +21,7 @@ import { Badge } from "@/components/ui/badge";
 import { useState } from "react";
 import { Link } from "wouter";
 
-const ITEMS_PER_PAGE = 15;
+const ITEMS_PER_PAGE = 20;
 
 export default function InventoryTransactionsPage() {
   const companyId = parseInt(localStorage.getItem("selectedCompanyId") || "0");

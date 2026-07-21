@@ -4,6 +4,7 @@ import { Layout } from "@/components/layout";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { Plus, Search, FileText } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -112,6 +113,87 @@ export default function SupplierInvoicesPage() {
             </div>
           </CardHeader>
           <CardContent className="p-0">
+            {/* Mobile Card View */}
+            <div className="grid grid-cols-1 gap-4 p-4 md:hidden bg-slate-50/50">
+              {isLoading ? (
+                Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="animate-pulse h-24 bg-white rounded-xl border border-slate-100" />
+                ))
+              ) : filteredInvoices?.length === 0 ? (
+                <div className="text-center text-slate-400 py-8 text-sm font-medium">
+                  No supplier invoices found.
+                </div>
+              ) : (
+                filteredInvoices?.map((invoice) => (
+                  <div
+                    key={invoice.id}
+                    className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+                    onClick={() => setLocation("/supplier-invoices/" + invoice.id)}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex flex-col gap-1">
+                        <span className="font-bold text-slate-900 flex items-center gap-1.5">
+                          <FileText className="w-3.5 h-3.5 text-slate-400" />
+                          {invoice.invoiceNumber}
+                        </span>
+                        <span className="text-xs text-slate-500 font-medium">
+                          {format(new Date(invoice.date), "dd MMM yyyy")}
+                        </span>
+                        <span className="font-bold text-slate-700 mt-1">
+                          {invoice.supplier?.name || "Unknown"}
+                        </span>
+                      </div>
+                      <div className="text-right flex flex-col items-end gap-1">
+                        <span className="font-bold text-slate-900 text-base">
+                          {formatCurrency(Number(invoice.totalAmount), invoice.currency)}
+                        </span>
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            "mt-1 text-[9px] px-1.5 py-0",
+                            invoice.status === "paid"
+                              ? "bg-emerald-50 text-emerald-600 border-emerald-100"
+                              : invoice.status === "partial"
+                                ? "bg-amber-50 text-amber-600 border-amber-100"
+                                : "bg-rose-50 text-rose-600 border-rose-100"
+                          )}
+                        >
+                          {invoice.status.toUpperCase()}
+                        </Badge>
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-4 text-sm mt-1 pt-3 border-t border-slate-100">
+                      <div>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-0.5">Source</span>
+                        <span className="text-xs font-medium text-slate-600">
+                          {invoice.purchaseOrder?.poNumber || invoice.grvReference || "-"}
+                        </span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-0.5">Type</span>
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            "text-[9px] px-1.5 py-0",
+                            invoice.transactionType === "DebitNote"
+                              ? "bg-purple-50 text-purple-600 border-purple-100"
+                              : invoice.transactionType === "CreditNote"
+                                ? "bg-cyan-50 text-cyan-600 border-cyan-100"
+                                : "bg-slate-50 text-slate-600 border-slate-100"
+                          )}
+                        >
+                          {invoice.transactionType === "DebitNote" ? "DEBIT NOTE" : invoice.transactionType === "CreditNote" ? "CREDIT NOTE" : "BILL"}
+                        </Badge>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Desktop Table View */}
+            <div className="hidden md:block overflow-x-auto min-w-0">
             <Table>
               <TableHeader className="bg-slate-50/50">
                 <TableRow className="hover:bg-transparent border-slate-100">
@@ -234,6 +316,7 @@ export default function SupplierInvoicesPage() {
                 )}
               </TableBody>
             </Table>
+            </div>
           </CardContent>
         </Card>
       </div>

@@ -103,6 +103,9 @@ export function SalesReport({ companyId, dateRange, search, hideZeroActivity }: 
                   Invoices
                 </th>
                 <th className="text-right px-4 py-2 font-bold text-slate-500">
+                  Currency
+                </th>
+                <th className="text-right px-4 py-2 font-bold text-slate-500">
                   Subtotal
                 </th>
                 <th className="text-right px-4 py-2 font-bold text-slate-500">
@@ -132,6 +135,9 @@ export function SalesReport({ companyId, dateRange, search, hideZeroActivity }: 
                   </td>
                   <td className="px-4 py-2 text-right text-slate-600">
                     {row.invoiceCount}
+                  </td>
+                  <td className="px-4 py-2 text-right text-slate-600">
+                    {row.currency}
                   </td>
                   <td className="px-4 py-2 text-right text-slate-600">
                     {row.subtotal}
@@ -251,6 +257,9 @@ export function SalesByCustomerReport({
                   Invoices
                 </th>
                 <th className="text-right px-4 py-2 font-bold text-slate-500">
+                  Currency
+                </th>
+                <th className="text-right px-4 py-2 font-bold text-slate-500">
                   Total
                 </th>
               </tr>
@@ -272,6 +281,9 @@ export function SalesByCustomerReport({
                   </td>
                   <td className="px-4 py-2 text-right text-slate-600">
                     {row.invoiceCount}
+                  </td>
+                  <td className="px-4 py-2 text-right text-slate-600">
+                    {row.currency}
                   </td>
                   <td className="px-4 py-2 text-right font-black text-slate-800">
                     {row.total}
@@ -381,6 +393,9 @@ export function SalesByItemReport({
                   Qty Sold
                 </th>
                 <th className="text-right px-4 py-2 font-bold text-slate-500">
+                  Currency
+                </th>
+                <th className="text-right px-4 py-2 font-bold text-slate-500">
                   Revenue
                 </th>
               </tr>
@@ -402,6 +417,9 @@ export function SalesByItemReport({
                   </td>
                   <td className="px-4 py-2 text-right text-slate-600">
                     {row.quantitySold}
+                  </td>
+                  <td className="px-4 py-2 text-right text-slate-600">
+                    {row.currency}
                   </td>
                   <td className="px-4 py-2 text-right font-black text-slate-800">
                     {row.revenue}
@@ -511,6 +529,9 @@ export function SalesBySalespersonReport({
                   Invoices
                 </th>
                 <th className="text-right px-4 py-2 font-bold text-slate-500">
+                  Currency
+                </th>
+                <th className="text-right px-4 py-2 font-bold text-slate-500">
                   Total
                 </th>
               </tr>
@@ -532,6 +553,9 @@ export function SalesBySalespersonReport({
                   </td>
                   <td className="px-4 py-2 text-right text-slate-600">
                     {row.invoiceCount}
+                  </td>
+                  <td className="px-4 py-2 text-right text-slate-600">
+                    {row.currency}
                   </td>
                   <td className="px-4 py-2 text-right font-black text-slate-800">
                     {row.total}

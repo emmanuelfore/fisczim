@@ -91,6 +91,8 @@ export default function TeamSettingsPage() {
     accessRoleId: "",
     branchIds: [] as number[],
     ownerGroupScope: "",
+    name: "",
+    password: "",
   });
 
   const systemPermissionGroups = useMemo(() => {
@@ -265,6 +267,8 @@ export default function TeamSettingsPage() {
       accessRoleId: targetRoleId,
       branchIds: Array.isArray(user.branchIds) ? user.branchIds.map(Number) : [],
       ownerGroupScope: user.ownerGroupScope || "",
+      name: user.name || "",
+      password: "",
     });
   };
 
@@ -590,13 +594,30 @@ export default function TeamSettingsPage() {
       </Tabs>
 
       <Dialog open={!!editingUser} onOpenChange={(open) => !open && setEditingUser(null)}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] sm:max-h-[85vh] overflow-y-auto sm:overflow-y-auto sm:overflow-x-auto">
           <DialogHeader>
             <DialogTitle>User Access</DialogTitle>
             <DialogDescription>{editingUser?.email}</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4">
             <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Name</Label>
+                <Input
+                  value={accessDraft.name}
+                  onChange={(e) => setAccessDraft((p) => ({ ...p, name: e.target.value }))}
+                  placeholder="User's Full Name"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>New Password</Label>
+                <Input
+                  type="password"
+                  value={accessDraft.password}
+                  onChange={(e) => setAccessDraft((p) => ({ ...p, password: e.target.value }))}
+                  placeholder="Leave blank to keep current"
+                />
+              </div>
               <div className="space-y-2 md:col-span-2">
                 <Label>Role</Label>
                 <Select value={accessDraft.accessRoleId} onValueChange={(accessRoleId) => setAccessDraft((p) => ({ ...p, accessRoleId }))}>
@@ -672,6 +693,8 @@ export default function TeamSettingsPage() {
                     accessRoleId: accessDraft.accessRoleId ? Number(accessDraft.accessRoleId) : null,
                     branchIds: accessDraft.branchIds,
                     ownerGroupScope: accessDraft.ownerGroupScope.trim() || null,
+                    name: accessDraft.name.trim() || undefined,
+                    password: accessDraft.password || undefined,
                   },
                 })
               }
@@ -684,7 +707,7 @@ export default function TeamSettingsPage() {
       </Dialog>
 
       <Dialog open={isRoleDialogOpen} onOpenChange={setIsRoleDialogOpen}>
-        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-4xl w-[95vw] max-h-[90vh] sm:max-h-[80vh] overflow-x-auto overflow-y-auto sm:overflow-y-auto sm:overflow-x-auto">
           <DialogHeader>
             <DialogTitle>{editingRole ? "Edit Role" : "New Role"}</DialogTitle>
             <DialogDescription>Select permissions for this role. System roles can be customized.</DialogDescription>

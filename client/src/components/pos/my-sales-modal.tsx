@@ -40,6 +40,7 @@ import {
 } from "@/components/ui/popover";
 import { useToast } from "@/hooks/use-toast";
 import { Receipt48 } from "./receipt-48";
+import { getIsOnline } from "@/lib/online-state";
 
 interface MySalesModalProps {
   companyId: number;
@@ -47,12 +48,18 @@ interface MySalesModalProps {
   posSettings: any;
   user: any;
   trigger?: React.ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
-function SaleItems({ invoiceId }: { invoiceId: number }) {
-  const { data: invoice, isLoading } = useInvoice(invoiceId);
+function SaleItems({ tx }: { tx: any }) {
+  const isOffline = typeof tx.id === "string" || tx._offline;
+  const hasItems = tx.items && tx.items.length > 0;
+  
+  const { data: fetchedInvoice, isLoading } = useInvoice(isOffline || hasItems ? 0 : tx.id);
+  const invoice = hasItems ? tx : fetchedInvoice;
 
-  if (isLoading) {
+  if (isLoading && !hasItems) {
     return (
       <div className="flex items-center justify-center py-4">
         <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
@@ -79,10 +86,10 @@ function SaleItems({ invoiceId }: { invoiceId: number }) {
             <span className="font-bold text-slate-700">{item.description}</span>
             <div className="text-slate-500">
               <span>
-                {item.quantity} x ${Number(item.unitPrice).toFixed(2)}
+                {item.quantity} x {invoice.currency || "USD"} {Number(item.unitPrice).toFixed(2)}
               </span>
               <span className="ml-2 font-black text-slate-900">
-                ${Number(item.lineTotal).toFixed(2)}
+                {invoice.currency || "USD"} {Number(item.lineTotal).toFixed(2)}
               </span>
             </div>
           </div>
@@ -98,8 +105,16 @@ export function MySalesModal({
   posSettings,
   user,
   trigger,
+  open,
+  onOpenChange,
 }: MySalesModalProps) {
-  const [isOpen, setIsOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isOpen = open !== undefined ? open : internalOpen;
+
+  const handleOpenChange = (newOpen: boolean) => {
+    setInternalOpen(newOpen);
+    onOpenChange?.(newOpen);
+  };
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [processingIds, setProcessingIds] = useState<
@@ -115,13 +130,49 @@ export function MySalesModal({
   } = useQuery({
     queryKey: ["/api/pos/my-sales", companyId, selectedDate],
     queryFn: async () => {
-      const start = startOfDay(selectedDate).toISOString();
-      const end = endOfDay(selectedDate).toISOString();
-      const res = await apiFetch(
-        `/api/pos/my-sales?companyId=${companyId}&startDate=${start}&endDate=${end}`,
-      );
-      if (!res.ok) throw new Error("Failed to fetch sales");
-      return res.json();
+      const start = startOfDay(selectedDate);
+      const end = endOfDay(selectedDate);
+      const isOnline = getIsOnline();
+
+      if (isOnline) {
+        try {
+          const res = await apiFetch(
+            `/api/pos/my-sales?companyId=${companyId}&startDate=${start.toISOString()}&endDate=${end.toISOString()}`,
+          );
+          if (res.ok) {
+            return await res.json();
+          }
+        } catch (e) {
+          console.warn("Failed to fetch online sales, falling back to offline", e);
+        }
+      }
+
+      // Offline Fallback
+      const { getSalesHistory, getPendingSales } = await import("@/lib/offline-db");
+      const offlineSales = await getSalesHistory(companyId);
+      const pendingSales = await getPendingSales(companyId);
+      
+      const combined = [
+        ...offlineSales,
+        ...pendingSales.map((p: any) => ({
+          ...p.invoiceData,
+          id: p.id,
+          _offline: true,
+          status: 'pending',
+          issueDate: p.createdAt
+        }))
+      ];
+      
+      // Filter by date
+      const filtered = combined.filter((tx: any) => {
+        const d = new Date(tx.issueDate);
+        return d >= start && d <= end;
+      });
+
+      // Sort descending by date
+      filtered.sort((a: any, b: any) => new Date(b.issueDate).getTime() - new Date(a.issueDate).getTime());
+      
+      return filtered;
     },
     enabled: isOpen,
   });
@@ -254,7 +305,7 @@ export function MySalesModal({
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+    <Dialog open={isOpen} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         {trigger || (
           <Button variant="outline" size="sm" className="gap-2">
@@ -374,7 +425,7 @@ export function MySalesModal({
                           {tx.customerName || "Walk-in Guest"}
                         </TableCell>
                         <TableCell className="text-right font-black text-slate-900">
-                          ${Number(tx.total).toFixed(2)}
+                          {tx.currency || "USD"} {Number(tx.total).toFixed(2)}
                         </TableCell>
                         <TableCell className="text-center">
                           {tx.syncedWithFdms ? (
@@ -439,7 +490,7 @@ export function MySalesModal({
                             colSpan={7}
                             className="py-0 px-6 pb-6 border-none"
                           >
-                            <SaleItems invoiceId={tx.id} />
+                            <SaleItems tx={tx} />
                             {/* Hidden receipt for silent printing */}
                             <div className="hidden">
                               <Receipt48

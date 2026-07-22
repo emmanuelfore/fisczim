@@ -29,11 +29,16 @@ import { useInvoice } from "@/hooks/use-invoices";
 import { useCompany } from "@/hooks/use-companies";
 import { POSReceipt } from "@/components/pos-receipt";
 import { cn } from "@/lib/utils";
+import { getIsOnline } from "@/lib/online-state";
 
-function SaleItems({ invoiceId }: { invoiceId: number }) {
-  const { data: invoice, isLoading } = useInvoice(invoiceId);
+function SaleItems({ tx }: { tx: any }) {
+  const isOffline = typeof tx.id === "string" || tx._offline;
+  const hasItems = tx.items && tx.items.length > 0;
+  
+  const { data: fetchedInvoice, isLoading } = useInvoice(isOffline || hasItems ? 0 : tx.id);
+  const invoice = hasItems ? tx : fetchedInvoice;
 
-  if (isLoading) {
+  if (isLoading && !hasItems) {
     return (
       <div className="flex items-center justify-center py-4">
         <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
@@ -98,18 +103,22 @@ function SaleItems({ invoiceId }: { invoiceId: number }) {
 }
 
 function ReprintManager({
-  invoiceId,
+  tx,
   company,
   onComplete,
 }: {
-  invoiceId: number;
+  tx: any;
   company: any;
   onComplete: () => void;
 }) {
-  const { data: invoice, isLoading } = useInvoice(invoiceId);
+  const isOffline = typeof tx.id === "string" || tx._offline;
+  const hasItems = tx.items && tx.items.length > 0;
+  
+  const { data: fetchedInvoice, isLoading } = useInvoice(isOffline || hasItems ? 0 : tx.id);
+  const invoice = hasItems ? tx : fetchedInvoice;
 
   useEffect(() => {
-    if (!isLoading && invoice) {
+    if ((!isLoading || hasItems) && invoice) {
       // Give a moment for the component to settle in the DOM
       const timer = setTimeout(() => {
         window.print();
@@ -117,9 +126,9 @@ function ReprintManager({
       }, 500);
       return () => clearTimeout(timer);
     }
-  }, [isLoading, invoice, onComplete]);
+  }, [isLoading, invoice, onComplete, hasItems]);
 
-  if (isLoading || !invoice) return null;
+  if ((isLoading && !hasItems) || !invoice) return null;
 
   return (
     <div id="reprint-container" className="hidden">
@@ -140,14 +149,44 @@ export default function MySalesPage() {
   const [expandedInvoiceId, setExpandedInvoiceId] = useState<number | null>(
     null,
   );
-  const [reprintId, setReprintId] = useState<number | null>(null);
+  const [reprintTx, setReprintTx] = useState<any>(null);
 
   const { data: transactions, isLoading } = useQuery({
     queryKey: ["/api/pos/my-sales", companyId],
     queryFn: async () => {
-      const res = await apiFetch(`/api/pos/my-sales?companyId=${companyId}`);
-      if (!res.ok) throw new Error("Failed to fetch sales");
-      return res.json();
+      const isOnline = getIsOnline();
+
+      if (isOnline) {
+        try {
+          const res = await apiFetch(`/api/pos/my-sales?companyId=${companyId}`);
+          if (res.ok) {
+            return await res.json();
+          }
+        } catch (e) {
+          console.warn("Failed to fetch online sales, falling back to offline", e);
+        }
+      }
+
+      // Offline Fallback
+      const { getSalesHistory, getPendingSales } = await import("@/lib/offline-db");
+      const offlineSales = await getSalesHistory(companyId);
+      const pendingSales = await getPendingSales(companyId);
+      
+      const combined = [
+        ...offlineSales,
+        ...pendingSales.map((p: any) => ({
+          ...p.invoiceData,
+          id: p.id,
+          _offline: true,
+          status: 'pending',
+          issueDate: p.createdAt
+        }))
+      ];
+      
+      // Sort descending by date
+      combined.sort((a: any, b: any) => new Date(b.issueDate).getTime() - new Date(a.issueDate).getTime());
+      
+      return combined;
     },
   });
 
@@ -278,7 +317,7 @@ export default function MySalesPage() {
                           className="h-8 w-8 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 text-slate-400 transition-colors"
                           onClick={(e) => {
                             e.stopPropagation();
-                            setReprintId(tx.id);
+                            setReprintTx(tx);
                           }}
                         >
                           <Printer className="h-4 w-4" />
@@ -291,7 +330,7 @@ export default function MySalesPage() {
                           colSpan={8}
                           className="py-0 px-6 pb-6 border-none"
                         >
-                          <SaleItems invoiceId={tx.id} />
+                          <SaleItems tx={tx} />
                         </TableCell>
                       </TableRow>
                     )}
@@ -323,11 +362,11 @@ export default function MySalesPage() {
       </div>
 
       {/* Hidden Printing Components */}
-      {reprintId && company && (
+      {reprintTx && company && (
         <ReprintManager
-          invoiceId={reprintId}
+          tx={reprintTx}
           company={company}
-          onComplete={() => setReprintId(null)}
+          onComplete={() => setReprintTx(null)}
         />
       )}
 

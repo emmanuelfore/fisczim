@@ -886,6 +886,7 @@ export function EditProductDialog({ product, trigger, children }: Props) {
                         step="0.000001"
                         min="0"
                         {...field}
+                        value={field.value ?? ""}
                         className="rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-primary/20 font-mono"
                       />
                     </FormControl>

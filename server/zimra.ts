@@ -718,8 +718,7 @@ export class ZimraDevice {
         return this.makeRequest('POST', 'CloseDay', payload);
     }
 
-
-    public async submitReceipt(receiptData: ReceiptData, previousReceiptHash: string | null = null, allowOffline = false): Promise<{
+    public async submitReceipt(receiptData: ReceiptData, previousReceiptHash: string | null = null, allowOffline = false, preComputedSignature?: string): Promise<{
         response: any;
         signature: string;
         hash: string;
@@ -773,7 +772,14 @@ export class ZimraDevice {
         console.log('Receipt String to Sign:', stringToSign);
 
         const hash = this.getHash(stringToSign);
-        const signature = this.signData(stringToSign);
+        let signature: string;
+
+        if (preComputedSignature) {
+            signature = preComputedSignature;
+            console.log('Using pre-computed offline signature');
+        } else {
+            signature = this.signData(stringToSign);
+        }
 
         const finalPayload = {
             deviceID: parseInt(this.config.deviceId),

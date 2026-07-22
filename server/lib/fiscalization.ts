@@ -754,11 +754,15 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
         prevHash = (receiptData.receiptCounter === 1) ? null : (fiscalConfig.lastFiscalHash || company.lastFiscalHash || null);
 
         // Note: The signature generation inside submitReceipt relies on these final counters!
-        
+        let offlineSignature: string | undefined;
+        if (invoice.fiscalSignature && invoice.receiptGlobalNo && invoice.receiptCounter) {
+            offlineSignature = invoice.fiscalSignature;
+        }
+
         try {
             try {
                 vTime(`[ZIMRA] submitReceipt-${companyId}-${nextGlobalNo}`);
-                result = await device.submitReceipt(receiptData, prevHash, true);
+                result = await device.submitReceipt(receiptData, prevHash, true, offlineSignature);
                 vTimeEnd(`[ZIMRA] submitReceipt-${companyId}-${nextGlobalNo}`);
             } catch (submitErr: any) {
                 // Auto-Open Retry Logic: Trigger on ZIMRA error code 310 or RCPT01 (FiscalDayClosed).
@@ -825,7 +829,7 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
                         });
                         
                         vTime(`[ZIMRA] submitReceipt-retry-${companyId}-${nextGlobalNo}`);
-                        result = await device.submitReceipt(receiptData, prevHash, true);
+                        result = await device.submitReceipt(receiptData, prevHash, true, offlineSignature);
                         vTimeEnd(`[ZIMRA] submitReceipt-retry-${companyId}-${nextGlobalNo}`);
 
                     } catch (retryErr: any) {

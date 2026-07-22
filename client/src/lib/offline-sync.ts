@@ -199,10 +199,25 @@ export async function syncPendingSales(
                 throw new Error(err.message || `HTTP ${res.status}`);
             }
 
+            const syncedInvoice = await res.json().catch(() => null);
+
             // Sale synced successfully — remove from queue
             await removePendingSale(sale.id);
             result.synced++;
             onProgress?.(result.synced, result.total);
+
+            if (syncedInvoice) {
+                try {
+                    const { addSalesHistory } = await import('./offline-db');
+                    // Add items back if missing from response
+                    if (!syncedInvoice.items || syncedInvoice.items.length === 0) {
+                        syncedInvoice.items = sale.invoiceData.items;
+                    }
+                    await addSalesHistory(companyId, [syncedInvoice]);
+                } catch (e) {
+                    console.error('Failed to add synced sale to history', e);
+                }
+            }
         } catch (error: any) {
             const errorMsg = error.message || 'Sync failed';
             await updatePendingSaleStatus(sale.id, 'failed', errorMsg);

@@ -31,7 +31,12 @@ import {
   removeOfflineHold,
   setLastCacheTime,
   addPendingSale,
+  getCachedZimraConfig,
+  getCachedFiscalSequence,
+  cacheFiscalSequence,
+  generateOfflineReport,
 } from "@/lib/offline-db";
+import { generateOfflineFiscalData } from "@/lib/fiscalization-offline";
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import {
   Search,
@@ -74,6 +79,8 @@ import {
   Pin,
   Download,
   Store,
+  List,
+  PieChart,
 } from "lucide-react";
 import { RefreshCw, ClipboardCheck, Users } from "lucide-react";
 import { POSReceipt } from "@/components/pos-receipt";
@@ -108,6 +115,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { MySalesModal } from "@/components/pos/my-sales-modal";
+import { SyncQueueModal } from "@/components/pos/sync-queue-modal";
 import { PDFDownloadLink } from "@react-pdf/renderer";
 import { FiscalReportPDF } from "@/components/reports/fiscal-report-pdf";
 import { pdf } from "@react-pdf/renderer";
@@ -334,6 +342,7 @@ export default function POSPage() {
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
+  const [productViewMode, setProductViewMode] = useState<"grid" | "list">("grid");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>("");
   const [orderDiscount, setOrderDiscount] = useState<number>(0);
@@ -353,6 +362,9 @@ export default function POSPage() {
   const [splitPayments, setSplitPayments] = useState<
     Array<{ method: string; amount: number }>
   >([]);
+  const [cartAnimation, setCartAnimation] = useState(false);
+  const [splitMethod, setSplitMethod] = useState<string>("CASH");
+  const [splitAmount, setSplitAmount] = useState<string>("");
   const [selectedCurrencyCode, setSelectedCurrencyCode] =
     useState<string>("USD");
   const [isFiscalized, setIsFiscalized] = useState(true);
@@ -380,6 +392,16 @@ export default function POSPage() {
       return [];
     }
   });
+
+  // UX: Fast moving items frequency
+  const [posItemFrequencies, setPosItemFrequencies] = useState<Record<number, number>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('pos_item_frequency') || '{}');
+    } catch {
+      return {};
+    }
+  });
+
   const togglePinProduct = (e: React.MouseEvent, productId: number) => {
     e.stopPropagation();
     setPinnedProducts((prev) => {
@@ -398,6 +420,8 @@ export default function POSPage() {
         const input = document.getElementById("checkout-paid-amount");
         if (input) input.focus();
       }, 100);
+      setSplitPayments([]);
+      setSplitAmount("");
     }
   }, [isCheckoutOpen]);
 
@@ -419,6 +443,7 @@ export default function POSPage() {
 
   const [heldSales, setHeldSales] = useState<any[]>([]);
   const [isHoldsModalOpen, setIsHoldsModalOpen] = useState(false);
+  const [isSyncQueueModalOpen, setIsSyncQueueModalOpen] = useState(false);
   const [currentShift, setCurrentShift] = useState<any>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
@@ -454,6 +479,7 @@ export default function POSPage() {
 
   // X/Z Report modal
   const [isReportOpen, setIsReportOpen] = useState(false);
+  const [isMySalesPinAuthorized, setIsMySalesPinAuthorized] = useState(false);
   const [reportData, setReportData] = useState<any>(null);
   const [reportLoading, setReportLoading] = useState(false);
   const [reportType, setReportType] = useState<"x" | "z">("x");
@@ -578,7 +604,10 @@ export default function POSPage() {
       | "REMOVE_ITEM"
       | "PRICE_CHANGE"
       | "OPEN_DRAWER"
-      | "TOGGLE_FISCAL";
+      | "TOGGLE_FISCAL"
+      | "VIEW_REPORT"
+      | "VIEW_MY_SALES"
+      | "END_SESSION";
     data: any;
   } | null>(null);
 
@@ -689,10 +718,17 @@ export default function POSPage() {
         const bPinned = pinnedProducts.includes(b.id);
         if (aPinned && !bPinned) return -1;
         if (!aPinned && bPinned) return 1;
+
+        const aFreq = posItemFrequencies[a.id] || 0;
+        const bFreq = posItemFrequencies[b.id] || 0;
+        if (aFreq !== bFreq) {
+          return bFreq - aFreq;
+        }
+
         // Optionally, sort alphabetically if neither pinned or both pinned
         return a.name.localeCompare(b.name);
       });
-  }, [resolvedProducts, searchQuery, selectedCategory, pinnedProducts]);
+  }, [resolvedProducts, searchQuery, selectedCategory, pinnedProducts, posItemFrequencies]);
 
   // ── Display limit: show first 40 items; show all when searching/filtering ──
   const INITIAL_LIMIT = 40;
@@ -830,6 +866,10 @@ export default function POSPage() {
       ];
     });
     playAddToCartSound();
+    setCartAnimation(true);
+    setTimeout(() => setCartAnimation(false), 300);
+    setSearchQuery("");
+    setSelectedCategory("All");
   };
 
   const addWeightedToCart = (product: any, quantity: number) => {
@@ -896,6 +936,10 @@ export default function POSPage() {
       ];
     });
     playAddToCartSound();
+    setCartAnimation(true);
+    setTimeout(() => setCartAnimation(false), 300);
+    setSearchQuery("");
+    setSelectedCategory("All");
   };
 
   const applyLineDiscount = (cartItemId: string, amount: number) => {
@@ -929,6 +973,7 @@ export default function POSPage() {
       if (!inInput && !modalOpen) {
         switch (e.key) {
           case "Enter":
+          case "F10":
             e.preventDefault();
             if (cart.length > 0) handleCheckout();
             return;
@@ -938,16 +983,13 @@ export default function POSPage() {
             searchInputRef.current?.select();
             return;
           case "F2":
+          case "F4":
             e.preventDefault();
-            if (cart.length > 0) handleCheckout();
+            handleClearCart();
             return;
           case "F3":
             e.preventDefault();
             if (cart.length > 0) holdOrder();
-            return;
-          case "F4":
-            e.preventDefault();
-            handleClearCart();
             return;
           case "Escape":
             setSearchQuery("");
@@ -972,9 +1014,13 @@ export default function POSPage() {
       }
 
       // Global Enter key to complete checkout when modal is open
-      if (e.key === "Enter" && isCheckoutOpen && !isProcessing) {
+      if ((e.key === "Enter" || e.key === "F10") && isCheckoutOpen && !isProcessing) {
         e.preventDefault();
-        processOrder();
+        if (!paidAmount) {
+          setPaidAmount(total.toString());
+        } else {
+          processOrder();
+        }
         return;
       }
 
@@ -1426,6 +1472,7 @@ export default function POSPage() {
         });
         setIsShiftModalOpen(false);
         setShiftBalance("");
+        handleLoadReport("x");
         return;
       }
     } catch (e) {
@@ -1447,6 +1494,7 @@ export default function POSPage() {
         });
         setIsShiftModalOpen(false);
         setShiftBalance("");
+        handleLoadReport("x");
         return;
       }
       toast({
@@ -1659,6 +1707,17 @@ export default function POSPage() {
     }
 
     const prepareNextSaleImmediately = () => {
+      try {
+        const itemFreq = { ...posItemFrequencies };
+        cart.forEach(item => {
+          itemFreq[item.productId] = (itemFreq[item.productId] || 0) + item.quantity;
+        });
+        localStorage.setItem('pos_item_frequency', JSON.stringify(itemFreq));
+        setPosItemFrequencies(itemFreq);
+      } catch (e) {
+        console.error("Failed to update item frequency", e);
+      }
+
       setCart([]);
       setOrderDiscount(0);
       resetToDefaultCustomer();
@@ -1790,18 +1849,96 @@ export default function POSPage() {
       }
 
       if (!isOnline) {
+        const offlineRef = `OFFLINE-${Date.now().toString().slice(-6)}`;
+        let fiscalData: any = {};
+        let posRef = offlineRef;
+        if (isFiscalized) {
+          try {
+            const zimraConfig = await getCachedZimraConfig(companyId);
+            const fiscalSequence = await getCachedFiscalSequence(companyId);
+            if (zimraConfig?.zimraPrivateKey && fiscalSequence) {
+              const nextGlobalNo = fiscalSequence.lastReceiptGlobalNo + 1;
+              const nextDailyCount = fiscalSequence.dailyReceiptCount + 1;
+              const dateObj = new Date();
+              const dateLocal = new Date(dateObj.getTime() - (dateObj.getTimezoneOffset() * 60000));
+              const receiptDate = dateLocal.toISOString().slice(0, 19);
+
+              const formattedTaxes = invoiceData.items.map((i: any) => ({
+                taxID: i.taxTypeId || 1,
+                taxCode: undefined, // Usually fetched from taxConfig, but okay to omit for offline hashing fallback logic or we can fetch it? Actually, wait, node-forge offline signature just uses taxAmount and salesAmount.
+                taxPercent: Number(i.taxRate),
+                taxAmount: Number(i.discountAmount) > 0 ? (Number(i.unitPrice) * Number(i.quantity) - Number(i.discountAmount)) - ((Number(i.unitPrice) * Number(i.quantity) - Number(i.discountAmount)) / (1 + (Number(i.taxRate) / 100))) : Number(i.unitPrice) * Number(i.quantity) - (Number(i.unitPrice) * Number(i.quantity) / (1 + (Number(i.taxRate) / 100))),
+                salesAmountWithTax: Number(i.unitPrice) * Number(i.quantity) - Number(i.discountAmount)
+              }));
+              
+              // We need aggregate taxes for signature
+              const taxesMap = new Map<number, any>();
+              for (const item of invoiceData.items) {
+                const taxId = item.taxTypeId || 1;
+                const taxRate = Number(item.taxRate);
+                const lineTotal = Number(item.lineTotal);
+                const taxAmount = taxInclusive ? lineTotal - (lineTotal / (1 + (taxRate / 100))) : lineTotal * (taxRate / 100);
+                const salesWithTax = taxInclusive ? lineTotal : lineTotal + taxAmount;
+                
+                if (!taxesMap.has(taxId)) {
+                  taxesMap.set(taxId, { taxID: taxId, taxPercent: taxRate, taxAmount: 0, salesAmountWithTax: 0 });
+                }
+                const t = taxesMap.get(taxId);
+                t.taxAmount += taxAmount;
+                t.salesAmountWithTax += salesWithTax;
+              }
+
+              const receiptDataParams = {
+                receiptType: "FISCALINVOICE",
+                receiptCurrency: currency.code,
+                receiptGlobalNo: nextGlobalNo,
+                receiptDate: receiptDate,
+                receiptTotal: Number(total),
+                receiptTaxes: Array.from(taxesMap.values())
+              };
+
+              const offlineSig = generateOfflineFiscalData({
+                receiptData: receiptDataParams,
+                previousReceiptHash: fiscalSequence.lastFiscalHash,
+                deviceId: zimraConfig.fdmsDeviceId,
+                privateKeyPem: zimraConfig.zimraPrivateKey
+              });
+
+              fiscalData = {
+                receiptGlobalNo: nextGlobalNo,
+                receiptCounter: nextDailyCount,
+                fiscalSignature: offlineSig.signature,
+                receiptDeviceSignature: offlineSig.hash,
+                qrUrl: zimraConfig.qrUrl ? `${zimraConfig.qrUrl}?verify=${offlineSig.verificationCode}` : null
+              };
+
+              posRef = `${nextGlobalNo}`; // POS receipt number is global no.
+
+              // Update local sequence
+              await cacheFiscalSequence(companyId, {
+                ...fiscalSequence,
+                lastReceiptGlobalNo: nextGlobalNo,
+                dailyReceiptCount: nextDailyCount,
+                lastFiscalHash: offlineSig.hash
+              });
+            }
+          } catch (e) {
+            console.error("Failed to generate offline fiscal signature", e);
+          }
+        }
+
+        const payloadToQueue = { ...invoiceData, ...fiscalData };
         const offlineId = await addPendingSale(
           companyId,
-          invoiceData,
+          payloadToQueue,
           selectedBranchId,
         );
-        const offlineRef = `OFFLINE-${Date.now().toString().slice(-6)}`;
         const offInvoice = {
           id: offlineId,
-          ...invoiceData,
+          ...payloadToQueue,
           _offline: true,
-          invoiceNumber: offlineRef,
-          customerReference: offlineRef,
+          invoiceNumber: posRef,
+          customerReference: posRef,
           paymentAmount: sumTenders,
           change: sumTenders - (total * exchangeRate),
         };
@@ -1856,6 +1993,19 @@ export default function POSPage() {
         }
       } else {
         result = await createInvoice.mutateAsync(invoiceData as any);
+      }
+
+      // Save successful online sale to offline sales history for reprinting
+      try {
+        const { addSalesHistory } = await import("@/lib/offline-db");
+        // Ensure items are included so they can be viewed/printed offline
+        const offlineSaleRecord = {
+          ...result,
+          items: result.items && result.items.length > 0 ? result.items : invoiceData.items,
+        };
+        await addSalesHistory(companyId, [offlineSaleRecord]);
+      } catch (e) {
+        console.error("Failed to save to offline sales history", e);
       }
       
       // Refresh products to reflect new stock levels
@@ -1928,18 +2078,88 @@ export default function POSPage() {
               serialNumber: item.serialNumber,
             })),
           };
+          const offlineRef = `OFFLINE-${Date.now().toString().slice(-6)}`;
+          let fiscalData: any = {};
+          let posRef = offlineRef;
+          
+          if (isFiscalized) {
+            try {
+              const zimraConfig = await getCachedZimraConfig(companyId);
+              const fiscalSequence = await getCachedFiscalSequence(companyId);
+              if (zimraConfig?.zimraPrivateKey && fiscalSequence) {
+                const nextGlobalNo = fiscalSequence.lastReceiptGlobalNo + 1;
+                const nextDailyCount = fiscalSequence.dailyReceiptCount + 1;
+                const dateObj = new Date();
+                const dateLocal = new Date(dateObj.getTime() - (dateObj.getTimezoneOffset() * 60000));
+                const receiptDate = dateLocal.toISOString().slice(0, 19);
+
+                const taxesMap = new Map<number, any>();
+                for (const item of payload.items) {
+                  const taxId = item.taxTypeId || 1;
+                  const taxRate = Number(item.taxRate);
+                  const lineTotal = Number(item.lineTotal);
+                  const taxAmount = taxInclusive ? lineTotal - (lineTotal / (1 + (taxRate / 100))) : lineTotal * (taxRate / 100);
+                  const salesWithTax = taxInclusive ? lineTotal : lineTotal + taxAmount;
+                  
+                  if (!taxesMap.has(taxId)) {
+                    taxesMap.set(taxId, { taxID: taxId, taxPercent: taxRate, taxAmount: 0, salesAmountWithTax: 0 });
+                  }
+                  const t = taxesMap.get(taxId);
+                  t.taxAmount += taxAmount;
+                  t.salesAmountWithTax += salesWithTax;
+                }
+
+                const receiptDataParams = {
+                  receiptType: "FISCALINVOICE",
+                  receiptCurrency: selectedCurrencyCode,
+                  receiptGlobalNo: nextGlobalNo,
+                  receiptDate: receiptDate,
+                  receiptTotal: Number(total),
+                  receiptTaxes: Array.from(taxesMap.values())
+                };
+
+                const offlineSig = generateOfflineFiscalData({
+                  receiptData: receiptDataParams,
+                  previousReceiptHash: fiscalSequence.lastFiscalHash,
+                  deviceId: zimraConfig.fdmsDeviceId,
+                  privateKeyPem: zimraConfig.zimraPrivateKey
+                });
+
+                fiscalData = {
+                  receiptGlobalNo: nextGlobalNo,
+                  receiptCounter: nextDailyCount,
+                  fiscalSignature: offlineSig.signature,
+                  receiptDeviceSignature: offlineSig.hash,
+                  qrCodeData: zimraConfig.qrUrl ? `${zimraConfig.qrUrl}?verify=${offlineSig.verificationCode}` : null
+                };
+
+                posRef = `${nextGlobalNo}`;
+
+                await cacheFiscalSequence(companyId, {
+                  ...fiscalSequence,
+                  lastReceiptGlobalNo: nextGlobalNo,
+                  dailyReceiptCount: nextDailyCount,
+                  lastFiscalHash: offlineSig.hash
+                });
+              }
+            } catch (e) {
+              console.error("Failed to generate offline fiscal signature in catch block", e);
+            }
+          }
+
+          const payloadToQueue = { ...payload, ...fiscalData };
           const offlineId = await addPendingSale(
             companyId,
-            payload,
+            payloadToQueue,
             selectedBranchId,
           );
-          const offlineRef = `OFFLINE-${Date.now().toString().slice(-6)}`;
+          
           const offInvoice = {
             id: offlineId,
-            ...payload,
+            ...payloadToQueue,
             _offline: true,
-            invoiceNumber: offlineRef,
-            customerReference: offlineRef,
+            invoiceNumber: posRef,
+            customerReference: posRef,
             paymentAmount: sumTenders,
             change: sumTenders - (total * exchangeRate),
           };
@@ -2959,14 +3179,35 @@ export default function POSPage() {
     setIsReportOpen(true);
     try {
       const today = new Date().toISOString().split("T")[0];
-      const res = await apiFetch(
-        `/api/companies/${companyId}/reports/fiscal-data?date=${today}`,
-      );
-      if (!res.ok) {
-        const err = await res.json();
-        setReportData({ error: err.message });
-      } else {
-        setReportData(await res.json());
+      let reportGenerated = false;
+
+      if (isOnline) {
+        try {
+          const res = await apiFetch(
+            `/api/companies/${companyId}/reports/fiscal-data?date=${today}`,
+          );
+          if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.message);
+          } else {
+            setReportData(await res.json());
+            reportGenerated = true;
+          }
+        } catch (apiErr: any) {
+          console.warn("[Report] API fetch failed, falling back to local DB:", apiErr.message);
+        }
+      }
+
+      if (!reportGenerated) {
+        // Offline native calculation
+        const localData = await generateOfflineReport(companyId, today);
+        setReportData(localData);
+        if (!isOnline) {
+          toast({
+            title: "Offline Report Generated",
+            description: "Calculated natively using locally cached sales.",
+          });
+        }
       }
     } catch (e: any) {
       setReportData({ error: e.message });
@@ -3022,6 +3263,14 @@ export default function POSPage() {
         title: "Fiscal Mode Updated",
         description: `Authorized by ${manager.name}`,
       });
+    } else if (pendingOverride.type === "VIEW_REPORT") {
+      handleLoadReport(pendingOverride.data);
+    } else if (pendingOverride.type === "VIEW_MY_SALES") {
+      setIsMySalesPinAuthorized(true);
+    } else if (pendingOverride.type === "END_SESSION") {
+      setShiftModalType("CLOSE");
+      setShiftBalance("");
+      setIsShiftModalOpen(true);
     }
     setPendingOverride(null);
   };
@@ -3370,7 +3619,7 @@ export default function POSPage() {
               disabled={cart.length === 0 || isProcessing}
               onClick={handleCheckout}
             >
-              <ShoppingCart className="h-4 w-4 group-hover:scale-110 transition-transform" />
+              <ShoppingCart className={cn("h-4 w-4 group-hover:scale-110 transition-transform duration-300", cartAnimation && "scale-150 text-white animate-pulse")} />
               Checkout
             </Button>
           </div>
@@ -3382,6 +3631,14 @@ export default function POSPage() {
   return (
     <PosLayout>
       <div className="flex flex-col h-screen overflow-hidden bg-slate-50/50 print:hidden">
+        <SyncQueueModal 
+          isOpen={isSyncQueueModalOpen} 
+          onClose={() => setIsSyncQueueModalOpen(false)} 
+          triggerSync={triggerSync} 
+          syncStatus={syncStatus} 
+          isOnline={isOnline} 
+        />
+
         {/* Manager Override Dialog */}
         <ManagerOverride
           isOpen={!!pendingOverride}
@@ -3396,7 +3653,11 @@ export default function POSPage() {
                   ? "Authorize Delete"
                   : pendingOverride?.type === "PRICE_CHANGE"
                     ? "Authorize Price Change"
-                    : "Manager Authorization"
+                    : pendingOverride?.type === "VIEW_REPORT" || pendingOverride?.type === "VIEW_MY_SALES"
+                      ? "Authorize View Reports"
+                      : pendingOverride?.type === "END_SESSION"
+                        ? "Authorize End Session"
+                        : "Manager Authorization"
           }
           description={
             pendingOverride?.type === "DISCOUNT"
@@ -3407,7 +3668,11 @@ export default function POSPage() {
                   ? "Manager PIN required to remove item"
                   : pendingOverride?.type === "PRICE_CHANGE"
                     ? "Manager PIN required to change price"
-                    : "Manager PIN required to proceed"
+                    : pendingOverride?.type === "VIEW_REPORT" || pendingOverride?.type === "VIEW_MY_SALES"
+                      ? "Manager PIN required to view sales & reports"
+                      : pendingOverride?.type === "END_SESSION"
+                        ? "Manager PIN required to end session"
+                        : "Manager PIN required to proceed"
           }
         />
 
@@ -3431,13 +3696,14 @@ export default function POSPage() {
         {(!isOnline || pendingSalesCount > 0 || syncStatus === "syncing") && (
           <div
             className={cn(
-              "px-3 md:px-6 py-2 pt-10 md:pt-2 shrink-0 z-40 print:hidden transition-colors animate-in slide-in-from-top-2 duration-300",
+              "px-3 md:px-6 py-2 pt-10 md:pt-2 shrink-0 z-40 print:hidden transition-colors animate-in slide-in-from-top-2 duration-300 cursor-pointer hover:opacity-90",
               !isOnline
                 ? "bg-amber-500 text-white"
                 : syncStatus === "syncing"
                   ? "bg-blue-500 text-white"
                   : "bg-emerald-500 text-white",
             )}
+            onClick={() => setIsSyncQueueModalOpen(true)}
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-xs font-black uppercase tracking-widest">
@@ -3703,15 +3969,22 @@ export default function POSPage() {
                       company={company}
                       posSettings={posSettings}
                       user={user}
+                      open={isMySalesPinAuthorized}
+                      onOpenChange={setIsMySalesPinAuthorized}
                       trigger={
                         <DropdownMenuItem
                           className="p-3 rounded-xl focus:bg-slate-50 cursor-pointer"
-                          onSelect={(e) => e.preventDefault()}
+                          onSelect={(e) => {
+                            if (isCashier && (company?.posSettings as any)?.requireOverrideForReports && !isMySalesPinAuthorized) {
+                              e.preventDefault();
+                              setPendingOverride({ type: "VIEW_MY_SALES", data: null });
+                            }
+                          }}
                         >
                           <Receipt className="h-4 w-4 mr-3 text-slate-500" />
                           <div className="flex flex-col">
-                            <span className=" font-bold text-slate-700">
-                              My Sales
+                            <span className=" font-bold text-slate-700 flex items-center">
+                              My Sales {isCashier && (company?.posSettings as any)?.requireOverrideForReports && <Pin className="h-2.5 w-2.5 opacity-50 ml-2" />}
                             </span>
                             <span className="text-[10px] text-slate-400">
                               View & Reprint Receipts
@@ -3725,14 +3998,18 @@ export default function POSPage() {
                       <DropdownMenuItem
                         className="p-3 rounded-xl focus:bg-red-50 cursor-pointer text-red-600"
                         onClick={() => {
-                          setShiftModalType("CLOSE");
-                          setShiftBalance("");
-                          setIsShiftModalOpen(true);
+                          if (isCashier && (company?.posSettings as any)?.requireOverrideForEndShift) {
+                            setPendingOverride({ type: "END_SESSION", data: null });
+                          } else {
+                            setShiftModalType("CLOSE");
+                            setShiftBalance("");
+                            setIsShiftModalOpen(true);
+                          }
                         }}
                       >
                         <XCircle className="h-4 w-4 mr-3" />
                         <div className="flex flex-col">
-                          <span className=" font-bold">End Shift</span>
+                          <span className=" font-bold flex items-center">End Shift {isCashier && (company?.posSettings as any)?.requireOverrideForEndShift && <Pin className="h-2.5 w-2.5 opacity-50 ml-2" />}</span>
                           <span className="text-[10px] opacity-70">
                             Close register & Z-Report
                           </span>
@@ -3787,11 +4064,17 @@ export default function POSPage() {
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       className="p-3 rounded-xl focus:bg-purple-50 cursor-pointer"
-                      onClick={() => handleLoadReport("x")}
+                      onClick={() => {
+                        if (isCashier && (company?.posSettings as any)?.requireOverrideForReports) {
+                          setPendingOverride({ type: "VIEW_REPORT", data: "x" });
+                        } else {
+                          handleLoadReport("x");
+                        }
+                      }}
                     >
                       <LayoutGrid className="h-4 w-4 mr-3 text-purple-500" />
                       <div className="flex flex-col">
-                        <span className=" font-bold">X-Report</span>
+                        <span className=" font-bold flex items-center">X-Report {isCashier && (company?.posSettings as any)?.requireOverrideForReports && <Pin className="h-2.5 w-2.5 opacity-50 ml-2" />}</span>
                         <span className="text-[10px] text-slate-400">
                           Current day summary
                         </span>
@@ -4201,15 +4484,22 @@ export default function POSPage() {
                       company={company}
                       posSettings={posSettings}
                       user={user}
+                      open={isMySalesPinAuthorized}
+                      onOpenChange={setIsMySalesPinAuthorized}
                       trigger={
                         <DropdownMenuItem
                           className="p-3 rounded-xl focus:bg-slate-50 cursor-pointer"
-                          onSelect={(e) => e.preventDefault()}
+                          onSelect={(e) => {
+                            if (isCashier && (company?.posSettings as any)?.requireOverrideForReports && !isMySalesPinAuthorized) {
+                              e.preventDefault();
+                              setPendingOverride({ type: "VIEW_MY_SALES", data: null });
+                            }
+                          }}
                         >
                           <Receipt className="h-4 w-4 mr-3 text-slate-500" />
                           <div className="flex flex-col">
-                            <span className=" font-bold text-slate-700">
-                              My Sales
+                            <span className=" font-bold text-slate-700 flex items-center">
+                              My Sales {isCashier && (company?.posSettings as any)?.requireOverrideForReports && <Pin className="h-2.5 w-2.5 opacity-50 ml-2" />}
                             </span>
                             <span className="text-[10px] text-slate-400">
                               View & Reprint Receipts
@@ -4223,14 +4513,18 @@ export default function POSPage() {
                       <DropdownMenuItem
                         className="p-3 rounded-xl focus:bg-red-50 cursor-pointer text-red-600"
                         onClick={() => {
-                          setShiftModalType("CLOSE");
-                          setShiftBalance("");
-                          setIsShiftModalOpen(true);
+                          if (isCashier && (company?.posSettings as any)?.requireOverrideForEndShift) {
+                            setPendingOverride({ type: "END_SESSION", data: null });
+                          } else {
+                            setShiftModalType("CLOSE");
+                            setShiftBalance("");
+                            setIsShiftModalOpen(true);
+                          }
                         }}
                       >
                         <XCircle className="h-4 w-4 mr-3" />
                         <div className="flex flex-col">
-                          <span className=" font-bold">End Session</span>
+                          <span className=" font-bold flex items-center">End Session {isCashier && (company?.posSettings as any)?.requireOverrideForEndShift && <Pin className="h-2.5 w-2.5 opacity-50 ml-2" />}</span>
                           <span className="text-[10px] opacity-70">
                             Close register & X-Report
                           </span>
@@ -4301,11 +4595,17 @@ export default function POSPage() {
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       className="p-3 rounded-xl focus:bg-purple-50 cursor-pointer"
-                      onClick={() => handleLoadReport("x")}
+                      onClick={() => {
+                        if (isCashier && (company?.posSettings as any)?.requireOverrideForReports) {
+                          setPendingOverride({ type: "VIEW_REPORT", data: "x" });
+                        } else {
+                          handleLoadReport("x");
+                        }
+                      }}
                     >
                       <LayoutGrid className="h-4 w-4 mr-3 text-purple-500" />
                       <div className="flex flex-col">
-                        <span className=" font-bold">X-Report</span>
+                        <span className=" font-bold flex items-center">X-Report {isCashier && (company?.posSettings as any)?.requireOverrideForReports && <Pin className="h-2.5 w-2.5 opacity-50 ml-2" />}</span>
                         <span className="text-[10px] text-slate-400">
                           Current day summary
                         </span>
@@ -4397,6 +4697,7 @@ export default function POSPage() {
                 )}
               >
             {/* Product Filter/Tabs (High End Pills) - Hidden on Mobile now */}
+            <div className="flex justify-between items-center pr-2 gap-2">
             <div
               className={cn(
                 "flex gap-1 overflow-x-auto pb-2 shrink-0 px-1 mt-0.5 hidden md:flex custom-scrollbar items-center",
@@ -4429,6 +4730,28 @@ export default function POSPage() {
                   {cat}
                 </Button>
               ))}
+            </div>
+            
+            <div className="hidden md:flex items-center gap-1 bg-slate-100/50 p-1 rounded-lg border border-slate-200/50 mb-2">
+              <button
+                onClick={() => setProductViewMode("grid")}
+                className={cn(
+                  "p-1.5 rounded-md transition-all",
+                  productViewMode === "grid" ? "bg-white text-primary shadow-sm" : "text-slate-400 hover:text-slate-600"
+                )}
+              >
+                <LayoutGrid className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setProductViewMode("list")}
+                className={cn(
+                  "p-1.5 rounded-md transition-all",
+                  productViewMode === "list" ? "bg-white text-primary shadow-sm" : "text-slate-400 hover:text-slate-600"
+                )}
+              >
+                <List className="w-4 h-4" />
+              </button>
+            </div>
             </div>
 
             <style>{`
@@ -4566,11 +4889,13 @@ export default function POSPage() {
 
                   {/* Desktop View */}
                   <div
-                    className="hidden md:grid gap-2 pb-8"
-                    style={{
-                      gridTemplateColumns:
-                        "repeat(auto-fill, minmax(140px, 1fr))",
-                    }}
+                    className={cn("hidden md:grid gap-2 pb-8", productViewMode === "list" ? "grid-cols-1" : "")}
+                    style={
+                      productViewMode === "grid" ? {
+                        gridTemplateColumns:
+                          "repeat(auto-fill, minmax(140px, 1fr))",
+                      } : {}
+                    }
                   >
                     {(pagedProducts as any[]).map((product) => {
                       const hash = product.name
@@ -4586,12 +4911,12 @@ export default function POSPage() {
                       return (
                         <Card
                           key={product.id}
-                          className="cursor-pointer group relative overflow-hidden flex flex-col border border-slate-100 bg-white rounded-xl transition-all duration-200 hover:shadow-lg shadow-sm"
+                          className={cn("cursor-pointer group relative overflow-hidden flex border border-slate-100 bg-white rounded-xl transition-all duration-200 hover:shadow-lg shadow-sm", productViewMode === "grid" ? "flex-col" : "flex-row h-20 items-center")}
                           onClick={() => addToCart(product)}
                         >
-                          <CardContent className="p-0 flex flex-col h-full">
+                          <CardContent className={cn("p-0 flex w-full", productViewMode === "grid" ? "flex-col h-full" : "flex-row items-center h-full")}>
                             <div
-                              className="aspect-square max-h-24 flex items-center justify-center shrink-0 relative overflow-hidden"
+                              className={cn("flex items-center justify-center shrink-0 relative overflow-hidden", productViewMode === "grid" ? "aspect-square max-h-24 w-full" : "h-16 w-16 mx-2 rounded-lg")}
                               style={{
                                 backgroundColor: product.imageUrl
                                   ? "#f8fafc"
@@ -4657,12 +4982,12 @@ export default function POSPage() {
                                 />
                               </button>
                             </div>
-                            <div className="p-2 flex flex-col flex-1 bg-white relative">
-                              <h4 className="text-[10px] md:text-[11px] font-black text-slate-800 line-clamp-2 mb-1 group-hover:text-primary transition-colors leading-tight min-h-[1.5rem] md:min-h-[1.75rem]">
+                            <div className={cn("flex flex-1 bg-white relative", productViewMode === "grid" ? "flex-col p-2" : "flex-row items-center justify-between p-3 h-full")}>
+                              <h4 className={cn("font-black text-slate-800 line-clamp-2 group-hover:text-primary transition-colors leading-tight", productViewMode === "grid" ? "text-[10px] md:text-[11px] mb-1 min-h-[1.5rem] md:min-h-[1.75rem]" : "text-xs md:text-sm flex-1")}>
                                 {product.name}
                               </h4>
-                              <div className="flex justify-between items-center mt-auto">
-                                <p className="text-xs  font-black text-slate-900">
+                              <div className={cn("flex items-center", productViewMode === "grid" ? "justify-between mt-auto" : "gap-4")}>
+                                <p className={cn("font-black text-slate-900", productViewMode === "grid" ? "text-xs" : "text-sm")}>
                                   {fmt(product.price)}
                                 </p>
                                 {product.isTracked && (
@@ -4814,6 +5139,24 @@ export default function POSPage() {
                     </div>
                     <div className="h-0.5 w-full bg-slate-100 group-focus-within:bg-primary transition-colors duration-500 mt-0.5" />
                   </div>
+                  {/* Quick Cash Buttons */}
+                  <div className="flex gap-2 justify-center mt-2 overflow-x-auto no-scrollbar pb-1 px-4 max-w-[320px] mx-auto">
+                    {[10, 20, 50, 100].map(amt => (
+                      <button
+                        key={amt}
+                        onClick={() => setPaidAmount(amt.toString())}
+                        className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-black rounded-lg text-xs transition-colors shrink-0 shadow-sm active:scale-95"
+                      >
+                        +{amt}
+                      </button>
+                    ))}
+                    <button
+                        onClick={() => setPaidAmount(total.toString())}
+                        className="px-3 py-1.5 bg-primary/10 hover:bg-primary/20 text-primary font-black rounded-lg text-xs transition-colors shrink-0 shadow-sm active:scale-95"
+                    >
+                      Exact
+                    </button>
+                  </div>
                 </div>
 
                 {/* Main Interactive: Large Pro Numpad */}
@@ -4830,6 +5173,7 @@ export default function POSPage() {
                       { id: "CREDIT", icon: FileText, label: "Credit" },
                       { id: "LAYBY", icon: Receipt, label: "Lay-by" },
                       { id: "ECOCASH", icon: ShoppingBag, label: "EcoCash" },
+                      { id: "SPLIT", icon: PieChart, label: "Split" }
                     ]
                       .filter((m) => {
                         const allowed = (company?.posSettings as any)
@@ -4837,7 +5181,8 @@ export default function POSPage() {
                         return (
                           !allowed ||
                           allowed.length === 0 ||
-                          allowed.includes(m.id)
+                          allowed.includes(m.id) ||
+                          m.id === "SPLIT"
                         );
                       })
                       .map((method) => (
@@ -4866,6 +5211,66 @@ export default function POSPage() {
                         </Button>
                       ))}
                   </div>
+
+                  {/* Split Payments UI */}
+                  {paymentMethod === "SPLIT" && (
+                    <div className="px-4 sm:px-6">
+                      <div className="bg-slate-50/80 border border-slate-100 p-3 sm:p-4 rounded-2xl flex flex-col gap-3 shadow-inner">
+                        <div className="flex gap-2">
+                          <select
+                            value={splitMethod}
+                            onChange={(e) => setSplitMethod(e.target.value)}
+                            className="bg-white border-none rounded-xl text-xs font-black px-3 focus:ring-2 focus:ring-primary h-10 w-24 text-slate-700 shadow-sm"
+                          >
+                            <option value="CASH">Cash</option>
+                            <option value="CARD">Card</option>
+                            <option value="ECOCASH">EcoCash</option>
+                          </select>
+                          <Input
+                            type="number"
+                            placeholder="Amount"
+                            value={splitAmount}
+                            onChange={(e) => setSplitAmount(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                if (!splitAmount || isNaN(Number(splitAmount)) || Number(splitAmount) <= 0) return;
+                                setSplitPayments([...splitPayments, { method: splitMethod, amount: Number(splitAmount) }]);
+                                setSplitAmount("");
+                              }
+                            }}
+                            className="h-10 bg-white border-none text-sm font-black flex-1 focus-visible:ring-2 focus-visible:ring-primary shadow-sm"
+                          />
+                          <Button
+                            className="h-10 px-4 rounded-xl font-black text-[10px] uppercase shadow-md"
+                            onClick={() => {
+                              if (!splitAmount || isNaN(Number(splitAmount)) || Number(splitAmount) <= 0) return;
+                              setSplitPayments([...splitPayments, { method: splitMethod, amount: Number(splitAmount) }]);
+                              setSplitAmount("");
+                            }}
+                          >
+                            Add
+                          </Button>
+                        </div>
+                        {splitPayments.length > 0 && (
+                          <div className="flex flex-col gap-2 mt-2">
+                            {splitPayments.map((p, i) => (
+                              <div key={i} className="flex justify-between items-center bg-white px-4 py-2 rounded-xl text-xs font-black border border-slate-100 shadow-sm animate-in fade-in slide-in-from-bottom-2">
+                                <span className="text-slate-500 uppercase tracking-widest text-[9px]">{p.method}</span>
+                                <span className="text-slate-900 text-sm">{fmt(p.amount)}</span>
+                                <button
+                                  onClick={() => setSplitPayments(splitPayments.filter((_, idx) => idx !== i))}
+                                  className="text-slate-300 hover:text-red-500 transition-colors p-1"
+                                >
+                                  <XCircle className="w-5 h-5" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Results & Finish Block */}
                   <div className="space-y-2 sm:space-y-4">
@@ -6287,13 +6692,19 @@ export default function POSPage() {
                   <>
                     {/* Summary Stats */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div className="bg-slate-50 rounded-2xl p-4">
+                      <div className="bg-slate-50 rounded-2xl p-4 flex flex-col gap-1">
                         <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
                           Total Revenue
                         </p>
-                        <p className="text-xl font-black text-slate-900">
-                          ${Number(reportData.summary.revenue).toFixed(2)}
-                        </p>
+                        {reportData.currencies?.length > 0 ? (
+                          reportData.currencies.map((c: any) => (
+                            <p key={c.code} className="text-xl font-black text-slate-900">
+                              {c.code} {Number(c.total).toFixed(2)}
+                            </p>
+                          ))
+                        ) : (
+                          <p className="text-xl font-black text-slate-900">0.00</p>
+                        )}
                       </div>
                       <div className="bg-slate-50 rounded-2xl p-4">
                         <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
@@ -6358,7 +6769,7 @@ export default function POSPage() {
                                 {cashier.count} sales
                               </span>
                               <span className=" font-black text-slate-900">
-                                ${Number(cashier.total).toFixed(2)}
+                                {cashier.currency || "USD"} {Number(cashier.total).toFixed(2)}
                               </span>
                             </div>
                           </div>
@@ -6391,7 +6802,7 @@ export default function POSPage() {
                                   {method.count} payments
                                 </span>
                                 <span className=" font-black text-emerald-700">
-                                  ${Number(method.total).toFixed(2)}
+                                  {method.currency || "USD"} {Number(method.total).toFixed(2)}
                                 </span>
                               </div>
                             </div>
@@ -6441,7 +6852,7 @@ export default function POSPage() {
                                 </span>
                               </div>
                               <span className=" font-black text-slate-900">
-                                ${Number(item.total).toFixed(2)}
+                                {item.currency || "USD"} {Number(item.total).toFixed(2)}
                               </span>
                             </div>
                           ))}

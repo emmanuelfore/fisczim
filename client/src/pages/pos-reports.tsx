@@ -2,7 +2,9 @@ import { useState, useMemo } from "react";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
+import { useAuth } from "@/hooks/use-auth";
 import { useActiveCompany } from "@/hooks/use-active-company";
+import { ManagerOverride } from "@/components/pos/manager-override";
 import {
   format,
   startOfDay,
@@ -26,6 +28,7 @@ import {
   Clock,
   AlertCircle,
   XCircle,
+  Lock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -88,6 +91,13 @@ import {
 export default function PosReportsPage() {
   const { activeCompany } = useActiveCompany();
   const companyId = activeCompany?.id;
+  const { user } = useAuth();
+  const activeRole = (activeCompany as any)?.role;
+  const isCashier = activeRole === "cashier" && !user?.isSuperAdmin;
+
+  const [isUnlocked, setIsUnlocked] = useState(false);
+  const [showOverrideDialog, setShowOverrideDialog] = useState(false);
+  const showPinGate = isCashier && (activeCompany as any)?.posSettings?.requireOverrideForReports && !isUnlocked;
 
   // State
   const [dateRange, setDateRange] = useState<{ from: Date; to: Date }>({
@@ -247,6 +257,50 @@ export default function PosReportsPage() {
     sales.forEach((s: any) => {
       const rawDate = new Date(s.issueDate || s.createdAt);
       if (isNaN(rawDate.getTime())) return;
+
+  if (showPinGate) {
+    return (
+      <Layout>
+        <div className="flex flex-col items-center justify-center min-h-[80vh] p-6">
+          <div className="max-w-md w-full bg-white p-10 rounded-[2rem] shadow-2xl border-none text-center space-y-6">
+            <div className="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4 border-8 border-slate-50/50 shadow-inner">
+              <Lock className="w-10 h-10 text-slate-400" />
+            </div>
+            <div>
+              <h2 className="text-2xl font-black text-slate-800 tracking-tight uppercase">Admin Access Required</h2>
+              <p className="text-slate-500 mt-2 text-sm font-medium">
+                You must authorize with a Manager or Admin PIN to view End-of-Day POS Reports.
+              </p>
+            </div>
+            <Button
+              className="w-full h-14 rounded-2xl text-lg font-black uppercase tracking-widest shadow-xl shadow-primary/20"
+              onClick={() => setShowOverrideDialog(true)}
+            >
+              Unlock Reports
+            </Button>
+            <Button
+              variant="ghost"
+              className="w-full text-slate-500 font-bold uppercase tracking-tight h-12 rounded-xl"
+              onClick={() => window.history.back()}
+            >
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Go Back
+            </Button>
+          </div>
+          <ManagerOverride
+            isOpen={showOverrideDialog}
+            onClose={() => setShowOverrideDialog(false)}
+            onAuthorized={() => {
+              setShowOverrideDialog(false);
+              setIsUnlocked(true);
+            }}
+            title="Authorize View Reports"
+            description="Manager PIN required to view sales & reports"
+          />
+        </div>
+      </Layout>
+    );
+  }
 
       const dateStr = format(rawDate, "MMM dd");
       if (!daily[dateStr]) {

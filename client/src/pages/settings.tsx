@@ -101,6 +101,8 @@ export default function SettingsPage() {
           requireOverrideForPriceChange: false,
           requireOverrideForDelete: false,
           requireOverrideForOpenDrawer: false,
+          requireOverrideForReports: false,
+          requireOverrideForEndShift: false,
           autoPrint: true,
           usePrinterClient: false,
           printingEnabled: true,

@@ -1,7 +1,7 @@
 import { openDB, type IDBPDatabase } from 'idb';
 
 const DB_NAME = 'pos-offline';
-const DB_VERSION = 6;
+const DB_VERSION = 8;
 
 interface PendingSale {
     id: string;
@@ -56,7 +56,7 @@ export async function getDb(): Promise<IDBPDatabase> {
             const stores = [
                 'products', 'customers', 'currencies', 'taxConfig',
                 'companySettings', 'shifts', 'metadata', 'user_cache',
-                'companies_list'
+                'companies_list', 'zimraConfig', 'fiscalSequence'
             ];
 
             stores.forEach(storeName => {
@@ -64,6 +64,13 @@ export async function getDb(): Promise<IDBPDatabase> {
                     db.createObjectStore(storeName);
                 }
             });
+
+            // Sales History (for offline reprinting and viewing)
+            if (!db.objectStoreNames.contains('salesHistory')) {
+                const store = db.createObjectStore('salesHistory', { keyPath: 'id' });
+                store.createIndex('byCompany', 'companyId');
+                store.createIndex('byDate', 'issueDate');
+            }
 
             // Pending sales queue
             if (!db.objectStoreNames.contains('pendingSales')) {
@@ -193,11 +200,21 @@ export async function saveOfflineCredentials(email: string, password: string, us
         : Math.random().toString(36).substring(2) + Date.now().toString(36);
     
     const hash = await hashPassword(password, salt);
+    let pinHash = undefined;
+    let pinSalt = undefined;
+
+    // If the user has a PIN in their profile, securely hash it as well
+    if (user?.pin) {
+        pinSalt = (typeof crypto.randomUUID === 'function') ? crypto.randomUUID() : Math.random().toString(36).substring(2) + Date.now().toString(36);
+        pinHash = await hashPassword(user.pin, pinSalt);
+    }
     
     await db.put('offline_credentials', {
         email: email.toLowerCase(),
         hash,
         salt,
+        pinHash,
+        pinSalt,
         user,
         lastOnlineLogin: new Date().toISOString()
     });
@@ -215,6 +232,26 @@ export async function verifyOfflineCredentials(email: string, password: string):
     }
     
     return null;
+}
+
+export async function verifyOfflinePinCredentials(email: string, pin: string): Promise<any | null> {
+    const db = await getDb();
+    const record = await db.get('offline_credentials', email.toLowerCase());
+    
+    if (!record || !record.pinHash || !record.pinSalt) return null;
+    
+    const computedHash = await hashPassword(pin, record.pinSalt);
+    if (computedHash === record.pinHash) {
+        return record.user;
+    }
+    
+    return null;
+}
+
+export async function getOfflineUsers(): Promise<any[]> {
+    const db = await getDb();
+    const allRecords = await db.getAll('offline_credentials');
+    return allRecords.map(r => r.user);
 }
 
 // ─── Companies List ──────────────────────────────────────────────────────────
@@ -298,6 +335,34 @@ export async function getCachedCompanySettings(companyId: number): Promise<any |
     const result = await db.get('companySettings', companyId);
     if (result) return result;
     return db.get('companySettings', String(companyId));
+}
+
+// ─── Zimra Config ───────────────────────────────────────────────────────────
+
+export async function cacheZimraConfig(companyId: number, config: any): Promise<void> {
+    const db = await getDb();
+    await db.put('zimraConfig', config, companyId);
+}
+
+export async function getCachedZimraConfig(companyId: number): Promise<any | undefined> {
+    const db = await getDb();
+    const result = await db.get('zimraConfig', companyId);
+    if (result) return result;
+    return db.get('zimraConfig', String(companyId));
+}
+
+// ─── Fiscal Sequence ────────────────────────────────────────────────────────
+
+export async function cacheFiscalSequence(companyId: number, sequence: any): Promise<void> {
+    const db = await getDb();
+    await db.put('fiscalSequence', sequence, companyId);
+}
+
+export async function getCachedFiscalSequence(companyId: number): Promise<any | undefined> {
+    const db = await getDb();
+    const result = await db.get('fiscalSequence', companyId);
+    if (result) return result;
+    return db.get('fiscalSequence', String(companyId));
 }
 
 // ─── Shifts ─────────────────────────────────────────────────────────────────
@@ -436,6 +501,103 @@ export async function getPendingSalesCount(companyId: number): Promise<number> {
 export async function getPendingShiftsCount(companyId: number): Promise<number> {
     const shifts = await getPendingShifts(companyId);
     return shifts.filter(s => s.status === 'pending' || s.status === 'failed').length;
+}
+
+// ─── Sales History ──────────────────────────────────────────────────────────
+
+export async function addSalesHistory(companyId: number, invoices: any[]): Promise<void> {
+    const db = await getDb();
+    const tx = db.transaction('salesHistory', 'readwrite');
+    for (const inv of invoices) {
+        // Ensure companyId is present on the invoice for indexing
+        if (!inv.companyId) inv.companyId = companyId;
+        await tx.store.put(inv);
+    }
+    await tx.done;
+}
+
+export async function getSalesHistory(companyId: number): Promise<any[]> {
+    const db = await getDb();
+    return db.getAllFromIndex('salesHistory', 'byCompany', companyId);
+}
+
+export async function getSaleHistoryById(id: number | string): Promise<any | undefined> {
+    const db = await getDb();
+    return db.get('salesHistory', id);
+}
+
+export async function generateOfflineReport(companyId: number, dateStr: string): Promise<any> {
+    const db = await getDb();
+    // In our DB, we index by 'companyId'. We will filter the results by 'issueDate' starting with dateStr
+    const allSales = await db.getAllFromIndex('salesHistory', 'byCompany', companyId);
+    const todaySales = allSales.filter(sale => sale.issueDate?.startsWith(dateStr));
+    
+    // Also grab any pending sales that match this date
+    const pendingSales = await db.getAllFromIndex('pendingSales', 'byCompany', companyId);
+    const todayPending = pendingSales
+        .filter(ps => ps.timestamp && new Date(ps.timestamp).toISOString().startsWith(dateStr))
+        .map(ps => ps.payload);
+
+    // Merge them. Note that pendingSales might already exist in salesHistory (if they were cached), 
+    // but to avoid duplicates we'll track by internal ID or receiptNumber
+    const saleMap = new Map();
+    todaySales.forEach(s => saleMap.set(s.id || s.receiptNumber, s));
+    todayPending.forEach(s => saleMap.set(s.id || s.receiptNumber || Math.random(), s));
+
+    const uniqueSales = Array.from(saleMap.values());
+
+    let totalAmount = 0;
+    const currency = uniqueSales[0]?.currency || "USD";
+    const paymentMethodsMap: Record<string, { count: number, total: number }> = {};
+    const cashiersMap: Record<string, { count: number, total: number, name: string }> = {};
+    const itemsMap: Record<string, { quantity: number, total: number, name: string }> = {};
+    const taxesMap: Record<string, { net: number, tax: number }> = {};
+
+    uniqueSales.forEach(sale => {
+        const saleTotal = Number(sale.totalAmount || sale.total || 0);
+        totalAmount += saleTotal;
+
+        // Payment Method
+        const method = sale.paymentMethod || "CASH";
+        if (!paymentMethodsMap[method]) paymentMethodsMap[method] = { count: 0, total: 0 };
+        paymentMethodsMap[method].count++;
+        paymentMethodsMap[method].total += saleTotal;
+
+        // Cashier
+        const cashierName = sale.cashierName || "Offline Cashier";
+        const cashierId = sale.cashierId || "offline";
+        if (!cashiersMap[cashierId]) cashiersMap[cashierId] = { count: 0, total: 0, name: cashierName };
+        cashiersMap[cashierId].count++;
+        cashiersMap[cashierId].total += saleTotal;
+
+        // Items
+        if (sale.items && Array.isArray(sale.items)) {
+            sale.items.forEach((item: any) => {
+                const pId = item.productId || item.name;
+                if (!itemsMap[pId]) itemsMap[pId] = { quantity: 0, total: 0, name: item.name };
+                itemsMap[pId].quantity += Number(item.quantity || 1);
+                itemsMap[pId].total += Number(item.total || 0);
+
+                // Taxes
+                const taxRate = Number(item.taxRate || 0);
+                if (!taxesMap[taxRate]) taxesMap[taxRate] = { net: 0, tax: 0 };
+                const itemTotal = Number(item.total || 0);
+                const taxAmt = Number(item.taxAmount || 0);
+                taxesMap[taxRate].net += (itemTotal - taxAmt);
+                taxesMap[taxRate].tax += taxAmt;
+            });
+        }
+    });
+
+    return {
+        salesCount: uniqueSales.length,
+        totalAmount,
+        currency,
+        cashiers: Object.entries(cashiersMap).map(([id, val]) => ({ cashierId: id, ...val, currency })),
+        paymentMethods: Object.entries(paymentMethodsMap).map(([method, val]) => ({ method, ...val, currency })),
+        items: Object.entries(itemsMap).map(([id, val]) => ({ productId: id, ...val, currency })),
+        taxes: Object.entries(taxesMap).map(([rate, val]) => ({ taxRate: rate, ...val }))
+    };
 }
 
 export type { PendingSale, PendingShiftAction, OfflineHold };

@@ -17,16 +17,18 @@ import { useIsOnline } from "@/hooks/use-is-online";
 import { isStorageBroken } from "@/lib/offline-db";
 
 export default function PosLoginPage() {
-  const { user, isLoading, loginWithPassword } = useAuth();
+  const { user, isLoading, loginWithPassword, loginWithOfflinePin, getOfflineUsers } = useAuth();
   const { data: companies, isLoading: isLoadingCompanies } = useCompanies(
     !!user,
     user?.id ?? null,
   );
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [, setLocation] = useLocation();
-  const [loginData, setLoginData] = useState({ email: "", password: "" });
+  const [loginData, setLoginData] = useState({ email: "", password: "", pin: "" });
   const [error, setError] = useState<string | null>(null);
   const isOnline = useIsOnline();
+  const [loginMode, setLoginMode] = useState<"password" | "pin">("password");
+  const [offlineUsers, setOfflineUsers] = useState<any[]>([]);
   const [updateInfo, setUpdateInfo] = useState<{
     version: string;
     releaseNotes?: string;
@@ -39,8 +41,21 @@ export default function PosLoginPage() {
       setError(
         "Terminal storage is corrupted. Offline features and login caching may not work.",
       );
+    } else {
+      // Fetch offline users for the PIN login dropdown
+      if (getOfflineUsers) {
+        getOfflineUsers().then((users) => {
+          if (users && users.length > 0) {
+            setOfflineUsers(users);
+            if (!isOnline) {
+              setLoginMode("pin");
+              setLoginData(prev => ({ ...prev, email: users[0].email }));
+            }
+          }
+        }).catch(console.error);
+      }
     }
-  }, []);
+  }, [getOfflineUsers, isOnline]);
 
   const handleFixStorage = async () => {
     if (!window.electronAPI?.clearStorage) return;
@@ -77,10 +92,18 @@ export default function PosLoginPage() {
     try {
       setError(null);
       setIsLoggingIn(true);
-      await loginWithPassword({
-        email: loginData.email,
-        password: loginData.password,
-      });
+      if (loginMode === "pin") {
+        if (!loginWithOfflinePin) throw new Error("Offline PIN login not supported");
+        await loginWithOfflinePin({
+          email: loginData.email,
+          pin: loginData.pin,
+        });
+      } else {
+        await loginWithPassword({
+          email: loginData.email,
+          password: loginData.password,
+        });
+      }
       setIsLoggingIn(false);
     } catch (error: any) {
       console.error("Login failed:", error);
@@ -177,56 +200,126 @@ export default function PosLoginPage() {
                 </div>
               )}
 
-              <form onSubmit={handleLogin} className="space-y-5">
-                <div className="space-y-2">
-                  <Label htmlFor="email" className="text-slate-300 ml-1">
-                    Email
-                  </Label>
-                  <div className="relative">
-                    <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                    <Input
-                      id="email"
-                      type="email"
-                      placeholder="cashier@store.com"
-                      className="bg-white/5 border-white/10 h-14 pl-11 rounded-2xl text-white placeholder:text-slate-600 focus:ring-primary focus:border-primary transition-all"
-                      value={loginData.email}
-                      onChange={(e) =>
-                        setLoginData({ ...loginData, email: e.target.value })
-                      }
-                      required
-                    />
-                  </div>
+              {offlineUsers.length > 0 && !isOnline && (
+                <div className="flex gap-2 mb-6 p-1 bg-white/5 rounded-xl">
+                  <button
+                    type="button"
+                    className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-colors ${loginMode === 'password' ? 'bg-primary text-white shadow' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+                    onClick={() => setLoginMode("password")}
+                  >
+                    Password
+                  </button>
+                  <button
+                    type="button"
+                    className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-colors ${loginMode === 'pin' ? 'bg-primary text-white shadow' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+                    onClick={() => setLoginMode("pin")}
+                  >
+                    Offline PIN
+                  </button>
                 </div>
+              )}
 
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between ml-1">
-                    <Label
-                      htmlFor="password"
-                      title="password"
-                      className="text-slate-300"
-                    >
-                      Password
-                    </Label>
-                  </div>
-                  <div className="relative">
-                    <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                    <Input
-                      id="password"
-                      type="password"
-                      className="bg-white/5 border-white/10 h-14 pl-11 rounded-2xl text-white placeholder:text-slate-600 focus:ring-primary focus:border-primary transition-all"
-                      value={loginData.password}
-                      onChange={(e) =>
-                        setLoginData({ ...loginData, password: e.target.value })
-                      }
-                      required
-                    />
-                  </div>
-                </div>
+              <form onSubmit={handleLogin} className="space-y-5">
+                {loginMode === "password" ? (
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="email" className="text-slate-300 ml-1">
+                        Email
+                      </Label>
+                      <div className="relative">
+                        <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                        <Input
+                          id="email"
+                          type="email"
+                          placeholder="cashier@store.com"
+                          className="bg-white/5 border-white/10 h-14 pl-11 rounded-2xl text-white placeholder:text-slate-600 focus:ring-primary focus:border-primary transition-all"
+                          value={loginData.email}
+                          onChange={(e) =>
+                            setLoginData({ ...loginData, email: e.target.value })
+                          }
+                          required={loginMode === "password"}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between ml-1">
+                        <Label
+                          htmlFor="password"
+                          title="password"
+                          className="text-slate-300"
+                        >
+                          Password
+                        </Label>
+                      </div>
+                      <div className="relative">
+                        <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                        <Input
+                          id="password"
+                          type="password"
+                          className="bg-white/5 border-white/10 h-14 pl-11 rounded-2xl text-white placeholder:text-slate-600 focus:ring-primary focus:border-primary transition-all"
+                          value={loginData.password}
+                          onChange={(e) =>
+                            setLoginData({ ...loginData, password: e.target.value })
+                          }
+                          required={loginMode === "password"}
+                        />
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="userSelect" className="text-slate-300 ml-1">
+                        Select Cashier
+                      </Label>
+                      <div className="relative">
+                        <select
+                          id="userSelect"
+                          className="w-full bg-white/5 border border-white/10 h-14 px-4 rounded-2xl text-white focus:ring-primary focus:border-primary transition-all appearance-none"
+                          value={loginData.email}
+                          onChange={(e) => setLoginData({ ...loginData, email: e.target.value })}
+                          required={loginMode === "pin"}
+                        >
+                          <option value="" disabled className="text-slate-900">Select Cashier...</option>
+                          {offlineUsers.map(u => (
+                            <option key={u.id} value={u.email} className="text-slate-900">
+                              {u.name || u.email}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="pin" className="text-slate-300 ml-1">
+                        4-Digit PIN
+                      </Label>
+                      <div className="relative">
+                        <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                        <Input
+                          id="pin"
+                          type="password"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          maxLength={4}
+                          placeholder="••••"
+                          className="bg-white/5 border-white/10 h-14 pl-11 rounded-2xl text-white placeholder:text-slate-600 focus:ring-primary focus:border-primary transition-all tracking-[0.5em] font-bold text-xl"
+                          value={loginData.pin}
+                          onChange={(e) =>
+                            setLoginData({ ...loginData, pin: e.target.value.replace(/\D/g, '').slice(0,4) })
+                          }
+                          required={loginMode === "pin"}
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
 
                 <Button
                   type="submit"
                   className="w-full h-14 rounded-2xl text-lg font-black uppercase tracking-widest shadow-xl shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
-                  disabled={isLoggingIn}
+                  disabled={isLoggingIn || (loginMode === "pin" && loginData.pin.length < 4)}
                 >
                   {isLoggingIn ? (
                     <Loader2 className="w-5 h-5 animate-spin mr-2" />

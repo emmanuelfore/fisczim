@@ -114,6 +114,8 @@ export function PosTerminalSettings({
     requireOverrideForPriceChange: false,
     requireOverrideForDelete: false,
     requireOverrideForOpenDrawer: false,
+    requireOverrideForReports: false,
+    requireOverrideForEndShift: false,
     usePrinterClient: false,
     printingEnabled: true,
     autoPrint: true,
@@ -779,6 +781,16 @@ export function PosTerminalSettings({
                       id: "OpenDrawer",
                       label: "Open Cash Drawer",
                       desc: "Require admin PIN to open drawer.",
+                    },
+                    {
+                      id: "Reports",
+                      label: "View Reports & Sales",
+                      desc: "Require admin PIN to view X/Z reports and past sales.",
+                    },
+                    {
+                      id: "EndShift",
+                      label: "End Shift / Session",
+                      desc: "Require admin PIN to end a shift and reconcile cash.",
                     },
                   ].map((rule) => (
                     <div

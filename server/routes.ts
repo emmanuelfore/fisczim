@@ -1021,6 +1021,51 @@ export async function registerRoutes(
     }
   });
 
+  // --- Fiscalization Offline Context ---
+  app.get("/api/companies/:companyId/fiscal-context", requireAuth, async (req, res) => {
+    const companyId = parseInt(req.params.companyId);
+    try {
+      const hasAccess = await checkCompanyAccess(req.user, companyId);
+      if (!hasAccess) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      const company = await storage.getCompany(companyId);
+      if (!company) {
+        return res.status(404).json({ message: "Company not found" });
+      }
+
+      const branchId = getBranchId(req);
+      let contextSource: any = company;
+
+      if (branchId) {
+        const branch = await storage.getBranch(branchId);
+        if (branch && branch.companyId === companyId && branch.fdmsDeviceId) {
+          contextSource = { ...company, ...branch };
+        }
+      }
+
+      res.json({
+        fdmsDeviceId: contextSource.fdmsDeviceId,
+        fdmsDeviceSerialNo: contextSource.fdmsDeviceSerialNo,
+        fdmsApiKey: contextSource.fdmsApiKey,
+        zimraEnvironment: contextSource.zimraEnvironment,
+        zimraPrivateKey: contextSource.zimraPrivateKey,
+        zimraCertificate: contextSource.zimraCertificate,
+        currentFiscalDayNo: contextSource.currentFiscalDayNo,
+        fiscalDayOpen: contextSource.fiscalDayOpen,
+        fiscalDayOpenedAt: contextSource.fiscalDayOpenedAt,
+        lastReceiptGlobalNo: contextSource.lastReceiptGlobalNo,
+        dailyReceiptCount: contextSource.dailyReceiptCount,
+        lastFiscalHash: contextSource.lastFiscalHash,
+        qrUrl: contextSource.qrUrl,
+      });
+    } catch (error: any) {
+      console.error("[Fiscal Context] Error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // --- CSV Import Endpoints ---
 
   // --- Quotations ---
@@ -12203,7 +12248,17 @@ export async function registerRoutes(
       const ownerGroupScope = await getUserOwnerGroupScope((req.user as any)?.id);
       const ownerGroup = ownerGroupScope || (req.query.ownerGroup as string | undefined);
 
-      const sales = await storage.getPosSales(companyId, startDate, endDate, cashierId, undefined, undefined, undefined, undefined, ownerGroup);
+      let sales = await storage.getPosSales(companyId, startDate, endDate, cashierId, undefined, undefined, undefined, undefined, ownerGroup);
+
+      if (req.query.includeItems === 'true') {
+        const enrichedSales = [];
+        for (const sale of sales) {
+          const invoiceData = await storage.getInvoice(sale.id);
+          enrichedSales.push({ ...sale, items: invoiceData?.items || [] });
+        }
+        sales = enrichedSales;
+      }
+
       res.json(sales);
     } catch (err: any) {
       res.status(500).json({ message: err.message });

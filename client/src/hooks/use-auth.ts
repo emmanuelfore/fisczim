@@ -3,7 +3,7 @@ import { apiFetch } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
-import { cacheUser, getCachedUser, clearCachedUser, getPendingSalesCount, saveOfflineCredentials, verifyOfflineCredentials } from "@/lib/offline-db";
+import { cacheUser, getCachedUser, clearCachedUser, getPendingSalesCount, saveOfflineCredentials, verifyOfflineCredentials, verifyOfflinePinCredentials, getOfflineUsers } from "@/lib/offline-db";
 import { useToast } from "@/hooks/use-toast";
 import { isElectron } from "@/lib/utils";
 import { getIsOnline, setOnlineState } from "@/lib/online-state";
@@ -216,6 +216,39 @@ export function useAuth() {
     }
   };
 
+  const loginWithOfflinePin = async ({ email, pin }: { email: string; pin: string }) => {
+    if (getIsOnline()) {
+      throw new Error("Online logins must use passwords, not PINs.");
+    }
+    const user = await verifyOfflinePinCredentials(email, pin);
+    if (!user) {
+      throw new Error("Invalid PIN or no offline profile cached");
+    }
+
+    console.log("[Auth] Offline PIN verification successful");
+    await cacheUser(user);
+
+    // Restore selectedCompanyId
+    const storedId = localStorage.getItem("selectedCompanyId");
+    if (!storedId || storedId === "0") {
+      const { getCachedCompaniesList } = await import("@/lib/offline-db");
+      const cachedCompanies = await getCachedCompaniesList();
+      if (cachedCompanies && cachedCompanies.length > 0) {
+        const best =
+          cachedCompanies.find((c: any) => c.role === "owner") ||
+          cachedCompanies.find((c: any) => c.role === "cashier") ||
+          cachedCompanies[0];
+        localStorage.setItem("selectedCompanyId", String(best.id));
+      }
+    }
+
+    queryClient.setQueryData(["/api/user"], user);
+    if (!supabaseInitDone) {
+      supabaseInitDone = true;
+      notifySupabaseInitListeners();
+    }
+  };
+
   async function warmOfflineCache(_user: any) {
     const { cacheCompaniesList, cacheCompanySettings, cacheProducts, cacheCustomers, cacheCurrencies, cacheTaxConfig, setLastCacheTime } = await import("@/lib/offline-db");
 
@@ -235,11 +268,12 @@ export function useAuth() {
       const cid = company.id;
       try { await cacheCompanySettings(cid, company); } catch {}
 
-      const [prodRes, custRes, currRes, taxRes] = await Promise.allSettled([
+      const [prodRes, custRes, currRes, taxRes, salesRes] = await Promise.allSettled([
         apiFetch(`/api/companies/${cid}/products`),
         apiFetch(`/api/companies/${cid}/customers`),
         apiFetch(`/api/companies/${cid}/currencies`),
         apiFetch(`/api/tax/types?companyId=${cid}`),
+        apiFetch(`/api/pos/my-sales?companyId=${cid}&includeItems=true`)
       ]);
 
       if (prodRes.status === "fulfilled" && prodRes.value.ok) {
@@ -256,6 +290,10 @@ export function useAuth() {
         const types = await taxRes.value.json();
         const existing = (await import("@/lib/offline-db").then(m => m.getCachedTaxConfig(cid))) || {};
         await cacheTaxConfig(cid, { ...existing, types });
+      }
+      if (salesRes.status === "fulfilled" && salesRes.value.ok) {
+        const { addSalesHistory } = await import("@/lib/offline-db");
+        await addSalesHistory(cid, await salesRes.value.json());
       }
     }
     console.log("[Auth] Offline cache warmed for", companies.length, "company/companies");
@@ -328,6 +366,8 @@ export function useAuth() {
     isLoading: isSupabaseLoading || (userQuery.isPending && userQuery.fetchStatus !== "idle"),
     loginWithGoogle,
     loginWithPassword,
+    loginWithOfflinePin,
+    getOfflineUsers,
     registerWithPassword,
     logout,
     updatePassword,

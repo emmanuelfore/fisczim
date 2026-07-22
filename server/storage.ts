@@ -6082,8 +6082,12 @@ export class DatabaseStorage implements IStorage {
     let allItems: any[] = [];
     if (invoiceIds.length > 0) {
       allItems = await db
-        .select()
+        .select({
+          item: invoiceItems,
+          currency: invoices.currency
+        })
         .from(invoiceItems)
+        .innerJoin(invoices, eq(invoiceItems.invoiceId, invoices.id))
         .where(inArray(invoiceItems.invoiceId, invoiceIds));
     }
 
@@ -6121,62 +6125,70 @@ export class DatabaseStorage implements IStorage {
 
       // Cashier
       const cashierName = user?.username || 'System';
-      const csh = cashierMap.get(user?.id || 'system') || {
+      const cshKey = `${user?.id || 'system'}_${inv.currency}`;
+      const csh = cashierMap.get(cshKey) || {
         id: user?.id || 'system',
         name: cashierName,
+        currency: inv.currency || "USD",
         total: 0,
         count: 0
       };
       csh.total += Number(inv.total);
       csh.count += 1;
-      cashierMap.set(user?.id || 'system', csh);
+      cashierMap.set(cshKey, csh);
 
-      const addPaymentMethod = (rawMethod: unknown, rawAmount: unknown) => {
+      const addPaymentMethod = (rawMethod: unknown, rawAmount: unknown, currency: string) => {
         const method = String(rawMethod || "UNKNOWN").trim().toUpperCase();
         const amount = Number(rawAmount || 0);
         if (!Number.isFinite(amount) || amount <= 0) return;
-        const current = paymentMethodMap.get(method) || {
+        const key = `${method}_${currency}`;
+        const current = paymentMethodMap.get(key) || {
           method,
+          currency,
           total: 0,
           count: 0
         };
         current.total += amount;
         current.count += 1;
-        paymentMethodMap.set(method, current);
+        paymentMethodMap.set(key, current);
       };
 
       const split = inv.splitPayments as any;
       if (Array.isArray(split) && split.length > 0) {
-        split.forEach((entry: any) => addPaymentMethod(entry?.method, entry?.amount));
+        split.forEach((entry: any) => addPaymentMethod(entry?.method, entry?.amount, inv.currency || "USD"));
       } else {
-        addPaymentMethod(inv.paymentMethod, inv.total);
+        addPaymentMethod(inv.paymentMethod, inv.total, inv.currency || "USD");
       }
     });
 
-    allItems.forEach(item => {
+    allItems.forEach(({ item, currency }) => {
+      const itemCurrency = currency || "USD";
       // Item Sales
-      const itm = itemMap.get(item.productId || item.description) || {
+      const itemKey = `${item.productId || item.description}_${itemCurrency}`;
+      const itm = itemMap.get(itemKey) || {
         id: item.productId,
         name: item.description,
         sku: '',
+        currency: itemCurrency,
         quantity: 0,
         total: 0
       };
       itm.quantity += Number(item.quantity);
       itm.total += Number(item.lineTotal);
-      itemMap.set(item.productId || item.description, itm);
+      itemMap.set(itemKey, itm);
 
       // Tax Breakdown
       const taxTypeId = item.taxTypeId;
       if (taxTypeId) {
-        const taxInfo = taxTypesList.find(t => t.id === taxTypeId);
+        const taxInfo = taxTypesList.find((t: any) => t.id === taxTypeId);
         if (taxInfo) {
-          const tKey = taxInfo.id;
+          const tKey = `${taxInfo.id}_${itemCurrency}`;
           const tx = taxMap.get(tKey) || {
             taxID: taxInfo.id,
             taxCode: taxInfo.code,
             taxName: taxInfo.name,
             taxPercent: Number(taxInfo.rate),
+            currency: itemCurrency,
             taxableAmount: 0,
             taxAmount: 0
           };

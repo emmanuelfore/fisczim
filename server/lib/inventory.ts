@@ -492,7 +492,7 @@ export async function recordAdjustment(
     });
 }
 
-export async function processStockTake(stockTakeId: number, companyId: number) {
+export async function processStockTake(stockTakeId: number, companyId: number, userId?: string) {
     await db.transaction(async (tx) => {
         // 1. Get stock take and items
         const [stockTake] = await tx.select().from(stockTakes).where(eq(stockTakes.id, stockTakeId));
@@ -526,6 +526,7 @@ export async function processStockTake(stockTakeId: number, companyId: number) {
                 referenceId: stockTakeId.toString(),
                 notes: `Stock Take #${stockTakeId} Adjustment`,
                 remainingQuantity: variance > 0 ? variance.toString() : "0", // Gains add to remaining stock
+                createdBy: userId || null,
             });
 
             // 3. Update stock level using adjustLocationStock

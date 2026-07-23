@@ -820,17 +820,15 @@ export function ReportsScreen({ onOpenDrawer, companyId, userRole = "member", us
   }, [filteredSales]);
 
   const dailyGroups = useMemo(() => {
-    const groups: Record<string, { sales: any[]; total: number; currencyTotals: Record<string, number> }> = {};
+    const groups: Record<string, { sales: any[]; currencyTotals: Record<string, number> }> = {};
     filteredSales.forEach((sale: any) => {
       const d = new Date(sale.issueDate || sale.createdAt);
       const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      if (!groups[dateKey]) groups[dateKey] = { sales: [], total: 0, currencyTotals: {} };
+      if (!groups[dateKey]) groups[dateKey] = { sales: [], currencyTotals: {} };
       groups[dateKey].sales.push(sale);
-      groups[dateKey].total += Number(sale.total || 0);
 
       const cur = sale.currency || "USD";
-      const rate = Number(sale.exchangeRate || 1);
-      const localTotal = Number(sale.total || 0) * rate;
+      const localTotal = Number(sale.total || 0);
       groups[dateKey].currencyTotals[cur] = (groups[dateKey].currencyTotals[cur] || 0) + localTotal;
     });
     return Object.entries(groups).sort(([a], [b]) => b.localeCompare(a));
@@ -1296,7 +1294,7 @@ export function ReportsScreen({ onOpenDrawer, companyId, userRole = "member", us
                 <View style={styles.saleRight}>
                   <View style={{ alignItems: "flex-end" }}>
                     <Text style={styles.saleTotal}>
-                      {currencySymbols[sale.currency || "USD"] || "$"}{Number(Number(sale.total || 0) * Number(sale.exchangeRate || 1)).toFixed(2)}
+                      {currencySymbols[sale.currency || "USD"] || "$"}{Number(Number(sale.total || 0)).toFixed(2)}
                     </Text>
                     {sale.currency !== "USD" && (
                       <View style={{ backgroundColor: `${C.amber.primary}20`, paddingHorizontal: 4, paddingVertical: 1, borderRadius: 4, marginTop: 2 }}>
@@ -1332,9 +1330,6 @@ export function ReportsScreen({ onOpenDrawer, companyId, userRole = "member", us
       <View style={{ flex: 1 }}>
         <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
           <View style={{ flexDirection: "row", gap: 10 }}>
-            <TouchableOpacity style={styles.iconBtn} onPress={onOpenDrawer}>
-              <Menu size={20} color={C.text.primary} />
-            </TouchableOpacity>
             {Platform.OS === 'android' && (
               <TouchableOpacity style={styles.iconBtn} onPress={handleOpenDebug}>
                 <Activity size={18} color={C.amber.primary} />

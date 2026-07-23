@@ -85,7 +85,7 @@ export function StockInScreen({ onOpenDrawer, onClose, companyId, userRole = "me
   const [saving, setSaving] = useState(false);
   const [importCompleted, setImportCompleted] = useState(false);
   const isAdmin = ["owner", "admin", "superadmin"].includes(String(userRole || "").toLowerCase()) || userName === "Super Admin";
-  const [mode, setMode] = useState<ReceiveMode>(isAdmin ? "pending" : "gdn");
+  const [mode, setMode] = useState<ReceiveMode>(isAdmin ? "pending" : "grv");
   const [pendingGdns, setPendingGdns] = useState<any[]>([]);
   const [loadingGdns, setLoadingGdns] = useState(false);
   const [confirmingGdn, setConfirmingGdn] = useState<any | null>(null);
@@ -95,7 +95,7 @@ export function StockInScreen({ onOpenDrawer, onClose, companyId, userRole = "me
   const hasDraftLineEntry = !importCompleted && !!selectedProduct && quantity.trim().length > 0;
 
   useEffect(() => {
-    if (!isAdmin && mode !== "gdn") setMode("gdn");
+    if (!isAdmin && mode !== "grv") setMode("grv");
   }, [isAdmin, mode]);
 
   const loadPendingGdns = useCallback(async () => {
@@ -336,15 +336,10 @@ export function StockInScreen({ onOpenDrawer, onClose, companyId, userRole = "me
       <StatusBar style="light" />
       <View style={{ flex: 1 }}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={onOpenDrawer} style={styles.iconBtn}><Menu size={20} color={C.text.primary} /></TouchableOpacity>
           <Text style={styles.title}>{isGdnMode ? "Create GDN" : isPendingMode ? "Pending GDNs" : isConfirmingGdn ? "Confirm GDN" : "Create GRV"}</Text>
           <View style={{ width: 44 }} />
         </View>
         <View style={styles.modeTabs}>
-          <TouchableOpacity style={[styles.modeTab, mode === "gdn" && styles.modeTabActive]} onPress={() => { startNewGrv(); setMode("gdn"); }}>
-            <ClipboardList size={16} color={mode === "gdn" ? C.amber.primary : C.text.secondary} />
-            <Text style={[styles.modeTabText, mode === "gdn" && styles.modeTabTextActive]}>GDN</Text>
-          </TouchableOpacity>
           {isAdmin && (
             <TouchableOpacity style={[styles.modeTab, mode === "pending" && styles.modeTabActive]} onPress={() => { startNewGrv(); setMode("pending"); }}>
               <Clock size={16} color={mode === "pending" ? C.amber.primary : C.text.secondary} />

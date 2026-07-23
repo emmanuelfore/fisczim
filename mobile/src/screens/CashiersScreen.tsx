@@ -119,7 +119,6 @@ export function CashiersScreen({ onOpenDrawer, companyId }: Props) {
     <View style={styles.container}>
       <StatusBar style="light" />
       <View style={styles.header}>
-        <TouchableOpacity onPress={onOpenDrawer} style={styles.iconBtn}><Menu size={20} color={C.text.primary} /></TouchableOpacity>
         <Text style={styles.title}>Cashiers</Text>
         <TouchableOpacity onPress={() => setShowForm(true)} style={styles.iconBtn}><Plus size={20} color={C.amber.primary} /></TouchableOpacity>
       </View>

@@ -596,6 +596,49 @@ export async function registerRoutes(
     const cashSinceLastTx = shiftInvoices
       .filter((inv: any) => String(inv.paymentMethod || "CASH").toUpperCase() === "CASH" && new Date(inv.issueDate) > lastTxTime)
       .reduce((sum, inv: any) => sum + invoiceSign(inv) * Number(inv.total || 0), 0);
+    const totalsByCurrency: Record<string, any> = {};
+
+    const baseCurr = companyBaseCurrency?.code || "USD";
+    totalsByCurrency[baseCurr] = {
+      currency: baseCurr,
+      totalSales: 0,
+      cashSales: 0,
+      refundTotal: 0,
+      salesByPaymentMethod: {},
+      totalPayouts,
+      totalDrops,
+      openingBalance: Number(shift.openingBalance || 0),
+      expectedCash: Number(shift.openingBalance || 0) - totalPayouts - totalDrops
+    };
+
+    shiftInvoices.forEach((inv: any) => {
+      const curr = inv.currency || companyBaseCurrency?.code || "USD";
+      if (!totalsByCurrency[curr]) {
+        totalsByCurrency[curr] = {
+          currency: curr,
+          totalSales: 0,
+          cashSales: 0,
+          refundTotal: 0,
+          salesByPaymentMethod: {},
+          totalPayouts: 0,
+          totalDrops: 0,
+          openingBalance: 0,
+          expectedCash: 0
+        };
+      }
+      const isRefund = inv.transactionType === "CreditNote";
+      const sign = isRefund ? -1 : 1;
+      const amount = Number(inv.total || 0);
+
+      totalsByCurrency[curr].totalSales += sign * amount;
+      if (isRefund) totalsByCurrency[curr].refundTotal += amount;
+      if (String(inv.paymentMethod || "CASH").toUpperCase() === "CASH") {
+        totalsByCurrency[curr].cashSales += sign * amount;
+        totalsByCurrency[curr].expectedCash += sign * amount;
+      }
+      const method = String(inv.paymentMethod || "CASH").toUpperCase();
+      totalsByCurrency[curr].salesByPaymentMethod[method] = (totalsByCurrency[curr].salesByPaymentMethod[method] || 0) + sign * amount;
+    });
 
     return {
       shiftId,
@@ -616,6 +659,8 @@ export async function registerRoutes(
       lastTxTime: lastTx ? lastTx.createdAt : null,
       salesByPaymentMethod,
       currency: shiftInvoices[0]?.currency || companyBaseCurrency?.code || "USD",
+      totalsByCurrency
+
     };
   };
 
@@ -3229,7 +3274,8 @@ export async function registerRoutes(
         unitCost: (unitCost || product.costPrice || 0).toString(),
         referenceType: "MANUAL",
         referenceId: referenceId || null,
-        notes: notes || "Manual stock adjustment"
+        notes: notes || "Manual stock adjustment",
+        createdBy: (req.user as any)?.id
       });
 
       sendIdempotent(req, res, idempotencyKey, 200, updatedProduct);
@@ -3915,7 +3961,11 @@ export async function registerRoutes(
 
         if (sbError) {
           console.error("Supabase Admin Create User Error:", sbError);
-          return res.status(400).json({ message: "Failed to create user in auth system: " + sbError.message });
+          let errMsg = sbError.message;
+          if (errMsg.toLowerCase().includes("already registered") || errMsg.toLowerCase().includes("already exists")) {
+            errMsg = "A user with this email address already exists.";
+          }
+          return res.status(400).json({ message: errMsg });
         }
 
         if (!sbUser) return res.status(500).json({ message: "No user returned from Auth" });
@@ -3957,7 +4007,21 @@ export async function registerRoutes(
 
     } catch (err: any) {
       console.error("Add User Error:", err);
-      res.status(500).json({ message: "Failed to add user: " + err.message });
+      let errMsg = err.message || "An unknown error occurred";
+      if (errMsg.includes("duplicate key value violates unique constraint")) {
+        if (errMsg.includes("email")) {
+          errMsg = "A user with this email address already exists.";
+        } else if (errMsg.includes("username")) {
+          errMsg = "This username is already taken.";
+        } else {
+          errMsg = "A record with this information already exists.";
+        }
+      } else if (errMsg.includes("users_username_unique")) {
+        errMsg = "This username is already taken.";
+      } else if (errMsg.includes("users_email_unique")) {
+        errMsg = "A user with this email address already exists.";
+      }
+      res.status(500).json({ message: errMsg });
     }
   });
 
@@ -7004,7 +7068,7 @@ export async function registerRoutes(
         referenceId: inventoryTransactions.referenceId,
         createdAt: inventoryTransactions.createdAt,
         createdBy: inventoryTransactions.createdBy,
-        balanceAfter: sql<number>`sum(${inventoryTransactions.quantity}) over (
+        balanceAfter: sql<number>`sum(CASE WHEN ${inventoryTransactions.type} IN ('STOCK_OUT', 'ISSUE') THEN -CAST(${inventoryTransactions.quantity} AS numeric) ELSE CAST(${inventoryTransactions.quantity} AS numeric) END) over (
           partition by ${inventoryTransactions.productId}
           order by ${inventoryTransactions.createdAt} asc, ${inventoryTransactions.id} asc
         )`.as("balance_after"),
@@ -7051,7 +7115,7 @@ export async function registerRoutes(
 
       const stockSubquery = db.select({
         productId: inventoryTransactions.productId,
-        globalStock: sql<string>`COALESCE(SUM(${inventoryTransactions.quantity}), '0')`.as("global_stock")
+        globalStock: sql<string>`COALESCE(SUM(CASE WHEN ${inventoryTransactions.type} IN ('STOCK_OUT', 'ISSUE') THEN -CAST(${inventoryTransactions.quantity} AS numeric) ELSE CAST(${inventoryTransactions.quantity} AS numeric) END), '0')`.as("global_stock")
       })
       .from(inventoryTransactions)
       .where(eq(inventoryTransactions.companyId, companyId))
@@ -7126,8 +7190,15 @@ export async function registerRoutes(
           const txQty = Number(tx.quantity);
           const txVal = Number(tx.totalCost || (txQty * Number(tx.unitCost || 0)));
           
-          historicalQty -= txQty;
-          totalValue -= txVal;
+          if (tx.type === 'STOCK_OUT' || tx.type === 'ISSUE') {
+            // It was a deduction, so add it back to get historical
+            historicalQty += txQty;
+            totalValue += txVal;
+          } else {
+            // It was an addition (e.g. STOCK_IN, FINISHED_GOOD), so subtract it
+            historicalQty -= txQty;
+            totalValue -= txVal;
+          }
         }
 
         return {
@@ -12135,7 +12206,7 @@ export async function registerRoutes(
       const id = parseInt(req.params.id);
       const { companyId } = req.body;
       const { processStockTake } = await import("./lib/inventory.js");
-      await processStockTake(id, companyId);
+      await processStockTake(id, companyId, (req.user as any)?.id);
       sendIdempotent(req, res, idempotencyKey, 200, { message: "Stock take completed and inventory adjusted" });
     } catch (error: any) {
       res.status(500).json({ message: error.message });

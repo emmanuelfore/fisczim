@@ -99,7 +99,6 @@ export function SuppliersScreen({ onOpenDrawer, companyId }: Props) {
       <StatusBar style="light" />
       <View style={{ flex: 1 }}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={onOpenDrawer} style={styles.iconBtn}><Menu size={20} color={C.text.primary} /></TouchableOpacity>
           <Text style={styles.title}>Suppliers</Text>
           <TouchableOpacity onPress={openAdd} style={[styles.iconBtn, { backgroundColor: C.amber.primary }]}><Plus size={20} color="#000" /></TouchableOpacity>
         </View>

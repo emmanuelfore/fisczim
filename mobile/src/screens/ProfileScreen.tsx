@@ -71,13 +71,6 @@ export function ProfileScreen({ onOpenDrawer, userName, onLogout }: ProfileScree
           flexDirection: "row", alignItems: "center", justifyContent: "space-between",
           borderBottomWidth: 1, borderBottomColor: C.border.default,
         }}>
-          <TouchableOpacity onPress={onOpenDrawer} style={{
-            width: 34, height: 34, borderRadius: 10,
-            backgroundColor: C.bg.hover, borderWidth: 1,
-            borderColor: C.border.default, alignItems: "center", justifyContent: "center",
-          }}>
-            <Menu size={20} color={C.text.primary} />
-          </TouchableOpacity>
           <Text style={{ color: C.text.primary, fontSize: 18, fontWeight: "800" }}>My Profile</Text>
           <View style={{ width: 34 }} />
         </View>

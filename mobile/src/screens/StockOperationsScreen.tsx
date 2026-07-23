@@ -157,7 +157,6 @@ export function StockOperationsScreen({ companyId, onOpenDrawer }: Props) {
     <View style={styles.container}>
       <StatusBar style="light" />
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
-        <TouchableOpacity onPress={onOpenDrawer} style={styles.iconBtn}><Menu size={20} color={C.text.primary} /></TouchableOpacity>
         <Text style={styles.title}>Stock Operations</Text>
         <View style={{ width: 38 }} />
       </View>

@@ -1,7 +1,7 @@
 import { openDB, type IDBPDatabase } from 'idb';
 
 const DB_NAME = 'pos-offline';
-const DB_VERSION = 8;
+const DB_VERSION = 9;
 
 interface PendingSale {
     id: string;
@@ -95,6 +95,13 @@ export async function getDb(): Promise<IDBPDatabase> {
             // Offline Credentials
             if (!db.objectStoreNames.contains('offline_credentials')) {
                 db.createObjectStore('offline_credentials', { keyPath: 'email' });
+            }
+
+            // Pending Customers
+            if (!db.objectStoreNames.contains('pendingCustomers')) {
+                const store = db.createObjectStore('pendingCustomers', { keyPath: 'id' });
+                store.createIndex('byCompany', 'companyId');
+                store.createIndex('byStatus', 'status');
             }
         },
         blocked() {
@@ -598,6 +605,56 @@ export async function generateOfflineReport(companyId: number, dateStr: string):
         items: Object.entries(itemsMap).map(([id, val]) => ({ productId: id, ...val, currency })),
         taxes: Object.entries(taxesMap).map(([rate, val]) => ({ taxRate: rate, ...val }))
     };
+}
+
+// ─── Pending Customers ───────────────────────────────────────────────────────
+
+export async function addPendingCustomer(customer: any): Promise<void> {
+    const db = await getDb();
+    await db.put('pendingCustomers', {
+        ...customer,
+        status: 'pending',
+        timestamp: new Date().toISOString()
+    });
+}
+
+export async function getPendingCustomers(companyId: number): Promise<any[]> {
+    const db = await getDb();
+    return db.getAllFromIndex('pendingCustomers', 'byCompany', companyId);
+}
+
+export async function removePendingCustomer(id: string): Promise<void> {
+    const db = await getDb();
+    await db.delete('pendingCustomers', id);
+}
+
+// ─── Local Stock Adjustments ─────────────────────────────────────────────────
+
+export async function adjustProductStock(companyId: number, items: any[], isReturn = false): Promise<void> {
+    const db = await getDb();
+    const cachedProducts = await getCachedProducts(companyId);
+    if (!cachedProducts || cachedProducts.length === 0) return;
+
+    let modified = false;
+    const tx = db.transaction('products', 'readwrite');
+
+    for (const item of items) {
+        // Search by ID or Name
+        const product = cachedProducts.find((p: any) => p.id === item.productId || p.name === item.name);
+        if (product && typeof product.stockQuantity === 'number') {
+            const qty = Number(item.quantity) || 1;
+            if (isReturn) {
+                product.stockQuantity += qty;
+            } else {
+                product.stockQuantity -= qty;
+            }
+            // Put updated product back into cache
+            await tx.store.put({ companyId, data: cachedProducts });
+            modified = true;
+        }
+    }
+    
+    await tx.done;
 }
 
 export type { PendingSale, PendingShiftAction, OfflineHold };

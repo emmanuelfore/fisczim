@@ -79,7 +79,7 @@ export function AppDrawer({
     { icon: Users, label: "Customers", id: "customers", section: "Sales" },
     { icon: PieChart, label: "Reports", id: "reports", section: "Sales" },
     { icon: Package, label: "Products", id: "inventory", section: "Inventory" },
-    { icon: ArrowDownToLine, label: "GDNs / GRVs", id: "stockin", section: "Inventory" },
+    { icon: ArrowDownToLine, label: "GRVs", id: "stockin", section: "Inventory" },
     { icon: ArrowRightLeft, label: "Adjust / Transfer", id: "stockops", section: "Inventory" },
     { icon: Activity, label: "Physical Counts", id: "stocktake", section: "Inventory" },
     { icon: Truck, label: "Suppliers", id: "suppliers", section: "Inventory" },

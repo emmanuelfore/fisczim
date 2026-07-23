@@ -47,6 +47,8 @@ import {
   Bluetooth,
   ToggleLeft,
   ToggleRight,
+  LayoutGrid,
+  List,
   Clock,
   Play,
   Pause,
@@ -268,7 +270,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
     fromCache: productsFromCache,
     refresh: refreshProducts
   } = useProducts(companyId);
-  const { data: customersData, fromCache: customersFromCache } = useCustomers(companyId);
+  const { data: customersData, fromCache: customersFromCache, refresh: refreshCustomers } = useCustomers(companyId);
   const { data: company } = useCompany(companyId);
   const { data: currencies } = useCurrencies(companyId);
   const { data: taxTypes } = useTaxTypes(companyId);
@@ -285,6 +287,8 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
   const [orderDiscount, setOrderDiscount] = useState(0);
   const [orderDiscountInput, setOrderDiscountInput] = useState("");
   const [showCheckout, setShowCheckout] = useState(false);
+  const [showOfflineQueue, setShowOfflineQueue] = useState(false);
+  const [offlineQueueData, setOfflineQueueData] = useState<any[]>([]);
   const [showCustomerPicker, setShowCustomerPicker] = useState(false);
   const [showCart, setShowCart] = useState(false);
   const [paidAmount, setPaidAmount] = useState("");
@@ -312,6 +316,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
   const [isAmountFocused, setIsAmountFocused] = useState(false);
   const [showBranchPicker, setShowBranchPicker] = useState(false);
   const [fiscalStatus, setFiscalStatus] = useState<string>("Day Closed");
+  const [viewMode, setViewMode] = useState<"list" | "grid">("list");
 
   const fetchFiscalStatus = async () => {
     if (!isOnline) return;
@@ -1056,16 +1061,50 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
     } catch { /* ignore */ }
   };
 
-  const handleCheckout = () => {
+  const handleCheckout = async () => {
     Keyboard.dismiss();
     if (!cart.length) return;
     if (!selectedCustomerId) {
-      if (defaultCustomerId) setSelectedCustomerId(defaultCustomerId);
-      else return;
+      if (defaultCustomerId) {
+        setSelectedCustomerId(defaultCustomerId);
+      } else {
+        try {
+          setIsSubmitting(true);
+          const body = {
+            name: "Walk-in Customer",
+            customerType: "individual",
+            country: "Zimbabwe",
+            isActive: true,
+            isDefault: true,
+            companyId,
+          };
+          const res = await apiFetch(`/api/companies/${companyId}/customers`, {
+            method: "POST",
+            body: JSON.stringify(body)
+          });
+          if (res.ok) {
+            const newCust = await res.json();
+            setSelectedCustomerId(newCust.id);
+            if (refreshCustomers) await refreshCustomers();
+          } else {
+            Alert.alert("No Customer", "Please select or create a customer before checking out.");
+            setIsSubmitting(false);
+            return;
+          }
+        } catch (e) {
+          Alert.alert("No Customer", "Please select or create a customer before checking out.");
+          setIsSubmitting(false);
+          return;
+        } finally {
+          setIsSubmitting(false);
+        }
+      }
     }
     setSaleDate(formatLocalDateInput());
     setPaidAmount((total * currencyInfo.rate).toFixed(2));
-    setShowCheckout(true);
+    setTimeout(() => {
+      setShowCheckout(true);
+    }, 250);
   };
 
   const processOrder = async () => {
@@ -1179,7 +1218,11 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
           setLastInvoice({ ...created, items: created?.items || created?.lineItems || printItems }); // update so receipt printing uses the real invoice
           refreshProducts();
         })
-        .catch(async () => {
+        .catch(async (err: any) => {
+          const isNetwork = err?.message?.toLowerCase().includes("network") || err?.message?.toLowerCase().includes("failed to fetch");
+          if (!isNetwork) {
+            Alert.alert("Sale Sync Failed", `Server error: ${err?.message}\n\nThis sale will be queued for later retry.`);
+          }
           // Network failed after optimistic update — queue it offline silently
           const offlineId = await addPendingSale(companyId, invoiceData, selectedBranchId);
           setLastInvoice((prev: any) => ({ ...prev, id: offlineId, _offline: true, items: prev?.items || printItems }));
@@ -1232,24 +1275,6 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
           zIndex: 10,
         }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 14 }}>
-            <TouchableOpacity
-              activeOpacity={0.82}
-              onPress={onOpenDrawer}
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: 14,
-                backgroundColor: POS_SURFACE_RAISED,
-                alignItems: "center",
-                justifyContent: "center",
-                shadowColor: "#000",
-                shadowOpacity: 0.1,
-                shadowRadius: 6,
-                shadowOffset: { width: 0, height: 3 },
-                elevation: 3,
-              }}>
-              <Menu size={22} color={C.amber.primary} strokeWidth={2.4} />
-            </TouchableOpacity>
 
             <View style={{
               flex: 1,
@@ -1293,6 +1318,29 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                 elevation: 3,
               }}>
               <User size={20} color={isDefaultCustomerSelected ? C.amber.primary : C.text.secondary} strokeWidth={2.2} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              activeOpacity={0.82}
+              onPress={() => setViewMode(prev => prev === "list" ? "grid" : "list")}
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 14,
+                backgroundColor: POS_SURFACE_RAISED,
+                alignItems: "center",
+                justifyContent: "center",
+                shadowColor: "#000",
+                shadowOpacity: 0.1,
+                shadowRadius: 6,
+                shadowOffset: { width: 0, height: 3 },
+                elevation: 3,
+              }}>
+              {viewMode === "list" ? (
+                <LayoutGrid size={20} color={C.text.secondary} strokeWidth={2.2} />
+              ) : (
+                <List size={20} color={C.text.secondary} strokeWidth={2.2} />
+              )}
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -1381,12 +1429,13 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
             </View>
           ) : (
             <FlatList
-              key="pos-product-list-premium"
+              key={`pos-product-list-premium-${viewMode}`}
               data={filteredProducts}
-              numColumns={1}
+              numColumns={viewMode === "grid" ? 2 : 1}
               showsVerticalScrollIndicator={false}
               keyExtractor={(item: any) => item.id.toString()}
               contentContainerStyle={{ paddingBottom: 118, paddingTop: 14 }}
+              columnWrapperStyle={viewMode === "grid" ? { justifyContent: "space-between", marginBottom: 11 } : undefined}
               renderItem={({ item, index }: { item: any; index: number }) => {
                 const inCartItem = cart.find((c: CartItem) => c.productId === item.id);
                 const inCart = !!inCartItem;
@@ -1398,30 +1447,36 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                 const toTitleCase = (str: string) =>
                   str.replace(/\w\S*/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
 
+                const isGrid = viewMode === "grid";
+
                 return (
                   <TouchableOpacity
                     activeOpacity={0.9}
                     onPress={(e) => !outOfStock && addToCart(item, e)}
                     style={{
                       minHeight: 96,
-                      marginBottom: 11,
+                      marginBottom: isGrid ? 0 : 11,
                       paddingVertical: 12,
                       paddingHorizontal: 14,
                       borderRadius: 24,
-                      flexDirection: "row",
-                      alignItems: "center",
+                      flexDirection: isGrid ? "column" : "row",
+                      alignItems: isGrid ? "center" : "center",
+                      justifyContent: isGrid ? "center" : "flex-start",
                       backgroundColor: C.bg.panel,
                       opacity: outOfStock ? 0.42 : 1,
+                      flex: isGrid ? 0.48 : 0,
+                      aspectRatio: isGrid ? 1 : undefined,
                     }}>
                     <View style={{
-                      width: 62,
-                      height: 62,
+                      width: isGrid ? 72 : 62,
+                      height: isGrid ? 72 : 62,
                       borderRadius: 18,
                       overflow: "hidden",
                       alignItems: "center",
                       justifyContent: "center",
                       backgroundColor: C.bg.base,
-                      marginRight: 14,
+                      marginRight: isGrid ? 0 : 14,
+                      marginBottom: isGrid ? 10 : 0,
                     }}>
                       {imageUrl ? (
                         <ProductImage url={imageUrl} fallbackColor={C.amber.primary} color={C.amber.primary} />
@@ -1430,17 +1485,18 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                       )}
                     </View>
 
-                    <View style={{ flex: 1, minWidth: 0 }}>
+                    <View style={{ flex: isGrid ? 0 : 1, minWidth: 0, alignItems: isGrid ? "center" : "flex-start" }}>
                       <Text
                         style={{
                           color: C.text.primary,
-                          fontSize: 17,
-                          lineHeight: 22,
+                          fontSize: isGrid ? 14 : 17,
+                          lineHeight: 20,
                           fontWeight: "900",
                           letterSpacing: -0.35,
                           marginBottom: 5,
+                          textAlign: isGrid ? "center" : "left",
                         }}
-                        numberOfLines={1}
+                        numberOfLines={isGrid ? 2 : 1}
                       >
                         {toTitleCase(item.name)}
                       </Text>
@@ -1454,7 +1510,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                         }}>
                           {fmt(Number(item.price))}
                         </Text>
-                        {item.isTracked && (
+                        {item.isTracked && !isGrid && (
                           <Text style={{
                             color: outOfStock ? C.status.error : stockLow ? C.amber.primary : C.text.secondary,
                             fontSize: 13,
@@ -1468,57 +1524,71 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
 
                     {inCart ? (
                       <View style={{
+                        position: isGrid ? "absolute" : "relative",
+                        top: isGrid ? 8 : undefined,
+                        right: isGrid ? 8 : undefined,
                         flexDirection: "row",
                         alignItems: "center",
                         gap: 7,
-                        paddingLeft: 10,
+                        paddingLeft: isGrid ? 0 : 10,
+                        backgroundColor: isGrid ? C.amber.primary : "transparent",
+                        padding: isGrid ? 6 : 0,
+                        borderRadius: isGrid ? 16 : 0,
+                        minWidth: isGrid ? 32 : undefined,
+                        justifyContent: isGrid ? "center" : "flex-start",
                       }}>
-                        <TouchableOpacity
-                          activeOpacity={0.78}
-                          onPress={(e) => { e.stopPropagation?.(); inCartItem!.quantity > 1 ? updateQuantity(item.id, -1) : removeFromCart(item.id); }}
-                          style={{
-                            width: 34,
-                            height: 34,
-                            borderRadius: 12,
-                            backgroundColor: hexAlpha(C.text.primary, 0.08),
-                            alignItems: "center",
-                            justifyContent: "center",
-                          }}>
-                          <Minus size={17} color={C.text.primary} strokeWidth={2.6} />
-                        </TouchableOpacity>
+                        {!isGrid && (
+                          <TouchableOpacity
+                            activeOpacity={0.78}
+                            onPress={(e) => { e.stopPropagation?.(); inCartItem!.quantity > 1 ? updateQuantity(item.id, -1) : removeFromCart(item.id); }}
+                            style={{
+                              width: 34,
+                              height: 34,
+                              borderRadius: 12,
+                              backgroundColor: hexAlpha(C.text.primary, 0.08),
+                              alignItems: "center",
+                              justifyContent: "center",
+                            }}>
+                            <Minus size={17} color={C.text.primary} strokeWidth={2.6} />
+                          </TouchableOpacity>
+                        )}
 
-                        <Text style={{ color: C.text.primary, fontSize: 15, fontWeight: "900", minWidth: 22, textAlign: "center" }}>
+                        <Text style={{ color: isGrid ? "#1A1100" : C.text.primary, fontSize: 15, fontWeight: "900", minWidth: isGrid ? 16 : 22, textAlign: "center" }}>
                           {inCartItem!.quantity}
                         </Text>
 
+                        {!isGrid && (
+                          <TouchableOpacity
+                            activeOpacity={0.78}
+                            onPress={(e) => { e.stopPropagation?.(); updateQuantity(item.id, 1, e); }}
+                            style={{
+                              width: 34,
+                              height: 34,
+                              borderRadius: 12,
+                              backgroundColor: C.amber.primary,
+                              alignItems: "center",
+                              justifyContent: "center",
+                            }}>
+                            <Plus size={20} color="#1A1100" strokeWidth={3} />
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    ) : (
+                      !isGrid && (
                         <TouchableOpacity
                           activeOpacity={0.78}
-                          onPress={(e) => { e.stopPropagation?.(); updateQuantity(item.id, 1, e); }}
+                          onPress={(e) => { e.stopPropagation?.(); addToCart(item, e); }}
                           style={{
-                            width: 34,
-                            height: 34,
-                            borderRadius: 12,
-                            backgroundColor: C.amber.primary,
+                            width: 44,
+                            height: 44,
+                            borderRadius: 14,
+                            backgroundColor: hexAlpha(C.amber.primary, 0.1),
                             alignItems: "center",
                             justifyContent: "center",
                           }}>
-                          <Plus size={20} color="#1A1100" strokeWidth={3} />
+                          <Plus size={22} color={C.amber.primary} strokeWidth={2.6} />
                         </TouchableOpacity>
-                      </View>
-                    ) : (
-                      <TouchableOpacity
-                        activeOpacity={0.78}
-                        onPress={(e) => { e.stopPropagation?.(); addToCart(item, e); }}
-                        style={{
-                          width: 44,
-                          height: 44,
-                          borderRadius: 14,
-                          backgroundColor: hexAlpha(C.amber.primary, 0.1),
-                          alignItems: "center",
-                          justifyContent: "center",
-                        }}>
-                        <Plus size={22} color={C.amber.primary} strokeWidth={2.6} />
-                      </TouchableOpacity>
+                      )
                     )}
                   </TouchableOpacity>
                 );
@@ -2747,6 +2817,68 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                 Sync queued now
               </Text>
             </TouchableOpacity>
+            {queueCount > 0 && (
+              <TouchableOpacity onPress={async () => {
+                const sales = await getPendingSales(companyId);
+                setOfflineQueueData(sales);
+                setShiftModalVisible(false);
+                setShowOfflineQueue(true);
+              }}
+                style={{ marginTop: 14, alignItems: "center" }}>
+                <Text style={{
+                  color: C.amber.primary,
+                  fontSize: 11, fontWeight: "900", textTransform: "uppercase", letterSpacing: 1.2
+                }}>
+                  View Unsynced Sales
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── OFFLINE QUEUE MODAL ─────────────────────────────────────────── */}
+      <Modal visible={showOfflineQueue} transparent animationType="slide" onRequestClose={() => setShowOfflineQueue(false)}>
+        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.8)", justifyContent: "flex-end" }}>
+          <View style={{
+            backgroundColor: C.bg.card, borderTopLeftRadius: 32, borderTopRightRadius: 32,
+            maxHeight: "85%", padding: 24, paddingBottom: Math.max(insets.bottom, 24)
+          }}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <Text style={{ color: C.text.primary, fontSize: 20, fontWeight: "900" }}>Unsynced Sales</Text>
+              <TouchableOpacity onPress={() => setShowOfflineQueue(false)}>
+                <X size={24} color={C.text.primary} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {offlineQueueData.length === 0 ? (
+                <Text style={{ color: C.text.secondary, textAlign: "center", marginTop: 40 }}>No offline sales.</Text>
+              ) : (
+                offlineQueueData.map((sale, i) => {
+                  const itemsCount = sale.payload?.items?.length || 0;
+                  return (
+                    <View key={i} style={{
+                      backgroundColor: C.bg.hover, padding: 16, borderRadius: 16, marginBottom: 12
+                    }}>
+                      <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 8 }}>
+                        <Text style={{ color: C.text.primary, fontWeight: "800", fontSize: 16 }}>
+                          Sale {sale.id?.replace("pending_sale_", "")}
+                        </Text>
+                        <Text style={{ color: C.text.primary, fontWeight: "900", fontSize: 16 }}>
+                          ${parseFloat(sale.payload?.total || "0").toFixed(2)}
+                        </Text>
+                      </View>
+                      <Text style={{ color: C.text.secondary, fontSize: 12 }}>
+                        {itemsCount} item{itemsCount !== 1 ? "s" : ""}
+                      </Text>
+                      <Text style={{ color: C.text.secondary, fontSize: 12, marginTop: 4 }}>
+                        {new Date(sale.createdAt).toLocaleString()}
+                      </Text>
+                    </View>
+                  );
+                })
+              )}
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -2981,26 +3113,55 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
 
             {shiftSummary && (
               <ScrollView style={{ maxHeight: 400 }} showsVerticalScrollIndicator={false}>
-                <View style={{ gap: 12 }}>
-                  <View style={{ padding: 14, borderRadius: 16, backgroundColor: C.bg.panel, borderWidth: 1, borderColor: POS_BORDER }}>
-                    <Text style={{ color: C.text.secondary, fontSize: 10, fontWeight: "700", textTransform: "uppercase", marginBottom: 6 }}>Total Sales</Text>
-                    <Text style={{ color: C.status.success, fontSize: 20, fontWeight: "900" }}>{shiftSummary.currency} {shiftSummary.totalSales}</Text>
-                  </View>
+                {shiftSummary.totalsByCurrency ? (
+                  <View style={{ gap: 16 }}>
+                    {Object.values(shiftSummary.totalsByCurrency).map((currData: any) => (
+                      <View key={currData.currency} style={{ gap: 12, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: POS_BORDER }}>
+                        <Text style={{ color: C.amber.primary, fontSize: 13, fontWeight: "800", textTransform: "uppercase" }}>{currData.currency} SUMMARY</Text>
+                        
+                        <View style={{ padding: 14, borderRadius: 16, backgroundColor: C.bg.panel, borderWidth: 1, borderColor: POS_BORDER }}>
+                          <Text style={{ color: C.text.secondary, fontSize: 10, fontWeight: "700", textTransform: "uppercase", marginBottom: 6 }}>Total Sales ({currData.currency})</Text>
+                          <Text style={{ color: C.status.success, fontSize: 20, fontWeight: "900" }}>{currData.currency} {Number(currData.totalSales).toFixed(2)}</Text>
+                        </View>
 
-                  {shiftSummary.totalPayouts && shiftSummary.totalPayouts !== "0.00" && (
-                    <View style={{ padding: 14, borderRadius: 16, backgroundColor: hexAlpha(C.status.error, 0.03), borderWidth: 1, borderColor: hexAlpha(C.status.error, 0.15) }}>
-                      <Text style={{ color: C.text.secondary, fontSize: 9, fontWeight: "700", textTransform: "uppercase", marginBottom: 4 }}>Petty Cash Paid Out</Text>
-                      <Text style={{ color: C.status.error, fontSize: 18, fontWeight: "800" }}>− {shiftSummary.currency} {shiftSummary.totalPayouts}</Text>
-                      <Text style={{ color: C.text.secondary, fontSize: 9, marginTop: 3 }}>Till expenses deducted from expected drawer balance</Text>
+                        {Number(currData.totalPayouts || 0) > 0 && (
+                          <View style={{ padding: 14, borderRadius: 16, backgroundColor: hexAlpha(C.status.error, 0.03), borderWidth: 1, borderColor: hexAlpha(C.status.error, 0.15) }}>
+                            <Text style={{ color: C.text.secondary, fontSize: 9, fontWeight: "700", textTransform: "uppercase", marginBottom: 4 }}>Petty Cash Paid Out</Text>
+                            <Text style={{ color: C.status.error, fontSize: 18, fontWeight: "800" }}>− {currData.currency} {Number(currData.totalPayouts).toFixed(2)}</Text>
+                            <Text style={{ color: C.text.secondary, fontSize: 9, marginTop: 3 }}>Till expenses deducted from expected drawer balance</Text>
+                          </View>
+                        )}
+
+                        <View style={{ padding: 16, borderRadius: 16, backgroundColor: C.bg.panel, borderWidth: 1, borderColor: POS_BORDER }}>
+                          <Text style={{ color: C.text.secondary, fontSize: 10, fontWeight: "800", textTransform: "uppercase", marginBottom: 6 }}>Total Float in Till ({currData.currency})</Text>
+                          <Text style={{ color: C.text.primary, fontSize: 22, fontWeight: "900" }}>{currData.currency} {Number(currData.expectedCash).toFixed(2)}</Text>
+                          <Text style={{ color: C.text.secondary, fontSize: 9, marginTop: 4 }}>Expected cash in drawer incl. opening float of {Number(currData.openingBalance).toFixed(2)}</Text>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                ) : (
+                  <View style={{ gap: 12 }}>
+                    <View style={{ padding: 14, borderRadius: 16, backgroundColor: C.bg.panel, borderWidth: 1, borderColor: POS_BORDER }}>
+                      <Text style={{ color: C.text.secondary, fontSize: 10, fontWeight: "700", textTransform: "uppercase", marginBottom: 6 }}>Total Sales</Text>
+                      <Text style={{ color: C.status.success, fontSize: 20, fontWeight: "900" }}>{shiftSummary.currency} {shiftSummary.totalSales}</Text>
                     </View>
-                  )}
 
-                  <View style={{ padding: 16, borderRadius: 16, backgroundColor: C.bg.panel, borderWidth: 1, borderColor: POS_BORDER }}>
-                    <Text style={{ color: C.text.secondary, fontSize: 10, fontWeight: "800", textTransform: "uppercase", marginBottom: 6 }}>Total Float in Till</Text>
-                    <Text style={{ color: C.text.primary, fontSize: 22, fontWeight: "900" }}>{shiftSummary.currency} {shiftSummary.expectedCash}</Text>
-                    <Text style={{ color: C.text.secondary, fontSize: 9, marginTop: 4 }}>Expected cash in drawer incl. opening float of {shiftSummary.openingBalance}</Text>
+                    {shiftSummary.totalPayouts && shiftSummary.totalPayouts !== "0.00" && (
+                      <View style={{ padding: 14, borderRadius: 16, backgroundColor: hexAlpha(C.status.error, 0.03), borderWidth: 1, borderColor: hexAlpha(C.status.error, 0.15) }}>
+                        <Text style={{ color: C.text.secondary, fontSize: 9, fontWeight: "700", textTransform: "uppercase", marginBottom: 4 }}>Petty Cash Paid Out</Text>
+                        <Text style={{ color: C.status.error, fontSize: 18, fontWeight: "800" }}>− {shiftSummary.currency} {shiftSummary.totalPayouts}</Text>
+                        <Text style={{ color: C.text.secondary, fontSize: 9, marginTop: 3 }}>Till expenses deducted from expected drawer balance</Text>
+                      </View>
+                    )}
+
+                    <View style={{ padding: 16, borderRadius: 16, backgroundColor: C.bg.panel, borderWidth: 1, borderColor: POS_BORDER }}>
+                      <Text style={{ color: C.text.secondary, fontSize: 10, fontWeight: "800", textTransform: "uppercase", marginBottom: 6 }}>Total Float in Till</Text>
+                      <Text style={{ color: C.text.primary, fontSize: 22, fontWeight: "900" }}>{shiftSummary.currency} {shiftSummary.expectedCash}</Text>
+                      <Text style={{ color: C.text.secondary, fontSize: 9, marginTop: 4 }}>Expected cash in drawer incl. opening float of {shiftSummary.openingBalance}</Text>
+                    </View>
                   </View>
-                </View>
+                )}
               </ScrollView>
             )}
 

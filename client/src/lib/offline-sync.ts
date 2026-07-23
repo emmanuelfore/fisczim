@@ -7,6 +7,8 @@ import {
     removePendingShift,
     type PendingSale,
     type PendingShiftAction,
+    getPendingCustomers,
+    removePendingCustomer,
 } from './offline-db';
 import { apiFetch } from './api';
 import { buildUrl, api } from '@shared/routes';
@@ -158,6 +160,9 @@ export async function syncPendingSales(
     // 1. Sync shifts first
     const shiftResult = await syncPendingShiftsWithToken(companyId, authFetch);
 
+    // 1.5 Sync customers and get ID map
+    const customerIdMap = await syncPendingCustomersWithToken(companyId, authFetch);
+
     // 2. Sync sales
     const pending = await getPendingSales(companyId);
     const toSync = pending.filter(s => s.status === 'pending' || s.status === 'failed');
@@ -233,4 +238,38 @@ export async function syncPendingSales(
     }
 
     return result;
+}
+
+/**
+ * Sync offline created customers. Returns a map of tempId -> realId
+ */
+async function syncPendingCustomersWithToken(
+    companyId: number,
+    authFetch: (url: string, init?: RequestInit) => Promise<Response>
+): Promise<Record<string, number>> {
+    const pendingCustomers = await getPendingCustomers(companyId);
+    const idMap: Record<string, number> = {};
+
+    for (const customer of pendingCustomers) {
+        try {
+            // Drop temp id before sending
+            const { id: tempId, status, timestamp, ...payload } = customer;
+            const url = buildUrl(api.customers.create.path, { companyId });
+            const res = await authFetch(url, {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            });
+
+            if (res.ok) {
+                const createdCustomer = await res.json();
+                idMap[tempId] = createdCustomer.id;
+                await removePendingCustomer(tempId);
+            } else {
+                console.warn('[Sync] Failed to sync customer:', tempId);
+            }
+        } catch (e) {
+            console.error('[Sync] Customer sync error:', e);
+        }
+    }
+    return idMap;
 }

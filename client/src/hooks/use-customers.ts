@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, buildUrl } from "@shared/routes";
 import { type InsertCustomer } from "@shared/schema";
 import { apiFetch } from "@/lib/api";
-import { cacheCustomers, getCachedCustomers } from "@/lib/offline-db";
+import { cacheCustomers, getCachedCustomers, addPendingCustomer } from "@/lib/offline-db";
 import { getIsOnline } from "@/lib/online-state";
 
 export function useCustomers(companyId: number) {
@@ -40,6 +40,19 @@ export function useCreateCustomer(companyId: number) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (data: Omit<InsertCustomer, "companyId">) => {
+      if (!getIsOnline()) {
+        const tempId = `OFFLINE-CUST-${Date.now()}`;
+        const tempCustomer = { ...data, id: tempId, companyId };
+        
+        await addPendingCustomer(tempCustomer);
+        
+        // Add to local cache so it appears immediately
+        const cached = await getCachedCustomers(companyId) || [];
+        await cacheCustomers(companyId, [tempCustomer, ...cached]);
+
+        return tempCustomer;
+      }
+      
       const url = buildUrl(api.customers.create.path, { companyId });
       const res = await apiFetch(url, {
         method: "POST",

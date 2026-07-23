@@ -1905,7 +1905,8 @@ export class DatabaseStorage implements IStorage {
                       referenceType: "INVOICE",
                       referenceId: invoice.id.toString(),
                       notes: `Recipe Return for ${product.name} - Credit Note ${invoice.invoiceNumber}`,
-                      remainingQuantity: ingredientQty.toString()
+                      remainingQuantity: ingredientQty.toString(),
+                      createdBy: invoiceData.createdBy
                     });
                   }
 
@@ -1949,7 +1950,8 @@ export class DatabaseStorage implements IStorage {
                   referenceType: "INVOICE",
                   referenceId: invoice.id.toString(),
                   notes: `Return - Credit Note ${invoice.invoiceNumber}`,
-                  remainingQuantity: quantity.toString()
+                  remainingQuantity: quantity.toString(),
+                  createdBy: invoiceData.createdBy
                 });
               }
 

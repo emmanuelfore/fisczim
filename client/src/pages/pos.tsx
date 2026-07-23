@@ -4229,6 +4229,34 @@ export default function POSPage() {
                 ))}
               </div>
 
+              {/* Grid / List View Toggle - Always Visible */}
+              <div className="flex bg-slate-100/60 p-0.5 rounded-lg shrink-0 border border-slate-200/30">
+                <button
+                  onClick={() => setProductViewMode("grid")}
+                  title="Grid View"
+                  className={cn(
+                    "p-1.5 rounded-md transition-all flex items-center justify-center",
+                    productViewMode === "grid"
+                      ? "bg-white text-primary shadow-sm border border-slate-100"
+                      : "text-slate-400 hover:text-slate-600",
+                  )}
+                >
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={() => setProductViewMode("list")}
+                  title="List View"
+                  className={cn(
+                    "p-1.5 rounded-md transition-all flex items-center justify-center",
+                    productViewMode === "list"
+                      ? "bg-white text-primary shadow-sm border border-slate-100"
+                      : "text-slate-400 hover:text-slate-600",
+                  )}
+                >
+                  <List className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
               {/* Mobile Category Filter Trigger */}
               <div className="md:hidden">
                 <Sheet>
@@ -4732,7 +4760,7 @@ export default function POSPage() {
               ))}
             </div>
             
-            <div className="hidden md:flex items-center gap-1 bg-slate-100/50 p-1 rounded-lg border border-slate-200/50 mb-2">
+            <div className="flex items-center gap-1 bg-slate-100/50 p-1 rounded-lg border border-slate-200/50 mb-2">
               <button
                 onClick={() => setProductViewMode("grid")}
                 className={cn(
@@ -4809,7 +4837,12 @@ export default function POSPage() {
               ) : (
                 <>
                   {/* Mobile View */}
-                  <div className="md:hidden grid grid-cols-1 md:grid-cols-3 gap-1 pb-24 px-1 select-none touch-manipulation">
+                  <div
+                    className={cn(
+                      "md:hidden gap-1.5 pb-24 px-1 select-none touch-manipulation",
+                      productViewMode === "list" ? "flex flex-col" : "grid grid-cols-2 sm:grid-cols-3"
+                    )}
+                  >
                     {(pagedProducts as any[]).map((product) => {
                       const hash = product.name
                         .split("")
@@ -4824,11 +4857,17 @@ export default function POSPage() {
                       return (
                         <div
                           key={product.id}
-                          className="bg-white p-1 rounded-lg border border-slate-100/50 shadow-sm flex flex-col gap-1 active:scale-90 transition-all relative overflow-hidden group"
+                          className={cn(
+                            "bg-white p-1.5 rounded-xl border border-slate-100/80 shadow-sm flex active:scale-95 transition-all relative overflow-hidden group",
+                            productViewMode === "grid" ? "flex-col gap-1" : "flex-row items-center justify-between gap-3 h-14"
+                          )}
                           onClick={() => addToCart(product)}
                         >
                           <div
-                            className="aspect-[4/5] rounded-md flex items-center justify-center shrink-0 relative overflow-hidden"
+                            className={cn(
+                              "rounded-md flex items-center justify-center shrink-0 relative overflow-hidden",
+                              productViewMode === "grid" ? "aspect-[4/5] w-full" : "h-10 w-10 rounded-lg"
+                            )}
                             style={{
                               backgroundColor: product.imageUrl
                                 ? "#f8fafc"
@@ -4868,16 +4907,13 @@ export default function POSPage() {
                                 SRC
                               </div>
                             )}
-                            <div className="absolute inset-0 bg-primary/20 opacity-0 active:opacity-100 transition-opacity flex items-center justify-center">
-                              <Plus className="h-4 w-4 text-primary" />
-                            </div>
                           </div>
-                          <div className="flex flex-col gap-0.5 pb-0.5">
-                            <h4 className="text-[8px] font-black text-slate-800 line-clamp-1 leading-tight px-0.5">
+                          <div className={cn("flex flex-1", productViewMode === "grid" ? "flex-col gap-0.5 pb-0.5" : "flex-row items-center justify-between pr-1")}>
+                            <h4 className={cn("font-black text-slate-800 leading-tight", productViewMode === "grid" ? "text-[8px] line-clamp-1 px-0.5" : "text-xs line-clamp-1")}>
                               {product.name}
                             </h4>
-                            <div className="flex items-center justify-between px-0.5">
-                              <span className="text-[9px] font-black text-slate-900">
+                            <div className="flex items-center justify-between">
+                              <span className={cn("font-black text-slate-900", productViewMode === "grid" ? "text-[9px]" : "text-xs")}>
                                 {fmt(product.price)}
                               </span>
                             </div>

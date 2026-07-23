@@ -96,8 +96,7 @@ export function DashboardScreen({ companyId, userName, userRole, appMode, onOpen
     <View style={styles.container}>
       <StatusBar style="light" />
       <View style={styles.header}>
-        <TouchableOpacity onPress={onOpenDrawer} style={styles.iconBtn}><Menu size={20} color={C.text.primary} /></TouchableOpacity>
-        <View style={{ flex: 1, marginLeft: 12 }}>
+        <View style={{ flex: 1, marginLeft: 0 }}>
           <Text style={styles.title}>Dashboard</Text>
           <Text style={styles.subtitle}>Welcome back, {userName}</Text>
         </View>

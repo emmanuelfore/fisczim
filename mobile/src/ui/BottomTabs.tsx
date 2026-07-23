@@ -54,7 +54,6 @@ export function BottomTabs({
   const posTabs: { icon: any; label: string; id: ScreenName | "menu"; isMCI?: boolean }[] = [
     { icon: LayoutDashboard, label: "Home", id: "dashboard" },
     { icon: Receipt, label: "Sales", id: "pos" },
-    { icon: ArrowDownToLine, label: "GDN", id: "stockin" },
     { icon: Package, label: "Products", id: "inventory" },
     { icon: Receipt, label: "Expenses", id: "expenses" },
     { icon: PieChart, label: "Reports", id: "reports" },

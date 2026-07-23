@@ -118,7 +118,6 @@ export function CustomersScreen({ onOpenDrawer, companyId }: Props) {
       <StatusBar style="light" />
       <View style={{ flex: 1 }}>
         <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
-          <TouchableOpacity onPress={onOpenDrawer} style={styles.iconBtn}><Menu size={20} color={C.text.primary} /></TouchableOpacity>
           <Text style={styles.title}>Customers</Text>
           <TouchableOpacity onPress={openAdd} style={[styles.iconBtn, { backgroundColor: C.amber.primary }]}><Plus size={20} color="#000" /></TouchableOpacity>
         </View>

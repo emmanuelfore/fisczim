@@ -7,7 +7,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   Menu, Search, Plus, Package, X, Edit2, Check,
-  Filter, ChevronDown,
+  Filter, ChevronDown, LayoutGrid, List,
 } from "lucide-react-native";
 import { StatusBar } from "expo-status-bar";
 import { DoneTextInput as TextInput } from "../ui/DoneTextInput";
@@ -44,6 +44,7 @@ export function InventoryScreen({ onOpenDrawer, companyId }: Props) {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState(emptyProduct);
   const [saving, setSaving] = useState(false);
+  const [viewMode, setViewMode] = useState<"list" | "grid">("list");
 
   const ownerGroups = useMemo(() => {
     if (!products) return [];
@@ -148,24 +149,24 @@ export function InventoryScreen({ onOpenDrawer, companyId }: Props) {
     const isOutOfStock = stock <= 0;
     const isLowStock = stock <= lowThreshold;
     const imageUrl = resolveMediaUrl(item.imageUrl);
+    const isGrid = viewMode === "grid";
+
     return (
-      <TouchableOpacity style={styles.card} onPress={() => openEdit(item)} activeOpacity={0.8}>
+      <TouchableOpacity style={[styles.card, isGrid && { flexDirection: "column", flex: 0.48, alignItems: "center", paddingVertical: 16 }]} onPress={() => openEdit(item)} activeOpacity={0.8}>
         {imageUrl ? (
-          <Image source={{ uri: imageUrl }} style={styles.cardImage} />
+          <Image source={{ uri: imageUrl }} style={[styles.cardImage, isGrid && { width: 64, height: 64, marginBottom: 8 }]} />
         ) : (
-          <View style={styles.cardIcon}>
+          <View style={[styles.cardIcon, isGrid && { width: 64, height: 64, marginBottom: 8 }]}>
             <Package size={22} color={C.text.secondary} opacity={0.6} />
           </View>
         )}
-        <View style={styles.cardInfo}>
-          <Text style={styles.cardTitle} numberOfLines={1}>{item.name}</Text>
-          <Text style={styles.cardSub}>
+        <View style={[styles.cardInfo, isGrid && { alignItems: "center", marginBottom: 8 }]}>
+          <Text style={[styles.cardTitle, isGrid && { textAlign: "center" }]} numberOfLines={isGrid ? 2 : 1}>{item.name}</Text>
+          <Text style={[styles.cardSub, isGrid && { textAlign: "center" }]}>
             {item.sku || "No SKU"}
-            {item.category ? ` · ${item.category}` : ""}
-            {item.ownerGroup ? ` · ${item.ownerGroup}` : ""}
           </Text>
         </View>
-        <View style={styles.cardRight}>
+        <View style={[styles.cardRight, isGrid && { alignItems: "center", marginRight: 0 }]}>
           <Text style={styles.cardPrice}>${Number(item.price || 0).toFixed(2)}</Text>
           <View style={[
             styles.stockBadge,
@@ -188,9 +189,13 @@ export function InventoryScreen({ onOpenDrawer, companyId }: Props) {
       <StatusBar style="light" />
       <View style={{ flex: 1 }}>
         <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
-          <TouchableOpacity onPress={onOpenDrawer} style={styles.iconBtn}><Menu size={20} color={C.text.primary} /></TouchableOpacity>
           <Text style={styles.title}>Inventory</Text>
-          <TouchableOpacity onPress={openAdd} style={[styles.iconBtn, { backgroundColor: C.amber.primary }]}><Plus size={20} color="#000" /></TouchableOpacity>
+          <View style={{ flexDirection: "row", gap: 10 }}>
+            <TouchableOpacity onPress={() => setViewMode(prev => prev === "list" ? "grid" : "list")} style={styles.iconBtn}>
+              {viewMode === "list" ? <LayoutGrid size={18} color={C.text.primary} /> : <List size={18} color={C.text.primary} />}
+            </TouchableOpacity>
+            <TouchableOpacity onPress={openAdd} style={[styles.iconBtn, { backgroundColor: C.amber.primary }]}><Plus size={20} color="#000" /></TouchableOpacity>
+          </View>
         </View>
         <View style={styles.searchRow}>
           <Package size={14} color={C.text.secondary} />
@@ -237,7 +242,16 @@ export function InventoryScreen({ onOpenDrawer, companyId }: Props) {
         ) : error ? (
           <Text style={styles.errorText}>{error}</Text>
         ) : (
-          <FlatList data={filtered} keyExtractor={(item) => String(item.id)} renderItem={renderItem} contentContainerStyle={{ padding: 16, paddingBottom: 80 }} ListEmptyComponent={<Text style={styles.emptyText}>No products found.</Text>} />
+          <FlatList 
+            key={`inventory-list-${viewMode}`}
+            data={filtered} 
+            keyExtractor={(item) => String(item.id)} 
+            numColumns={viewMode === "grid" ? 2 : 1}
+            columnWrapperStyle={viewMode === "grid" ? { justifyContent: "space-between" } : undefined}
+            renderItem={renderItem} 
+            contentContainerStyle={{ padding: 16, paddingBottom: 80 }} 
+            ListEmptyComponent={<Text style={styles.emptyText}>No products found.</Text>} 
+          />
         )}
 
         <Modal visible={showForm} transparent animationType="slide">

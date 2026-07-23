@@ -9939,7 +9939,7 @@ export async function registerRoutes(
           details: err.errors.map(e => `${e.path.join('.')}: ${e.message}`)
         });
       }
-      throw err;
+      return res.status(500).json({ message: err instanceof Error ? err.message : "Failed to create invoice", error: String(err) });
     }
   });
 
@@ -10140,7 +10140,7 @@ export async function registerRoutes(
       if (err instanceof z.ZodError) {
         return res.status(400).json({ message: err.errors[0].message });
       }
-      throw err;
+      return res.status(500).json({ message: err instanceof Error ? err.message : "Failed to update invoice", error: String(err) });
     }
   });
 

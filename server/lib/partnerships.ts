@@ -39,6 +39,7 @@ function buildSnapshot(partner: typeof companyPartners.$inferSelect, revenueShar
 }
 
 async function resolveOwnerGroupFromItems(companyId: number, items: CreateInvoiceRequest["items"]): Promise<string | null> {
+  if (!items || !Array.isArray(items)) return null;
   for (const item of items) {
     if (!item.productId) continue;
     const [product] = await db

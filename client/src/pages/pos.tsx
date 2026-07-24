@@ -3009,12 +3009,12 @@ export default function POSPage() {
   };
 
   // ── Credit / Debit Note search ────────────────────────────────────────────
-  const handleCnSearch = async () => {
-    if (!cnSearchQuery.trim()) return;
+  const handleCnSearch = async (queryOverride?: string) => {
+    const q = typeof queryOverride === 'string' ? queryOverride : cnSearchQuery;
     setCnSearching(true);
     try {
       const res = await apiFetch(
-        `/api/pos/invoice-search?companyId=${companyId}&q=${encodeURIComponent(cnSearchQuery)}`,
+        `/api/pos/invoice-search?companyId=${companyId}&q=${encodeURIComponent(q)}`,
       );
       if (res.ok) setCnSearchResults(await res.json());
     } catch {
@@ -3022,6 +3022,12 @@ export default function POSPage() {
     }
     setCnSearching(false);
   };
+
+  useEffect(() => {
+    if (isCreditNoteOpen) {
+      handleCnSearch("");
+    }
+  }, [isCreditNoteOpen]);
 
   const handleSelectInvoiceForReturn = async (inv: any) => {
     setCnProcessing(true);
@@ -6366,7 +6372,7 @@ export default function POSPage() {
               <DialogHeader className="sr-only">
                 <DialogTitle>Issue Credit or Debit Note</DialogTitle>
                 <DialogDescription>
-                  Search for an existing invoice to issue a credit or debit
+                  Select a recent invoice or search to issue a credit or debit
                   adjustment.
                 </DialogDescription>
               </DialogHeader>
@@ -6388,7 +6394,7 @@ export default function POSPage() {
                   Issue Credit / Debit Note
                 </h3>
                 <p className="text-amber-100 text-xs mt-1">
-                  Search for the original invoice to reverse or adjust
+                  Select a recent invoice or search for the original invoice
                 </p>
               </div>
               <div className="flex-1 overflow-y-auto p-6 bg-white space-y-4">
@@ -6481,9 +6487,7 @@ export default function POSPage() {
                         ))}
                       </div>
                     )}
-                    {cnSearchResults.length === 0 &&
-                      cnSearchQuery &&
-                      !cnSearching && (
+                    {cnSearchResults.length === 0 && !cnSearching && (
                         <p className="text-center text-slate-400  font-bold py-4">
                           No invoices found
                         </p>

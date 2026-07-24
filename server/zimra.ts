@@ -1120,63 +1120,74 @@ export class ZimraDevice {
     }
 
     public async fiscalizeInvoice(invoice: any, company: any, taxTypes?: any[]): Promise<any> {
+        // Fetch live ZIMRA tax config — this is the authoritative source for tax IDs
+        let zimraConfig: ZimraConfigResponse | undefined;
+        try {
+            zimraConfig = await this.getConfig() as ZimraConfigResponse;
+        } catch (configErr: any) {
+            console.warn('[ZIMRA-RevMax] Could not fetch getConfig for tax resolution:', configErr.message);
+        }
+
+        // Build a tax lookup function using ONLY getConfig taxes
+        const resolveTaxID = (taxRate: number, taxCode?: string, description?: string): number => {
+            if (zimraConfig?.applicableTaxes && zimraConfig.applicableTaxes.length > 0) {
+                const targetPercent = taxRate;
+
+                // For 0%, disambiguate Exempt (1) vs Zero Rated (2) by taxCode or description
+                if (targetPercent === 0) {
+                    const isExempt =
+                        taxCode === 'EXE' ||
+                        taxCode === 'C' ||
+                        (description || '').toLowerCase().includes('exempt');
+
+                    const match = zimraConfig.applicableTaxes.find(t => {
+                        const pct = Math.abs((t.taxPercent || 0) - 0) < 0.01;
+                        if (!pct) return false;
+                        const liveIsExempt = (t.taxName || '').toLowerCase().includes('exempt');
+                        return isExempt === liveIsExempt;
+                    });
+                    if (match) return match.taxID;
+
+                    // Fallback: first 0% entry
+                    const any0 = zimraConfig.applicableTaxes.find(t => Math.abs((t.taxPercent || 0)) < 0.01);
+                    if (any0) return any0.taxID;
+                }
+
+                // For non-zero rates, match by percent
+                const match = zimraConfig.applicableTaxes.find(t =>
+                    Math.abs((t.taxPercent || 0) - targetPercent) < 0.01
+                );
+                if (match) return match.taxID;
+            }
+
+            // Final fallback when getConfig unavailable: standard heuristic
+            if (taxRate === 0) return 2; // Zero Rated
+            if (Math.abs(taxRate - 15.5) < 0.1 || Math.abs(taxRate - 15) < 0.1) return 3; // Standard
+            return 3;
+        };
+
         // Map Invoice to ReceiptData
         const receiptData: ReceiptData = {
             receiptType: 'FiscalInvoice',
             receiptCurrency: invoice.currency || 'USD',
             receiptCounter: invoice.receiptCounter || ((company.dailyReceiptCount || 0) + 1),
             receiptGlobalNo: invoice.receiptGlobalNo || ((company.lastReceiptGlobalNo || 0) + 1),
+            fiscalDayNo: company.currentFiscalDayNo,
             invoiceNo: invoice.invoiceNumber,
             receiptDate: ZimraDevice.formatZimraDate(new Date()), // Docs: local time YYYY-MM-DDTHH:mm:ss
             receiptLines: invoice.items.map((item: any, index: number) => {
-                const taxRate = parseFloat(item.taxRate);
-                let taxID = 3; // Default to Standard (15% or 15.5%)
-
-                // 1. Prioritize explicit taxTypeId if present
-                if (item.taxTypeId && taxTypes) {
-                    const matchedTax = taxTypes.find(t => t.id === item.taxTypeId);
-                    if (matchedTax && matchedTax.zimraTaxId) {
-                        taxID = parseInt(matchedTax.zimraTaxId);
-                    }
-                }
-                // 2. Fallback to rate mapping with logic for 0% ambiguity (Exempt vs Zero Rated)
-                else if (taxTypes) {
-                    const matchedTax = taxTypes.find(t => Math.abs(parseFloat(t.rate) - taxRate) < 0.01);
-                    if (matchedTax && matchedTax.zimraTaxId) {
-                        taxID = parseInt(matchedTax.zimraTaxId);
-
-                        // Refined check for 0% ambiguity if the first match might be wrong
-                        if (taxRate === 0 && taxID !== 1) {
-                            // If it's 0% but we got something other than ID 1 (Exempt),
-                            // double check if there's an actual Exempt tax type that matches better by intent
-                            const isExemptIntent = item.taxCode === 'EXE' || (item.taxName && item.taxName.toLowerCase().includes('exempt'));
-                            if (isExemptIntent) {
-                                const realExempt = taxTypes.find(t => t.zimraTaxId === "1" || t.name.toLowerCase().includes('exempt'));
-                                if (realExempt && realExempt.zimraTaxId) {
-                                    taxID = parseInt(realExempt.zimraTaxId);
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    // 3. Fallback heuristic if taxTypes not provided at all
-                    if (taxRate === 0) {
-                        // Check if description hints at exempt
-                        const desc = (item.description || '').toLowerCase();
-                        if (desc.includes('exempt')) taxID = 1;
-                        else taxID = 2; // Default to Zero Rated for 0%
-                    }
-                    else taxID = 3; // Default to Standard
-                }
+                const taxRate = parseFloat(item.taxRate) || 0;
+                // Resolve taxID exclusively from getConfig
+                const taxID = resolveTaxID(taxRate, item.taxCode, item.description);
 
                 return {
                     receiptLineType: 'Sale',
                     receiptLineNo: index + 1,
-                    receiptLineHSCode: item.hscode || '00000000',
+                    receiptLineHSCode: item.hscode || item.hsCode || '00000000',
                     receiptLineName: (item.description || '').trim() || 'Item without description',
                     receiptLinePrice: parseFloat(item.unitPrice),
                     receiptLineQuantity: parseFloat(item.quantity),
-                    receiptLineTotal: parseFloat(item.total),
+                    receiptLineTotal: parseFloat(item.lineTotal || item.total),
                     taxPercent: taxRate,
                     taxID: taxID
                 };
@@ -1210,8 +1221,56 @@ export class ZimraDevice {
             }
         }
 
-        // Submit to ZIMRA
-        const result = await this.submitReceipt(receiptData, company.lastFiscalHash, false);
+        // Submit to ZIMRA — with auto-open day on FiscalDayClosed error
+        let result: any;
+        try {
+            result = await this.submitReceipt(receiptData, company.lastFiscalHash, false);
+        } catch (submitErr: any) {
+            const errStr = (submitErr?.message || submitErr?.toString() || '').toLowerCase();
+            const isDayClosed =
+                errStr.includes('fiscal day is closed') ||
+                errStr.includes('submit receipt is not allowed') ||
+                errStr.includes('fiscaldayclosed') ||
+                (submitErr?.details?.statusCode === 310);
+
+            if (!isDayClosed) throw submitErr;
+
+            // Auto-open a new fiscal day
+            console.log('[ZIMRA-RevMax] Fiscal day closed — attempting auto-open...');
+            const status = await this.getStatus() as any;
+            const nextDayNo = (status.lastFiscalDayNo || company.currentFiscalDayNo || 0) + 1;
+            const openResult = await this.openDay(nextDayNo) as any;
+            const actualDay = openResult.fiscalDayNo || nextDayNo;
+            console.log(`[ZIMRA-RevMax] Opened new fiscal day: ${actualDay}`);
+
+            // Update company state (best-effort, non-blocking)
+            try {
+                const { storage } = await import('./storage.js');
+                const openedAt = new Date(Date.now() - 2000); // slightly in the past so receipt date is AFTER it
+                await (storage as any).updateCompany(company.id, {
+                    fiscalDayOpen: true,
+                    currentFiscalDayNo: actualDay,
+                    fiscalDayOpenedAt: openedAt,
+                    dailyReceiptCount: 0,
+                    lastFiscalHash: null
+                });
+                // Update local company reference so counters are correct
+                company.currentFiscalDayNo = actualDay;
+                company.fiscalDayOpen = true;
+                company.dailyReceiptCount = 0;
+                company.lastFiscalHash = null;
+            } catch (updateErr: any) {
+                console.warn('[ZIMRA-RevMax] Could not persist auto-open state:', updateErr.message);
+            }
+
+            // Recalculate receipt with new fiscal day and reset counter
+            receiptData.fiscalDayNo = actualDay;
+            receiptData.receiptCounter = 1;
+            receiptData.receiptGlobalNo = (company.lastReceiptGlobalNo || 0) + 1;
+
+            // Retry submission with fresh day
+            result = await this.submitReceipt(receiptData, null, false);
+        }
 
         // Generate Verification Code (MD5 of Hex Signature)
         // 1. Convert signature (Base64) to Buffer

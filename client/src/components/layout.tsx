@@ -432,6 +432,7 @@ export function Layout({
       children: [
         { icon: Server, label: "ZIMRA Device Settings", href: "/settings?tab=zimra" },
         { icon: ClipboardList, label: "Transaction Logs", href: "/zimra-logs" },
+        { icon: Activity, label: "API Logs", href: "/api-logs" },
         { icon: Activity, label: "FDMS Test", href: "/fdms-test" },
         { icon: FileText, label: "Tax & ZIMRA Report", href: "/reports/tax" },
         { icon: Coins, label: "VAT Returns", href: "/accounting/reports/vat-return" },
@@ -919,6 +920,11 @@ export function Layout({
       return {
         title: "Transaction Logs",
         subtitle: "Review FDMS communication and fiscal submission history.",
+      };
+    if (location.startsWith("/api-logs"))
+      return {
+        title: "API Logs",
+        subtitle: "Incoming API requests and responses.",
       };
     if (location.startsWith("/zimra-settings"))
       return {

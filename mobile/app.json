@@ -13,7 +13,10 @@
       "backgroundColor": "#2c1800"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "runtimeVersion": {
+        "policy": "appVersion"
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -25,8 +28,12 @@
       "permissions": [
         "INTERNET",
         "BLUETOOTH_SCAN",
+        "BLUETOOTH_CONNECT",
+        "INTERNET",
+        "BLUETOOTH_SCAN",
         "BLUETOOTH_CONNECT"
-      ]
+      ],
+      "runtimeVersion": "1.0.0"
     },
     "androidStatusBar": {
       "translucent": true,
@@ -48,6 +55,9 @@
     "plugins": [
       "expo-asset",
       "./scripts/withNetworkSecurityConfig"
-    ]
+    ],
+    "updates": {
+      "url": "https://u.expo.dev/75764377-70c6-4866-8672-9a1320483381"
+    }
   }
 }

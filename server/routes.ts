@@ -822,6 +822,46 @@ export async function registerRoutes(
     next();
   };
 
+  const apiLogger = async (req: any, res: any, next: any) => {
+    const startTime = Date.now();
+    
+    // We will extract companyId later, either from params or req.company
+    // We need to wait until the request finishes to have accurate status codes
+    
+    const originalSend = res.send;
+
+    res.send = function (body: any) {
+      const responseTime = Date.now() - startTime;
+      const companyId = req.params?.id ? Number(req.params.id) : (req.company?.id || null);
+      
+      let responseBody = body;
+      try {
+        if (typeof body === 'string') {
+          responseBody = JSON.parse(body);
+        }
+      } catch (e) {
+        // Leave as string if not JSON
+      }
+
+      originalSend.call(this, body);
+
+      if (companyId) {
+        storage.createApiLog({
+          companyId,
+          endpoint: req.originalUrl || req.url,
+          method: req.method,
+          requestPayload: req.body || null,
+          responsePayload: responseBody,
+          statusCode: res.statusCode,
+          responseTimeMs: responseTime,
+          ipAddress: req.ip || req.socket?.remoteAddress,
+          userAgent: req.headers['user-agent']
+        }).catch(err => console.error("Failed to log API request:", err));
+      }
+    };
+    next();
+  };
+
   const requireSuperAdmin = async (req: any, res: any, next: any) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     if (!req.user.isSuperAdmin) return res.status(403).json({ message: "SuperAdmin access required" });
@@ -2530,6 +2570,19 @@ export async function registerRoutes(
     } catch (err: any) {
       console.error("Get ZIMRA Logs Error:", err);
       res.status(500).json({ message: "Failed to fetch ZIMRA logs" });
+    }
+  });
+
+  // Incoming API Logs
+  app.get("/api/companies/:companyId/api-logs", requireAuth, async (req, res) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      const limit = req.query.limit ? Number(req.query.limit) : 100;
+      const logs = await storage.getApiLogs(companyId, limit);
+      res.json(logs);
+    } catch (err: any) {
+      console.error("Get API Logs Error:", err);
+      res.status(500).json({ message: "Failed to fetch API logs" });
     }
   });
 
@@ -5028,7 +5081,7 @@ export async function registerRoutes(
   }
 
   // 1. GET /api/zimra/device-details - GetCardDetails
-  app.get("/api/zimra/device-details", requireAuthOrApiKey, async (req, res) => {
+  app.get("/api/zimra/device-details", requireAuthOrApiKey, apiLogger, async (req, res) => {
     try {
       // Get the companyId from query or session
       let companyId = parseInt(req.query.companyId as string);
@@ -5073,7 +5126,7 @@ export async function registerRoutes(
   });
 
   // 2. GET /api/companies/:id/zimra/device-status - GetDeviceStatus (RevMax format)
-  app.get("/api/companies/:id/zimra/device-status", requireAuthOrApiKey, async (req, res) => {
+  app.get("/api/companies/:id/zimra/device-status", requireAuthOrApiKey, apiLogger, async (req, res) => {
     try {
       const companyId = Number(req.params.id);
       const company = await storage.getCompany(companyId);
@@ -5140,7 +5193,7 @@ export async function registerRoutes(
   });
 
   // 3. POST /api/companies/:id/zimra/transact - TransactM
-  app.post("/api/companies/:id/zimra/transact", requireAuthOrApiKey, async (req, res) => {
+  app.post("/api/companies/:id/zimra/transact", requireAuthOrApiKey, apiLogger, async (req, res) => {
     try {
       const companyId = Number(req.params.id);
       const company = await storage.getCompany(companyId);
@@ -5177,31 +5230,10 @@ export async function registerRoutes(
       const currencies = await parseCurrenciesXML(CURRENCIES);
 
       // Create invoice in database
-      const invoiceData: any = {
-        companyId,
-        invoiceNumber: INVOICENUMBER,
-        customerName: CUSTOMERNAME || "Walk-in Customer",
-        customerEmail: CUSTOMEREMAIL || null,
-        customerVatNumber: CUSTOMERVATNUMBER || null,
-        customerAddress: CUSTOMERADDRESS || null,
-        customerPhone: CUSTOMERTELEPHONENUMBER || null,
-        issueDate: new Date(),
-        dueDate: new Date(),
-        currency: CURRENCY,
-        total: parseFloat(INVOICEAMOUNT),
-        taxAmount: parseFloat(INVOICETAXAMOUNT),
-        status: INVOICEFLAG === "01" ? "draft" : "draft",
-        notes: INVOICECOMMENT || null,
-        originalInvoiceNumber: ORIGINALINVOICENUMBER || null
-      };
-
-      const invoice = await storage.createInvoice(invoiceData);
-
       // Fetch tax types for resolution
       const taxTypes = await storage.getTaxTypes(companyId);
 
-      // Create line items
-      for (const item of items) {
+      const parsedItems = items.map(item => {
         const taxRate = parseFloat(item.TAXR || "0");
         const xmlTaxCode = item.TAXCODE;
         const xmlTaxId = item.TAXID;
@@ -5221,16 +5253,59 @@ export async function registerRoutes(
           );
         }
 
-        await storage.createInvoiceItem({
-          invoiceId: invoice.id,
+        return {
           description: item.ITEMNAME1 || item.ITEMNAME2 || "Item",
           quantity: String(parseFloat(item.QTY || "1")),
           unitPrice: String(parseFloat(item.PRICE || "0")),
           taxRate: taxRate.toString(),
           taxTypeId: matchedTax?.id,
           lineTotal: String(parseFloat(item.AMT || "0"))
-        });
+        };
+      });
+
+      // Fetch or create customer
+      const targetCustomerName = CUSTOMERNAME || "Walk-in Customer";
+      let customerId: number;
+      const customers = await storage.getCustomers(companyId);
+      const existingCustomer = customers.find(c => c.name.toLowerCase() === targetCustomerName.toLowerCase());
+      
+      if (existingCustomer) {
+        customerId = existingCustomer.id;
+      } else {
+        const newCustomer = await storage.createCustomer({
+          companyId,
+          name: targetCustomerName,
+          email: CUSTOMEREMAIL || null,
+          phone: CUSTOMERTELEPHONENUMBER || null,
+          vatNumber: CUSTOMERVATNUMBER || null,
+          address: CUSTOMERADDRESS || null,
+          currency: CURRENCY || "USD"
+        } as any);
+        customerId = newCustomer.id;
       }
+
+      const invoiceData: any = {
+        companyId,
+        customerId,
+        invoiceNumber: INVOICENUMBER,
+        customerName: targetCustomerName,
+        customerEmail: CUSTOMEREMAIL || null,
+        customerVatNumber: CUSTOMERVATNUMBER || null,
+        customerAddress: CUSTOMERADDRESS || null,
+        customerPhone: CUSTOMERTELEPHONENUMBER || null,
+        issueDate: new Date(),
+        dueDate: new Date(),
+        currency: CURRENCY,
+        total: parseFloat(INVOICEAMOUNT),
+        subtotal: parseFloat(INVOICEAMOUNT) - parseFloat(INVOICETAXAMOUNT),
+        taxAmount: parseFloat(INVOICETAXAMOUNT),
+        status: INVOICEFLAG === "01" ? "draft" : "draft",
+        notes: INVOICECOMMENT || null,
+        originalInvoiceNumber: ORIGINALINVOICENUMBER || null,
+        items: parsedItems
+      };
+
+      const invoice = await storage.createInvoice(invoiceData);
 
       // Fiscalize the invoice
       const device = new ZimraDevice({
@@ -5253,18 +5328,41 @@ export async function registerRoutes(
 
       const receiptData = await device.fiscalizeInvoice(fullInvoice as any, company as any, taxTypes);
 
+      // Determine final status: if ZIMRA returned red validation errors, mark as warning
+      const validationErrors = receiptData.validationResult?.errors || [];
+      const hasRedErrors = validationErrors.some((e: any) => e.errorColor === 'Red');
+      const invoiceStatus = hasRedErrors ? "issued" : "issued";
+      const fdmsStatus = hasRedErrors ? "warning" : "synced";
+
       // Update invoice with fiscal data
       await storage.updateInvoice(invoice.id, {
         fiscalCode: receiptData.hash,
         qrCodeData: receiptData.qrCode,
         verificationCode: receiptData.verificationCode,
-        status: "issued",
+        status: invoiceStatus,
         syncedWithFdms: true,
+        fdmsStatus,
+        validationStatus: validationErrors.length > 0 ? 'warning' : 'valid',
         receiptGlobalNo: receiptData.receiptGlobalNo,
         receiptCounter: receiptData.receiptCounter,
         fiscalDayNo: company.currentFiscalDayNo ?? undefined,
-        issueDate: fullInvoice.issueDate // Keep original issue date if needed, but signature uses receiptData.receiptDate
+        issueDate: fullInvoice.issueDate
       });
+
+      // Save ZIMRA validation errors to DB so they show in the system
+      if (validationErrors.length > 0) {
+        try {
+          await storage.createValidationErrors(validationErrors.map((e: any) => ({
+            invoiceId: invoice.id,
+            errorCode: e.errorCode,
+            errorMessage: e.errorMessage,
+            errorColor: e.errorColor || 'Red',
+            requiresPreviousReceipt: e.requiresPreviousReceipt || false
+          })));
+        } catch (saveErr) {
+          console.warn('[TransactM] Could not save validation errors:', saveErr);
+        }
+      }
 
       // CRITICAL: Update Company Counters to maintain chain
       await storage.updateCompany(companyId, {
@@ -5276,19 +5374,21 @@ export async function registerRoutes(
       const response = formatRevMaxResponse("1", "Upload Success - Transacted to Card", {
         receipt: receiptData,
         qrCode: receiptData.qrCode,
-        verificationCode: receiptData.verificationCode
+        verificationCode: receiptData.verificationCode,
+        validationErrors: validationErrors.length > 0 ? validationErrors : undefined
       }, company);
 
       res.json(response);
     } catch (err: any) {
-      console.error("TransactM Error:", err);
+      import("fs").then(fs => fs.appendFileSync("error_trace.log", String(err.stack || err) + "\\n"));
+      console.error("TransactM Error:", err.stack || err);
       const company = await storage.getCompany(Number(req.params.id));
       res.status(500).json(formatRevMaxResponse("0", `Transaction error: ${err.message}`, {}, company || undefined));
     }
   });
 
   // 4. POST /api/companies/:id/zimra/transact-ext - TransactMExt
-  app.post("/api/companies/:id/zimra/transact-ext", requireAuthOrApiKey, async (req, res) => {
+  app.post("/api/companies/:id/zimra/transact-ext", requireAuthOrApiKey, apiLogger, async (req, res) => {
     try {
       const companyId = Number(req.params.id);
       const company = await storage.getCompany(companyId);
@@ -5338,31 +5438,10 @@ export async function registerRoutes(
         .join(", ") || CustomerFullAddress || "";
 
       // Create invoice with extended fields
-      const invoiceData: any = {
-        companyId,
-        invoiceNumber: InvoiceNumber,
-        customerName: CustomerRegisteredName || CustomerTradeName || "Walk-in Customer",
-        customerEmail: CustomerEmail || null,
-        customerVatNumber: CustomerVATNumber || null,
-        customerAddress: fullAddress || null,
-        customerPhone: CustomerTelephoneNumber || null,
-        issueDate: new Date(),
-        dueDate: new Date(),
-        currency: Currency,
-        total: parseFloat(InvoiceAmount),
-        taxAmount: parseFloat(InvoiceTaxAmount),
-        status: InvoiceFlag === "01" ? "draft" : "draft",
-        notes: InvoiceComment || null,
-        originalInvoiceNumber: OriginalInvoiceNumber || null
-      };
-
-      const invoice = await storage.createInvoice(invoiceData);
-
       // Fetch tax types for resolution
       const taxTypes = await storage.getTaxTypes(companyId);
 
-      // Create line items
-      for (const item of items) {
+      const parsedItems = items.map(item => {
         const taxRate = parseFloat(item.TAXR || "0");
         const xmlTaxCode = item.TAXCODE;
         const xmlTaxId = item.TAXID;
@@ -5382,16 +5461,59 @@ export async function registerRoutes(
           );
         }
 
-        await storage.createInvoiceItem({
-          invoiceId: invoice.id,
+        return {
           description: item.ITEMNAME1 || item.ITEMNAME2 || "Item",
           quantity: String(parseFloat(item.QTY || "1")),
           unitPrice: String(parseFloat(item.PRICE || "0")),
           taxRate: taxRate.toString(),
           taxTypeId: matchedTax?.id,
           lineTotal: String(parseFloat(item.AMT || "0"))
-        });
+        };
+      });
+
+      // Fetch or create customer
+      const targetCustomerName = CustomerRegisteredName || CustomerTradeName || "Walk-in Customer";
+      let customerId: number;
+      const customers = await storage.getCustomers(companyId);
+      const existingCustomer = customers.find(c => c.name.toLowerCase() === targetCustomerName.toLowerCase());
+      
+      if (existingCustomer) {
+        customerId = existingCustomer.id;
+      } else {
+        const newCustomer = await storage.createCustomer({
+          companyId,
+          name: targetCustomerName,
+          email: CustomerEmail || null,
+          phone: CustomerTelephoneNumber || null,
+          vatNumber: CustomerVATNumber || null,
+          address: fullAddress || null,
+          currency: Currency || "USD"
+        } as any);
+        customerId = newCustomer.id;
       }
+
+      const invoiceData: any = {
+        companyId,
+        customerId,
+        invoiceNumber: InvoiceNumber,
+        customerName: targetCustomerName,
+        customerEmail: CustomerEmail || null,
+        customerVatNumber: CustomerVATNumber || null,
+        customerAddress: fullAddress || null,
+        customerPhone: CustomerTelephoneNumber || null,
+        issueDate: new Date(),
+        dueDate: new Date(),
+        currency: Currency,
+        total: parseFloat(InvoiceAmount),
+        subtotal: parseFloat(InvoiceAmount) - parseFloat(InvoiceTaxAmount),
+        taxAmount: parseFloat(InvoiceTaxAmount),
+        status: InvoiceFlag === "01" ? "draft" : "draft",
+        notes: InvoiceComment || null,
+        originalInvoiceNumber: OriginalInvoiceNumber || null,
+        items: parsedItems
+      };
+
+      const invoice = await storage.createInvoice(invoiceData);
 
       // Fiscalize the invoice
       const device = new ZimraDevice({
@@ -5413,18 +5535,40 @@ export async function registerRoutes(
 
       const receiptData = await device.fiscalizeInvoice(fullInvoice as any, company as any, taxTypes);
 
-      // Update invoice
+      // Determine final status based on ZIMRA validation errors
+      const validationErrors = receiptData.validationResult?.errors || [];
+      const hasRedErrors = validationErrors.some((e: any) => e.errorColor === 'Red');
+      const fdmsStatus = hasRedErrors ? "warning" : "synced";
+
+      // Update invoice with fiscal data
       await storage.updateInvoice(invoice.id, {
         fiscalCode: receiptData.hash,
         qrCodeData: receiptData.qrCode,
         verificationCode: receiptData.verificationCode,
         status: "issued",
         syncedWithFdms: true,
+        fdmsStatus,
+        validationStatus: validationErrors.length > 0 ? 'warning' : 'valid',
         receiptGlobalNo: receiptData.receiptGlobalNo,
         receiptCounter: receiptData.receiptCounter,
         fiscalDayNo: company.currentFiscalDayNo ?? undefined,
         issueDate: fullInvoice.issueDate
       });
+
+      // Save ZIMRA validation errors to DB so they show in the system
+      if (validationErrors.length > 0) {
+        try {
+          await storage.createValidationErrors(validationErrors.map((e: any) => ({
+            invoiceId: invoice.id,
+            errorCode: e.errorCode,
+            errorMessage: e.errorMessage,
+            errorColor: e.errorColor || 'Red',
+            requiresPreviousReceipt: e.requiresPreviousReceipt || false
+          })));
+        } catch (saveErr) {
+          console.warn('[TransactMExt] Could not save validation errors:', saveErr);
+        }
+      }
 
       // CRITICAL: Update Company Counters to maintain chain
       await storage.updateCompany(companyId, {
@@ -5436,7 +5580,8 @@ export async function registerRoutes(
       const response = formatRevMaxResponse("1", "Upload Success - Transacted to Card", {
         receipt: receiptData,
         qrCode: receiptData.qrCode,
-        verificationCode: receiptData.verificationCode
+        verificationCode: receiptData.verificationCode,
+        validationErrors: validationErrors.length > 0 ? validationErrors : undefined
       }, company);
 
       res.json(response);
@@ -5448,7 +5593,7 @@ export async function registerRoutes(
   });
 
   // 5. POST /api/companies/:id/zimra/z-report - Unified Z-Report (open/close)
-  app.post("/api/companies/:id/zimra/z-report", requireAuthOrApiKey, async (req, res) => {
+  app.post("/api/companies/:id/zimra/z-report", requireAuthOrApiKey, apiLogger, async (req, res) => {
     try {
       const companyId = Number(req.params.id);
       const action = req.query.action as string;
@@ -5656,7 +5801,7 @@ export async function registerRoutes(
   });
 
   // 6. GET /api/companies/:id/zimra/transactions/:invoiceNumber - GetTransaction
-  app.get("/api/companies/:id/zimra/transactions/:invoiceNumber", requireAuthOrApiKey, async (req, res) => {
+  app.get("/api/companies/:id/zimra/transactions/:invoiceNumber", requireAuthOrApiKey, apiLogger, async (req, res) => {
     try {
       const companyId = Number(req.params.id);
       const invoiceNumber = req.params.invoiceNumber;
@@ -5689,7 +5834,7 @@ export async function registerRoutes(
   });
 
   // 7. GET /api/companies/:id/zimra/transactions/unprocessed/summary - GetUnProcessedTransactionSummary
-  app.get("/api/companies/:id/zimra/transactions/unprocessed/summary", requireAuthOrApiKey, async (req, res) => {
+  app.get("/api/companies/:id/zimra/transactions/unprocessed/summary", requireAuthOrApiKey, apiLogger, async (req, res) => {
     try {
       const companyId = Number(req.params.id);
       const fiscalDayNumber = req.query.fiscalDayNumber as string;
@@ -5723,7 +5868,7 @@ export async function registerRoutes(
   });
 
   // 8. GET /api/companies/:id/zimra/transactions/unprocessed - GetUnProcessedTransactions (paginated)
-  app.get("/api/companies/:id/zimra/transactions/unprocessed", requireAuthOrApiKey, async (req, res) => {
+  app.get("/api/companies/:id/zimra/transactions/unprocessed", requireAuthOrApiKey, apiLogger, async (req, res) => {
     try {
       const companyId = Number(req.params.id);
       const fiscalDayNumber = req.query.fiscalDayNumber as string;
@@ -5759,7 +5904,7 @@ export async function registerRoutes(
   });
 
   // 9. GET /api/companies/:id/zimra/transactions/unprocessed/by-date - GetUnProcessedTransactionsByDate
-  app.get("/api/companies/:id/zimra/transactions/unprocessed/by-date", requireAuthOrApiKey, async (req, res) => {
+  app.get("/api/companies/:id/zimra/transactions/unprocessed/by-date", requireAuthOrApiKey, apiLogger, async (req, res) => {
     try {
       const companyId = Number(req.params.id);
       const fiscalDate = req.query.fiscalDate as string;
@@ -5804,7 +5949,7 @@ export async function registerRoutes(
   });
 
   // 10. DELETE /api/companies/:id/zimra/transactions/unprocessed - ClearUnprocessedTransactions
-  app.delete("/api/companies/:id/zimra/transactions/unprocessed", requireAuthOrApiKey, async (req, res) => {
+  app.delete("/api/companies/:id/zimra/transactions/unprocessed", requireAuthOrApiKey, apiLogger, async (req, res) => {
     try {
       const companyId = Number(req.params.id);
       const fiscalDayNumber = req.query.fiscalDayNumber as string;
@@ -5847,7 +5992,7 @@ export async function registerRoutes(
   });
 
   // 11. DELETE /api/companies/:id/zimra/transactions/unprocessed/by-date - ClearUnprocessedTransactionsByDate
-  app.delete("/api/companies/:id/zimra/transactions/unprocessed/by-date", requireAuthOrApiKey, async (req, res) => {
+  app.delete("/api/companies/:id/zimra/transactions/unprocessed/by-date", requireAuthOrApiKey, apiLogger, async (req, res) => {
     try {
       const companyId = Number(req.params.id);
       const fiscalDate = req.query.fiscalDate as string;
@@ -12370,23 +12515,37 @@ export async function registerRoutes(
       const user = req.user as any;
       const companyId = parseInt(req.query.companyId as string) || user.companyId;
       const q = (req.query.q as string || "").trim();
-      if (!q) return res.json([]);
 
-      const results = await db
-        .select({ invoice: invoices, customerName: customers.name })
-        .from(invoices)
-        .leftJoin(customers, eq(invoices.customerId, customers.id))
-        .where(and(
-          eq(invoices.companyId, companyId),
-          ne(invoices.status, 'cancelled'),
-          ne(invoices.status, 'draft'),
-          or(
-            ilike(invoices.invoiceNumber, `%${q}%`),
-            ilike(customers.name, `%${q}%`)
-          )
-        ))
-        .orderBy(desc(invoices.createdAt))
-        .limit(20);
+      let results;
+      if (!q) {
+        results = await db
+          .select({ invoice: invoices, customerName: customers.name })
+          .from(invoices)
+          .leftJoin(customers, eq(invoices.customerId, customers.id))
+          .where(and(
+            eq(invoices.companyId, companyId),
+            ne(invoices.status, 'cancelled'),
+            ne(invoices.status, 'draft')
+          ))
+          .orderBy(desc(invoices.createdAt))
+          .limit(20);
+      } else {
+        results = await db
+          .select({ invoice: invoices, customerName: customers.name })
+          .from(invoices)
+          .leftJoin(customers, eq(invoices.customerId, customers.id))
+          .where(and(
+            eq(invoices.companyId, companyId),
+            ne(invoices.status, 'cancelled'),
+            ne(invoices.status, 'draft'),
+            or(
+              ilike(invoices.invoiceNumber, `%${q}%`),
+              ilike(customers.name, `%${q}%`)
+            )
+          ))
+          .orderBy(desc(invoices.createdAt))
+          .limit(20);
+      }
 
       res.json(results.map(r => ({ ...r.invoice, customerName: r.customerName })));
     } catch (err: any) {

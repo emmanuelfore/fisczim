@@ -449,6 +449,191 @@ On error, the orphaned invoice is automatically cleaned up so you can retry safe
                         200: { description: 'Webhook received' },
                     },
                 }
+            },
+            '/api/zimra/device-details': {
+                get: {
+                    summary: 'Get Card Details (GetCardDetails)',
+                    tags: ['Fiscalisation API'],
+                    parameters: [{ in: 'query', name: 'companyId', required: false, schema: { type: 'integer' } }],
+                    responses: {
+                        200: { description: 'Device Details retrieved successfully' },
+                        404: { description: 'Device not found or not registered' },
+                    },
+                }
+            },
+            '/api/companies/{id}/zimra/device-status': {
+                get: {
+                    summary: 'Get Device Status (GetDeviceStatus)',
+                    tags: ['Fiscalisation API'],
+                    parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'integer' } }],
+                    responses: {
+                        200: { description: 'Device Status retrieved successfully' },
+                        400: { description: 'Company not registered with ZIMRA' },
+                    },
+                }
+            },
+            '/api/companies/{id}/zimra/transact': {
+                post: {
+                    summary: 'Transact (TransactM)',
+                    tags: ['Fiscalisation API'],
+                    parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'integer' } }],
+                    requestBody: {
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'object',
+                                    required: ['CURRENCY', 'INVOICENUMBER', 'INVOICEAMOUNT', 'INVOICETAXAMOUNT', 'INVOICEFLAG', 'ITEMSXML', 'CURRENCIES'],
+                                    properties: {
+                                        CURRENCY: { type: 'string' },
+                                        INVOICENUMBER: { type: 'string' },
+                                        CUSTOMERNAME: { type: 'string' },
+                                        CUSTOMERVATNUMBER: { type: 'string' },
+                                        CUSTOMERADDRESS: { type: 'string' },
+                                        CUSTOMERTELEPHONENUMBER: { type: 'string' },
+                                        CUSTOMERTIN: { type: 'string' },
+                                        INVOICEAMOUNT: { type: 'string' },
+                                        INVOICETAXAMOUNT: { type: 'string' },
+                                        INVOICEFLAG: { type: 'string' },
+                                        ORIGINALINVOICENUMBER: { type: 'string' },
+                                        INVOICECOMMENT: { type: 'string' },
+                                        ITEMSXML: { type: 'string' },
+                                        CURRENCIES: { type: 'string' },
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    responses: {
+                        200: { description: 'Transaction Successful' },
+                        400: { description: 'Validation Error' },
+                    },
+                }
+            },
+            '/api/companies/{id}/zimra/transact-ext': {
+                post: {
+                    summary: 'Transact Extended (TransactMExt)',
+                    tags: ['Fiscalisation API'],
+                    parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'integer' } }],
+                    requestBody: {
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'object',
+                                    required: ['Currency', 'InvoiceNumber', 'InvoiceAmount', 'InvoiceTaxAmount', 'InvoiceFlag', 'ItemsXML', 'Currencies'],
+                                    properties: {
+                                        Currency: { type: 'string' },
+                                        InvoiceNumber: { type: 'string' },
+                                        InvoiceAmount: { type: 'string' },
+                                        InvoiceTaxAmount: { type: 'string' },
+                                        InvoiceFlag: { type: 'string' },
+                                        InvoiceComment: { type: 'string' },
+                                        OriginalInvoiceNumber: { type: 'string' },
+                                        ItemsXML: { type: 'string' },
+                                        Currencies: { type: 'string' },
+                                        CustomerEmail: { type: 'string' },
+                                        CustomerRegisteredName: { type: 'string' },
+                                        CustomerTradeName: { type: 'string' },
+                                        CustomerVATNumber: { type: 'string' },
+                                        CustomerTIN: { type: 'string' },
+                                        CustomerTelephoneNumber: { type: 'string' },
+                                        CustomerFullAddress: { type: 'string' },
+                                        buyerProvince: { type: 'string' },
+                                        buyerStreet: { type: 'string' },
+                                        buyerHouseNo: { type: 'string' },
+                                        buyerCity: { type: 'string' },
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    responses: {
+                        200: { description: 'Transaction Successful' },
+                        400: { description: 'Validation Error' },
+                    },
+                }
+            },
+            '/api/companies/{id}/zimra/z-report': {
+                post: {
+                    summary: 'Unified Z-Report (open/close)',
+                    tags: ['Fiscalisation API'],
+                    parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'integer' } }],
+                    requestBody: {
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'object',
+                                    required: ['action'],
+                                    properties: { action: { type: 'string', enum: ['open', 'close'] } }
+                                }
+                            }
+                        }
+                    },
+                    responses: { 200: { description: 'Success' } }
+                }
+            },
+            '/api/companies/{id}/zimra/transactions/{invoiceNumber}': {
+                get: {
+                    summary: 'Get Transaction',
+                    tags: ['Fiscalisation API'],
+                    parameters: [
+                        { in: 'path', name: 'id', required: true, schema: { type: 'integer' } },
+                        { in: 'path', name: 'invoiceNumber', required: true, schema: { type: 'string' } }
+                    ],
+                    responses: { 200: { description: 'Success' } }
+                }
+            },
+            '/api/companies/{id}/zimra/transactions/unprocessed/summary': {
+                get: {
+                    summary: 'Get UnProcessed Transaction Summary',
+                    tags: ['Fiscalisation API'],
+                    parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'integer' } }],
+                    responses: { 200: { description: 'Success' } }
+                }
+            },
+            '/api/companies/{id}/zimra/transactions/unprocessed': {
+                get: {
+                    summary: 'Get UnProcessed Transactions',
+                    tags: ['Fiscalisation API'],
+                    parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'integer' } }],
+                    responses: { 200: { description: 'Success' } }
+                },
+                delete: {
+                    summary: 'Clear Unprocessed Transactions',
+                    tags: ['Fiscalisation API'],
+                    parameters: [
+                        { in: 'path', name: 'id', required: true, schema: { type: 'integer' } },
+                        { in: 'query', name: 'fiscalDayNumber', required: true, schema: { type: 'integer' } }
+                    ],
+                    responses: { 200: { description: 'Success' } }
+                }
+            },
+            '/api/companies/{id}/zimra/transactions/unprocessed/by-date': {
+                get: {
+                    summary: 'Get UnProcessed Transactions By Date',
+                    tags: ['Fiscalisation API'],
+                    parameters: [
+                        { in: 'path', name: 'id', required: true, schema: { type: 'integer' } },
+                        { in: 'query', name: 'fiscalDate', required: true, schema: { type: 'string' } }
+                    ],
+                    responses: { 200: { description: 'Success' } }
+                },
+                delete: {
+                    summary: 'Clear Unprocessed Transactions By Date',
+                    tags: ['Fiscalisation API'],
+                    parameters: [
+                        { in: 'path', name: 'id', required: true, schema: { type: 'integer' } },
+                        { in: 'query', name: 'fiscalDate', required: true, schema: { type: 'string' } }
+                    ],
+                    responses: { 200: { description: 'Success' } }
+                }
+            },
+            '/api/companies/{id}/zimra/config/reset': {
+                post: {
+                    summary: 'Reset Device Counters',
+                    tags: ['Fiscalisation API'],
+                    parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'integer' } }],
+                    responses: { 200: { description: 'Success' } }
+                }
             }
         },
     },

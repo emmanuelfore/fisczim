@@ -38,7 +38,8 @@ import {
   insertBusTripSchema,
   insertBusTicketSchema,
   insertBusShiftSchema,
-  insertBusReconciliationSchema
+  insertBusReconciliationSchema,
+  apiLogs
 } from './schema.js';
 
 export const errorSchemas = {
@@ -913,6 +914,15 @@ export const api = {
             }).optional(),
           }),
         }
+      }
+    }
+  },
+  apiLogs: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/companies/:companyId/api-logs',
+      responses: {
+        200: z.array(z.custom<typeof apiLogs.$inferSelect>()),
       }
     }
   }

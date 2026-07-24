@@ -1240,6 +1240,22 @@ export const insertZimraLogSchema = createInsertSchema(zimraLogs).omit({ id: tru
 export type InsertZimraLog = z.infer<typeof insertZimraLogSchema>;
 export type ZimraLog = typeof zimraLogs.$inferSelect;
 
+// API Logs (Incoming)
+export const apiLogs = pgTable("api_logs", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id),
+  endpoint: text("endpoint").notNull(),
+  method: text("method").notNull(),
+  requestPayload: jsonb("request_payload").notNull(),
+  responsePayload: jsonb("response_payload").notNull(),
+  statusCode: integer("status_code"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertApiLogSchema = createInsertSchema(apiLogs).omit({ id: true, createdAt: true });
+export type InsertApiLog = z.infer<typeof insertApiLogSchema>;
+export type ApiLog = typeof apiLogs.$inferSelect;
+
 // Subscriptions
 export const subscriptions = pgTable("subscriptions", {
   id: serial("id").primaryKey(),

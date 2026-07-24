@@ -70,6 +70,7 @@ import DailySalesLedgerPage from "@/pages/daily-sales-ledger";
 import InventoryReportsPage from "@/pages/inventory-reports";
 import RecurringInvoicesPage from "@/pages/recurring-invoices";
 import ZimraLogsPage from "@/pages/zimra-logs";
+import ApiLogsPage from "@/pages/api-logs";
 import POSPage from "@/pages/pos";
 import MySalesPage from "@/pages/my-sales";
 import PosReportsPage from "@/pages/pos-reports";
@@ -547,6 +548,9 @@ function Router() {
       </Route>
       <Route path="/zimra-logs">
         {() => <ProtectedRoute component={ZimraLogsPage} />}
+      </Route>
+      <Route path="/api-logs">
+        {() => <ProtectedRoute component={ApiLogsPage} />}
       </Route>
       <Route path="/fdms-test">
         {() => <ProtectedRoute component={FdmsTestPage} />}

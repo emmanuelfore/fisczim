@@ -1,0 +1,38 @@
+TypeError: items is not iterable
+    at resolveOwnerGroupFromItems (/home/emmanuel/Documents/PROJECTS/fisczim/server/lib/partnerships.ts:42:22)
+    at resolvePartnerForInvoice (/home/emmanuel/Documents/PROJECTS/fisczim/server/lib/partnerships.ts:71:28)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async applyPartnershipToInvoiceData (/home/emmanuel/Documents/PROJECTS/fisczim/server/lib/partnerships.ts:99:20)
+    at async DatabaseStorage.createInvoice (/home/emmanuel/Documents/PROJECTS/fisczim/server/storage.ts:1631:22)
+    at async <anonymous> (/home/emmanuel/Documents/PROJECTS/fisczim/server/routes.ts:5251:23)\nError: Cannot create an invoice without at least one line item.
+    at <anonymous> (/home/emmanuel/Documents/PROJECTS/fisczim/server/storage.ts:1637:15)
+    at NodePgSession.transaction (/home/emmanuel/Documents/PROJECTS/fisczim/node_modules/src/node-postgres/session.ts:193:25)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async DatabaseStorage.createInvoice (/home/emmanuel/Documents/PROJECTS/fisczim/server/storage.ts:1633:12)
+    at async <anonymous> (/home/emmanuel/Documents/PROJECTS/fisczim/server/routes.ts:5251:23)\nerror: null value in column "customer_id" of relation "invoices" violates not-null constraint
+    at /home/emmanuel/Documents/PROJECTS/fisczim/node_modules/pg/lib/client.js:545:17
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async <anonymous> (/home/emmanuel/Documents/PROJECTS/fisczim/node_modules/src/node-postgres/session.ts:104:19)
+    at async <anonymous> (/home/emmanuel/Documents/PROJECTS/fisczim/server/storage.ts:1654:25)
+    at async NodePgSession.transaction (/home/emmanuel/Documents/PROJECTS/fisczim/node_modules/src/node-postgres/session.ts:193:19)
+    at async DatabaseStorage.createInvoice (/home/emmanuel/Documents/PROJECTS/fisczim/server/storage.ts:1633:12)
+    at async <anonymous> (/home/emmanuel/Documents/PROJECTS/fisczim/server/routes.ts:5285:23)\nerror: null value in column "subtotal" of relation "invoices" violates not-null constraint
+    at /home/emmanuel/Documents/PROJECTS/fisczim/node_modules/pg/lib/client.js:545:17
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async <anonymous> (/home/emmanuel/Documents/PROJECTS/fisczim/node_modules/src/node-postgres/session.ts:104:19)
+    at async <anonymous> (/home/emmanuel/Documents/PROJECTS/fisczim/server/storage.ts:1654:25)
+    at async NodePgSession.transaction (/home/emmanuel/Documents/PROJECTS/fisczim/node_modules/src/node-postgres/session.ts:193:19)
+    at async DatabaseStorage.createInvoice (/home/emmanuel/Documents/PROJECTS/fisczim/server/storage.ts:1633:12)
+    at async <anonymous> (/home/emmanuel/Documents/PROJECTS/fisczim/server/routes.ts:5307:23)\nZimraApiError: Submit receipt is not allowed. Fiscal day is closed or fiscal day close initiated
+    at ZimraDevice.wrapRequest (/home/emmanuel/Documents/PROJECTS/fisczim/server/zimra.ts:387:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async ZimraDevice.makeRequest (/home/emmanuel/Documents/PROJECTS/fisczim/server/zimra.ts:1077:28)
+    at async ZimraDevice.submitReceipt (/home/emmanuel/Documents/PROJECTS/fisczim/server/zimra.ts:796:30)
+    at async ZimraDevice.fiscalizeInvoice (/home/emmanuel/Documents/PROJECTS/fisczim/server/zimra.ts:1214:24)
+    at async <anonymous> (/home/emmanuel/Documents/PROJECTS/fisczim/server/routes.ts:5329:27)\nZimraApiError: Submit receipt is not allowed. Fiscal day is closed or fiscal day close initiated
+    at ZimraDevice.wrapRequest (/home/emmanuel/Documents/PROJECTS/fisczim/server/zimra.ts:387:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async ZimraDevice.makeRequest (/home/emmanuel/Documents/PROJECTS/fisczim/server/zimra.ts:1077:28)
+    at async ZimraDevice.submitReceipt (/home/emmanuel/Documents/PROJECTS/fisczim/server/zimra.ts:796:30)
+    at async ZimraDevice.fiscalizeInvoice (/home/emmanuel/Documents/PROJECTS/fisczim/server/zimra.ts:1214:24)
+    at async <anonymous> (/home/emmanuel/Documents/PROJECTS/fisczim/server/routes.ts:5329:27)\n

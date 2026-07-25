@@ -1,0 +1,93 @@
+2023-09-05 15:41:16.7897|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-09-05 15:41:16.9081|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-05 15:41:16.9081|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-05 15:41:16.9081|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-05 15:41:16.9081|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-05 15:41:16.9171|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-05 15:41:16.9171|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-05 15:41:16.9171|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-09-05 15:41:16.9171|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-09-05 15:41:16.9171|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-09-05 15:41:16.9171|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-09-05 15:41:16.9171|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-09-05 15:41:16.9171|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-09-05 15:41:16.9171|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-09-05 15:41:18.4014|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-09-05 15:41:18.4988|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,200000000,10000000,AXIS SOLUTIONS DEMO DEVICE,14 ARUNDEL ROAD,ALEXANDRA PARK,HARARE,,9029AC5D011B,
+2023-09-05 15:41:18.5129|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "",
+  "VerificationCode": "",
+  "FiscalDay": "0",
+  "Data": {
+    "BPN": "200000000",
+    "VAT": "10000000",
+    "COMPANYNAME": "AXIS SOLUTIONS DEMO DEVICE",
+    "ADDRESS": "14 ARUNDEL ROAD ALEXANDRA PARK HARARE",
+    "REGISTRATIONNUMBER": "00000",
+    "SERIALNUMBER": "9029AC5D011B"
+  }
+}
+2023-09-05 15:41:56.3500|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-09-05 15:41:56.3702|INFO|RevmaxAPI.Revmaxlib|Invoice: 0000000995
+2023-09-05 15:41:56.3721|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2023-09-05 15:41:56.9066|INFO|RevmaxAPI.Revmaxlib|69FISCALINVOICE22023-09-05T15:41:56205A15.0027205
+2023-09-05 15:41:56.9066|INFO|RevmaxAPI.Revmaxlib|bSrxcGjO/j2rj6+FHGFfiXch+KH1vVPma5P++X62ct8=
+2023-09-05 15:41:56.9066|INFO|RevmaxAPI.Revmaxlib|https://fdmstest.zimra.co.zw/0000000069050920230000000002C770C7A00AC8757B
+2023-09-05 15:41:56.9387|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "https://fdmstest.zimra.co.zw/0000000069050920230000000002C770C7A00AC8757B",
+  "VerificationCode": "C770-C7A0-0AC8-757B",
+  "FiscalDay": "0",
+  "Data": {
+    "receipt": {
+      "receiptType": "FiscalInvoice",
+      "receiptCurrency": "",
+      "receiptCounter": 1,
+      "receiptGlobalNo": 2,
+      "invoiceNo": "0000000995",
+      "buyerData": null,
+      "receiptNotes": null,
+      "receiptDate": "2023-09-05T15:41:56",
+      "creditDebitNote": null,
+      "receiptLinesTaxInclusive": false,
+      "receiptLines": [
+        {
+          "receiptLineName": "Zapnax Tomato 10x100",
+          "receiptLineNo": 2,
+          "receiptLineQuantity": 1,
+          "receiptLineType": "Sale",
+          "receiptLineTotal": 1.78,
+          "taxID": 3,
+          "receiptLineHSCode": ".",
+          "receiptLinePrice": 1.78,
+          "taxCode": "A",
+          "taxPercent": 15.00
+        }
+      ],
+      "receiptTaxes": [
+        {
+          "salesAmountWithTax": 2.05,
+          "taxAmount": 0.27,
+          "taxID": 3,
+          "taxCode": "A",
+          "taxPercent": 15.00
+        }
+      ],
+      "receiptPayments": [
+        {
+          "moneyTypeCode": "Cash",
+          "paymentAmount": 2.05
+        }
+      ],
+      "receiptTotal": 2.05,
+      "receiptPrintForm": "Receipt48",
+      "receiptDeviceSignature": {
+        "hash": "bSrxcGjO/j2rj6+FHGFfiXch+KH1vVPma5P++X62ct8=",
+        "signature": "QvnB6wI9BDl/3SQAgGk+R13Sj4daiXysYlC0BsB7D3lxFy2l66E0d7XEqqJVfdfOGR7qSA0EZrLderiJWO8Dh0Pg3XsU15RRLXkr/L9aPotoSVnWnZUzyYzkbypfwbRtRTj7LSyyq2nTwXQ6I3Clr60lFqcJNvyT9yK2VQci8Y2xCUlxU1vMpq5kjFupwf0v8W5Z81izDi52F9NvCBDOUveH5UnegokRjgtV6xgMUNbN6JcPyt696hc4VVZk5oU45Tr2DlvazYZ9/s0F5+K4LGTbYZD9r6G6ROmOWr/GMtdDwl1AvYxUoudYfpF6N+3QFSLwkCFBxdpdsTFtTs0blQ=="
+      }
+    }
+  }
+}

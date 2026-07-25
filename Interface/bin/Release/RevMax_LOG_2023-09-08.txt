@@ -1,0 +1,507 @@
+2023-09-08 14:41:35.9610|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-09-08 14:41:36.5892|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 14:41:36.5892|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 14:41:36.5892|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 14:41:36.5962|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 14:41:36.5962|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 14:41:36.5962|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 14:41:36.5962|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-09-08 14:41:36.6157|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-09-08 14:41:36.6157|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-09-08 14:41:36.6157|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-09-08 14:41:36.7591|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-09-08 14:41:36.7591|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-09-08 14:41:36.7701|INFO|RevmaxAPI.Revmaxlib|Date updated
+2023-09-08 14:41:40.8404|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-09-08 14:41:41.0098|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,200000000,10000000,AXIS SOLUTIONS DEMO DEVICE,14 ARUNDEL ROAD,ALEXANDRA PARK,HARARE,,9029AC5D011B,
+2023-09-08 14:41:41.0629|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "",
+  "VerificationCode": "",
+  "FiscalDay": "0",
+  "Data": {
+    "BPN": "200000000",
+    "VAT": "10000000",
+    "COMPANYNAME": "AXIS SOLUTIONS DEMO DEVICE",
+    "ADDRESS": "14 ARUNDEL ROAD ALEXANDRA PARK HARARE",
+    "REGISTRATIONNUMBER": "00000",
+    "SERIALNUMBER": "9029AC5D011B"
+  }
+}
+2023-09-08 14:42:06.5756|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-09-08 14:42:06.5928|INFO|RevmaxAPI.Revmaxlib|Invoice: 0000000995
+2023-09-08 14:42:06.5958|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2023-09-08 14:42:07.0337|INFO|RevmaxAPI.Revmaxlib|69FISCALINVOICE22023-09-08T14:42:06205A15.0027205
+2023-09-08 14:42:07.0337|INFO|RevmaxAPI.Revmaxlib|Brc/xBLEp0juGiO6WJy4Fz7Oo57arwIlJ73CaoQMT1U=
+2023-09-08 14:42:07.0337|INFO|RevmaxAPI.Revmaxlib|https://fdmstest.zimra.co.zw/0000000069080920230000000002ECCE33D418ED8582
+2023-09-08 14:42:07.0636|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "https://fdmstest.zimra.co.zw/0000000069080920230000000002ECCE33D418ED8582",
+  "VerificationCode": "ECCE-33D4-18ED-8582",
+  "FiscalDay": "0",
+  "Data": {
+    "receipt": {
+      "receiptType": "FiscalInvoice",
+      "receiptCurrency": "",
+      "receiptCounter": 1,
+      "receiptGlobalNo": 2,
+      "invoiceNo": "0000000995",
+      "buyerData": null,
+      "receiptNotes": null,
+      "receiptDate": "2023-09-08T14:42:06",
+      "creditDebitNote": null,
+      "receiptLinesTaxInclusive": false,
+      "receiptLines": [
+        {
+          "receiptLineName": "Zapnax Tomato 10x100",
+          "receiptLineNo": 2,
+          "receiptLineQuantity": 1,
+          "receiptLineType": "Sale",
+          "receiptLineTotal": 1.78,
+          "taxID": 3,
+          "receiptLineHSCode": ".",
+          "receiptLinePrice": 1.78,
+          "taxCode": "A",
+          "taxPercent": 15.00
+        }
+      ],
+      "receiptTaxes": [
+        {
+          "salesAmountWithTax": 2.05,
+          "taxAmount": 0.27,
+          "taxID": 3,
+          "taxCode": "A",
+          "taxPercent": 15.00
+        }
+      ],
+      "receiptPayments": [
+        {
+          "moneyTypeCode": "Cash",
+          "paymentAmount": 2.05
+        }
+      ],
+      "receiptTotal": 2.05,
+      "receiptPrintForm": "Receipt48",
+      "receiptDeviceSignature": {
+        "hash": "Brc/xBLEp0juGiO6WJy4Fz7Oo57arwIlJ73CaoQMT1U=",
+        "signature": "LGnYfm8NvKfBpSZUbumdzIiRmgCTL6Rw7g3Xix/8Rou+b/3nTZK7WWeMdrCPOmMgIZeFTsFxC9PZ2wqni79T5GQQnBGz+t4AN6efmUGD4mgcNelZFU/IFr9l21Fz+ghESWmtxidYYF9YVHPx1x+WEbGAINZEK1G7Yu/W5S8DkvpAayDtWQc94hmBbK7qvbMgwugL2uo0g8s+VHpvqy6JWEvHYXw86Jf2cA8XNg9vj7a4yPwpTYUqqONlJPSwLi8MC00/pJRXoZPx2P71r94dAwB/kX6GP8v1vfg+XeG0pWta7fDP6A7NDsYakIQaVU4FjC7/uCctdh2ZbTD1ySHHRg=="
+      }
+    }
+  }
+}
+2023-09-08 14:43:40.7826|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-09-08 14:43:40.9497|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 14:43:40.9497|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 14:43:40.9553|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 14:43:40.9553|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 14:43:40.9553|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 14:43:40.9553|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 14:43:40.9553|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-09-08 14:43:40.9553|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-09-08 14:43:40.9553|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-09-08 14:43:40.9553|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-09-08 14:43:40.9920|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-09-08 14:43:40.9920|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-09-08 14:43:43.1261|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-09-08 14:43:43.2412|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,200000000,10000000,AXIS SOLUTIONS DEMO DEVICE,14 ARUNDEL ROAD,ALEXANDRA PARK,HARARE,,9029AC5D011B,
+2023-09-08 14:43:43.2701|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "",
+  "VerificationCode": "",
+  "FiscalDay": "0",
+  "Data": {
+    "BPN": "200000000",
+    "VAT": "10000000",
+    "COMPANYNAME": "AXIS SOLUTIONS DEMO DEVICE",
+    "ADDRESS": "14 ARUNDEL ROAD ALEXANDRA PARK HARARE",
+    "REGISTRATIONNUMBER": "00000",
+    "SERIALNUMBER": "9029AC5D011B"
+  }
+}
+2023-09-08 14:43:44.7439|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-09-08 14:43:44.7621|INFO|RevmaxAPI.Revmaxlib|Invoice: 0000000995
+2023-09-08 14:43:44.7621|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2023-09-08 14:43:45.0266|INFO|RevmaxAPI.Revmaxlib|69FISCALINVOICE22023-09-08T14:43:44205A15.0027205
+2023-09-08 14:43:45.0266|INFO|RevmaxAPI.Revmaxlib|nWq7cdLuozM8F9FL96z4Nc5O+IVezxpcvQ9UN+gH+OM=
+2023-09-08 14:43:45.0266|INFO|RevmaxAPI.Revmaxlib|https://fdmstest.zimra.co.zw/0000000069080920230000000002BDF5F8DB730CE792
+2023-09-08 14:43:45.0755|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "https://fdmstest.zimra.co.zw/0000000069080920230000000002BDF5F8DB730CE792",
+  "VerificationCode": "BDF5-F8DB-730C-E792",
+  "FiscalDay": "0",
+  "Data": {
+    "receipt": {
+      "receiptType": "FiscalInvoice",
+      "receiptCurrency": "",
+      "receiptCounter": 1,
+      "receiptGlobalNo": 2,
+      "invoiceNo": "0000000995",
+      "buyerData": null,
+      "receiptNotes": null,
+      "receiptDate": "2023-09-08T14:43:44",
+      "creditDebitNote": null,
+      "receiptLinesTaxInclusive": false,
+      "receiptLines": [
+        {
+          "receiptLineName": "Zapnax Tomato 10x100",
+          "receiptLineNo": 2,
+          "receiptLineQuantity": 1,
+          "receiptLineType": "Sale",
+          "receiptLineTotal": 1.78,
+          "taxID": 3,
+          "receiptLineHSCode": ".",
+          "receiptLinePrice": 1.78,
+          "taxCode": "A",
+          "taxPercent": 15.00
+        }
+      ],
+      "receiptTaxes": [
+        {
+          "salesAmountWithTax": 2.05,
+          "taxAmount": 0.27,
+          "taxID": 3,
+          "taxCode": "A",
+          "taxPercent": 15.00
+        }
+      ],
+      "receiptPayments": [
+        {
+          "moneyTypeCode": "Cash",
+          "paymentAmount": 2.05
+        }
+      ],
+      "receiptTotal": 2.05,
+      "receiptPrintForm": "Receipt48",
+      "receiptDeviceSignature": {
+        "hash": "nWq7cdLuozM8F9FL96z4Nc5O+IVezxpcvQ9UN+gH+OM=",
+        "signature": "fV6IPosNC9jgajVx66ZPWwr3E/vKnVlnFKkKH7J/1Ct+PA7eFjtYAQSnIaV3OEiX277ZdRA2DWi+YSQTCkeGkoN2m6LGlVCdFhthzaCyuOer2DAng3dSMWYrWwNrMZOM4Corx6p0v49MMyYl4/mVfrJvCu65ZD1areFdmSao/v0lFv1fKai2iCbQkSfdJ7xgBI47SR4DoOlWjUwXRjMPgEFoikenGquXO4GXr57INwLQwMan7xzifsoned04zFYYB+R5+r0eJFeOnzbXtjCny2200UcGy1Rg8VYPEdfayh7D0zrqT09AVVnZubMFLoRvnedFVs/X/ju0namYltkN1A=="
+      }
+    }
+  }
+}
+2023-09-08 16:04:04.5240|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-09-08 16:04:04.7674|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 16:04:04.7704|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 16:04:04.7704|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 16:04:04.7704|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 16:04:04.7704|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 16:04:04.7704|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 16:04:04.7704|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-09-08 16:04:04.7934|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-09-08 16:04:04.7934|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-09-08 16:04:04.7934|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-09-08 16:04:04.8224|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-09-08 16:04:04.8224|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-09-08 16:04:06.6624|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-09-08 16:04:06.8343|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,200000000,10000000,AXIS SOLUTIONS DEMO DEVICE,14 ARUNDEL ROAD,ALEXANDRA PARK,HARARE,,9029AC5D011B,
+2023-09-08 16:04:06.8725|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "",
+  "VerificationCode": "",
+  "FiscalDay": "1",
+  "Data": {
+    "BPN": "200000000",
+    "VAT": "10000000",
+    "COMPANYNAME": "AXIS SOLUTIONS DEMO DEVICE",
+    "ADDRESS": "14 ARUNDEL ROAD ALEXANDRA PARK HARARE",
+    "REGISTRATIONNUMBER": "00000",
+    "SERIALNUMBER": "9029AC5D011B"
+  }
+}
+2023-09-08 16:04:08.2450|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-09-08 16:04:08.2638|INFO|RevmaxAPI.Revmaxlib|Invoice: 0000000995
+2023-09-08 16:04:08.2638|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2023-09-08 16:04:08.3555|ERROR|RevmaxAPI.Revmaxlib|RCPT019 : [Tax Inclusive] Invalid receiptTotal - receiptTotal must be equal to sum of receiptLineTotal of all receiptLines.
+2023-09-08 16:04:36.8813|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-09-08 16:04:37.0351|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 16:04:37.0525|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 16:04:37.0525|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 16:04:37.0525|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 16:04:37.0645|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 16:04:37.0645|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 16:04:37.0645|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-09-08 16:04:37.0645|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-09-08 16:04:37.0645|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-09-08 16:04:37.0645|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-09-08 16:04:37.0645|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-09-08 16:04:37.0645|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-09-08 16:04:38.7367|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-09-08 16:04:38.7957|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,200000000,10000000,AXIS SOLUTIONS DEMO DEVICE,14 ARUNDEL ROAD,ALEXANDRA PARK,HARARE,,9029AC5D011B,
+2023-09-08 16:04:38.8120|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "",
+  "VerificationCode": "",
+  "FiscalDay": "1",
+  "Data": {
+    "BPN": "200000000",
+    "VAT": "10000000",
+    "COMPANYNAME": "AXIS SOLUTIONS DEMO DEVICE",
+    "ADDRESS": "14 ARUNDEL ROAD ALEXANDRA PARK HARARE",
+    "REGISTRATIONNUMBER": "00000",
+    "SERIALNUMBER": "9029AC5D011B"
+  }
+}
+2023-09-08 16:04:40.6183|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-09-08 16:04:40.6303|INFO|RevmaxAPI.Revmaxlib|Invoice: 0000000995
+2023-09-08 16:04:40.6303|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2023-09-08 16:04:40.8655|INFO|RevmaxAPI.Revmaxlib|136FISCALINVOICE12023-09-08T16:04:40205A15.0027205
+2023-09-08 16:04:40.8655|INFO|RevmaxAPI.Revmaxlib|7iIBLJDdo01KSgzjl1jztN9l3PWCZt0lqmbPUsO16X0=
+2023-09-08 16:04:40.8655|INFO|RevmaxAPI.Revmaxlib|https://fdmstest.zimra.co.zw/00000001360809202300000000014C851C04DD4530AE
+2023-09-08 16:04:40.8821|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "https://fdmstest.zimra.co.zw/00000001360809202300000000014C851C04DD4530AE",
+  "VerificationCode": "4C85-1C04-DD45-30AE",
+  "FiscalDay": "1",
+  "Data": {
+    "receipt": {
+      "receiptType": "FiscalInvoice",
+      "receiptCurrency": "",
+      "receiptCounter": 1,
+      "receiptGlobalNo": 1,
+      "invoiceNo": "0000000995",
+      "buyerData": null,
+      "receiptNotes": null,
+      "receiptDate": "2023-09-08T16:04:40",
+      "creditDebitNote": null,
+      "receiptLinesTaxInclusive": false,
+      "receiptLines": [
+        {
+          "receiptLineName": "Zapnax Tomato 10x100",
+          "receiptLineNo": 2,
+          "receiptLineQuantity": 1,
+          "receiptLineType": "Sale",
+          "receiptLineTotal": 1.78,
+          "taxID": 3,
+          "receiptLineHSCode": ".",
+          "receiptLinePrice": 1.78,
+          "taxCode": "A",
+          "taxPercent": 15.00
+        }
+      ],
+      "receiptTaxes": [
+        {
+          "salesAmountWithTax": 2.05,
+          "taxAmount": 0.27,
+          "taxID": 3,
+          "taxCode": "A",
+          "taxPercent": 15.00
+        }
+      ],
+      "receiptPayments": [
+        {
+          "moneyTypeCode": "Cash",
+          "paymentAmount": 2.05
+        }
+      ],
+      "receiptTotal": 2.05,
+      "receiptPrintForm": "Receipt48",
+      "receiptDeviceSignature": {
+        "hash": "7iIBLJDdo01KSgzjl1jztN9l3PWCZt0lqmbPUsO16X0=",
+        "signature": "axCqldcvqK9S8AaEPfQQn4/Y1tYMVuM7Ci1QZxZn9NkbohwiNTShEitIwoKUtRCoLhPCNsiRp2xqj1r6V2Vn6YujRATnU0+PjejchKEB03GJB7y2yYLewnTHhYsOAw57pfsu9b/ZxbpEyDzlbGxU77BvjHJmNvr/wE9UTUazuPJvy4oH3byxXWqmEBn0m0eLOjQfrBY7HLxoFfAaB4bWscYafjaaKIoZ3Xwpoicdfd3SFmEnZ+rgqUnqjhqwRzH30f6GNXMjScmW6QjaG/Thc57iPrRBPAFm3Z5s6q4KiXVnkENW6TVahu+uMOJGDfPaFlEvclK0zIAevh2NJdNDlg=="
+      }
+    }
+  }
+}
+2023-09-08 16:19:20.9416|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-09-08 16:19:21.2344|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 16:19:21.2482|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 16:19:21.2482|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 16:19:21.2482|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 16:19:21.2539|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 16:19:21.2539|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 16:19:21.2539|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-09-08 16:19:21.2685|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-09-08 16:19:21.2685|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-09-08 16:19:21.2685|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-09-08 16:19:21.2930|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-09-08 16:19:21.2930|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-09-08 16:19:22.8669|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-09-08 16:19:22.9627|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,200000000,10000000,AXIS SOLUTIONS DEMO DEVICE,14 ARUNDEL ROAD,ALEXANDRA PARK,HARARE,,9029AC5D011B,
+2023-09-08 16:19:22.9627|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "",
+  "VerificationCode": "",
+  "FiscalDay": "1",
+  "Data": {
+    "BPN": "200000000",
+    "VAT": "10000000",
+    "COMPANYNAME": "AXIS SOLUTIONS DEMO DEVICE",
+    "ADDRESS": "14 ARUNDEL ROAD ALEXANDRA PARK HARARE",
+    "REGISTRATIONNUMBER": "00000",
+    "SERIALNUMBER": "9029AC5D011B"
+  }
+}
+2023-09-08 16:41:15.9589|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-09-08 16:41:15.9882|ERROR|RevmaxAPI.Revmaxlib|RevMax not found
+2023-09-08 16:41:16.0295|ERROR|RevmaxAPI.Revmaxlib|RevMax not found
+2023-09-08 16:41:16.0295|INFO|RevmaxAPI.Revmaxlib|Creating Z Report file
+2023-09-08 16:41:16.0295|ERROR|RevmaxAPI.Revmaxlib|No Revmax: Failed to create Z Report file
+2023-09-08 16:41:16.0295|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-09-08 16:41:16.0295|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-09-08 16:41:42.5142|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-09-08 16:41:42.8159|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 16:41:42.8159|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 16:41:42.8159|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 16:41:42.8159|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 16:41:42.8315|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 16:41:42.8315|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 16:41:42.8315|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-09-08 16:41:42.8315|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-09-08 16:41:42.8315|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-09-08 16:41:42.8315|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-09-08 16:41:42.8481|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-09-08 16:41:42.8793|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-09-08 16:41:42.8925|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-09-08 16:41:44.0909|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-09-08 16:41:44.1545|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,222222222,11111111,Axis Solutions,14 Arundel Road,Alexandr Park,Harare,,9029AC52011B,
+2023-09-08 16:41:44.1708|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "",
+  "VerificationCode": "",
+  "FiscalDay": "1",
+  "Data": {
+    "BPN": "222222222",
+    "VAT": "11111111",
+    "COMPANYNAME": "Axis Solutions",
+    "ADDRESS": "14 Arundel Road Alexandr Park Harare",
+    "REGISTRATIONNUMBER": "00000",
+    "SERIALNUMBER": "9029AC52011B"
+  }
+}
+2023-09-08 16:42:56.8184|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-09-08 16:42:56.9770|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 16:42:56.9770|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 16:42:56.9934|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 16:42:56.9934|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 16:42:56.9934|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 16:42:56.9934|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 16:42:56.9934|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-09-08 16:42:56.9934|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-09-08 16:42:56.9934|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-09-08 16:42:57.0035|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-09-08 16:42:57.0035|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-09-08 16:42:57.0035|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-09-08 16:42:57.0035|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-09-08 16:42:58.2205|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-09-08 16:42:58.2652|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,222222222,11111111,Axis Solutions,14 Arundel Road,Alexandr Park,Harare,,9029AC52011B,
+2023-09-08 16:42:58.2806|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "",
+  "VerificationCode": "",
+  "FiscalDay": "1",
+  "Data": {
+    "BPN": "222222222",
+    "VAT": "11111111",
+    "COMPANYNAME": "Axis Solutions",
+    "ADDRESS": "14 Arundel Road Alexandr Park Harare",
+    "REGISTRATIONNUMBER": "00000",
+    "SERIALNUMBER": "9029AC52011B"
+  }
+}
+2023-09-08 16:43:00.4364|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-09-08 16:43:00.4519|INFO|RevmaxAPI.Revmaxlib|Invoice: 0000000995
+2023-09-08 16:43:00.4519|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2023-09-08 16:43:00.5621|ERROR|RevmaxAPI.Revmaxlib|RCPT019 : [Tax Inclusive] Invalid receiptTotal - receiptTotal must be equal to sum of receiptLineTotal of all receiptLines.
+2023-09-08 16:43:20.8829|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-09-08 16:43:21.0019|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 16:43:21.0019|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 16:43:21.0019|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 16:43:21.0019|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 16:43:21.0221|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 16:43:21.0221|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-08 16:43:21.0221|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-09-08 16:43:21.0221|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-09-08 16:43:21.0221|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-09-08 16:43:21.0221|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-09-08 16:43:21.0221|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-09-08 16:43:21.0420|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-09-08 16:43:21.0420|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-09-08 16:43:22.3063|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-09-08 16:43:22.3706|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,222222222,11111111,Axis Solutions,14 Arundel Road,Alexandr Park,Harare,,9029AC52011B,
+2023-09-08 16:43:22.3911|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "",
+  "VerificationCode": "",
+  "FiscalDay": "1",
+  "Data": {
+    "BPN": "222222222",
+    "VAT": "11111111",
+    "COMPANYNAME": "Axis Solutions",
+    "ADDRESS": "14 Arundel Road Alexandr Park Harare",
+    "REGISTRATIONNUMBER": "00000",
+    "SERIALNUMBER": "9029AC52011B"
+  }
+}
+2023-09-08 16:43:24.3973|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-09-08 16:43:24.4120|INFO|RevmaxAPI.Revmaxlib|Invoice: 0000000995
+2023-09-08 16:43:24.4262|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2023-09-08 16:43:24.5998|INFO|RevmaxAPI.Revmaxlib|557FISCALINVOICEUSD12023-09-08T16:43:24205A15.0027205
+2023-09-08 16:43:24.5998|INFO|RevmaxAPI.Revmaxlib|oZWlWvSFZXMFxsiCYskJ2iRDKZTEdQGrynBzePgdsBg=
+2023-09-08 16:43:24.5998|INFO|RevmaxAPI.Revmaxlib|https://fdmstest.zimra.co.zw/00000005570809202300000000016C01EC3821F961C9
+2023-09-08 16:43:24.6334|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "https://fdmstest.zimra.co.zw/00000005570809202300000000016C01EC3821F961C9",
+  "VerificationCode": "6C01-EC38-21F9-61C9",
+  "FiscalDay": "1",
+  "Data": {
+    "receipt": {
+      "receiptType": "FiscalInvoice",
+      "receiptCurrency": "USD",
+      "receiptCounter": 1,
+      "receiptGlobalNo": 1,
+      "invoiceNo": "0000000995",
+      "buyerData": null,
+      "receiptNotes": null,
+      "receiptDate": "2023-09-08T16:43:24",
+      "creditDebitNote": null,
+      "receiptLinesTaxInclusive": false,
+      "receiptLines": [
+        {
+          "receiptLineName": "Zapnax Tomato 10x100",
+          "receiptLineNo": 2,
+          "receiptLineQuantity": 1,
+          "receiptLineType": "Sale",
+          "receiptLineTotal": 1.78,
+          "taxID": 3,
+          "receiptLineHSCode": ".",
+          "receiptLinePrice": 1.78,
+          "taxCode": "A",
+          "taxPercent": 15.00
+        }
+      ],
+      "receiptTaxes": [
+        {
+          "salesAmountWithTax": 2.05,
+          "taxAmount": 0.27,
+          "taxID": 3,
+          "taxCode": "A",
+          "taxPercent": 15.00
+        }
+      ],
+      "receiptPayments": [
+        {
+          "moneyTypeCode": "Cash",
+          "paymentAmount": 2.05
+        }
+      ],
+      "receiptTotal": 2.05,
+      "receiptPrintForm": "Receipt48",
+      "receiptDeviceSignature": {
+        "hash": "oZWlWvSFZXMFxsiCYskJ2iRDKZTEdQGrynBzePgdsBg=",
+        "signature": "eb/5g3jAskxrFpl6fhLzln9/20fekzB8hRIIzh3V1NxM6jnGLDWufLmrQOt8CzY/sM/Ym82/13lEFhRKX2jiIeawSD4cRZnhar4OVJk4xTiMTWEe+LsanZjl95K7Ja8Xc9vmsomfTSKFeaz9B2VnMTVNwTLRwjwWwIHew7/KOPY9EQILH9Dqq2+Cx1jJAzkGG84DHcQWF0eGFO13QdPMKBcyOP5xHJ0LFN5vBKhJ/spDpMKO3te7LNLW5vIwSI8+H+eLHbEd0h/9rKa7DAMziwqJ8oR+l+A0Ef6pKbbO5yS5YcM+mtOYG5NqxTrYO8KAR3JgbCwhhWCZypsVW/7bWA=="
+      }
+    }
+  }
+}

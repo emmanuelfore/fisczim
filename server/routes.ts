@@ -37,7 +37,7 @@ import { resolveActionAccess } from "./lib/approval-policies.js";
 import { createApprovalRequest } from "./lib/approvals.js";
 import { APPROVAL_TYPES, ALL_PERMISSION_KEYS } from "../shared/permissions.js";
 import { db } from "./db";
-import { eq, and, gt, gte, lte, ne, desc, asc, sql, or, ilike, isNull, inArray } from "drizzle-orm";
+import { eq, and, gt, gte, lte, ne, desc, asc, sql, or, ilike, isNull, isNotNull, inArray } from "drizzle-orm";
 import { format } from "date-fns";
 import {
   invoices,
@@ -812,12 +812,18 @@ export async function registerRoutes(
       });
       if (company) {
         req.company = company;
+        req.apiKeyCompanyId = company.id; // Always set so handlers don't need query param
+        // Provide a minimal user-like object so handlers using req.user?.companyId work
+        if (!req.user) {
+          req.user = { companyId: company.id, id: null, isApiKey: true };
+        }
         return next();
       }
+      return res.status(401).json({ message: "Unauthorized: Invalid API key" });
     }
 
     if (!req.isAuthenticated()) {
-      return res.status(401).json({ message: "Unauthorized" });
+      return res.status(401).json({ message: "Unauthorized: Authentication required" });
     }
     next();
   };
@@ -859,8 +865,19 @@ export async function registerRoutes(
         }).catch(err => console.error("Failed to log API request:", err));
       }
     };
+
     next();
   };
+
+  // Alias /api/zimra/* routes to auto-inject companyId for API key users
+  app.use("/api/zimra", requireAuthOrApiKey, (req, res, next) => {
+    if ((req as any).apiKeyCompanyId) {
+      // In app.use('/prefix'), req.url is the remaining path
+      req.url = `/api/companies/${(req as any).apiKeyCompanyId}/zimra${req.url}`;
+      return (app as any).handle(req, res);
+    }
+    next();
+  });
 
   const requireSuperAdmin = async (req: any, res: any, next: any) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
@@ -1054,7 +1071,7 @@ export async function registerRoutes(
 
   app.post("/api/companies/:id/logo", requireAuth, logoUpload.single("logo"), async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       if (!req.file) {
         return res.status(400).json({ message: "No file uploaded" });
       }
@@ -2051,7 +2068,7 @@ export async function registerRoutes(
 
   app.patch("/api/companies/:id", requireAuth, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       
       // Transform empty strings to null to avoid unique constraint violations
       if (req.body.tin === "") req.body.tin = null;
@@ -2439,9 +2456,9 @@ export async function registerRoutes(
   });
 
   // ZIMRA Environment Switching
-  app.post("/api/companies/:id/zimra/environment", requireAuth, async (req, res) => {
+  app.post("/api/companies/:id/zimra/environment", requireAuthOrApiKey, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const { environment } = req.body;
 
       // Validate environment value
@@ -2546,7 +2563,7 @@ export async function registerRoutes(
   // Audit Logs
   app.get("/api/companies/:id/audit-logs", requireAuth, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const limit = req.query.limit ? Number(req.query.limit) : 50;
 
       // Verify user has access to company (owner/admin)
@@ -2563,7 +2580,7 @@ export async function registerRoutes(
   // ZIMRA Transaction Logs (TEMP: Auth disabled for debugging)
   app.get("/api/companies/:id/zimra/logs", async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const limit = req.query.limit ? Number(req.query.limit) : 100;
       const logs = await storage.getCompanyZimraLogs(companyId, limit);
       res.json(logs);
@@ -2589,7 +2606,7 @@ export async function registerRoutes(
   // ZIMRA Sequence Report — shows receipt global/counter chain with gap detection
   app.get("/api/companies/:id/zimra/sequence-report", async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const { db } = await import("./db.js");
       const { zimraLogs, invoices } = await import("../shared/schema.js");
       const { eq, and, isNotNull, desc, asc, inArray } = await import("drizzle-orm");
@@ -2743,9 +2760,9 @@ export async function registerRoutes(
 
 
   // Get current ZIMRA environment status
-  app.get("/api/companies/:id/zimra/environment", requireAuth, async (req, res) => {
+  app.get("/api/companies/:id/zimra/environment", requireAuthOrApiKey, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const company = await storage.getCompany(companyId);
 
       if (!company) {
@@ -3535,7 +3552,7 @@ export async function registerRoutes(
   // 1. POST /api/companies/:id/api-keys/generate - Generate New API Key
   app.post("/api/companies/:id/api-keys/generate", requireOwner, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const company = await storage.getCompany(companyId);
 
       if (!company) {
@@ -3587,7 +3604,7 @@ export async function registerRoutes(
   // 2. POST /api/companies/:id/api-keys/rotate - Rotate API Key
   app.post("/api/companies/:id/api-keys/rotate", requireOwner, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const company = await storage.getCompany(companyId);
 
       if (!company) {
@@ -3637,7 +3654,7 @@ export async function registerRoutes(
   // 3. GET /api/companies/:id/api-keys - List API Keys (metadata only)
   app.get("/api/companies/:id/api-keys", requireOwner, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const company = await storage.getCompany(companyId);
 
       if (!company) {
@@ -3668,7 +3685,7 @@ export async function registerRoutes(
   // 4. DELETE /api/companies/:id/api-keys - Revoke API Key
   app.delete("/api/companies/:id/api-keys", requireOwner, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const company = await storage.getCompany(companyId);
 
       if (!company) {
@@ -3713,9 +3730,9 @@ export async function registerRoutes(
   // ============================================================================
 
   // Company Zimra Registration
-  app.post("/api/companies/:id/zimra/register", requireAuth, async (req, res) => {
+  app.post("/api/companies/:id/zimra/register", requireAuthOrApiKey, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const { deviceId, activationKey, deviceSerialNo, environment: envOverride } = req.body;
 
       if (!deviceId || !activationKey || !deviceSerialNo) {
@@ -3790,9 +3807,9 @@ export async function registerRoutes(
   });
 
   // Verify Taxpayer Information Route
-  app.post("/api/companies/:id/zimra/verify-taxpayer", requireAuth, async (req, res) => {
+  app.post("/api/companies/:id/zimra/verify-taxpayer", requireAuthOrApiKey, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const { deviceId, activationKey, deviceSerialNo, environment: envOverride } = req.body;
 
       if (!deviceId || !activationKey || !deviceSerialNo) {
@@ -3833,9 +3850,9 @@ export async function registerRoutes(
   });
 
   // Certificate Management
-  app.post("/api/companies/:id/zimra/issue-certificate", requireAuth, async (req, res) => {
+  app.post("/api/companies/:id/zimra/issue-certificate", requireAuthOrApiKey, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const company = await storage.getCompany(companyId);
       if (!company || !company.fdmsDeviceId) return res.status(400).json({ message: "Not registered" });
 
@@ -3866,9 +3883,9 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/companies/:id/zimra/server-certificate", requireAuth, async (req, res) => {
+  app.get("/api/companies/:id/zimra/server-certificate", requireAuthOrApiKey, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const thumbprint = req.query.thumbprint as string;
 
       // We don't strictly need auth company for public endpoint, 
@@ -4299,9 +4316,9 @@ export async function registerRoutes(
   });
 
   // ZIMRA Fiscal Day Management
-  app.get("/api/companies/:id/zimra/status", requireAuth, async (req, res) => {
+  app.get("/api/companies/:id/zimra/status", requireAuthOrApiKey, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const branchId = req.query.branchId ? Number(req.query.branchId) : undefined;
       const company = await storage.getCompany(companyId);
       if (!company) {
@@ -4365,9 +4382,9 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/companies/:id/zimra/config/sync", requireAuth, async (req, res) => {
+  app.post("/api/companies/:id/zimra/config/sync", requireAuthOrApiKey, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const company = await storage.getCompany(companyId);
       if (!company || !company.fdmsDeviceId) {
         return res.status(400).json({ message: "Company not registered with ZIMRA" });
@@ -4426,9 +4443,9 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/companies/:id/zimra/applicable-taxes", requireAuth, async (req, res) => {
+  app.get("/api/companies/:id/zimra/applicable-taxes", requireAuthOrApiKey, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const company = await storage.getCompany(companyId);
       if (!company || !company.fdmsDeviceId) {
         return res.status(400).json({ message: "Company not registered with ZIMRA" });
@@ -4459,9 +4476,9 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/companies/:id/zimra/ping", requireAuth, async (req, res) => {
+  app.post("/api/companies/:id/zimra/ping", requireAuthOrApiKey, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const company = await storage.getCompany(companyId);
       if (!company || !company.fdmsDeviceId) {
         return res.status(400).json({ message: "Company not registered with ZIMRA" });
@@ -4495,9 +4512,9 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/companies/:id/zimra/connectivity-test", requireAuth, async (req, res) => {
+  app.post("/api/companies/:id/zimra/connectivity-test", requireAuthOrApiKey, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const company = await storage.getCompany(companyId);
       if (!company || !company.fdmsDeviceId) {
         return res.status(400).json({ message: "Company not registered with ZIMRA" });
@@ -4589,9 +4606,9 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/companies/:id/zimra/day/open", requireAuth, async (req, res) => {
+  app.post("/api/companies/:id/zimra/day/open", requireAuthOrApiKey, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const company = await storage.getCompany(companyId);
 
       if (!company || !company.fdmsDeviceId) {
@@ -4647,8 +4664,8 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/companies/:id/zimra/day/close", requireAuth, async (req, res) => {
-    const companyId = Number(req.params.id);
+  app.get("/api/companies/:id/zimra/day/x-report", requireAuthOrApiKey, async (req, res) => {
+    const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
     const maxRetries = 3;
     const retryDelay = 2000; // 2 seconds between retries
 
@@ -4900,9 +4917,9 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/companies/:id/zimra/day/x-report", requireAuth, async (req, res) => {
+  app.get("/api/companies/:id/zimra/day/z-report", requireAuthOrApiKey, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const company = await storage.getCompany(companyId);
       if (!company) return res.status(404).json({ message: "Company not found" });
 
@@ -4968,9 +4985,9 @@ export async function registerRoutes(
   });
 
   // Z-Report endpoint - fetch report data for any closed fiscal day
-  app.get("/api/companies/:id/zimra/day/z-report", requireAuth, async (req, res) => {
+  app.get("/api/companies/:id/zimra/status", requireAuthOrApiKey, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const company = await storage.getCompany(companyId);
 
       if (!company) {
@@ -5007,7 +5024,7 @@ export async function registerRoutes(
   // Maintenance: Clear Test Invoices
   app.post("/api/companies/:id/invoices/clear-test", requireAuth, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
 
       // Permission Check: Only Owner or Admin can clear test data
       const role = await storage.getCompanyUserRole((req.user as any).id, companyId);
@@ -5080,20 +5097,27 @@ export async function registerRoutes(
     };
   }
 
-  // 1. GET /api/zimra/device-details - GetCardDetails
   app.get("/api/zimra/device-details", requireAuthOrApiKey, apiLogger, async (req, res) => {
     try {
-      // Get the companyId from query or session
-      let companyId = parseInt(req.query.companyId as string);
+      // Resolve companyId from query param, X-Company-Id header, session user, or API key lookup
+      let companyId = parseInt(req.query.companyId as string) ||
+                      parseInt(req.headers['x-company-id'] as string) || 0;
 
       if (!companyId) {
         const user = req.user as any;
-        companyId = user?.companyId;
+        companyId = user?.companyId || 0;
       }
 
-      // If still no companyId, fetch the first registered company (fallback for easy integration)
+      // If companyId resolved from API key context (set by requireAuthOrApiKey middleware)
+      if (!companyId && (req as any).apiKeyCompanyId) {
+        companyId = (req as any).apiKeyCompanyId;
+      }
+
+      // Last resort: find first company with a registered ZIMRA device
       if (!companyId) {
-        const allCompanies = await db.select().from(companies).limit(1);
+        const allCompanies = await db.select().from(companies)
+          .where(isNotNull(companies.fdmsDeviceId))
+          .limit(1);
         if (allCompanies.length > 0) {
           companyId = allCompanies[0].id;
         }
@@ -5105,7 +5129,7 @@ export async function registerRoutes(
 
       const company = await storage.getCompany(companyId);
       if (!company || !company.fdmsDeviceId) {
-        return res.status(404).json(formatRevMaxResponse("0", "Device not found or not registered"));
+        return res.status(404).json(formatRevMaxResponse("0", "Device not found or not registered", {}, company || undefined));
       }
 
       const response = formatRevMaxResponse("1", "Success", {
@@ -5128,7 +5152,7 @@ export async function registerRoutes(
   // 2. GET /api/companies/:id/zimra/device-status - GetDeviceStatus (RevMax format)
   app.get("/api/companies/:id/zimra/device-status", requireAuthOrApiKey, apiLogger, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const company = await storage.getCompany(companyId);
 
       if (!company || !company.fdmsDeviceId || !company.zimraPrivateKey) {
@@ -5195,7 +5219,7 @@ export async function registerRoutes(
   // 3. POST /api/companies/:id/zimra/transact - TransactM
   app.post("/api/companies/:id/zimra/transact", requireAuthOrApiKey, apiLogger, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const company = await storage.getCompany(companyId);
 
       if (!company || !company.fdmsDeviceId) {
@@ -5302,6 +5326,7 @@ export async function registerRoutes(
         status: INVOICEFLAG === "01" ? "draft" : "draft",
         notes: INVOICECOMMENT || null,
         originalInvoiceNumber: ORIGINALINVOICENUMBER || null,
+        externalRef: INVOICENUMBER,
         items: parsedItems
       };
 
@@ -5390,7 +5415,7 @@ export async function registerRoutes(
   // 4. POST /api/companies/:id/zimra/transact-ext - TransactMExt
   app.post("/api/companies/:id/zimra/transact-ext", requireAuthOrApiKey, apiLogger, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const company = await storage.getCompany(companyId);
 
       if (!company || !company.fdmsDeviceId) {
@@ -5510,6 +5535,7 @@ export async function registerRoutes(
         status: InvoiceFlag === "01" ? "draft" : "draft",
         notes: InvoiceComment || null,
         originalInvoiceNumber: OriginalInvoiceNumber || null,
+        externalRef: InvoiceNumber,
         items: parsedItems
       };
 
@@ -5595,7 +5621,7 @@ export async function registerRoutes(
   // 5. POST /api/companies/:id/zimra/z-report - Unified Z-Report (open/close)
   app.post("/api/companies/:id/zimra/z-report", requireAuthOrApiKey, apiLogger, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const action = req.query.action as string;
       const company = await storage.getCompany(companyId);
 
@@ -5800,15 +5826,124 @@ export async function registerRoutes(
     }
   });
 
-  // 6. GET /api/companies/:id/zimra/transactions/:invoiceNumber - GetTransaction
-  app.get("/api/companies/:id/zimra/transactions/:invoiceNumber", requireAuthOrApiKey, apiLogger, async (req, res) => {
+  // NOTE: Static sub-routes (/unprocessed, /unprocessed/summary, /unprocessed/by-date)
+  // MUST be registered BEFORE the dynamic /transactions/:invoiceNumber route.
+
+  // 7. GET /api/companies/:id/zimra/transactions/unprocessed/summary
+  app.get("/api/companies/:id/zimra/transactions/unprocessed/summary", requireAuthOrApiKey, apiLogger, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
-      const invoiceNumber = req.params.invoiceNumber;
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
+      const fiscalDayNumber = req.query.fiscalDayNumber as string;
+      const fiscalDate = req.query.fiscalDate as string;
       const company = await storage.getCompany(companyId);
 
       const invoices = await storage.getInvoices(companyId);
-      const invoice = invoices.find(inv => inv.invoiceNumber === invoiceNumber);
+      const unprocessed = invoices.filter(inv =>
+        inv.status === "draft" || !inv.syncedWithFdms
+      );
+
+      const totalUnprocessed = unprocessed.length;
+      const totalAmount = unprocessed.reduce((sum, inv) => sum + parseFloat(inv.total.toString()), 0);
+
+      const response = formatRevMaxResponse("1", "Success", {
+        fiscalDayNumber: fiscalDayNumber || company?.currentFiscalDayNo?.toString() || "",
+        fiscalDate: fiscalDate || new Date().toISOString().split('T')[0],
+        totalUnprocessed,
+        totalAmount
+      }, company || undefined);
+
+      res.json(response);
+    } catch (err: any) {
+      const company = await storage.getCompany(Number(req.params.id));
+      res.status(500).json(formatRevMaxResponse("0", `Error: ${err.message}`, {}, company || undefined));
+    }
+  });
+
+  // 8. GET /api/companies/:id/zimra/transactions/unprocessed (paginated)
+  app.get("/api/companies/:id/zimra/transactions/unprocessed", requireAuthOrApiKey, apiLogger, async (req, res) => {
+    try {
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
+      const fiscalDayNumber = req.query.fiscalDayNumber as string;
+      const page = parseInt(req.query.page as string) || 1;
+      const pageSize = Math.min(parseInt(req.query.pageSize as string) || 50, 1000);
+      const company = await storage.getCompany(companyId);
+
+      const invoices = await storage.getInvoices(companyId);
+      let unprocessed = invoices.filter(inv =>
+        inv.status === "draft" || !inv.syncedWithFdms
+      );
+
+      if (fiscalDayNumber) {
+        const dayNo = parseInt(fiscalDayNumber);
+        unprocessed = unprocessed.filter(inv => (inv as any).fiscalDayNo === dayNo || !(inv as any).fiscalDayNo);
+      }
+
+      const totalRecords = unprocessed.length;
+      const totalPages = Math.ceil(totalRecords / pageSize) || 1;
+      const startIndex = (page - 1) * pageSize;
+      const paginatedTransactions = unprocessed.slice(startIndex, startIndex + pageSize);
+
+      res.json(formatRevMaxResponse("1", "Success", {
+        page, pageSize, totalRecords, totalPages,
+        transactions: paginatedTransactions
+      }, company || undefined));
+    } catch (err: any) {
+      const company = await storage.getCompany(Number(req.params.id));
+      res.status(500).json(formatRevMaxResponse("0", `Error: ${err.message}`, {}, company || undefined));
+    }
+  });
+
+  // 9. GET /api/companies/:id/zimra/transactions/unprocessed/by-date
+  app.get("/api/companies/:id/zimra/transactions/unprocessed/by-date", requireAuthOrApiKey, apiLogger, async (req, res) => {
+    try {
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
+      const fiscalDate = (req.query.fiscalDate || req.query.date) as string;
+      const page = parseInt(req.query.page as string) || 1;
+      const pageSize = Math.min(parseInt(req.query.pageSize as string) || 50, 1000);
+      const company = await storage.getCompany(companyId);
+
+      if (!fiscalDate) {
+        return res.status(400).json(formatRevMaxResponse("0", "fiscalDate (or date) query parameter is required", {}, company || undefined));
+      }
+
+      const invoices = await storage.getInvoices(companyId);
+      const targetDate = new Date(fiscalDate);
+      const unprocessed = invoices.filter(inv => {
+        if (!inv.issueDate) return false;
+        const sameDate = new Date(inv.issueDate).toISOString().split('T')[0] === targetDate.toISOString().split('T')[0];
+        return sameDate && (inv.status === "draft" || !inv.syncedWithFdms);
+      });
+
+      const totalRecords = unprocessed.length;
+      const totalPages = Math.ceil(totalRecords / pageSize) || 1;
+      const startIndex = (page - 1) * pageSize;
+      const paginatedTransactions = unprocessed.slice(startIndex, startIndex + pageSize);
+
+      res.json(formatRevMaxResponse("1", "Success", {
+        page, pageSize, totalRecords, totalPages,
+        transactions: paginatedTransactions
+      }, company || undefined));
+    } catch (err: any) {
+      const company = await storage.getCompany(Number(req.params.id));
+      res.status(500).json(formatRevMaxResponse("0", `Error: ${err.message}`, {}, company || undefined));
+    }
+  });
+
+  // 6. GET /api/companies/:id/zimra/transactions/:invoiceNumber - GetTransaction
+  // IMPORTANT: Must be registered AFTER all static /transactions/* routes
+  app.delete("/api/companies/:id/zimra/transactions/unprocessed", requireAuthOrApiKey, apiLogger, async (req, res) => {
+    try {
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
+      const invoiceNumber = req.params.invoiceNumber;
+      const company = await storage.getCompany(companyId);
+
+      const allInvoices = await storage.getInvoices(companyId);
+      // Search by system invoice number OR original RevMax invoice number (stored in originalInvoiceNumber or notes)
+      const invoice = allInvoices.find(inv =>
+        inv.invoiceNumber === invoiceNumber ||
+        (inv as any).originalInvoiceNumber === invoiceNumber ||
+        (inv as any).externalRef === invoiceNumber
+      );
 
       if (!invoice) {
         return res.status(404).json(formatRevMaxResponse("0", "Transaction not found", {}, company || undefined));
@@ -5816,16 +5951,17 @@ export async function registerRoutes(
 
       const fullInvoice = await storage.getInvoiceWithItems(invoice.id);
 
-      const response = formatRevMaxResponse("1", "Success", {
+      res.json(formatRevMaxResponse("1", "Success", {
         invoiceNumber: invoice.invoiceNumber,
+        originalInvoiceNumber: (invoice as any).originalInvoiceNumber || invoiceNumber,
         receiptData: fullInvoice,
         qrCode: invoice.qrCodeData || "",
         verificationCode: invoice.fiscalCode || "",
         fiscalDayNo: company?.currentFiscalDayNo || 0,
-        receiptGlobalNo: invoice.id
-      }, company || undefined);
-
-      res.json(response);
+        receiptGlobalNo: invoice.receiptGlobalNo || invoice.id,
+        receiptCounter: invoice.receiptCounter || 0,
+        syncedWithFdms: invoice.syncedWithFdms
+      }, company || undefined));
     } catch (err: any) {
       console.error("GetTransaction Error:", err);
       const company = await storage.getCompany(Number(req.params.id));
@@ -5836,7 +5972,7 @@ export async function registerRoutes(
   // 7. GET /api/companies/:id/zimra/transactions/unprocessed/summary - GetUnProcessedTransactionSummary
   app.get("/api/companies/:id/zimra/transactions/unprocessed/summary", requireAuthOrApiKey, apiLogger, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const fiscalDayNumber = req.query.fiscalDayNumber as string;
       const fiscalDate = req.query.fiscalDate as string;
       const company = await storage.getCompany(companyId);
@@ -5870,19 +6006,25 @@ export async function registerRoutes(
   // 8. GET /api/companies/:id/zimra/transactions/unprocessed - GetUnProcessedTransactions (paginated)
   app.get("/api/companies/:id/zimra/transactions/unprocessed", requireAuthOrApiKey, apiLogger, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const fiscalDayNumber = req.query.fiscalDayNumber as string;
       const page = parseInt(req.query.page as string) || 1;
       const pageSize = Math.min(parseInt(req.query.pageSize as string) || 50, 1000);
       const company = await storage.getCompany(companyId);
 
       const invoices = await storage.getInvoices(companyId);
-      const unprocessed = invoices.filter(inv =>
+      let unprocessed = invoices.filter(inv =>
         inv.status === "draft" || !inv.syncedWithFdms
       );
 
+      // Optional filter by fiscal day number
+      if (fiscalDayNumber) {
+        const dayNo = parseInt(fiscalDayNumber);
+        unprocessed = unprocessed.filter(inv => (inv as any).fiscalDayNo === dayNo || !(inv as any).fiscalDayNo);
+      }
+
       const totalRecords = unprocessed.length;
-      const totalPages = Math.ceil(totalRecords / pageSize);
+      const totalPages = Math.ceil(totalRecords / pageSize) || 1;
       const startIndex = (page - 1) * pageSize;
       const endIndex = startIndex + pageSize;
       const paginatedTransactions = unprocessed.slice(startIndex, endIndex);
@@ -5906,14 +6048,15 @@ export async function registerRoutes(
   // 9. GET /api/companies/:id/zimra/transactions/unprocessed/by-date - GetUnProcessedTransactionsByDate
   app.get("/api/companies/:id/zimra/transactions/unprocessed/by-date", requireAuthOrApiKey, apiLogger, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
-      const fiscalDate = req.query.fiscalDate as string;
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
+      // Accept both 'fiscalDate' and 'date' query params for flexibility
+      const fiscalDate = (req.query.fiscalDate || req.query.date) as string;
       const page = parseInt(req.query.page as string) || 1;
       const pageSize = Math.min(parseInt(req.query.pageSize as string) || 50, 1000);
       const company = await storage.getCompany(companyId);
 
       if (!fiscalDate) {
-        return res.status(400).json(formatRevMaxResponse("0", "fiscalDate parameter is required", {}, company || undefined));
+        return res.status(400).json(formatRevMaxResponse("0", "fiscalDate (or date) query parameter is required", {}, company || undefined));
       }
 
       const invoices = await storage.getInvoices(companyId);
@@ -5951,7 +6094,7 @@ export async function registerRoutes(
   // 10. DELETE /api/companies/:id/zimra/transactions/unprocessed - ClearUnprocessedTransactions
   app.delete("/api/companies/:id/zimra/transactions/unprocessed", requireAuthOrApiKey, apiLogger, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const fiscalDayNumber = req.query.fiscalDayNumber as string;
       const company = await storage.getCompany(companyId);
 
@@ -5994,7 +6137,7 @@ export async function registerRoutes(
   // 11. DELETE /api/companies/:id/zimra/transactions/unprocessed/by-date - ClearUnprocessedTransactionsByDate
   app.delete("/api/companies/:id/zimra/transactions/unprocessed/by-date", requireAuthOrApiKey, apiLogger, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const fiscalDate = req.query.fiscalDate as string;
       const company = await storage.getCompany(companyId);
 
@@ -6040,9 +6183,9 @@ export async function registerRoutes(
   });
 
   // 12. POST /api/companies/:id/zimra/config/reset - Reset Device Counters
-  app.post("/api/companies/:id/zimra/config/reset", requireAuth, async (req, res) => {
+  app.post("/api/companies/:id/zimra/config/reset", requireAuthOrApiKey, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const { globalNumber, dailyCounter, previousHash } = req.body;
 
       // Only allow if authenticated (requireAuth is already on)
@@ -10961,7 +11104,7 @@ export async function registerRoutes(
   // Company-wide payments list with invoice + customer info
   app.get("/api/companies/:id/payments", requireAuth, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const { startDate, endDate, page = "1", limit = "50" } = req.query;
 
       const { payments: paymentsTable, invoices: invoicesTable, customers: customersTable } = await import("@shared/schema");
@@ -11039,7 +11182,7 @@ export async function registerRoutes(
   // Sales Report
   app.get("/api/companies/:id/reports/sales", requireAuth, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const { startDate, endDate } = req.query;
       if (!startDate || !endDate) return res.status(400).json({ message: "Dates required" });
 
@@ -11056,7 +11199,7 @@ export async function registerRoutes(
   // Payments Report
   app.get("/api/companies/:id/reports/payments", requireAuth, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const { startDate, endDate } = req.query;
       if (!startDate || !endDate) return res.status(400).json({ message: "Dates required" });
 
@@ -11648,7 +11791,7 @@ export async function registerRoutes(
   // --- Subscription Routes ---
   app.post("/api/companies/:id/subscriptions/initiate", requireAuth, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const { amount, macAddress, email, serialNo: manualSerial } = req.body;
       const company = await storage.getCompany(companyId);
 
@@ -11675,7 +11818,7 @@ export async function registerRoutes(
 
   app.get("/api/companies/:id/subscriptions", requireAuth, async (req, res) => {
     try {
-      const companyId = Number(req.params.id);
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const subscriptions = await storage.getSubscriptionsByCompany(companyId);
       res.json(subscriptions);
     } catch (error: any) {

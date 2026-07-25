@@ -1,0 +1,999 @@
+2023-10-04 09:43:51.7171|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-10-04 09:43:53.4749|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 09:43:53.4749|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 09:43:53.4749|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 09:43:53.4837|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 09:43:53.4837|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 09:43:53.4837|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 09:43:53.4837|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-10-04 09:43:53.7789|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-10-04 09:43:53.8462|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-10-04 09:43:53.8462|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-10-04 09:43:53.8462|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-10-04 09:43:56.9630|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-10-04 09:43:56.9630|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-10-04 09:43:56.9769|INFO|RevmaxAPI.Revmaxlib|Date updated
+2023-10-04 09:44:18.5690|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-10-04 09:44:19.6181|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,222222222,11111111,Axis Solutions,14 Arundel Road,Alexandr Park,Harare,,9029AC52011B,
+2023-10-04 09:44:19.7430|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "",
+  "VerificationCode": "",
+  "FiscalDay": "1",
+  "Data": {
+    "BPN": "222222222",
+    "VAT": "11111111",
+    "COMPANYNAME": "Axis Solutions",
+    "ADDRESS": "14 Arundel Road Alexandr Park Harare",
+    "REGISTRATIONNUMBER": "00000",
+    "SERIALNUMBER": "9029AC52011B"
+  }
+}
+2023-10-04 09:51:25.6897|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-10-04 09:51:25.8672|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 09:51:25.8672|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 09:51:25.8752|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 09:51:25.8752|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 09:51:25.8752|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 09:51:25.8752|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 09:51:25.8752|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-10-04 09:51:25.8752|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-10-04 09:51:25.8752|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-10-04 09:51:25.8752|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-10-04 09:51:25.8752|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-10-04 09:51:25.8981|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-10-04 09:51:25.8981|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-10-04 09:51:29.0326|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-10-04 09:51:29.1076|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,222222222,11111111,Axis Solutions,14 Arundel Road,Alexandr Park,Harare,,9029AC52011B,
+2023-10-04 09:51:29.1296|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "",
+  "VerificationCode": "",
+  "FiscalDay": "1",
+  "Data": {
+    "BPN": "222222222",
+    "VAT": "11111111",
+    "COMPANYNAME": "Axis Solutions",
+    "ADDRESS": "14 Arundel Road Alexandr Park Harare",
+    "REGISTRATIONNUMBER": "00000",
+    "SERIALNUMBER": "9029AC52011B"
+  }
+}
+2023-10-04 09:52:00.4749|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-10-04 09:52:00.5158|INFO|RevmaxAPI.Revmaxlib|Invoice: 4520168336727
+2023-10-04 09:52:00.5158|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2023-10-04 09:52:13.0618|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-10-04 09:52:13.4448|INFO|RevmaxAPI.Revmaxlib|Invoice: 4520168075726
+2023-10-04 09:52:13.4448|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2023-10-04 10:43:44.4260|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-10-04 10:43:44.7711|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 10:43:44.7711|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 10:43:44.7711|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 10:43:44.7800|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 10:43:44.8748|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 10:43:44.8748|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 10:43:44.9266|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-10-04 10:43:44.9266|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-10-04 10:43:44.9266|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-10-04 10:43:44.9376|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-10-04 10:43:44.9705|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-10-04 10:43:45.0354|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-10-04 10:43:45.0633|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-10-04 10:43:54.8953|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-10-04 10:43:55.0698|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,222222222,11111111,Axis Solutions,14 Arundel Road,Alexandr Park,Harare,,9029AC52011B,
+2023-10-04 10:43:55.0868|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "",
+  "VerificationCode": "",
+  "FiscalDay": "1",
+  "Data": {
+    "BPN": "222222222",
+    "VAT": "11111111",
+    "COMPANYNAME": "Axis Solutions",
+    "ADDRESS": "14 Arundel Road Alexandr Park Harare",
+    "REGISTRATIONNUMBER": "00000",
+    "SERIALNUMBER": "9029AC52011B"
+  }
+}
+2023-10-04 10:46:20.6537|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-10-04 10:46:21.2497|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 10:46:21.2497|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 10:46:21.2497|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 10:46:21.2646|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 10:46:21.2646|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 10:46:21.2646|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 10:46:21.2646|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-10-04 10:46:21.2646|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-10-04 10:46:21.2826|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-10-04 10:46:21.2826|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-10-04 10:46:21.2826|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-10-04 10:46:21.3035|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-10-04 10:46:21.3035|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-10-04 10:46:26.8052|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-10-04 10:46:27.1852|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,222222222,11111111,Axis Solutions,14 Arundel Road,Alexandr Park,Harare,,9029AC52011B,
+2023-10-04 10:46:27.2061|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "",
+  "VerificationCode": "",
+  "FiscalDay": "1",
+  "Data": {
+    "BPN": "222222222",
+    "VAT": "11111111",
+    "COMPANYNAME": "Axis Solutions",
+    "ADDRESS": "14 Arundel Road Alexandr Park Harare",
+    "REGISTRATIONNUMBER": "00000",
+    "SERIALNUMBER": "9029AC52011B"
+  }
+}
+2023-10-04 10:56:31.9318|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-10-04 10:56:33.2513|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 10:56:33.2513|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 10:56:33.2513|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 10:56:33.2513|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 10:56:33.2513|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 10:56:33.2653|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 10:56:33.2653|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-10-04 10:56:33.2653|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-10-04 10:56:33.2653|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-10-04 10:56:33.2653|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-10-04 10:56:33.2653|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-10-04 10:56:33.2832|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-10-04 10:56:33.2832|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-10-04 10:56:36.0917|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-10-04 10:56:36.5647|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,222222222,11111111,Axis Solutions,14 Arundel Road,Alexandr Park,Harare,,9029AC52011B,
+2023-10-04 10:56:36.5826|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "",
+  "VerificationCode": "",
+  "FiscalDay": "1",
+  "Data": {
+    "BPN": "222222222",
+    "VAT": "11111111",
+    "COMPANYNAME": "Axis Solutions",
+    "ADDRESS": "14 Arundel Road Alexandr Park Harare",
+    "REGISTRATIONNUMBER": "00000",
+    "SERIALNUMBER": "9029AC52011B"
+  }
+}
+2023-10-04 11:04:31.1781|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-10-04 11:04:32.0867|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 11:04:32.0867|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 11:04:32.1396|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 11:04:32.1396|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 11:04:32.1595|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 11:04:32.1595|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 11:04:32.1595|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-10-04 11:04:32.1595|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-10-04 11:04:32.1595|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-10-04 11:04:32.1595|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-10-04 11:04:32.1595|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-10-04 11:04:32.1845|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-10-04 11:04:32.1845|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-10-04 11:04:35.1046|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-10-04 11:04:35.5495|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,222222222,11111111,Axis Solutions,14 Arundel Road,Alexandr Park,Harare,,9029AC52011B,
+2023-10-04 11:04:35.5644|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "",
+  "VerificationCode": "",
+  "FiscalDay": "1",
+  "Data": {
+    "BPN": "222222222",
+    "VAT": "11111111",
+    "COMPANYNAME": "Axis Solutions",
+    "ADDRESS": "14 Arundel Road Alexandr Park Harare",
+    "REGISTRATIONNUMBER": "00000",
+    "SERIALNUMBER": "9029AC52011B"
+  }
+}
+2023-10-04 11:04:41.1904|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-10-04 11:04:41.2602|INFO|RevmaxAPI.Revmaxlib|Invoice: 4520168336727
+2023-10-04 11:04:41.2602|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2023-10-04 11:04:55.0867|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-10-04 11:04:55.1545|INFO|RevmaxAPI.Revmaxlib|Invoice: 4520168075726
+2023-10-04 11:04:55.1545|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2023-10-04 11:10:36.1209|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-10-04 11:10:36.3014|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 11:10:36.3014|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 11:10:36.3014|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 11:10:36.3104|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 11:10:36.3104|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 11:10:36.3104|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 11:10:36.3104|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-10-04 11:10:36.3104|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-10-04 11:10:36.3104|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-10-04 11:10:36.3104|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-10-04 11:10:36.3104|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-10-04 11:10:36.3294|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-10-04 11:10:36.3294|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-10-04 11:10:39.3403|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-10-04 11:10:39.8280|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,222222222,11111111,Axis Solutions,14 Arundel Road,Alexandr Park,Harare,,9029AC52011B,
+2023-10-04 11:10:39.8430|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "",
+  "VerificationCode": "",
+  "FiscalDay": "1",
+  "Data": {
+    "BPN": "222222222",
+    "VAT": "11111111",
+    "COMPANYNAME": "Axis Solutions",
+    "ADDRESS": "14 Arundel Road Alexandr Park Harare",
+    "REGISTRATIONNUMBER": "00000",
+    "SERIALNUMBER": "9029AC52011B"
+  }
+}
+2023-10-04 11:10:42.3423|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-10-04 11:10:42.7506|INFO|RevmaxAPI.Revmaxlib|Invoice: 4520168336727
+2023-10-04 11:10:42.7506|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2023-10-04 11:10:45.1591|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-10-04 11:10:45.2808|INFO|RevmaxAPI.Revmaxlib|Invoice: 4520168075726
+2023-10-04 11:10:45.2808|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2023-10-04 11:11:16.8581|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-10-04 11:11:17.3188|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 11:11:17.3188|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 11:11:17.3188|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 11:11:17.3268|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 11:11:17.3268|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 11:11:17.3268|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 11:11:17.3268|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-10-04 11:11:17.3418|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-10-04 11:11:17.3707|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-10-04 11:11:17.3787|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-10-04 11:11:17.3787|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-10-04 11:11:17.3906|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-10-04 11:11:17.3906|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-10-04 11:11:21.5615|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-10-04 11:11:21.6752|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,222222222,11111111,Axis Solutions,14 Arundel Road,Alexandr Park,Harare,,9029AC52011B,
+2023-10-04 11:11:21.8288|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "",
+  "VerificationCode": "",
+  "FiscalDay": "1",
+  "Data": {
+    "BPN": "222222222",
+    "VAT": "11111111",
+    "COMPANYNAME": "Axis Solutions",
+    "ADDRESS": "14 Arundel Road Alexandr Park Harare",
+    "REGISTRATIONNUMBER": "00000",
+    "SERIALNUMBER": "9029AC52011B"
+  }
+}
+2023-10-04 11:11:35.4501|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-10-04 11:11:35.6426|INFO|RevmaxAPI.Revmaxlib|Invoice: 4520168336727
+2023-10-04 11:11:35.6426|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2023-10-04 11:11:48.8712|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-10-04 11:11:49.7040|INFO|RevmaxAPI.Revmaxlib|Invoice: 4520168075726
+2023-10-04 11:11:49.7040|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2023-10-04 11:23:12.4833|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-10-04 11:23:12.7197|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 11:23:12.7197|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 11:23:12.7197|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 11:23:12.7327|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 11:23:12.7327|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 11:23:12.7327|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 11:23:12.7327|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-10-04 11:23:12.7486|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-10-04 11:23:12.7486|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-10-04 11:23:12.7486|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-10-04 11:23:12.7486|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-10-04 11:23:12.7865|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-10-04 11:23:12.7865|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-10-04 11:23:17.5228|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-10-04 11:23:17.6425|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,222222222,11111111,Axis Solutions,14 Arundel Road,Alexandr Park,Harare,,9029AC52011B,
+2023-10-04 11:23:17.6714|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "",
+  "VerificationCode": "",
+  "FiscalDay": "1",
+  "Data": {
+    "BPN": "222222222",
+    "VAT": "11111111",
+    "COMPANYNAME": "Axis Solutions",
+    "ADDRESS": "14 Arundel Road Alexandr Park Harare",
+    "REGISTRATIONNUMBER": "00000",
+    "SERIALNUMBER": "9029AC52011B"
+  }
+}
+2023-10-04 11:23:36.3282|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-10-04 11:23:36.3851|INFO|RevmaxAPI.Revmaxlib|Invoice: 4520168336727
+2023-10-04 11:23:36.3851|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2023-10-04 11:23:54.0711|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-10-04 11:23:54.1509|INFO|RevmaxAPI.Revmaxlib|Invoice: 4520168075726
+2023-10-04 11:23:54.1509|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2023-10-04 11:29:42.9327|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-10-04 11:29:43.1092|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 11:29:43.1092|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 11:29:43.1092|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 11:29:43.1092|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 11:29:43.1092|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 11:29:43.1092|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 11:29:43.1092|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-10-04 11:29:43.1232|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-10-04 11:29:43.1232|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-10-04 11:29:43.1232|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-10-04 11:29:43.1232|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-10-04 11:29:43.1232|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-10-04 11:29:43.1232|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-10-04 11:29:45.7302|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-10-04 11:29:46.2509|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,222222222,11111111,Axis Solutions,14 Arundel Road,Alexandr Park,Harare,,9029AC52011B,
+2023-10-04 11:29:46.2858|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "",
+  "VerificationCode": "",
+  "FiscalDay": "1",
+  "Data": {
+    "BPN": "222222222",
+    "VAT": "11111111",
+    "COMPANYNAME": "Axis Solutions",
+    "ADDRESS": "14 Arundel Road Alexandr Park Harare",
+    "REGISTRATIONNUMBER": "00000",
+    "SERIALNUMBER": "9029AC52011B"
+  }
+}
+2023-10-04 11:31:08.0697|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-10-04 11:31:08.2373|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 11:31:08.2373|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 11:31:08.2373|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 11:31:08.2512|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 11:31:08.2512|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 11:31:08.2512|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 11:31:08.2512|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-10-04 11:31:08.2512|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-10-04 11:31:08.2512|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-10-04 11:31:08.2512|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-10-04 11:31:08.2642|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-10-04 11:31:08.4198|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-10-04 11:31:08.4527|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-10-04 11:31:12.4351|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-10-04 11:31:12.8470|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,222222222,11111111,Axis Solutions,14 Arundel Road,Alexandr Park,Harare,,9029AC52011B,
+2023-10-04 11:31:12.8659|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "",
+  "VerificationCode": "",
+  "FiscalDay": "1",
+  "Data": {
+    "BPN": "222222222",
+    "VAT": "11111111",
+    "COMPANYNAME": "Axis Solutions",
+    "ADDRESS": "14 Arundel Road Alexandr Park Harare",
+    "REGISTRATIONNUMBER": "00000",
+    "SERIALNUMBER": "9029AC52011B"
+  }
+}
+2023-10-04 14:29:44.8854|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-10-04 14:29:49.8612|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:29:49.8612|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:29:49.8612|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:29:49.8612|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:29:49.8612|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:29:49.8762|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:29:49.8762|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-10-04 14:29:49.8762|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-10-04 14:29:49.8762|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-10-04 14:29:49.8762|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-10-04 14:29:49.8762|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-10-04 14:29:49.8951|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-10-04 14:29:49.8951|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-10-04 14:29:54.4488|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-10-04 14:29:55.1011|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,222222222,11111111,Axis Solutions,14 Arundel Road,Alexandr Park,Harare,,9029AC52011B,
+2023-10-04 14:29:55.1380|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "",
+  "VerificationCode": "",
+  "FiscalDay": "1",
+  "Data": {
+    "BPN": "222222222",
+    "VAT": "11111111",
+    "COMPANYNAME": "Axis Solutions",
+    "ADDRESS": "14 Arundel Road Alexandr Park Harare",
+    "REGISTRATIONNUMBER": "00000",
+    "SERIALNUMBER": "9029AC52011B"
+  }
+}
+2023-10-04 14:30:01.1876|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-10-04 14:30:01.3401|INFO|RevmaxAPI.Revmaxlib|Invoice: 4520168336727
+2023-10-04 14:30:01.3780|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2023-10-04 14:33:18.5808|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-10-04 14:33:18.7374|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:33:18.9618|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:33:18.9618|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:33:18.9618|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:33:18.9687|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:33:18.9687|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:33:18.9687|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-10-04 14:33:18.9687|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-10-04 14:33:18.9687|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-10-04 14:33:18.9687|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-10-04 14:33:18.9687|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-10-04 14:33:18.9847|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-10-04 14:33:18.9847|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-10-04 14:33:21.5556|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-10-04 14:33:21.6339|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,222222222,11111111,Axis Solutions,14 Arundel Road,Alexandr Park,Harare,,9029AC52011B,
+2023-10-04 14:33:21.6529|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "",
+  "VerificationCode": "",
+  "FiscalDay": "1",
+  "Data": {
+    "BPN": "222222222",
+    "VAT": "11111111",
+    "COMPANYNAME": "Axis Solutions",
+    "ADDRESS": "14 Arundel Road Alexandr Park Harare",
+    "REGISTRATIONNUMBER": "00000",
+    "SERIALNUMBER": "9029AC52011B"
+  }
+}
+2023-10-04 14:37:59.5863|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-10-04 14:37:59.7279|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:37:59.7329|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:37:59.7329|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:37:59.7329|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:37:59.7329|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:37:59.7329|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:37:59.7329|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-10-04 14:37:59.7329|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-10-04 14:37:59.7329|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-10-04 14:37:59.7329|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-10-04 14:37:59.7329|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-10-04 14:37:59.7548|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-10-04 14:37:59.7548|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-10-04 14:38:04.5855|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-10-04 14:38:04.8488|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,222222222,11111111,Axis Solutions,14 Arundel Road,Alexandr Park,Harare,,9029AC52011B,
+2023-10-04 14:38:04.8727|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "",
+  "VerificationCode": "",
+  "FiscalDay": "1",
+  "Data": {
+    "BPN": "222222222",
+    "VAT": "11111111",
+    "COMPANYNAME": "Axis Solutions",
+    "ADDRESS": "14 Arundel Road Alexandr Park Harare",
+    "REGISTRATIONNUMBER": "00000",
+    "SERIALNUMBER": "9029AC52011B"
+  }
+}
+2023-10-04 14:38:16.9518|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-10-04 14:38:16.9937|INFO|RevmaxAPI.Revmaxlib|Invoice: 4520168336727
+2023-10-04 14:38:16.9937|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2023-10-04 14:43:39.0373|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-10-04 14:43:39.2044|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:43:39.2812|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:43:39.2812|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:43:39.2812|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:43:39.2812|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:43:39.2812|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:43:39.2812|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-10-04 14:43:39.2812|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-10-04 14:43:39.2812|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-10-04 14:43:39.2812|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-10-04 14:43:39.2952|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-10-04 14:43:39.2952|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-10-04 14:43:39.2952|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-10-04 14:45:17.7222|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-10-04 14:45:18.0599|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:45:18.0629|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:45:18.0629|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:45:18.0629|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:45:18.0629|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:45:18.0629|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:45:18.0629|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-10-04 14:45:18.0828|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-10-04 14:45:18.0828|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-10-04 14:45:18.0828|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-10-04 14:45:18.0828|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-10-04 14:45:18.1067|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-10-04 14:45:18.1097|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-10-04 14:45:22.5314|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-10-04 14:45:22.8499|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,222222222,11111111,Axis Solutions,14 Arundel Road,Alexandr Park,Harare,,9029AC52011B,
+2023-10-04 14:45:22.8709|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "",
+  "VerificationCode": "",
+  "FiscalDay": "1",
+  "Data": {
+    "BPN": "222222222",
+    "VAT": "11111111",
+    "COMPANYNAME": "Axis Solutions",
+    "ADDRESS": "14 Arundel Road Alexandr Park Harare",
+    "REGISTRATIONNUMBER": "00000",
+    "SERIALNUMBER": "9029AC52011B"
+  }
+}
+2023-10-04 14:45:23.2015|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-10-04 14:45:23.2374|INFO|RevmaxAPI.Revmaxlib|Invoice: 4520168336727
+2023-10-04 14:48:27.8402|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-10-04 14:48:27.9953|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:48:27.9993|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:48:27.9993|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:48:27.9993|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:48:27.9993|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:48:27.9993|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:48:27.9993|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-10-04 14:48:27.9993|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-10-04 14:48:27.9993|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-10-04 14:48:27.9993|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-10-04 14:48:27.9993|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-10-04 14:48:28.0203|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-10-04 14:48:28.0203|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-10-04 14:48:32.5194|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-10-04 14:48:32.9911|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,222222222,11111111,Axis Solutions,14 Arundel Road,Alexandr Park,Harare,,9029AC52011B,
+2023-10-04 14:48:33.0161|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "",
+  "VerificationCode": "",
+  "FiscalDay": "1",
+  "Data": {
+    "BPN": "222222222",
+    "VAT": "11111111",
+    "COMPANYNAME": "Axis Solutions",
+    "ADDRESS": "14 Arundel Road Alexandr Park Harare",
+    "REGISTRATIONNUMBER": "00000",
+    "SERIALNUMBER": "9029AC52011B"
+  }
+}
+2023-10-04 14:48:33.2843|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-10-04 14:48:33.4130|INFO|RevmaxAPI.Revmaxlib|Invoice: 4520168336727
+2023-10-04 14:48:54.4631|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-10-04 14:48:54.8831|INFO|RevmaxAPI.Revmaxlib|Invoice: 4520168336727
+2023-10-04 14:48:54.8831|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2023-10-04 14:48:56.7529|INFO|RevmaxAPI.Revmaxlib|69FISCALINVOICEZWL12023-10-04T14:48:542040000B0.0002040000A15.0000
+2023-10-04 14:48:56.7529|INFO|RevmaxAPI.Revmaxlib|3rOn5KNu7suSkXogle0WRfALKuFkz2DnWIYEs/4DAhM=
+2023-10-04 14:48:56.7529|INFO|RevmaxAPI.Revmaxlib|https://fdmstest.zimra.co.zw/000000006904102023000000000198F607261DB33E9E
+2023-10-04 14:48:57.4193|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "https://fdmstest.zimra.co.zw/000000006904102023000000000198F607261DB33E9E",
+  "VerificationCode": "98F6-0726-1DB3-3E9E",
+  "FiscalDay": "1",
+  "Data": {
+    "receipt": {
+      "receiptType": "FiscalInvoice",
+      "receiptCurrency": "ZWL",
+      "receiptCounter": 1,
+      "receiptGlobalNo": 1,
+      "invoiceNo": "4520168336727",
+      "buyerData": null,
+      "receiptNotes": null,
+      "receiptDate": "2023-10-04T14:48:54",
+      "creditDebitNote": null,
+      "receiptLinesTaxInclusive": true,
+      "receiptLines": [
+        {
+          "receiptLineName": "HULLETS BROWN SUGAR 2KG",
+          "receiptLineNo": 2,
+          "receiptLineQuantity": 1,
+          "receiptLineType": "Sale",
+          "receiptLineTotal": 20400.00,
+          "taxID": 2,
+          "receiptLineHSCode": ".",
+          "receiptLinePrice": 20400.00,
+          "taxCode": "B",
+          "taxPercent": 0.0
+        }
+      ],
+      "receiptTaxes": [
+        {
+          "salesAmountWithTax": 20400.00,
+          "taxAmount": 0.00,
+          "taxID": 2,
+          "taxCode": "B",
+          "taxPercent": 0.0
+        },
+        {
+          "salesAmountWithTax": 0.00,
+          "taxAmount": 0.00,
+          "taxID": 3,
+          "taxCode": "A",
+          "taxPercent": 15.00
+        }
+      ],
+      "receiptPayments": [
+        {
+          "moneyTypeCode": "Cash",
+          "paymentAmount": 20400.00
+        }
+      ],
+      "receiptTotal": 20400.00,
+      "receiptPrintForm": "Receipt48",
+      "receiptDeviceSignature": {
+        "hash": "3rOn5KNu7suSkXogle0WRfALKuFkz2DnWIYEs/4DAhM=",
+        "signature": "lBBnyQhmbde+8QimiH+SPpYUnwqV262aN0PHntqPsqsrAOOLfNgpoifFJvVOJ1DxArf4/wDxTDXYVNlbSbL6F4TiT9VvlX+hCiCSg0YaZ8/WEdPfhxcVMdjt2SeFbnHGASuokjGMoEMs936fB3dMNMIpFWg8fkDxOlK/5+2Nyr2v6VcrUtNF1U7mPZlnQhb1EFjY+RWuf0A26Q8QDMNS2FiQCNeVe+jbu+AEZ00fqzZNrdUL2wmmMo24BXLkeEkWNt0m1kcqQHetdyTKpoYtAUceBVnhj3/CkSjzbP0FDF426I/4ycSmpdmqxsV5b4+kN/G5QfbOIbhOrPaAuNxjXw=="
+      }
+    }
+  }
+}
+2023-10-04 14:49:17.4011|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-10-04 14:49:17.5590|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:49:17.5620|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:49:17.5620|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:49:17.5620|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:49:17.5620|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:49:17.5620|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:49:17.5620|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-10-04 14:49:17.5620|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-10-04 14:49:17.5769|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-10-04 14:49:17.5769|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-10-04 14:49:17.5769|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-10-04 14:49:17.5924|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-10-04 14:49:17.5924|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-10-04 14:49:21.7104|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-10-04 14:49:21.9857|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,222222222,11111111,Axis Solutions,14 Arundel Road,Alexandr Park,Harare,,9029AC52011B,
+2023-10-04 14:49:22.0301|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "",
+  "VerificationCode": "",
+  "FiscalDay": "1",
+  "Data": {
+    "BPN": "222222222",
+    "VAT": "11111111",
+    "COMPANYNAME": "Axis Solutions",
+    "ADDRESS": "14 Arundel Road Alexandr Park Harare",
+    "REGISTRATIONNUMBER": "00000",
+    "SERIALNUMBER": "9029AC52011B"
+  }
+}
+2023-10-04 14:49:22.5815|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-10-04 14:49:22.7876|INFO|RevmaxAPI.Revmaxlib|Invoice: 4520168336727
+2023-10-04 14:49:22.7876|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2023-10-04 14:49:23.0769|INFO|RevmaxAPI.Revmaxlib|69FISCALINVOICEZWL12023-10-04T14:49:222040000B0.0002040000A15.0000
+2023-10-04 14:49:23.0769|INFO|RevmaxAPI.Revmaxlib|dQtmc0MNFCY9y3EA6ghG+NI1xGWx15f8HEFswEIZHDw=
+2023-10-04 14:49:23.0769|INFO|RevmaxAPI.Revmaxlib|https://fdmstest.zimra.co.zw/000000006904102023000000000128CABE4C66F4FB0B
+2023-10-04 14:49:23.1258|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "https://fdmstest.zimra.co.zw/000000006904102023000000000128CABE4C66F4FB0B",
+  "VerificationCode": "28CA-BE4C-66F4-FB0B",
+  "FiscalDay": "1",
+  "Data": {
+    "receipt": {
+      "receiptType": "FiscalInvoice",
+      "receiptCurrency": "ZWL",
+      "receiptCounter": 1,
+      "receiptGlobalNo": 1,
+      "invoiceNo": "4520168336727",
+      "buyerData": null,
+      "receiptNotes": null,
+      "receiptDate": "2023-10-04T14:49:22",
+      "creditDebitNote": null,
+      "receiptLinesTaxInclusive": true,
+      "receiptLines": [
+        {
+          "receiptLineName": "HULLETS BROWN SUGAR 2KG",
+          "receiptLineNo": 2,
+          "receiptLineQuantity": 1,
+          "receiptLineType": "Sale",
+          "receiptLineTotal": 20400.00,
+          "taxID": 2,
+          "receiptLineHSCode": ".",
+          "receiptLinePrice": 20400.00,
+          "taxCode": "B",
+          "taxPercent": 0.0
+        }
+      ],
+      "receiptTaxes": [
+        {
+          "salesAmountWithTax": 20400.00,
+          "taxAmount": 0.00,
+          "taxID": 2,
+          "taxCode": "B",
+          "taxPercent": 0.0
+        },
+        {
+          "salesAmountWithTax": 0.00,
+          "taxAmount": 0.00,
+          "taxID": 3,
+          "taxCode": "A",
+          "taxPercent": 15.00
+        }
+      ],
+      "receiptPayments": [
+        {
+          "moneyTypeCode": "Cash",
+          "paymentAmount": 20400.00
+        }
+      ],
+      "receiptTotal": 20400.00,
+      "receiptPrintForm": "Receipt48",
+      "receiptDeviceSignature": {
+        "hash": "dQtmc0MNFCY9y3EA6ghG+NI1xGWx15f8HEFswEIZHDw=",
+        "signature": "VKptO6pJdFAes2DsOWqqrqsWNVl/Lws3X6iFITCldS1DPABlRDL7TGPKuJyD5lMpNs6EWF0NDHOUJGCwpKIF2l1ev+PfUxG4YETrzhO+w6hPVuU+HU0xMkXOv5Vio2uzYDiwbYQxPN1LkzMNIHFbXoSthZKr5jNOd5MREjwvFovu7KtaCViQKa3uOTn2bYAwxE/Kvxc8PeIt72M3E19IpL5Kvd7A3canZk1+b4c7HE6U52p/i7k07KKBMA9OZXsNMbY8Rh2mP1WlKaaKLuiX3HDW6FbfIbBlCl1AazGKN4pSeDtEClQ84mrfCy/bibc3xU3qGqHluTC2tEQRyBxjNw=="
+      }
+    }
+  }
+}
+2023-10-04 14:53:33.8918|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-10-04 14:53:34.5416|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:53:34.5416|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:53:34.5466|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:53:34.5466|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:53:34.5466|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:53:34.5466|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:53:34.5466|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-10-04 14:53:34.5466|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-10-04 14:53:34.5466|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-10-04 14:53:34.5466|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-10-04 14:53:34.5626|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-10-04 14:53:34.5626|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-10-04 14:53:34.5626|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-10-04 14:53:37.5075|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-10-04 14:53:38.0710|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,222222222,11111111,Axis Solutions,14 Arundel Road,Alexandr Park,Harare,,9029AC52011B,
+2023-10-04 14:53:38.0900|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "",
+  "VerificationCode": "",
+  "FiscalDay": "1",
+  "Data": {
+    "BPN": "222222222",
+    "VAT": "11111111",
+    "COMPANYNAME": "Axis Solutions",
+    "ADDRESS": "14 Arundel Road Alexandr Park Harare",
+    "REGISTRATIONNUMBER": "00000",
+    "SERIALNUMBER": "9029AC52011B"
+  }
+}
+2023-10-04 14:53:56.5882|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-10-04 14:53:56.6462|INFO|RevmaxAPI.Revmaxlib|Invoice: 4520168075726
+2023-10-04 14:53:56.6692|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2023-10-04 14:53:57.3036|INFO|RevmaxAPI.Revmaxlib|69FISCALINVOICEUSD12023-10-04T14:53:565A15.0015
+2023-10-04 14:53:57.3036|INFO|RevmaxAPI.Revmaxlib|xNy6OlWO/hbPv+O1H0PwXSJ7P0rFb8J9+LgZ9TuZ/Jg=
+2023-10-04 14:53:57.3036|INFO|RevmaxAPI.Revmaxlib|https://fdmstest.zimra.co.zw/000000006904102023000000000197ADE32A46974702
+2023-10-04 14:53:57.3464|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "https://fdmstest.zimra.co.zw/000000006904102023000000000197ADE32A46974702",
+  "VerificationCode": "97AD-E32A-4697-4702",
+  "FiscalDay": "1",
+  "Data": {
+    "receipt": {
+      "receiptType": "FiscalInvoice",
+      "receiptCurrency": "USD",
+      "receiptCounter": 1,
+      "receiptGlobalNo": 1,
+      "invoiceNo": "4520168075726",
+      "buyerData": null,
+      "receiptNotes": null,
+      "receiptDate": "2023-10-04T14:53:56",
+      "creditDebitNote": null,
+      "receiptLinesTaxInclusive": true,
+      "receiptLines": [
+        {
+          "receiptLineName": "CRYSTAL MINTS SINGLES",
+          "receiptLineNo": 2,
+          "receiptLineQuantity": 1,
+          "receiptLineType": "Sale",
+          "receiptLineTotal": 0.05,
+          "taxID": 3,
+          "receiptLineHSCode": ".",
+          "receiptLinePrice": 0.05,
+          "taxCode": "A",
+          "taxPercent": 15.00
+        }
+      ],
+      "receiptTaxes": [
+        {
+          "salesAmountWithTax": 0.05,
+          "taxAmount": 0.01,
+          "taxID": 3,
+          "taxCode": "A",
+          "taxPercent": 15.00
+        }
+      ],
+      "receiptPayments": [
+        {
+          "moneyTypeCode": "Cash",
+          "paymentAmount": 0.05
+        }
+      ],
+      "receiptTotal": 0.05,
+      "receiptPrintForm": "Receipt48",
+      "receiptDeviceSignature": {
+        "hash": "xNy6OlWO/hbPv+O1H0PwXSJ7P0rFb8J9+LgZ9TuZ/Jg=",
+        "signature": "mEtWF2Hm7ayx50B4Lu9eJiaUqHiTzE6DV/VLtC39m4eiF4R3HBb8MezRHaUsSXLU7NKM0AssAESaUxLMdGLsZJPfcpuQwzja5MDDrRPsgvD/9ZvImS3tS5MJlK97tCd4r5wRU2EfE1Woj2g/FvkHrZMHe6X5AQ3P0TDMZngX5ynMWsVTZ1Ogm1NEFtrvFXQs7NWCrFnTM5PsNBUX1eTeCwkIK7NaZI9WWcpD5s6iEJAwqrJp+jAVI8ElSbhdUcrcVoudSatRMqRxqI4ZilkCrkZUxKRAYVTkRo3YcblhUQM3K8ny3DvEYnjJQAH1cz4JpNCBFY22jcv5joUCNOw2HQ=="
+      }
+    }
+  }
+}
+2023-10-04 14:57:07.3472|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-10-04 14:57:07.4958|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:57:07.5038|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:57:07.5038|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:57:07.5038|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:57:07.5038|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:57:07.5038|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:57:07.5038|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-10-04 14:57:07.5147|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-10-04 14:57:07.5147|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-10-04 14:57:07.5147|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-10-04 14:57:07.5147|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-10-04 14:57:07.5147|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-10-04 14:57:07.5147|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-10-04 14:57:11.6299|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-10-04 14:57:11.9974|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,222222222,11111111,Axis Solutions,14 Arundel Road,Alexandr Park,Harare,,9029AC52011B,
+2023-10-04 14:57:12.0163|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "",
+  "VerificationCode": "",
+  "FiscalDay": "1",
+  "Data": {
+    "BPN": "222222222",
+    "VAT": "11111111",
+    "COMPANYNAME": "Axis Solutions",
+    "ADDRESS": "14 Arundel Road Alexandr Park Harare",
+    "REGISTRATIONNUMBER": "00000",
+    "SERIALNUMBER": "9029AC52011B"
+  }
+}
+2023-10-04 14:57:30.9329|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-10-04 14:57:31.0516|INFO|RevmaxAPI.Revmaxlib|Invoice: 4520168075726
+2023-10-04 14:57:31.0516|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2023-10-04 14:57:31.2855|INFO|RevmaxAPI.Revmaxlib|69FISCALINVOICEUSD12023-10-04T14:57:315A15.0015
+2023-10-04 14:57:31.2855|INFO|RevmaxAPI.Revmaxlib|Go9Tmy3RvAaA2JsO6sGAtQ02EYrcdc73pRRK2hyUriQ=
+2023-10-04 14:57:31.2855|INFO|RevmaxAPI.Revmaxlib|https://fdmstest.zimra.co.zw/00000000690410202300000000013FD0DD69A2A451AD
+2023-10-04 14:57:31.3343|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "https://fdmstest.zimra.co.zw/00000000690410202300000000013FD0DD69A2A451AD",
+  "VerificationCode": "3FD0-DD69-A2A4-51AD",
+  "FiscalDay": "1",
+  "Data": {
+    "receipt": {
+      "receiptType": "FiscalInvoice",
+      "receiptCurrency": "USD",
+      "receiptCounter": 1,
+      "receiptGlobalNo": 1,
+      "invoiceNo": "4520168075726",
+      "buyerData": null,
+      "receiptNotes": null,
+      "receiptDate": "2023-10-04T14:57:31",
+      "creditDebitNote": null,
+      "receiptLinesTaxInclusive": true,
+      "receiptLines": [
+        {
+          "receiptLineName": "CRYSTAL MINTS SINGLES",
+          "receiptLineNo": 2,
+          "receiptLineQuantity": 1,
+          "receiptLineType": "Sale",
+          "receiptLineTotal": 0.05,
+          "taxID": 3,
+          "receiptLineHSCode": ".",
+          "receiptLinePrice": 0.05,
+          "taxCode": "A",
+          "taxPercent": 15.00
+        }
+      ],
+      "receiptTaxes": [
+        {
+          "salesAmountWithTax": 0.05,
+          "taxAmount": 0.01,
+          "taxID": 3,
+          "taxCode": "A",
+          "taxPercent": 15.00
+        }
+      ],
+      "receiptPayments": [
+        {
+          "moneyTypeCode": "Cash",
+          "paymentAmount": 0.05
+        }
+      ],
+      "receiptTotal": 0.05,
+      "receiptPrintForm": "Receipt48",
+      "receiptDeviceSignature": {
+        "hash": "Go9Tmy3RvAaA2JsO6sGAtQ02EYrcdc73pRRK2hyUriQ=",
+        "signature": "lw7fFvTVCuCStQ2JVrwFOsEBnIxXATs503VLZid82UD70egl4OPUdtRcLSQewQbYv9caj6DqGBUY75pVj+GUU7E+RupdNkVaEw77BnJQGyCbyaav4MM77MLGHf+ml+ibAgYs6GKHkh7NNZ/gAyvRSkkxPO8SB9IwQR6EWjF6tx7gWTtHedWTJ4zOa0E4ZVahrBJaWbkYYPTXFlXFIt2bC8hJfIrSK90IV2O63EAgJVfuhSPBXz/uCfl+iyl2tVOlBCBGNQZcej4r58tvEyAz5vkNoeG1NZnOzRfetmaMQlvvhfdWVbpgrHPn2ZX8kvaTWsNZwWAOiLxQcMzpVMV9OA=="
+      }
+    }
+  }
+}
+2023-10-04 14:58:01.3122|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-10-04 14:58:01.8405|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:58:01.8804|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:58:01.9023|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:58:01.9223|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:58:01.9432|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:58:01.9761|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-10-04 14:58:01.9931|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-10-04 14:58:01.9931|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-10-04 14:58:01.9931|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-10-04 14:58:01.9931|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-10-04 14:58:01.9931|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-10-04 14:58:02.0100|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-10-04 14:58:02.0140|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-10-04 14:58:05.7108|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-10-04 14:58:05.8315|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,222222222,11111111,Axis Solutions,14 Arundel Road,Alexandr Park,Harare,,9029AC52011B,
+2023-10-04 14:58:05.8484|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "",
+  "VerificationCode": "",
+  "FiscalDay": "1",
+  "Data": {
+    "BPN": "222222222",
+    "VAT": "11111111",
+    "COMPANYNAME": "Axis Solutions",
+    "ADDRESS": "14 Arundel Road Alexandr Park Harare",
+    "REGISTRATIONNUMBER": "00000",
+    "SERIALNUMBER": "9029AC52011B"
+  }
+}
+2023-10-04 14:58:36.7746|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-10-04 14:58:37.0828|INFO|RevmaxAPI.Revmaxlib|Invoice: 4520168075726
+2023-10-04 14:58:37.0828|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2023-10-04 14:58:37.2936|INFO|RevmaxAPI.Revmaxlib|69FISCALINVOICEUSD12023-10-04T14:58:375A15.0015
+2023-10-04 14:58:37.2936|INFO|RevmaxAPI.Revmaxlib|r/ZYvRtYSM3IJmt0/CbW0BAHDCtRYJ4CNzZ9CMzRdwU=
+2023-10-04 14:58:37.2955|INFO|RevmaxAPI.Revmaxlib|https://fdmstest.zimra.co.zw/000000006904102023000000000168566F133A4273FD
+2023-10-04 14:58:37.3299|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "https://fdmstest.zimra.co.zw/000000006904102023000000000168566F133A4273FD",
+  "VerificationCode": "6856-6F13-3A42-73FD",
+  "FiscalDay": "1",
+  "Data": {
+    "receipt": {
+      "receiptType": "FiscalInvoice",
+      "receiptCurrency": "USD",
+      "receiptCounter": 1,
+      "receiptGlobalNo": 1,
+      "invoiceNo": "4520168075726",
+      "buyerData": null,
+      "receiptNotes": null,
+      "receiptDate": "2023-10-04T14:58:37",
+      "creditDebitNote": null,
+      "receiptLinesTaxInclusive": true,
+      "receiptLines": [
+        {
+          "receiptLineName": "CRYSTAL MINTS SINGLES",
+          "receiptLineNo": 2,
+          "receiptLineQuantity": 1,
+          "receiptLineType": "Sale",
+          "receiptLineTotal": 0.05,
+          "taxID": 3,
+          "receiptLineHSCode": ".",
+          "receiptLinePrice": 0.05,
+          "taxCode": "A",
+          "taxPercent": 15.00
+        }
+      ],
+      "receiptTaxes": [
+        {
+          "salesAmountWithTax": 0.05,
+          "taxAmount": 0.01,
+          "taxID": 3,
+          "taxCode": "A",
+          "taxPercent": 15.00
+        }
+      ],
+      "receiptPayments": [
+        {
+          "moneyTypeCode": "Cash",
+          "paymentAmount": 0.05
+        }
+      ],
+      "receiptTotal": 0.05,
+      "receiptPrintForm": "Receipt48",
+      "receiptDeviceSignature": {
+        "hash": "r/ZYvRtYSM3IJmt0/CbW0BAHDCtRYJ4CNzZ9CMzRdwU=",
+        "signature": "FkZHgtIAoll56xxPaFLYxHgtt7IUbPeUVpbqdX26CRHOC17zez7bqmRyOZ4FW7HnoVsrzyV6sch0vbSL8i+HNNpWksF8QYdI9tHpV4wmnfZGRgw2+5tLmavm0r9B6uq+0Wqad2c/cILOxnXAht+hJtub+JvyAjPkSD1+Qm+EhJI9RL1guoupXd3dKHutHnvH0aJlNDlED0/NmT/fK9yVs3E7TnEU2kSx7pkM0ZmAAT535HiKHj04JJdn3ykK+46ogCR4+E1Vbeq/f/YLlAcEqEVMGpBul9gCnduiiKJreVweYEfvXLgMjNJrD5Ig+dkIT0KGnYY8eDkHjeURDSLxCg=="
+      }
+    }
+  }
+}

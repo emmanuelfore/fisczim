@@ -1,0 +1,46 @@
+<RevMax>
+    <Currency>ZWL</Currency>
+    <BranchName>Arundel</BranchName>
+    <InvoiceNumber>ABC123</InvoiceNumber>
+    <CustomerName>Balufu</CustomerName>
+    <CustomerVATNumber>100001212</CustomerVATNumber>
+    <CustomerAddress>60 bargate</CustomerAddress>
+    <CustomerTelephoneNumber>0778888888</CustomerTelephoneNumber>
+    <CustomerBPN>22220000</CustomerBPN>
+    <InvoiceAmount>250.50</InvoiceAmount>
+	<InvoiceTaxAmount>50.7</InvoiceTaxAmount>
+    <InvoiceFlag>01</InvoiceFlag>
+    <Cashier>Bacebile</Cashier>
+    <InvoiceComment>done</InvoiceComment>
+    <ITEMS>
+        <ITEM>
+            <HH>5</HH>
+            <ITEMCODE>06007038001317</ITEMCODE>
+            <ITEMNAME1>VANILLA SNAPS 500G</ITEMNAME1>
+            <ITEMNAME2>VANILLA SNAPS 500G</ITEMNAME2>
+            <QTY>1</QTY>
+            <PRICE>0.85</PRICE>
+            <AMT>0.85</AMT>
+            <TAX>0.11</TAX>
+            <TAXR>0</TAXR>
+        </ITEM>
+        <ITEM>
+            <HH>8</HH>
+            <ITEMCODE>05449000106322</ITEMCODE>
+            <ITEMNAME1>SPAR LETTA C/SODA 33</ITEMNAME1>
+            <ITEMNAME2>SPAR LETTA C/SODA 33</ITEMNAME2>
+            <QTY>6</QTY>
+            <PRICE>0.38</PRICE>
+            <AMT>2.25</AMT>
+            <TAX>0</TAX>
+            <TAXR>0.145</TAXR>
+        </ITEM>
+    </ITEMS>
+    <CurrenciesReceived>
+        <Currency>
+            <Name>ZWL</Name>
+            <Amount>250.50</Amount>
+            <Rate>1</Rate>
+        </Currency>
+    </CurrenciesReceived>
+</RevMax>

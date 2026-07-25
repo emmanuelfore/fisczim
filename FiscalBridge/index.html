@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FiscalBridge - Fiscal Interface</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="logo">
+                <h1>FiscalBridge</h1>
+                <span class="subtitle">Fiscal Interface for FiscalStack</span>
+            </div>
+            <div class="status-indicator">
+                <span class="status-dot" id="statusDot"></span>
+                <span class="status-text" id="statusText">Disconnected</span>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="app-main">
+            <!-- Setup Wizard (shown when not configured) -->
+            <div id="setupWizard" class="wizard-container">
+                <div class="wizard-header">
+                    <h2>Setup Wizard</h2>
+                    <p>Configure FiscalBridge for your POS system</p>
+                </div>
+
+                <div class="wizard-steps">
+                    <!-- Step 1: Folder Configuration -->
+                    <div class="wizard-step active" data-step="1">
+                        <h3>Step 1: Folder Configuration</h3>
+                        <div class="form-group">
+                            <label>Source Folder (Receipts from POS)</label>
+                            <div class="input-group">
+                                <input type="text" id="sourceFolder" placeholder="/path/to/receipts">
+                                <button class="btn-secondary" id="browseSource">Browse</button>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Target Folder (Processed Receipts)</label>
+                            <div class="input-group">
+                                <input type="text" id="targetFolder" placeholder="/path/to/backup">
+                                <button class="btn-secondary" id="browseTarget">Browse</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Step 2: Currency Configuration -->
+                    <div class="wizard-step" data-step="2">
+                        <h3>Step 2: Currency Configuration</h3>
+                        <div class="form-group">
+                            <label>Add Currencies</label>
+                            <div class="currency-list" id="currencyList">
+                                <div class="currency-item">
+                                    <input type="text" placeholder="Keyword (e.g., USD)" class="currency-keyword">
+                                    <input type="text" placeholder="Name (e.g., US Dollar)" class="currency-name">
+                                    <button class="btn-remove" onclick="removeCurrency(this)">Remove</button>
+                                </div>
+                            </div>
+                            <button class="btn-secondary" id="addCurrency">Add Currency</button>
+                        </div>
+                    </div>
+
+                    <!-- Step 3: Receipt Parsing Configuration -->
+                    <div class="wizard-step" data-step="3">
+                        <h3>Step 3: Receipt Parsing Configuration</h3>
+                        <div class="form-group">
+                            <label>Product Start Line Marker</label>
+                            <input type="text" id="productStartLine" value="Order No.">
+                        </div>
+                        <div class="form-group">
+                            <label>Product End Line Marker</label>
+                            <input type="text" id="productEndLine" value="Items count">
+                        </div>
+                        <div class="form-group">
+                            <label>Item Dot Counter</label>
+                            <input type="number" id="itemDotCounter" value="2">
+                        </div>
+                        <div class="form-group">
+                            <label>Multi-line Products</label>
+                            <select id="multiLineProduct">
+                                <option value="0">No</option>
+                                <option value="1">Yes</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>VAT Rate (Standard)</label>
+                            <input type="text" id="vatA" value="0.15">
+                        </div>
+                        <div class="form-group">
+                            <label>VAT Rate (Exempt)</label>
+                            <input type="text" id="vatE" value="0.00">
+                        </div>
+                    </div>
+
+                    <!-- Step 4: Printer Configuration -->
+                    <div class="wizard-step" data-step="4">
+                        <h3>Step 4: Printer Configuration</h3>
+                        <div class="form-group">
+                            <label>Select Printer</label>
+                            <select id="printerSelect">
+                                <option value="">Loading printers...</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Logo File Path</label>
+                            <div class="input-group">
+                                <input type="text" id="logoFile" placeholder="/path/to/logo.png">
+                                <button class="btn-secondary" id="browseLogo">Browse</button>
+                            </div>
+                        </div>
+                        <button class="btn-primary" id="testPrint">Test Print</button>
+                    </div>
+
+                    <!-- Step 5: License Configuration -->
+                    <div class="wizard-step" data-step="5">
+                        <h3>Step 5: License Configuration</h3>
+                        <div class="form-group">
+                            <label>FiscalStack License Key</label>
+                            <input type="text" id="licenseKey" placeholder="Enter your license key">
+                        </div>
+                        <div class="form-group">
+                            <label>API Endpoint</label>
+                            <input type="text" id="apiEndpoint" value="https://fiscalstack.co.zw/api">
+                        </div>
+                        <div class="form-group">
+                            <label>Company ID</label>
+                            <input type="text" id="companyId" placeholder="Your Company ID">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="wizard-footer">
+                    <button class="btn-secondary" id="prevStep" disabled>Previous</button>
+                    <button class="btn-primary" id="nextStep">Next</button>
+                    <button class="btn-success" id="finishSetup" style="display: none;">Finish Setup</button>
+                </div>
+            </div>
+
+            <!-- Main Dashboard (shown after setup) -->
+            <div id="mainDashboard" class="dashboard-container" style="display: none;">
+                <div class="dashboard-header">
+                    <h2>Dashboard</h2>
+                    <div class="dashboard-controls">
+                        <button class="btn-secondary" id="openSettings">Settings</button>
+                        <button class="btn-primary" id="startMonitoring">Start Monitoring</button>
+                        <button class="btn-danger" id="stopMonitoring" style="display: none;">Stop Monitoring</button>
+                    </div>
+                </div>
+
+                <div class="dashboard-stats">
+                    <div class="stat-card">
+                        <h3>Receipts Processed</h3>
+                        <p class="stat-value" id="receiptsProcessed">0</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Today's Total</h3>
+                        <p class="stat-value" id="todayTotal">$0.00</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Status</h3>
+                        <p class="stat-value" id="monitoringStatus">Idle</p>
+                    </div>
+                </div>
+
+                <div class="recent-activity">
+                    <h3>Recent Activity</h3>
+                    <div class="activity-list" id="activityList">
+                        <div class="activity-item">
+                            <span class="activity-time">--:--</span>
+                            <span class="activity-message">No recent activity</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="dashboard-actions">
+                    <button class="btn-primary" id="generateZReport">Generate Z-Report</button>
+                    <button class="btn-secondary" id="getDeviceStatus">Device Status</button>
+                    <button class="btn-secondary" id="getCardDetails">Card Details</button>
+                    <button class="btn-secondary" id="viewUnprocessed">Unprocessed</button>
+                    <button class="btn-secondary" id="openFiscalDay">Open Fiscal Day</button>
+                    <button class="btn-secondary" id="closeFiscalDay">Close Fiscal Day</button>
+                    <button class="btn-secondary" id="resetCounters">Reset Counters</button>
+                    <button class="btn-secondary" id="viewLogs">View Logs</button>
+                    <button class="btn-secondary" id="checkLicense">Check License</button>
+                </div>
+            </div>
+        </main>
+
+        <!-- Settings Modal -->
+        <div id="settingsModal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Settings</h3>
+                    <button class="btn-close" id="closeSettings">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <!-- Reuse wizard steps for settings -->
+                    <div id="settingsContent"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Processing Modal -->
+        <div id="processingModal" class="modal" style="display: none;">
+            <div class="modal-content modal-small">
+                <div class="modal-body">
+                    <div class="spinner"></div>
+                    <p id="processingMessage">Processing receipt...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="renderer.js"></script>
+</body>
+</html>

@@ -1,0 +1,184 @@
+2023-09-20 09:20:27.0214|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-09-20 09:20:27.2368|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-20 09:20:27.2368|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-20 09:20:27.2448|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-20 09:20:27.2448|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-20 09:20:27.2448|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-20 09:20:27.2448|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-20 09:20:27.2448|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-09-20 09:20:27.2448|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-09-20 09:20:27.2448|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-09-20 09:20:27.2448|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-09-20 09:20:27.2657|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-09-20 09:20:27.2657|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-09-20 09:20:32.1810|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-09-20 09:20:32.5559|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,200216554,10015668,Medsure Diagnostics,No 90 Lytton Road,Workington,Harare,,925E182F014C,
+2023-09-20 09:20:32.5716|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "",
+  "VerificationCode": "",
+  "FiscalDay": "1",
+  "Data": {
+    "BPN": "200216554",
+    "VAT": "10015668",
+    "COMPANYNAME": "Medsure Diagnostics",
+    "ADDRESS": "No 90 Lytton Road Workington Harare",
+    "REGISTRATIONNUMBER": "37249",
+    "SERIALNUMBER": "925E182F014C"
+  }
+}
+2023-09-20 09:24:21.2086|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-09-20 09:24:21.2815|INFO|RevmaxAPI.Revmaxlib|Invoice: ACC-SINV-2023-04634
+2023-09-20 09:24:21.2815|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2023-09-20 09:24:22.2126|INFO|RevmaxAPI.Revmaxlib|557FISCALINVOICEUSD12023-09-20T09:24:214000A15.005224000
+2023-09-20 09:24:22.2126|INFO|RevmaxAPI.Revmaxlib|qSoFdZhfKaxT8CwLELwA/9dDNzhUg/4UedOOl+OQFNQ=
+2023-09-20 09:24:22.2126|INFO|RevmaxAPI.Revmaxlib|https://fdmstest.zimra.co.zw/000000055720092023000000000122BF9D35AC3023E9
+2023-09-20 09:24:22.2595|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "https://fdmstest.zimra.co.zw/000000055720092023000000000122BF9D35AC3023E9",
+  "VerificationCode": "22BF-9D35-AC30-23E9",
+  "FiscalDay": "1",
+  "Data": {
+    "receipt": {
+      "receiptType": "FiscalInvoice",
+      "receiptCurrency": "USD",
+      "receiptCounter": 1,
+      "receiptGlobalNo": 1,
+      "invoiceNo": "ACC-SINV-2023-04634",
+      "buyerData": null,
+      "receiptNotes": null,
+      "receiptDate": "2023-09-20T09:24:21",
+      "creditDebitNote": null,
+      "receiptLinesTaxInclusive": false,
+      "receiptLines": [
+        {
+          "receiptLineName": "DUNLOP SONIC TI SQUASH",
+          "receiptLineNo": 2,
+          "receiptLineQuantity": 1,
+          "receiptLineType": "Sale",
+          "receiptLineTotal": 34.78,
+          "taxID": 3,
+          "receiptLineHSCode": ".",
+          "receiptLinePrice": 34.78,
+          "taxCode": "A",
+          "taxPercent": 15.00
+        }
+      ],
+      "receiptTaxes": [
+        {
+          "salesAmountWithTax": 40.00,
+          "taxAmount": 5.22,
+          "taxID": 3,
+          "taxCode": "A",
+          "taxPercent": 15.00
+        }
+      ],
+      "receiptPayments": [
+        {
+          "moneyTypeCode": "Cash",
+          "paymentAmount": 40.00
+        }
+      ],
+      "receiptTotal": 40.00,
+      "receiptPrintForm": "Receipt48",
+      "receiptDeviceSignature": {
+        "hash": "qSoFdZhfKaxT8CwLELwA/9dDNzhUg/4UedOOl+OQFNQ=",
+        "signature": "raEG4gyQpebLkT5w8NYnjSooAZKkiP+W0dmMNMLMQj1V3OgJScQj9uaDFeHTkjoX8o1aam/QMJ0RCHiO7ro8w1/YyWfyWUK5EhgpNrLQkXm4H0S6dOBY9pK6MGHMqKXXjAkFwQ/+IvN4KZCKRtsoXIy0Nlnah673DX6KLGD07Ahvvu0r8Kkf5AeppBQaPoFj+oaABwy6mJjQ4HJ60BCGsVBJ34qcRhoPEcrz+D+hfEcZ5V4iZeeydv8XoQgdLRVY9E2dTAGqXW9ehhjM3SDpEUi2Uk34CO05jahjrOpemv2m5wIwN9JJmeFmJ+Y9wakeDRCXO5Vjc7quCnKipk0MHg=="
+      }
+    }
+  }
+}
+2023-09-20 09:25:23.9349|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-09-20 09:25:24.2161|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-20 09:25:24.2161|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-20 09:25:24.2161|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-20 09:25:24.2317|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-20 09:25:24.2317|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-20 09:25:24.2317|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-20 09:25:24.2526|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-09-20 09:25:24.6451|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-09-20 09:25:24.7439|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-09-20 09:25:24.7449|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-09-20 09:25:24.7618|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-09-20 09:25:24.8077|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-09-20 09:25:28.4800|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-09-20 09:25:28.6166|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,200216554,10015668,Medsure Diagnostics,No 90 Lytton Road,Workington,Harare,,925E182F014C,
+2023-09-20 09:25:28.6346|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "",
+  "VerificationCode": "",
+  "FiscalDay": "1",
+  "Data": {
+    "BPN": "200216554",
+    "VAT": "10015668",
+    "COMPANYNAME": "Medsure Diagnostics",
+    "ADDRESS": "No 90 Lytton Road Workington Harare",
+    "REGISTRATIONNUMBER": "37249",
+    "SERIALNUMBER": "925E182F014C"
+  }
+}
+2023-09-20 09:25:29.0474|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-09-20 09:25:29.1189|INFO|RevmaxAPI.Revmaxlib|Invoice: ACC-SINV-2023-04634
+2023-09-20 09:25:29.1189|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2023-09-20 09:25:29.3219|INFO|RevmaxAPI.Revmaxlib|557FISCALINVOICEUSD12023-09-20T09:25:294000A15.005224000
+2023-09-20 09:25:29.3219|INFO|RevmaxAPI.Revmaxlib|NK3bf5McK0Wsn/bJigGGGE+5j4t5LihU7Sc2nPJDo8o=
+2023-09-20 09:25:29.3219|INFO|RevmaxAPI.Revmaxlib|https://fdmstest.zimra.co.zw/00000005572009202300000000011ABCB65FF8D586E4
+2023-09-20 09:25:29.3532|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "https://fdmstest.zimra.co.zw/00000005572009202300000000011ABCB65FF8D586E4",
+  "VerificationCode": "1ABC-B65F-F8D5-86E4",
+  "FiscalDay": "1",
+  "Data": {
+    "receipt": {
+      "receiptType": "FiscalInvoice",
+      "receiptCurrency": "USD",
+      "receiptCounter": 1,
+      "receiptGlobalNo": 1,
+      "invoiceNo": "ACC-SINV-2023-04634",
+      "buyerData": null,
+      "receiptNotes": null,
+      "receiptDate": "2023-09-20T09:25:29",
+      "creditDebitNote": null,
+      "receiptLinesTaxInclusive": false,
+      "receiptLines": [
+        {
+          "receiptLineName": "DUNLOP SONIC TI SQUASH",
+          "receiptLineNo": 2,
+          "receiptLineQuantity": 1,
+          "receiptLineType": "Sale",
+          "receiptLineTotal": 34.78,
+          "taxID": 3,
+          "receiptLineHSCode": ".",
+          "receiptLinePrice": 34.78,
+          "taxCode": "A",
+          "taxPercent": 15.00
+        }
+      ],
+      "receiptTaxes": [
+        {
+          "salesAmountWithTax": 40.00,
+          "taxAmount": 5.22,
+          "taxID": 3,
+          "taxCode": "A",
+          "taxPercent": 15.00
+        }
+      ],
+      "receiptPayments": [
+        {
+          "moneyTypeCode": "Cash",
+          "paymentAmount": 40.00
+        }
+      ],
+      "receiptTotal": 40.00,
+      "receiptPrintForm": "Receipt48",
+      "receiptDeviceSignature": {
+        "hash": "NK3bf5McK0Wsn/bJigGGGE+5j4t5LihU7Sc2nPJDo8o=",
+        "signature": "mZpsUXyFiIJCCeccN2dQGcTBnrYxkavY3sK3wjJKM/Ji7gF0S9FIurqLTTEvNRveyrQP9opJi0YAJd/yZ9zqdVvT2hpumBqhqRnDYAdwTsQzDAVSSv+AmkMofGwgPmS0MOGj3yAnlzU4AoEWZaDZPp45IB0TvVJW3OVbora29HBrGO7Xnp5NxfaymYjPeJKFOdxpCE2JdUw+zyqIFlva+lg/N7iZGurCMW5gS26P6UOL0fdnLOlFoCu0eTZ5wPuQJU7FmXSsGrAZRxErd8ihIinFYUFl+Tdi3bj5La4cdC1eaxb0pVRUxF0gwot5EbtXjRUerHgj8Xgt+dQeO8ELbw=="
+      }
+    }
+  }
+}

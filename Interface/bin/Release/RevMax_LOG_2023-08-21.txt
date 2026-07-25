@@ -1,0 +1,193 @@
+2023-08-21 10:44:41.8805|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-08-21 10:44:43.5725|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 10:44:43.6025|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 10:44:43.6025|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 10:44:43.6025|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 10:44:43.6165|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 10:44:43.6495|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 10:44:43.6675|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-08-21 10:44:43.6675|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-08-21 10:44:43.6675|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-08-21 10:44:43.6675|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-08-21 10:44:43.6795|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-08-21 10:44:43.8649|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-08-21 10:44:43.8649|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-08-21 10:44:43.9109|INFO|RevmaxAPI.Revmaxlib|Date updated
+2023-08-21 10:44:59.4501|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-08-21 10:45:00.4228|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,200071751,10002933,Taicom Investments,12 Nuffield Road,Workington,Harare,,A8B27E7F0148,
+2023-08-21 10:46:42.8119|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-08-21 10:46:43.1028|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 10:46:43.1028|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 10:46:43.1148|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 10:46:43.1148|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 10:46:43.1148|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 10:46:43.1148|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 10:46:43.1148|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-08-21 10:46:43.1328|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-08-21 10:46:43.1328|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-08-21 10:46:43.1328|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-08-21 10:46:43.1328|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-08-21 10:46:43.1668|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-08-21 10:46:43.1668|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-08-21 10:46:49.7165|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-08-21 10:46:49.9515|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,200071751,10002933,Taicom Investments,12 Nuffield Road,Workington,Harare,,A8B27E7F0148,
+2023-08-21 11:01:50.4816|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-08-21 11:01:50.9046|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 11:01:50.9256|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 11:01:50.9296|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 11:01:50.9296|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 11:01:50.9646|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 11:01:50.9746|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 11:01:50.9746|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-08-21 11:01:50.9746|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-08-21 11:01:50.9746|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-08-21 11:01:50.9896|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-08-21 11:01:51.0066|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-08-21 11:01:51.1496|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-08-21 11:01:51.1496|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-08-21 11:02:00.5761|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-08-21 11:02:01.0448|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,200071751,10002933,Taicom Investments,12 Nuffield Road,Workington,Harare,,A8B27E7F0148,
+2023-08-21 11:11:22.4380|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-08-21 11:11:23.2300|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 11:11:23.2560|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 11:11:23.3150|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 11:11:23.3350|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 11:11:23.3690|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 11:11:23.3990|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 11:11:23.3990|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-08-21 11:11:23.4300|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-08-21 11:11:23.4300|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-08-21 11:11:23.4300|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-08-21 11:11:23.4440|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-08-21 11:11:23.6000|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-08-21 11:11:23.6000|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-08-21 11:11:29.5105|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-08-21 11:11:29.7293|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,200071751,10002933,Taicom Investments,12 Nuffield Road,Workington,Harare,,A8B27E7F0148,
+2023-08-21 11:44:36.5291|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-08-21 11:44:37.0671|ERROR|RevmaxAPI.Revmaxlib|RevMax not found
+2023-08-21 11:44:37.0801|ERROR|RevmaxAPI.Revmaxlib|RevMax not found
+2023-08-21 11:44:37.1691|INFO|RevmaxAPI.Revmaxlib|Creating Z Report file
+2023-08-21 11:44:37.1801|ERROR|RevmaxAPI.Revmaxlib|System.NotSupportedException: The given path's format is not supported.
+   at System.Security.Permissions.FileIOPermission.EmulateFileIOPermissionChecks(String fullPath)
+   at System.IO.FileStream.Init(String path, FileMode mode, FileAccess access, Int32 rights, Boolean useRights, FileShare share, Int32 bufferSize, FileOptions options, SECURITY_ATTRIBUTES secAttrs, String msgPath, Boolean bFromProxy, Boolean useLongPath, Boolean checkHost)
+   at System.IO.FileStream..ctor(String path, FileMode mode, FileAccess access, FileShare share, Int32 bufferSize)
+   at System.IO.File.Create(String path)
+   at RevmaxAPI.Revmaxlib..ctor()
+2023-08-21 11:44:37.9691|ERROR|RevmaxAPI.Revmaxlib|Failed to create Z Report file
+2023-08-21 11:44:37.9691|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-08-21 11:44:37.9691|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-08-21 11:45:07.4192|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-08-21 11:45:10.6142|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 11:45:10.6232|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 11:45:10.7262|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 11:45:10.7262|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 11:45:10.7262|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 11:45:10.7262|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 11:45:10.7262|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-08-21 11:45:10.7402|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-08-21 11:45:10.7402|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-08-21 11:45:10.7402|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-08-21 11:45:10.7402|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-08-21 11:45:10.9312|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-08-21 11:45:10.9312|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-08-21 11:45:23.4204|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-08-21 11:45:23.9234|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,200071751,10002933,Taicom Investments,12 Nuffield Road,Workington,Harare,,A8B27E7F0148,
+2023-08-21 11:45:34.1319|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-08-21 11:45:37.1959|INFO|RevmaxAPI.Revmaxlib|Invoice: 125092
+2023-08-21 11:45:37.1959|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2023-08-21 11:45:37.3139|ERROR|RevmaxAPI.Revmaxlib|RCPT019 : [Tax Inclusive] Invalid receiptTotal - receiptTotal must be equal to sum of receiptLineTotal of all receiptLines.
+2023-08-21 11:46:47.0239|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-08-21 11:46:48.1439|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 11:46:48.2039|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 11:46:48.2039|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 11:46:48.2109|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 11:46:48.2319|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 11:46:48.2319|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 11:46:48.2409|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-08-21 11:46:48.2409|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-08-21 11:46:48.2409|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-08-21 11:46:48.2409|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-08-21 11:46:48.2589|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-08-21 11:46:48.2929|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-08-21 11:46:48.2929|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-08-21 11:46:54.7539|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-08-21 11:46:54.9389|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,200071751,10002933,Taicom Investments,12 Nuffield Road,Workington,Harare,,A8B27E7F0148,
+2023-08-21 11:47:01.7833|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-08-21 11:47:02.7942|INFO|RevmaxAPI.Revmaxlib|Invoice: 125092
+2023-08-21 11:47:02.7942|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2023-08-21 11:47:02.9072|ERROR|RevmaxAPI.Revmaxlib|RCPT019 : [Tax Inclusive] Invalid receiptTotal - receiptTotal must be equal to sum of receiptLineTotal of all receiptLines.
+2023-08-21 11:51:38.8003|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-08-21 11:51:39.1013|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 11:51:39.1013|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 11:51:39.1013|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 11:51:39.1183|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 11:51:39.1183|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 11:51:39.1183|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 11:51:39.1183|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-08-21 11:51:39.1323|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-08-21 11:51:39.1323|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-08-21 11:51:39.1323|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-08-21 11:51:39.1323|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-08-21 11:51:39.1693|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-08-21 11:51:39.1693|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-08-21 11:51:47.6985|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-08-21 11:51:47.9485|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,200071751,10002933,Taicom Investments,12 Nuffield Road,Workington,Harare,,A8B27E7F0148,
+2023-08-21 11:52:11.0830|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-08-21 11:52:13.7548|INFO|RevmaxAPI.Revmaxlib|Invoice: 125092
+2023-08-21 11:52:13.7548|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2023-08-21 11:52:24.2583|INFO|RevmaxAPI.Revmaxlib|554FISCALINVOICE32023-08-21T11:52:13399B0.000295A15.0014104
+2023-08-21 11:52:24.2583|INFO|RevmaxAPI.Revmaxlib|rFlROgl/NfDFiLym5Vi/PDHUm6YeaO1J1AMUubiM7IU=
+2023-08-21 11:52:24.2583|INFO|RevmaxAPI.Revmaxlib|https://fdmstest.zimra.co.zw/0000000554210820230000000003BCCD3B68CDFF8EBC
+2023-08-21 11:55:33.7415|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-08-21 11:55:34.2103|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 11:55:34.2259|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 11:55:34.4446|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 11:55:34.4446|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 11:55:34.4446|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 11:55:34.4446|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 11:55:34.4603|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-08-21 11:55:34.4603|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-08-21 11:55:34.4603|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-08-21 11:55:34.4603|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-08-21 11:55:34.4603|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-08-21 11:55:34.5228|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-08-21 11:55:34.5228|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-08-21 11:55:41.9666|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-08-21 11:55:42.2479|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,200071751,10002933,Taicom Investments,12 Nuffield Road,Workington,Harare,,A8B27E7F0148,
+2023-08-21 11:56:39.2595|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-08-21 11:56:41.6032|INFO|RevmaxAPI.Revmaxlib|Invoice: 125092
+2023-08-21 11:56:41.6189|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2023-08-21 11:56:42.7126|INFO|RevmaxAPI.Revmaxlib|554FISCALINVOICEUSD32023-08-21T11:56:41399B0.000295A15.0014104
+2023-08-21 11:56:42.7126|INFO|RevmaxAPI.Revmaxlib|gE/aqSbAb2QMLqSECkqstkXreOBppUd5iM5z6GgHt4g=
+2023-08-21 11:56:42.7282|INFO|RevmaxAPI.Revmaxlib|https://fdmstest.zimra.co.zw/0000000554210820230000000003086F87CE05078893
+2023-08-21 12:01:15.7863|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-08-21 12:01:16.1301|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 12:01:16.1457|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 12:01:16.1457|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 12:01:16.1457|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 12:01:16.1613|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 12:01:16.1613|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-08-21 12:01:16.1613|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-08-21 12:01:16.1769|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-08-21 12:01:16.1769|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-08-21 12:01:16.1769|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-08-21 12:01:16.1769|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-08-21 12:01:16.4738|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-08-21 12:01:16.4738|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-08-21 12:01:29.7147|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-08-21 12:01:30.2227|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,200071751,10002933,Taicom Investments,12 Nuffield Road,Workington,Harare,,A8B27E7F0148,
+2023-08-21 12:02:01.1480|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-08-21 12:02:02.6480|INFO|RevmaxAPI.Revmaxlib|Invoice: 125092
+2023-08-21 12:02:02.6636|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2023-08-21 12:02:04.0936|INFO|RevmaxAPI.Revmaxlib|554FISCALINVOICE32023-08-21T12:02:02399B0.000295A15.0014104
+2023-08-21 12:02:04.0936|INFO|RevmaxAPI.Revmaxlib|ZdXbOexBChrpYdH9gkc8fbK+mxEXdv55hg8x8Knb7oM=
+2023-08-21 12:02:04.0936|INFO|RevmaxAPI.Revmaxlib|https://fdmstest.zimra.co.zw/0000000554210820230000000003DA3553BFF63F1482
+2023-08-21 12:10:08.0863|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-08-21 12:10:08.4463|ERROR|RevmaxAPI.Revmaxlib|Init error-1
+2023-08-21 12:10:08.4463|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-08-21 12:10:08.4463|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-08-21 12:10:08.4463|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-08-21 12:10:08.4633|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-08-21 12:10:08.4633|INFO|RevmaxAPI.Revmaxlib|No License key found
+2023-08-21 12:10:16.0555|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-08-21 12:10:16.3367|ERROR|RevmaxAPI.Revmaxlib|Init error -1

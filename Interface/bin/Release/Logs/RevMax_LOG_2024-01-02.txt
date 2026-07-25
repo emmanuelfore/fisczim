@@ -1,0 +1,66 @@
+2024-01-02 08:30:53.4175|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2024-01-02 08:30:53.5677|INFO|RevmaxAPI.Revmaxlib|Device details read
+2024-01-02 08:30:53.5728|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2024-01-02 08:30:53.5728|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2024-01-02 08:30:53.5728|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2024-01-02 08:31:05.3728|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2024-01-02 08:31:05.4277|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,111111111,22222222,Test Compay,Test address1,Test address2,Test address3,,178D3519011A,
+2024-01-02 08:31:06.0825|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "",
+  "VerificationCode": "",
+  "VerificationLink": "",
+  "DeviceID": "",
+  "FiscalDay": "",
+  "Data": {
+    "TIN": "0100000000",
+    "BPN": "100000000",
+    "VAT": "22222222",
+    "COMPANYNAME": "Axis Solutions",
+    "ADDRESS": " Arundel Road Alexandra Park, Harae",
+    "REGISTRATIONNUMBER": "01",
+    "SERIALNUMBER": "F00000000D01"
+  }
+}
+2024-01-02 08:31:06.6077|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2024-01-02 08:31:06.6328|ERROR|RevmaxAPI.Revmaxlib|Transaction error: Fiscal Day has exceeded 24 hours. Run a ZReport to close the current day.
+2024-01-02 08:31:12.0126|INFO|RevmaxAPI.Revmaxlib|METHOD: ZREPORT
+2024-01-02 08:31:12.0126|INFO|RevmaxAPI.Revmaxlib|FiscalDayOpened
+2024-01-02 08:31:12.0576|INFO|RevmaxAPI.Revmaxlib|Reading Z Report file
+2024-01-02 08:31:12.0576|INFO|RevmaxAPI.Revmaxlib|No Z Report record found, doing a Zero Zreport
+2024-01-02 08:31:12.1257|INFO|RevmaxAPI.Revmaxlib|ZReport done
+2024-01-02 08:31:18.4229|INFO|RevmaxAPI.Revmaxlib|METHOD: ZREPORT
+2024-01-02 08:31:18.4229|INFO|RevmaxAPI.Revmaxlib|FiscalDayClosed
+2024-01-02 08:31:18.4229|INFO|RevmaxAPI.Revmaxlib|Close
+2024-01-02 08:31:18.4229|INFO|RevmaxAPI.Revmaxlib|its closed
+2024-01-02 08:31:18.4229|INFO|RevmaxAPI.Revmaxlib|Reading Z Report file
+2024-01-02 08:31:18.4326|INFO|RevmaxAPI.Revmaxlib|No Z Report record found, doing a Zero Zreport
+2024-01-02 08:31:18.4326|INFO|RevmaxAPI.Revmaxlib|ZReport done
+2024-01-02 08:32:37.3072|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2024-01-02 08:33:27.2933|INFO|RevmaxAPI.Revmaxlib|METHOD: ZREPORT
+2024-01-02 08:33:27.2933|INFO|RevmaxAPI.Revmaxlib|FiscalDayOpened
+2024-01-02 08:33:27.3232|INFO|RevmaxAPI.Revmaxlib|Reading Z Report file
+2024-01-02 08:33:27.3232|INFO|RevmaxAPI.Revmaxlib|No Z Report record found, doing a Zero Zreport
+2024-01-02 08:33:27.3232|INFO|RevmaxAPI.Revmaxlib|ZReport done
+2024-01-02 08:33:49.3954|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2024-01-02 08:33:49.3954|INFO|RevmaxAPI.Revmaxlib|Invoice: CR522927
+2024-01-02 08:33:50.8354|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2024-01-02 08:33:50.8354|INFO|RevmaxAPI.Revmaxlib|Items parsing done2
+2024-01-02 08:33:50.8354|ERROR|RevmaxAPI.Revmaxlib|RCPT040: Invalid receiptTotal - receiptTotal must be less than 0 for CreditNote.
+2024-01-02 08:34:18.3234|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2024-01-02 08:34:18.3234|INFO|RevmaxAPI.Revmaxlib|Invoice: IQ522927
+2024-01-02 08:34:18.3234|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2024-01-02 08:34:18.3234|INFO|RevmaxAPI.Revmaxlib|Items parsing done2
+2024-01-02 08:34:19.4737|INFO|RevmaxAPI.Revmaxlib|69FISCALINVOICEUSD142024-01-02T08:34:18500A15.0065500K94W4YeWbkRnP2i0zRUqusAIqBrz8M2hGj2M+JKKL+o=
+2024-01-02 08:34:19.4737|INFO|RevmaxAPI.Revmaxlib|T5LINI/eYmuz5xkRFrRpdjixW/EOVkJqkkyyYH5i0tw=
+2024-01-02 08:34:19.4737|INFO|RevmaxAPI.Revmaxlib|https://fdmstest.zimra.co.zw/0000000069020120240000000014E9F33F7B26D79E68
+2024-01-02 08:34:19.5135|INFO|RevmaxAPI.Revmaxlib|Updating Z Report file
+2024-01-02 08:34:56.7740|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2024-01-02 08:34:56.7740|INFO|RevmaxAPI.Revmaxlib|Invoice: IQ522927
+2024-01-02 08:34:56.7740|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2024-01-02 08:34:56.7740|INFO|RevmaxAPI.Revmaxlib|Items parsing done2
+2024-01-02 08:34:56.8188|INFO|RevmaxAPI.Revmaxlib|69FISCALINVOICEZWL152024-01-02T08:34:56500A15.0065500T5LINI/eYmuz5xkRFrRpdjixW/EOVkJqkkyyYH5i0tw=
+2024-01-02 08:34:56.8188|INFO|RevmaxAPI.Revmaxlib|cTFWZFDI3JfMwAfcdu+hV6jM7MmaeCX9iz5uhi2VlCM=
+2024-01-02 08:34:56.8188|INFO|RevmaxAPI.Revmaxlib|https://fdmstest.zimra.co.zw/000000006902012024000000001573F4EEAA3766F5DC
+2024-01-02 08:34:56.8239|INFO|RevmaxAPI.Revmaxlib|Updating Z Report file

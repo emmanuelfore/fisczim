@@ -1,0 +1,61 @@
+2024-10-04 16:24:22.0720|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2024-10-04 16:24:22.1137|INFO|RevmaxAPI.Revmaxlib|Device details read
+2024-10-04 16:24:22.1753|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2024-10-04 16:24:22.1905|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2024-10-04 16:24:22.1905|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2024-10-04 16:24:22.1905|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2024-10-04 16:24:22.2095|INFO|RevmaxAPI.Revmaxlib|Deleted old temp transaction files
+2024-10-04 16:24:22.2095|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2024-10-04 16:24:22.2652|INFO|RevmaxAPI.Revmaxlib|Deleted old temp transaction files
+2024-10-04 16:24:22.3475|INFO|RevmaxAPI.Revmaxlib|License check done
+2024-10-04 16:24:22.3475|INFO|RevmaxAPI.Revmaxlib|Date updated
+2024-10-04 16:24:26.0626|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2024-10-04 16:24:26.0646|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,111111111,22222222,Test Compay,Test address1,Test address2,Test address3,,178D3519011A,
+2024-10-04 16:24:26.1176|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "",
+  "VerificationCode": "",
+  "VerificationLink": "",
+  "DeviceID": "",
+  "DeviceSerialNumber": "178D3519011A",
+  "FiscalDay": "",
+  "Data": {
+    "TIN": "0123456789",
+    "BPN": "111111111",
+    "VAT": "012345678",
+    "COMPANYNAME": "Axis Solutions",
+    "ADDRESS": " Arundel Road Alexandra Park, Harae",
+    "REGISTRATIONNUMBER": "01",
+    "SERIALNUMBER": "178D3519011A"
+  }
+}
+2024-10-04 16:24:27.2238|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2024-10-04 16:24:27.2636|ERROR|RevmaxAPI.Revmaxlib|Transaction error: Fiscal Day has exceeded 24 hours. Run a ZReport to close the current day.
+2024-10-04 16:24:29.5183|INFO|RevmaxAPI.Revmaxlib|METHOD: ZREPORT
+2024-10-04 16:24:29.5183|INFO|RevmaxAPI.Revmaxlib|FiscalDayClosed
+2024-10-04 16:24:29.5183|INFO|RevmaxAPI.Revmaxlib|Close
+2024-10-04 16:24:29.5183|INFO|RevmaxAPI.Revmaxlib|its closed
+2024-10-04 16:24:29.5352|INFO|RevmaxAPI.Revmaxlib|Reading Z Report file
+2024-10-04 16:24:29.5352|INFO|RevmaxAPI.Revmaxlib|File read successful
+2024-10-04 16:24:29.5352|INFO|RevmaxAPI.Revmaxlib|Building Z Report
+2024-10-04 16:24:29.5352|INFO|RevmaxAPI.Revmaxlib|Z Report(s) done successfully
+2024-10-04 16:24:40.5391|INFO|RevmaxAPI.Revmaxlib|METHOD: ZREPORT
+2024-10-04 16:24:40.5391|INFO|RevmaxAPI.Revmaxlib|FiscalDayOpened
+2024-10-04 16:24:40.5889|INFO|RevmaxAPI.Revmaxlib|Reading Z Report file
+2024-10-04 16:24:40.5889|INFO|RevmaxAPI.Revmaxlib|No Z Report record found, doing a Zero Zreport
+2024-10-04 16:24:40.5979|INFO|RevmaxAPI.Revmaxlib|ZReport done
+2024-10-04 16:24:49.4053|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2024-10-04 16:24:49.4124|INFO|RevmaxAPI.Revmaxlib|Invoice: NV0232
+2024-10-04 16:24:50.8021|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2024-10-04 16:24:52.2711|INFO|RevmaxAPI.Revmaxlib|69FISCALINVOICEUSD1302024-10-04T16:24:49850A15.00111850n98DgFc0KMLLtAOi6bau8GbNyDpbpVD/OzJu4gj2fXA=
+2024-10-04 16:24:52.2711|INFO|RevmaxAPI.Revmaxlib|8ci7+L6/D4xavTMrwgUAqqU9ZOKK5ej3oxe2qlamSnM=
+2024-10-04 16:24:52.2711|INFO|RevmaxAPI.Revmaxlib|https://fdmstest.zimra.co.zw/00000000690410202400000001308BBA54D921DE03DD
+2024-10-04 16:24:52.3065|INFO|RevmaxAPI.Revmaxlib|Updating Z Report file
+2024-10-04 16:26:14.1610|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2024-10-04 16:26:14.1610|INFO|RevmaxAPI.Revmaxlib|Invoice: NV0232t
+2024-10-04 16:26:14.2295|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2024-10-04 16:26:14.2992|INFO|RevmaxAPI.Revmaxlib|69FISCALINVOICEUSD1312024-10-04T16:26:14850A15.001118508ci7+L6/D4xavTMrwgUAqqU9ZOKK5ej3oxe2qlamSnM=
+2024-10-04 16:26:14.2992|INFO|RevmaxAPI.Revmaxlib|oGpLOaWmHHodawRyRCN2qX15WXg2aBB4gFkiXg4r/SY=
+2024-10-04 16:26:14.2992|INFO|RevmaxAPI.Revmaxlib|https://fdmstest.zimra.co.zw/0000000069041020240000000131C25DB6A385C5E2C8
+2024-10-04 16:26:14.3195|INFO|RevmaxAPI.Revmaxlib|Updating Z Report file

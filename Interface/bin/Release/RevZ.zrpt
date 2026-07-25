@@ -1,0 +1,20 @@
+<ZREPORT>
+  <FiscalInvoice>
+    <Currency>
+      <Name>ZWL</Name>
+      <DailyTotal>1</DailyTotal>
+      <VatableNetAmount>0</VatableNetAmount>
+      <VatableTax>0</VatableTax>
+      <NonVatableNet>1</NonVatableNet>
+    </Currency>
+  </FiscalInvoice>
+  <CreditNote>
+    <Currency>
+      <Name>ZWL</Name>
+      <DailyTotal>-1</DailyTotal>
+      <VatableNetAmount>0</VatableNetAmount>
+      <VatableTax>0</VatableTax>
+      <NonVatableNet>-1</NonVatableNet>
+    </Currency>
+  </CreditNote>
+</ZREPORT>

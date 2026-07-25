@@ -1,0 +1,241 @@
+2023-09-29 14:50:22.8009|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-09-29 14:50:23.3095|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-29 14:50:23.3095|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-29 14:50:23.3185|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-29 14:50:23.3185|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-29 14:50:23.3185|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-29 14:50:23.3185|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-29 14:50:23.3185|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-09-29 14:50:23.3185|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-09-29 14:50:23.3185|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-09-29 14:50:23.3185|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-09-29 14:50:23.3185|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-09-29 14:50:23.3953|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-09-29 14:50:23.3953|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-09-29 14:50:23.3953|INFO|RevmaxAPI.Revmaxlib|Date updated
+2023-09-29 14:51:16.2248|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-09-29 14:51:17.4744|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,200216554,10015668,Medsure Diagnostics,No 90 Lytton Road,Workington,Harare,,925E182F014C,
+2023-09-29 14:51:17.5193|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "",
+  "VerificationCode": "",
+  "FiscalDay": "1",
+  "Data": {
+    "BPN": "200216554",
+    "VAT": "10015668",
+    "COMPANYNAME": "Medsure Diagnostics",
+    "ADDRESS": "No 90 Lytton Road Workington Harare",
+    "REGISTRATIONNUMBER": "37249",
+    "SERIALNUMBER": "925E182F014C"
+  }
+}
+2023-09-29 14:51:34.2356|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-09-29 14:51:34.2686|INFO|RevmaxAPI.Revmaxlib|Invoice: ACC-SINV-2023-04610
+2023-09-29 14:51:34.2845|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2023-09-29 14:51:34.4401|ERROR|RevmaxAPI.Revmaxlib|RCPT019 : [Tax Inclusive] Invalid receiptTotal - receiptTotal must be equal to sum of receiptLineTotal of all receiptLines.
+2023-09-29 14:52:05.9270|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-09-29 14:52:06.2342|INFO|RevmaxAPI.Revmaxlib|Invoice: ACC-SINV-2023-04610
+2023-09-29 14:52:06.2342|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2023-09-29 14:52:06.3279|ERROR|RevmaxAPI.Revmaxlib|RCPT019 : [Tax Inclusive] Invalid receiptTotal - receiptTotal must be equal to sum of receiptLineTotal of all receiptLines.
+2023-09-29 14:52:18.5265|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-09-29 14:52:18.6023|INFO|RevmaxAPI.Revmaxlib|Invoice: ACC-SINV-2023-04610
+2023-09-29 14:52:18.6023|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2023-09-29 14:52:18.6941|ERROR|RevmaxAPI.Revmaxlib|RCPT019 : [Tax Inclusive] Invalid receiptTotal - receiptTotal must be equal to sum of receiptLineTotal of all receiptLines.
+2023-09-29 14:52:49.1585|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-09-29 14:52:49.2393|INFO|RevmaxAPI.Revmaxlib|Invoice: ACC-SINV-2023-04610
+2023-09-29 14:52:49.2393|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2023-09-29 14:52:49.3321|ERROR|RevmaxAPI.Revmaxlib|RCPT037: [Tax Exclusive] Invalid receiptTotal - receiptTotal must be equal to sum of receiptLineTotal of all receiptLines plus sum of taxAmount of all receiptTaxes.
+2023-09-29 14:54:38.0214|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-09-29 14:54:38.0932|INFO|RevmaxAPI.Revmaxlib|Invoice: ACC-SINV-2023-04636
+2023-09-29 14:54:38.0932|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2023-09-29 14:54:39.2072|INFO|RevmaxAPI.Revmaxlib|557FISCALINVOICEUSD12023-09-29T14:54:387600A15.009917600
+2023-09-29 14:54:39.2072|INFO|RevmaxAPI.Revmaxlib|d8RXswRv3RozlvT95M7TwonL6ledFOYLZrLCAz6b6l4=
+2023-09-29 14:54:39.2072|INFO|RevmaxAPI.Revmaxlib|https://fdmstest.zimra.co.zw/00000005572909202300000000013142191AFDEA2399
+2023-09-29 14:54:39.3947|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "https://fdmstest.zimra.co.zw/00000005572909202300000000013142191AFDEA2399",
+  "VerificationCode": "3142-191A-FDEA-2399",
+  "FiscalDay": "1",
+  "Data": {
+    "receipt": {
+      "receiptType": "FiscalInvoice",
+      "receiptCurrency": "USD",
+      "receiptCounter": 1,
+      "receiptGlobalNo": 1,
+      "invoiceNo": "ACC-SINV-2023-04636",
+      "buyerData": null,
+      "receiptNotes": null,
+      "receiptDate": "2023-09-29T14:54:38",
+      "creditDebitNote": null,
+      "receiptLinesTaxInclusive": false,
+      "receiptLines": [
+        {
+          "receiptLineName": "KOOKABURRA BEAST PRO 9.",
+          "receiptLineNo": 2,
+          "receiptLineQuantity": 1,
+          "receiptLineType": "Sale",
+          "receiptLineTotal": 60.87,
+          "taxID": 3,
+          "receiptLineHSCode": ".",
+          "receiptLinePrice": 60.87,
+          "taxCode": "A",
+          "taxPercent": 15.00
+        },
+        {
+          "receiptLineName": "KOOKABURRA BEAST PRO 9. PACER SILICONE CAP NAVY",
+          "receiptLineNo": 3,
+          "receiptLineQuantity": 1,
+          "receiptLineType": "Sale",
+          "receiptLineTotal": 5.22,
+          "taxID": 3,
+          "receiptLineHSCode": ".",
+          "receiptLinePrice": 5.22,
+          "taxCode": "A",
+          "taxPercent": 15.00
+        }
+      ],
+      "receiptTaxes": [
+        {
+          "salesAmountWithTax": 76.00,
+          "taxAmount": 9.91,
+          "taxID": 3,
+          "taxCode": "A",
+          "taxPercent": 15.00
+        }
+      ],
+      "receiptPayments": [
+        {
+          "moneyTypeCode": "Cash",
+          "paymentAmount": 76.00
+        }
+      ],
+      "receiptTotal": 76.00,
+      "receiptPrintForm": "Receipt48",
+      "receiptDeviceSignature": {
+        "hash": "d8RXswRv3RozlvT95M7TwonL6ledFOYLZrLCAz6b6l4=",
+        "signature": "VSS/ixikfMUV5VmgAp5FV/89FRH5SsxK+IdlhmJ9zdRosXZEoqqnd1bajB3gPCI2JS3Z9blicjo0g2zd7AmQcNetl2c/ZDWsGTBZS7U5SaXoUkK0/oL3Y3b+WJAyr04QvtIdtCt32zvAKH9yeUt0Pq0xFK//sV6XQPdLV9DeMxDKFNzs1FXQ9YH863MS8oSFHLG0YZhiRFUhz7rsFuym02mZsV+z6vKH5BfFcKwbzykto5A9kDLDorJ244sNbEsQNoD+mWA5jiYdeDjbT00qa6ONpA1jaON1Wwdu4sRzABYODcFYShDaIz9uenrhyMO4KNHkqwM//Z0rYAwm7+4cRA=="
+      }
+    }
+  }
+}
+2023-09-29 15:05:01.1928|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-09-29 15:05:01.3444|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-29 15:05:01.3444|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-29 15:05:01.3504|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-29 15:05:01.3504|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-29 15:05:01.3504|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-29 15:05:01.3504|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-29 15:05:01.3504|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-09-29 15:05:01.3504|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-09-29 15:05:01.3504|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-09-29 15:05:01.3504|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-09-29 15:05:01.3504|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-09-29 15:05:01.3714|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-09-29 15:05:01.3714|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-09-29 15:05:52.8125|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-09-29 15:05:52.9770|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-29 15:05:52.9770|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-29 15:05:52.9770|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-29 15:05:52.9770|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-29 15:05:52.9770|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-29 15:05:52.9770|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-09-29 15:05:52.9770|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-09-29 15:05:52.9890|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-09-29 15:05:52.9890|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-09-29 15:05:52.9890|INFO|RevmaxAPI.Revmaxlib|Check for License key
+2023-09-29 15:05:52.9890|INFO|RevmaxAPI.Revmaxlib|Checking License file
+2023-09-29 15:05:52.9890|INFO|RevmaxAPI.Revmaxlib|License Status: Active
+2023-09-29 15:05:53.0049|INFO|RevmaxAPI.Revmaxlib|License check done
+2023-09-29 15:05:58.4126|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-09-29 15:05:58.6459|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,200216554,10015668,Medsure Diagnostics,No 90 Lytton Road,Workington,Harare,,925E182F014C,
+2023-09-29 15:05:58.6659|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "",
+  "VerificationCode": "",
+  "FiscalDay": "1",
+  "Data": {
+    "BPN": "200216554",
+    "VAT": "10015668",
+    "COMPANYNAME": "Medsure Diagnostics",
+    "ADDRESS": "No 90 Lytton Road Workington Harare",
+    "REGISTRATIONNUMBER": "37249",
+    "SERIALNUMBER": "925E182F014C"
+  }
+}
+2023-09-29 15:06:19.1685|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2023-09-29 15:06:19.1964|INFO|RevmaxAPI.Revmaxlib|Invoice: ACC-SINV-2023-04636
+2023-09-29 15:06:19.1964|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2023-09-29 15:06:19.3985|INFO|RevmaxAPI.Revmaxlib|557FISCALINVOICEUSD12023-09-29T15:06:197600A15.009917600
+2023-09-29 15:06:19.3985|INFO|RevmaxAPI.Revmaxlib|J9AWmREcispD+PB8vTzF/8UPelB/gnqIjq0OEfnv6V8=
+2023-09-29 15:06:19.3985|INFO|RevmaxAPI.Revmaxlib|https://fdmstest.zimra.co.zw/0000000557290920230000000001F28C18F51093289F
+2023-09-29 15:06:19.4327|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "https://fdmstest.zimra.co.zw/0000000557290920230000000001F28C18F51093289F",
+  "VerificationCode": "F28C-18F5-1093-289F",
+  "FiscalDay": "1",
+  "Data": {
+    "receipt": {
+      "receiptType": "FiscalInvoice",
+      "receiptCurrency": "USD",
+      "receiptCounter": 1,
+      "receiptGlobalNo": 1,
+      "invoiceNo": "ACC-SINV-2023-04636",
+      "buyerData": null,
+      "receiptNotes": null,
+      "receiptDate": "2023-09-29T15:06:19",
+      "creditDebitNote": null,
+      "receiptLinesTaxInclusive": false,
+      "receiptLines": [
+        {
+          "receiptLineName": "KOOKABURRA BEAST PRO 9.",
+          "receiptLineNo": 2,
+          "receiptLineQuantity": 1,
+          "receiptLineType": "Sale",
+          "receiptLineTotal": 60.87,
+          "taxID": 3,
+          "receiptLineHSCode": ".",
+          "receiptLinePrice": 60.87,
+          "taxCode": "A",
+          "taxPercent": 15.00
+        },
+        {
+          "receiptLineName": "KOOKABURRA BEAST PRO 9. PACER SILICONE CAP NAVY",
+          "receiptLineNo": 3,
+          "receiptLineQuantity": 1,
+          "receiptLineType": "Sale",
+          "receiptLineTotal": 5.22,
+          "taxID": 3,
+          "receiptLineHSCode": ".",
+          "receiptLinePrice": 5.22,
+          "taxCode": "A",
+          "taxPercent": 15.00
+        }
+      ],
+      "receiptTaxes": [
+        {
+          "salesAmountWithTax": 76.00,
+          "taxAmount": 9.91,
+          "taxID": 3,
+          "taxCode": "A",
+          "taxPercent": 15.00
+        }
+      ],
+      "receiptPayments": [
+        {
+          "moneyTypeCode": "Cash",
+          "paymentAmount": 76.00
+        }
+      ],
+      "receiptTotal": 76.00,
+      "receiptPrintForm": "Receipt48",
+      "receiptDeviceSignature": {
+        "hash": "J9AWmREcispD+PB8vTzF/8UPelB/gnqIjq0OEfnv6V8=",
+        "signature": "fsHdTK+8XScLYvV3w59YZQltlxw7+dR8VbCoYOBVt0/TxliFV9Jmr8EeBpFD42HzsIpajfH9id9IJP4qbXhqazLD02MowqnPPf6jLH+klJA4+TMPMlyWR23+Tox7QHp7+jsZxZRUJsavt2URak1lNq08pQj+WfAGweM3cusBYHxqcb7i/goKBy77k3Nay5zj6u/v0ExhvmxJrB6824xGSBj2IBJoLHXGQyS6hgZjVMTt7qZuKitB/dxBa+lMBrB9IIZ+4j4mpFbZuUxGQ7deFCEfGKeRrpsRBgf0ROtL14Lh0sqUD2sso0VO7ET4BI/Xdad4A1eJD5wec2prI7UIGA=="
+      }
+    }
+  }
+}

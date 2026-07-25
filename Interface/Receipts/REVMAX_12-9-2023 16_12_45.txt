@@ -1,0 +1,85 @@
+9/12/23, 4:12 PMARUNDEL VILLAGE CASH SALES - USD
+https://mms.gopri.me/printview?doctype=Sales Invoice&name=ACC-SINV-2023-04638&trigger_print=1&format=Goprime POS - 3&no_letterhead=01/1
+FISCAL TAX INVOICE
+VAT NUMBER: 10002414
+Mark Manolios Sports
+0242301987
+sales@mmsports.co.zw
+Date and Time: 12-09-2023 4:12:33 PM
+Cashier: arundel@mmsports.co.zw Branch: Arundel Store - MMS
+Customer Account Number: ARUNDEL VILLAGE CASH SALES - USD
+Customer Name: ARUNDEL VILLAGE CASH SALES - USD
+Document Number: ACC-SINV-2023-04638
+Item Description             Rate   Qty      Amount
+KOOKABURRA VELOCITY RUC    78.26     1       78.26
+Payment Method           Amount Paid
+Total Excl. Tax           $ 78.26
+VAT @ 15%                 $ 11.74
+Total Including VAT       $ 90.00
+Amount Tendered           $ 0.00
+PLEASE RETAIN AS PROOF OF PAYMENT
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

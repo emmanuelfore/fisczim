@@ -1,0 +1,14 @@
+<CurrencyTags>
+	<currency>
+		<keyword>Cash</keyword>
+		<Name>USD</Name>
+	</currency>
+	<currency>
+		<keyword>USD</keyword>
+		<Name>USD</Name>
+	</currency>
+	<currency>
+		<keyword>ZWG</keyword>
+		<Name>ZWG</Name>
+	</currency>
+</CurrencyTags>

@@ -716,6 +716,7 @@ export const invoices = pgTable("invoices", {
 
   notes: text("notes"),
   poNumber: text("po_number"),
+  externalRef: text("external_ref"), // RevMax/external system invoice reference number
   invoiceTemplate: text("invoice_template").default("modern"),
   isFiscalized: boolean("is_fiscalized").default(true),
 

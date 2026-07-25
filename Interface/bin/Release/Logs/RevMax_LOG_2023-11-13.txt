@@ -1,0 +1,29 @@
+2023-11-13 12:06:03.8273|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-11-13 12:06:04.2343|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-11-13 12:06:04.2343|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-11-13 12:06:04.2393|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-11-13 12:06:04.2393|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-11-13 12:06:29.1713|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2023-11-13 12:06:29.2103|INFO|RevmaxAPI.Revmaxlib|Device details read
+2023-11-13 12:06:29.2103|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2023-11-13 12:06:29.2103|INFO|RevmaxAPI.Revmaxlib|Blank Z Report file
+2023-11-13 12:06:29.2883|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2023-11-13 12:06:35.1699|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2023-11-13 12:06:35.1699|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,111111111,22222222,Test Compay,Test address1,Test address2,Test address3,,178D3519011A,
+2023-11-13 12:06:35.2139|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "",
+  "VerificationCode": "",
+  "VerificationLink": "",
+  "DeviceID": "",
+  "FiscalDay": "",
+  "Data": {
+    "BPN": "100000000",
+    "VAT": "22222222",
+    "COMPANYNAME": "Axis Solutions",
+    "ADDRESS": " Arundel Road Alexandra Park, Harae",
+    "REGISTRATIONNUMBER": "01",
+    "SERIALNUMBER": "F00000000D01"
+  }
+}

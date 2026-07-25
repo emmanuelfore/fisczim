@@ -1,0 +1,51 @@
+2024-03-25 12:38:53.7878|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2024-03-25 12:38:53.8945|INFO|RevmaxAPI.Revmaxlib|Device details read
+2024-03-25 12:38:53.8945|INFO|RevmaxAPI.Revmaxlib|Checking Z Report file
+2024-03-25 12:38:53.9174|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2024-03-25 12:38:53.9595|INFO|RevmaxAPI.Revmaxlib|Deleted old temp transaction files
+2024-03-25 12:38:54.0586|INFO|RevmaxAPI.Revmaxlib|Deleted old temp transaction files
+2024-03-25 12:38:57.5899|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2024-03-25 12:38:57.5899|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,111111111,22222222,Test Compay,Test address1,Test address2,Test address3,,178D3519011A,
+2024-03-25 12:38:57.6568|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "",
+  "VerificationCode": "",
+  "VerificationLink": "",
+  "DeviceID": "",
+  "DeviceSerialNumber": "178D3519011A",
+  "FiscalDay": "",
+  "Data": {
+    "TIN": "0123456789",
+    "BPN": "111111111",
+    "VAT": "012345678",
+    "COMPANYNAME": "Axis Solutions",
+    "ADDRESS": " Arundel Road Alexandra Park, Harae",
+    "REGISTRATIONNUMBER": "01",
+    "SERIALNUMBER": "178D3519011A"
+  }
+}
+2024-03-25 12:38:58.8624|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2024-03-25 12:38:58.8854|ERROR|RevmaxAPI.Revmaxlib|Transaction error: Fiscal Day has exceeded 24 hours. Run a ZReport to close the current day.
+2024-03-25 12:39:54.8985|INFO|RevmaxAPI.Revmaxlib|METHOD: ZREPORT
+2024-03-25 12:39:54.9204|INFO|RevmaxAPI.Revmaxlib|FiscalDayClosed
+2024-03-25 12:39:54.9234|INFO|RevmaxAPI.Revmaxlib|Close
+2024-03-25 12:39:54.9234|INFO|RevmaxAPI.Revmaxlib|its closed
+2024-03-25 12:39:54.9234|INFO|RevmaxAPI.Revmaxlib|Reading Z Report file
+2024-03-25 12:39:54.9384|INFO|RevmaxAPI.Revmaxlib|File read successful
+2024-03-25 12:39:54.9384|INFO|RevmaxAPI.Revmaxlib|Building Z Report
+2024-03-25 12:39:54.9384|INFO|RevmaxAPI.Revmaxlib|Z Report(s) done successfully
+2024-03-25 12:40:09.2592|INFO|RevmaxAPI.Revmaxlib|METHOD: ZREPORT
+2024-03-25 12:40:09.2748|INFO|RevmaxAPI.Revmaxlib|FiscalDayOpened
+2024-03-25 12:40:09.3186|INFO|RevmaxAPI.Revmaxlib|Reading Z Report file
+2024-03-25 12:40:09.3186|INFO|RevmaxAPI.Revmaxlib|No Z Report record found, doing a Zero Zreport
+2024-03-25 12:40:09.3186|INFO|RevmaxAPI.Revmaxlib|ZReport done
+2024-03-25 12:40:14.3236|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2024-03-25 12:40:14.3505|INFO|RevmaxAPI.Revmaxlib|Invoice: 000006
+2024-03-25 12:40:15.1930|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2024-03-25 12:40:16.3299|INFO|RevmaxAPI.Revmaxlib|69FISCALINVOICEUSD1172024-03-25T12:40:1450B0.00050A15.0000e19drm1dKcoAJM6aK1v/mb5Voo0ieEVm2O5G28gozvU=
+2024-03-25 12:40:16.3299|INFO|RevmaxAPI.Revmaxlib|iIAHA+4USduGsg+NOfGC06gybgHKYRAc+QLrUGr20Kk=
+2024-03-25 12:40:16.3299|INFO|RevmaxAPI.Revmaxlib|https://fdmstest.zimra.co.zw/0000000069250320240000000117E7A34BB4807E14B0
+2024-03-25 12:40:16.3827|INFO|RevmaxAPI.Revmaxlib|Updating Z Report file
+2024-03-25 12:43:53.9173|INFO|RevmaxAPI.Revmaxlib|Deleted old temp transaction files
+2024-03-25 12:43:53.9213|INFO|RevmaxAPI.Revmaxlib|Deleted old temp transaction files

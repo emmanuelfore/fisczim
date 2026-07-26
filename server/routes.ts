@@ -15450,11 +15450,10 @@ export async function registerRoutes(
     }
   });
 
+  app.use('/api/v1', v1Router);
   app.use("/api", createRolesPermissionsRouter(requireAuth));
   app.use("/api", createPartnershipsRouter(requireAuth));
   app.use("/api", createCustomerFlowRouter(requireAuth));
-
-  app.use('/api/v1', v1Router);
 
   return httpServer;
 

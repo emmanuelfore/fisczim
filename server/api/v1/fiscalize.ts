@@ -91,6 +91,14 @@ export const passThroughFiscalizeSchema = z.object({
   // ── Credit / Debit Note fields (required when transactionType ≠ FiscalInvoice) ──
   relatedInvoiceNumber: z.string().optional(), // Invoice number of the original (e.g. "INV-197")
   creditNoteReason:     z.string().optional(), // Why this correction is being issued
+
+  // ── Offline Synchronization fields (used when bridging app signs offline) ──
+  offlineSignature:            z.string().optional(),
+  offlineReceiptCounter:       z.number().optional(),
+  offlineGlobalReceiptCounter: z.number().optional(),
+  offlinePreviousHash:         z.string().optional(),
+  offlineFiscalDay:            z.number().optional(),
+  offlineDate:                 z.string().optional(),
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -353,6 +361,11 @@ router.post("/", async (req, res) => {
       buyerName:        buyerDisplayName,
       buyerVat:         body.buyer?.vatNumber ?? null,
       buyerTin:         body.buyer?.tin       ?? null,
+      // ── Offline Sync Fields ──
+      fiscalSignature:  body.offlineSignature ?? null,
+      receiptCounter:   body.offlineReceiptCounter ?? null,
+      receiptGlobalNo:  body.offlineGlobalReceiptCounter ?? null,
+      fiscalDayNo:      body.offlineFiscalDay ?? null,
       items: processedItems.map((item) => ({
         description: item.name,
         quantity:    item.quantity.toString(),
@@ -372,7 +385,8 @@ router.post("/", async (req, res) => {
 
   // ── 13. Fiscalize ────────────────────────────────────────────────────────
   try {
-    const fiscal = await processInvoiceFiscalization(invoice.id, company.id);
+    const offlineMetadata = body.offlineSignature ? { date: body.offlineDate } : undefined;
+    const fiscal = await processInvoiceFiscalization(invoice.id, company.id, undefined, false, undefined, false, offlineMetadata);
 
     // Build ZIMRA-aligned receipt lines for response
     const receiptLineType = body.transactionType === "CreditNote" ? "Refund" : "Sale";

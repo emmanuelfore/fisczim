@@ -103,31 +103,31 @@ const options: swaggerJsdoc.Options = {
                                     name: { type: 'string', description: 'Item name as shown on the receipt' },
                                     quantity: { type: 'number', minimum: 0 },
                                     unitPrice: { type: 'number', minimum: 0 },
-                                    taxRate: { type: 'number', minimum: 0, maximum: 100, nullable: true, description: 'Defaults to company default (usually 15%)' },
-                                    hsCode: { type: 'string', nullable: true, description: 'Defaults to company default HS code' },
-                                    sku: { type: 'string', nullable: true, description: 'Client reference — not sent to ZIMRA' },
+                                    taxRate: { type: 'number', minimum: 0, maximum: 100, nullable: true, description: '(Optional) Defaults to company default (usually 15.5%)' },
+                                    hsCode: { type: 'string', nullable: true, description: '(Optional) Defaults to company default HS code' },
+                                    sku: { type: 'string', nullable: true, description: '(Optional) Client reference — not sent to ZIMRA' },
                                 }
                             }
                         },
                         buyer: {
                             type: 'object',
-                            description: 'Optional buyer info. Defaults to "Walk-in Customer" if omitted.',
+                            description: '(Optional) Buyer info. Defaults to "Walk-in Customer" if omitted.',
                             nullable: true,
                             properties: {
-                                name: { type: 'string' },
-                                vatNumber: { type: 'string' },
-                                tin: { type: 'string' },
-                                email: { type: 'string', format: 'email' },
-                                phone: { type: 'string' },
-                                address: { type: 'string' },
+                                name: { type: 'string', description: '(Optional)' },
+                                vatNumber: { type: 'string', description: '(Optional)' },
+                                tin: { type: 'string', description: '(Optional)' },
+                                email: { type: 'string', format: 'email', description: '(Optional)' },
+                                phone: { type: 'string', description: '(Optional)' },
+                                address: { type: 'string', description: '(Optional)' },
                             }
                         },
-                        invoiceNumber: { type: 'string', nullable: true, description: 'Auto-generated if omitted' },
-                        date: { type: 'string', format: 'date', nullable: true, description: 'Defaults to today' },
-                        currency: { type: 'string', minLength: 3, maxLength: 3, nullable: true, description: 'ISO 4217. Defaults to company currency' },
-                        paymentMethod: { type: 'string', enum: ['CASH', 'CARD', 'MOBILE', 'TRANSFER'], default: 'CASH' },
-                        transactionType: { type: 'string', enum: ['FiscalInvoice', 'CreditNote', 'DebitNote'], default: 'FiscalInvoice' },
-                        relatedFiscalCode: { type: 'string', nullable: true, description: 'Required for CreditNote or DebitNote' },
+                        invoiceNumber: { type: 'string', nullable: true, description: '(Optional) Auto-generated if omitted' },
+                        date: { type: 'string', format: 'date', nullable: true, description: '(Optional) Defaults to today' },
+                        currency: { type: 'string', minLength: 3, maxLength: 3, nullable: true, description: '(Optional) ISO 4217. Defaults to company currency' },
+                        paymentMethod: { type: 'string', enum: ['CASH', 'CARD', 'MOBILE', 'TRANSFER'], default: 'CASH', description: '(Optional) Defaults to CASH' },
+                        transactionType: { type: 'string', enum: ['FiscalInvoice', 'CreditNote', 'DebitNote'], default: 'FiscalInvoice', description: '(Optional) Determines the kind of fiscal document being generated. Defaults to Standard Sale (FiscalInvoice) if omitted.' },
+                        relatedInvoiceNumber: { type: 'string', nullable: true, description: '(Optional) Required for CreditNote or DebitNote. Provide the invoice number of the original invoice being corrected.' },
                     },
                     example: {
                         items: [
@@ -334,14 +334,23 @@ const options: swaggerJsdoc.Options = {
             '/api/v1/fiscalize': {
                 post: {
                     summary: 'Pass-through Fiscalization (Recommended for integrations)',
-                    description: `Fiscalizes a receipt directly against ZIMRA in a single API call.
-**Minimum viable request** — only \`items\` is required:
+                    description: `**The Pass-Through Fiscalization API** allows you to fiscalize receipts directly against ZIMRA in a single API call without needing to pre-register customers, products, or invoices in FiscalStack. This is the recommended integration method for POS systems, ERPs, and legacy applications.
+
+### How it works:
+1. **Send the minimum data:** Only the \`items\` array is strictly required for a standard sale. 
+2. **Auto-Defaults:** FiscalStack automatically handles complex ZIMRA requirements. It computes all subtotals and taxes server-side, maps your items to the correct HS codes and Tax IDs based on your company profile, and defaults missing buyer information to a standard "Walk-in Customer".
+3. **Credit/Debit Notes:** For refunds or corrections, simply specify the \`transactionType\` as \`CreditNote\` or \`DebitNote\` and provide the \`relatedInvoiceNumber\` of the original invoice.
+
+**Minimum viable request:**
 \`\`\`json
-{ "items": [{ "name": "Widget", "quantity": 1, "unitPrice": 100 }] }
+{ 
+  "items": [
+    { "name": "Widget", "quantity": 1, "unitPrice": 100 }
+  ] 
+}
 \`\`\`
-All totals are computed server-side. Tax rate and HS code default from your company profile.
-Buyer defaults to "Walk-in Customer" if not provided. Invoice number is auto-generated.
-On error, the orphaned invoice is automatically cleaned up so you can retry safely.`,
+
+*Note: If ZIMRA rejects the transaction (e.g., device offline or day closed), the temporary invoice record is automatically cleaned up so you can retry the exact same request safely once the issue is resolved.*`,
                     tags: ['Pass-through'],
                     requestBody: {
                         required: true,

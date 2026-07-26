@@ -33,9 +33,7 @@ contextBridge.exposeInMainWorld('fiscalBridgeAPI', {
   saveCurrencyConfig: (currencies) => ipcRenderer.invoke('save-currency-config', currencies),
   loadCurrencyConfig: () => ipcRenderer.invoke('load-currency-config'),
 
-  // License Management
-  saveLicense: (licenseKey) => ipcRenderer.invoke('save-license', licenseKey),
-  loadLicense: () => ipcRenderer.invoke('load-license'),
+
 
   // Printer Management
   getPrinters: () => ipcRenderer.invoke('get-printers'),

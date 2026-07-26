@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
@@ -102,10 +102,6 @@
     <Reference Include="QRCoder, Version=1.4.3.0, Culture=neutral, PublicKeyToken=c4ed5b9ae8358a28, processorArchitecture=MSIL">
       <HintPath>packages\QRCoder.1.4.3\lib\net40\QRCoder.dll</HintPath>
     </Reference>
-    <Reference Include="RevmaxAPI, Version=3.2.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>bin\Debug\RevmaxAPI.dll</HintPath>
-    </Reference>
     <Reference Include="System" />
     <Reference Include="System.Configuration" />
     <Reference Include="System.Core" />
@@ -127,6 +123,7 @@
     <Compile Include="CardDetails.cs" />
     <Compile Include="CreditDebitNote.cs" />
     <Compile Include="Device.cs" />
+    <Compile Include="FiscalStackClient.cs" />
     <Compile Include="Form1.cs">
       <SubType>Form</SubType>
     </Compile>

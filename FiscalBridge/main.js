@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Menu, safeStorage, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const chokidar = require('chokidar');
@@ -198,47 +198,7 @@ function registerIpcHandlers() {
     }
   });
 
-  // License management (encrypted storage)
-  ipcMain.handle('save-license', async (_event, licenseKey) => {
-    try {
-      if (safeStorage.isEncryptionAvailable()) {
-        const encrypted = safeStorage.encryptString(licenseKey);
-        const licensePath = path.join(app.getPath('userData'), 'license.enc');
-        fs.writeFileSync(licensePath, encrypted);
-      } else {
-        // Fallback to plain text if encryption not available
-        const licensePath = path.join(app.getPath('userData'), 'license.txt');
-        fs.writeFileSync(licensePath, licenseKey);
-      }
-      return { success: true };
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
-  });
 
-  ipcMain.handle('load-license', async () => {
-    try {
-      const licensePath = path.join(app.getPath('userData'), 'license.enc');
-      if (fs.existsSync(licensePath)) {
-        const encrypted = fs.readFileSync(licensePath);
-        if (safeStorage.isEncryptionAvailable()) {
-          const licenseKey = safeStorage.decryptString(encrypted);
-          return { success: true, licenseKey };
-        }
-      }
-      
-      // Try fallback
-      const fallbackPath = path.join(app.getPath('userData'), 'license.txt');
-      if (fs.existsSync(fallbackPath)) {
-        const licenseKey = fs.readFileSync(fallbackPath, 'utf8');
-        return { success: true, licenseKey };
-      }
-
-      return { success: false, error: 'License not found' };
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
-  });
 
   // Printer management
   ipcMain.handle('get-printers', async () => {
@@ -460,6 +420,7 @@ function createWindow() {
 
   mainWindow.webContents.on('did-finish-load', () => {
     console.log('[FiscalBridge] Window loaded successfully');
+    log.info('[FiscalBridge] Window loaded successfully');
   });
 
   mainWindow.on('closed', () => {

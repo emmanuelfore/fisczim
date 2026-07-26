@@ -1,4 +1,4 @@
-﻿
+
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
@@ -12,7 +12,6 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Xml;
 using System.Xml.Linq;
-using RevmaxAPI;
 using Microsoft.Reporting.WinForms;
 using System.Drawing.Printing;
 using System.ServiceProcess;
@@ -26,7 +25,7 @@ namespace Revmax_Interface_Promun
 
     public partial class RevMaxInterfaceWizard : Form
     {
-        Revmaxlib revmalib = new Revmaxlib();
+        FiscalStackClient client = new FiscalStackClient();
         string Currency = "";
         string BranchName = "";
         string InvoiceNumber = "";
@@ -78,12 +77,18 @@ namespace Revmax_Interface_Promun
 
             this.reportViewer1.RefreshReport();
 
-            string j = revmalib.GetCardDetails();
-            //MessageBox.Show(j);
-
-            CardDetails = (CardDetails) JsonConvert.DeserializeObject<CardDetails>(j);
-
-            //MessageBox.Show((CardDetails) JsonConvert.DeserializeObject<CardDetails>(j));
+            Task.Run(async () =>
+            {
+                try
+                {
+                    string j = await client.GetDeviceAsync();
+                    CardDetails = (CardDetails) JsonConvert.DeserializeObject<CardDetails>(j);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("Error fetching device details: " + ex.Message);
+                }
+            });
 
             //MessageBox.Show(printInvoice.Cashier);
 
@@ -365,105 +370,7 @@ namespace Revmax_Interface_Promun
 
         private void btnInstall_Click()
         {
-            string status = "";
-
-
-            try
-            {
-                if (Directory.Exists(@"C:\Revmax\Revmax") == false)
-                {
-
-                    Directory.CreateDirectory(@"C:\Revmax\Revmax");
-
-                }
-
-
-               moveDirectory(new DirectoryInfo(@"RevLive"), new DirectoryInfo(@"C:\Revmax\Revmax\RevLive"));
-
-
-
-                status = CMDStart(@"C:\REVMAX\Revmax\RevLive\RevLive.exe", "/install");
-
-                status = CMDStart(@"C:\REVMAX\Revmax\RevLive\RevLive.exe", "/start");
-
-
-
-                checkServices();
-
-            }
-            catch (Exception ex)
-            {
-
-            }
-        }
-
-        private void moveDirectory(DirectoryInfo source, DirectoryInfo destination)
-        {
-            try
-            {
-                if (!destination.Exists)
-                {
-                    destination.Create();
-                }
-
-                // Copy all files.
-                FileInfo[] files = source.GetFiles();
-                foreach (FileInfo file in files)
-                {
-                    file.CopyTo(Path.Combine(destination.FullName,
-                        file.Name));
-                }
-
-                // Process subdirectories.
-                DirectoryInfo[] dirs = source.GetDirectories();
-                foreach (DirectoryInfo dir in dirs)
-                {
-                    // Get destination directory.
-                    string destinationDir = Path.Combine(destination.FullName, dir.Name);
-
-                    // Call CopyDirectory() recursively.
-                    moveDirectory(dir, new DirectoryInfo(destinationDir));
-                }
-            }
-            catch (Exception)
-            {
-                // TODO: Handle the exception that has been thrown
-            }
-
-        }
-
-        private string CMDStart(string programme, string arguments)
-        {
-            System.Diagnostics.Process process = new System.Diagnostics.Process();
-            System.Diagnostics.ProcessStartInfo startInfo = new System.Diagnostics.ProcessStartInfo();
-            startInfo.WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden;
-            startInfo.FileName = $"{programme}";
-            startInfo.Arguments = $" {arguments}";
-            startInfo.Verb = "runas";
-            process.StartInfo = startInfo;
-            process.StartInfo.RedirectStandardOutput = true;
-            process.StartInfo.UseShellExecute = false;
-            process.StartInfo.CreateNoWindow = true;
-            process.Start();
-            string result = process.StandardOutput.ReadToEnd();
-            return result;
-        }
-
-        private void checkServices()
-        {
-            ServiceController[] services = ServiceController.GetServices();
-            ServiceController scLive;
-            ServiceController scPortal;
-
-            if (Array.Exists(services, element => element.ServiceName.ToString() == "RevLive"))
-            {
-                scLive = new ServiceController("RevLive");
-
-
-
-            }
-            CMDStart(@"C:\REVMAX\Revmax\RevLive\RevLive.exe", "/start");
-
+            MessageBox.Show("FiscalStack does not require a local service installation.");
         }
 
 
@@ -473,25 +380,7 @@ namespace Revmax_Interface_Promun
 
         private void btnLogs_Click(object sender, EventArgs e)
         {
-            string folderPath = @"C:\ProgramData\RevMax\Info\Logs";
-            string status = "";
-
-            if (Directory.Exists(folderPath))
-            {
-                System.Diagnostics.Process process = new System.Diagnostics.Process();
-                System.Diagnostics.ProcessStartInfo startInfo = new System.Diagnostics.ProcessStartInfo();
-                startInfo.WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden;
-                startInfo.FileName = $"explorer.exe";
-                startInfo.Arguments = $" {folderPath}";
-                startInfo.Verb = "runas";
-                process.StartInfo = startInfo;
-                process.StartInfo.RedirectStandardOutput = true;
-                process.StartInfo.UseShellExecute = false;
-                process.StartInfo.CreateNoWindow = true;
-                process.Start();
-
-            }
-
+            MessageBox.Show("Logs are managed entirely within the FiscalStack web dashboard. Please log in to your portal to view fiscalization logs.");
         }
 
 
@@ -507,43 +396,95 @@ namespace Revmax_Interface_Promun
 
         private bool Fiscalize(Invoice invoice)
         {
-
-            // return true;
-            //MessageBox.Show(JsonConvert.SerializeObject(invoice, Newtonsoft.Json.Formatting.Indented));
-            HandleResponse handleResponse = new HandleResponse();
-
-
-            //MessageBox.Show($"CustomerEmail: {invoice.CustomerEmail}\nCustomername: {invoice.CustomerName}\nCustomerTIN: {invoice.CustomerTIN}\nCustomerVAT: {invoice.CustomerVATNumber}\nCustomerAddress: {invoice.CustomerAddress}\nCustomerTell: {invoice.CustomerTelephoneNumber}");
-            
-           /* string itemsXMLSAmple = "<ITEMS><ITEM><HH> 1 </HH> <ITEMCODE> 06007038001317 </ITEMCODE><ITEMNAME1> THE PRODUCT </ITEMNAME1><ITEMNAME2> VANILLA SNAPS 500G </ITEMNAME2><QTY> 1 </QTY><PRICE> 1000 </PRICE><AMT> 1000 </AMT><TAX> 130.43 </TAX><TAXR> 0.15 </TAXR></ITEM></ITEMS>";
-            string currenciesSAmple = "<CurrenciesReceived><Currency><Name> ZWL </Name><Amount> 1000 </Amount><Rate> 1 </Rate></Currency></CurrenciesReceived>";*/
-            var jar = revmalib.TransactM(invoice.Currency, invoice.CustomerEmail, invoice.InvoiceNumber, invoice.CustomerName, invoice.CustomerVATNumber, invoice.CustomerAddress, invoice.CustomerTelephoneNumber, invoice.CustomerTIN, invoice.InvoiceAmount, invoice.InvoiceTaxAmount, invoice.InvoiceFlag, invoice.Cashier, invoice.InvoiceComment, invoice.ItemsXML, invoice.CurrenciesXML);
-
-           // MessageBox.Show("customer VAT: "+invoice.CustomerVATNumber);
-
-            //MessageBox.Show(JsonConvert.SerializeObject(handleResponse.ResponseHandler(jar), Newtonsoft.Json.Formatting.Indented));
-
-            //MessageBox.Show(j);
-
             printInvoice = invoice;
 
-            //rootinv = handleResponse.ResponseHandler(j);
-            rootinv = (RootObject) JsonConvert.DeserializeObject<RootObject>(jar);
-            //MessageBox.Show(rootinv.Receipt.CreditDebitNote.);
+            var payload = new PassThroughFiscalizeRequest
+            {
+                InvoiceNumber = invoice.InvoiceNumber,
+                Date = DateTime.Now.ToString("o"),
+                PaymentMethod = "CASH",
+                Currency = invoice.Currency,
+                TransactionType = invoice.InvoiceFlag == "02" ? "CreditNote" : "FiscalInvoice",
+                Notes = invoice.InvoiceComment,
+                Buyer = new FiscalBuyer
+                {
+                    Name = invoice.CustomerName,
+                    Tin = invoice.CustomerTIN,
+                    VatNumber = invoice.CustomerVATNumber,
+                    Email = invoice.CustomerEmail,
+                    Phone = invoice.CustomerTelephoneNumber
+                },
+                Items = new System.Collections.Generic.List<PassThroughItem>()
+            };
 
-            if (rootinv.Code.Equals("1"))
-            {               
+            foreach (var item in printInvoice.items)
+            {
+                decimal tRate = Convert.ToDecimal(item.TaxR) * 100;
+                if (tRate == 15m) tRate = 15.5m; // Coerce legacy 15% to ZIMRA 15.5% standard
+
+                payload.Items.Add(new PassThroughItem
+                {
+                    Name = item.ITEMNAME1,
+                    Quantity = Convert.ToDecimal(item.Quantity),
+                    UnitPrice = Convert.ToDecimal(item.Price),
+                    TaxRate = tRate
+                });
+            }
+
+            try
+            {
+                var jar = client.FiscalizeAsync(payload).Result;
+                var res = JsonConvert.DeserializeObject<dynamic>(jar);
+                
+                // Construct rootinv for reportViewer
+                rootinv = new RootObject
+                {
+                    Code = "1",
+                    VerificationCode = res.fiscalCode,
+                    QRcode = res.qrCode,
+                    DeviceId = res.receiptNumber?.ToString(), 
+                    FiscalDay = res.receipt?.fiscalDayNo?.ToString(),
+                    Data = new RevResponse
+                    {
+                        Receipt = new Receipt
+                        {
+                            InvoiceNo = res.receipt?.invoiceNo,
+                            ReceiptTotal = res.receipt?.receiptTotal,
+                            ReceiptDate = res.receipt?.receiptDate,
+                            ReceiptGlobalNo = res.receipt?.receiptGlobalNo,
+                            ReceiptCounter = res.receipt?.receiptCounter,
+                            ReceiptType = payload.TransactionType,
+                            ReceiptTaxes = new System.Collections.Generic.List<ReceiptTax>()
+                        }
+                    }
+                };
+
+                // Parse taxes from response
+                if (res.receipt?.receiptTaxes != null)
+                {
+                    foreach (var tax in res.receipt.receiptTaxes)
+                    {
+                        decimal taxPct = Convert.ToDecimal(tax.taxPercent);
+                        string tCode = "A";
+                        if (taxPct == 0) tCode = "B";
+
+                        rootinv.Data.Receipt.ReceiptTaxes.Add(new ReceiptTax
+                        {
+                            TaxPercent = taxPct,
+                            TaxCode = tCode,
+                            TaxAmount = Convert.ToDecimal(tax.taxAmount),
+                            SalesAmountWithTax = Convert.ToDecimal(tax.salesAmountWithTax)
+                        });
+                    }
+                }
+
                 return true;
             }
-            else
+            catch (Exception ex)
             {
-                MessageBox.Show(handleResponse.ResponseHandler(jar).Message);
-
+                MessageBox.Show("Fiscalization failed: " + ex.Message);
                 return false;
-
-
             }
-
         }
 
 
@@ -617,115 +558,29 @@ namespace Revmax_Interface_Promun
 
         private void zReportToolStripMenuItem_Click(object sender, EventArgs e)
         {
-            string license = revmalib.GetLicense();
-            MessageBox.Show(license);
+            MessageBox.Show("License checking not required for FiscalStack API.");
         }
 
         private void exitToolStripMenuItem_Click(object sender, EventArgs e)
         {
-
-
-
-
-            string j = revmalib.ZReport();
-            //MessageBox.Show(j);
-
-            zReport = (ZReportStructure)JsonConvert.DeserializeObject<ZReportStructure>(j);
-
-
-            //MessageBox.Show(JsonConvert.SerializeObject(zReport, Newtonsoft.Json.Formatting.Indented));
-
-
-            List<VatTotal> ZVatList = new List<VatTotal>();
-
-
-            if (zReport.Code == "1" & zReport.Message.Contains("Closed"))
-            /*if (zReport.Code == "1" & zReport.Message.Contains("Success"))*/
+            try
             {
-                foreach (var item in zReport.Data.ZReports)
+                var jar = client.CloseDayAsync().Result;
+                var res = JsonConvert.DeserializeObject<RootObject>(jar);
+                
+                if (res.Code == "1")
                 {
-                    //MessageBox.Show("Zvafaya");
-
-
-                    //MessageBox.Show(JsonConvert.SerializeObject(item, Newtonsoft.Json.Formatting.Indented));
-
-                    LocalReport localReport = reportViewer1.LocalReport;
-                    reportViewer1.LocalReport.ReportPath = "Zreport.rdlc";
-
-                    reportViewer1.LocalReport.DataSources.Clear();
-
-                    //MessageBox.Show(JsonConvert.SerializeObject(j, Newtonsoft.Json.Formatting.Indented));
-
-                    try
-                    {
-                        foreach (var vt in item.VatTotals)
-                        {
-                            //MessageBox.Show(Convert.ToDecimal(vt.VATRATE).ToString("0.00"));
-
-                            ZVatList.Add(new VatTotal()
-                            {
-                                VATRATE = $"{Convert.ToDecimal(vt.VATRATE).ToString("0.00")}",
-                                TAXAMOUNT = $"{item.Currency}{(Convert.ToDecimal(vt.TAXAMOUNT) / 100).ToString("0.00")}",
-                                NETTAMOUNT = $"{item.Currency}{(Convert.ToDecimal(vt.NETTAMOUNT) / 100).ToString("0.00")}",
-
-                            });
-
-                        }
-                    }
-                    catch (Exception)
-                    {
-                        MessageBox.Show("Failed to load Vat totals");
-                    }
-
-
-
-
-                    //ReportDataSource reportDataSource = new ReportDataSource("DataSet1", item.VatTotals);
-                    ReportDataSource reportDataSource = new ReportDataSource("DataSet1", ZVatList);
-
-                    ReportParameter[] reportParameters = new ReportParameter[7];
-
-                    reportParameters[0] = new ReportParameter("CompanyName", CardDetails.Data.CompanyName);
-                    reportParameters[1] = new ReportParameter("TIN", CardDetails.Data.TIN);
-                    reportParameters[2] = new ReportParameter("VAT", CardDetails.Data.VAT);
-                    reportParameters[3] = new ReportParameter("RegNum", CardDetails.Data.RegistrationNumber);
-                    reportParameters[4] = new ReportParameter("DeviceSerial", CardDetails.Data.SerialNumber);
-                    reportParameters[5] = new ReportParameter("ReportDate", item.Date);
-                    reportParameters[6] = new ReportParameter("Currency", item.Currency);
-
-
-                    reportViewer1.LocalReport.SetParameters(reportParameters);
-                    reportViewer1.LocalReport.DataSources.Add(reportDataSource);
-                    /*               PaperSize paperSize = new PaperSize("receipt", 80, 297);
-                                   PageSettings pageSettings = new PageSettings();
-                                   pageSettings.PaperSize = paperSize;
-                                   reportViewer1.SetPageSettings(pageSettings);*/
-
-
-                    // MessageBox.Show(reportViewer1.LocalReport.GetDefaultPageSettings().PaperSize.ToString()); 
-
-                    reportViewer1.RefreshReport();
-                    reportViewer1.LocalReport.Print();
-                    //printInvoice.Clear();
-
-                    //MessageBox.Show("Printed");
-
-
-
+                    MessageBox.Show(res.Message);
                 }
-
+                else
+                {
+                    MessageBox.Show("Failed to close Fiscal Day: " + res.Message);
+                }
             }
-            else if (zReport.Code == "1" & zReport.Message.Contains("Opened"))
+            catch (Exception ex)
             {
-                MessageBox.Show("Fiscal Day Opened. Press OK to continue");
+                MessageBox.Show("Failed to close day: " + ex.Message);
             }
-
-            else
-            {
-                MessageBox.Show("Failed to run Z Report");
-            }
-
-            //MessageBox.Show(j);
         }
 
         private void exitToolStripMenuItem1_Click(object sender, EventArgs e)
@@ -738,12 +593,10 @@ namespace Revmax_Interface_Promun
             SetLicense setLicense = new SetLicense();
             if (setLicense.ShowDialog(this) == DialogResult.OK)
             {
-                MessageBox.Show(revmalib.SetLicense(setLicense.txtLicense.Text));
-
+                addToConfig("ApiKey", setLicense.txtLicense.Text);
+                MessageBox.Show("API Key configured. Please restart application.");
             }
             setLicense.Dispose();
-
-
         }
 
         private void setLicenseToolStripMenuItem_Click(object sender, EventArgs e)

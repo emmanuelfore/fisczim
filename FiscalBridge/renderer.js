@@ -37,6 +37,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 async function loadConfig() {
     try {
         config = await window.fiscalBridgeAPI.getConfig();
+        if (config.apiEndpoint) {
+            config.apiEndpoint = config.apiEndpoint.replace(/\/api\/?$/, '');
+        }
         
         // Check if setup is complete
         if (config.setupComplete) {
@@ -72,11 +75,18 @@ function initializeUI() {
     // Load currency config if exists
     loadCurrencyConfig();
     
-    // Load license if exists
-    loadLicense();
-    
     // Initialize receipt parser with current config
     receiptParser = new ReceiptParser(config);
+    
+    // Update company name display
+    updateCompanyNameDisplay();
+}
+
+function updateCompanyNameDisplay() {
+    const headerEl = document.getElementById('headerCompanyName');
+    if (headerEl) {
+        headerEl.textContent = config.companyName || '';
+    }
 }
 
 /**
@@ -124,6 +134,7 @@ function setupEventListeners() {
     document.getElementById('stopMonitoring').addEventListener('click', stopMonitoring);
     document.getElementById('openSettings').addEventListener('click', openSettings);
     document.getElementById('closeSettings').addEventListener('click', closeSettings);
+    document.getElementById('saveSettingsBtn').addEventListener('click', saveSettings);
     document.getElementById('generateZReport').addEventListener('click', generateZReport);
     document.getElementById('getDeviceStatus').addEventListener('click', handleGetDeviceStatus);
     document.getElementById('getCardDetails').addEventListener('click', handleGetCardDetails);
@@ -132,7 +143,6 @@ function setupEventListeners() {
     document.getElementById('closeFiscalDay').addEventListener('click', handleCloseFiscalDay);
     document.getElementById('resetCounters').addEventListener('click', handleResetCounters);
     document.getElementById('viewLogs').addEventListener('click', viewLogs);
-    document.getElementById('checkLicense').addEventListener('click', checkLicense);
     
     // File monitoring events
     if (isElectron) {
@@ -164,6 +174,7 @@ function showDashboard() {
  */
 function nextStep() {
     if (currentStep < 5) {
+        saveWizardStepData();
         currentStep++;
         updateWizardUI();
     }
@@ -171,6 +182,7 @@ function nextStep() {
 
 function prevStep() {
     if (currentStep > 1) {
+        saveWizardStepData();
         currentStep--;
         updateWizardUI();
     }
@@ -187,11 +199,8 @@ function updateWizardUI() {
     
     // Update buttons
     document.getElementById('prevStep').disabled = currentStep === 1;
-    document.getElementById('nextStep').style.display = currentStep === 5 ? 'none' : 'block';
+    document.getElementById('nextStep').style.display = currentStep === 4 ? 'none' : 'block';
     document.getElementById('finishSetup').style.display = currentStep === 5 ? 'block' : 'none';
-    
-    // Save current step data
-    saveWizardStepData();
 }
 
 function saveWizardStepData() {
@@ -216,9 +225,10 @@ function saveWizardStepData() {
             config.logoFile = document.getElementById('logoFile').value;
             break;
         case 5:
-            config.licenseKey = document.getElementById('licenseKey').value;
+            config.companyName = document.getElementById('companyName').value;
+            config.apiKey = document.getElementById('apiKey').value;
             config.apiEndpoint = document.getElementById('apiEndpoint').value;
-            config.companyId = document.getElementById('companyId').value;
+            updateCompanyNameDisplay();
             break;
     }
 }
@@ -227,7 +237,6 @@ async function finishSetup() {
     saveWizardStepData();
     config.setupComplete = true;
     await saveConfig();
-    await window.fiscalBridgeAPI.saveLicense(config.licenseKey);
     await window.fiscalBridgeAPI.saveCurrencyConfig(config.currencies);
     showDashboard();
 }
@@ -346,32 +355,7 @@ async function testPrint() {
     }
 }
 
-/**
- * License management
- */
-async function loadLicense() {
-    try {
-        const result = await window.fiscalBridgeAPI.loadLicense();
-        if (result.success) {
-            document.getElementById('licenseKey').value = result.licenseKey;
-        }
-    } catch (error) {
-        console.error('Failed to load license:', error);
-    }
-}
 
-async function checkLicense() {
-    try {
-        const result = await window.fiscalBridgeAPI.loadLicense();
-        if (result.success) {
-            showNotification('License is valid: ' + result.licenseKey.substring(0, 8) + '...', 'success');
-        } else {
-            showNotification('No license found. Please configure license in settings.', 'error');
-        }
-    } catch (error) {
-        showNotification('Failed to check license: ' + error, 'error');
-    }
-}
 
 /**
  * File monitoring
@@ -491,7 +475,7 @@ async function getCardDetails() {
             method: 'GET',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${config.licenseKey}`
+                'x-api-key': config.apiKey
             }
         });
         
@@ -512,11 +496,11 @@ async function getCardDetails() {
  */
 async function getDeviceStatus() {
     try {
-        const response = await fetch(`${config.apiEndpoint}/api/companies/${config.companyId}/zimra/device-status`, {
+        const response = await fetch(`${config.apiEndpoint}/api/zimra/device-status`, {
             method: 'GET',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${config.licenseKey}`
+                'x-api-key': config.apiKey
             }
         });
         
@@ -559,11 +543,11 @@ async function fiscalizeInvoice(invoiceData) {
             transactionType: invoiceData.invoiceFlag === '02' ? 'CreditNote' : 'FiscalInvoice'
         };
         
-        const response = await fetch(`${config.apiEndpoint}/api/companies/${config.companyId}/zimra/transact`, {
+        const response = await fetch(`${config.apiEndpoint}/api/zimra/transact`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${config.licenseKey}`
+                'x-api-key': config.apiKey
             },
             body: JSON.stringify(apiData)
         });
@@ -630,11 +614,11 @@ async function generateZReport() {
     showProcessingModal('Generating Z-Report...');
     
     try {
-        const response = await fetch(`${config.apiEndpoint}/api/companies/${config.companyId}/zimra/z-report`, {
-            method: 'POST',
+        const response = await fetch(`${config.apiEndpoint}/api/zimra/day/z-report`, {
+            method: 'GET',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${config.licenseKey}`
+                'x-api-key': config.apiKey
             }
         });
         
@@ -661,11 +645,11 @@ async function generateZReport() {
  */
 async function getTransaction(invoiceNumber) {
     try {
-        const response = await fetch(`${config.apiEndpoint}/api/companies/${config.companyId}/zimra/transactions/${invoiceNumber}`, {
+        const response = await fetch(`${config.apiEndpoint}/api/zimra/transactions/${invoiceNumber}`, {
             method: 'GET',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${config.licenseKey}`
+                'x-api-key': config.apiKey
             }
         });
         
@@ -686,11 +670,11 @@ async function getTransaction(invoiceNumber) {
  */
 async function getUnprocessedSummary() {
     try {
-        const response = await fetch(`${config.apiEndpoint}/api/companies/${config.companyId}/zimra/transactions/unprocessed/summary`, {
+        const response = await fetch(`${config.apiEndpoint}/api/zimra/transactions/unprocessed/summary`, {
             method: 'GET',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${config.licenseKey}`
+                'x-api-key': config.apiKey
             }
         });
         
@@ -711,11 +695,11 @@ async function getUnprocessedSummary() {
  */
 async function getUnprocessedTransactions() {
     try {
-        const response = await fetch(`${config.apiEndpoint}/api/companies/${config.companyId}/zimra/transactions/unprocessed`, {
+        const response = await fetch(`${config.apiEndpoint}/api/zimra/transactions/unprocessed`, {
             method: 'GET',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${config.licenseKey}`
+                'x-api-key': config.apiKey
             }
         });
         
@@ -736,11 +720,11 @@ async function getUnprocessedTransactions() {
  */
 async function clearUnprocessedTransactions() {
     try {
-        const response = await fetch(`${config.apiEndpoint}/api/companies/${config.companyId}/zimra/transactions/unprocessed`, {
+        const response = await fetch(`${config.apiEndpoint}/api/zimra/transactions/unprocessed`, {
             method: 'DELETE',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${config.licenseKey}`
+                'x-api-key': config.apiKey
             }
         });
         
@@ -761,11 +745,11 @@ async function clearUnprocessedTransactions() {
  */
 async function getUnprocessedByDate(date) {
     try {
-        const response = await fetch(`${config.apiEndpoint}/api/companies/${config.companyId}/zimra/transactions/unprocessed/by-date?date=${date}`, {
+        const response = await fetch(`${config.apiEndpoint}/api/zimra/transactions/unprocessed/by-date?date=${date}`, {
             method: 'GET',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${config.licenseKey}`
+                'x-api-key': config.apiKey
             }
         });
         
@@ -786,11 +770,11 @@ async function getUnprocessedByDate(date) {
  */
 async function clearUnprocessedByDate(date) {
     try {
-        const response = await fetch(`${config.apiEndpoint}/api/companies/${config.companyId}/zimra/transactions/unprocessed/by-date?date=${date}`, {
+        const response = await fetch(`${config.apiEndpoint}/api/zimra/transactions/unprocessed/by-date?date=${date}`, {
             method: 'DELETE',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${config.licenseKey}`
+                'x-api-key': config.apiKey
             }
         });
         
@@ -813,11 +797,11 @@ async function resetDeviceCounters() {
     showProcessingModal('Resetting device counters...');
     
     try {
-        const response = await fetch(`${config.apiEndpoint}/api/companies/${config.companyId}/zimra/config/reset`, {
+        const response = await fetch(`${config.apiEndpoint}/api/zimra/config/reset`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${config.licenseKey}`
+                'x-api-key': config.apiKey
             }
         });
         
@@ -906,13 +890,74 @@ function addActivityItem(invoiceNumber, message) {
  * Settings modal
  */
 function openSettings() {
+    const wizardSteps = document.querySelector('.wizard-steps');
+    const settingsContent = document.getElementById('settingsContent');
+    
+    // Transplant wizard steps to settings to keep event listeners and avoid duplicate IDs
+    if (wizardSteps && wizardSteps.children.length > 0) {
+        while (wizardSteps.firstChild) {
+            settingsContent.appendChild(wizardSteps.firstChild);
+        }
+    }
+
+    // Populate current config
+    if (config.sourceFolder) document.getElementById('sourceFolder').value = config.sourceFolder;
+    if (config.targetFolder) document.getElementById('targetFolder').value = config.targetFolder;
+    
+    if (config.productStartLine) document.getElementById('productStartLine').value = config.productStartLine;
+    if (config.productEndLine) document.getElementById('productEndLine').value = config.productEndLine;
+    if (config.itemDotCounter) document.getElementById('itemDotCounter').value = config.itemDotCounter;
+    if (config.multiLineProduct) document.getElementById('multiLineProduct').value = config.multiLineProduct;
+    if (config.vatA) document.getElementById('vatA').value = config.vatA;
+    if (config.vatE) document.getElementById('vatE').value = config.vatE;
+
+    if (config.printerName) document.getElementById('printerSelect').value = config.printerName;
+    if (config.logoFile) document.getElementById('logoFile').value = config.logoFile;
+
+    if (config.companyName) document.getElementById('companyName').value = config.companyName;
+    if (config.apiEndpoint) document.getElementById('apiEndpoint').value = config.apiEndpoint;
+    if (config.apiKey) document.getElementById('apiKey').value = config.apiKey;
+
+    // Show all steps
+    settingsContent.querySelectorAll('.wizard-step').forEach(step => {
+        step.style.display = 'block';
+    });
+
     document.getElementById('settingsModal').style.display = 'flex';
-    // Copy wizard content to settings
-    document.getElementById('settingsContent').innerHTML = document.querySelector('.wizard-steps').innerHTML;
 }
 
 function closeSettings() {
     document.getElementById('settingsModal').style.display = 'none';
+}
+
+async function saveSettings() {
+    // Save settings back to config
+    config.sourceFolder = document.getElementById('sourceFolder').value;
+    config.targetFolder = document.getElementById('targetFolder').value;
+    
+    config.productStartLine = document.getElementById('productStartLine').value;
+    config.productEndLine = document.getElementById('productEndLine').value;
+    config.itemDotCounter = document.getElementById('itemDotCounter').value;
+    config.multiLineProduct = document.getElementById('multiLineProduct').value;
+    config.vatA = document.getElementById('vatA').value;
+    config.vatE = document.getElementById('vatE').value;
+
+    config.printerName = document.getElementById('printerSelect').value;
+    config.logoFile = document.getElementById('logoFile').value;
+
+    config.companyName = document.getElementById('companyName').value;
+    config.apiEndpoint = document.getElementById('apiEndpoint').value.replace(/\/api\/?$/, '');
+    config.apiKey = document.getElementById('apiKey').value;
+    
+    config.currencies = getCurrencies();
+    
+    await saveConfig();
+    await window.fiscalBridgeAPI.saveCurrencyConfig(config.currencies);
+    
+    updateCompanyNameDisplay();
+    
+    showNotification('Settings saved successfully', 'success');
+    closeSettings();
 }
 
 /**
@@ -931,9 +976,19 @@ function hideProcessingModal() {
  * Notifications
  */
 function showNotification(message, type = 'info') {
-    // Simple alert for now - could be enhanced with toast notifications
     console.log(`[${type.toUpperCase()}] ${message}`);
-    alert(message);
+    const modal = document.getElementById('notificationModal');
+    const title = document.getElementById('notificationTitle');
+    const msg = document.getElementById('notificationMessage');
+    
+    if (modal && title && msg) {
+        title.textContent = type === 'error' ? 'Error' : (type === 'success' ? 'Success' : 'Notification');
+        title.style.color = type === 'error' ? '#e53e3e' : (type === 'success' ? '#38a169' : '#333');
+        msg.textContent = message;
+        modal.style.display = 'flex';
+    } else {
+        alert(message);
+    }
 }
 
 /**
@@ -1017,13 +1072,24 @@ async function handleOpenFiscalDay() {
     showProcessingModal('Opening fiscal day...');
     
     try {
-        const result = await window.fiscalBridgeAPI.openFiscalDay();
-        if (result) {
+        const response = await fetch(`${config.apiEndpoint}/api/zimra/z-report?action=open`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': config.apiKey
+            }
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+            // Update local state too
+            await window.fiscalBridgeAPI.openFiscalDay();
             showNotification('Fiscal day opened successfully', 'success');
             addActivityItem('Fiscal Day', 'Opened successfully');
             updateFiscalDayStatus();
         } else {
-            showNotification('Failed to open fiscal day', 'error');
+            showNotification('Failed to open fiscal day: ' + (result.message || 'Unknown error'), 'error');
         }
     } catch (error) {
         showNotification('Failed to open fiscal day: ' + error.message, 'error');
@@ -1043,13 +1109,24 @@ async function handleCloseFiscalDay() {
     showProcessingModal('Closing fiscal day...');
     
     try {
-        const result = await window.fiscalBridgeAPI.closeFiscalDay();
-        if (result) {
+        const response = await fetch(`${config.apiEndpoint}/api/zimra/z-report?action=close`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': config.apiKey
+            }
+        });
+        
+        const result = await response.json();
+
+        if (response.ok) {
+            // Update local state too
+            await window.fiscalBridgeAPI.closeFiscalDay();
             showNotification('Fiscal day closed successfully', 'success');
             addActivityItem('Fiscal Day', 'Closed successfully');
             updateFiscalDayStatus();
         } else {
-            showNotification('Failed to close fiscal day', 'error');
+            showNotification('Failed to close fiscal day: ' + (result.message || 'Unknown error'), 'error');
         }
     } catch (error) {
         showNotification('Failed to close fiscal day: ' + error.message, 'error');

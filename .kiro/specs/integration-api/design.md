@@ -238,15 +238,20 @@ interface PassThroughFiscalizeRequest {
   paymentMethod?: "CASH" | "CARD" | "MOBILE" | "TRANSFER"  // defaults to "CASH"
   currency?: string                 // defaults to company's default currency
   notes?: string
+  // transactionType determines the kind of fiscal document being generated.
+  // It is OPTIONAL. If not specified, it defaults to "FiscalInvoice" (Standard Sale).
+  // Supported types:
+  // - "FiscalInvoice" : Standard sale.
+  // - "CreditNote"    : A refund or reduction in invoice value. Requires `relatedInvoiceNumber`.
+  // - "DebitNote"     : An increase in invoice value. Requires `relatedInvoiceNumber`.
   transactionType?: "FiscalInvoice" | "CreditNote" | "DebitNote"  // defaults to "FiscalInvoice"
-  relatedFiscalCode?: string        // for CreditNote/DebitNote: fiscal code of original invoice
-}
+  relatedInvoiceNumber?: string        // for CreditNote/DebitNote: invoice number of original invoice
 
 interface PassThroughItem {
   description: string               // required — what was sold
   quantity: number                  // required
   unitPrice: number                 // required — pre-tax unit price
-  taxRate?: number                  // defaults to company standard rate (e.g. 15%)
+  taxRate?: number                  // defaults to company standard rate (e.g. 15.5%)
   hsCode?: string                   // defaults to company default HS code if omitted
 }
 ```

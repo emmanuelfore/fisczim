@@ -244,18 +244,38 @@ class FiscalConfig {
 }
 
 // Make classes available globally for browser context
-window.Receipt = Receipt;
-window.ReceiptLine = ReceiptLine;
-window.ReceiptTax = ReceiptTax;
-window.ReceiptPayment = ReceiptPayment;
-window.BuyerData = BuyerData;
-window.BuyerContacts = BuyerContacts;
-window.BuyerAddress = BuyerAddress;
-window.CreditDebitNote = CreditDebitNote;
-window.ReceiptDeviceSignature = ReceiptDeviceSignature;
-window.CardDetails = CardDetails;
-window.CardDetailsData = CardDetailsData;
-window.ZReport = ZReport;
-window.VatTotal = VatTotal;
-window.DeviceStatus = DeviceStatus;
-window.FiscalConfig = FiscalConfig;
+if (typeof window !== 'undefined') {
+  window.Receipt = Receipt;
+  window.ReceiptLine = ReceiptLine;
+  window.ReceiptTax = ReceiptTax;
+  window.ReceiptPayment = ReceiptPayment;
+  window.BuyerData = BuyerData;
+  window.BuyerContacts = BuyerContacts;
+  window.BuyerAddress = BuyerAddress;
+  window.CreditDebitNote = CreditDebitNote;
+  window.ReceiptDeviceSignature = ReceiptDeviceSignature;
+  window.CardDetails = CardDetails;
+  window.CardDetailsData = CardDetailsData;
+  window.ZReport = ZReport;
+  window.VatTotal = VatTotal;
+  window.DeviceStatus = DeviceStatus;
+  window.FiscalConfig = FiscalConfig;
+}
+
+module.exports = {
+    Receipt,
+    ReceiptLine,
+    ReceiptTax,
+    ReceiptPayment,
+    BuyerData,
+    BuyerContacts,
+    BuyerAddress,
+    CreditDebitNote,
+    ReceiptDeviceSignature,
+    CardDetails,
+    CardDetailsData,
+    ZReport,
+    VatTotal,
+    DeviceStatus,
+    FiscalConfig
+};

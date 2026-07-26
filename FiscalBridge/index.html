@@ -13,6 +13,7 @@
             <div class="logo">
                 <h1>FiscalBridge</h1>
                 <span class="subtitle">Fiscal Interface for FiscalStack</span>
+                <div class="company-display" id="headerCompanyName" style="font-weight: bold; margin-top: 4px; color: #4a5568;"></div>
             </div>
             <div class="status-indicator">
                 <span class="status-dot" id="statusDot"></span>
@@ -113,23 +114,25 @@
                                 <button class="btn-secondary" id="browseLogo">Browse</button>
                             </div>
                         </div>
-                        <button class="btn-primary" id="testPrint">Test Print</button>
+                        <div class="form-group" style="margin-top: 1rem; display: flex; justify-content: flex-start;">
+                            <button class="btn-primary" id="testPrint" style="width: auto;">Test Print</button>
+                        </div>
                     </div>
 
-                    <!-- Step 5: License Configuration -->
+                    <!-- Step 5: API Configuration -->
                     <div class="wizard-step" data-step="5">
-                        <h3>Step 5: License Configuration</h3>
+                        <h3>Step 5: API Configuration</h3>
                         <div class="form-group">
-                            <label>FiscalStack License Key</label>
-                            <input type="text" id="licenseKey" placeholder="Enter your license key">
+                            <label>Company Name</label>
+                            <input type="text" id="companyName" placeholder="Your Company Name">
                         </div>
                         <div class="form-group">
                             <label>API Endpoint</label>
-                            <input type="text" id="apiEndpoint" value="https://fiscalstack.co.zw/api">
+                            <input type="text" id="apiEndpoint" value="https://fiscalstack.co.zw">
                         </div>
                         <div class="form-group">
-                            <label>Company ID</label>
-                            <input type="text" id="companyId" placeholder="Your Company ID">
+                            <label>API Key</label>
+                            <input type="text" id="apiKey" placeholder="Your API Key">
                         </div>
                     </div>
                 </div>
@@ -186,7 +189,6 @@
                     <button class="btn-secondary" id="closeFiscalDay">Close Fiscal Day</button>
                     <button class="btn-secondary" id="resetCounters">Reset Counters</button>
                     <button class="btn-secondary" id="viewLogs">View Logs</button>
-                    <button class="btn-secondary" id="checkLicense">Check License</button>
                 </div>
             </div>
         </main>
@@ -202,6 +204,10 @@
                     <!-- Reuse wizard steps for settings -->
                     <div id="settingsContent"></div>
                 </div>
+                <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 1rem;">
+                    <button class="btn-secondary" id="cancelSettingsBtn" onclick="document.getElementById('settingsModal').style.display='none'">Cancel</button>
+                    <button class="btn-primary" id="saveSettingsBtn">Save Settings</button>
+                </div>
             </div>
         </div>
 
@@ -211,6 +217,21 @@
                 <div class="modal-body">
                     <div class="spinner"></div>
                     <p id="processingMessage">Processing receipt...</p>
+                </div>
+            </div>
+        </div>
+        <!-- Notification Modal -->
+        <div id="notificationModal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 id="notificationTitle">Notification</h3>
+                    <button class="btn-close" onclick="document.getElementById('notificationModal').style.display='none'">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <pre id="notificationMessage" style="white-space: pre-wrap; font-family: monospace; font-size: 0.85rem; background: #f8fafc; padding: 1rem; border-radius: 8px; border: 1px solid #e2e8f0; max-height: 60vh; overflow-y: auto;"></pre>
+                </div>
+                <div class="modal-footer" style="display: flex; justify-content: flex-end;">
+                    <button class="btn-primary" onclick="document.getElementById('notificationModal').style.display='none'">Close</button>
                 </div>
             </div>
         </div>

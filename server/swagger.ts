@@ -194,7 +194,7 @@ const options: swaggerJsdoc.Options = {
                 get: {
                     summary: 'Get Customer',
                     tags: ['Customers'],
-                    parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'integer' } }],
+                    
                     responses: {
                         200: { description: 'Customer details', content: { 'application/json': { schema: { $ref: '#/components/schemas/Customer' } } } },
                         404: { description: 'Not found', content: { 'application/json': { schema: { $ref: '#/components/schemas/ApiError' } } } },
@@ -203,7 +203,7 @@ const options: swaggerJsdoc.Options = {
                 put: {
                     summary: 'Update Customer',
                     tags: ['Customers'],
-                    parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'integer' } }],
+                    
                     requestBody: {
                         required: true,
                         content: { 'application/json': { schema: { $ref: '#/components/schemas/Customer' } } },
@@ -242,7 +242,7 @@ const options: swaggerJsdoc.Options = {
                 get: {
                     summary: 'Get Product',
                     tags: ['Products'],
-                    parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'integer' } }],
+                    
                     responses: {
                         200: { description: 'Product details', content: { 'application/json': { schema: { $ref: '#/components/schemas/Product' } } } },
                         404: { description: 'Not found' },
@@ -251,7 +251,7 @@ const options: swaggerJsdoc.Options = {
                 put: {
                     summary: 'Update Product',
                     tags: ['Products'],
-                    parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'integer' } }],
+                    
                     requestBody: {
                         required: true,
                         content: { 'application/json': { schema: { $ref: '#/components/schemas/Product' } } },
@@ -290,7 +290,7 @@ const options: swaggerJsdoc.Options = {
                 get: {
                     summary: 'Get Invoice',
                     tags: ['Invoices'],
-                    parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'integer' } }],
+                    
                     responses: {
                         200: { description: 'Invoice details', content: { 'application/json': { schema: { $ref: '#/components/schemas/Invoice' } } } },
                         404: { description: 'Not found' },
@@ -299,7 +299,7 @@ const options: swaggerJsdoc.Options = {
                 put: {
                     summary: 'Update Invoice',
                     tags: ['Invoices'],
-                    parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'integer' } }],
+                    
                     requestBody: {
                         required: true,
                         content: { 'application/json': { schema: { $ref: '#/components/schemas/Invoice' } } },
@@ -312,7 +312,7 @@ const options: swaggerJsdoc.Options = {
                 delete: {
                     summary: 'Delete Invoice',
                     tags: ['Invoices'],
-                    parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'integer' } }],
+                    
                     responses: {
                         200: { description: 'Invoice deleted' },
                         404: { description: 'Not found' },
@@ -323,7 +323,7 @@ const options: swaggerJsdoc.Options = {
                 post: {
                     summary: 'Fiscalize a stored Invoice',
                     tags: ['Invoices'],
-                    parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'integer' } }],
+                    
                     responses: {
                         200: { description: 'Invoice successfully fiscalized' },
                         404: { description: 'Invoice not found' },
@@ -461,22 +461,22 @@ On error, the orphaned invoice is automatically cleaned up so you can retry safe
                     },
                 }
             },
-            '/api/companies/{id}/zimra/device-status': {
+            '/api/zimra/device-status': {
                 get: {
                     summary: 'Get Device Status (GetDeviceStatus)',
                     tags: ['Fiscalisation API'],
-                    parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'integer' } }],
+                    
                     responses: {
                         200: { description: 'Device Status retrieved successfully' },
                         400: { description: 'Company not registered with ZIMRA' },
                     },
                 }
             },
-            '/api/companies/{id}/zimra/transact': {
+            '/api/zimra/transact': {
                 post: {
                     summary: 'Transact (TransactM)',
                     tags: ['Fiscalisation API'],
-                    parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'integer' } }],
+                    
                     requestBody: {
                         content: {
                             'application/json': {
@@ -509,11 +509,11 @@ On error, the orphaned invoice is automatically cleaned up so you can retry safe
                     },
                 }
             },
-            '/api/companies/{id}/zimra/transact-ext': {
+            '/api/zimra/transact-ext': {
                 post: {
                     summary: 'Transact Extended (TransactMExt)',
                     tags: ['Fiscalisation API'],
-                    parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'integer' } }],
+                    
                     requestBody: {
                         content: {
                             'application/json': {
@@ -552,11 +552,11 @@ On error, the orphaned invoice is automatically cleaned up so you can retry safe
                     },
                 }
             },
-            '/api/companies/{id}/zimra/z-report': {
+            '/api/zimra/z-report': {
                 post: {
                     summary: 'Unified Z-Report (open/close)',
                     tags: ['Fiscalisation API'],
-                    parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'integer' } }],
+                    
                     requestBody: {
                         content: {
                             'application/json': {
@@ -571,48 +571,48 @@ On error, the orphaned invoice is automatically cleaned up so you can retry safe
                     responses: { 200: { description: 'Success' } }
                 }
             },
-            '/api/companies/{id}/zimra/transactions/{invoiceNumber}': {
+            '/api/zimra/transactions/{invoiceNumber}': {
                 get: {
                     summary: 'Get Transaction',
                     tags: ['Fiscalisation API'],
                     parameters: [
-                        { in: 'path', name: 'id', required: true, schema: { type: 'integer' } },
+                        
                         { in: 'path', name: 'invoiceNumber', required: true, schema: { type: 'string' } }
                     ],
                     responses: { 200: { description: 'Success' } }
                 }
             },
-            '/api/companies/{id}/zimra/transactions/unprocessed/summary': {
+            '/api/zimra/transactions/unprocessed/summary': {
                 get: {
                     summary: 'Get UnProcessed Transaction Summary',
                     tags: ['Fiscalisation API'],
-                    parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'integer' } }],
+                    
                     responses: { 200: { description: 'Success' } }
                 }
             },
-            '/api/companies/{id}/zimra/transactions/unprocessed': {
+            '/api/zimra/transactions/unprocessed': {
                 get: {
                     summary: 'Get UnProcessed Transactions',
                     tags: ['Fiscalisation API'],
-                    parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'integer' } }],
+                    
                     responses: { 200: { description: 'Success' } }
                 },
                 delete: {
                     summary: 'Clear Unprocessed Transactions',
                     tags: ['Fiscalisation API'],
                     parameters: [
-                        { in: 'path', name: 'id', required: true, schema: { type: 'integer' } },
+                        
                         { in: 'query', name: 'fiscalDayNumber', required: true, schema: { type: 'integer' } }
                     ],
                     responses: { 200: { description: 'Success' } }
                 }
             },
-            '/api/companies/{id}/zimra/transactions/unprocessed/by-date': {
+            '/api/zimra/transactions/unprocessed/by-date': {
                 get: {
                     summary: 'Get UnProcessed Transactions By Date',
                     tags: ['Fiscalisation API'],
                     parameters: [
-                        { in: 'path', name: 'id', required: true, schema: { type: 'integer' } },
+                        
                         { in: 'query', name: 'fiscalDate', required: true, schema: { type: 'string' } }
                     ],
                     responses: { 200: { description: 'Success' } }
@@ -621,17 +621,17 @@ On error, the orphaned invoice is automatically cleaned up so you can retry safe
                     summary: 'Clear Unprocessed Transactions By Date',
                     tags: ['Fiscalisation API'],
                     parameters: [
-                        { in: 'path', name: 'id', required: true, schema: { type: 'integer' } },
+                        
                         { in: 'query', name: 'fiscalDate', required: true, schema: { type: 'string' } }
                     ],
                     responses: { 200: { description: 'Success' } }
                 }
             },
-            '/api/companies/{id}/zimra/config/reset': {
+            '/api/zimra/config/reset': {
                 post: {
                     summary: 'Reset Device Counters',
                     tags: ['Fiscalisation API'],
-                    parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'integer' } }],
+                    
                     responses: { 200: { description: 'Success' } }
                 }
             }

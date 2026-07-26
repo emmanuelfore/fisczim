@@ -59,4 +59,8 @@ contextBridge.exposeInMainWorld('fiscalBridgeAPI', {
   setVatRates: (vatA, vatB, vatC, vatD, vatE, vatF) => 
     ipcRenderer.invoke('set-vat-rates', vatA, vatB, vatC, vatD, vatE, vatF),
   getVatRate: (type) => ipcRenderer.invoke('get-vat-rate', type),
+
+  // Folder/File Browsing
+  browseFolder: () => ipcRenderer.invoke('browse-folder'),
+  browseFile: (filters) => ipcRenderer.invoke('browse-file', filters),
 });

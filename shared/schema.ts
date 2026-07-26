@@ -4678,3 +4678,20 @@ export const salesOrderAuditLogs = pgTable("sales_order_audit_logs", {
 });
 export const insertSalesOrderAuditLogSchema = createInsertSchema(salesOrderAuditLogs).omit({ id: true, changedAt: true });
 export type SalesOrderAuditLog = typeof salesOrderAuditLogs.$inferSelect;
+
+export const fiscalizationJobs = pgTable("fiscalization_jobs", {
+  id: serial("id").primaryKey(),
+  invoiceId: integer("invoice_id").references(() => invoices.id).notNull(),
+  status: text("status").default("pending").notNull(), // pending, processing, completed, failed
+  attemptCount: integer("attempt_count").default(0).notNull(),
+  nextAttemptAt: timestamp("next_attempt_at").defaultNow().notNull(),
+  leaseUntil: timestamp("lease_until"),
+  lastErrorCode: text("last_error_code"),
+  lastErrorMessage: text("last_error_message"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export const insertFiscalizationJobSchema = createInsertSchema(fiscalizationJobs).omit({ id: true, createdAt: true, updatedAt: true });
+export type FiscalizationJob = typeof fiscalizationJobs.$inferSelect;
+export type InsertFiscalizationJob = z.infer<typeof insertFiscalizationJobSchema>;

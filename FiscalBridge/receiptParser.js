@@ -322,4 +322,7 @@ class ReceiptParser {
   }
 }
 
+// Make ReceiptParser available globally for browser context
+window.ReceiptParser = ReceiptParser;
+
 module.exports = ReceiptParser;

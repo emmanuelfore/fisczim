@@ -5,6 +5,7 @@ import { serveStatic } from "./static.js";
 import { createServer } from "http";
 import { setupSwagger } from "./swagger.js";
 import { startRecurringInvoiceWorker, startFiscalDayClosingWorker } from "./jobs.js";
+import { startFiscalizationWorker } from "./workers/fiscalization_worker.js";
 import { seedGlobalPayrollDefaults } from "./lib/payroll-seeding.js";
 import { initializeScheduler } from "./scheduler.js";
 
@@ -146,11 +147,11 @@ async function initializeApp() {
     });
   }
 
-  // Start recurring invoice worker
-  // startRecurringInvoiceWorker();
-
   // Start midnight fiscal day closing worker
   startFiscalDayClosingWorker();
+
+  // Start durable fiscalization worker
+  startFiscalizationWorker();
 }
 
 // Export for Vercel

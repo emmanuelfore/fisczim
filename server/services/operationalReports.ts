@@ -307,15 +307,15 @@ function buildStockMaps(
     openingBalances.set(p.id, 0);
   }
 
-  const applyTxn = (map: Map<number, number>, txn: typeof inventoryTransactions.$inferSelect, sign: 1 | -1 = 1) => {
-    const qty = Number(txn.quantity || 0) * sign;
+  const applyTxn = (map: Map<number, number>, txn: typeof inventoryTransactions.$inferSelect) => {
+    let qty = Number(txn.quantity || 0);
+    if (txn.type === "STOCK_OUT" && qty > 0) qty = -qty;
+    else if (txn.type === "STOCK_IN" && qty < 0) qty = Math.abs(qty);
     map.set(txn.productId, (map.get(txn.productId) || 0) + qty);
   };
 
   for (const txn of openingTxnRows) {
-    if (txn.type === "STOCK_IN") applyTxn(openingBalances, txn, 1);
-    else if (txn.type === "STOCK_OUT") applyTxn(openingBalances, txn, -1);
-    else if (txn.type === "ADJUSTMENT") applyTxn(openingBalances, txn, 1);
+    applyTxn(openingBalances, txn);
   }
 
   // Per-day deltas
@@ -343,12 +343,14 @@ function buildStockMaps(
     const dayDelta = dayMap.get(txn.productId)!;
     const periodDelta = ensurePeriod(txn.productId);
 
-    const qty = Number(txn.quantity || 0);
+    let qty = Number(txn.quantity || 0);
     if (txn.type === "STOCK_IN") {
+      qty = Math.abs(qty);
       const bucket = isProductionTransaction(txn) ? "production" : "purchases";
       dayDelta[bucket] += qty;
       periodDelta[bucket] += qty;
     } else if (txn.type === "STOCK_OUT") {
+      qty = Math.abs(qty);
       dayDelta.sales += qty;
       periodDelta.sales += qty;
     } else if (txn.type === "ADJUSTMENT") {

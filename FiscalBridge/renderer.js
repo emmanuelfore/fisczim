@@ -87,6 +87,31 @@ function setupEventListeners() {
     document.getElementById('nextStep').addEventListener('click', nextStep);
     document.getElementById('prevStep').addEventListener('click', prevStep);
     document.getElementById('finishSetup').addEventListener('click', finishSetup);
+
+    // Folder browsing
+    document.getElementById('browseSource').addEventListener('click', async () => {
+        const folderPath = await window.fiscalBridgeAPI.browseFolder();
+        if (folderPath) {
+            document.getElementById('sourceFolder').value = folderPath;
+        }
+    });
+
+    document.getElementById('browseTarget').addEventListener('click', async () => {
+        const folderPath = await window.fiscalBridgeAPI.browseFolder();
+        if (folderPath) {
+            document.getElementById('targetFolder').value = folderPath;
+        }
+    });
+
+    // File browsing (logo)
+    document.getElementById('browseLogo').addEventListener('click', async () => {
+        const filePath = await window.fiscalBridgeAPI.browseFile([
+            { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'svg'] }
+        ]);
+        if (filePath) {
+            document.getElementById('logoFile').value = filePath;
+        }
+    });
     
     // Currency management
     document.getElementById('addCurrency').addEventListener('click', addCurrency);

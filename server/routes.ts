@@ -22,6 +22,7 @@ import { logAction } from "./audit.js";
 import { startPosShift, endPosShift, addPosTransaction, getOpenShift, getShiftTransactions, getCompanyPosTransactions } from "./lib/pos.js";
 import { seedCompanyDefaults } from "./lib/seeding.js";
 import { processInvoiceFiscalization, getZimraLogger } from "./lib/fiscalization.js";
+import { classifyProduct } from "./utils/productClassifier.js";
 import { ZimraPreflightError } from "./lib/zimra-preflight.js";
 import sageWebhookRouter from "./lib/sage-webhook.js";
 import sageOAuthRouter from "./lib/sage-oauth.js";
@@ -135,6 +136,7 @@ import {
   purchaseReturnItems,
   insertPurchaseReturnSchema,
   insertPurchaseReturnItemSchema,
+  fiscalizationJobs,
 } from "@shared/schema";
 import { paynowService } from "./paynow.js";
 
@@ -858,10 +860,7 @@ export async function registerRoutes(
           method: req.method,
           requestPayload: req.body || null,
           responsePayload: responseBody,
-          statusCode: res.statusCode,
-          responseTimeMs: responseTime,
-          ipAddress: req.ip || req.socket?.remoteAddress,
-          userAgent: req.headers['user-agent']
+          statusCode: res.statusCode
         }).catch(err => console.error("Failed to log API request:", err));
       }
     };
@@ -1563,11 +1562,21 @@ export async function registerRoutes(
           const serialTrackingEnabled = ["yes", "true", "1", "on"].includes(serialTrackingValue);
           const warrantyMonths = warrantyHeader ? Math.max(0, Math.round(cleanNum((row as any)[warrantyHeader]))) : 0;
 
+          // Run auto-classifier on product name
+          const classification = classifyProduct(name || "");
+
           // Resolve Tax Type ID and Rate
           let taxTypeId: number | undefined;
-          let taxRateValue = "15.00"; // Default
+          
+          // Apply smart defaults from classification
+          let taxRateValue = classification.isZeroRated ? "0.00" : "15.50";
+          
+          // Find system default tax IDs based on classification rate
+          const defaultStandardTax = taxTypesList.find(t => t.rate.toString() === "15.5" || t.rate.toString() === "15.50")?.id || 188;
+          const defaultZeroTax = taxTypesList.find(t => t.rate.toString() === "0" || t.rate.toString() === "0.00")?.id || 175;
+          taxTypeId = classification.isZeroRated ? defaultZeroTax : defaultStandardTax;
 
-          if (taxTypeHeader) {
+          if (taxTypeHeader && (row as any)[taxTypeHeader]) {
             const rawTaxType = (row as any)[taxTypeHeader]?.toString().trim().toUpperCase();
             
             // Map standardized types to internal codes
@@ -1582,7 +1591,7 @@ export async function registerRoutes(
           }
 
           // Handle Category Auto-Creation
-          const categoryName = categoryHeader ? (row as any)[categoryHeader]?.toString().trim() : "General";
+          const categoryName = (categoryHeader && (row as any)[categoryHeader]) ? (row as any)[categoryHeader]?.toString().trim() : classification.category;
           const ownerGroupValueRaw = costCenterHeader ? (row as any)[costCenterHeader] : null;
           const ownerGroupValue = ownerGroupValueRaw !== null && ownerGroupValueRaw !== undefined
             ? ownerGroupValueRaw.toString().trim()
@@ -1610,8 +1619,8 @@ export async function registerRoutes(
             taxRate: taxRateValue,
             taxTypeId: taxTypeId,
             productType: type,
-            hsCode: hsHeader ? (row as any)[hsHeader] : "0000.00.00",
-            category: categoryName || "General",
+            hsCode: (hsHeader && (row as any)[hsHeader]) ? (row as any)[hsHeader] : classification.hsCode,
+            category: (categoryHeader && (row as any)[categoryHeader]) ? (row as any)[categoryHeader]?.toString().trim() : classification.category,
             ownerGroup: ownerGroupValue.length > 0 ? ownerGroupValue : null,
             brandName: brandHeader ? (row as any)[brandHeader]?.toString() : undefined,
             oemPartNumber: oemPartHeader ? (row as any)[oemPartHeader]?.toString() : undefined,
@@ -5099,7 +5108,7 @@ export async function registerRoutes(
   // 1. GET /api/companies/:id/zimra/device-details - GetDeviceStatus (RevMax format)
   app.get("/api/companies/:id/zimra/device-details", requireAuthOrApiKey, apiLogger, async (req, res) => {
     try {
-      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
+      let companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
 
       // Last resort: find first company with a registered ZIMRA device
       if (!companyId) {
@@ -5922,7 +5931,7 @@ export async function registerRoutes(
   app.delete("/api/companies/:id/zimra/transactions/unprocessed", requireAuthOrApiKey, apiLogger, async (req, res) => {
     try {
       const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
-      const invoiceNumber = req.params.invoiceNumber;
+      const invoiceNumber = (req.params as any).invoiceNumber;
       const company = await storage.getCompany(companyId);
 
       const allInvoices = await storage.getInvoices(companyId);
@@ -7344,7 +7353,7 @@ export async function registerRoutes(
         referenceId: inventoryTransactions.referenceId,
         createdAt: inventoryTransactions.createdAt,
         createdBy: inventoryTransactions.createdBy,
-        balanceAfter: sql<number>`sum(CASE WHEN ${inventoryTransactions.type} IN ('STOCK_OUT', 'ISSUE') THEN -CAST(${inventoryTransactions.quantity} AS numeric) ELSE CAST(${inventoryTransactions.quantity} AS numeric) END) over (
+        balanceAfter: sql<number>`sum(CASE WHEN ${inventoryTransactions.type} IN ('STOCK_OUT', 'ISSUE') THEN -ABS(CAST(${inventoryTransactions.quantity} AS numeric)) WHEN ${inventoryTransactions.type} = 'STOCK_IN' THEN ABS(CAST(${inventoryTransactions.quantity} AS numeric)) ELSE CAST(${inventoryTransactions.quantity} AS numeric) END) over (
           partition by ${inventoryTransactions.productId}
           order by ${inventoryTransactions.createdAt} asc, ${inventoryTransactions.id} asc
         )`.as("balance_after"),
@@ -7391,7 +7400,7 @@ export async function registerRoutes(
 
       const stockSubquery = db.select({
         productId: inventoryTransactions.productId,
-        globalStock: sql<string>`COALESCE(SUM(CASE WHEN ${inventoryTransactions.type} IN ('STOCK_OUT', 'ISSUE') THEN -CAST(${inventoryTransactions.quantity} AS numeric) ELSE CAST(${inventoryTransactions.quantity} AS numeric) END), '0')`.as("global_stock")
+        globalStock: sql<string>`COALESCE(SUM(CASE WHEN ${inventoryTransactions.type} IN ('STOCK_OUT', 'ISSUE') THEN -ABS(CAST(${inventoryTransactions.quantity} AS numeric)) WHEN ${inventoryTransactions.type} = 'STOCK_IN' THEN ABS(CAST(${inventoryTransactions.quantity} AS numeric)) ELSE CAST(${inventoryTransactions.quantity} AS numeric) END), '0')`.as("global_stock")
       })
       .from(inventoryTransactions)
       .where(eq(inventoryTransactions.companyId, companyId))
@@ -7463,10 +7472,12 @@ export async function registerRoutes(
         // Reverse transactions
         const prodTx = futureTransactions.filter(tx => tx.productId === prod.id);
         for (const tx of prodTx) {
-          const txQty = Number(tx.quantity);
-          const txVal = Number(tx.totalCost || (txQty * Number(tx.unitCost || 0)));
+          const rawQty = Number(tx.quantity || 0);
+          const txQty = Math.abs(rawQty);
+          const isDeduction = (tx.type === 'STOCK_OUT' || tx.type === 'ISSUE' || (tx.type === 'ADJUSTMENT' && rawQty < 0));
+          const txVal = Math.abs(Number(tx.totalCost || (txQty * Number(tx.unitCost || 0))));
           
-          if (tx.type === 'STOCK_OUT' || tx.type === 'ISSUE') {
+          if (isDeduction) {
             // It was a deduction, so add it back to get historical
             historicalQty += txQty;
             totalValue += txVal;
@@ -10086,47 +10097,55 @@ export async function registerRoutes(
         });
       }
 
-      let invoice = await storage.createInvoice({
-        ...input,
-        status: initialStatus,
-        items: input.items as any,
-        companyId,
-        createdBy: userId,
-        shiftId: activeShift?.id || undefined,
-        branchId: requestBranchId,
-        partnerId: input.partnerId ?? undefined,
-        revenueSharePercent: input.revenueSharePercent != null ? String(input.revenueSharePercent) : undefined,
-      } as any);
-      markPerf("invoice_created");
+      let invoice = await db.transaction(async (tx) => {
+        const inv = await storage.createInvoice({
+          ...input,
+          status: initialStatus,
+          items: input.items as any,
+          companyId,
+          createdBy: userId,
+          shiftId: activeShift?.id || undefined,
+          branchId: requestBranchId,
+          partnerId: input.partnerId ?? undefined,
+          revenueSharePercent: input.revenueSharePercent != null ? String(input.revenueSharePercent) : undefined,
+        } as any, tx);
+        markPerf("invoice_created");
 
-      // 2. POS Payment Recording
-      // CREDIT sales skip payment recording — the invoice stays "issued" as an open AR.
-      if (input.isPos && !isCreditSale) {
-        try {
+        // 2. POS Payment Recording
+        // CREDIT sales skip payment recording — the invoice stays "issued" as an open AR.
+        if (input.isPos && !isCreditSale) {
+          // If payment creation fails, it throws and rolls back the transaction.
           await storage.createPayment({
-            companyId: invoice.companyId,
-            invoiceId: invoice.id,
-            amount: invoice.total.toString(),
-            currency: invoice.currency || input.currency || "USD",
-            paymentMethod: invoice.paymentMethod || "CASH",
-            paymentDate: invoice.issueDate || new Date(),
+            companyId: inv.companyId,
+            invoiceId: inv.id,
+            amount: inv.total.toString(),
+            currency: inv.currency || input.currency || "USD",
+            paymentMethod: inv.paymentMethod || "CASH",
+            paymentDate: inv.issueDate || new Date(),
             createdBy: userId,
-            exchangeRate: invoice.exchangeRate?.toString() || "1.000000",
+            exchangeRate: inv.exchangeRate?.toString() || "1.000000",
             skipLedger: true,
-          } as any);
-          invoice.status = "paid";
+          } as any, tx);
+          inv.status = "paid";
           markPerf("payment_recorded");
-        } catch (payErr) {
-          console.error("[POS] Auto-payment recording failed:", payErr);
-          markPerf("payment_failed");
+        } else if (isCreditSale) {
+          markPerf("credit_sale_ar_created");
         }
-      } else if (isCreditSale) {
-        markPerf("credit_sale_ar_created");
-      }
 
-      // 3. ZIMRA Fiscalization Trigger Logic
-      // Normal invoices must only be fiscalized by an explicit user action after issue.
-      // POS keeps its fiscal toggle behavior because checkout receipts are a separate flow.
+        // 3. Durable Fiscalisation Job insertion
+        const fiscalRequested = input.isPos && input.isFiscalized !== false;
+        const shouldFiscalize = input.isPos && fiscalRequested;
+        if (shouldFiscalize) {
+          await tx.insert(fiscalizationJobs).values({
+            invoiceId: inv.id,
+            status: "pending",
+          });
+        }
+        
+        return inv;
+      });
+
+      // 4. ZIMRA Fiscalization Trigger Logic (Sync Budget Attempt)
       const fiscalRequested = input.isPos && input.isFiscalized !== false;
       const shouldFiscalize = input.isPos && fiscalRequested;
 
@@ -10137,6 +10156,9 @@ export async function registerRoutes(
           // so cashier can move on quickly even if FDMS is slow.
           const POS_FISCAL_SYNC_BUDGET_MS = 2500;
           vLog(`[Fiscal] Triggering POS fiscalization for invoice ${invoice.id} with ${POS_FISCAL_SYNC_BUDGET_MS}ms checkout budget`);
+
+          // Claim the job first to avoid background worker picking it up immediately
+          await db.update(fiscalizationJobs).set({ status: "processing" }).where(eq(fiscalizationJobs.invoiceId, invoice.id));
 
           const fiscalPromise = processInvoiceFiscalization(
             invoice.id,
@@ -10158,6 +10180,7 @@ export async function registerRoutes(
 
           if (budgetResult.kind === "done") {
             invoice = budgetResult.updated as any;
+            await db.update(fiscalizationJobs).set({ status: "completed", completedAt: new Date() }).where(eq(fiscalizationJobs.invoiceId, invoice.id));
             markPerf("fiscal_done_within_budget");
           } else if (budgetResult.kind === "error") {
             console.error("[Fiscal] POS fiscalization failed within checkout window:", budgetResult.error);
@@ -10168,6 +10191,11 @@ export async function registerRoutes(
                 lastValidationAttempt: new Date(),
               } as any);
               if (failedInvoice) invoice = failedInvoice as any;
+              await db.update(fiscalizationJobs).set({ 
+                status: "failed", 
+                lastErrorMessage: String(budgetResult.error),
+                completedAt: new Date() 
+              }).where(eq(fiscalizationJobs.invoiceId, invoice.id));
             } catch (updateErr) {
               console.error(`[Fiscal] Failed to persist POS failure status for invoice ${invoice.id}:`, updateErr);
             }
@@ -10183,7 +10211,9 @@ export async function registerRoutes(
             markPerf("fiscal_timed_out_to_background");
 
             // Let in-flight fiscalization finish; if it fails, persist failure state.
-            fiscalPromise.catch(async (err) => {
+            fiscalPromise.then(async () => {
+              await db.update(fiscalizationJobs).set({ status: "completed", completedAt: new Date() }).where(eq(fiscalizationJobs.invoiceId, invoice.id));
+            }).catch(async (err) => {
               console.error(`[Fiscal] Background POS fiscalization failed for invoice ${invoice.id}:`, err);
               try {
                 await storage.updateInvoice(invoice.id, {
@@ -10191,6 +10221,11 @@ export async function registerRoutes(
                   validationStatus: "invalid",
                   lastValidationAttempt: new Date(),
                 } as any);
+                await db.update(fiscalizationJobs).set({ 
+                  status: "failed", 
+                  lastErrorMessage: String(err),
+                  completedAt: new Date() 
+                }).where(eq(fiscalizationJobs.invoiceId, invoice.id));
               } catch (updateErr) {
                 console.error(`[Fiscal] Failed to persist background failure status for invoice ${invoice.id}:`, updateErr);
               }

@@ -295,7 +295,7 @@ export function Receipt48({ id = "receipt-48", invoice, company, customer, items
 
                     return (
                         <>
-                            {qrData && <QRCodeSVG value={qrData} size={110} level="M" marginSize={1} />}
+                            {qrData && <QRCodeSVG value={qrData} size={160} level="M" marginSize={1} />}
                             <div className="text-center w-full px-2">
                                 {vCode && (
                                     <>

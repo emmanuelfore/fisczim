@@ -223,7 +223,7 @@ export interface IStorage {
   getInvoices(companyId: number, branchId?: number): Promise<(Invoice & { customer?: Customer })[]>;
   getInvoice(id: number): Promise<(Invoice & { items: (InvoiceItem & { product?: Product })[]; customer?: Customer; validationErrors?: any[]; relatedInvoiceNumber?: string; relatedInvoiceDate?: Date | null; relatedFiscalCode?: string; relatedReceiptGlobalNo?: number; relatedReceiptCounter?: number }) | undefined>;
   getInvoiceWithItems(id: number): Promise<(Invoice & { items: (InvoiceItem & { product?: Product })[]; customer?: Customer; validationErrors?: any[]; relatedInvoiceNumber?: string; relatedInvoiceDate?: Date | null; relatedFiscalCode?: string; relatedReceiptGlobalNo?: number; relatedReceiptCounter?: number }) | undefined>;
-  createInvoice(invoice: CreateInvoiceRequest): Promise<Invoice>;
+  createInvoice(invoice: CreateInvoiceRequest, tx?: any): Promise<Invoice>;
   createInvoiceItem(item: InsertInvoiceItem): Promise<InvoiceItem>;
   updateInvoice(id: number, data: Partial<InsertInvoice>): Promise<Invoice>;
   deleteInvoice(id: number): Promise<void>;
@@ -312,7 +312,7 @@ export interface IStorage {
   generateNextDeviceSerial(companyId: number): Promise<string>;
 
   // Payments
-  createPayment(payment: InsertPayment & { companyId: number; skipLedger?: boolean }): Promise<Payment>;
+  createPayment(payment: InsertPayment & { companyId: number; skipLedger?: boolean }, tx?: any): Promise<Payment>;
   getPayments(invoiceId: number): Promise<Payment[]>;
   getPayment(id: number): Promise<(Payment & { invoice?: Invoice; customer?: Customer; company?: Company }) | undefined>;
   deletePayment(id: number): Promise<void>;
@@ -1626,11 +1626,11 @@ export class DatabaseStorage implements IStorage {
     });
   }
 
-  async createInvoice(data: CreateInvoiceRequest): Promise<Invoice> {
+  async createInvoice(data: CreateInvoiceRequest, providedTx?: any): Promise<Invoice> {
     const { applyPartnershipToInvoiceData } = await import("./lib/partnerships.js");
     const enriched = await applyPartnershipToInvoiceData(data);
 
-    return await db.transaction(async (tx) => {
+    const execute = async (tx: any) => {
       const { items, ...invoiceData } = enriched;
 
       if (!Array.isArray(items) || items.length === 0) {
@@ -2054,7 +2054,7 @@ export class DatabaseStorage implements IStorage {
         .leftJoin(products, eq(invoiceItems.productId, products.id))
         .where(eq(invoiceItems.invoiceId, invoice.id));
 
-      const fullItems = invoiceItemsRows.map(r => ({
+      const fullItems = invoiceItemsRows.map((r: any) => ({
         ...r.item,
         product: r.product || undefined
       }));
@@ -2062,7 +2062,7 @@ export class DatabaseStorage implements IStorage {
       // --- LEDGER POSTING ---
       const total = Number(invoice.total);
       const taxAmount = Number(invoice.taxAmount);
-      const totalCogs = fullItems.reduce((sum, item) => sum + Number(item.cogsAmount || 0), 0);
+      const totalCogs = fullItems.reduce((sum: number, item: any) => sum + Number(item.cogsAmount || 0), 0);
 
       const isCreditNote = invoice.transactionType === 'CreditNote';
       const description = `${isCreditNote ? 'Credit Note' : 'Invoice'} ${invoice.invoiceNumber}`;
@@ -2138,7 +2138,8 @@ export class DatabaseStorage implements IStorage {
         relatedReceiptGlobalNo,
         relatedReceiptCounter
       } as Invoice;
-    });
+    };
+    return providedTx ? await execute(providedTx) : await db.transaction(execute);
   }
 
   async updateInvoice(id: number, data: Partial<InsertInvoice> & { items?: any[] }): Promise<Invoice> {
@@ -3494,8 +3495,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Payments
-  async createPayment(payment: InsertPayment & { companyId: number; skipLedger?: boolean }): Promise<Payment> {
-    return await db.transaction(async (tx) => {
+  async createPayment(payment: InsertPayment & { companyId: number; skipLedger?: boolean }, providedTx?: any): Promise<Payment> {
+    const execute = async (tx: any) => {
       const { skipLedger, ...paymentData } = payment;
       let [newPayment] = await tx.insert(payments).values(paymentData).returning();
       
@@ -3568,7 +3569,8 @@ export class DatabaseStorage implements IStorage {
       }
       
       return newPayment;
-    });
+    };
+    return providedTx ? await execute(providedTx) : await db.transaction(execute);
   }
 
   async getPayments(invoiceId: number): Promise<Payment[]> {

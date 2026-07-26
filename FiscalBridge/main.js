@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Menu, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, safeStorage, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const chokidar = require('chokidar');
@@ -11,6 +11,7 @@ log.info('[FiscalBridge] App starting...');
 
 const DEV_URL = 'http://localhost:5001/fiscalbridge';
 const PROD_URL = 'https://fiscalstack.co.zw/fiscalbridge';
+const LOCAL_FILE = path.join(__dirname, 'index.html');
 
 // Store active watchers and configuration
 const activeWatchers = new Map();
@@ -38,11 +39,8 @@ function resolveStartUrl() {
     return process.env.ELECTRON_START_URL;
   }
 
-  if (app.isPackaged) {
-    return PROD_URL;
-  }
-
-  return DEV_URL;
+  // Load local file by default for standalone Electron app
+  return LOCAL_FILE;
 }
 
 /**
@@ -309,6 +307,30 @@ function registerIpcHandlers() {
     return configManager.getVatRate(type);
   });
 
+  // Folder/File browsing dialogs
+  ipcMain.handle('browse-folder', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openDirectory'],
+      title: 'Select Folder'
+    });
+    if (result.canceled || result.filePaths.length === 0) {
+      return null;
+    }
+    return result.filePaths[0];
+  });
+
+  ipcMain.handle('browse-file', async (_event, filters = []) => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile'],
+      title: 'Select File',
+      filters: filters
+    });
+    if (result.canceled || result.filePaths.length === 0) {
+      return null;
+    }
+    return result.filePaths[0];
+  });
+
   ipcMain.handle('print-receipt', async (_event, html, printerName) => {
     return new Promise((resolve, reject) => {
       const printWindow = new BrowserWindow({
@@ -386,11 +408,10 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js')
     },
     title: "FiscalBridge - Fiscal Interface",
-    show: false
+    show: true
   });
 
   mainWindow.maximize();
-  mainWindow.show();
 
   // Dev tools toggle
   mainWindow.webContents.on('before-input-event', (_event, input) => {
@@ -406,14 +427,39 @@ function createWindow() {
   registerIpcHandlers();
 
   const startUrl = resolveStartUrl();
-  mainWindow.loadURL(startUrl).catch(err => {
-    mainWindow.loadURL(`data:text/html;charset=utf-8,<html>
-      <body style="font-family: sans-serif; padding: 2rem; background: #fff;">
-        <h2 style="color: #e53e3e;">FiscalBridge Failed to Load</h2>
-        <p><strong>Attempted to start at:</strong> ${startUrl}</p>
-        <p><strong>Error:</strong> ${err.message}</p>
-      </body>
-    </html>`);
+  console.log('[FiscalBridge] Loading window from:', startUrl);
+  
+  // Use loadFile for local files, loadURL for remote URLs
+  if (startUrl.startsWith('file:') || startUrl.endsWith('.html')) {
+    mainWindow.loadFile(startUrl).catch(err => {
+      console.error('[FiscalBridge] Failed to load file:', err);
+      mainWindow.loadURL(`data:text/html;charset=utf-8,<html>
+        <body style="font-family: sans-serif; padding: 2rem; background: #fff;">
+          <h2 style="color: #e53e3e;">FiscalBridge Failed to Load</h2>
+          <p><strong>Attempted to start at:</strong> ${startUrl}</p>
+          <p><strong>Error:</strong> ${err.message}</p>
+        </body>
+      </html>`);
+    });
+  } else {
+    mainWindow.loadURL(startUrl).catch(err => {
+      console.error('[FiscalBridge] Failed to load URL:', err);
+      mainWindow.loadURL(`data:text/html;charset=utf-8,<html>
+        <body style="font-family: sans-serif; padding: 2rem; background: #fff;">
+          <h2 style="color: #e53e3e;">FiscalBridge Failed to Load</h2>
+          <p><strong>Attempted to start at:</strong> ${startUrl}</p>
+          <p><strong>Error:</strong> ${err.message}</p>
+        </body>
+      </html>`);
+    });
+  }
+
+  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+    console.error('[FiscalBridge] Failed to load:', errorCode, errorDescription);
+  });
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    console.log('[FiscalBridge] Window loaded successfully');
   });
 
   mainWindow.on('closed', () => {

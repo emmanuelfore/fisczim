@@ -6427,7 +6427,7 @@ export default function POSPage() {
                     className="flex-1 h-10 rounded-xl border-slate-200  font-bold"
                   />
                   <Button
-                    onClick={handleCnSearch}
+                    onClick={() => handleCnSearch()}
                     disabled={cnSearching}
                     className="h-10 px-4 rounded-xl font-black text-xs"
                   >

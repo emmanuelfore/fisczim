@@ -5096,22 +5096,10 @@ export async function registerRoutes(
       Data: data.Data || data
     };
   }
-
-  app.get("/api/zimra/device-details", requireAuthOrApiKey, apiLogger, async (req, res) => {
+  // 1. GET /api/companies/:id/zimra/device-details - GetDeviceStatus (RevMax format)
+  app.get("/api/companies/:id/zimra/device-details", requireAuthOrApiKey, apiLogger, async (req, res) => {
     try {
-      // Resolve companyId from query param, X-Company-Id header, session user, or API key lookup
-      let companyId = parseInt(req.query.companyId as string) ||
-                      parseInt(req.headers['x-company-id'] as string) || 0;
-
-      if (!companyId) {
-        const user = req.user as any;
-        companyId = user?.companyId || 0;
-      }
-
-      // If companyId resolved from API key context (set by requireAuthOrApiKey middleware)
-      if (!companyId && (req as any).apiKeyCompanyId) {
-        companyId = (req as any).apiKeyCompanyId;
-      }
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
 
       // Last resort: find first company with a registered ZIMRA device
       if (!companyId) {

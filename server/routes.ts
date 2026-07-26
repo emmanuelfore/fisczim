@@ -1068,7 +1068,7 @@ export async function registerRoutes(
   // Serve uploaded files locally if needed
   app.use('/uploads', express.static(path.join(rootDir, 'uploads')));
 
-  app.post("/api/companies/:id/logo", requireAuth, logoUpload.single("logo"), async (req, res) => {
+  app.post("/api/companies/:id/logo", requireAuthOrApiKey, logoUpload.single("logo"), async (req, res) => {
     try {
       const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       if (!req.file) {
@@ -1123,7 +1123,7 @@ export async function registerRoutes(
   });
 
   // --- Fiscalization Offline Context ---
-  app.get("/api/companies/:companyId/fiscal-context", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/fiscal-context", requireAuthOrApiKey, async (req, res) => {
     const companyId = parseInt(req.params.companyId);
     try {
       const hasAccess = await checkCompanyAccess(req.user, companyId);
@@ -1170,7 +1170,7 @@ export async function registerRoutes(
   // --- CSV Import Endpoints ---
 
   // --- Quotations ---
-  app.get("/api/companies/:companyId/quotations", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/quotations", requireAuthOrApiKey, async (req, res) => {
     const companyId = parseInt(req.params.companyId);
     try {
       const results = await storage.getQuotations(companyId);
@@ -1271,7 +1271,7 @@ export async function registerRoutes(
   });
 
   // --- Recurring Invoices ---
-  app.get("/api/companies/:companyId/recurring-invoices", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/recurring-invoices", requireAuthOrApiKey, async (req, res) => {
     const companyId = parseInt(req.params.companyId);
     try {
       const results = await storage.getRecurringInvoices(companyId);
@@ -2075,7 +2075,7 @@ export async function registerRoutes(
     res.json(company);
   });
 
-  app.patch("/api/companies/:id", requireAuth, async (req, res) => {
+  app.patch("/api/companies/:id", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       
@@ -2099,7 +2099,7 @@ export async function registerRoutes(
   // Duplicate restaurant and recipe routes removed (moved to later in the file)
   
   // --- Branches ---
-  app.get("/api/companies/:companyId/branches", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/branches", requireAuthOrApiKey, async (req, res) => {
     const companyId = parseInt(req.params.companyId);
     if (isNaN(companyId)) return res.status(400).json({ message: "Invalid company ID" });
     try {
@@ -2110,7 +2110,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/companies/:companyId/branches", requireAuth, async (req, res) => {
+  app.post("/api/companies/:companyId/branches", requireAuthOrApiKey, async (req, res) => {
     const companyId = parseInt(req.params.companyId);
     if (isNaN(companyId)) return res.status(400).json({ message: "Invalid company ID" });
     try {
@@ -2157,7 +2157,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/companies/:companyId/branches/:id", requireAuth, async (req, res) => {
+  app.patch("/api/companies/:companyId/branches/:id", requireAuthOrApiKey, async (req, res) => {
     const id = parseInt(req.params.id);
     const companyId = Number(req.params.companyId);
     if (isNaN(id) || isNaN(companyId)) return res.status(400).json({ message: "Invalid branch ID" });
@@ -2172,7 +2172,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/companies/:companyId/branches/:id", requireAuth, async (req, res) => {
+  app.delete("/api/companies/:companyId/branches/:id", requireAuthOrApiKey, async (req, res) => {
     const id = parseInt(req.params.id);
     const companyId = Number(req.params.companyId);
     if (isNaN(id) || isNaN(companyId)) return res.status(400).json({ message: "Invalid branch ID" });
@@ -2187,7 +2187,7 @@ export async function registerRoutes(
   });
 
   // --- Cost Centers ---
-  app.get("/api/companies/:companyId/cost-centers", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/cost-centers", requireAuthOrApiKey, async (req, res) => {
     const companyId = parseInt(req.params.companyId);
     if (isNaN(companyId)) return res.status(400).json({ message: "Invalid company ID" });
     try {
@@ -2198,7 +2198,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/companies/:companyId/cost-centers", requireAuth, async (req, res) => {
+  app.post("/api/companies/:companyId/cost-centers", requireAuthOrApiKey, async (req, res) => {
     const companyId = parseInt(req.params.companyId);
     if (isNaN(companyId)) return res.status(400).json({ message: "Invalid company ID" });
     try {
@@ -2210,7 +2210,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/companies/:companyId/cost-centers/:id", requireAuth, async (req, res) => {
+  app.patch("/api/companies/:companyId/cost-centers/:id", requireAuthOrApiKey, async (req, res) => {
     const id = parseInt(req.params.id);
     const companyId = Number(req.params.companyId);
     if (isNaN(id) || isNaN(companyId)) return res.status(400).json({ message: "Invalid ID" });
@@ -2225,7 +2225,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/companies/:companyId/cost-centers/:id", requireAuth, async (req, res) => {
+  app.delete("/api/companies/:companyId/cost-centers/:id", requireAuthOrApiKey, async (req, res) => {
     const id = parseInt(req.params.id);
     const companyId = Number(req.params.companyId);
     if (isNaN(id) || isNaN(companyId)) return res.status(400).json({ message: "Invalid ID" });
@@ -2262,7 +2262,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/companies/:companyId/inventory/locations", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/inventory/locations", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       let locations = await db.transaction(async (tx) =>
@@ -2312,7 +2312,7 @@ export async function registerRoutes(
   });
 
   // Per-location stock levels — used by the transfer dispatch form to check availability
-  app.get("/api/companies/:companyId/inventory/location-stocks", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/inventory/location-stocks", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const locationId = req.query.locationId ? Number(req.query.locationId) : null;
@@ -2346,7 +2346,7 @@ export async function registerRoutes(
   });
 
 
-  app.post("/api/companies/:companyId/inventory/locations", requireAuth, async (req, res) => {
+  app.post("/api/companies/:companyId/inventory/locations", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const role = await storage.getCompanyUserRole((req.user as any)?.id, companyId);
@@ -2387,7 +2387,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/companies/:companyId/inventory/locations/:id", requireAuth, async (req, res) => {
+  app.patch("/api/companies/:companyId/inventory/locations/:id", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const id = Number(req.params.id);
@@ -2538,7 +2538,7 @@ export async function registerRoutes(
 
 
 
-  app.put("/api/companies/:id/users/:userId/pin", requireAuth, async (req, res) => {
+  app.put("/api/companies/:id/users/:userId/pin", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = parseInt(req.params.id);
       // Verify admin/owner permission logic here if needed
@@ -2570,7 +2570,7 @@ export async function registerRoutes(
 
 
   // Audit Logs
-  app.get("/api/companies/:id/audit-logs", requireAuth, async (req, res) => {
+  app.get("/api/companies/:id/audit-logs", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const limit = req.query.limit ? Number(req.query.limit) : 50;
@@ -2600,7 +2600,7 @@ export async function registerRoutes(
   });
 
   // Incoming API Logs
-  app.get("/api/companies/:companyId/api-logs", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/api-logs", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const limit = req.query.limit ? Number(req.query.limit) : 100;
@@ -2835,7 +2835,7 @@ export async function registerRoutes(
   });
 
   // --- RESTAURANT SECTIONS ---
-  app.get("/api/companies/:companyId/restaurant/sections", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/restaurant/sections", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
       const sections = await storage.getRestaurantSections(companyId);
@@ -2845,7 +2845,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/companies/:companyId/restaurant/sections", requireAuth, async (req, res) => {
+  app.post("/api/companies/:companyId/restaurant/sections", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
       const section = await storage.createRestaurantSection({
@@ -2991,7 +2991,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/companies/:companyId/inventory/expiring-batches", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/inventory/expiring-batches", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
       const days = req.query.days ? parseInt(req.query.days as string) : 90;
@@ -3273,7 +3273,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/companies/:companyId/export/:kind", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/export/:kind", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const kind = String(req.params.kind || "").toLowerCase();
@@ -3377,7 +3377,7 @@ export async function registerRoutes(
     outputs: z.array(productionLineSchema).min(1),
   });
 
-  app.post("/api/companies/:companyId/production-runs", requireAuth, async (req, res) => {
+  app.post("/api/companies/:companyId/production-runs", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const parsed = productionPostSchema.parse(req.body);
@@ -3927,7 +3927,7 @@ export async function registerRoutes(
 
   // User Management
   // 1. List Users
-  app.get("/api/companies/:companyId/users", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/users", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const userId = (req as any).user.id;
@@ -3997,7 +3997,7 @@ export async function registerRoutes(
   });
 
   // 2. Add User
-  app.post("/api/companies/:companyId/users", requireAuth, async (req, res) => {
+  app.post("/api/companies/:companyId/users", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const userId = (req as any).user.id;
@@ -4136,7 +4136,7 @@ export async function registerRoutes(
   });
 
   // 3. Update User Role
-  app.patch("/api/companies/:companyId/users/:userId", requireAuth, async (req, res) => {
+  app.patch("/api/companies/:companyId/users/:userId", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const targetUserId = req.params.userId;
@@ -4270,7 +4270,7 @@ export async function registerRoutes(
   });
 
   // 4. Remove User
-  app.delete("/api/companies/:companyId/users/:userId", requireAuth, async (req, res) => {
+  app.delete("/api/companies/:companyId/users/:userId", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const targetUserId = req.params.userId;
@@ -4300,7 +4300,7 @@ export async function registerRoutes(
 
 
   // Analytics Routes
-  app.get("/api/companies/:companyId/stats/summary", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/stats/summary", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       // Check permission if needed
@@ -4312,7 +4312,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/companies/:companyId/stats/revenue-over-time", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/stats/revenue-over-time", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const days = req.query.days ? Number(req.query.days) : 30;
@@ -5031,7 +5031,7 @@ export async function registerRoutes(
   });
 
   // Maintenance: Clear Test Invoices
-  app.post("/api/companies/:id/invoices/clear-test", requireAuth, async (req, res) => {
+  app.post("/api/companies/:id/invoices/clear-test", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
 
@@ -5717,7 +5717,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/companies/:companyId/access-roles", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/access-roles", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const role = await storage.getCompanyUserRole((req as any).user.id, companyId);
@@ -5752,7 +5752,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/companies/:companyId/access-roles", requireAuth, async (req, res) => {
+  app.post("/api/companies/:companyId/access-roles", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const currentRole = await storage.getCompanyUserRole((req as any).user.id, companyId);
@@ -5778,7 +5778,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/companies/:companyId/access-roles/:roleId", requireAuth, async (req, res) => {
+  app.patch("/api/companies/:companyId/access-roles/:roleId", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const roleId = Number(req.params.roleId);
@@ -5807,7 +5807,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/companies/:companyId/access-roles/:roleId", requireAuth, async (req, res) => {
+  app.delete("/api/companies/:companyId/access-roles/:roleId", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const roleId = Number(req.params.roleId);
@@ -6234,12 +6234,12 @@ export async function registerRoutes(
   });
 
   // Supplier Routes
-  app.get("/api/companies/:companyId/suppliers", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/suppliers", requireAuthOrApiKey, async (req, res) => {
     const suppliers = await storage.getSuppliers(Number(req.params.companyId));
     res.json(suppliers);
   });
 
-  app.post("/api/companies/:companyId/suppliers", requireAuth, async (req, res) => {
+  app.post("/api/companies/:companyId/suppliers", requireAuthOrApiKey, async (req, res) => {
     const input = insertSupplierSchema.parse(req.body);
     const supplier = await storage.createSupplier({
       ...input,
@@ -6255,7 +6255,7 @@ export async function registerRoutes(
     res.json(updated);
   });
 
-  app.get("/api/companies/:companyId/purchase-orders", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/purchase-orders", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const rows = await db
@@ -6466,7 +6466,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/companies/:companyId/purchase-orders", requireAuth, async (req, res) => {
+  app.post("/api/companies/:companyId/purchase-orders", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const payload = z.object({
@@ -6704,7 +6704,7 @@ export async function registerRoutes(
 
 
 
-  app.get("/api/companies/:companyId/purchase-returns", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/purchase-returns", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const rows = await db
@@ -6800,7 +6800,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/companies/:companyId/purchase-returns", requireAuth, async (req, res) => {
+  app.post("/api/companies/:companyId/purchase-returns", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const payload = z.object({
@@ -7208,7 +7208,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/companies/:companyId/supplier-invoices", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/supplier-invoices", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const invoices = await storage.getSupplierInvoices(companyId);
@@ -7219,7 +7219,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/companies/:companyId/supplier-invoices/:id", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/supplier-invoices/:id", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const id = Number(req.params.id);
@@ -7232,7 +7232,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/companies/:companyId/supplier-payments", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/supplier-payments", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const payments = await storage.getSupplierPayments(companyId);
@@ -7243,7 +7243,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/companies/:companyId/supplier-invoices", requireAuth, async (req, res) => {
+  app.post("/api/companies/:companyId/supplier-invoices", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const body = {
@@ -7307,7 +7307,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/companies/:companyId/supplier-payments", requireAuth, async (req, res) => {
+  app.post("/api/companies/:companyId/supplier-payments", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const input = insertSupplierPaymentSchema.parse(req.body);
@@ -7326,14 +7326,14 @@ export async function registerRoutes(
   });
 
   // Inventory Routes
-  app.get("/api/companies/:companyId/inventory/transactions", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/inventory/transactions", requireAuthOrApiKey, async (req, res) => {
     const productId = req.query.productId ? Number(req.query.productId) : undefined;
     const items = await storage.getInventoryTransactions(Number(req.params.companyId), productId);
     res.json(items);
   });
 
   // Material Document Ledger (Detailed Transaction History)
-  app.get("/api/companies/:companyId/inventory/ledger", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/inventory/ledger", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const productId = req.query.productId ? Number(req.query.productId) : undefined;
@@ -7394,7 +7394,7 @@ export async function registerRoutes(
   });
 
   // Current Stock Overview
-  app.get("/api/companies/:companyId/inventory/stock-overview", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/inventory/stock-overview", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
 
@@ -7432,7 +7432,7 @@ export async function registerRoutes(
   });
 
   // Historical Stock Balances (Stock for Posting Date)
-  app.post("/api/companies/:companyId/inventory/historical-stock", requireAuth, async (req, res) => {
+  app.post("/api/companies/:companyId/inventory/historical-stock", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const targetDate = req.body.targetDate ? new Date(req.body.targetDate) : new Date();
@@ -7505,7 +7505,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/companies/:companyId/inventory/stock-in", requireAuth, async (req, res) => {
+  app.post("/api/companies/:companyId/inventory/stock-in", requireAuthOrApiKey, async (req, res) => {
     const { productId, quantity, unitCost, supplierId, notes, landedCost } = req.body;
     const { recordStockIn } = await import("./lib/inventory.js");
 
@@ -7523,7 +7523,7 @@ export async function registerRoutes(
     res.status(201).json({ message: "Stock recorded successfully" });
   });
 
-  app.post("/api/companies/:companyId/inventory/batch-stock-in", requireAuth, async (req, res) => {
+  app.post("/api/companies/:companyId/inventory/batch-stock-in", requireAuthOrApiKey, async (req, res) => {
     const companyId = Number(req.params.companyId);
     const userId = (req.user as any)?.id;
     const isSuperAdmin = !!(req.user as any)?.isSuperAdmin;
@@ -7722,7 +7722,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/companies/:companyId/gdns", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/gdns", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const status = typeof req.query.status === "string" ? req.query.status : undefined;
@@ -7809,7 +7809,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/companies/:companyId/gdns", requireAuth, async (req, res) => {
+  app.post("/api/companies/:companyId/gdns", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const { gdnNumber, supplierId, customerId, purchaseOrderId, notes, taxInclusive, items } = req.body || {};
@@ -7864,7 +7864,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/companies/:companyId/gdns/:gdnId/confirm", requireAuth, async (req, res) => {
+  app.post("/api/companies/:companyId/gdns/:gdnId/confirm", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const gdnId = Number(req.params.gdnId);
@@ -7993,7 +7993,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/companies/:companyId/inventory/transfers", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/inventory/transfers", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const status = typeof req.query.status === "string" ? req.query.status : undefined;
@@ -8068,7 +8068,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/companies/:companyId/inventory/transfers", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/inventory/transfers", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const status = typeof req.query.status === "string" ? req.query.status : undefined;
@@ -8151,7 +8151,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/companies/:companyId/inventory/transfers", requireAuth, async (req, res) => {
+  app.post("/api/companies/:companyId/inventory/transfers", requireAuthOrApiKey, async (req, res) => {
     try {
       const idempotencyKey = await sendIdempotentHit(req, res);
       if (idempotencyKey === false) return;
@@ -8310,7 +8310,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/companies/:companyId/inventory/transfers/:transferId/submit", requireAuth, async (req, res) => {
+  app.post("/api/companies/:companyId/inventory/transfers/:transferId/submit", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const transferId = Number(req.params.transferId);
@@ -8330,7 +8330,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/companies/:companyId/inventory/transfers/:transferId/approve", requireAuth, async (req, res) => {
+  app.post("/api/companies/:companyId/inventory/transfers/:transferId/approve", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const transferId = Number(req.params.transferId);
@@ -8355,7 +8355,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/companies/:companyId/inventory/transfers/:transferId/dispatch", requireAuth, async (req, res) => {
+  app.post("/api/companies/:companyId/inventory/transfers/:transferId/dispatch", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const transferId = Number(req.params.transferId);
@@ -8487,7 +8487,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/companies/:companyId/inventory/transfers/:transferId/receive", requireAuth, async (req, res) => {
+  app.post("/api/companies/:companyId/inventory/transfers/:transferId/receive", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const transferId = Number(req.params.transferId);
@@ -8705,7 +8705,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/companies/:companyId/inventory/transfers/:transferId/cancel", requireAuth, async (req, res) => {
+  app.post("/api/companies/:companyId/inventory/transfers/:transferId/cancel", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const transferId = Number(req.params.transferId);
@@ -8773,7 +8773,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/companies/:companyId/grvs", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/grvs", requireAuthOrApiKey, async (req, res) => {
     const companyId = Number(req.params.companyId);
 
     const invoices = await db
@@ -9136,7 +9136,7 @@ export async function registerRoutes(
     res.json(Array.from(grouped.values()).sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)));
   });
 
-  app.get("/api/companies/:companyId/grvs/:grvId", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/grvs/:grvId", requireAuthOrApiKey, async (req, res) => {
     const companyId = Number(req.params.companyId);
     const { grvId } = req.params;
     const legacyId = grvId.startsWith("LEGACY-")
@@ -9437,12 +9437,12 @@ export async function registerRoutes(
   });
 
   // Expense Routes
-  app.get("/api/companies/:companyId/expenses", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/expenses", requireAuthOrApiKey, async (req, res) => {
     const expenses = await storage.getExpenses(Number(req.params.companyId));
     res.json(expenses);
   });
 
-  app.post("/api/companies/:companyId/expenses", requireAuth, async (req, res) => {
+  app.post("/api/companies/:companyId/expenses", requireAuthOrApiKey, async (req, res) => {
     const body = {
       ...req.body,
       amount: req.body.amount ? String(req.body.amount) : undefined,
@@ -9470,7 +9470,7 @@ export async function registerRoutes(
   });
 
   // Report Routes
-  app.get("/api/companies/:companyId/reports/stock-valuation", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/reports/stock-valuation", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
       const ownerGroupScope = await getUserOwnerGroupScope((req.user as any)?.id);
@@ -9481,7 +9481,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/companies/:companyId/reports/financial-summary", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/reports/financial-summary", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
       const { from, to, cashierId, drillDown } = req.query;
@@ -9500,7 +9500,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/companies/:companyId/reports/fiscal-data", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/reports/fiscal-data", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
       const { date, cashierId } = req.query;
@@ -9512,7 +9512,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/companies/:companyId/reports/abc-analysis", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/reports/abc-analysis", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
       const ownerGroupScope = await getUserOwnerGroupScope((req.user as any)?.id);
@@ -9647,7 +9647,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/companies/:companyId/product-serials", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/product-serials", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const productId = req.query.productId ? Number(req.query.productId) : undefined;
@@ -9659,7 +9659,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/companies/:companyId/product-serials", requireAuth, async (req, res) => {
+  app.post("/api/companies/:companyId/product-serials", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const rows = Array.isArray(req.body) ? req.body : [req.body];
@@ -9675,7 +9675,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/companies/:companyId/product-serials/:id", requireAuth, async (req, res) => {
+  app.patch("/api/companies/:companyId/product-serials/:id", requireAuthOrApiKey, async (req, res) => {
     try {
       const updated = await storage.updateProductSerialNumber(Number(req.params.id), Number(req.params.companyId), req.body);
       res.json(updated);
@@ -9684,7 +9684,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/companies/:companyId/warranty-claims", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/warranty-claims", requireAuthOrApiKey, async (req, res) => {
     try {
       const claims = await storage.getWarrantyClaims(Number(req.params.companyId));
       res.json(claims);
@@ -9693,7 +9693,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/companies/:companyId/warranty-claims", requireAuth, async (req, res) => {
+  app.post("/api/companies/:companyId/warranty-claims", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const input = insertWarrantyClaimSchema.parse({
@@ -9709,7 +9709,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/companies/:companyId/warranty-claims/:id", requireAuth, async (req, res) => {
+  app.patch("/api/companies/:companyId/warranty-claims/:id", requireAuthOrApiKey, async (req, res) => {
     try {
       const claim = await storage.updateWarrantyClaim(Number(req.params.id), Number(req.params.companyId), req.body);
       res.json(claim);
@@ -9718,7 +9718,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/companies/:companyId/laybys", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/laybys", requireAuthOrApiKey, async (req, res) => {
     try {
       const laybyRows = await storage.getLaybys(Number(req.params.companyId));
       res.json(laybyRows);
@@ -9727,7 +9727,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/companies/:companyId/laybys", requireAuth, async (req, res) => {
+  app.post("/api/companies/:companyId/laybys", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const input = insertLaybySchema.extend({ items: z.array(insertLaybyItemSchema).min(1) }).parse({
@@ -9743,7 +9743,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/companies/:companyId/laybys/:id/payments", requireAuth, async (req, res) => {
+  app.post("/api/companies/:companyId/laybys/:id/payments", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const input = insertLaybyPaymentSchema.parse(req.body);
@@ -9758,7 +9758,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/companies/:companyId/products/bulk-delete", requireAuth, async (req, res) => {
+  app.delete("/api/companies/:companyId/products/bulk-delete", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       if (isNaN(companyId)) return res.status(400).json({ message: "Invalid company ID" });
@@ -9781,7 +9781,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/companies/:companyId/products/bulk-convert", requireAuth, async (req, res) => {
+  app.post("/api/companies/:companyId/products/bulk-convert", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const { ids } = req.body;
@@ -10254,7 +10254,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/companies/:companyId/zimra/sample-documents", requireAuth, async (req, res) => {
+  app.post("/api/companies/:companyId/zimra/sample-documents", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       if (!companyId) return res.status(400).json({ message: "Company ID is required" });
@@ -11125,7 +11125,7 @@ export async function registerRoutes(
   });
 
   // Company-wide payments list with invoice + customer info
-  app.get("/api/companies/:id/payments", requireAuth, async (req, res) => {
+  app.get("/api/companies/:id/payments", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const { startDate, endDate, page = "1", limit = "50" } = req.query;
@@ -11203,7 +11203,7 @@ export async function registerRoutes(
   });
 
   // Sales Report
-  app.get("/api/companies/:id/reports/sales", requireAuth, async (req, res) => {
+  app.get("/api/companies/:id/reports/sales", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const { startDate, endDate } = req.query;
@@ -11220,7 +11220,7 @@ export async function registerRoutes(
   });
 
   // Payments Report
-  app.get("/api/companies/:id/reports/payments", requireAuth, async (req, res) => {
+  app.get("/api/companies/:id/reports/payments", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const { startDate, endDate } = req.query;
@@ -11243,7 +11243,7 @@ export async function registerRoutes(
 
   // Financial Summary Report (Revenue, COGS, Gross Profit, Expenses, Net Profit)
   // Includes BOTH regular invoices AND POS sales (isPos = true)
-  app.get("/api/companies/:companyId/reports/financial-summary", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/reports/financial-summary", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const { from, to } = req.query;
@@ -11361,7 +11361,7 @@ export async function registerRoutes(
   });
 
   // Stock Valuation Report
-  app.get("/api/companies/:companyId/reports/stock-valuation", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/reports/stock-valuation", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const ownerGroupScope = await getUserOwnerGroupScope((req.user as any)?.id);
@@ -11445,7 +11445,7 @@ export async function registerRoutes(
   });
 
   // Sales ABC Analysis Report
-  app.get("/api/companies/:companyId/reports/abc-analysis", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/reports/abc-analysis", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const { from, to } = req.query;
@@ -11523,7 +11523,7 @@ export async function registerRoutes(
   });
 
   // Cash Collections Report
-  app.post("/api/companies/:companyId/cash-collections", requireAuth, async (req, res) => {
+  app.post("/api/companies/:companyId/cash-collections", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const user = req.user as any;
@@ -11582,7 +11582,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/companies/:companyId/reports/cash-collection-balances", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/reports/cash-collection-balances", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const currentUserId = req.user!.id;
@@ -11702,7 +11702,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/companies/:companyId/reports/cash-collections", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/reports/cash-collections", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const { from, to } = req.query;
@@ -11751,7 +11751,7 @@ export async function registerRoutes(
   });
 
   // Role check route
-  app.get("/api/companies/:companyId/my-role", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/my-role", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const role = await storage.getCompanyUserRole(req.user!.id, companyId);
@@ -11812,7 +11812,7 @@ export async function registerRoutes(
   });
 
   // --- Subscription Routes ---
-  app.post("/api/companies/:id/subscriptions/initiate", requireAuth, async (req, res) => {
+  app.post("/api/companies/:id/subscriptions/initiate", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const { amount, macAddress, email, serialNo: manualSerial } = req.body;
@@ -11839,7 +11839,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/companies/:id/subscriptions", requireAuth, async (req, res) => {
+  app.get("/api/companies/:id/subscriptions", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const subscriptions = await storage.getSubscriptionsByCompany(companyId);
@@ -11996,7 +11996,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/companies/:companyId/auth/verify-manager-pin", requireAuth, async (req, res) => {
+  app.post("/api/companies/:companyId/auth/verify-manager-pin", requireAuthOrApiKey, async (req, res) => {
     try {
       const { companyId } = req.params;
       const { pin } = req.body;
@@ -12027,7 +12027,7 @@ export async function registerRoutes(
 
   // Returns scrypt PIN hashes for all managers — used by Electron to enable offline PIN verification
   // without requiring a prior online verify call. Only accessible to authenticated users of the company.
-  app.get("/api/companies/:companyId/auth/manager-pin-hashes", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/auth/manager-pin-hashes", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
       const users = await storage.getCompanyUsers(companyId);
@@ -12410,7 +12410,7 @@ export async function registerRoutes(
   });
 
   // Stock Takes
-  app.get("/api/companies/:companyId/stock-takes", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/stock-takes", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
       const data = await storage.getStockTakes(companyId);
@@ -12459,7 +12459,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/companies/:companyId/stock-takes", requireAuth, async (req, res) => {
+  app.post("/api/companies/:companyId/stock-takes", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = parseInt(req.params.companyId);
       const { items, notes } = req.body; // items: { productId, physicalCount, systemCount, unitCost }[]
@@ -12720,7 +12720,7 @@ export async function registerRoutes(
   });
 
   // Product Performance Report
-  app.get("/api/companies/:id/reports/product-performance", requireAuth, async (req, res) => {
+  app.get("/api/companies/:id/reports/product-performance", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = parseInt(req.params.id);
       const startDate = req.query.startDate ? new Date(req.query.startDate as string) : new Date(0);
@@ -13099,7 +13099,7 @@ export async function registerRoutes(
     };
   };
 
-  app.get("/api/companies/:companyId/reports/branch-performance", requireAuth, async (req: any, res) => {
+  app.get("/api/companies/:companyId/reports/branch-performance", requireAuthOrApiKey, async (req: any, res) => {
     try {
       const companyId = Number(req.params.companyId);
       if (!companyId) return res.status(400).json({ message: "Invalid companyId" });
@@ -13365,74 +13365,74 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/companies/:companyId/reports/sales-summary", requireAuth,
+  app.get("/api/companies/:companyId/reports/sales-summary", requireAuthOrApiKey,
     reportRouteHandler((id, s, e) => storage.getReportSalesSummary(id, s, e)));
 
-  app.get("/api/companies/:companyId/reports/sales-by-customer", requireAuth,
+  app.get("/api/companies/:companyId/reports/sales-by-customer", requireAuthOrApiKey,
     reportRouteHandler((id, s, e) => storage.getReportSalesByCustomer(id, s, e)));
 
-  app.get("/api/companies/:companyId/reports/sales-by-item", requireAuth,
+  app.get("/api/companies/:companyId/reports/sales-by-item", requireAuthOrApiKey,
     reportRouteHandler((id, s, e) => storage.getReportSalesByItem(id, s, e)));
 
-  app.get("/api/companies/:companyId/reports/sales-by-salesperson", requireAuth,
+  app.get("/api/companies/:companyId/reports/sales-by-salesperson", requireAuthOrApiKey,
     reportRouteHandler((id, s, e) => storage.getReportSalesBySalesperson(id, s, e)));
 
-  app.get("/api/companies/:companyId/reports/ar-aging-summary", requireAuth,
+  app.get("/api/companies/:companyId/reports/ar-aging-summary", requireAuthOrApiKey,
     reportRouteHandler((id, s, e) => storage.getReportArAgingSummary(id, s, e)));
 
-  app.get("/api/companies/:companyId/reports/ar-aging-details", requireAuth,
+  app.get("/api/companies/:companyId/reports/ar-aging-details", requireAuthOrApiKey,
     reportRouteHandler((id, s, e) => storage.getReportArAgingDetails(id, s, e)));
 
-  app.get("/api/companies/:companyId/reports/invoice-details", requireAuth,
+  app.get("/api/companies/:companyId/reports/invoice-details", requireAuthOrApiKey,
     reportRouteHandler((id, s, e) => storage.getReportInvoiceDetails(id, s, e)));
 
-  app.get("/api/companies/:companyId/reports/quote-details", requireAuth,
+  app.get("/api/companies/:companyId/reports/quote-details", requireAuthOrApiKey,
     reportRouteHandler((id, s, e) => storage.getReportQuoteDetails(id, s, e)));
 
-  app.get("/api/companies/:companyId/reports/customer-balance-summary", requireAuth,
+  app.get("/api/companies/:companyId/reports/customer-balance-summary", requireAuthOrApiKey,
     reportRouteHandler((id, s, e) => storage.getReportCustomerBalanceSummary(id, s, e)));
 
-  app.get("/api/companies/:companyId/reports/receivable-summary", requireAuth,
+  app.get("/api/companies/:companyId/reports/receivable-summary", requireAuthOrApiKey,
     reportRouteHandler((id, s, e) => storage.getReportReceivableSummary(id, s, e)));
 
-  app.get("/api/companies/:companyId/reports/receivable-details", requireAuth,
+  app.get("/api/companies/:companyId/reports/receivable-details", requireAuthOrApiKey,
     reportRouteHandler((id, s, e) => storage.getReportReceivableDetails(id, s, e)));
 
-  app.get("/api/companies/:companyId/reports/bad-debts", requireAuth,
+  app.get("/api/companies/:companyId/reports/bad-debts", requireAuthOrApiKey,
     reportRouteHandler((id, s, e) => storage.getReportBadDebts(id, s, e)));
 
-  app.get("/api/companies/:companyId/reports/bank-charges", requireAuth,
+  app.get("/api/companies/:companyId/reports/bank-charges", requireAuthOrApiKey,
     reportRouteHandler((id, s, e) => storage.getReportBankCharges(id, s, e)));
 
-  app.get("/api/companies/:companyId/reports/time-to-get-paid", requireAuth,
+  app.get("/api/companies/:companyId/reports/time-to-get-paid", requireAuthOrApiKey,
     reportRouteHandler((id, s, e) => storage.getReportTimeToGetPaid(id, s, e)));
 
-  app.get("/api/companies/:companyId/reports/refund-history", requireAuth,
+  app.get("/api/companies/:companyId/reports/refund-history", requireAuthOrApiKey,
     reportRouteHandler((id, s, e) => storage.getReportRefundHistory(id, s, e)));
 
-  app.get("/api/companies/:companyId/reports/withholding-tax", requireAuth,
+  app.get("/api/companies/:companyId/reports/withholding-tax", requireAuthOrApiKey,
     reportRouteHandler((id, s, e) => storage.getReportWithholdingTax(id, s, e)));
 
-  app.get("/api/companies/:companyId/reports/expense-details", requireAuth,
+  app.get("/api/companies/:companyId/reports/expense-details", requireAuthOrApiKey,
     reportRouteHandler((id, s, e) => storage.getReportExpenseDetails(id, s, e)));
 
-  app.get("/api/companies/:companyId/reports/expenses-by-category", requireAuth,
+  app.get("/api/companies/:companyId/reports/expenses-by-category", requireAuthOrApiKey,
     reportRouteHandler((id, s, e) => storage.getReportExpensesByCategory(id, s, e)));
 
-  app.get("/api/companies/:companyId/reports/expenses-by-customer", requireAuth,
+  app.get("/api/companies/:companyId/reports/expenses-by-customer", requireAuthOrApiKey,
     reportRouteHandler((id, s, e) => storage.getReportExpensesByCustomer(id, s, e)));
 
-  app.get("/api/companies/:companyId/reports/expenses-by-project", requireAuth,
+  app.get("/api/companies/:companyId/reports/expenses-by-project", requireAuthOrApiKey,
     reportRouteHandler((id, s, e) => storage.getReportExpensesByProject(id, s, e)));
 
-  app.get("/api/companies/:companyId/reports/billable-expense-details", requireAuth,
+  app.get("/api/companies/:companyId/reports/billable-expense-details", requireAuthOrApiKey,
     reportRouteHandler((id, s, e) => storage.getReportBillableExpenseDetails(id, s, e)));
 
-  app.get("/api/companies/:companyId/reports/tax-summary", requireAuth,
+  app.get("/api/companies/:companyId/reports/tax-summary", requireAuthOrApiKey,
     reportRouteHandler((id, s, e) => storage.getReportTaxSummary(id, s, e)));
 
   // Operational reports (daily / weekly / monthly / stock movement)
-  app.get("/api/companies/:companyId/reports/operational-daily", requireAuth, async (req: any, res: any) => {
+  app.get("/api/companies/:companyId/reports/operational-daily", requireAuthOrApiKey, async (req: any, res: any) => {
     try {
       const companyId = parseInt(req.params.companyId);
       if (isNaN(companyId)) return res.status(400).json({ message: "Invalid companyId" });
@@ -13453,7 +13453,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/companies/:companyId/reports/operational-weekly", requireAuth, async (req: any, res: any) => {
+  app.get("/api/companies/:companyId/reports/operational-weekly", requireAuthOrApiKey, async (req: any, res: any) => {
     try {
       const companyId = parseInt(req.params.companyId);
       if (isNaN(companyId)) return res.status(400).json({ message: "Invalid companyId" });
@@ -13474,7 +13474,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/companies/:companyId/reports/operational-monthly", requireAuth, async (req: any, res: any) => {
+  app.get("/api/companies/:companyId/reports/operational-monthly", requireAuthOrApiKey, async (req: any, res: any) => {
     try {
       const companyId = parseInt(req.params.companyId);
       if (isNaN(companyId)) return res.status(400).json({ message: "Invalid companyId" });
@@ -13495,7 +13495,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/companies/:companyId/reports/stock-movement", requireAuth, async (req: any, res: any) => {
+  app.get("/api/companies/:companyId/reports/stock-movement", requireAuthOrApiKey, async (req: any, res: any) => {
     try {
       const companyId = parseInt(req.params.companyId);
       if (isNaN(companyId)) return res.status(400).json({ message: "Invalid companyId" });
@@ -13517,33 +13517,33 @@ export async function registerRoutes(
   });
 
   // Auto-spares & inventory analytics reports
-  app.get("/api/companies/:companyId/reports/profit-margins", requireAuth,
+  app.get("/api/companies/:companyId/reports/profit-margins", requireAuthOrApiKey,
     reportRouteHandler((id, s, e) => storage.getReportProfitMargins(id, s, e)));
-  app.get("/api/companies/:companyId/reports/purchase-report", requireAuth,
+  app.get("/api/companies/:companyId/reports/purchase-report", requireAuthOrApiKey,
     reportRouteHandler((id, s, e) => storage.getReportPurchaseHistory(id, s, e)));
-  app.get("/api/companies/:companyId/reports/auto-spares-daily-sales", requireAuth,
+  app.get("/api/companies/:companyId/reports/auto-spares-daily-sales", requireAuthOrApiKey,
     reportRouteHandler((id, s, e) => storage.getReportAutoSparesDailySales(id, s, e)));
-  app.get("/api/companies/:companyId/reports/top-selling-parts", requireAuth,
+  app.get("/api/companies/:companyId/reports/top-selling-parts", requireAuthOrApiKey,
     reportRouteHandler((id, s, e) => storage.getReportTopSellingParts(id, s, e)));
-  app.get("/api/companies/:companyId/reports/dead-stock", requireAuth,
+  app.get("/api/companies/:companyId/reports/dead-stock", requireAuthOrApiKey,
     reportRouteHandler((id, s, e) => storage.getReportDeadStock(id, s, e)));
-  app.get("/api/companies/:companyId/reports/supplier-performance", requireAuth,
+  app.get("/api/companies/:companyId/reports/supplier-performance", requireAuthOrApiKey,
     reportRouteHandler((id, s, e) => storage.getReportSupplierPerformance(id, s, e)));
-  app.get("/api/companies/:companyId/reports/customer-credit", requireAuth,
+  app.get("/api/companies/:companyId/reports/customer-credit", requireAuthOrApiKey,
     reportRouteHandler((id, s, e) => storage.getReportCustomerCredit(id, s, e)));
-  app.get("/api/companies/:companyId/reports/salesperson-performance", requireAuth,
+  app.get("/api/companies/:companyId/reports/salesperson-performance", requireAuthOrApiKey,
     reportRouteHandler((id, s, e) => storage.getReportSalespersonPerformance(id, s, e)));
-  app.get("/api/companies/:companyId/reports/category-brand-performance", requireAuth,
+  app.get("/api/companies/:companyId/reports/category-brand-performance", requireAuthOrApiKey,
     reportRouteHandler((id, s, e) => storage.getReportCategoryBrandPerformance(id, s, e)));
-  app.get("/api/companies/:companyId/reports/return-warranty", requireAuth,
+  app.get("/api/companies/:companyId/reports/return-warranty", requireAuthOrApiKey,
     reportRouteHandler((id, s, e) => storage.getReportReturnWarranty(id, s, e)));
-  app.get("/api/companies/:companyId/reports/reorder-suggestions", requireAuth,
+  app.get("/api/companies/:companyId/reports/reorder-suggestions", requireAuthOrApiKey,
     reportRouteHandler((id, s, e) => storage.getReportReorderSuggestions(id, s, e)));
-  app.get("/api/companies/:companyId/reports/price-changes", requireAuth,
+  app.get("/api/companies/:companyId/reports/price-changes", requireAuthOrApiKey,
     reportRouteHandler((id, s, e) => storage.getReportPriceChanges(id, s, e)));
 
   // Currency-aware reports for Dashboard
-  app.get("/api/companies/:companyId/reports/receivables-aging", requireAuth, async (req: any, res: any) => {
+  app.get("/api/companies/:companyId/reports/receivables-aging", requireAuthOrApiKey, async (req: any, res: any) => {
     try {
       const companyId = parseInt(req.params.companyId);
       if (isNaN(companyId)) return res.status(400).json({ message: "Invalid companyId" });
@@ -13555,7 +13555,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/companies/:companyId/reports/fiscal-year-stats", requireAuth, async (req: any, res: any) => {
+  app.get("/api/companies/:companyId/reports/fiscal-year-stats", requireAuthOrApiKey, async (req: any, res: any) => {
     try {
       const companyId = parseInt(req.params.companyId);
       if (isNaN(companyId)) return res.status(400).json({ message: "Invalid companyId" });
@@ -13574,13 +13574,13 @@ export async function registerRoutes(
   app.use("/api/sage/oauth", sageOAuthRouter);
 
   // Bus Ticketing direct web-admin access
-  app.use("/api/companies/:companyId/bus-ticketing", requireAuth, busTicketingRouter);
+  app.use("/api/companies/:companyId/bus-ticketing", requireAuthOrApiKey, busTicketingRouter);
 
   // Payroll & HR direct access
-  app.use("/api/companies/:companyId/payroll", requireAuth, payrollRouter);
+  app.use("/api/companies/:companyId/payroll", requireAuthOrApiKey, payrollRouter);
 
   // Manufacturing & BOM direct access
-  app.use("/api/companies/:companyId/manufacturing", requireAuth, manufacturingRouter);
+  app.use("/api/companies/:companyId/manufacturing", requireAuthOrApiKey, manufacturingRouter);
 
   // --- ACCOUNTING ROUTES ---
 
@@ -13650,8 +13650,8 @@ export async function registerRoutes(
 
   app.get("/api/accounting/accounts", requireAuth, listAccountingAccounts);
   app.post("/api/accounting/accounts", requireAuth, createAccountingAccount);
-  app.get("/api/companies/:companyId/accounting/accounts", requireAuth, listAccountingAccounts);
-  app.post("/api/companies/:companyId/accounting/accounts", requireAuth, createAccountingAccount);
+  app.get("/api/companies/:companyId/accounting/accounts", requireAuthOrApiKey, listAccountingAccounts);
+  app.post("/api/companies/:companyId/accounting/accounts", requireAuthOrApiKey, createAccountingAccount);
 
   app.get("/api/accounting/budgets", requireAuth, async (req: any, res: any) => {
     try {
@@ -13940,7 +13940,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/companies/:companyId/accounting/consolidated-trial-balance", requireAuth, async (req: any, res: any) => {
+  app.get("/api/companies/:companyId/accounting/consolidated-trial-balance", requireAuthOrApiKey, async (req: any, res: any) => {
     try {
       const companyId = parseInt(req.params.companyId);
       const { date } = req.query;
@@ -13958,7 +13958,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/companies/:companyId/accounting/run-eliminations", requireAuth, async (req: any, res: any) => {
+  app.post("/api/companies/:companyId/accounting/run-eliminations", requireAuthOrApiKey, async (req: any, res: any) => {
     try {
       if (req.user?.role !== "admin") return res.status(403).json({ message: "Only administrators can run eliminations" });
       const companyId = parseInt(req.params.companyId);

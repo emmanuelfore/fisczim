@@ -1,10 +1,1 @@
-<CurrencyTags>
-	<currency>
-		<keyword>US</keyword>
-		<Name>USD</Name>
-	</currency>
-	<currency>
-		<keyword>ZWG</keyword>
-		<Name>ZWG</Name>
-	</currency>
-</CurrencyTags>
+<CurrencyTags><currency><keyword>USD</keyword><Name>USD</Name></currency><currency><keyword>US$</keyword><Name>USD</Name></currency><currency><keyword>ZWL</keyword><Name>ZWL</Name></currency><currency><keyword>Z$</keyword><Name>ZWL</Name></currency></CurrencyTags>

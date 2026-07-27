@@ -67,11 +67,20 @@ namespace Revmax_Interface_Promun
         CardDetails CardDetails = new CardDetails();
         ZReportStructure zReport = new ZReportStructure();
 
+        // ── Smart Features ──────────────────────────────────────────
+        private OfflineQueue _offlineQueue = new OfflineQueue();
+        private SchedulerService _scheduler;
+        private System.Windows.Forms.Timer _statusTimer;
+        private System.Windows.Forms.Timer _retryTimer;
+        private ConnectionStatus _currentStatus = ConnectionStatus.Unknown;
+        private string _lastReceiptJson = null;
+
 
 
         public RevMaxInterfaceWizard()
         {
             InitializeComponent();
+            AppBranding.ApplyIcon(this, this.notifyIcon1);
 
             //  reportViewer1.LocalReport.EnableExternalImages = true;
 
@@ -79,6 +88,8 @@ namespace Revmax_Interface_Promun
 
             Task.Run(async () =>
             {
+                if (!HasConfiguredApiKey()) return;
+
                 try
                 {
                     string j = await client.GetDeviceAsync();
@@ -86,56 +97,108 @@ namespace Revmax_Interface_Promun
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show("Error fetching device details: " + ex.Message);
+                    if (IsHandleCreated)
+                    {
+                        BeginInvoke(new Action(() =>
+                            notifyIcon1.ShowBalloonTip(5000, "FiscalStack", "Device details could not be refreshed: " + ex.Message, ToolTipIcon.Warning)));
+                    }
                 }
             });
 
             //MessageBox.Show(printInvoice.Cashier);
+
+            // Start smart services
+            EnsureRuntimeDefaults();
+            InitSmartFeatures();
 
 
 
 
             if (File.Exists(AppDomain.CurrentDomain.BaseDirectory.ToString() + "CurConf.interface"))
             {
-                using (FileStream fs = new FileStream(AppDomain.CurrentDomain.BaseDirectory.ToString() + "CurConf.interface", FileMode.Open, FileAccess.Read))
+                try
                 {
-                    XmlDataDocument xmldoc1 = new XmlDataDocument();
-                    XmlNodeList xmlnode1;
-                    XmlNodeList xmlnode2;
-
-
-                    try
-                    {
-                        xmldoc1.Load(fs);
-                        xmlnode1 = xmldoc1.GetElementsByTagName("currency");
-
-                        for (int i = 0; i <= xmlnode1.Count - 1; i++)
-                        {
-                            CurrenciesList.Add(new ReadCurrencies
-                            {
-                                Keyword = xmlnode1[i].ChildNodes.Item(0).InnerText.Trim(),
-                                Name = xmlnode1[i].ChildNodes.Item(1).InnerText.Trim(),
-                            });
-
-                        }
-
-                    }
-                    catch (Exception ex)
-                    {
-                        MessageBox.Show(ex.Message);
-                    }
-
+                    LoadCurrencyConfig();
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("Currency config could not be loaded. " + ex.Message, "FiscalStack", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 }
             }
             else
             {
-                MessageBox.Show("Currency Config not found.Contact Axis Solutions.");
+                EnsureDefaultCurrencyConfig();
+                LoadCurrencyConfig();
             }
 
         }
 
 
 
+
+        private void EnsureRuntimeDefaults()
+        {
+            EnsureDirectorySetting("SourceFolder", "DevReceipts");
+            EnsureDirectorySetting("TargetFolder", "DevBackup");
+            EnsureDefaultCurrencyConfig();
+        }
+
+        private string EnsureDirectorySetting(string key, string fallbackFolderName)
+        {
+            string configuredPath = ConfigurationManager.AppSettings.Get(key);
+            string path = configuredPath;
+
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, fallbackFolderName);
+                addToConfig(key, path);
+            }
+
+            Directory.CreateDirectory(path);
+            return path;
+        }
+
+        private void EnsureDefaultCurrencyConfig()
+        {
+            string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "CurConf.interface");
+            if (File.Exists(path)) return;
+
+            string xml = "<CurrencyTags>" +
+                         "<currency><keyword>USD</keyword><Name>USD</Name></currency>" +
+                         "<currency><keyword>US$</keyword><Name>USD</Name></currency>" +
+                         "<currency><keyword>ZWL</keyword><Name>ZWL</Name></currency>" +
+                         "<currency><keyword>Z$</keyword><Name>ZWL</Name></currency>" +
+                         "</CurrencyTags>";
+            File.WriteAllText(path, xml);
+        }
+
+        private void LoadCurrencyConfig()
+        {
+            CurrenciesList.Clear();
+            string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "CurConf.interface");
+            if (!File.Exists(path)) return;
+
+            using (FileStream fs = new FileStream(path, FileMode.Open, FileAccess.Read))
+            {
+                XmlDataDocument xmldoc1 = new XmlDataDocument();
+                xmldoc1.Load(fs);
+                XmlNodeList xmlnode1 = xmldoc1.GetElementsByTagName("currency");
+
+                for (int i = 0; i <= xmlnode1.Count - 1; i++)
+                {
+                    CurrenciesList.Add(new ReadCurrencies
+                    {
+                        Keyword = xmlnode1[i].ChildNodes.Item(0).InnerText.Trim(),
+                        Name = xmlnode1[i].ChildNodes.Item(1).InnerText.Trim(),
+                    });
+                }
+            }
+        }
+
+        private bool HasConfiguredApiKey()
+        {
+            return !string.IsNullOrWhiteSpace(ConfigurationManager.AppSettings.Get("ApiKey"));
+        }
 
         private void timer1_Tick(object sender, EventArgs e)
         {
@@ -144,38 +207,58 @@ namespace Revmax_Interface_Promun
 
 
             timer1.Stop();
-            foreach (var receipt in Directory.GetFiles(ConfigurationManager.AppSettings.Get("SourceFolder")))
+            try
             {
-                //MessageBox.Show(receipt.ToString());
-                receiptPath = receipt.ToString();
+                string sourceFolder = EnsureDirectorySetting("SourceFolder", "DevReceipts");
+                string targetFolder = EnsureDirectorySetting("TargetFolder", "DevBackup");
 
-                if (Fiscalize(readFile.ReadInvoice(receipt, ConfigurationManager.AppSettings.Get("VatFlag"), CurrenciesList)))
+                if (string.IsNullOrWhiteSpace(sourceFolder) || !Directory.Exists(sourceFolder))
                 {
-                    Print("FISCAL INVOICE");
-                    //Print("COPY INVOICE");
-
-                    //File.Move(receipt, ConfigurationManager.AppSettings.Get("TargetFolder") + "\\REVMAX_" + DateTime.Now + ".txt");
+                    SetStatus(ConnectionStatus.Error);
+                    return;
                 }
-                list.Clear();
 
-                // invoice = readFile.ReadInvoice(receipt, ConfigurationManager.AppSettings.Get("VatFlag"), CurrenciesList);
+                foreach (var receipt in Directory.GetFiles(sourceFolder))
+                {
+                    //MessageBox.Show(receipt.ToString());
+                    receiptPath = "";
+
+                    if (Fiscalize(readFile.ReadInvoice(receipt, ConfigurationManager.AppSettings.Get("VatFlag"), CurrenciesList)))
+                    {
+                        receiptPath = receipt;
+                        Print("FISCAL INVOICE");
+                        //Print("COPY INVOICE");
+
+                        //File.Move(receipt, ConfigurationManager.AppSettings.Get("TargetFolder") + "\\REVMAX_" + DateTime.Now + ".txt");
+                    }
+                    list.Clear();
+
+                    // invoice = readFile.ReadInvoice(receipt, ConfigurationManager.AppSettings.Get("VatFlag"), CurrenciesList);
+                }
+
+                if (!String.IsNullOrEmpty(receiptPath))
+                {
+                    File.Copy(receiptPath, Path.Combine(targetFolder, "FISCALSTACK_" + DateTime.Now.ToString("dd_MM_yyyy_HH_mm_ss") + ".txt"), true);
+                    try
+                    {
+                        File.Delete(receiptPath);
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show("We could not delete the file. Please check the file permissions. " + ex.Message);
+                    }
+                }
             }
-
-            if (!String.IsNullOrEmpty(receiptPath))
+            catch (Exception ex)
             {
-                File.Copy(receiptPath, ConfigurationManager.AppSettings.Get("TargetFolder") + "\\REVMAX_" + DateTime.Now.ToString("dd_mm_yyyy_HH_MM_ss") + ".txt");
-                try
-                {
-                    File.Delete(receiptPath);
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show("We could not delete the file.Please check the file permissions." + ex.Message);
-                }
+                SetStatus(ConnectionStatus.Error);
+                notifyIcon1.ShowBalloonTip(5000, "FiscalStack", "Receipt watcher paused: " + ex.Message, ToolTipIcon.Warning);
             }
-
-            receiptPath = "";
-            timer1.Start();
+            finally
+            {
+                receiptPath = "";
+                timer1.Start();
+            }
 
         }
         private void Print(String ReceiptLabel)
@@ -396,6 +479,13 @@ namespace Revmax_Interface_Promun
 
         private bool Fiscalize(Invoice invoice)
         {
+            if (!HasConfiguredApiKey())
+            {
+                SetStatus(ConnectionStatus.Error);
+                HistoryManager.AddRecord(invoice.InvoiceNumber, false, "API key is not configured.", invoice.InvoiceAmount.ToString(), "");
+                return false;
+            }
+
             printInvoice = invoice;
 
             var payload = new PassThroughFiscalizeRequest
@@ -442,17 +532,17 @@ namespace Revmax_Interface_Promun
                     Code = "1",
                     VerificationCode = res.fiscalCode,
                     QRcode = res.qrCode,
-                    DeviceId = res.receiptNumber?.ToString(), 
-                    FiscalDay = res.receipt?.fiscalDayNo?.ToString(),
-                    Data = new RevResponse
+                    DeviceId = res.receiptNumber != null ? res.receiptNumber.ToString() : null,
+                    FiscalDay = (res.receipt != null && res.receipt.fiscalDayNo != null) ? res.receipt.fiscalDayNo.ToString() : null,
+                    Data = new Data
                     {
                         Receipt = new Receipt
                         {
-                            InvoiceNo = res.receipt?.invoiceNo,
-                            ReceiptTotal = res.receipt?.receiptTotal,
-                            ReceiptDate = res.receipt?.receiptDate,
-                            ReceiptGlobalNo = res.receipt?.receiptGlobalNo,
-                            ReceiptCounter = res.receipt?.receiptCounter,
+                            InvoiceNo = res.receipt != null ? res.receipt.invoiceNo : null,
+                            ReceiptTotal = res.receipt != null ? res.receipt.receiptTotal : null,
+                            ReceiptDate = res.receipt != null ? res.receipt.receiptDate : null,
+                            ReceiptGlobalNo = res.receipt != null ? res.receipt.receiptGlobalNo : null,
+                            ReceiptCounter = res.receipt != null ? res.receipt.receiptCounter : null,
                             ReceiptType = payload.TransactionType,
                             ReceiptTaxes = new System.Collections.Generic.List<ReceiptTax>()
                         }
@@ -460,7 +550,7 @@ namespace Revmax_Interface_Promun
                 };
 
                 // Parse taxes from response
-                if (res.receipt?.receiptTaxes != null)
+                if (res.receipt != null && res.receipt.receiptTaxes != null)
                 {
                     foreach (var tax in res.receipt.receiptTaxes)
                     {
@@ -478,12 +568,28 @@ namespace Revmax_Interface_Promun
                     }
                 }
 
+                if (res.receipt != null && res.receipt.fiscalDayNo != null)
+                {
+                    DeviceCacheManager.UpdateFiscalDay(res.receipt.fiscalDayNo.ToString());
+                }
+
+                HistoryManager.AddRecord(invoice.InvoiceNumber, true, "", invoice.InvoiceAmount.ToString(), jar);
+
                 return true;
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Fiscalization failed: " + ex.Message);
-                return false;
+                // Enqueue to offline queue for automatic retry
+                try
+                {
+                    _offlineQueue.Enqueue(invoice.InvoiceNumber, payload);
+                    SetStatus(ConnectionStatus.Offline);
+                    notifyIcon1.ShowBalloonTip(3000, "FiscalStack — Offline Queue", "Invoice " + invoice.InvoiceNumber + " queued offline for automatic retry.", ToolTipIcon.Warning);
+                }
+                catch { }
+
+                HistoryManager.AddRecord(invoice.InvoiceNumber, false, "Enqueued Offline: " + ex.Message, invoice.InvoiceAmount.ToString(), "");
+                return true; // Allow receipt generation / POS operation to continue
             }
         }
 
@@ -496,7 +602,138 @@ namespace Revmax_Interface_Promun
             config.Save(ConfigurationSaveMode.Modified);
             ConfigurationManager.RefreshSection("appSettings");
         }
+
+        // ── Smart Feature: Initialise all background services ────────────────
+        private void InitSmartFeatures()
+        {
+            // 5. Status indicator — poll connection every 15s
+            _statusTimer = new System.Windows.Forms.Timer();
+            _statusTimer.Interval = 15000;
+            _statusTimer.Tick += async (s, e) => await RefreshStatusAsync();
+            _statusTimer.Start();
+
+            // 2. Offline sync queue retry — every 60s
+            _retryTimer = new System.Windows.Forms.Timer();
+            _retryTimer.Interval = 60000;
+            _retryTimer.Tick += async (s, e) => await RetryOfflineQueueAsync();
+            _retryTimer.Start();
+
+            // 3. Auto end-of-day scheduler
+            _scheduler = new SchedulerService(client, notifyIcon1, msg =>
+            {
+                // log to console if needed
+            });
+            _scheduler.Start();
+
+            // Initial status check
+            Task.Run(async () =>
+            {
+                if (!HasConfiguredApiKey())
+                {
+                    SetStatus(ConnectionStatus.Error);
+                    return;
+                }
+
+                try
+                {
+                    await client.GetDeviceAsync();
+                    SetStatus(ConnectionStatus.Online);
+                }
+                catch
+                {
+                    string apiKey = ConfigurationManager.AppSettings.Get("ApiKey");
+                    SetStatus(string.IsNullOrEmpty(apiKey) ? ConnectionStatus.Error : ConnectionStatus.Offline);
+                }
+            });
+        }
+
+        // ── Smart Feature 5: Update tray icon colour based on status ─────────
+        private void SetStatus(ConnectionStatus status)
+        {
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action(() => SetStatus(status)));
+                return;
+            }
+            _currentStatus = status;
+            StatusIndicator.Apply(notifyIcon1, status, _offlineQueue.Count);
+        }
+
+        private async Task RefreshStatusAsync()
+        {
+            if (!HasConfiguredApiKey())
+            {
+                SetStatus(ConnectionStatus.Error);
+                return;
+            }
+
+            try
+            {
+                string j = await client.GetDeviceAsync();
+                CardDetails details = JsonConvert.DeserializeObject<CardDetails>(j);
+                if (details != null)
+                {
+                    CardDetails = details;
+                    DeviceCacheManager.Save(details);
+                }
+                SetStatus(ConnectionStatus.Online);
+            }
+            catch
+            {
+                string apiKey = ConfigurationManager.AppSettings.Get("ApiKey");
+                SetStatus(string.IsNullOrEmpty(apiKey) ? ConnectionStatus.Error : ConnectionStatus.Offline);
+            }
+        }
+
+        // ── Smart Feature 2: Offline queue retry ────────────────────────────
+        private async Task RetryOfflineQueueAsync()
+        {
+            if (_offlineQueue.Count == 0) return;
+            if (!HasConfiguredApiKey())
+            {
+                SetStatus(ConnectionStatus.Error);
+                return;
+            }
+            if (_currentStatus != ConnectionStatus.Online) return;
+
+            var items = _offlineQueue.GetAll();
+            foreach (var item in items)
+            {
+                try
+                {
+                    object payload = JsonConvert.DeserializeObject(item.PayloadJson);
+                    string result = await client.FiscalizeAsync(payload);
+                    _lastReceiptJson = result;
+                    _offlineQueue.Remove(item.Id);
+                    
+                    HistoryManager.AddRecord(item.Id, true, "Recovered from offline queue", "", result);
+
+                    notifyIcon1.ShowBalloonTip(4000,
+                        "FiscalStack — Synced",
+                        "Offline invoice synced successfully: " + item.Id.Substring(0, 8),
+                        ToolTipIcon.Info);
+                }
+                catch (Exception ex)
+                {
+                    _offlineQueue.UpdateRetry(item.Id, ex.Message);
+                }
+            }
+            SetStatus(_offlineQueue.Count > 0 ? ConnectionStatus.Offline : ConnectionStatus.Online);
+        }
+
+        // ── Smart Feature 4: Receipt Preview ─────────────────────────────────
+        private void viewLastReceiptToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (string.IsNullOrEmpty(_lastReceiptJson))
+            {
+                MessageBox.Show("No receipt has been generated yet in this session.", "FiscalStack", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            ReceiptPreviewForm.ShowFromJson(_lastReceiptJson, CardDetails);
+        }
+
         private void Form1_Load(object sender, EventArgs e)
+
 
         {
 
@@ -556,9 +793,10 @@ namespace Revmax_Interface_Promun
 
         }
 
-        private void zReportToolStripMenuItem_Click(object sender, EventArgs e)
+        private void dashboardToolStripMenuItem_Click(object sender, EventArgs e)
         {
-            MessageBox.Show("License checking not required for FiscalStack API.");
+            DashboardForm dashboard = new DashboardForm(_offlineQueue, client, CardDetails);
+            dashboard.Show();
         }
 
         private void exitToolStripMenuItem_Click(object sender, EventArgs e)
@@ -583,38 +821,51 @@ namespace Revmax_Interface_Promun
             }
         }
 
+        private void openTestToolToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            TestToolForm testTool = new TestToolForm();
+            testTool.Show();
+        }
+
+        private async void getDeviceDetailsToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                string j = await client.GetDeviceAsync();
+                CardDetails details = JsonConvert.DeserializeObject<CardDetails>(j);
+                CardDetails = details;
+                StringBuilder msg = new StringBuilder();
+                msg.AppendLine("Code: " + details.Code);
+                msg.AppendLine("Message: " + details.Message);
+                if (details.Data != null)
+                {
+                    msg.AppendLine("Company: " + details.Data.CompanyName);
+                    msg.AppendLine("TIN: " + details.Data.TIN);
+                    msg.AppendLine("VAT: " + details.Data.VAT);
+                    msg.AppendLine("Serial: " + details.Data.SerialNumber);
+                }
+                MessageBox.Show(msg.ToString(), "FiscalStack Device Details");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Failed to get device details: " + ex.Message, "FiscalStack Device Details");
+            }
+        }
+
+
+
+        private void retrainInterfaceToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            Wizard wizardForm = new Wizard();
+            wizardForm.ShowDialog();
+        }
+
         private void exitToolStripMenuItem1_Click(object sender, EventArgs e)
         {
             Application.Exit();
         }
 
-        private void checkLicenseToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            SetLicense setLicense = new SetLicense();
-            if (setLicense.ShowDialog(this) == DialogResult.OK)
-            {
-                addToConfig("ApiKey", setLicense.txtLicense.Text);
-                MessageBox.Show("API Key configured. Please restart application.");
-            }
-            setLicense.Dispose();
-        }
 
-        private void setLicenseToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            btnInstall_Click();
-        }
-
-        private void retrainInterfaceToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            addToConfig("Trained", "0");
-
-
-            if (MessageBox.Show("Close Interface and restart application to train again?", "Confirmation", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button1) == DialogResult.Yes)
-            {
-                Application.Exit();
-            }
-
-        }
 
         private void tableLayoutPanel1_Paint(object sender, PaintEventArgs e)
         {

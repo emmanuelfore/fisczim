@@ -32,7 +32,7 @@ namespace Revmax_Interface_Promun
 
         public async Task<string> GetDeviceAsync()
         {
-            var response = await _httpClient.GetAsync("zimra/device-details");
+            var response = await _httpClient.GetAsync("fiscal/device");
             response.EnsureSuccessStatusCode();
             return await response.Content.ReadAsStringAsync();
         }
@@ -46,7 +46,7 @@ namespace Revmax_Interface_Promun
             if (!response.IsSuccessStatusCode)
             {
                 var errorContent = await response.Content.ReadAsStringAsync();
-                throw new Exception($"Fiscalization failed ({response.StatusCode}): {errorContent}");
+                throw new Exception("Fiscalization failed (" + response.StatusCode + "): " + errorContent);
             }
             
             return await response.Content.ReadAsStringAsync();
@@ -55,12 +55,12 @@ namespace Revmax_Interface_Promun
         public async Task<string> CloseDayAsync()
         {
             var content = new StringContent("{\"action\": \"close\"}", Encoding.UTF8, "application/json");
-            var response = await _httpClient.PostAsync("zimra/z-report", content);
+            var response = await _httpClient.PostAsync("fiscal/close-day", content);
             
             if (!response.IsSuccessStatusCode)
             {
                 var errorContent = await response.Content.ReadAsStringAsync();
-                throw new Exception($"Close Day failed ({response.StatusCode}): {errorContent}");
+                throw new Exception("Close Day failed (" + response.StatusCode + "): " + errorContent);
             }
             
             return await response.Content.ReadAsStringAsync();

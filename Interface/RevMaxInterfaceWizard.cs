@@ -1,9 +1,6 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.Configuration;
-using System.Data;
-using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -17,8 +14,82 @@ namespace Revmax_Interface_Promun
         public Wizard()
         {
             InitializeComponent();
+            AppBranding.ApplyIcon(this);
+
+            // These labels are referenced by legacy browse buttons but live in textboxes now
+            lblSourceFolder = new System.Windows.Forms.Label { Visible = false };
+            lblTargetFolder = new System.Windows.Forms.Label { Visible = false };
+            this.Controls.Add(lblSourceFolder);
+            this.Controls.Add(lblTargetFolder);
+
+            LoadCurrentSettings();
         }
 
+        // ── Load existing config values into all fields ─────────────────────
+        private void LoadCurrentSettings()
+        {
+            try
+            {
+                txtApiKey.Text = ConfigurationManager.AppSettings.Get("ApiKey") ?? "";
+                txtEndpoint.Text = ConfigurationManager.AppSettings.Get("ApiEndpoint") ?? "https://fiscalstack.co.zw/api/v1/";
+                txtSourcePath.Text = ConfigurationManager.AppSettings.Get("SourceFolder") ?? "";
+                txtTargetPath.Text = ConfigurationManager.AppSettings.Get("TargetFolder") ?? "";
+                txtLogoPath.Text = ConfigurationManager.AppSettings.Get("LogoFile") ?? "";
+                txtTaxSymbol.Text = ConfigurationManager.AppSettings.Get("TaxSymbol") ?? "";
+                txtNonTaxSymbol.Text = ConfigurationManager.AppSettings.Get("NonTaxSymbol") ?? "";
+                txtStartLine.Text = ConfigurationManager.AppSettings.Get("ProductStartLine") ?? "";
+                txtEndLine.Text = ConfigurationManager.AppSettings.Get("ProductEndLine") ?? "";
+                txtVat.Text = ConfigurationManager.AppSettings.Get("InvoiceTaxAmount") ?? "";
+                txtAmount.Text = ConfigurationManager.AppSettings.Get("InvoiceAmount") ?? "";
+                txtInvoiceNo.Text = ConfigurationManager.AppSettings.Get("InvoiceNumber") ?? "";
+
+                string autoClose = ConfigurationManager.AppSettings.Get("AutoCloseTime") ?? "";
+                txtAutoCloseTime.Text = autoClose;
+                chkEnableScheduler.Checked = !string.IsNullOrEmpty(autoClose);
+
+                // Templates
+                string tpl = ConfigurationManager.AppSettings.Get("ReceiptTemplate");
+                if (string.IsNullOrEmpty(tpl)) cbTemplate.SelectedIndex = 0;
+                else cbTemplate.SelectedItem = tpl;
+                
+                // Printers
+                cbPrinter.Items.Clear();
+                foreach (string printer in System.Drawing.Printing.PrinterSettings.InstalledPrinters)
+                {
+                    cbPrinter.Items.Add(printer);
+                }
+                string savedPrinter = ConfigurationManager.AppSettings.Get("TargetPrinter");
+                if (!string.IsNullOrEmpty(savedPrinter) && cbPrinter.Items.Contains(savedPrinter))
+                {
+                    cbPrinter.SelectedItem = savedPrinter;
+                }
+                else if (cbPrinter.Items.Count > 0)
+                {
+                    cbPrinter.SelectedIndex = 0;
+                }
+
+                // Accent Color
+                string color = ConfigurationManager.AppSettings.Get("AccentColor");
+                txtAccentColor.Text = !string.IsNullOrEmpty(color) ? color : "#3355FF";
+
+                TrySelectCombo(cbAmount, ConfigurationManager.AppSettings.Get("ColumnAmountIndex"));
+                TrySelectCombo(cbPrice, ConfigurationManager.AppSettings.Get("ColumnPriceIndex"));
+                TrySelectCombo(cbQuantity, ConfigurationManager.AppSettings.Get("ColumnQuantityIndex"));
+                TrySelectCombo(cbVatFlag, ConfigurationManager.AppSettings.Get("VatFlag"));
+                TrySelectCombo(cbDots, ConfigurationManager.AppSettings.Get("ItemDotCounter"));
+                TrySelectCombo(cbLines, ConfigurationManager.AppSettings.Get("MultiLineProduct"));
+            }
+            catch { }
+        }
+
+        private void TrySelectCombo(ComboBox cb, string val)
+        {
+            if (string.IsNullOrEmpty(val)) return;
+            int idx;
+            if (int.TryParse(val, out idx) && idx < cb.Items.Count) cb.SelectedIndex = idx;
+        }
+
+        // ── Config save helper ──────────────────────────────────────────────
         public void addToConfig(string key, string value)
         {
             Configuration config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
@@ -27,18 +98,67 @@ namespace Revmax_Interface_Promun
             config.Save(ConfigurationSaveMode.Modified);
             ConfigurationManager.RefreshSection("appSettings");
         }
+
+        private void ShowStatus(string msg, bool ok = true)
+        {
+            lblStatus.Text = msg;
+            lblStatus.ForeColor = ok
+                ? System.Drawing.Color.FromArgb(30, 170, 80)
+                : System.Drawing.Color.FromArgb(200, 50, 50);
+        }
+
+        // ══════════════════════════════════════════════════════════════════
+        // TAB 1 — API handlers
+        // ══════════════════════════════════════════════════════════════════
+        private void btnSaveApi_Click(object sender, EventArgs e)
+        {
+            if (!string.IsNullOrWhiteSpace(txtApiKey.Text))
+                addToConfig("ApiKey", txtApiKey.Text.Trim());
+            if (!string.IsNullOrWhiteSpace(txtEndpoint.Text))
+                addToConfig("ApiEndpoint", txtEndpoint.Text.Trim());
+            ShowStatus("✔  API settings saved.");
+        }
+
+        private async void btnTestConnection_Click(object sender, EventArgs e)
+        {
+            lblApiStatus.Text = "Testing connection...";
+            lblApiStatus.ForeColor = System.Drawing.Color.DimGray;
+            btnTestConnection.Enabled = false;
+
+            try
+            {
+                // Save first so new values are used
+                if (!string.IsNullOrWhiteSpace(txtApiKey.Text)) addToConfig("ApiKey", txtApiKey.Text.Trim());
+                if (!string.IsNullOrWhiteSpace(txtEndpoint.Text)) addToConfig("ApiEndpoint", txtEndpoint.Text.Trim());
+
+                FiscalStackClient testClient = new FiscalStackClient();
+                string result = await testClient.GetDeviceAsync();
+                lblApiStatus.Text = "✔  Connected successfully!";
+                lblApiStatus.ForeColor = System.Drawing.Color.FromArgb(30, 170, 80);
+            }
+            catch (Exception ex)
+            {
+                lblApiStatus.Text = "✘  " + ex.Message;
+                lblApiStatus.ForeColor = System.Drawing.Color.FromArgb(200, 50, 50);
+            }
+            finally
+            {
+                btnTestConnection.Enabled = true;
+            }
+        }
+
+        // ══════════════════════════════════════════════════════════════════
+        // TAB 2 — Folder handlers
+        // ══════════════════════════════════════════════════════════════════
         private void button1_Click(object sender, EventArgs e)
         {
             using (var fbd = new FolderBrowserDialog())
             {
-                DialogResult result = fbd.ShowDialog();
-
-                if (result == DialogResult.OK && !string.IsNullOrWhiteSpace(fbd.SelectedPath))
+                if (fbd.ShowDialog() == DialogResult.OK && !string.IsNullOrWhiteSpace(fbd.SelectedPath))
                 {
-                    addToConfig("SourceFolder", fbd.SelectedPath.ToString());
-                    lblSourceFolder.Text = fbd.SelectedPath.ToString();
-                    lblSourceFolder.Visible = true;
-                    lblSourceFolder.Enabled = true;
+                    txtSourcePath.Text = fbd.SelectedPath;
+                    lblSourceFolder.Text = fbd.SelectedPath;
+                    addToConfig("SourceFolder", fbd.SelectedPath);
                 }
             }
         }
@@ -47,201 +167,198 @@ namespace Revmax_Interface_Promun
         {
             using (var fbd = new FolderBrowserDialog())
             {
-                DialogResult result = fbd.ShowDialog();
-
-                if (result == DialogResult.OK && !string.IsNullOrWhiteSpace(fbd.SelectedPath))
+                if (fbd.ShowDialog() == DialogResult.OK && !string.IsNullOrWhiteSpace(fbd.SelectedPath))
                 {
-                    addToConfig("TargetFolder", fbd.SelectedPath.ToString());
-                    lblTargetFolder.Text = fbd.SelectedPath.ToString();
-                    lblTargetFolder.Visible = true;
-                    lblTargetFolder.Enabled = true;
+                    txtTargetPath.Text = fbd.SelectedPath;
+                    lblTargetFolder.Text = fbd.SelectedPath;
+                    addToConfig("TargetFolder", fbd.SelectedPath);
                 }
             }
         }
 
-        private void txtTaxSymbol_TextChanged(object sender, EventArgs e)
+        private void btnBrowseLogo_Click(object sender, EventArgs e)
         {
-            addToConfig("TaxSymbol", txtTaxSymbol.Text);
-
-        }
-
-        private void txtNonTaxSymbol_TextChanged(object sender, EventArgs e)
-        {
-            addToConfig("NonTaxSymbol", txtNonTaxSymbol.Text);
-        }
-
-        private void txtStartLine_TextChanged(object sender, EventArgs e)
-        {
-            addToConfig("ProductStartLine", txtStartLine.Text);
-        }
-
-        private void txtEndLine_TextChanged(object sender, EventArgs e)
-        {
-            addToConfig("ProductEndLine", txtEndLine.Text);
-        }
-
-        private void txtVat_TextChanged(object sender, EventArgs e)
-        {
-            addToConfig("InvoiceTaxAmount", txtVat.Text.ToString());
-        }
-
-        private void txtAmount_TextChanged(object sender, EventArgs e)
-        {
-            addToConfig("InvoiceAmount", txtAmount.Text.ToString());
-
-        }
-
-        private void txtInvoiceNo_TextChanged(object sender, EventArgs e)
-        {
-            addToConfig("InvoiceNumber", txtInvoiceNo.Text.ToString());
-        }
-
-        private void cbAmount_SelectedIndexChanged(object sender, EventArgs e)
-        {
-            addToConfig("ColumnAmountIndex", cbAmount.SelectedIndex.ToString());
-        }
-
-        private void cbPrice_SelectedIndexChanged(object sender, EventArgs e)
-        {
-            addToConfig("ColumnPriceIndex", cbPrice.SelectedIndex.ToString());
-        }
-
-        private void cbQuantity_SelectedIndexChanged(object sender, EventArgs e)
-        {
-            addToConfig("ColumnQuantityIndex", cbQuantity.SelectedIndex.ToString());
-        }
-
-        private void btnLogo_Click(object sender, EventArgs e)
-        {
-            OpenFileDialog openFileDialog1 = new OpenFileDialog();
-
-            openFileDialog1.InitialDirectory = "C:\\";
-            openFileDialog1.Filter = "PNG files (*.png)|*.png|All files (*.*)|*.*";
-            openFileDialog1.FilterIndex = 2;
-            openFileDialog1.RestoreDirectory = true;
-
-            if (openFileDialog1.ShowDialog() == DialogResult.OK)
+            using (OpenFileDialog ofd = new OpenFileDialog())
             {
-                var path = openFileDialog1.FileName;
-                addToConfig("LogoFile", path.ToString());
-                lblLogo.Text = path.ToString();
-                lblLogo.Visible = true;
-                lblLogo.Enabled = true;
-
+                ofd.Filter = "PNG files (*.png)|*.png|All files (*.*)|*.*";
+                ofd.Title = "Select Company Logo";
+                if (ofd.ShowDialog() == DialogResult.OK)
+                {
+                    txtLogoPath.Text = ofd.FileName;
+                    addToConfig("LogoFile", ofd.FileName);
+                }
             }
         }
 
-        private void cbDots_SelectedIndexChanged(object sender, EventArgs e)
+        private void btnSaveFolders_Click(object sender, EventArgs e)
         {
-            addToConfig("ItemDotCounter", cbDots.SelectedIndex.ToString());
+            if (!string.IsNullOrWhiteSpace(txtSourcePath.Text)) addToConfig("SourceFolder", txtSourcePath.Text.Trim());
+            if (!string.IsNullOrWhiteSpace(txtTargetPath.Text)) addToConfig("TargetFolder", txtTargetPath.Text.Trim());
+            if (!string.IsNullOrWhiteSpace(txtLogoPath.Text)) addToConfig("LogoFile", txtLogoPath.Text.Trim());
+            ShowStatus("✔  Folder settings saved.");
         }
 
-        private void comboBox2_SelectedIndexChanged(object sender, EventArgs e)
-        {
-            addToConfig("MultiLineProduct", cbLines.SelectedIndex.ToString());
+        // ══════════════════════════════════════════════════════════════════
+        // TAB 3 — Receipt parsing live-save (original behaviour)
+        // ══════════════════════════════════════════════════════════════════
+        private void txtTaxSymbol_TextChanged(object sender, EventArgs e) { addToConfig("TaxSymbol", txtTaxSymbol.Text); }
+        private void txtNonTaxSymbol_TextChanged(object sender, EventArgs e) { addToConfig("NonTaxSymbol", txtNonTaxSymbol.Text); }
+        private void txtStartLine_TextChanged(object sender, EventArgs e) { addToConfig("ProductStartLine", txtStartLine.Text); }
+        private void txtEndLine_TextChanged(object sender, EventArgs e) { addToConfig("ProductEndLine", txtEndLine.Text); }
+        private void txtVat_TextChanged(object sender, EventArgs e) { addToConfig("InvoiceTaxAmount", txtVat.Text); }
+        private void txtAmount_TextChanged(object sender, EventArgs e) { addToConfig("InvoiceAmount", txtAmount.Text); }
+        private void txtInvoiceNo_TextChanged(object sender, EventArgs e) { addToConfig("InvoiceNumber", txtInvoiceNo.Text); }
+        private void cbAmount_SelectedIndexChanged(object sender, EventArgs e) { addToConfig("ColumnAmountIndex", cbAmount.SelectedIndex.ToString()); }
+        private void cbPrice_SelectedIndexChanged(object sender, EventArgs e) { addToConfig("ColumnPriceIndex", cbPrice.SelectedIndex.ToString()); }
+        private void cbQuantity_SelectedIndexChanged(object sender, EventArgs e) { addToConfig("ColumnQuantityIndex", cbQuantity.SelectedIndex.ToString()); }
+        private void cbVatFlag_SelectedIndexChanged(object sender, EventArgs e) { addToConfig("VatFlag", cbVatFlag.SelectedIndex.ToString()); }
+        private void cbDots_SelectedIndexChanged(object sender, EventArgs e) { addToConfig("ItemDotCounter", cbDots.SelectedIndex.ToString()); }
+        private void comboBox2_SelectedIndexChanged(object sender, EventArgs e) { addToConfig("MultiLineProduct", cbLines.SelectedIndex.ToString()); }
 
-        }
-
-        private void advancedWizard1_Finish(object sender, EventArgs e)
+        private void btnAutoTrain_Click(object sender, EventArgs e)
         {
-            if (MessageBox.Show("Complete RevMax Interface Setup ?", "Confirmation", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button1) == DialogResult.Yes)
+            using (OpenFileDialog ofd = new OpenFileDialog())
             {
-                this.Close();
+                ofd.Filter = "Text Files (*.txt)|*.txt|All Files (*.*)|*.*";
+                ofd.Title = "Select a Sample POS Receipt";
+                
+                if (ofd.ShowDialog() == DialogResult.OK)
+                {
+                    try
+                    {
+                        var trainer = new AutoTrainerService();
+                        var result = trainer.AnalyzeReceipt(ofd.FileName);
+                        
+                        // Populate UI
+                        txtStartLine.Text = result.ProductStartLine;
+                        txtEndLine.Text = result.ProductEndLine;
+                        txtInvoiceNo.Text = result.InvoiceNumberKeyword;
+                        txtAmount.Text = result.TotalAmountKeyword;
+                        txtVat.Text = result.VatAmountKeyword;
+                        txtTaxSymbol.Text = result.TaxSymbol;
+                        
+                        TrySelectCombo(cbQuantity, result.ColumnQuantityIndex.ToString());
+                        TrySelectCombo(cbPrice, result.ColumnPriceIndex.ToString());
+                        TrySelectCombo(cbAmount, result.ColumnAmountIndex.ToString());
+                        TrySelectCombo(cbDots, result.ItemDotCounter.ToString());
+                        
+                        ShowStatus("✔  Auto-Train complete! Please review the values and Save.", true);
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show("Failed to analyze receipt: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                }
             }
-             addToConfig("Trained", "1");
         }
 
-        private void advancedWizard1_Cancel(object sender, EventArgs e)
+        private void btnSaveReceipt_Click(object sender, EventArgs e)
         {
-            if (MessageBox.Show("Do you wish to cancel this setup ?", "Confirmation", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button1) == DialogResult.Yes)
-            {
-                Application.Exit();
-            }
+            ShowStatus("✔  Receipt parsing settings saved.");
         }
 
+        // ════════════════════════════════════════════════════════════════
+        // TAB X — Templates handlers
+        // ════════════════════════════════════════════════════════════════
+        private void UpdateTemplatePreview(object sender, EventArgs e)
+        {
+            try
+            {
+                string template = cbTemplate.SelectedItem != null ? cbTemplate.SelectedItem.ToString() : "Receipt80";
+                string color = !string.IsNullOrWhiteSpace(txtAccentColor.Text) ? txtAccentColor.Text.Trim() : "#3355FF";
+                
+                string html = TemplateEngine.GenerateHtml(null, template, color, null);
+                if (webBrowserPreview != null)
+                {
+                    webBrowserPreview.DocumentText = html;
+                }
+            }
+            catch { }
+        }
+
+        private void btnSaveTemplates_Click(object sender, EventArgs e)
+        {
+            if (cbTemplate.SelectedItem != null) addToConfig("ReceiptTemplate", cbTemplate.SelectedItem.ToString());
+            if (cbPrinter.SelectedItem != null) addToConfig("TargetPrinter", cbPrinter.SelectedItem.ToString());
+            if (!string.IsNullOrWhiteSpace(txtAccentColor.Text)) addToConfig("AccentColor", txtAccentColor.Text.Trim());
+            ShowStatus("✔  Template, Color and Printer settings saved.");
+            UpdateTemplatePreview(null, null);
+        }
+
+        // ══════════════════════════════════════════════════════════════════
+        // TAB 4 — Currency handlers
+        // ══════════════════════════════════════════════════════════════════
         private void btnAdd_Click(object sender, EventArgs e)
         {
-            //Create the dynamic TextBox.
-            TextBox textbox = new TextBox();
             int count = panelCurrency.Controls.OfType<TextBox>().ToList().Count / 2;
-            textbox.Location = new System.Drawing.Point(10, 25 * count);
-            textbox.Size = new System.Drawing.Size(90, 20);
-            textbox.Name = "txt_" + (count + 1);
-            textbox.Text = "Currency Name";
-            textbox.GotFocus += RemoveText;
-            panelCurrency.Controls.Add(textbox);
+            int rowY = 10 + count * 32;
 
+            TextBox txtName = new TextBox();
+            txtName.Location = new System.Drawing.Point(10, rowY);
+            txtName.Size = new System.Drawing.Size(160, 24);
+            txtName.Name = "txt_" + (count + 1);
+            txtName.Font = new System.Drawing.Font("Segoe UI", 9F);
+            txtName.Text = "Currency Name";
+            txtName.ForeColor = System.Drawing.Color.Gray;
+            txtName.GotFocus += RemoveText;
+            panelCurrency.Controls.Add(txtName);
 
-            TextBox textbox1 = new TextBox();
-            textbox1.Location = new System.Drawing.Point(105, 25 * count);
-            textbox1.Size = new System.Drawing.Size(90, 20);
-            textbox1.Name = "txt_" + (count + 1) + "a";
-            textbox1.Text = "Keyword";
-            textbox1.GotFocus += RemoveText;
-            panelCurrency.Controls.Add(textbox1);
+            TextBox txtKeyword = new TextBox();
+            txtKeyword.Location = new System.Drawing.Point(180, rowY);
+            txtKeyword.Size = new System.Drawing.Size(160, 24);
+            txtKeyword.Name = "txt_" + (count + 1) + "a";
+            txtKeyword.Font = new System.Drawing.Font("Segoe UI", 9F);
+            txtKeyword.Text = "Keyword";
+            txtKeyword.ForeColor = System.Drawing.Color.Gray;
+            txtKeyword.GotFocus += RemoveText;
+            panelCurrency.Controls.Add(txtKeyword);
 
-            //Create the dynamic Button to remove the TextBox.
-            Button button = new Button();
-            button.Location = new System.Drawing.Point(180, 25 * count);
-            button.Size = new System.Drawing.Size(60, 20);
-            button.Name = "btnDelete_" + (count + 1);
-            button.Text = "Delete";
-            button.Click += new System.EventHandler(this.btnDelete_Click);
-           // panelCurrency.Controls.Add(button);
+            Button btnDel = new Button();
+            btnDel.Location = new System.Drawing.Point(350, rowY);
+            btnDel.Size = new System.Drawing.Size(60, 24);
+            btnDel.Name = "btnDelete_" + (count + 1);
+            btnDel.Text = "✕";
+            btnDel.FlatStyle = FlatStyle.Flat;
+            btnDel.BackColor = System.Drawing.Color.FromArgb(220, 225, 240);
+            btnDel.ForeColor = System.Drawing.Color.FromArgb(50, 50, 80);
+            btnDel.Click += new EventHandler(this.btnDelete_Click);
+            panelCurrency.Controls.Add(btnDel);
         }
 
         private void RemoveText(object sender, EventArgs e)
         {
-            TextBox textbox = (sender as TextBox);
-            if (textbox.Text == "Currency Name")
+            TextBox tb = sender as TextBox;
+            if (tb == null) return;
+            if (tb.Text == "Currency Name" || tb.Text == "Keyword")
             {
-                textbox.Text = "";
-            }
-            else if (textbox.Text == "Keyword")
-            {
-                textbox.Text = "";
+                tb.Text = "";
+                tb.ForeColor = System.Drawing.Color.Black;
             }
         }
 
         private void btnDelete_Click(object sender, EventArgs e)
         {
-            //Reference the Button which was clicked.
-            Button button = (sender as Button);
+            Button btn = sender as Button;
+            if (btn == null) return;
+            int index = int.Parse(btn.Name.Split('_')[1]);
+            var txtN = panelCurrency.Controls.Find("txt_" + index, true);
+            var txtK = panelCurrency.Controls.Find("txt_" + index + "a", true);
+            if (txtN.Length > 0) panelCurrency.Controls.Remove(txtN[0]);
+            if (txtK.Length > 0) panelCurrency.Controls.Remove(txtK[0]);
+            panelCurrency.Controls.Remove(btn);
 
-            //Determine the Index of the Button.
-            int index = int.Parse(button.Name.Split('_')[1]);
-
-            //Find the TextBox using Index and remove it.
-            panelCurrency.Controls.Remove(panelCurrency.Controls.Find("txt_" + index, true)[0]);
-            panelCurrency.Controls.Remove(panelCurrency.Controls.Find("txt_" + index + "a", true)[0]);
-
-
-            //Remove the Button.
-            panelCurrency.Controls.Remove(button);
-
-            //Rearranging the Location controls.
-            foreach (Button btn in panelCurrency.Controls.OfType<Button>())
+            foreach (Button b in panelCurrency.Controls.OfType<Button>())
             {
-                int controlIndex = int.Parse(btn.Name.Split('_')[1]);
-                if (controlIndex > index)
+                int ci = int.Parse(b.Name.Split('_')[1]);
+                if (ci > index)
                 {
-                    TextBox txt = (TextBox)panelCurrency.Controls.Find("txt_" + controlIndex, true)[0];
-                    TextBox txt1 = (TextBox)panelCurrency.Controls.Find("txt_" + controlIndex + "a", true)[0];
-                    btn.Top = btn.Top - 25;
-                    txt.Top = txt.Top - 25;
-                    txt1.Top = txt1.Top - 25;
+                    var tn = panelCurrency.Controls.Find("txt_" + ci, true);
+                    var tk = panelCurrency.Controls.Find("txt_" + ci + "a", true);
+                    if (tn.Length > 0) tn[0].Top -= 32;
+                    if (tk.Length > 0) tk[0].Top -= 32;
+                    b.Top -= 32;
                 }
             }
-        }
-
-        private void Wizard_Load(object sender, EventArgs e)
-        {
-
-        }
-
-        private void advancedWizardPage1_Paint(object sender, PaintEventArgs e)
-        {
-
         }
 
         private void btnFinish_Click(object sender, EventArgs e)
@@ -249,50 +366,102 @@ namespace Revmax_Interface_Promun
             StringBuilder currencies = new StringBuilder();
             currencies.Append("<CurrencyTags>");
             int count = panelCurrency.Controls.OfType<TextBox>().ToList().Count / 2;
-            /*            MessageBox.Show(count.ToString());
-            */
             for (int i = 0; i < count; i++)
             {
+                var nCtrl = panelCurrency.Controls.Find("txt_" + (i + 1), true);
+                var kCtrl = panelCurrency.Controls.Find("txt_" + (i + 1) + "a", true);
+                if (nCtrl.Length == 0 || kCtrl.Length == 0) continue;
                 currencies.Append("<currency>");
-                currencies.Append($"<keyword>{((TextBox)panelCurrency.Controls["txt_" + (i + 1) + "a".ToString()]).Text}</keyword>");
-                currencies.Append($"<Name>{((TextBox)panelCurrency.Controls["txt_" + (i + 1).ToString()]).Text}</Name>");
+                currencies.Append("<keyword>" + ((TextBox)kCtrl[0]).Text + "</keyword>");
+                currencies.Append("<Name>" + ((TextBox)nCtrl[0]).Text + "</Name>");
                 currencies.Append("</currency>");
-                
-
-/*                MessageBox.Show($"{((TextBox)panelCurrency.Controls["txt_" + (i + 1).ToString()]).Text} {((TextBox)panelCurrency.Controls["txt_" + (i + 1) + "a".ToString()]).Text}");
-*/            }
-
+            }
             currencies.Append("</CurrencyTags>");
-            //MessageBox.Show(currencies.ToString());
+
             try
             {
-                File.WriteAllText(AppDomain.CurrentDomain.BaseDirectory.ToString() + "CurConf.interface", currencies.ToString());
-
+                File.WriteAllText(AppDomain.CurrentDomain.BaseDirectory + "CurConf.interface", currencies.ToString());
+                ShowStatus("✔  Currency config saved.");
             }
-            catch (Exception)
+            catch
             {
-
-                MessageBox.Show("Failed to write Currency file");
+                ShowStatus("✘  Failed to write currency file.", false);
             }
-
-
         }
 
         private void btnReset_Click(object sender, EventArgs e)
         {
+            foreach (var ctrl in panelCurrency.Controls.Cast<System.Windows.Forms.Control>().ToList())
+                panelCurrency.Controls.Remove(ctrl);
+        }
 
-            foreach (var item in panelCurrency.Controls.OfType<TextBox>().ToList())
+        // ══════════════════════════════════════════════════════════════════
+        // TAB 5 — Scheduler handlers
+        // ══════════════════════════════════════════════════════════════════
+        private void chkEnableScheduler_CheckedChanged(object sender, EventArgs e)
+        {
+            txtAutoCloseTime.Enabled = chkEnableScheduler.Checked;
+            if (!chkEnableScheduler.Checked)
             {
-                panelCurrency.Controls.Remove(item);
+                addToConfig("AutoCloseTime", "");
             }
         }
 
-        private void cbVatFlag_SelectedIndexChanged(object sender, EventArgs e)
+        private void btnSaveScheduler_Click(object sender, EventArgs e)
         {
-            addToConfig("VatFlag", cbVatFlag.SelectedIndex.ToString());
-
+            if (chkEnableScheduler.Checked)
+            {
+                string t = txtAutoCloseTime.Text.Trim();
+                TimeSpan ts;
+                if (!TimeSpan.TryParseExact(t, "hh\\:mm", null, out ts))
+                {
+                    MessageBox.Show("Please enter a valid time in HH:mm format (e.g. 23:30)", "Invalid Time",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+                addToConfig("AutoCloseTime", t);
+                ShowStatus("✔  Scheduler set for " + t + " daily.");
+            }
+            else
+            {
+                addToConfig("AutoCloseTime", "");
+                ShowStatus("✔  Scheduler disabled.");
+            }
         }
 
-      
+        // ══════════════════════════════════════════════════════════════════
+        // Bottom bar
+        // ══════════════════════════════════════════════════════════════════
+        private void btnSaveAll_Click(object sender, EventArgs e)
+        {
+            // Save API
+            if (!string.IsNullOrWhiteSpace(txtApiKey.Text)) addToConfig("ApiKey", txtApiKey.Text.Trim());
+            if (!string.IsNullOrWhiteSpace(txtEndpoint.Text)) addToConfig("ApiEndpoint", txtEndpoint.Text.Trim());
+            // Save Folders
+            if (!string.IsNullOrWhiteSpace(txtSourcePath.Text)) addToConfig("SourceFolder", txtSourcePath.Text.Trim());
+            if (!string.IsNullOrWhiteSpace(txtTargetPath.Text)) addToConfig("TargetFolder", txtTargetPath.Text.Trim());
+            if (!string.IsNullOrWhiteSpace(txtLogoPath.Text)) addToConfig("LogoFile", txtLogoPath.Text.Trim());
+            // Save Scheduler
+            if (chkEnableScheduler.Checked && !string.IsNullOrWhiteSpace(txtAutoCloseTime.Text))
+                addToConfig("AutoCloseTime", txtAutoCloseTime.Text.Trim());
+            addToConfig("Trained", "1");
+            ShowStatus("✔  All settings saved successfully.");
+            System.Threading.Thread.Sleep(600);
+            this.Close();
+        }
+
+        private void btnCloseWizard_Click(object sender, EventArgs e)
+        {
+            this.Close();
+        }
+
+        // ══════════════════════════════════════════════════════════════════
+        // Legacy wizard events (no-ops now)
+        // ══════════════════════════════════════════════════════════════════
+        private void advancedWizard1_Finish(object sender, EventArgs e) { }
+        private void advancedWizard1_Cancel(object sender, EventArgs e) { }
+        private void Wizard_Load(object sender, EventArgs e) { }
+        private void advancedWizardPage1_Paint(object sender, System.Windows.Forms.PaintEventArgs e) { }
+        private void btnLogo_Click(object sender, EventArgs e) { btnBrowseLogo_Click(sender, e); }
     }
 }

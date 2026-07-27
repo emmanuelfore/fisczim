@@ -1,0 +1,40 @@
+2026-07-26 15:27:33.6285|INFO|RevmaxAPI.Revmaxlib|RevMax Initialised
+2026-07-26 15:27:33.6597|INFO|RevmaxAPI.Revmaxlib|Device details read
+2026-07-26 15:27:33.6753|INFO|RevmaxAPI.Revmaxlib|Creating Z Report file
+2026-07-26 15:27:33.6753|ERROR|RevmaxAPI.Revmaxlib|No Revmax: Failed to create Z Report file
+2026-07-26 15:27:33.6753|INFO|RevmaxAPI.Revmaxlib|Reading device details
+2026-07-26 15:27:40.6133|INFO|RevmaxAPI.Revmaxlib|METHOD: GetLicense
+2026-07-26 15:27:40.6133|ERROR|RevmaxAPI.Revmaxlib|License Error: 
+2026-07-26 15:27:45.4924|INFO|RevmaxAPI.Revmaxlib|METHOD: GetLicense
+2026-07-26 15:27:45.4924|ERROR|RevmaxAPI.Revmaxlib|License Error: 
+2026-07-26 15:27:52.9835|INFO|RevmaxAPI.Revmaxlib|METHOD: GetCardDetails
+2026-07-26 15:27:52.9835|INFO|RevmaxAPI.Revmaxlib|REG_TransactionResponse,111111111,22222222,Test Compay,Test address1,Test address2,Test address3,,178D3519011A,
+2026-07-26 15:27:52.9835|INFO|RevmaxAPI.Revmaxlib|{
+  "Code": "1",
+  "Message": "Success",
+  "QRcode": "",
+  "VerificationCode": "",
+  "VerificationLink": "",
+  "DeviceID": "",
+  "FiscalDay": "",
+  "Data": {
+    "TIN": "0100000000",
+    "BPN": "100000000",
+    "VAT": "22222222",
+    "COMPANYNAME": "Axis Solutions",
+    "ADDRESS": " Arundel Road Alexandra Park, Harae",
+    "REGISTRATIONNUMBER": "01",
+    "SERIALNUMBER": "F00000000D01"
+  }
+}
+2026-07-26 15:27:57.6099|INFO|RevmaxAPI.Revmaxlib|METHOD: ZREPORT
+2026-07-26 15:27:57.6099|INFO|RevmaxAPI.Revmaxlib|FiscalDayOpened
+2026-07-26 15:27:57.6255|INFO|RevmaxAPI.Revmaxlib|Reading Z Report file
+2026-07-26 15:27:57.6255|INFO|RevmaxAPI.Revmaxlib|No Z records
+2026-07-26 15:27:57.6255|INFO|RevmaxAPI.Revmaxlib|Building Z Report
+2026-07-26 15:27:57.6255|INFO|RevmaxAPI.Revmaxlib|Z Report(s) done successfully
+2026-07-26 15:27:59.8616|INFO|RevmaxAPI.Revmaxlib|METHOD: TransactM
+2026-07-26 15:27:59.8616|INFO|RevmaxAPI.Revmaxlib|Invoice: TEST20260726152759
+2026-07-26 15:28:00.3020|INFO|RevmaxAPI.Revmaxlib|Items parsing done
+2026-07-26 15:28:00.3020|INFO|RevmaxAPI.Revmaxlib|Items parsing done2
+2026-07-26 15:28:00.3176|ERROR|RevmaxAPI.Revmaxlib|Transaction error: Invoice Number does not exist

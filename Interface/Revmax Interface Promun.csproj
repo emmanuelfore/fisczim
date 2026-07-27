@@ -7,7 +7,7 @@
     <ProjectGuid>{316A5EF5-4C50-478D-84FF-5BB4A4F4BB4D}</ProjectGuid>
     <OutputType>WinExe</OutputType>
     <RootNamespace>Revmax_Interface_Promun</RootNamespace>
-    <AssemblyName>Revmax Interface Promun</AssemblyName>
+    <AssemblyName>FiscalStack</AssemblyName>
     <TargetFrameworkVersion>v4.6.1</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
@@ -30,6 +30,9 @@
     <UseApplicationTrust>false</UseApplicationTrust>
     <PublishWizardCompleted>true</PublishWizardCompleted>
     <BootstrapperEnabled>true</BootstrapperEnabled>
+  </PropertyGroup>
+  <PropertyGroup>
+    <ApplicationIcon>Resources\fiscalstack.ico</ApplicationIcon>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <PlatformTarget>AnyCPU</PlatformTarget>
@@ -130,6 +133,21 @@
     <Compile Include="Form1.Designer.cs">
       <DependentUpon>Form1.cs</DependentUpon>
     </Compile>
+    <Compile Include="TestToolForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="TestToolForm.Designer.cs">
+      <DependentUpon>TestToolForm.cs</DependentUpon>
+    </Compile>
+    <Compile Include="OfflineQueue.cs" />
+    <Compile Include="StatusIndicator.cs" />
+    <Compile Include="SchedulerService.cs" />
+    <Compile Include="ReceiptPreviewForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="ReceiptPreviewForm.Designer.cs">
+      <DependentUpon>ReceiptPreviewForm.cs</DependentUpon>
+    </Compile>
     <Compile Include="HandleResponse.cs" />
     <Compile Include="Invoice.cs" />
     <Compile Include="item.cs" />
@@ -151,12 +169,6 @@
     <Compile Include="ResponseStruc.cs" />
     <Compile Include="RevResponse.cs" />
     <Compile Include="RootObject.cs" />
-    <Compile Include="SetLicense.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="SetLicense.Designer.cs">
-      <DependentUpon>SetLicense.cs</DependentUpon>
-    </Compile>
     <Compile Include="RevMaxInterfaceWizard.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -167,6 +179,7 @@
     <Compile Include="VatTotal.cs" />
     <Compile Include="ZReport.cs" />
     <Compile Include="ZReportStructure.cs" />
+    <Compile Include="AppBranding.cs" />
     <EmbeddedResource Include="Form1.resx">
       <DependentUpon>Form1.cs</DependentUpon>
     </EmbeddedResource>
@@ -181,9 +194,6 @@
       <DesignTime>True</DesignTime>
     </Compile>
     <EmbeddedResource Include="Report1.rdlc" />
-    <EmbeddedResource Include="SetLicense.resx">
-      <DependentUpon>SetLicense.cs</DependentUpon>
-    </EmbeddedResource>
     <EmbeddedResource Include="RevMaxInterfaceWizard.resx">
       <DependentUpon>RevMaxInterfaceWizard.cs</DependentUpon>
       <SubType>Designer</SubType>
@@ -215,51 +225,24 @@
       <DependentUpon>ReportData.xsd</DependentUpon>
     </None>
     <None Include="Revmax Interface Promun_TemporaryKey.pfx" />
+    <Compile Include="CustomMenuRenderer.cs" />
+    <Compile Include="AutoTrainerService.cs" />
+    <Compile Include="HistoryManager.cs" />
+    <Compile Include="DashboardForm.cs" />
+    <Compile Include="DashboardForm.Designer.cs" />
+    <Compile Include="DeviceCacheManager.cs" />
+    <Compile Include="TemplateEngine.cs" />
+    <Compile Include="ReceiptPrinter.cs" />
+    <Compile Include="NativeThermalPrinter.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />
   </ItemGroup>
   <ItemGroup>
-    <Content Include="MetroFramework.txt" />
     <None Include="Resources\africa_100px.png" />
     <None Include="Resources\unnamed.png" />
     <None Include="Resources\unnamed1.png" />
-    <None Include="Resources\Screenshot %2891%29.png" />
-    <None Include="Resources\Screenshot %2892%29.png" />
-    <None Include="Resources\Screenshot %2892%291.png" />
-    <None Include="Resources\Screenshot %2894%29.png" />
-    <None Include="Resources\Screenshot %2895%29.png" />
-    <None Include="Resources\Screenshot %2895%291.png" />
-    <None Include="Resources\Screenshot %2896%29.png" />
-    <None Include="Resources\Screenshot %2899%29.png" />
-    <None Include="Resources\Screenshot %2899%291.png" />
-    <None Include="Resources\Screenshot %2899%292.png" />
-    <None Include="Resources\Screenshot %2891%291.png" />
-    <None Include="Resources\Screenshot %28100%29.png" />
-    <None Include="Resources\Screenshot %28103%29.png" />
-    <None Include="Resources\Screenshot %28103%291.png" />
-    <None Include="Resources\Screenshot %28104%29.png" />
-    <None Include="Resources\Screenshot 2022-06-06 110825.png" />
-    <None Include="Resources\Screenshot 2022-06-06 114403.png" />
-    <None Include="Resources\Screenshot 2022-06-06 114919.png" />
-    <None Include="Resources\Screenshot 2022-06-06 1149191.png" />
-    <None Include="Resources\Screenshot 2022-06-06 120902.png" />
-    <None Include="Resources\Screenshot 2022-06-06 1209021.png" />
-    <None Include="Resources\Screenshot 2022-06-06 123320.png" />
-    <None Include="Resources\Screenshot 2022-06-06 1233201.png" />
-    <None Include="Resources\Screenshot 2022-06-06 124139.png" />
-    <None Include="Resources\Screenshot 2022-06-06 1241391.png" />
-    <None Include="Resources\Screenshot 2022-06-06 1144031.png" />
-    <None Include="Resources\Screenshot 2022-06-06 124218.png" />
-    <None Include="Resources\Screenshot 2022-06-06 125301.png" />
-    <None Include="Resources\Screenshot 2022-06-06 1253011.png" />
-    <None Include="Resources\Screenshot 2022-06-06 141619.png" />
-    <None Include="Resources\Screenshot 2022-06-06 1416191.png" />
-    <None Include="Resources\Screenshot 2022-06-06 1416192.png" />
-    <None Include="Resources\Screenshot 2022-06-06 144555.png" />
     <None Include="Resources\source.png" />
-    <None Include="Resources\Screenshot 2022-06-07 105103.png" />
-    <None Include="Resources\Screenshot 2022-06-07 1051031.png" />
     <None Include="Resources\target.png" />
     <None Include="Resources\target1.png" />
     <None Include="Resources\tax.png" />
@@ -270,7 +253,13 @@
     <None Include="Resources\logo.png" />
     <None Include="Resources\logo1.png" />
     <None Include="Resources\logo.jpg" />
-    <None Include="Resources\dotscount%27.png" />
+    <Content Include="Resources\fiscalstack.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Resources\fiscalstack_logo.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <None Include="Resources\dotscount.png" />
     <None Include="Resources\single.png" />
   </ItemGroup>
   <ItemGroup>

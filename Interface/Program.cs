@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Configuration;
 using System.Linq;
@@ -25,17 +25,11 @@ namespace Revmax_Interface_Promun
             }
             else
             {
-
-                /*RevMaxInterfaceWizard form = new RevMaxInterfaceWizard();
+                // FiscalStack: launch the main form visibly in a normal window
+                RevMaxInterfaceWizard form = new RevMaxInterfaceWizard();
                 form.WindowState = FormWindowState.Normal;
                 form.ShowInTaskbar = true;
-                Application.Run(form);*/
-
-                RevMaxInterfaceWizard form = new RevMaxInterfaceWizard();
-                form.WindowState = FormWindowState.Minimized;
-                form.ShowInTaskbar = false;
-                Application.Run();
-
+                Application.Run(form);
             }
 
         }

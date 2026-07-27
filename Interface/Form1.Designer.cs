@@ -1,4 +1,4 @@
-﻿namespace Revmax_Interface_Promun
+namespace Revmax_Interface_Promun
 {
     partial class RevMaxInterfaceWizard
     {
@@ -31,12 +31,18 @@
             this.components = new System.ComponentModel.Container();
             System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(RevMaxInterfaceWizard));
             this.contextMenuStrip1 = new System.Windows.Forms.ContextMenuStrip(this.components);
-            this.checkLicenseToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
-            this.zReportToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
-            this.exitToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
-            this.setLicenseToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
-            this.exitToolStripMenuItem1 = new System.Windows.Forms.ToolStripMenuItem();
+            // We use the new CustomMenuRenderer for the sleek UI
+            this.contextMenuStrip1.Renderer = new CustomMenuRenderer();
+
+            this.dashboardToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.retrainInterfaceToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.operationsToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.openTestToolToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.getDeviceDetailsToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.exitToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.viewLastReceiptToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.toolStripSeparator1 = new System.Windows.Forms.ToolStripSeparator();
+            this.exitToolStripMenuItem1 = new System.Windows.Forms.ToolStripMenuItem();
             this.notifyIcon1 = new System.Windows.Forms.NotifyIcon(this.components);
             this.timer1 = new System.Windows.Forms.Timer(this.components);
             this.reportViewer1 = new Microsoft.Reporting.WinForms.ReportViewer();
@@ -50,42 +56,73 @@
             // 
             this.contextMenuStrip1.ImageScalingSize = new System.Drawing.Size(20, 20);
             this.contextMenuStrip1.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
-            this.checkLicenseToolStripMenuItem,
-            this.zReportToolStripMenuItem,
-            this.exitToolStripMenuItem,
-            this.setLicenseToolStripMenuItem,
-            this.exitToolStripMenuItem1,
-            this.retrainInterfaceToolStripMenuItem});
+            this.dashboardToolStripMenuItem,
+            this.retrainInterfaceToolStripMenuItem,
+            this.operationsToolStripMenuItem,
+            this.viewLastReceiptToolStripMenuItem,
+            this.toolStripSeparator1,
+            this.exitToolStripMenuItem1});
             this.contextMenuStrip1.Name = "contextMenuStrip1";
             this.contextMenuStrip1.Size = new System.Drawing.Size(211, 176);
             // 
-            // checkLicenseToolStripMenuItem
+            // dashboardToolStripMenuItem
             // 
-            this.checkLicenseToolStripMenuItem.Name = "checkLicenseToolStripMenuItem";
-            this.checkLicenseToolStripMenuItem.Size = new System.Drawing.Size(210, 24);
-            this.checkLicenseToolStripMenuItem.Text = "Set License";
-            this.checkLicenseToolStripMenuItem.Click += new System.EventHandler(this.checkLicenseToolStripMenuItem_Click);
+            this.dashboardToolStripMenuItem.Name = "dashboardToolStripMenuItem";
+            this.dashboardToolStripMenuItem.Size = new System.Drawing.Size(210, 24);
+            this.dashboardToolStripMenuItem.Text = "Dashboard / History";
+            this.dashboardToolStripMenuItem.Font = new System.Drawing.Font("Segoe UI", 9.5F, System.Drawing.FontStyle.Bold);
+            this.dashboardToolStripMenuItem.ForeColor = System.Drawing.Color.FromArgb(51, 85, 255);
+            this.dashboardToolStripMenuItem.Click += new System.EventHandler(this.dashboardToolStripMenuItem_Click);
             // 
-            // zReportToolStripMenuItem
+            // retrainInterfaceToolStripMenuItem
             // 
-            this.zReportToolStripMenuItem.Name = "zReportToolStripMenuItem";
-            this.zReportToolStripMenuItem.Size = new System.Drawing.Size(210, 24);
-            this.zReportToolStripMenuItem.Text = "Check License";
-            this.zReportToolStripMenuItem.Click += new System.EventHandler(this.zReportToolStripMenuItem_Click);
+            this.retrainInterfaceToolStripMenuItem.Name = "retrainInterfaceToolStripMenuItem";
+            this.retrainInterfaceToolStripMenuItem.Size = new System.Drawing.Size(210, 24);
+            this.retrainInterfaceToolStripMenuItem.Text = "Settings / Setup";
+            this.retrainInterfaceToolStripMenuItem.Click += new System.EventHandler(this.retrainInterfaceToolStripMenuItem_Click);
+            // 
+            // operationsToolStripMenuItem
+            // 
+            this.operationsToolStripMenuItem.Name = "operationsToolStripMenuItem";
+            this.operationsToolStripMenuItem.Size = new System.Drawing.Size(210, 24);
+            this.operationsToolStripMenuItem.Text = "Operations";
+            this.operationsToolStripMenuItem.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
+            this.openTestToolToolStripMenuItem,
+            this.getDeviceDetailsToolStripMenuItem,
+            this.exitToolStripMenuItem});
+            // 
+            // openTestToolToolStripMenuItem
+            // 
+            this.openTestToolToolStripMenuItem.Name = "openTestToolToolStripMenuItem";
+            this.openTestToolToolStripMenuItem.Size = new System.Drawing.Size(210, 24);
+            this.openTestToolToolStripMenuItem.Text = "Test Tool";
+            this.openTestToolToolStripMenuItem.Click += new System.EventHandler(this.openTestToolToolStripMenuItem_Click);
+            // 
+            // getDeviceDetailsToolStripMenuItem
+            // 
+            this.getDeviceDetailsToolStripMenuItem.Name = "getDeviceDetailsToolStripMenuItem";
+            this.getDeviceDetailsToolStripMenuItem.Size = new System.Drawing.Size(210, 24);
+            this.getDeviceDetailsToolStripMenuItem.Text = "Device Details";
+            this.getDeviceDetailsToolStripMenuItem.Click += new System.EventHandler(this.getDeviceDetailsToolStripMenuItem_Click);
             // 
             // exitToolStripMenuItem
             // 
             this.exitToolStripMenuItem.Name = "exitToolStripMenuItem";
             this.exitToolStripMenuItem.Size = new System.Drawing.Size(210, 24);
-            this.exitToolStripMenuItem.Text = "Z Report";
+            this.exitToolStripMenuItem.Text = "Close Fiscal Day";
             this.exitToolStripMenuItem.Click += new System.EventHandler(this.exitToolStripMenuItem_Click);
             // 
-            // setLicenseToolStripMenuItem
+            // viewLastReceiptToolStripMenuItem
             // 
-            this.setLicenseToolStripMenuItem.Name = "setLicenseToolStripMenuItem";
-            this.setLicenseToolStripMenuItem.Size = new System.Drawing.Size(210, 24);
-            this.setLicenseToolStripMenuItem.Text = "Start RevLive";
-            this.setLicenseToolStripMenuItem.Click += new System.EventHandler(this.setLicenseToolStripMenuItem_Click);
+            this.viewLastReceiptToolStripMenuItem.Name = "viewLastReceiptToolStripMenuItem";
+            this.viewLastReceiptToolStripMenuItem.Size = new System.Drawing.Size(210, 24);
+            this.viewLastReceiptToolStripMenuItem.Text = "View Last Receipt";
+            this.viewLastReceiptToolStripMenuItem.Click += new System.EventHandler(this.viewLastReceiptToolStripMenuItem_Click);
+            // 
+            // toolStripSeparator1
+            // 
+            this.toolStripSeparator1.Name = "toolStripSeparator1";
+            this.toolStripSeparator1.Size = new System.Drawing.Size(207, 6);
             // 
             // exitToolStripMenuItem1
             // 
@@ -94,20 +131,11 @@
             this.exitToolStripMenuItem1.Text = "Exit";
             this.exitToolStripMenuItem1.Click += new System.EventHandler(this.exitToolStripMenuItem1_Click);
             // 
-            // retrainInterfaceToolStripMenuItem
-            // 
-            this.retrainInterfaceToolStripMenuItem.Enabled = false;
-            this.retrainInterfaceToolStripMenuItem.Name = "retrainInterfaceToolStripMenuItem";
-            this.retrainInterfaceToolStripMenuItem.Size = new System.Drawing.Size(210, 24);
-            this.retrainInterfaceToolStripMenuItem.Text = "Retrain Interface";
-            this.retrainInterfaceToolStripMenuItem.Visible = false;
-            this.retrainInterfaceToolStripMenuItem.Click += new System.EventHandler(this.retrainInterfaceToolStripMenuItem_Click);
-            // 
             // notifyIcon1
             // 
             this.notifyIcon1.ContextMenuStrip = this.contextMenuStrip1;
             this.notifyIcon1.Icon = ((System.Drawing.Icon)(resources.GetObject("notifyIcon1.Icon")));
-            this.notifyIcon1.Text = "RevMax Interface";
+            this.notifyIcon1.Text = "FiscalStack Interface";
             this.notifyIcon1.Visible = true;
             this.notifyIcon1.MouseDoubleClick += new System.Windows.Forms.MouseEventHandler(this.notifyIcon1_MouseDoubleClick);
             // 
@@ -164,7 +192,7 @@
             this.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
             this.Name = "RevMaxInterfaceWizard";
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
-            this.Text = "Form1";
+            this.Text = "FiscalStack Interface";
             this.TopMost = true;
             this.Load += new System.EventHandler(this.Form1_Load);
             this.contextMenuStrip1.ResumeLayout(false);
@@ -176,16 +204,19 @@
         #endregion
 
         private System.Windows.Forms.ContextMenuStrip contextMenuStrip1;
-        private System.Windows.Forms.ToolStripMenuItem checkLicenseToolStripMenuItem;
-        private System.Windows.Forms.ToolStripMenuItem zReportToolStripMenuItem;
-        private System.Windows.Forms.ToolStripMenuItem exitToolStripMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem dashboardToolStripMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem retrainInterfaceToolStripMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem operationsToolStripMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem openTestToolToolStripMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem getDeviceDetailsToolStripMenuItem;
+        private System.Windows.Forms.ToolStripMenuItem exitToolStripMenuItem; // (Close day)
+        private System.Windows.Forms.ToolStripMenuItem viewLastReceiptToolStripMenuItem;
+        private System.Windows.Forms.ToolStripSeparator toolStripSeparator1;
+        private System.Windows.Forms.ToolStripMenuItem exitToolStripMenuItem1; // (Exit)
         private System.Windows.Forms.Timer timer1;
         private Microsoft.Reporting.WinForms.ReportViewer reportViewer1;
         private System.Drawing.Printing.PrintDocument printDocument1;
         private System.Windows.Forms.NotifyIcon notifyIcon1;
-        private System.Windows.Forms.ToolStripMenuItem setLicenseToolStripMenuItem;
-        private System.Windows.Forms.ToolStripMenuItem exitToolStripMenuItem1;
-        private System.Windows.Forms.ToolStripMenuItem retrainInterfaceToolStripMenuItem;
         private System.Windows.Forms.TableLayoutPanel tableLayoutPanel1;
     }
 }

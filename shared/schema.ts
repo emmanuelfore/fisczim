@@ -68,6 +68,8 @@ export const companies = pgTable("companies", {
   nssaEmployerNumber: text("nssa_employer_number"),
   vatEnabled: boolean("vat_enabled").default(true),
   defaultPaymentTerms: text("default_payment_terms"),
+  correctionPeriodMonths: integer("correction_period_months").default(12), // Credit/debit note correction window
+  fiscalDayStalenessHours: integer("fiscal_day_staleness_hours").default(24), // Hours before fiscal day considered stale
   bankDetails: text("bank_details"),
   payrollBankExportFormat: jsonb("payroll_bank_export_format"),
   fdmsDeviceId: text("fdms_device_id"),
@@ -151,6 +153,8 @@ export const branches = pgTable("branches", {
   lastFiscalHash: text("last_fiscal_hash"),
   lastReceiptAt: timestamp("last_receipt_at"),
   qrUrl: text("qr_url"),
+  correctionPeriodMonths: integer("correction_period_months"), // Override company correction period
+  fiscalDayStalenessHours: integer("fiscal_day_staleness_hours"), // Override company staleness threshold
 
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
@@ -421,6 +425,7 @@ export const taxTypes = pgTable("tax_types", {
   effectiveTo: date("effective_to"),
   zimraCode: text("zimra_code"), // A, B, E, C
   zimraTaxId: text("zimra_tax_id"), // Optional ZIMRA ID e.g. "3"
+  defaultHsCode: text("default_hs_code"), // Default HS code used for this tax type
   calculationMethod: text("calculation_method").default("INCLUSIVE"), // INCLUSIVE, EXCLUSIVE
 }, (table) => {
   return {
@@ -735,6 +740,10 @@ export const invoices = pgTable("invoices", {
   orderStatus: text("order_status").default("pending"), // pending, preparing, ready, served
   orderNumber: text("order_number"), // Short order number for customer display (e.g. #001)
   customerName: text("customer_name"),
+  buyerVat: text("buyer_vat"),
+  buyerTin: text("buyer_tin"),
+  offlinePreviousHash: text("offline_previous_hash"),
+  offlineDate: text("offline_date"),
   customerPhone: text("customer_phone"),
   deliveryAddress: text("delivery_address"),
   deliveryNotes: text("delivery_notes"),
@@ -1247,13 +1256,16 @@ export const apiLogs = pgTable("api_logs", {
   companyId: integer("company_id").references(() => companies.id),
   endpoint: text("endpoint").notNull(),
   method: text("method").notNull(),
-  requestPayload: jsonb("request_payload").notNull(),
-  responsePayload: jsonb("response_payload").notNull(),
+  requestPayload: jsonb("request_payload"),
+  responsePayload: jsonb("response_payload"),
   statusCode: integer("status_code"),
+  responseTimeMs: integer("response_time_ms"),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const insertApiLogSchema = createInsertSchema(apiLogs).omit({ id: true, createdAt: true });
+export const insertApiLogSchema = createInsertSchema(apiLogs).omit({ id: true, createdAt: true }).partial();
 export type InsertApiLog = z.infer<typeof insertApiLogSchema>;
 export type ApiLog = typeof apiLogs.$inferSelect;
 

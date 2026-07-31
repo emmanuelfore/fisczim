@@ -12,7 +12,7 @@ const router = Router();
 //    1. Only `items` is REQUIRED. Everything else defaults intelligently.
 //    2. Totals are always computed server-side — client NEVER sends subtotal/tax/total.
 //    3. taxType enum maps to correct ZIMRA taxID automatically.
-//    4. HS codes default by tax type: STANDARD=99001000, ZERO_RATED=99002000, EXEMPT=99003000.
+//    4. HS codes default by tax type from database (fallback to STANDARD=99001000, ZERO_RATED=99002000, EXEMPT=99003000).
 //    5. Tax-inclusive pricing supported — we strip the tax before storing.
 //    6. RCPT022: Credit note item prices are auto-negated (ZIMRA requires this).
 //    7. Response mirrors the ZIMRA receipt structure for easy receipt rendering.
@@ -42,11 +42,11 @@ const itemSchema = z.object({
   // ── DEFAULTS (preselected list or company config) ─────────────────────────
   taxType:      TAX_TYPE,
   taxInclusive: z.boolean().default(false),  // true = unitPrice already includes VAT
-  hsCode:       z.string().max(8, "HS code must be 8 characters or less").optional(),
+  hsCode:       z.string().max(8, "HS code must be 8 characters or less").nullable().optional(),
 
   // ── OPTIONAL (client reference only — not sent to ZIMRA) ──────────────────
-  sku:      z.string().optional(),
-  discount: z.number().min(0).optional(),
+  sku:      z.string().nullable().optional(),
+  discount: z.number().min(0).nullable().optional(),
 });
 
 export const passThroughFiscalizeSchema = z.object({
@@ -58,7 +58,7 @@ export const passThroughFiscalizeSchema = z.object({
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   //  PRESELECTED LISTS — enum with default, client picks or omits
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  paymentMethod:   z.enum(["CASH", "CARD", "MOBILE", "TRANSFER"]).default("CASH"),
+  paymentMethod:   z.enum(["CASH", "CARD", "MOBILE", "TRANSFER", "BANK_TRANSFER", "ECOCASH", "ONE_MONEY", "EFT", "RTGS", "ZIPIT"]).default("CASH"),
   splitPayments:   z.array(z.object({ method: z.string(), amount: z.number() })).optional(),
   transactionType: z.enum(["FiscalInvoice", "CreditNote", "DebitNote"]).default("FiscalInvoice"),
   currency:        z.enum(["USD", "ZWG"]).default("USD"),
@@ -69,9 +69,10 @@ export const passThroughFiscalizeSchema = z.object({
 
   // Buyer — all optional, defaults to company's default customer
   buyer: z.object({
-    // Name fields (TransactMExt style — separate registered and trade names)
-    registeredName: z.string().optional(),  // Legal/registered company name
-    tradeName:      z.string().optional(),  // Trading name (if different)
+    // Display name (fallback — stored as customerName on invoice)
+    name:            z.string().nullable().optional(),
+    registeredName:  z.string().nullable().optional(),
+    tradeName:       z.string().nullable().optional(),
     // Identifiers — validated per RevMax API rules
     vatNumber: z.string().regex(/^\d{9}$/, "VAT number must be exactly 9 digits").optional(),
     tin:       z.string().regex(/^\d{10}$/, "TIN must be exactly 10 digits").optional(),
@@ -149,22 +150,44 @@ router.post("/", async (req, res) => {
     }
   }
 
-  // ── 3. Resolve company defaults ──────────────────────────────────────────
+  // ── 3. Resolve company defaults and tax types ─────────────────────────────
   const companyTaxRate  = company.defaultTaxRate ?? 15;
   const companyCurrency = body.currency; // enum with default "USD"
 
-  // taxType enum → numeric rate
+  // Declared here: referenced by the branch-settings lookup below before the
+  // related-invoice resolution in step 6 (TDZ fix).
+  let relatedInvoice:   any = null;
+
+  // Fetch branch settings if applicable (for correction period override)
+  let branchSettings: any = null;
+  if (relatedInvoice?.branchId) {
+    try {
+      branchSettings = await storage.getBranch(relatedInvoice.branchId);
+    } catch { /* non-fatal */ }
+  }
+
+  // Fetch actual tax types from database for proper tax ID mapping
+  const dbTaxTypes = await storage.getTaxTypes(company.id);
+  
+  // Find tax types by zimraTaxId (ZIMRA standard IDs)
+  const standardTax = dbTaxTypes.find(t => t.zimraTaxId && ['4', '515'].includes(t.zimraTaxId));
+  const zeroRatedTax = dbTaxTypes.find(t => t.zimraTaxId && ['2'].includes(t.zimraTaxId));
+  const exemptTax = dbTaxTypes.find(t => t.zimraTaxId && ['1', '3'].includes(t.zimraTaxId));
+
+  // taxType enum → numeric rate using database tax types
   const resolveTaxRate = (taxType: "STANDARD" | "ZERO_RATED" | "EXEMPT"): number => {
-    if (taxType === "STANDARD") return companyTaxRate;
-    return 0; // ZERO_RATED and EXEMPT are both 0%
+    if (taxType === "STANDARD") return standardTax?.rate ? Number(standardTax.rate) : companyTaxRate;
+    if (taxType === "ZERO_RATED") return zeroRatedTax?.rate ? Number(zeroRatedTax.rate) : 0;
+    if (taxType === "EXEMPT") return exemptTax?.rate ? Number(exemptTax.rate) : 0;
+    return companyTaxRate; // fallback
   };
 
-  // taxType → default HS code (max 8 chars per RevMax API)
-  const resolveHsCode = (taxType: "STANDARD" | "ZERO_RATED" | "EXEMPT", override?: string): string => {
+  // taxType → default HS code using database tax types
+  const resolveHsCode = (taxType: "STANDARD" | "ZERO_RATED" | "EXEMPT", override?: string | null): string => {
     if (override) return override.slice(0, 8); // enforce 8-char limit
-    if (taxType === "ZERO_RATED") return "99002000";
-    if (taxType === "EXEMPT")     return "99003000";
-    return "99001000"; // STANDARD
+    if (taxType === "ZERO_RATED") return zeroRatedTax?.defaultHsCode || "99002000";
+    if (taxType === "EXEMPT")     return exemptTax?.defaultHsCode || "99003000";
+    return standardTax?.defaultHsCode || "99001000"; // STANDARD
   };
 
   // ── 4. Process items ─────────────────────────────────────────────────────
@@ -207,13 +230,22 @@ router.post("/", async (req, res) => {
   });
 
   // ── 5. Server-authoritative totals ──────────────────────────────────────
-  const subtotal  = processedItems.reduce((s, i) => s + i.lineTotal, 0);
-  const taxAmount = processedItems.reduce((s, i) => s + i.lineTax, 0);
-  const total     = parseFloat((subtotal + taxAmount).toFixed(2));
+  //  ZIMRA (RCPT027/RCPT037) computes tax per tax bucket on the aggregate net
+  //  amount and rounds once per bucket. Rounding per line before summing
+  //  produces totals that ZIMRA rejects as Red errors.
+  const subtotal = processedItems.reduce((s, i) => s + i.lineTotal, 0);
+  const taxByRate = new Map<number, number>();
+  for (const item of processedItems) {
+    taxByRate.set(item.taxRate, (taxByRate.get(item.taxRate) ?? 0) + item.lineTotal);
+  }
+  let taxAmount = 0;
+  for (const [rate, bucketNet] of taxByRate.entries()) {
+    taxAmount += Math.round(bucketNet * (rate / 100) * 100) / 100;
+  }
+  const total = parseFloat((subtotal + taxAmount).toFixed(2));
 
   // ── 6. Resolve related invoice (Credit/Debit Notes) ──────────────────────
   let relatedInvoiceId: number | undefined;
-  let relatedInvoice:   any;
   if (isCorrectionNote && body.relatedInvoiceNumber) {
     const allInvoices = await storage.getInvoices(company.id);
     relatedInvoice = allInvoices.find(
@@ -257,14 +289,18 @@ router.post("/", async (req, res) => {
       });
     }
 
-    // E. Must not be older than 12 months (RCPT033)
+    // E. Must not be older than correction period (RCPT033)
+    // Default to 12 months but can be configured via company/branch settings
+    const correctionPeriodMonths = relatedInvoice.branchId 
+      ? (await storage.getBranch(relatedInvoice.branchId))?.correctionPeriodMonths || company.correctionPeriodMonths || 12
+      : company.correctionPeriodMonths || 12;
     const originalDate  = relatedInvoice.issueDate ? new Date(relatedInvoice.issueDate) : null;
-    const twelveMonthsAgo = new Date();
-    twelveMonthsAgo.setFullYear(twelveMonthsAgo.getFullYear() - 1);
-    if (originalDate && originalDate < twelveMonthsAgo) {
+    const correctionPeriodAgo = new Date();
+    correctionPeriodAgo.setMonth(correctionPeriodAgo.getMonth() - correctionPeriodMonths);
+    if (originalDate && originalDate < correctionPeriodAgo) {
       return res.status(422).json({
         error: "INVOICE_TOO_OLD",
-        message: `Original invoice '${body.relatedInvoiceNumber}' is older than 12 months. Corrections cannot be issued after 12 months.`,
+        message: `Original invoice '${body.relatedInvoiceNumber}' is older than ${correctionPeriodMonths} months. Corrections cannot be issued after ${correctionPeriodMonths} months.`,
         statusCode: 422,
       });
     }
@@ -272,16 +308,24 @@ router.post("/", async (req, res) => {
     relatedInvoiceId = relatedInvoice.id;
   }
 
-  // ── 7. Resolve default customer ──────────────────────────────────────────
+  // ── 7. Resolve customer ─────────────────────────────────────────────────
+  //  Pass-through API: try to match buyer by TIN/VAT, otherwise use __walkin__.
+  //  Never pick an arbitrary active customer — that misattributes sales in reports.
   let customerId: number;
   try {
+    const buyerTin = body.buyer?.tin?.trim();
+    const buyerVat = body.buyer?.vatNumber?.trim();
     const allCustomers = await storage.getCustomers(company.id);
-    const defaultCustomer = allCustomers.find(
-      (c: any) => c.name !== "__walkin__" && c.isActive !== false
-    );
 
-    if (defaultCustomer) {
-      customerId = defaultCustomer.id;
+    // Try match by TIN first, then VAT number
+    const matchedCustomer = buyerTin
+      ? allCustomers.find((c: any) => c.tin === buyerTin)
+      : buyerVat
+        ? allCustomers.find((c: any) => c.vatNumber === buyerVat)
+        : null;
+
+    if (matchedCustomer) {
+      customerId = matchedCustomer.id;
     } else {
       const existingWalkin = allCustomers.find((c: any) => c.name === "__walkin__");
       if (existingWalkin) {
@@ -330,9 +374,40 @@ router.post("/", async (req, res) => {
   // ── 10. Date ─────────────────────────────────────────────────────────────
   const issueDate    = body.date ? new Date(body.date) : new Date();
   const issueDateStr = issueDate.toISOString().split("T")[0];
+  
+  // Calculate due date based on company payment terms
+  const calculateDueDate = (baseDate: Date, paymentTerms?: string | null): Date => {
+    const dueDate = new Date(baseDate);
+    if (!paymentTerms) return dueDate; // Default to same day if no terms
+    
+    // Parse payment terms (e.g., "NET 30", "NET 60", "EOM", "15 DAYS")
+    const terms = paymentTerms.toUpperCase();
+    const daysMatch = terms.match(/(\d+)\s*DAYS?/);
+    const netMatch = terms.match(/NET\s*(\d+)/);
+    
+    let daysToAdd = 0;
+    if (daysMatch) {
+      daysToAdd = parseInt(daysMatch[1]);
+    } else if (netMatch) {
+      daysToAdd = parseInt(netMatch[1]);
+    } else if (terms.includes('EOM')) {
+      // End of month
+      dueDate.setMonth(dueDate.getMonth() + 1);
+      dueDate.setDate(0); // Last day of next month
+      return dueDate;
+    }
+    
+    if (daysToAdd > 0) {
+      dueDate.setDate(dueDate.getDate() + daysToAdd);
+    }
+    
+    return dueDate;
+  };
+  
+  const dueDate = calculateDueDate(issueDate, company.defaultPaymentTerms);
 
   // ── 11. Build ZIMRA-aligned buyer data ───────────────────────────────────
-  const buyerDisplayName = body.buyer?.registeredName ?? body.buyer?.tradeName ?? null;
+  const buyerDisplayName = body.buyer?.registeredName ?? body.buyer?.tradeName ?? body.buyer?.name ?? null;
   const buyerAddress = (body.buyer?.street || body.buyer?.city || body.buyer?.province || body.buyer?.houseNo)
     ? [body.buyer?.houseNo, body.buyer?.street, body.buyer?.city, body.buyer?.province]
         .filter(Boolean).join(", ")
@@ -346,7 +421,7 @@ router.post("/", async (req, res) => {
       customerId,
       invoiceNumber,
       issueDate,
-      dueDate:          issueDate,
+      dueDate:          dueDate,
       currency:         companyCurrency,
       taxInclusive:     false, // always store tax-exclusive after normalisation
       paymentMethod:    body.paymentMethod,
@@ -358,14 +433,15 @@ router.post("/", async (req, res) => {
       status:           "pending",
       notes:            body.creditNoteReason ?? null,
       relatedInvoiceId: relatedInvoiceId ?? null,
-      buyerName:        buyerDisplayName,
+      customerName:     buyerDisplayName,
       buyerVat:         body.buyer?.vatNumber ?? null,
       buyerTin:         body.buyer?.tin       ?? null,
-      // ── Offline Sync Fields ──
-      fiscalSignature:  body.offlineSignature ?? null,
-      receiptCounter:   body.offlineReceiptCounter ?? null,
-      receiptGlobalNo:  body.offlineGlobalReceiptCounter ?? null,
-      fiscalDayNo:      body.offlineFiscalDay ?? null,
+      fiscalSignature:      body.offlineSignature ?? null,
+      receiptCounter:       body.offlineReceiptCounter ?? null,
+      receiptGlobalNo:      body.offlineGlobalReceiptCounter ?? null,
+      fiscalDayNo:          body.offlineFiscalDay ?? null,
+      offlinePreviousHash:  body.offlinePreviousHash ?? null,
+      offlineDate:          body.offlineDate ?? null,
       items: processedItems.map((item) => ({
         description: item.name,
         quantity:    item.quantity.toString(),
@@ -385,8 +461,7 @@ router.post("/", async (req, res) => {
 
   // ── 13. Fiscalize ────────────────────────────────────────────────────────
   try {
-    const offlineMetadata = body.offlineSignature ? { date: body.offlineDate } : undefined;
-    const fiscal = await processInvoiceFiscalization(invoice.id, company.id, undefined, false, undefined, false, offlineMetadata);
+    const fiscal = await processInvoiceFiscalization(invoice.id, company.id, undefined, false, undefined, false);
 
     // Build ZIMRA-aligned receipt lines for response
     const receiptLineType = body.transactionType === "CreditNote" ? "Refund" : "Sale";
@@ -422,10 +497,11 @@ router.post("/", async (req, res) => {
 
     const buyerTin = body.buyer?.tin?.trim();
 
-    // ZIMRA buyerData is optional, but buyerTIN is mandatory when buyerData is sent.
-    const buyerData = buyerDisplayName && buyerTin ? {
-      buyerRegisterName: body.buyer?.registeredName ?? buyerDisplayName,
-      buyerTradeName:    body.buyer?.tradeName      ?? buyerDisplayName,
+    // ZIMRA buyerData is optional, but buyerTIN is mandatory when buyerData is submitted.
+    const fallbackName = buyerDisplayName ?? (buyerTin ? "Customer" : null);
+    const buyerData = fallbackName && buyerTin ? {
+      buyerRegisterName: body.buyer?.registeredName ?? fallbackName,
+      buyerTradeName:    body.buyer?.tradeName      ?? fallbackName,
       ...(body.buyer?.vatNumber ? { vatNumber: body.buyer.vatNumber } : {}),
       buyerTIN: buyerTin,
       ...((body.buyer?.phone || body.buyer?.email) ? {
@@ -447,9 +523,9 @@ router.post("/", async (req, res) => {
     const getZimraPaymentMethodCode = (methodName: string): 'Cash' | 'Card' | 'Other' | 'BankTransfer' | 'MobileWallet' => {
         const m = methodName.toUpperCase();
         if (['CASH'].includes(m)) return 'Cash';
-        if (['CARD', 'SWIPE', 'POS'].includes(m)) return 'Card';
-        if (['MOBILE', 'ECOCASH', 'ONE_MONEY', 'TELE_CASH', 'MOBILEWALLET'].includes(m)) return 'MobileWallet';
-        if (['EFT', 'RTGS', 'TRANSFER', 'ZIPIT', 'BANKTRANSFER'].includes(m)) return 'BankTransfer';
+        if (['CARD', 'SWIPE', 'POS', 'CREDIT_CARD', 'DEBIT_CARD'].includes(m)) return 'Card';
+        if (['MOBILE', 'ECOCASH', 'ONE_MONEY', 'TELE_CASH', 'MOBILEWALLET', 'EcoCash', 'OneMoney'].includes(m)) return 'MobileWallet';
+        if (['EFT', 'RTGS', 'TRANSFER', 'ZIPIT', 'BANKTRANSFER', 'BANK_TRANSFER', 'WIRE'].includes(m)) return 'BankTransfer';
         return 'Other';
     };
 
@@ -494,6 +570,16 @@ router.post("/", async (req, res) => {
   } catch (err: any) {
     // Clean up orphaned invoice so client can retry safely
     try { await storage.deleteInvoice(invoice.id); } catch { /* ignore */ }
+
+    if (err.issues && Array.isArray(err.issues) && err.issues.length > 0) {
+      return res.status(422).json({
+        error:      "FISCALIZATION_FAILED",
+        message:    err.message,
+        statusCode: 422,
+        issues:     err.issues,
+        hint:       "Fix the listed preflight issues, then retry.",
+      });
+    }
 
     const hint =
       err.message?.includes("device") || err.message?.includes("ZIMRA") || err.message?.includes("fiscal day")

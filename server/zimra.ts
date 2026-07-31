@@ -890,7 +890,12 @@ export class ZimraDevice {
         });
 
         // 2. Calculate Taxes
-        const taxMap = new Map<string, ReceiptTax>();
+        // IMPORTANT (RCPT027/RCPT037): aggregate each tax bucket's base amount
+        // UNROUNDED and round only once at the end. Rounding the tax per line
+        // before summing (e.g. 8.556→8.56 per line) produces a different total
+        // than ZIMRA's server-side calculation (round(224.40×15.5%)=34.78,
+        // total 259.18) and causes Red validation errors.
+        const taxMap = new Map<string, { taxPercent?: number; taxID: number; taxCode?: string; baseTotal: number }>();
 
         receipt.receiptLines.forEach(line => {
             const key = `${line.taxPercent}-${line.taxID}-${line.taxCode || ''}`;
@@ -898,31 +903,40 @@ export class ZimraDevice {
                 taxMap.set(key, {
                     taxPercent: line.taxPercent,
                     taxID: line.taxID,
-                    // taxCode: line.taxCode,
-                    taxAmount: 0,
-                    salesAmountWithTax: 0
+                    taxCode: line.taxCode,
+                    baseTotal: 0
                 });
             }
-            const taxEntry = taxMap.get(key)!;
-            // Calculate tax for this line
-            const taxForLine = this.taxCalculator(line.receiptLineTotal, line.taxPercent || 0, receipt.receiptLinesTaxInclusive);
-
-            taxEntry.taxAmount = Math.round((taxEntry.taxAmount + taxForLine) * 100) / 100;
-
-            // salesAmountWithTax is either the total (if inclusive) or net+tax (if exclusive)
-            if (receipt.receiptLinesTaxInclusive) {
-                taxEntry.salesAmountWithTax = Math.round((taxEntry.salesAmountWithTax + line.receiptLineTotal) * 100) / 100;
-            } else {
-                taxEntry.salesAmountWithTax = Math.round((taxEntry.salesAmountWithTax + (line.receiptLineTotal + taxForLine)) * 100) / 100;
-            }
+            taxMap.get(key)!.baseTotal += line.receiptLineTotal;
         });
 
         receipt.receiptTaxes = Array.from(taxMap.values()).map(t => {
             const result: ReceiptTax = {
-                ...t,
-                // Consistency: Recalculate based on total sales in this category to avoid summing rounding errors
-                taxAmount: this.taxCalculator(t.salesAmountWithTax, t.taxPercent || 0, true),
+                taxPercent: t.taxPercent,
+                taxID: t.taxID,
+                taxCode: t.taxCode,
+                taxAmount: 0,
+                salesAmountWithTax: 0
             };
+
+            if (receipt.receiptLinesTaxInclusive) {
+                // Line totals already include tax: gross = sum(lines), embedded tax derived from gross
+                result.salesAmountWithTax = Math.round(t.baseTotal * 100) / 100;
+                if (t.taxPercent) {
+                    const rate = t.taxPercent / 100;
+                    result.taxAmount = Math.round((result.salesAmountWithTax - result.salesAmountWithTax / (1 + rate)) * 100) / 100;
+                }
+            } else {
+                // Line totals are net: tax = rate × sum(lines), gross = net + tax
+                const netTotal = Math.round(t.baseTotal * 100) / 100;
+                if (t.taxPercent) {
+                    result.taxAmount = Math.round(netTotal * (t.taxPercent / 100) * 100) / 100;
+                    result.salesAmountWithTax = Math.round((netTotal + result.taxAmount) * 100) / 100;
+                } else {
+                    result.taxAmount = 0;
+                    result.salesAmountWithTax = netTotal;
+                }
+            }
 
             // "In case of exempt which does not send tax percent value"
             if (t.taxID === 1) {

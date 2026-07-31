@@ -33,18 +33,56 @@ function normalizedLineTotal(receipt: ReceiptData, line: any) {
   return receipt.receiptType === "CreditNote" ? -Math.abs(calculated) : calculated;
 }
 
-function lineTax(lineTotal: number, taxPercent: number, taxInclusive: boolean) {
-  if (!taxPercent) return 0;
-  if (taxInclusive) {
-    return roundMoney(lineTotal - lineTotal / (1 + taxPercent / 100));
+/**
+ * Aggregate expected receipt total exactly the way ZIMRA computes it
+ * (RCPT027/RCPT037): sum each tax bucket's base amount unrounded, round the
+ * tax once per bucket, then sum the buckets. Rounding per line produces
+ * totals that ZIMRA rejects as Red.
+ */
+function expectedReceiptTotal(receipt: ReceiptData): number {
+  const buckets = new Map<string, { taxPercent: number; taxID: number; baseTotal: number }>();
+
+  for (const line of receipt.receiptLines || []) {
+    const lineTotal = normalizedLineTotal(receipt, line);
+    const taxPercent = Number(line.taxPercent || 0);
+    const taxID = Number(line.taxID || 0);
+    const key = `${taxPercent}-${taxID}`;
+    if (!buckets.has(key)) {
+      buckets.set(key, { taxPercent, taxID, baseTotal: 0 });
+    }
+    buckets.get(key)!.baseTotal += Math.abs(lineTotal);
   }
-  return roundMoney(lineTotal * (taxPercent / 100));
+
+  let expectedTotal = 0;
+  for (const bucket of buckets.values()) {
+    if (receipt.receiptLinesTaxInclusive) {
+      const gross = roundMoney(bucket.baseTotal);
+      expectedTotal += gross;
+    } else {
+      const netTotal = roundMoney(bucket.baseTotal);
+      const tax = bucket.taxPercent ? roundMoney(netTotal * (bucket.taxPercent / 100)) : 0;
+      expectedTotal += roundMoney(netTotal + tax);
+    }
+  }
+  expectedTotal = roundMoney(expectedTotal);
+  // Credit note totals are negative
+  return receipt.receiptType === "CreditNote" ? -Math.abs(expectedTotal) : expectedTotal;
 }
 
 function parseZimraHarareDate(value?: string | null) {
-  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})$/);
+  // Match full ISO 8601 with optional fractional seconds and optional timezone.
+  // Capture group 7 = timezone portion if present.
+  const match = String(value || "").match(
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?([+-]\d{2}:\d{2}|Z)?$/
+  );
   if (!match) return value ? new Date(value) : null;
-  const [, year, month, day, hour, minute, second] = match;
+  const [, year, month, day, hour, minute, second, tz] = match;
+  // If timezone was explicitly specified, let JS Date handle the conversion correctly
+  if (tz) {
+    const d = new Date(value!);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  // No timezone — assume Africa/Harare (UTC+2), store as UTC-2 for correct comparison
   return new Date(Date.UTC(
     Number(year),
     Number(month) - 1,
@@ -67,6 +105,9 @@ export async function assertReceiptPreflight(args: {
   const receiptType = receiptData.receiptType;
   const invoiceNumber = String(receiptData.invoiceNo || invoice.invoiceNumber || "").trim();
 
+  // Skip counter matching for offline-signed invoices — counters were fixed at signing time
+  const isOffline = !!invoice.fiscalSignature;
+
   if (!invoiceNumber) {
     addIssue(issues, "RCPT010", "Invoice number is required.");
   } else {
@@ -84,7 +125,7 @@ export async function assertReceiptPreflight(args: {
     }
   }
 
-  if (!receiptData.fiscalDayNo || receiptData.fiscalDayNo !== (company.currentFiscalDayNo || receiptData.fiscalDayNo)) {
+  if (!isOffline && (!receiptData.fiscalDayNo || receiptData.fiscalDayNo !== (company.currentFiscalDayNo || receiptData.fiscalDayNo))) {
     addIssue(issues, "PREFLIGHT_DAY_MISMATCH", `Receipt fiscal day ${receiptData.fiscalDayNo} does not match local open day ${company.currentFiscalDayNo}.`);
   }
 
@@ -96,11 +137,11 @@ export async function assertReceiptPreflight(args: {
     addIssue(issues, "RCPT012", "Receipt global number is missing or invalid.");
   }
 
-  if (!invoice.receiptGlobalNo && company.lastReceiptGlobalNo && receiptData.receiptGlobalNo !== company.lastReceiptGlobalNo) {
+  if (!isOffline && !invoice.receiptGlobalNo && company.lastReceiptGlobalNo && receiptData.receiptGlobalNo !== company.lastReceiptGlobalNo) {
     addIssue(issues, "RCPT012", `Receipt global number ${receiptData.receiptGlobalNo} does not match the locally claimed next global number ${company.lastReceiptGlobalNo}.`);
   }
 
-  if (!invoice.receiptCounter && company.dailyReceiptCount && receiptData.receiptCounter !== company.dailyReceiptCount) {
+  if (!isOffline && !invoice.receiptCounter && company.dailyReceiptCount && receiptData.receiptCounter !== company.dailyReceiptCount) {
     addIssue(issues, "RCPT011", `Receipt counter ${receiptData.receiptCounter} does not match the locally claimed daily counter ${company.dailyReceiptCount}.`);
   }
 
@@ -137,7 +178,6 @@ export async function assertReceiptPreflight(args: {
   }
 
   const liveTaxIds = new Set((zimraConfig?.applicableTaxes || []).map(t => t.taxID));
-  let expectedTotal = 0;
   let expectedTaxRows = 0;
 
   for (const [index, line] of (receiptData.receiptLines || []).entries()) {
@@ -182,9 +222,7 @@ export async function assertReceiptPreflight(args: {
       addIssue(issues, "RCPT048", `Line ${lineNo} HS code must be 4 or 8 digits.`);
     }
 
-    const tax = lineTax(calculatedLineTotal, taxPercent, !!receiptData.receiptLinesTaxInclusive);
     if (line.taxID) expectedTaxRows++;
-    expectedTotal += receiptData.receiptLinesTaxInclusive ? calculatedLineTotal : calculatedLineTotal + tax;
   }
 
   // Skip tax rows validation for non-VAT registered companies
@@ -193,7 +231,7 @@ export async function assertReceiptPreflight(args: {
     addIssue(issues, "RCPT017", "Taxes information is not provided for receipt lines.");
   }
 
-  expectedTotal = roundMoney(expectedTotal);
+  const expectedTotal = expectedReceiptTotal(receiptData);
   const paymentTotal = roundMoney((receiptData.receiptPayments || []).reduce((sum: number, p: any) => sum + Number(p.paymentAmount || 0), 0));
   const signedInvoiceTotal = receiptType === "CreditNote" ? -Math.abs(Number(invoice.total || 0)) : Math.abs(Number(invoice.total || 0));
   if (Number.isFinite(signedInvoiceTotal) && !approxEqual(expectedTotal, signedInvoiceTotal)) {

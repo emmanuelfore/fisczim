@@ -14,7 +14,7 @@ import {
   recurringInvoices, type RecurringInvoice, type InsertRecurringInvoice,
   quotations, quotationItems, type Quotation, type QuotationItem, type InsertQuotation, type InsertQuotationItem,
   zimraLogs, type ZimraLog, type InsertZimraLog,
-  apiLogs, type ApiLog, type InsertApiLog,
+  apiLogs, type ApiLog,
   validationErrors, type ValidationError, type InsertValidationError,
   subscriptions, type Subscription, type InsertSubscription,
   posShifts, type PosShift, type InsertPosShift,
@@ -355,7 +355,7 @@ export interface IStorage {
   getCompanyZimraLogs(companyId: number, limit?: number): Promise<ZimraLog[]>;
 
   // API Logs (Incoming)
-  createApiLog(log: InsertApiLog): Promise<ApiLog>;
+  createApiLog(log: typeof apiLogs.$inferInsert): Promise<ApiLog>;
   getApiLogs(companyId: number, limit?: number): Promise<ApiLog[]>;
   // ZIMRA Helpers
   resolveGreyErrors(companyId: number, fiscalDayNo: number, skipInvoiceId?: number): Promise<void>;
@@ -4090,7 +4090,7 @@ export class DatabaseStorage implements IStorage {
       .limit(limit);
   }
 
-  async createApiLog(log: InsertApiLog): Promise<ApiLog> {
+  async createApiLog(log: typeof apiLogs.$inferInsert): Promise<ApiLog> {
     const [newL] = await db.insert(apiLogs).values(log).returning();
     return newL;
   }

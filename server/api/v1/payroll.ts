@@ -18,6 +18,7 @@ import { eq, and, desc, asc, ne, sql, gte, lte, inArray } from "drizzle-orm";
 import { ZimbabwePayrollEngine, type TaxBracket, type PayrollElementInput } from "../../../shared/payroll-engine.js";
 import { reportService } from "../../services/reportService.js";
 import { logAction } from "../../audit.js";
+import { sendPayslipEmail } from "../../email.js";
 import crypto from "crypto";
 import { userHasPermission } from "../../lib/permissions.js";
 
@@ -2461,6 +2462,66 @@ router.get("/runs/:runId/payslips", async (req, res) => {
       .orderBy(employees.firstName);
 
     res.json({ run, payslips: records });
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
+// Bulk email payslips for a run (employeeIds optional; defaults to all lines
+// in the run). Employees without an email address are skipped and reported.
+router.post("/runs/:runId/email-payslips", requirePayrollApproval, async (req, res) => {
+  try {
+    const companyId = getTargetCompanyId(req);
+    const runId = parseInt(req.params.runId, 10);
+    const requestedIds = Array.isArray(req.body?.employeeIds)
+      ? req.body.employeeIds.map((v: unknown) => Number(v)).filter((n: number) => Number.isFinite(n) && n > 0)
+      : [];
+
+    const [run] = await db.select().from(payrollRuns).where(and(eq(payrollRuns.id, runId), eq(payrollRuns.companyId, companyId)));
+    if (!run) return res.status(404).json({ error: "NOT_FOUND", message: "Run not found" });
+
+    const conditions = [eq(payrollRunEmployees.payrollRunId, runId)];
+    if (requestedIds.length > 0) conditions.push(inArray(payrollRunEmployees.employeeId, requestedIds));
+    const records = await db.select({
+      runData: payrollRunEmployees,
+      employee: employees,
+    })
+      .from(payrollRunEmployees)
+      .innerJoin(employees, eq(payrollRunEmployees.employeeId, employees.id))
+      .where(and(...conditions));
+
+    const [company] = await db.select().from(companies).where(eq(companies.id, companyId));
+    const emailSettings = (company as any)?.emailSettings as any;
+    const periodLabel = `${run.periodStart} to ${run.periodEnd}`;
+
+    const sent: any[] = [];
+    const skipped: any[] = [];
+    const failed: any[] = [];
+
+    for (const { employee } of records) {
+      const name = `${employee.firstName} ${employee.lastName}`.trim();
+      const to = String(employee.email || "").trim();
+      if (!to) {
+        skipped.push({ employeeId: employee.id, name });
+        continue;
+      }
+      try {
+        const pdf = await reportService.generatePayslip(employee.id, run.periodStart.slice(0, 7), runId);
+        await sendPayslipEmail(to, name, periodLabel, Buffer.from(pdf), emailSettings);
+        sent.push({ employeeId: employee.id, name, email: to });
+      } catch (err: any) {
+        failed.push({ employeeId: employee.id, name, email: to, error: err?.message || "Unknown error" });
+      }
+    }
+
+    await auditPayroll(req, "PAYROLL_PAYSLIPS_EMAILED", "payroll_runs", runId, {
+      requested: records.length,
+      sent: sent.length,
+      skipped: skipped.length,
+      failed: failed.length,
+    });
+
+    res.json({ runId, requested: records.length, sent, skipped, failed });
   } catch (err: any) {
     res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
   }

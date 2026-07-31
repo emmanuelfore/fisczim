@@ -126,13 +126,9 @@ import ApprovalsPage from "@/pages/approvals";
 import PartnershipSalesReportPage from "@/pages/partnership-sales-report";
 import HRPayrollRuns from "@/pages/hr/payroll";
 import HREmployees from "@/pages/hr/employees";
-import HRIncomesSetup from "@/pages/hr/incomes-setup";
-import HRDeductionsSetup from "@/pages/hr/deductions-setup";
-import HRStatutorySetup from "@/pages/hr/statutory-setup";
-import HRTaxSetup from "@/pages/hr/tax-setup";
 import HRLoans from "@/pages/hr/loans";
 import HRLeave from "@/pages/hr/leave";
-import HRPayGrades from "@/pages/hr/pay-grades";
+import HRSetup from "@/pages/hr/setup";
 import HRZimraReports from "@/pages/hr/zimra-reports";
 import SuperadminVisibilityPage from "@/pages/superadmin-visibility";
 import MaterialDocumentLedger from "@/pages/inventory/reports/ledger";
@@ -734,20 +730,11 @@ function Router() {
       <Route path="/hr/leave">
         {() => <ProtectedRoute component={HRLeave} />}
       </Route>
-      <Route path="/hr/setup/incomes">
-        {() => <ProtectedRoute component={HRIncomesSetup} />}
+      <Route path="/hr/setup">
+        {() => <ProtectedRoute component={HRSetup} />}
       </Route>
-      <Route path="/hr/setup/deductions">
-        {() => <ProtectedRoute component={HRDeductionsSetup} />}
-      </Route>
-      <Route path="/hr/setup/statutory">
-        {() => <ProtectedRoute component={HRStatutorySetup} />}
-      </Route>
-      <Route path="/hr/setup/taxes">
-        {() => <ProtectedRoute component={HRTaxSetup} />}
-      </Route>
-      <Route path="/hr/setup/pay-grades">
-        {() => <ProtectedRoute component={HRPayGrades} />}
+      <Route path="/hr/setup/:legacy">
+        {() => <Redirect to="/hr/setup" />}
       </Route>
       <Route path="/hr/reports/zimra">
         {() => <ProtectedRoute component={HRZimraReports} />}

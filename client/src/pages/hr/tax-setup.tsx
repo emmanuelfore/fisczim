@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Plus, Loader2, Save, Calculator } from "lucide-react";
-import { HRLayout } from "./layout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,7 +38,7 @@ function prefillFromActive(configs: any[]): typeof BLANK_FORM {
   };
 }
 
-export default function TaxSetupPage() {
+export function TaxTablesTab() {
   const { user } = useAuth();
   const { activeCompanyId: companyId } = useActiveCompany(!!user, user?.id ?? null);
   const { toast } = useToast();
@@ -91,15 +90,14 @@ export default function TaxSetupPage() {
   };
 
   return (
-    <HRLayout>
-      <div className="flex flex-col gap-6 max-w-6xl mx-auto w-full">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-slate-900 to-slate-600 dark:from-slate-100 dark:to-slate-400 tracking-tight">
-              Tax Configuration
-            </h1>
-            <p className="text-sm text-slate-500 mt-1">Manage tax tables, NSSA limits, and AIDS levy rates.</p>
-          </div>
+    <div className="flex flex-col gap-6 max-w-6xl mx-auto w-full">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-slate-900 to-slate-600 dark:from-slate-100 dark:to-slate-400 tracking-tight">
+            Tax Tables
+          </h2>
+          <p className="text-sm text-slate-500 mt-1">Manage PAYE tax tables, NSSA limits, and AIDS levy rates.</p>
+        </div>
           
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
@@ -257,6 +255,5 @@ export default function TaxSetupPage() {
           </CardContent>
         </Card>
       </div>
-    </HRLayout>
   );
 }

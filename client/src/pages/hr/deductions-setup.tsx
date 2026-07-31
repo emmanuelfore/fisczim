@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Plus, Search, Loader2, Save } from "lucide-react";
-import { HRLayout } from "./layout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -26,12 +25,12 @@ const CAT_COLORS: Record<string, string> = {
 const BLANK_FORM = {
   code: "",
   name: "",
-  category: "STATUTORY",
+  category: "COMPANY",
   timing: "PRE_TAX",
   employeeRate: "0",
 };
 
-export default function DeductionsSetup() {
+export function DeductionsTab() {
   const { user } = useAuth();
   const { activeCompanyId } = useActiveCompany(!!user, user?.id ?? null);
   const companyId = activeCompanyId ?? null;
@@ -74,13 +73,12 @@ export default function DeductionsSetup() {
   }
 
   return (
-    <HRLayout>
-      <div className="flex flex-col gap-6 max-w-7xl mx-auto w-full">
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-slate-900 to-slate-600 dark:from-slate-100 dark:to-slate-400">Deductions Setup</h1>
-            <p className="text-sm text-muted-foreground mt-1">Configure company-wide payroll deductions</p>
-          </div>
+    <div className="flex flex-col gap-6 max-w-7xl mx-auto w-full">
+      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-slate-900 to-slate-600 dark:from-slate-100 dark:to-slate-400">Deductions</h2>
+          <p className="text-sm text-muted-foreground mt-1">Configure company and voluntary payroll deductions</p>
+        </div>
 
           <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
             <DialogTrigger asChild>
@@ -117,7 +115,6 @@ export default function DeductionsSetup() {
                   <Select value={form.category} onValueChange={v => setForm(f => ({ ...f, category: v }))}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="STATUTORY">Statutory</SelectItem>
                       <SelectItem value="COMPANY">Company</SelectItem>
                       <SelectItem value="VOLUNTARY">Voluntary</SelectItem>
                       <SelectItem value="OTHER">Other</SelectItem>
@@ -217,6 +214,5 @@ export default function DeductionsSetup() {
           </CardContent>
         </Card>
       </div>
-    </HRLayout>
   );
 }

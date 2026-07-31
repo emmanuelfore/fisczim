@@ -3,7 +3,6 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { HRLayout } from "./layout";
 
 import {
   Table,
@@ -55,7 +54,7 @@ const formSchema = z.object({
   maxSalary: z.coerce.number().min(0, "Must be >= 0"),
 });
 
-export default function PayGradesPage() {
+export function PayGradesTab() {
   const { activeCompanyId } = useActiveCompany();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
@@ -104,18 +103,17 @@ export default function PayGradesPage() {
   };
 
   return (
-    <HRLayout>
-      <div className="flex flex-col space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent flex items-center gap-2">
-              <Briefcase className="w-8 h-8 text-blue-600" />
-              Pay Grades
-            </h1>
-            <p className="text-muted-foreground mt-2">
-              Manage salary structures and pay grades for your organization.
-            </p>
-          </div>
+    <div className="flex flex-col space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent flex items-center gap-2">
+            <Briefcase className="w-7 h-7 text-blue-600" />
+            Pay Grades
+          </h2>
+          <p className="text-muted-foreground mt-1">
+            Manage salary structures and pay grades for your organization.
+          </p>
+        </div>
 
           <div className="flex items-center space-x-2">
             <Button variant="outline" size="icon" onClick={() => refetch()}>
@@ -279,6 +277,5 @@ export default function PayGradesPage() {
           </Table>
         </div>
       </div>
-    </HRLayout>
   );
 }

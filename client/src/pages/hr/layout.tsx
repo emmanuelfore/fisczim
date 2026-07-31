@@ -7,9 +7,6 @@ import {
   Settings,
   PieChart,
   Briefcase,
-  DollarSign,
-  MinusCircle,
-  Calculator,
   FileBarChart2,
   ChevronDown,
   ChevronRight,
@@ -27,11 +24,7 @@ const hrNavigation = [
 ];
 
 const hrSetupNav = [
-  { name: "Statutory Settings", href: "/hr/setup/statutory", icon: Settings },
-  { name: "Tax Tables", href: "/hr/setup/taxes", icon: Calculator },
-  { name: "Pay Grades", href: "/hr/setup/pay-grades", icon: Briefcase },
-  { name: "Incomes Setup", href: "/hr/setup/incomes", icon: DollarSign },
-  { name: "Deductions Setup", href: "/hr/setup/deductions", icon: MinusCircle },
+  { name: "Settings", href: "/hr/setup", icon: Settings },
 ];
 
 const hrReportsNav = [
@@ -125,7 +118,7 @@ export function HRLayout({ children }: { children: React.ReactNode }) {
               <Briefcase className="h-5 w-5 text-indigo-600 dark:text-indigo-400 mb-2" />
               <h3 className="font-semibold text-indigo-900 dark:text-indigo-300 text-xs">Need help?</h3>
               <p className="text-xs text-indigo-700/70 dark:text-indigo-400/70 mt-1 leading-relaxed">
-                Zimbabwe statutory defaults (PAYE tables, NSSA, NEC) are pre-loaded. Review them in Tax Tables before the first payroll run.
+                Zimbabwe statutory defaults (PAYE tables, NSSA, NEC) are pre-loaded. Review them in Settings before the first payroll run.
               </p>
             </div>
           </div>

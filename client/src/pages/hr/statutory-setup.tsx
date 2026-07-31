@@ -4,7 +4,6 @@ import { useAuth } from "@/hooks/use-auth";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { HRLayout } from "./layout";
 import {
   Table,
   TableBody,
@@ -35,7 +34,7 @@ import { Plus, Loader2, Settings2 } from "lucide-react";
 import { format } from "date-fns";
 import { BankExportSettingsModal } from "@/components/hr/BankExportSettingsModal";
 
-export default function StatutorySetup() {
+export function StatutoryTab() {
   const { user } = useAuth();
   const { activeCompanyId } = useActiveCompany(!!user, user?.id ?? null);
   const companyId = activeCompanyId ?? null;
@@ -100,18 +99,17 @@ export default function StatutorySetup() {
   };
 
   return (
-    <HRLayout>
-      <div className="flex flex-col gap-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100 flex items-center gap-3">
-              <Settings2 className="w-8 h-8 text-rose-500" />
-              Statutory Settings
-            </h1>
-            <p className="text-muted-foreground mt-1">
-              Configure general statutory rates and logic rules
-            </p>
-          </div>
+    <div className="flex flex-col gap-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 flex items-center gap-3">
+            <Settings2 className="w-7 h-7 text-rose-500" />
+            Statutory
+          </h2>
+          <p className="text-muted-foreground mt-1">
+            Configure statutory rates (ZIMDEF, NEC, AIDS levy) and logic rules
+          </p>
+        </div>
 
           <div className="flex items-center gap-2">
             {companyId && <BankExportSettingsModal companyId={companyId} />}
@@ -268,6 +266,5 @@ export default function StatutorySetup() {
           </Table>
         </div>
       </div>
-    </HRLayout>
   );
 }

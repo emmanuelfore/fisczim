@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Plus, Search, RefreshCw, Loader2, Save, FileSpreadsheet } from "lucide-react";
-import { HRLayout } from "./layout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -52,7 +51,7 @@ function YesNoBadge({ value }: { value: boolean }) {
   );
 }
 
-export default function IncomesSetup() {
+export function IncomesTab() {
   const { user } = useAuth();
   const { activeCompanyId } = useActiveCompany(!!user, user?.id ?? null);
   const companyId = activeCompanyId ?? null;
@@ -116,17 +115,16 @@ export default function IncomesSetup() {
   }
 
   return (
-    <HRLayout>
-      <div className="flex flex-col gap-6 h-full">
-        {/* Header Section */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-              <FileSpreadsheet className="h-6 w-6 text-blue-600 dark:text-blue-500" />
-              Incomes Setup
-            </h1>
-            <p className="text-sm text-muted-foreground mt-1">Configure earning types and income categories for your payroll.</p>
-          </div>
+    <div className="flex flex-col gap-6 h-full">
+      {/* Header Section */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+            <FileSpreadsheet className="h-6 w-6 text-blue-600 dark:text-blue-500" />
+            Earnings
+          </h2>
+          <p className="text-sm text-muted-foreground mt-1">Configure earning types and income categories for your payroll.</p>
+        </div>
           <div className="flex items-center gap-2">
             <div className="relative w-full sm:w-64">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
@@ -334,6 +332,5 @@ export default function IncomesSetup() {
           </DialogContent>
         </Dialog>
       </div>
-    </HRLayout>
   );
 }

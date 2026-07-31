@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useParams, Link } from "wouter";
 import { HRLayout } from "@/pages/hr/layout";
 import { useActiveCompany } from "@/hooks/use-active-company";
-import { Loader2, ArrowLeft, Download, FileText, ChevronDown, ChevronRight, Banknote, Landmark, MapPin } from "lucide-react";
+import { Loader2, ArrowLeft, Download, FileText, ChevronDown, ChevronRight, Banknote, Landmark, MapPin, FileBarChart2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -179,7 +179,22 @@ export default function HRPayslips() {
               Period: {format(new Date(run.periodStart), 'MMM d, yyyy')} - {format(new Date(run.periodEnd), 'MMM d, yyyy')}
             </p>
           </div>
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-2">
+            <Link href={`/hr/payroll/${runId}/report`}>
+              <Button variant="outline" className="text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800 hover:bg-blue-50 dark:hover:bg-blue-900/20">
+                <FileBarChart2 className="mr-2 h-4 w-4" />
+                Run Report
+              </Button>
+            </Link>
+            <Button
+              variant="outline"
+              onClick={() => {
+                downloadExcel(`/api/companies/${companyId}/payroll/report/csv?runId=${runId}`, `payroll_report_run_${runId}.csv`);
+              }}
+            >
+              <Download className="mr-2 h-4 w-4" />
+              Summary CSV
+            </Button>
             <Button
               onClick={() => {
                 downloadExcel(`/api/companies/${companyId}/payroll/runs/${runId}/bank-export`, `bank_export_${runId}.csv`);
@@ -275,15 +290,29 @@ export default function HRPayslips() {
                         ${parseFloat(p.runData.netSalary).toLocaleString(undefined, {minimumFractionDigits: 2})}
                       </TableCell>
                       <TableCell className="text-right pr-6" onClick={(e) => e.stopPropagation()}>
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
-                          className="h-8 hover:bg-blue-100 hover:text-blue-700 dark:hover:bg-blue-900/50 dark:hover:text-blue-400"
-                          onClick={() => handlePrint(p)}
-                        >
-                          <FileText className="mr-2 h-4 w-4" />
-                          Payslip
-                        </Button>
+                        <div className="flex items-center justify-end gap-1">
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="h-8 hover:bg-blue-100 hover:text-blue-700 dark:hover:bg-blue-900/50 dark:hover:text-blue-400"
+                            onClick={() => handlePrint(p)}
+                          >
+                            <FileText className="mr-2 h-4 w-4" />
+                            Print
+                          </Button>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="h-8 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                            onClick={() => downloadExcel(
+                              `/api/companies/${companyId}/payroll/report/payslip/${p.employee.id}?runId=${runId}`,
+                              `payslip_${p.employee.employeeNumber || p.employee.id}_${run.periodStart.slice(0, 7)}.pdf`
+                            )}
+                          >
+                            <Download className="mr-2 h-4 w-4" />
+                            PDF
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                     

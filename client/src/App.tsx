@@ -129,6 +129,7 @@ import HREmployees from "@/pages/hr/employees";
 import HRLoans from "@/pages/hr/loans";
 import HRLeave from "@/pages/hr/leave";
 import HRSetup from "@/pages/hr/setup";
+import HrRunReport from "@/pages/hr/run-report";
 import HRZimraReports from "@/pages/hr/zimra-reports";
 import SuperadminVisibilityPage from "@/pages/superadmin-visibility";
 import MaterialDocumentLedger from "@/pages/inventory/reports/ledger";
@@ -720,6 +721,9 @@ function Router() {
       </Route>
       <Route path="/hr/payroll/:runId/payslips">
         {() => <ProtectedRoute component={HRPayslips} />}
+      </Route>
+      <Route path="/hr/payroll/:runId/report">
+        {() => <ProtectedRoute component={HrRunReport} />}
       </Route>
       <Route path="/hr/employees">
         {() => <ProtectedRoute component={HREmployees} />}

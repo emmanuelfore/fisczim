@@ -261,6 +261,11 @@ export default function HRPayrollRuns() {
                                 Payslips
                               </Button>
                             </Link>
+                            <Link href={`/hr/payroll/${run.id}/report`}>
+                              <Button variant="ghost" size="sm" className="text-purple-600 dark:text-purple-400">
+                                Report
+                              </Button>
+                            </Link>
                             <Button 
                               variant="ghost" 
                               size="sm" 

@@ -3,27 +3,38 @@ import { generatePayslipPdf, PayslipData } from '../utils/pdfHelper.js';
 import { storage } from '../storage.js';
 import { db } from '../db.js';
 import { payrollRunEmployees, employees, payrollRuns, payrollCalculationAudits } from '../../shared/schema.js';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, gte, lte } from 'drizzle-orm';
 import { format } from 'date-fns';
 
 export class ReportService {
   /**
-   * Generates a CSV summary for a given company and month (e.g. '2026-05')
+   * Generates a CSV summary for a given payroll run (or month, when runId is omitted).
+   * runId is the robust path: it resolves the exact run instead of guessing by periodStart.
    */
-  async generatePayrollReport(companyId: number, month: string): Promise<string> {
-    // 1. Find the payroll run for the given company and month
-    const [run] = await db.select()
-      .from(payrollRuns)
-      .where(and(
-        eq(payrollRuns.companyId, companyId),
-        // Simple match if periodStart string starts with the month. 
-        // A more robust approach might be needed depending on how periods are saved.
-        eq(payrollRuns.periodStart, `${month}-01`)
-      ))
-      .orderBy(desc(payrollRuns.createdAt));
-
-    if (!run) {
-      throw new Error(`No payroll run found for ${month}`);
+  async generatePayrollReport(companyId: number, month: string, runId?: number): Promise<string> {
+    // 1. Resolve the payroll run. Prefer the explicit runId; otherwise find the
+    // run whose period overlaps the requested month.
+    let run;
+    if (runId) {
+      [run] = await db.select()
+        .from(payrollRuns)
+        .where(and(
+          eq(payrollRuns.id, runId),
+          eq(payrollRuns.companyId, companyId)
+        ));
+      if (!run) throw new Error(`Payroll run ${runId} not found`);
+    } else {
+      const monthStart = `${month}-01`;
+      const monthEnd = `${month}-31`;
+      [run] = await db.select()
+        .from(payrollRuns)
+        .where(and(
+          eq(payrollRuns.companyId, companyId),
+          lte(payrollRuns.periodStart, monthEnd),
+          gte(payrollRuns.periodEnd, monthStart)
+        ))
+        .orderBy(desc(payrollRuns.createdAt));
+      if (!run) throw new Error(`No payroll run found for ${month}`);
     }
 
     // 2. Fetch run employees joined with employee details
@@ -35,27 +46,46 @@ export class ReportService {
       .innerJoin(employees, eq(payrollRunEmployees.employeeId, employees.id))
       .where(eq(payrollRunEmployees.payrollRunId, run.id));
 
-    // 3. Map to CSV records
-    const csvData: PayrollCsvRecord[] = records.map(r => ({
-      employeeId: r.employee.employeeNumber || r.employee.id.toString(),
-      name: `${r.employee.firstName} ${r.employee.lastName}`,
-      grossPay: Number(r.runEmployee.grossSalary).toFixed(2),
-      taxableIncome: Number(r.runEmployee.grossSalary).toFixed(2), // Simplified for now
-      paye: Number(r.runEmployee.paye).toFixed(2),
-      nssa: Number(r.runEmployee.nssaEmployee).toFixed(2),
-      aidsLevy: Number(r.runEmployee.aidsLevy).toFixed(2),
-      otherDeductions: Number(r.runEmployee.necEmployee).toFixed(2), // Simplify by adding NEC for now
-      netPay: Number(r.runEmployee.netSalary).toFixed(2)
-    }));
+    // 3. Map to CSV records. Where the run line stores a calculation snapshot
+    // we prefer it for taxable income over the old grossSalary stand-in.
+    const csvData: PayrollCsvRecord[] = records.map(r => {
+      let snapshot: any = null;
+      if (r.runEmployee.snapshotData) {
+        try {
+          snapshot = typeof r.runEmployee.snapshotData === 'string'
+            ? JSON.parse(r.runEmployee.snapshotData)
+            : r.runEmployee.snapshotData;
+        } catch (e) { /* keep null */ }
+      }
+      const paye = Number(r.runEmployee.paye);
+      const aidsLevy = Number(r.runEmployee.aidsLevy);
+      const nssa = Number(r.runEmployee.nssaEmployee);
+      const totalDeductions = Number(r.runEmployee.totalDeductions);
+      return {
+        employeeId: r.employee.employeeNumber || r.employee.id.toString(),
+        name: `${r.employee.firstName} ${r.employee.lastName}`,
+        grossPay: Number(r.runEmployee.grossSalary).toFixed(2),
+        taxableIncome: snapshot?.taxableIncome != null
+          ? Number(snapshot.taxableIncome).toFixed(2)
+          : Number(r.runEmployee.grossSalary).toFixed(2),
+        paye: paye.toFixed(2),
+        nssa: nssa.toFixed(2),
+        aidsLevy: aidsLevy.toFixed(2),
+        otherDeductions: (totalDeductions - paye - aidsLevy - nssa).toFixed(2),
+        netPay: Number(r.runEmployee.netSalary).toFixed(2)
+      };
+    });
 
     // 4. Generate CSV string
     return generatePayrollSummaryCsv(csvData);
   }
 
   /**
-   * Generates a PDF payslip for a specific employee and period
+   * Generates a PDF payslip for a specific employee and run (or period, when
+   * runId is omitted). runId resolves the exact run so payslips always match
+   * the run the user is viewing.
    */
-  async generatePayslip(employeeId: number, period: string): Promise<Uint8Array> {
+  async generatePayslip(employeeId: number, period: string, runId?: number): Promise<Uint8Array> {
     // Fetch employee
     const [employee] = await db.select().from(employees).where(eq(employees.id, employeeId));
     if (!employee) throw new Error('Employee not found');
@@ -64,16 +94,29 @@ export class ReportService {
     const company = await storage.getCompany(employee.companyId);
     if (!company) throw new Error('Company not found');
 
-    // Fetch payroll run
-    const [run] = await db.select()
-      .from(payrollRuns)
-      .where(and(
-        eq(payrollRuns.companyId, company.id),
-        eq(payrollRuns.periodStart, `${period}-01`)
-      ))
-      .orderBy(desc(payrollRuns.createdAt));
-    
-    if (!run) throw new Error(`No payroll run found for period ${period}`);
+    // Fetch payroll run: explicit runId wins, otherwise period overlap
+    let run;
+    if (runId) {
+      [run] = await db.select()
+        .from(payrollRuns)
+        .where(and(
+          eq(payrollRuns.id, runId),
+          eq(payrollRuns.companyId, company.id)
+        ));
+      if (!run) throw new Error('Payroll run not found');
+    } else {
+      const monthStart = `${period}-01`;
+      const monthEnd = `${period}-31`;
+      [run] = await db.select()
+        .from(payrollRuns)
+        .where(and(
+          eq(payrollRuns.companyId, company.id),
+          lte(payrollRuns.periodStart, monthEnd),
+          gte(payrollRuns.periodEnd, monthStart)
+        ))
+        .orderBy(desc(payrollRuns.createdAt));
+      if (!run) throw new Error(`No payroll run found for period ${period}`);
+    }
 
     // Fetch run employee
     const [runEmployee] = await db.select()

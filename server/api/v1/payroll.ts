@@ -2413,10 +2413,11 @@ router.post("/employees/:id/documents", requirePayrollWrite, async (req, res) =>
 router.get("/report/csv", async (req, res) => {
   try {
     const companyId = getTargetCompanyId(req);
+    const runId = typeof req.query.runId === "string" && /^\d+$/.test(req.query.runId) ? parseInt(req.query.runId, 10) : undefined;
     const month = typeof req.query.month === "string" ? req.query.month : monthStartIso().slice(0, 7);
-    const csvData = await reportService.generatePayrollReport(companyId, month);
+    const csvData = await reportService.generatePayrollReport(companyId, month, runId);
     res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', `attachment; filename="payroll_report_${month}.csv"`);
+    res.setHeader('Content-Disposition', `attachment; filename="payroll_report_${runId ?? month}.csv"`);
     res.send(csvData);
   } catch (err: any) {
     res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
@@ -2427,7 +2428,8 @@ router.get("/report/payslip/:employeeId", async (req, res) => {
   try {
     const employeeId = parseInt(req.params.employeeId, 10);
     const period = typeof req.query.period === "string" ? req.query.period : monthStartIso().slice(0, 7);
-    const pdfData = await reportService.generatePayslip(employeeId, period);
+    const runId = typeof req.query.runId === "string" && /^\d+$/.test(req.query.runId) ? parseInt(req.query.runId, 10) : undefined;
+    const pdfData = await reportService.generatePayslip(employeeId, period, runId);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="payslip_${employeeId}_${period}.pdf"`);
     res.send(Buffer.from(pdfData));
@@ -2464,9 +2466,60 @@ router.get("/runs/:runId/payslips", async (req, res) => {
   }
 });
 
-// Download Bank Export CSV
-router.get("/runs/:runId/bank-export", async (req, res) => {
+// Printable/exportable run report: run totals plus per-employee lines with the
+// employer-cost breakdown (ZIMDEF, Standards Levy, APWCS) reconstructed from
+// the calculation snapshot's statutoryRatesUsed.
+router.get("/runs/:runId/report", async (req, res) => {
   try {
+    const companyId = getTargetCompanyId(req);
+    const runId = parseInt(req.params.runId, 10);
+
+    const [run] = await db.select().from(payrollRuns).where(and(eq(payrollRuns.id, runId), eq(payrollRuns.companyId, companyId)));
+    if (!run) return res.status(404).json({ error: "NOT_FOUND" });
+
+    const records = await db.select({
+      runData: payrollRunEmployees,
+      employee: employees,
+    })
+      .from(payrollRunEmployees)
+      .innerJoin(employees, eq(payrollRunEmployees.employeeId, employees.id))
+      .where(eq(payrollRunEmployees.payrollRunId, runId))
+      .orderBy(employees.firstName);
+
+    const lines = records.map(({ runData, employee }) => {
+      let snapshot: any = null;
+      if (runData.snapshotData) {
+        try {
+          snapshot = typeof runData.snapshotData === "string" ? JSON.parse(runData.snapshotData) : runData.snapshotData;
+        } catch (e) { /* keep null */ }
+      }
+      const rates = snapshot?.statutoryRatesUsed || {};
+      const gross = Number(runData.grossSalary) || 0;
+      const r2 = (v: number) => Math.round((Number(v) + Number.EPSILON) * 100) / 100;
+      const zimdefRate = Number(rates.zimdefRate ?? 0.01) || 0.01;
+      const standardsRate = Number(rates.standardsLevyRate ?? 0.005) || 0.005;
+      const apwcsRate = rates.apwcsRate != null ? Number(rates.apwcsRate) : zimdefRate / 2;
+      const employerCosts = {
+        nssaEmployer: Number(runData.nssaEmployer) || 0,
+        necEmployer: Number(runData.necEmployer) || 0,
+        pensionEmployer: Number(runData.pensionEmployer) || 0,
+        zimdef: r2(gross * zimdefRate),
+        standardsLevy: r2(gross * standardsRate),
+        apwcs: r2(gross * apwcsRate),
+        total: 0,
+      };
+      employerCosts.total = r2(employerCosts.nssaEmployer + employerCosts.necEmployer + employerCosts.pensionEmployer + employerCosts.zimdef + employerCosts.standardsLevy + employerCosts.apwcs);
+      return { runData, employee, employerCosts, snapshot };
+    });
+
+    res.json({ run, lines });
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
+// Download Bank Export CSV
+router.get("/runs/:runId/bank-export", async (req, res) => {  try {
     const companyId = getTargetCompanyId(req);
     const runId = parseInt(req.params.runId);
     

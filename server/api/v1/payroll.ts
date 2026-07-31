@@ -15,7 +15,7 @@ import {
   payrollStatutoryDeadlines, payrollImportBatches, payrollImportRows, companies
 } from "../../../shared/schema.js";
 import { eq, and, desc, asc, ne, sql, gte, lte, inArray } from "drizzle-orm";
-import { ZimbabwePayrollEngine, type TaxBracket } from "../../../shared/payroll-engine.js";
+import { ZimbabwePayrollEngine, type TaxBracket, type PayrollElementInput } from "../../../shared/payroll-engine.js";
 import { reportService } from "../../services/reportService.js";
 import { logAction } from "../../audit.js";
 import crypto from "crypto";
@@ -365,6 +365,40 @@ async function loadEffectiveTaxConfig(tx: any, currency: string, payFrequency: s
     payFrequency,
     effectivePeriod: { from: config.effectiveFrom, to: config.effectiveTo },
   };
+}
+
+// Load the effective payroll_statutory_rules for a company+period. Company
+// specific rules override global (companyId IS NULL) ones; the latest
+// effectiveFrom wins within the same scope. Returns ruleCode -> rule.
+async function loadEffectiveStatutoryRules(tx: any, companyId: number, currency: string, payFrequency: string, periodStart: string, periodEnd: string) {
+  const rules = await tx.select()
+    .from(payrollStatutoryRules)
+    .where(and(
+      sql`(${payrollStatutoryRules.companyId} = ${companyId} OR ${payrollStatutoryRules.companyId} IS NULL)`,
+      eq(payrollStatutoryRules.isActive, true),
+      eq(payrollStatutoryRules.currency, currency),
+      eq(payrollStatutoryRules.payFrequency, payFrequency),
+      sql`${payrollStatutoryRules.effectiveFrom} <= ${periodEnd}`,
+      sql`(${payrollStatutoryRules.effectiveTo} IS NULL OR ${payrollStatutoryRules.effectiveTo} >= ${periodStart})`
+    ))
+    .orderBy(
+      sql`CASE WHEN ${payrollStatutoryRules.companyId} = ${companyId} THEN 0 ELSE 1 END`,
+      desc(payrollStatutoryRules.effectiveFrom)
+    );
+
+  const byCode: Record<string, any> = {};
+  for (const rule of rules) {
+    const code = String(rule.ruleCode).toUpperCase();
+    if (!byCode[code]) byCode[code] = rule;
+  }
+  return byCode;
+}
+
+function statutoryRate(rule: any, side: "employeeRate" | "employerRate", fallback: number): number {
+  if (!rule) return fallback;
+  const raw = rule[side] ?? rule.employeeRate ?? rule.employerRate;
+  const value = Number(raw ?? 0);
+  return Number.isFinite(value) ? value : fallback;
 }
 
 async function loadReportRuns(companyId: number, periodStart: string, periodEnd: string, currency?: string) {
@@ -1724,6 +1758,10 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
         throw new Error(`Effective tax configuration not found for ${parsed.data.currency} ${parsed.data.payFrequency} covering ${parsed.data.periodStart} to ${parsed.data.periodEnd}`);
       }
 
+      // 2b. Load effective statutory rule overrides (ZIMDEF, STANDARDS_LEVY,
+      // APWCS, PENSION, NSSA_POBS, AIDS_LEVY) for the run period.
+      const statutoryRules = await loadEffectiveStatutoryRules(tx, companyId, parsed.data.currency, parsed.data.payFrequency, parsed.data.periodStart, parsed.data.periodEnd);
+
       // 3. For each employee, fetch contract details and perform payroll calculations
       for (const emp of activeEmployees) {
         const contract = emp.contracts[0];
@@ -1744,19 +1782,6 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
 
         // Fetch recurring allowances/deductions active in the run period.
         const recurringItems = await loadActiveRecurringItems(tx, emp.id, parsed.data.periodStart, parsed.data.periodEnd);
-        const recurringAllowances = recurringItems.filter((item: any) => item.type === "ALLOWANCE");
-        const recurringDeductions = recurringItems.filter((item: any) => item.type === "DEDUCTION");
-        const taxableAllowances = recurringAllowances
-          .filter((item: any) => item.isTaxable)
-          .reduce((sum: number, item: any) => sum + toMoney(item.amount), 0);
-        const nontaxableAllowances = recurringAllowances
-          .filter((item: any) => !item.isTaxable)
-          .reduce((sum: number, item: any) => sum + toMoney(item.amount), 0);
-        const recurringDeductionTotal = recurringDeductions
-          .reduce((sum: number, item: any) => sum + toMoney(item.amount), 0);
-        const taxDeductibleDeductions = recurringDeductions
-          .filter((item: any) => item.isTaxDeductible)
-          .reduce((sum: number, item: any) => sum + toMoney(item.amount), 0);
 
         // Fetch outstanding loan repayment defaults
         const [activeLoan] = await tx.select()
@@ -1769,29 +1794,72 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
         
         const loanDeduction = activeLoan ? Math.min(parseFloat(activeLoan.remainingBalance), parseFloat(activeLoan.monthlyRepaymentAmount)) : 0;
 
+        // Feed recurring items and the loan repayment into the engine so gross,
+        // taxable income, PAYE and net pay all reflect them. (Previously the
+        // engine received elements: [] and the recurring amounts only appeared
+        // as side rows on the payslip without affecting the calculation.)
+        const elements: PayrollElementInput[] = [
+          ...recurringItems
+            .filter((item: any) => item.type === "ALLOWANCE")
+            .map((item: any) => ({
+              type: "EARNING" as const,
+              name: item.name,
+              calculationMethod: "FIXED" as const,
+              amount: toMoney(item.amount),
+              isTaxable: !!item.isTaxable,
+              isRecurring: true,
+            })),
+          ...recurringItems
+            .filter((item: any) => item.type === "DEDUCTION")
+            .map((item: any) => ({
+              type: "DEDUCTION" as const,
+              name: item.name,
+              calculationMethod: "FIXED" as const,
+              amount: toMoney(item.amount),
+              isTaxDeductible: !!item.isTaxDeductible,
+              isRecurring: true,
+            })),
+        ];
+        if (loanDeduction > 0) {
+          elements.push({
+            type: "DEDUCTION",
+            name: "Loan repayment",
+            calculationMethod: "FIXED",
+            amount: loanDeduction,
+            isTaxDeductible: false,
+            isRecurring: true,
+          });
+        }
+
+        // Statutory rule overrides for this employee's run line.
+        const pensionRule = statutoryRules["PENSION"];
+        const pensionEmployeeRate = pensionRule ? statutoryRate(pensionRule, "employeeRate", 0) : 0;
+        const pensionEmployerRate = pensionRule ? statutoryRate(pensionRule, "employerRate", 0) : 0;
+
         // Perform calculation
         const calcs = ZimbabwePayrollEngine.calculateEmployeeLine({
           baseSalary: parseFloat(contract.baseSalary),
           payFrequency: parsed.data.payFrequency as "MONTHLY" | "WEEKLY" | "FORTNIGHTLY" | "DAILY",
-          pensionEmployeeRate: 0,
-          pensionEmployerRate: 0,
+          pensionEmployeeRate,
+          pensionEmployerRate,
+          apwcsRate: statutoryRules["APWCS"] ? statutoryRate(statutoryRules["APWCS"], "employerRate", 0.005) : undefined,
           necRate: parseFloat(necRate),
           necEmployerRate: parseFloat(necEmployerRate),
           necFixedAmount: parseFloat(necFixedAmount),
           usdPercentage: parseFloat(contract.usdPercentage),
           zigPercentage: parseFloat(contract.zigPercentage),
           exchangeRate: parseFloat(parsed.data.exchangeRate),
-          elements: [],
+          elements,
           taxConfig: {
             brackets: taxConfig.brackets as TaxBracket[],
           },
           statutoryConfig: {
-            aidsLevyRate: parseFloat(taxConfig.aidsLevyRate),
-            nssaRateEmployee: parseFloat(taxConfig.nssaRateEmployee),
-            nssaRateEmployer: parseFloat(taxConfig.nssaRateEmployer),
-            nssaCeilingLimit: parseFloat(taxConfig.nssaCeilingLimit),
-            zimdefRate: 0.01,
-            standardsLevyRate: 0.005,
+            aidsLevyRate: statutoryRules["AIDS_LEVY"] ? statutoryRate(statutoryRules["AIDS_LEVY"], "employeeRate", 0.03) : parseFloat(taxConfig.aidsLevyRate),
+            nssaRateEmployee: statutoryRules["NSSA_POBS"] ? statutoryRate(statutoryRules["NSSA_POBS"], "employeeRate", 0.045) : parseFloat(taxConfig.nssaRateEmployee),
+            nssaRateEmployer: statutoryRules["NSSA_POBS"] ? statutoryRate(statutoryRules["NSSA_POBS"], "employerRate", 0.045) : parseFloat(taxConfig.nssaRateEmployer),
+            nssaCeilingLimit: statutoryRules["NSSA_POBS"]?.ceilingAmount ? Number(statutoryRules["NSSA_POBS"].ceilingAmount) : parseFloat(taxConfig.nssaCeilingLimit),
+            zimdefRate: statutoryRules["ZIMDEF"] ? statutoryRate(statutoryRules["ZIMDEF"], "employerRate", 0.01) : 0.01,
+            standardsLevyRate: (statutoryRules["STANDARDS_LEVY"] || statutoryRules["STANDARDS"]) ? statutoryRate(statutoryRules["STANDARDS_LEVY"] || statutoryRules["STANDARDS"], "employerRate", 0.005) : 0.005,
             taxFreeBonusThreshold: 400,
             medicalAidCreditMonthly: 75,
             blindPersonCreditAnnual: 900,
@@ -1803,6 +1871,20 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
             overtimeMultiplierSunday: 2.0
           }
         });
+
+        const processedEarnings = calcs.processedEarnings;
+        const processedDeductions = calcs.processedDeductions;
+        const taxableAllowances = processedEarnings
+          .filter((e) => e.isTaxable)
+          .reduce((sum: number, e) => sum + e.amount, 0);
+        const nontaxableAllowances = processedEarnings
+          .filter((e) => !e.isTaxable)
+          .reduce((sum: number, e) => sum + e.amount, 0);
+        const recurringDeductionTotal = processedDeductions
+          .reduce((sum: number, d) => sum + d.amount, 0);
+        const taxDeductibleDeductions = processedDeductions
+          .filter((d) => d.isTaxDeductible)
+          .reduce((sum: number, d) => sum + d.amount, 0);
 
         // Insert employee payroll run line
         const [runEmployeeLine] = await tx.insert(payrollRunEmployees)
@@ -1840,20 +1922,31 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
               nontaxableAllowances,
               recurringDeductionTotal,
               taxDeductibleDeductions,
-              pensionEmployeeRate: 0,
-              pensionEmployerRate: 0
+              pensionEmployeeRate,
+              pensionEmployerRate,
+              statutoryRatesUsed: {
+                aidsLevyRate: calcs.aidsLevy > 0 ? statutoryRules["AIDS_LEVY"]?.employeeRate ?? taxConfig.aidsLevyRate : taxConfig.aidsLevyRate,
+                nssaRateEmployee: statutoryRules["NSSA_POBS"]?.employeeRate ?? taxConfig.nssaRateEmployee,
+                nssaRateEmployer: statutoryRules["NSSA_POBS"]?.employerRate ?? taxConfig.nssaRateEmployer,
+                nssaCeilingLimit: statutoryRules["NSSA_POBS"]?.ceilingAmount ?? taxConfig.nssaCeilingLimit,
+                zimdefRate: statutoryRules["ZIMDEF"]?.employerRate ?? "0.010000",
+                standardsLevyRate: (statutoryRules["STANDARDS_LEVY"] || statutoryRules["STANDARDS"])?.employerRate ?? "0.005000",
+                apwcsRate: statutoryRules["APWCS"]?.employerRate ?? null,
+                pensionEmployeeRate,
+                pensionEmployerRate,
+              },
             })
           })
           .returning();
 
-        if (recurringAllowances.length > 0) {
-          await tx.insert(payrollAllowances).values(recurringAllowances.map((item: any) => ({
+        if (processedEarnings.length > 0) {
+          await tx.insert(payrollAllowances).values(processedEarnings.map((e) => ({
             payrollRunEmployeeId: runEmployeeLine.id,
-            name: item.name,
-            amount: toMoney(item.amount).toFixed(2),
-            isTaxable: item.isTaxable,
+            name: e.name,
+            amount: e.amount.toFixed(2),
+            isTaxable: !!e.isTaxable,
             isCash: true,
-            allowanceType: classifyRecurringAllowance(item.name),
+            allowanceType: classifyRecurringAllowance(e.name),
           })));
         }
 
@@ -1865,23 +1958,13 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
           { name: "Pension Employee", amount: calcs.pensionEmployee, isTaxDeductible: true, deductionType: "PENSION" },
         ].filter((item) => item.amount > 0);
 
-        const employeeDeductions = recurringDeductions.map((item: any) => ({
+        const employeeDeductions = processedDeductions.map((d) => ({
           payrollRunEmployeeId: runEmployeeLine.id,
-          name: item.name,
-          amount: toMoney(item.amount).toFixed(2),
-          isTaxDeductible: item.isTaxDeductible,
-          deductionType: classifyRecurringDeduction(item.name),
+          name: d.name,
+          amount: d.amount.toFixed(2),
+          isTaxDeductible: !!d.isTaxDeductible,
+          deductionType: d.name === "Loan repayment" ? "LOAN_REPAYMENT" : classifyRecurringDeduction(d.name),
         }));
-
-        if (loanDeduction > 0) {
-          employeeDeductions.push({
-            payrollRunEmployeeId: runEmployeeLine.id,
-            name: "Loan repayment",
-            amount: loanDeduction.toFixed(2),
-            isTaxDeductible: false,
-            deductionType: "LOAN_REPAYMENT",
-          });
-        }
 
         const deductionLines = [
           ...statutoryDeductions.map((item) => ({

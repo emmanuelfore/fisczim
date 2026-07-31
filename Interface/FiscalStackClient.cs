@@ -37,6 +37,13 @@ namespace Revmax_Interface_Promun
             return await response.Content.ReadAsStringAsync();
         }
 
+        public async Task<string> GetOfflineStateAsync()
+        {
+            var response = await _httpClient.GetAsync("fiscal/offline-state");
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadAsStringAsync();
+        }
+
         public async Task<string> FiscalizeAsync(object payload)
         {
             var json = JsonConvert.SerializeObject(payload);
@@ -95,6 +102,24 @@ namespace Revmax_Interface_Promun
         
         [JsonProperty("relatedInvoiceNumber")]
         public string RelatedInvoiceNumber { get; set; }
+
+        [JsonProperty("offlineSignature")]
+        public string OfflineSignature { get; set; }
+
+        [JsonProperty("offlineReceiptCounter")]
+        public int OfflineReceiptCounter { get; set; }
+
+        [JsonProperty("offlineGlobalReceiptCounter")]
+        public int OfflineGlobalReceiptCounter { get; set; }
+
+        [JsonProperty("offlineFiscalDay")]
+        public int OfflineFiscalDay { get; set; }
+
+        [JsonProperty("offlinePreviousHash")]
+        public string OfflinePreviousHash { get; set; }
+
+        [JsonProperty("offlineDate")]
+        public string OfflineDate { get; set; }
     }
 
     public class PassThroughItem

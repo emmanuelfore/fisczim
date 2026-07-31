@@ -378,6 +378,7 @@ export function Layout({
         { icon: History, label: "Journal Vouchers", href: "/accounting/journal" },
         { icon: CreditCard, label: "Cashbook", href: "/accounting/cashbook" },
         { icon: ArrowRightLeft, label: "Bank Reconciliation", href: "/accounting/reconciliation" },
+        { icon: Receipt, label: "Accounts Payable", href: "/accounting/accounts-payable" },
         { icon: Receipt, label: "Supplier Bills", href: "/supplier-invoices" },
         { icon: Receipt, label: "Supplier Credit Notes", href: "/supplier-credit-notes" },
         { icon: ArrowRightLeft, label: "Payment Allocation", href: "/accounting/allocations" },

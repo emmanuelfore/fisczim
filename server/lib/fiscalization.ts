@@ -131,10 +131,13 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
 
             const now = new Date();
             const fiscalDayOpenedAt = fiscalConfig.fiscalDayOpenedAt ? new Date(fiscalConfig.fiscalDayOpenedAt) : null;
-            const oneDayMs = 24 * 60 * 60 * 1000;
-            const isStale = fiscalDayOpenedAt && (now.getTime() - fiscalDayOpenedAt.getTime() > oneDayMs);
+            // Configurable fiscal day staleness threshold (default 24 hours)
+            // Branch settings override company settings
+            const fiscalDayStalenessHours = activeBranch?.fiscalDayStalenessHours || company.fiscalDayStalenessHours || 24;
+            const stalenessThresholdMs = fiscalDayStalenessHours * 60 * 60 * 1000;
+            const isStale = fiscalDayOpenedAt && (now.getTime() - fiscalDayOpenedAt.getTime() > stalenessThresholdMs);
 
-            if (isStale) vLog(`[ZIMRA] Day is Stale (>24h). OpenedAt: ${fiscalDayOpenedAt?.toISOString()}, but continuing to fiscalize on it.`);
+            if (isStale) vLog(`[ZIMRA] Day is Stale (>${fiscalDayStalenessHours}h). OpenedAt: ${fiscalDayOpenedAt?.toISOString()}, but continuing to fiscalize on it.`);
 
             // ZIMRA Day Management:
             const statusStr = (status.fiscalDayStatus || "").toLowerCase();
@@ -669,7 +672,7 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
             receiptGlobalNo: nextGlobalNo,
             fiscalDayNo: activeFiscalDayNo, // Use refreshed day after auto-open, not stale company state.
             invoiceNo: invoice.invoiceNumber,
-            receiptDate: formatZimraDate(nowAtHarare),
+            receiptDate: invoice.offlineDate || formatZimraDate(nowAtHarare),
             receiptLines: receiptLines as any,
             receiptTaxes: [],
             receiptPayments: payments as any,
@@ -686,7 +689,7 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
 
         // Submit with previous hash for chaining. This is recalculated after the
         // real receipt numbers are claimed, because preflight only uses a preview.
-        let prevHash = (nextReceiptCounter === 1) ? null : (company.lastFiscalHash || null);
+        let prevHash = invoice.offlinePreviousHash || ((nextReceiptCounter === 1) ? null : (company.lastFiscalHash || null));
         let result: any;
 
         try {
@@ -728,6 +731,12 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
         if (zimraSync) {
             nextGlobalNo = zimraSync.nextGlobalNo;
             nextReceiptCounter = zimraSync.nextReceiptCounter;
+        } else if (invoice.fiscalSignature && invoice.receiptGlobalNo && invoice.receiptCounter) {
+            // Offline-signed receipt: use the counters that were signed offline.
+            // Do NOT match against company counters — offline values are authoritative.
+            nextGlobalNo = invoice.receiptGlobalNo;
+            nextReceiptCounter = invoice.receiptCounter;
+            vLog(`[Fiscalize] Offline — using signed counters: GlobalNo=${nextGlobalNo}, Counter=${nextReceiptCounter}`);
         } else if (
             invoice.receiptGlobalNo &&
             invoice.receiptCounter &&
@@ -751,7 +760,7 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
         // Update receiptData with the REAL assigned numbers
         receiptData.receiptCounter = nextReceiptCounter;
         receiptData.receiptGlobalNo = nextGlobalNo;
-        prevHash = (receiptData.receiptCounter === 1) ? null : (fiscalConfig.lastFiscalHash || company.lastFiscalHash || null);
+        prevHash = invoice.offlinePreviousHash || ((receiptData.receiptCounter === 1) ? null : (fiscalConfig.lastFiscalHash || company.lastFiscalHash || null));
 
         // Note: The signature generation inside submitReceipt relies on these final counters!
         let offlineSignature: string | undefined;

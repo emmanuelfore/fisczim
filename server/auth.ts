@@ -85,17 +85,34 @@ export function setupAuth(app: Express) {
 
       // Sync user if missing (Auto-registration on first API call)
       if (!user && supabaseUser.email) {
-        try {
-          user = await storage.createUser({
-            id: supabaseUser.id,
-            email: supabaseUser.email,
-            password: "", // Handled by Supabase
-            name: supabaseUser.user_metadata?.name || supabaseUser.user_metadata?.full_name || "New User",
-            username: supabaseUser.email.split('@')[0],
-            passwordChanged: true, // Self-registered users have their own password
-          });
-        } catch (err) {
-          console.error("Error creating user from Supabase token:", err);
+        const baseUsername = supabaseUser.email.split('@')[0];
+        let created = false;
+        for (let attempt = 1; attempt <= 5; attempt++) {
+          const username = attempt === 1 ? baseUsername : `${baseUsername}_${attempt}`;
+          try {
+            user = await storage.createUser({
+              id: supabaseUser.id,
+              email: supabaseUser.email,
+              password: "", // Handled by Supabase
+              name: supabaseUser.user_metadata?.name || supabaseUser.user_metadata?.full_name || "New User",
+              username,
+              passwordChanged: true, // Self-registered users have their own password
+            });
+            created = true;
+            break;
+          } catch (err: any) {
+            // Postgres unique-constraint violation on username — try a different suffix
+            if (err?.code === '23505' && err?.constraint === 'users_username_unique') {
+              console.warn(`[AUTH] Username "${username}" already taken, retrying with suffix...`);
+              continue;
+            }
+            // Any other error — bail out
+            console.error("Error creating user from Supabase token:", err);
+            return next();
+          }
+        }
+        if (!created) {
+          console.error(`[AUTH] Could not find a unique username for base "${baseUsername}" after 5 attempts`);
           return next();
         }
       }

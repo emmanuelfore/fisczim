@@ -8,8 +8,6 @@ namespace Revmax_Interface_Promun
 {
     internal class Invoice
     {
-        internal string CustomerNumber;
-
         public string Currency { get; set; }
         public string BranchName { get; set; }
         public string InvoiceNumber { get; set; }
@@ -36,6 +34,9 @@ namespace Revmax_Interface_Promun
         public string Discount { get; internal set; }
         public string DeviceId { get; internal set; }
         public string ReceiptGlobalNumber { get; internal set; }
+        public string OriginalInvoiceNumber { get; set; }
+        public string OriginalInvoiceGlobalNumber { get; set; }
+        public string ExchangeRate { get; set; }
         public List<item> items { get; set; }
     }
 }

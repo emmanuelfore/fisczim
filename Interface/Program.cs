@@ -19,7 +19,7 @@ namespace Revmax_Interface_Promun
             Application.SetCompatibleTextRenderingDefault(false);
             if (ConfigurationManager.AppSettings.Get("Trained") == "0")
             {
-                Application.Run(new Wizard());
+                Application.Run(new RevMaxInterfaceWizard());
 
 
             }

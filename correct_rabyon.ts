@@ -5,8 +5,8 @@ import { eq } from "drizzle-orm";
 const zeroRatedKeywords = [
     // Staples & Basics
     /sugar/i, /oil/i, /mealie/i, /flour/i, /rice/i, /maize/i, /salt/i,
-    // Proteins
-    /meat/i, /beef/i, /chicken/i, /fish/i, /matemba/i, /kapenta/i, /chunks/i, /eggs/i,
+    // Proteins (excluding meat which should be standard-rated)
+    /eggs/i,
     // Fruits & Veggies
     /apple/i, /banana/i, /tomato/i, /onion/i, /lemon/i, /potato/i, /cabbage/i,
     // Dairy

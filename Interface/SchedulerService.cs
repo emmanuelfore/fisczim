@@ -13,7 +13,6 @@ namespace Revmax_Interface_Promun
     {
         private System.Windows.Forms.Timer _timer;
         private FiscalStackClient _client;
-        private bool _firedToday = false;
         private DateTime _lastFiredDate = DateTime.MinValue;
         private Action<string> _logCallback;
         private NotifyIcon _trayIcon;

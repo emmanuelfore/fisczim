@@ -36,6 +36,59 @@ app.use(
 
 app.use(express.urlencoded({ extended: false }));
 
+// API Logging Middleware - Logs all API requests to api_logs table
+app.use(async (req: any, res: any, next) => {
+  const startTime = Date.now();
+  
+  // Store original send function
+  const originalSend = res.send;
+  
+  // Override send to log the response
+  res.send = function (body: any) {
+    const responseTime = Date.now() - startTime;
+    
+    // Try to extract companyId from various sources
+    let companyId = null;
+    if (req.params?.companyId) companyId = Number(req.params.companyId);
+    else if (req.params?.id) companyId = Number(req.params.id);
+    else if (req.company?.id) companyId = req.company.id;
+    else if (req.user?.companyId) companyId = req.user.companyId;
+    else if ((req as any).apiKeyCompanyId) companyId = (req as any).apiKeyCompanyId;
+    
+    // Only log if we have a companyId and it's an API request
+    if (companyId && req.path.startsWith('/api')) {
+      let responseBody = body;
+      try {
+        if (typeof body === 'string') {
+          responseBody = JSON.parse(body);
+        }
+      } catch (e) {
+        // Leave as string if not JSON
+      }
+      
+      // Import storage dynamically to avoid circular dependency
+      import('./storage.js').then(({ storage }) => {
+        storage.createApiLog({
+          companyId,
+          endpoint: req.originalUrl || req.url,
+          method: req.method,
+          requestPayload: req.body || null,
+          responsePayload: responseBody,
+          statusCode: res.statusCode,
+          responseTimeMs: responseTime,
+          ipAddress: req.ip || req.socket?.remoteAddress || null,
+          userAgent: req.get('user-agent') || null
+        }).catch(err => console.error("Failed to log API request:", err));
+      }).catch(err => console.error("Failed to import storage for logging:", err));
+    }
+    
+    // Call original send
+    originalSend.call(this, body);
+  };
+  
+  next();
+});
+
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
     hour: "numeric",

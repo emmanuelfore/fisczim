@@ -4,17 +4,17 @@
   <description asmv2:publisher="FiscalStack" asmv2:product="FiscalStack" xmlns="urn:schemas-microsoft-com:asm.v1" />
   <deployment install="true" mapFileExtensions="true" />
   <compatibleFrameworks xmlns="urn:schemas-microsoft-com:clickonce.v2">
-    <framework targetVersion="4.6.1" profile="Full" supportedRuntime="4.0.30319" />
+    <framework targetVersion="4.8" profile="Full" supportedRuntime="4.0.30319" />
   </compatibleFrameworks>
   <dependency>
-    <dependentAssembly dependencyType="install" codebase="FiscalStack.exe.manifest" size="45530">
+    <dependentAssembly dependencyType="install" codebase="FiscalStack.exe.manifest" size="42979">
       <assemblyIdentity name="FiscalStack.exe" version="1.0.0.0" publicKeyToken="0000000000000000" language="neutral" processorArchitecture="msil" type="win32" />
       <hash>
         <dsig:Transforms>
           <dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity" />
         </dsig:Transforms>
         <dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256" />
-        <dsig:DigestValue>pTu9Qni6wH9R5bkOh8e5rr6Xtfdt6gIcurZggqW0an4=</dsig:DigestValue>
+        <dsig:DigestValue>7d5yXO4XmqRZ3g+21lx5XWmwhRPuJ9xqlHUljH7b4YM=</dsig:DigestValue>
       </hash>
     </dependentAssembly>
   </dependency>

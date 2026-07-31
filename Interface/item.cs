@@ -18,5 +18,8 @@ namespace Revmax_Interface_Promun
         public string Tax { get; set; }
         public string Taxable { get; set; }
         public string TaxR { get; set; }
+        // ZIMRA required fields
+        public string HSCode { get; set; }
+        public string ReceiptLineType { get; set; }
     }
 }

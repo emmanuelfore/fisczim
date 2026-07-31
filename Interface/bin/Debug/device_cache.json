@@ -5,5 +5,8 @@
   "TIN": null,
   "VAT": null,
   "SerialNumber": null,
-  "LastUpdated": "2026-07-27T09:26:33.1154172+02:00"
+  "Address": null,
+  "RegistrationNumber": null,
+  "LastUpdated": "2026-07-28T15:36:19.3931608+02:00",
+  "IsOfflineMode": true
 }

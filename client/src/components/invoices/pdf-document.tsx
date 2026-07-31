@@ -737,7 +737,6 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                     <View style={{ marginTop: 8, padding: 6, borderTopWidth: 1, borderTopColor: borderColor }}>
                         <Text style={{ fontSize: 7, color: '#64748b', textAlign: 'center' }}>
                             {partner.displayLabel || "In partnership with"} {partner.tradingName || partner.name}
-                            {invoice.revenueSharePercent ? ` · Partner share ${Number(invoice.revenueSharePercent).toFixed(1)}%` : ""}
                         </Text>
                         {partnershipSettings.partnershipFootnote ? (
                             <Text style={{ fontSize: 6, color: '#94a3b8', textAlign: 'center', marginTop: 2 }}>{partnershipSettings.partnershipFootnote}</Text>

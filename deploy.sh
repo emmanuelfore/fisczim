@@ -5,7 +5,7 @@
 
 set -e  # Exit on error
 
-echo "🚀 Starting Unified Multi-Brand Production Deployment..."
+echo "🚀 Starting Deployment..."
 echo "=================================================="
 
 # 1. Pull latest code

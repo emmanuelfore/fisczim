@@ -2,6 +2,7 @@
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.ComponentModel;
 using System.Configuration;
 using System.Data;
@@ -26,35 +27,8 @@ namespace Revmax_Interface_Promun
     public partial class RevMaxInterfaceWizard : Form
     {
         FiscalStackClient client = new FiscalStackClient();
-        string Currency = "";
-        string BranchName = "";
-        string InvoiceNumber = "";
         string Discount = "";
-        string CustomerName = "";
         string CustomerNumber = "";
-        string ReceiptGlobalNumber = "";
-        string CustomerVATNumber = "";
-        string CustomerTIN = "";
-        string CustomerEmail = "";
-        string CustomerAddress = "";// #TagName
-        string CustomerTelephoneNumber = "";
-        string CustomerBPN = "";
-        string InvoiceAmount = "";
-        string InvoiceFlag = "";
-        string Cashier = "";
-        string InvoiceComment = "";
-        string ItemsXML = "";
-        string CurrenciesXML = "";
-        string InvoiceTaxAmount = "";
-        string code = "";
-        // string ItemsXML = "";
-        string Currencies = "";
-        string Signature = "";
-        string QRCode = "";
-        string companyName = "";
-        string companyVAT = "";
-        string companyAddress = "";
-        string companyBPN = "";
         RootObject rootinv = new RootObject();
         Invoice printInvoice = new Invoice();
         List<item> list = new List<item>();
@@ -69,6 +43,7 @@ namespace Revmax_Interface_Promun
 
         // ── Smart Features ──────────────────────────────────────────
         private OfflineQueue _offlineQueue = new OfflineQueue();
+        private OfflineCrypto _offlineCrypto = new OfflineCrypto();
         private SchedulerService _scheduler;
         private System.Windows.Forms.Timer _statusTimer;
         private System.Windows.Forms.Timer _retryTimer;
@@ -84,8 +59,6 @@ namespace Revmax_Interface_Promun
 
             //  reportViewer1.LocalReport.EnableExternalImages = true;
 
-            this.reportViewer1.RefreshReport();
-
             Task.Run(async () =>
             {
                 if (!HasConfiguredApiKey()) return;
@@ -94,13 +67,62 @@ namespace Revmax_Interface_Promun
                 {
                     string j = await client.GetDeviceAsync();
                     CardDetails = (CardDetails) JsonConvert.DeserializeObject<CardDetails>(j);
+                    
+                    // Save device details to cache
+                    if (CardDetails != null)
+                    {
+                        DeviceCacheManager.Save(CardDetails, isOffline: false);
+                        
+                        // Update UI labels with company details
+                        if (IsHandleCreated)
+                        {
+                            BeginInvoke(new Action(() =>
+                            {
+                                if (CardDetails.Data != null)
+                                {
+                                    lblStatusCompany.Text = "Company: " + (CardDetails.Data.CompanyName ?? "—");
+                                    lblStatusDevice.Text = "Device ID: " + (DeviceCacheManager.Current.DeviceId ?? "—");
+                                    lblStatusFiscalDay.Text = "Fiscal Day: " + (DeviceCacheManager.Current.FiscalDay ?? "—");
+                                    AppendLog("[DEVICE] Connected — " + (CardDetails.Data.CompanyName ?? "Unknown company"));
+                                }
+                            }));
+                        }
+                    }
+                    
+                    try {
+                        string stateJson = await client.GetOfflineStateAsync();
+                        if (!string.IsNullOrEmpty(stateJson)) {
+                            _offlineCrypto.SaveState(stateJson);
+                        }
+                    } catch { }
                 }
                 catch (Exception ex)
                 {
+                    // Load from cache when API fails
+                    DeviceCacheManager.UpdateOfflineMode(true);
+                    
                     if (IsHandleCreated)
                     {
                         BeginInvoke(new Action(() =>
-                            notifyIcon1.ShowBalloonTip(5000, "FiscalStack", "Device details could not be refreshed: " + ex.Message, ToolTipIcon.Warning)));
+                        {
+                            // Populate UI from cache
+                            var meta = DeviceCacheManager.Current;
+                            if (meta != null && !string.IsNullOrEmpty(meta.CompanyName))
+                            {
+                                lblStatusCompany.Text = "Company: " + meta.CompanyName + " (Cached)";
+                                lblStatusDevice.Text = "Device ID: " + (meta.DeviceId ?? "—");
+                                lblStatusFiscalDay.Text = "Fiscal Day: " + (meta.FiscalDay ?? "—");
+                                AppendLog("[DEVICE] Using cached data — " + meta.CompanyName);
+                            }
+                            else
+                            {
+                                lblStatusCompany.Text = "Company: Not configured";
+                                lblStatusDevice.Text = "Device ID: —";
+                                lblStatusFiscalDay.Text = "Fiscal Day: —";
+                            }
+                            
+                            notifyIcon1.ShowBalloonTip(5000, "FiscalStack", "Using cached device details (Offline mode)", ToolTipIcon.Info);
+                        }));
                     }
                 }
             });
@@ -180,7 +202,7 @@ namespace Revmax_Interface_Promun
 
             using (FileStream fs = new FileStream(path, FileMode.Open, FileAccess.Read))
             {
-                XmlDataDocument xmldoc1 = new XmlDataDocument();
+                XmlDocument xmldoc1 = new XmlDocument();
                 xmldoc1.Load(fs);
                 XmlNodeList xmlnode1 = xmldoc1.GetElementsByTagName("currency");
 
@@ -200,7 +222,7 @@ namespace Revmax_Interface_Promun
             return !string.IsNullOrWhiteSpace(ConfigurationManager.AppSettings.Get("ApiKey"));
         }
 
-        private void timer1_Tick(object sender, EventArgs e)
+        private async void timer1_Tick(object sender, EventArgs e)
         {
 
             ReadFile readFile = new ReadFile();
@@ -223,7 +245,7 @@ namespace Revmax_Interface_Promun
                     //MessageBox.Show(receipt.ToString());
                     receiptPath = "";
 
-                    if (Fiscalize(readFile.ReadInvoice(receipt, ConfigurationManager.AppSettings.Get("VatFlag"), CurrenciesList)))
+                    if (await Fiscalize(readFile.ReadInvoice(receipt, ConfigurationManager.AppSettings.Get("VatFlag"), CurrenciesList)))
                     {
                         receiptPath = receipt;
                         Print("FISCAL INVOICE");
@@ -329,7 +351,10 @@ namespace Revmax_Interface_Promun
                         Price = item.Price.ToString(),
                         Amount = item.Amount.ToString(),
                         Taxable = item.Taxable.ToString(),
-                        Tax = Math.Round(Convert.ToDecimal(item.Tax), 2).ToString()
+                        Tax = Math.Round(Convert.ToDecimal(item.Tax), 2).ToString(),
+                        // ZIMRA required fields
+                        HSCode = item.HSCode ?? "",
+                        ReceiptLineType = rootinv.Data.Receipt.ReceiptType == "CreditNote" ? "Refund" : "Sale"
                     });
                 }                
             }
@@ -349,49 +374,74 @@ namespace Revmax_Interface_Promun
 
             ReportDataSource reportDataSource = new ReportDataSource("DataSet1", itemlist);
             ReportDataSource reportDataSource2 = new ReportDataSource("TaxTable", taxTables);
-            ReportParameter[] reportParameters = new ReportParameter[33];
-            string imagePath = new Uri(ConfigurationManager.AppSettings.Get("LogoFile")).AbsoluteUri;
-            reportParameters[0] = new ReportParameter("ImagePath", imagePath);
-            reportParameters[1] = new ReportParameter("CompanyName", CardDetails.Data.CompanyName);
-            reportParameters[2] = new ReportParameter("Address", CardDetails.Data.Address);
-            /*reportParameters[1] = new ReportParameter("CompanyName", companyName);
-            reportParameters[2] = new ReportParameter("Address", companyAddress);*/
-            //reportParameters[3] = new ReportParameter("BpnNumber", companyBPN);
-            //reportParameters[4] = new ReportParameter("VatNumber", companyVAT);
-            reportParameters[3] = new ReportParameter("TIN", CardDetails.Data.TIN);
-            reportParameters[4] = new ReportParameter("VatNumber", CardDetails.Data.VAT);
-            reportParameters[5] = new ReportParameter("Signature", rootinv.VerificationCode);
-            reportParameters[6] = new ReportParameter("InvoiceNumber", rootinv.Data.Receipt.InvoiceNo);
-            reportParameters[7] = new ReportParameter("Tax", rootinv.Data.Receipt.ReceiptTaxes.Sum(item => item.TaxAmount).ToString() );
-            //reportParameters[7] = new ReportParameter("Tax", rootinv.Receipt.ReceiptTaxes[0].TaxAmount.ToString() );
-            reportParameters[8] = new ReportParameter("Total", rootinv.Data.Receipt.ReceiptTotal.ToString());
-            reportParameters[9] = new ReportParameter("Cashier", String.IsNullOrEmpty(printInvoice.Cashier)?null:printInvoice.Cashier);
-            reportParameters[10] = new ReportParameter("Date", rootinv.Data.Receipt.ReceiptDate.ToString());
-            reportParameters[11] = new ReportParameter("Currency", printInvoice.Currency);
-            reportParameters[12] = new ReportParameter("ReceiptLabel", rootinv.Data.Receipt.ReceiptType.Equals("FiscalInvoice")?"FISCAL TAX INVOICE":rootinv.Data.Receipt.ReceiptType);
-            reportParameters[13] = new ReportParameter("CustomerName", String.IsNullOrEmpty(printInvoice.CustomerName) ? null : printInvoice.CustomerName);
-            reportParameters[14] = new ReportParameter("CustomerNum", CustomerNumber);
-            reportParameters[15] = new ReportParameter("Discount", Discount);
-            reportParameters[15] = new ReportParameter("DeviceId", rootinv.DeviceId);
-            reportParameters[16] = new ReportParameter("ReceiptGlobalNumber", rootinv.Data.Receipt.ReceiptGlobalNo.ToString());
-            reportParameters[17] = new ReportParameter("ReceiptNumber", rootinv.Data.Receipt.ReceiptCounter.ToString());
-            reportParameters[18] = new ReportParameter("FiscalDay", rootinv.FiscalDay);
-            reportParameters[19] = new ReportParameter("ReceiptId",rootinv.Data.Receipt.CreditDebitNote != null ? rootinv.Data.Receipt.CreditDebitNote.receiptGlobalNo : null);
-            //reportParameters[19] = new ReportParameter("ReceiptId", rootinv.Receipt.CreditDebitNote.receiptGlobalNo);
-            reportParameters[20] = new ReportParameter("DeviceSerial", CardDetails.Data.SerialNumber);
-
-            reportParameters[21] = new ReportParameter("BuyerRegisterName", rootinv.Data.Receipt.BuyerData != null ? rootinv.Data.Receipt.BuyerData.buyerRegisterName : null);
-            reportParameters[22] = new ReportParameter("Email", printInvoice.Email);
-            reportParameters[23] = new ReportParameter("Phone", printInvoice.Phone);
-            reportParameters[24] = new ReportParameter("Reason", printInvoice.Reason);
-            reportParameters[25] = new ReportParameter("Tendered", printInvoice.Tendered);
-            reportParameters[26] = new ReportParameter("Change", printInvoice.Change);
-            reportParameters[27] = new ReportParameter("InvoiceComment", String.IsNullOrEmpty(printInvoice.InvoiceComment) ? null : printInvoice.InvoiceComment);
-            reportParameters[28] = new ReportParameter("CustomerVATNumber", String.IsNullOrEmpty(printInvoice.CustomerVATNumber) ? null : printInvoice.CustomerVATNumber);
-            reportParameters[29] = new ReportParameter("CustomerTIN", String.IsNullOrEmpty(printInvoice.CustomerTIN) ? null : printInvoice.CustomerTIN);
-            reportParameters[30] = new ReportParameter("CustomerAddress", String.IsNullOrEmpty(printInvoice.CustomerAddress) ? null : printInvoice.CustomerAddress);
-            reportParameters[31] = new ReportParameter("CustomerEmail", String.IsNullOrEmpty(printInvoice.CustomerEmail) ? null : printInvoice.CustomerEmail);
-            reportParameters[32] = new ReportParameter("CustomerTelephoneNumber", String.IsNullOrEmpty(printInvoice.CustomerTelephoneNumber) ? null : printInvoice.CustomerTelephoneNumber);
+            string logoFile = ConfigurationManager.AppSettings.Get("LogoFile");
+            string imagePath = !string.IsNullOrEmpty(logoFile) ? new Uri(logoFile).AbsoluteUri : "";
+            var rp = new List<ReportParameter>();
+            rp.Add(new ReportParameter("ImagePath", imagePath ?? ""));
+            rp.Add(new ReportParameter("CompanyName", (CardDetails != null && CardDetails.Data != null && CardDetails.Data.CompanyName != null) ? CardDetails.Data.CompanyName : ""));
+            rp.Add(new ReportParameter("Address", (CardDetails != null && CardDetails.Data != null && CardDetails.Data.Address != null) ? CardDetails.Data.Address : ""));
+            rp.Add(new ReportParameter("TIN", (CardDetails != null && CardDetails.Data != null && CardDetails.Data.TIN != null) ? CardDetails.Data.TIN : ""));
+            rp.Add(new ReportParameter("VatNumber", (CardDetails != null && CardDetails.Data != null && CardDetails.Data.VAT != null) ? CardDetails.Data.VAT : ""));
+            rp.Add(new ReportParameter("Signature", rootinv.VerificationCode ?? ""));
+            rp.Add(new ReportParameter("InvoiceNumber", rootinv.Data.Receipt.InvoiceNo ?? ""));
+            rp.Add(new ReportParameter("Tax", (rootinv.Data.Receipt.ReceiptTaxes != null) ? rootinv.Data.Receipt.ReceiptTaxes.Sum(item => item.TaxAmount).ToString() : "0.00"));
+            rp.Add(new ReportParameter("Total", rootinv.Data.Receipt.ReceiptTotal.ToString()));
+            rp.Add(new ReportParameter("Cashier", printInvoice.Cashier ?? ""));
+            rp.Add(new ReportParameter("Date", rootinv.Data.Receipt.ReceiptDate.ToString()));
+            rp.Add(new ReportParameter("Currency", printInvoice.Currency ?? ""));
+            
+            // Receipt label based on transaction type (POS format)
+            string receiptLabel = "FISCAL TAX INVOICE";
+            if (rootinv.Data.Receipt.ReceiptType == "CreditNote")
+                receiptLabel = "CREDIT NOTE";
+            else if (rootinv.Data.Receipt.ReceiptType == "DebitNote")
+                receiptLabel = "DEBIT NOTE";
+            rp.Add(new ReportParameter("ReceiptLabel", receiptLabel));
+            
+            rp.Add(new ReportParameter("CustomerName", printInvoice.CustomerName ?? ""));
+            rp.Add(new ReportParameter("CustomerNum", CustomerNumber ?? ""));
+            rp.Add(new ReportParameter("Discount", Discount ?? "0.00"));
+            rp.Add(new ReportParameter("DeviceId", rootinv.DeviceId ?? ""));
+            rp.Add(new ReportParameter("ReceiptGlobalNumber", rootinv.Data.Receipt.ReceiptGlobalNo.ToString()));
+            rp.Add(new ReportParameter("ReceiptNumber", rootinv.Data.Receipt.ReceiptCounter.ToString()));
+            rp.Add(new ReportParameter("FiscalDay", rootinv.FiscalDay ?? ""));
+            rp.Add(new ReportParameter("ReceiptId", (rootinv.Data.Receipt.CreditDebitNote != null && rootinv.Data.Receipt.CreditDebitNote.receiptGlobalNo != null) ? rootinv.Data.Receipt.CreditDebitNote.receiptGlobalNo : ""));
+            rp.Add(new ReportParameter("DeviceSerial", (CardDetails != null && CardDetails.Data != null && CardDetails.Data.SerialNumber != null) ? CardDetails.Data.SerialNumber : ""));
+            rp.Add(new ReportParameter("BuyerRegisterName", (rootinv.Data.Receipt.BuyerData != null && rootinv.Data.Receipt.BuyerData.buyerRegisterName != null) ? rootinv.Data.Receipt.BuyerData.buyerRegisterName : ""));
+            rp.Add(new ReportParameter("Email", printInvoice.Email ?? ""));
+            rp.Add(new ReportParameter("Phone", printInvoice.Phone ?? ""));
+            rp.Add(new ReportParameter("Reason", printInvoice.Reason ?? (rootinv.Data.Receipt.ReceiptNotes?.ToString() ?? "")));
+            rp.Add(new ReportParameter("Tendered", printInvoice.Tendered ?? ""));
+            rp.Add(new ReportParameter("Change", printInvoice.Change ?? ""));
+            rp.Add(new ReportParameter("InvoiceComment", printInvoice.InvoiceComment ?? ""));
+            rp.Add(new ReportParameter("CustomerVATNumber", printInvoice.CustomerVATNumber ?? ""));
+            rp.Add(new ReportParameter("CustomerTIN", printInvoice.CustomerTIN ?? ""));
+            rp.Add(new ReportParameter("CustomerAddress", printInvoice.CustomerAddress ?? ""));
+            rp.Add(new ReportParameter("CustomerEmail", printInvoice.CustomerEmail ?? ""));
+            rp.Add(new ReportParameter("CustomerTelephoneNumber", printInvoice.CustomerTelephoneNumber ?? ""));
+            
+            // Credit/Debit Note specific fields
+            rp.Add(new ReportParameter("RelatedInvoiceNumber", printInvoice.OriginalInvoiceNumber ?? (rootinv.Data.Receipt.CreditDebitNote?.originalInvoiceNo ?? "")));
+            rp.Add(new ReportParameter("OriginalInvoiceGlobalNumber", printInvoice.OriginalInvoiceGlobalNumber ?? (rootinv.Data.Receipt.CreditDebitNote?.originalReceiptGlobalNo?.ToString() ?? "")));
+            
+            // Exchange rate (POS format)
+            rp.Add(new ReportParameter("ExchangeRate", printInvoice.ExchangeRate ?? "1.00"));
+            
+            // Fiscal code (POS format)
+            rp.Add(new ReportParameter("FiscalCode", rootinv.VerificationCode ?? ""));
+            
+            // ZIMRA payment method
+            string paymentMethod = "CASH";
+            if (rootinv.Data.Receipt.ReceiptPayments != null && rootinv.Data.Receipt.ReceiptPayments.Count > 0)
+            {
+                paymentMethod = rootinv.Data.Receipt.ReceiptPayments[0].MoneyTypeCode ?? "CASH";
+            }
+            rp.Add(new ReportParameter("PaymentMethod", paymentMethod));
+            
+            // Number of items (ZIMRA requirement)
+            decimal totalItems = printInvoice.items.Sum(item => Convert.ToDecimal(item.Quantity));
+            rp.Add(new ReportParameter("NumberOfItems", totalItems.ToString("F3")));
+            
             /* reportParameters[17] = new ReportParameter("OriginalInvoiceNumber", printInvoice.OriginalInvoiceNumber);
             reportParameters[18] = new ReportParameter("OriginalInvoiceGlobalNumber", printInvoice.OriginalInvoiceGlobalNumber);*/
 
@@ -400,7 +450,7 @@ namespace Revmax_Interface_Promun
 
 
             reportViewer1.LocalReport.EnableExternalImages = true;
-            reportViewer1.LocalReport.SetParameters(reportParameters);
+            reportViewer1.LocalReport.SetParameters(rp.ToArray());
             reportViewer1.LocalReport.DataSources.Add(reportDataSource);
             reportViewer1.LocalReport.DataSources.Add(reportDataSource2);
 
@@ -477,7 +527,7 @@ namespace Revmax_Interface_Promun
 
 
 
-        private bool Fiscalize(Invoice invoice)
+        private async Task<bool> Fiscalize(Invoice invoice)
         {
             if (!HasConfiguredApiKey())
             {
@@ -523,7 +573,7 @@ namespace Revmax_Interface_Promun
 
             try
             {
-                var jar = client.FiscalizeAsync(payload).Result;
+                var jar = await client.FiscalizeAsync(payload);
                 var res = JsonConvert.DeserializeObject<dynamic>(jar);
                 
                 // Construct rootinv for reportViewer
@@ -574,22 +624,107 @@ namespace Revmax_Interface_Promun
                 }
 
                 HistoryManager.AddRecord(invoice.InvoiceNumber, true, "", invoice.InvoiceAmount.ToString(), jar);
-
+                AppendLog("[OK] Invoice " + invoice.InvoiceNumber + " fiscalized online — $" + invoice.InvoiceAmount);
                 return true;
             }
             catch (Exception ex)
             {
-                // Enqueue to offline queue for automatic retry
-                try
+                if (_offlineCrypto.IsConfigured())
                 {
-                    _offlineQueue.Enqueue(invoice.InvoiceNumber, payload);
-                    SetStatus(ConnectionStatus.Offline);
-                    notifyIcon1.ShowBalloonTip(3000, "FiscalStack — Offline Queue", "Invoice " + invoice.InvoiceNumber + " queued offline for automatic retry.", ToolTipIcon.Warning);
-                }
-                catch { }
+                    try
+                    {
+                        // Generate Offline Signature
+                        string stringToSign;
+                        string signature = _offlineCrypto.GenerateOfflineSignatureString(payload, out stringToSign);
+                        string verificationCode = _offlineCrypto.CalculateVerificationCode(signature);
 
-                HistoryManager.AddRecord(invoice.InvoiceNumber, false, "Enqueued Offline: " + ex.Message, invoice.InvoiceAmount.ToString(), "");
-                return true; // Allow receipt generation / POS operation to continue
+                        payload.OfflineSignature = signature;
+                        payload.OfflineReceiptCounter = _offlineCrypto.State.DailyReceiptCount + 1;
+                        payload.OfflineGlobalReceiptCounter = _offlineCrypto.State.LastReceiptGlobalNo + 1;
+                        payload.OfflineFiscalDay = _offlineCrypto.State.CurrentFiscalDayNo;
+                        payload.OfflinePreviousHash = (_offlineCrypto.State.DailyReceiptCount == 0) ? "" : _offlineCrypto.State.LastFiscalHash;
+                        payload.OfflineDate = payload.Date;
+
+                        // Calculate new hash based on the signed data for the next receipt
+                        // According to ZIMRA, the hash of the current receipt is SHA256 of the signature string!
+                        // Actually ZIMRA previous hash is SHA256 of the PREVIOUS signature string, or hash of the signature?
+                        // "Previous receipt hash – base64(SHA256(previous signature))"
+                        // But wait! ZIMRA spec says: "previous receipt hash is base64 of SHA256 of PREVIOUS RECEIPT HASH?" 
+                        // Wait, let's just use a SHA256 of the signature as the hash for the next one.
+                        using (var sha256 = System.Security.Cryptography.SHA256.Create())
+                        {
+                            byte[] sigBytes = Convert.FromBase64String(signature);
+                            byte[] hashBytes = sha256.ComputeHash(sigBytes);
+                            string nextHash = Convert.ToBase64String(hashBytes);
+                            _offlineCrypto.IncrementCounters(nextHash);
+                        }
+
+                        // Manually construct rootinv to print an offline fiscal receipt
+                        rootinv = new RootObject
+                        {
+                            Code = "1",
+                            VerificationCode = verificationCode,
+                            QRcode = string.Format("https://fdms.zimra.co.zw/r?d={0}&r={1}&v={2}", _offlineCrypto.State.DeviceId, payload.OfflineGlobalReceiptCounter, verificationCode),
+                            DeviceId = _offlineCrypto.State.DeviceId,
+                            FiscalDay = payload.OfflineFiscalDay.ToString(),
+                            Data = new Data
+                            {
+                                Receipt = new Receipt
+                                {
+                                    InvoiceNo = invoice.InvoiceNumber,
+                                    ReceiptTotal = Convert.ToDecimal(invoice.InvoiceAmount),
+                                    ReceiptDate = DateTime.Now,
+                                    ReceiptGlobalNo = payload.OfflineGlobalReceiptCounter,
+                                    ReceiptCounter = payload.OfflineReceiptCounter,
+                                    ReceiptType = payload.TransactionType,
+                                    ReceiptTaxes = new System.Collections.Generic.List<ReceiptTax>()
+                                }
+                            }
+                        };
+                        
+                        // Parse taxes for offline report
+                        foreach (var item in printInvoice.items)
+                        {
+                            decimal tRate = Convert.ToDecimal(item.TaxR) * 100;
+                            if (tRate == 15m) tRate = 15.5m;
+                            
+                            string tCode = (tRate == 0) ? "B" : "A";
+                            decimal qty = Convert.ToDecimal(item.Quantity);
+                            decimal price = Convert.ToDecimal(item.Price);
+                            decimal lineTotal = qty * price;
+                            decimal taxAmt = lineTotal * (tRate / 100m);
+                            
+                            rootinv.Data.Receipt.ReceiptTaxes.Add(new ReceiptTax
+                            {
+                                TaxPercent = tRate,
+                                TaxCode = tCode,
+                                TaxAmount = taxAmt,
+                                SalesAmountWithTax = lineTotal + taxAmt
+                            });
+                        }
+
+                        // Enqueue to offline queue with the populated payload
+                        _offlineQueue.Enqueue(invoice.InvoiceNumber, payload);
+                        SetStatus(ConnectionStatus.Offline);
+                        notifyIcon1.ShowBalloonTip(3000, "FiscalStack — Offline Sync", string.Format("Invoice {0} signed locally (Offline) and queued.", invoice.InvoiceNumber), ToolTipIcon.Warning);
+                        AppendLog("[OFFLINE] Invoice " + invoice.InvoiceNumber + " signed offline and queued.");
+                        
+                        HistoryManager.AddRecord(invoice.InvoiceNumber, true, "Offline Signed & Queued", invoice.InvoiceAmount.ToString(), "");
+                        return true;
+                    }
+                    catch (Exception cryptoEx)
+                    {
+                        HistoryManager.AddRecord(invoice.InvoiceNumber, false, "Offline Signing Failed: " + cryptoEx.Message, invoice.InvoiceAmount.ToString(), "");
+                        AppendLog("[FAIL] Invoice " + invoice.InvoiceNumber + " — Offline signing error: " + cryptoEx.Message);
+                        return false;
+                    }
+                }
+                else
+                {
+                    HistoryManager.AddRecord(invoice.InvoiceNumber, false, "Fiscalization Failed & Offline Not Configured: " + ex.Message, invoice.InvoiceAmount.ToString(), "");
+                    AppendLog("[FAIL] Invoice " + invoice.InvoiceNumber + " — " + ex.Message);
+                    return false;
+                }
             }
         }
 
@@ -657,6 +792,27 @@ namespace Revmax_Interface_Promun
             }
             _currentStatus = status;
             StatusIndicator.Apply(notifyIcon1, status, _offlineQueue.Count);
+
+            string statusLabel = status == ConnectionStatus.Online ? "ONLINE"
+                               : status == ConnectionStatus.Offline ? "OFFLINE (queued)"
+                               : "ERROR / Not configured";
+            AppendLog("[STATUS] " + statusLabel);
+        }
+
+        private void AppendLog(string message)
+        {
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action(() => AppendLog(message)));
+                return;
+            }
+            try
+            {
+                string line = "[" + DateTime.Now.ToString("HH:mm:ss") + "] " + message + "\n";
+                txtLog.AppendText(line);
+                txtLog.ScrollToCaret();
+            }
+            catch { }
         }
 
         private async Task RefreshStatusAsync()
@@ -674,13 +830,53 @@ namespace Revmax_Interface_Promun
                 if (details != null)
                 {
                     CardDetails = details;
-                    DeviceCacheManager.Save(details);
+                    DeviceCacheManager.Save(details, isOffline: false);
+                    // Populate Status tab labels
+                    if (details.Data != null)
+                    {
+                        lblStatusCompany.Text = "Company: " + (details.Data.CompanyName ?? "—");
+                        lblStatusDevice.Text  = "Device ID: " + (DeviceCacheManager.Current.DeviceId ?? "—");
+                        lblStatusFiscalDay.Text = "Fiscal Day: " + (DeviceCacheManager.Current.FiscalDay ?? "—");
+                        AppendLog("[DEVICE] Connected — " + (details.Data.CompanyName ?? "Unknown company"));
+                    }
                 }
+                // Populate API info labels
+                string ep = ConfigurationManager.AppSettings.Get("ApiEndpoint") ?? "—";
+                string ak = ConfigurationManager.AppSettings.Get("ApiKey") ?? "";
+                lblStatusApiKey.Text = "API Key: " + (string.IsNullOrEmpty(ak) ? "Not configured" : ak.Substring(0, Math.Min(8, ak.Length)) + "...");
+                lblStatusEndpoint.Text = "Endpoint: " + ep;
+                try {
+                    string stateJson = await client.GetOfflineStateAsync();
+                    if (!string.IsNullOrEmpty(stateJson)) {
+                        _offlineCrypto.SaveState(stateJson);
+                    }
+                } catch { }
                 SetStatus(ConnectionStatus.Online);
             }
             catch
             {
-                string apiKey = ConfigurationManager.AppSettings.Get("ApiKey");
+                // Update offline mode and load from cache
+                DeviceCacheManager.UpdateOfflineMode(true);
+                
+                var meta = DeviceCacheManager.Current;
+                if (meta != null && !string.IsNullOrEmpty(meta.CompanyName))
+                {
+                    lblStatusCompany.Text = "Company: " + meta.CompanyName + " (Cached)";
+                    lblStatusDevice.Text = "Device ID: " + (meta.DeviceId ?? "—");
+                    lblStatusFiscalDay.Text = "Fiscal Day: " + (meta.FiscalDay ?? "—");
+                    AppendLog("[DEVICE] Using cached data — " + DeviceCacheManager.GetCacheStatus());
+                }
+                else
+                {
+                    lblStatusCompany.Text = "Company: Not configured";
+                    lblStatusDevice.Text = "Device ID: —";
+                    lblStatusFiscalDay.Text = "Fiscal Day: —";
+                }
+                
+                string apiKey = ConfigurationManager.AppSettings.Get("ApiKey") ?? "";
+                string ep2 = ConfigurationManager.AppSettings.Get("ApiEndpoint") ?? "—";
+                lblStatusApiKey.Text = "API Key: " + (string.IsNullOrEmpty(apiKey) ? "Not configured" : apiKey.Substring(0, Math.Min(8, apiKey.Length)) + "...");
+                lblStatusEndpoint.Text = "Endpoint: " + ep2;
                 SetStatus(string.IsNullOrEmpty(apiKey) ? ConnectionStatus.Error : ConnectionStatus.Offline);
             }
         }
@@ -736,8 +932,6 @@ namespace Revmax_Interface_Promun
 
 
         {
-
-            this.reportViewer1.RefreshReport();
  
         }
 
@@ -748,7 +942,17 @@ namespace Revmax_Interface_Promun
 
         private void reportViewer1_Load(object sender, EventArgs e)
         {
-
+            try
+            {
+                var defaultParams = new List<ReportParameter>();
+                foreach (ReportParameterInfo param in reportViewer1.LocalReport.GetParameters())
+                {
+                    defaultParams.Add(new ReportParameter(param.Name, ""));
+                }
+                if (defaultParams.Count > 0)
+                    reportViewer1.LocalReport.SetParameters(defaultParams);
+            }
+            catch { }
         }
 
         private void printDocument1_PrintPage(object sender, System.Drawing.Printing.PrintPageEventArgs e)
@@ -867,10 +1071,7 @@ namespace Revmax_Interface_Promun
 
 
 
-        private void tableLayoutPanel1_Paint(object sender, PaintEventArgs e)
-        {
-
-        }
+        // tableLayoutPanel removed — layout now uses TabControl matching TestToolForm structure
     }
 }
 

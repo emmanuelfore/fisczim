@@ -71,14 +71,25 @@ namespace Revmax_Interface_Promun
 
         public static string GetTooltip(ConnectionStatus status, int queueCount)
         {
+            // Ensure cache is loaded with latest data
+            DeviceCacheManager.Load();
             var meta = DeviceCacheManager.Current;
+            
             string company = !string.IsNullOrEmpty(meta.CompanyName) ? meta.CompanyName : "FiscalStack";
             string devId = !string.IsNullOrEmpty(meta.DeviceId) ? meta.DeviceId : "N/A";
             string day = !string.IsNullOrEmpty(meta.FiscalDay) ? meta.FiscalDay : "1";
+            string tin = !string.IsNullOrEmpty(meta.TIN) ? meta.TIN : "";
 
             string statusStr = status == ConnectionStatus.Online ? "Online" : (status == ConnectionStatus.Offline ? "Offline (" + queueCount + ")" : "Config Error");
 
             string tooltip = string.Format("{0} [{1}]\nDev: {2} | Day: {3}", company, statusStr, devId, day);
+            
+            // Add TIN if available and space permits
+            if (!string.IsNullOrEmpty(tin) && tooltip.Length < 50)
+            {
+                tooltip += string.Format(" | TIN: {0}", tin);
+            }
+            
             if (tooltip.Length > 63)
             {
                 tooltip = tooltip.Substring(0, 60) + "...";

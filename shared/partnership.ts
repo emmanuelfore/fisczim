@@ -17,7 +17,7 @@ export const DEFAULT_PARTNERSHIP_SETTINGS: PartnershipSettings = {
   dualLogoLayout: "side_by_side",
   defaultPartnerId: null,
   showPartnerOnPosReceipt: true,
-  partnershipFootnote: "Revenue sharing arrangement. Fiscal receipt issued by the seller named above.",
+  partnershipFootnote: "",
 };
 
 export function normalizePartnershipSettings(raw: unknown): PartnershipSettings {

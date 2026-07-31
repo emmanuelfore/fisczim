@@ -101,11 +101,13 @@ const options: swaggerJsdoc.Options = {
                                 required: ['name', 'quantity', 'unitPrice'],
                                 properties: {
                                     name: { type: 'string', description: 'Item name as shown on the receipt' },
-                                    quantity: { type: 'number', minimum: 0 },
+                                    quantity: { type: 'number', exclusiveMinimum: 0, description: 'Must be greater than 0' },
                                     unitPrice: { type: 'number', minimum: 0 },
-                                    taxRate: { type: 'number', minimum: 0, maximum: 100, nullable: true, description: '(Optional) Defaults to company default (usually 15.5%)' },
-                                    hsCode: { type: 'string', nullable: true, description: '(Optional) Defaults to company default HS code' },
+                                    taxType: { type: 'string', enum: ['STANDARD', 'ZERO_RATED', 'EXEMPT'], default: 'STANDARD', description: '(Optional) STANDARD applies company VAT rate. ZERO_RATED = taxable at 0%. EXEMPT = not subject to VAT.' },
+                                    taxInclusive: { type: 'boolean', default: false, description: '(Optional) Set true if unitPrice already includes VAT. Server strips tax automatically.' },
+                                    hsCode: { type: 'string', nullable: true, maxLength: 8, description: '(Optional) Defaults based on taxType: STANDARD→99001000, ZERO_RATED→99002000, EXEMPT→99003000' },
                                     sku: { type: 'string', nullable: true, description: '(Optional) Client reference — not sent to ZIMRA' },
+                                    discount: { type: 'number', minimum: 0, nullable: true, description: '(Optional) Line-level discount amount' },
                                 }
                             }
                         },
@@ -114,25 +116,50 @@ const options: swaggerJsdoc.Options = {
                             description: '(Optional) Buyer info. Defaults to "Walk-in Customer" if omitted.',
                             nullable: true,
                             properties: {
-                                name: { type: 'string', description: '(Optional)' },
-                                vatNumber: { type: 'string', description: '(Optional)' },
-                                tin: { type: 'string', description: '(Optional)' },
-                                email: { type: 'string', format: 'email', description: '(Optional)' },
-                                phone: { type: 'string', description: '(Optional)' },
-                                address: { type: 'string', description: '(Optional)' },
+                                registeredName: { type: 'string', description: '(Optional) Legal/registered company name' },
+                                tradeName: { type: 'string', description: '(Optional) Trading name (if different)' },
+                                vatNumber: { type: 'string', pattern: '^\\d{9}$', description: '(Optional) Exactly 9 digits' },
+                                tin: { type: 'string', pattern: '^\\d{10}$', description: '(Optional) Exactly 10 digits' },
+                                email: { type: 'string', format: 'email', maxLength: 100, description: '(Optional)' },
+                                phone: { type: 'string', maxLength: 20, description: '(Optional)' },
+                                province: { type: 'string', description: '(Optional)' },
+                                street: { type: 'string', description: '(Optional)' },
+                                houseNo: { type: 'string', description: '(Optional)' },
+                                city: { type: 'string', description: '(Optional)' },
                             }
                         },
-                        invoiceNumber: { type: 'string', nullable: true, description: '(Optional) Auto-generated if omitted' },
-                        date: { type: 'string', format: 'date', nullable: true, description: '(Optional) Defaults to today' },
-                        currency: { type: 'string', minLength: 3, maxLength: 3, nullable: true, description: '(Optional) ISO 4217. Defaults to company currency' },
+                        splitPayments: {
+                            type: 'array',
+                            nullable: true,
+                            description: '(Optional) For split tenders. Overrides paymentMethod.',
+                            items: {
+                                type: 'object',
+                                properties: {
+                                    method: { type: 'string', description: 'CASH | CARD | MOBILE | TRANSFER' },
+                                    amount: { type: 'number' },
+                                }
+                            }
+                        },
+                        invoiceNumber: { type: 'string', nullable: true, description: '(Optional) Auto-generated (INV-XXXX) if omitted' },
+                        date: { type: 'string', format: 'date-time', nullable: true, description: '(Optional) Defaults to now. Supports ISO 8601 with or without timezone.' },
+                        currency: { type: 'string', enum: ['USD', 'ZWG'], default: 'USD', description: '(Optional) ISO 4217. Defaults to company currency' },
                         paymentMethod: { type: 'string', enum: ['CASH', 'CARD', 'MOBILE', 'TRANSFER'], default: 'CASH', description: '(Optional) Defaults to CASH' },
                         transactionType: { type: 'string', enum: ['FiscalInvoice', 'CreditNote', 'DebitNote'], default: 'FiscalInvoice', description: '(Optional) Determines the kind of fiscal document being generated. Defaults to Standard Sale (FiscalInvoice) if omitted.' },
                         relatedInvoiceNumber: { type: 'string', nullable: true, description: '(Optional) Required for CreditNote or DebitNote. Provide the invoice number of the original invoice being corrected.' },
+                        creditNoteReason: { type: 'string', nullable: true, description: '(Optional) Required for CreditNote/DebitNote. Why the correction is being issued.' },
+
+                        // ── Offline Synchronization fields ──
+                        offlineSignature: { type: 'string', nullable: true, description: '(Optional) Offline fiscal signature' },
+                        offlineReceiptCounter: { type: 'integer', nullable: true, description: '(Optional) Offline daily receipt counter' },
+                        offlineGlobalReceiptCounter: { type: 'integer', nullable: true, description: '(Optional) Offline global receipt number' },
+                        offlinePreviousHash: { type: 'string', nullable: true, description: '(Optional) Previous receipt hash for offline chain' },
+                        offlineFiscalDay: { type: 'integer', nullable: true, description: '(Optional) Offline fiscal day number' },
+                        offlineDate: { type: 'string', nullable: true, description: '(Optional) Offline receipt date' },
                     },
                     example: {
                         items: [
-                            { name: 'Widget A', quantity: 2, unitPrice: 10 },
-                            { name: 'Service Fee', quantity: 1, unitPrice: 50, taxRate: 0 },
+                            { name: 'Widget A', quantity: 2, unitPrice: 10, taxType: 'STANDARD' },
+                            { name: 'Service Fee', quantity: 1, unitPrice: 50, taxType: 'EXEMPT' },
                         ],
                         paymentMethod: 'CARD'
                     }
@@ -372,18 +399,83 @@ const options: swaggerJsdoc.Options = {
                                             fiscalCode: { type: 'string', description: 'ZIMRA fiscal (verification) code' },
                                             qrCode: { type: 'string', description: 'QR code URL — render this visually on the receipt' },
                                             receiptNumber: { type: 'integer', description: 'ZIMRA global receipt sequence number' },
-                                            invoiceNumber: { type: 'string' },
-                                            date: { type: 'string', format: 'date' },
-                                            total: { type: 'string' },
-                                            subtotal: { type: 'string' },
-                                            taxTotal: { type: 'string' },
-                                            currency: { type: 'string' },
-                                            buyer: { type: 'string' },
-                                            _fiscal: {
+                                            receipt: {
                                                 type: 'object',
+                                                description: 'ZIMRA-aligned receipt data — mirror of what was submitted',
                                                 properties: {
-                                                    fiscalDayNo: { type: 'integer' },
+                                                    invoiceNo: { type: 'string' },
+                                                    receiptDate: { type: 'string', format: 'date' },
+                                                    receiptType: { type: 'string', enum: ['FiscalInvoice', 'CreditNote', 'DebitNote'] },
+                                                    receiptCurrency: { type: 'string' },
+                                                    receiptTotal: { type: 'number' },
                                                     receiptCounter: { type: 'integer' },
+                                                    receiptGlobalNo: { type: 'integer' },
+                                                    fiscalDayNo: { type: 'integer' },
+                                                    receiptLinesTaxInclusive: { type: 'boolean' },
+                                                    buyerData: {
+                                                        type: 'object',
+                                                        nullable: true,
+                                                        properties: {
+                                                            buyerRegisterName: { type: 'string' },
+                                                            buyerTradeName: { type: 'string' },
+                                                            vatNumber: { type: 'string' },
+                                                            buyerTIN: { type: 'string' },
+                                                            buyerContacts: {
+                                                                type: 'object',
+                                                                properties: {
+                                                                    phoneNo: { type: 'string' },
+                                                                    email: { type: 'string' },
+                                                                }
+                                                            },
+                                                            buyerAddress: {
+                                                                type: 'object',
+                                                                properties: {
+                                                                    street: { type: 'string' },
+                                                                    houseNo: { type: 'string' },
+                                                                    city: { type: 'string' },
+                                                                    province: { type: 'string' },
+                                                                }
+                                                            },
+                                                        }
+                                                    },
+                                                    receiptLines: {
+                                                        type: 'array',
+                                                        items: {
+                                                            type: 'object',
+                                                            properties: {
+                                                                receiptLineNo: { type: 'integer' },
+                                                                receiptLineName: { type: 'string' },
+                                                                receiptLineType: { type: 'string' },
+                                                                receiptLineQuantity: { type: 'number' },
+                                                                receiptLinePrice: { type: 'number' },
+                                                                receiptLineTotal: { type: 'number' },
+                                                                receiptLineHSCode: { type: 'string' },
+                                                                taxPercent: { type: 'number' },
+                                                            }
+                                                        }
+                                                    },
+                                                    receiptTaxes: {
+                                                        type: 'array',
+                                                        items: {
+                                                            type: 'object',
+                                                            properties: {
+                                                                taxPercent: { type: 'number' },
+                                                                taxAmount: { type: 'number' },
+                                                                salesAmountWithTax: { type: 'number' },
+                                                            }
+                                                        }
+                                                    },
+                                                    receiptPayments: {
+                                                        type: 'array',
+                                                        items: {
+                                                            type: 'object',
+                                                            properties: {
+                                                                moneyTypeCode: { type: 'string' },
+                                                                paymentAmount: { type: 'number' },
+                                                            }
+                                                        }
+                                                    },
+                                                    receiptNotes: { type: 'string' },
                                                 }
                                             }
                                         }
@@ -393,7 +485,7 @@ const options: swaggerJsdoc.Options = {
                         },
                         400: { description: 'Validation error — invalid request body', content: { 'application/json': { schema: { $ref: '#/components/schemas/ApiError' } } } },
                         422: {
-                            description: 'Fiscalization rejected by ZIMRA (device not registered, day not open, etc.)',
+                            description: 'Fiscalization rejected by ZIMRA (device not registered, day not open, preflight issues, etc.)',
                             content: {
                                 'application/json': {
                                     schema: {
@@ -402,6 +494,17 @@ const options: swaggerJsdoc.Options = {
                                             error: { type: 'string', example: 'FISCALIZATION_FAILED' },
                                             message: { type: 'string' },
                                             statusCode: { type: 'integer' },
+                                            issues: {
+                                                type: 'array',
+                                                description: 'Specific preflight validation failures (present when preflight rejects the receipt)',
+                                                items: {
+                                                    type: 'object',
+                                                    properties: {
+                                                        code: { type: 'string', example: 'RCPT024' },
+                                                        message: { type: 'string' },
+                                                    }
+                                                }
+                                            },
                                             hint: { type: 'string', description: 'Actionable guidance on what to fix' },
                                         }
                                     }

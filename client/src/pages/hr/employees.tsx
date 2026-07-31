@@ -238,7 +238,8 @@ export default function HREmployees() {
 
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
-    createEmployeeMutation.mutate({ ...formData, branchId: 1 }); // Default to branch 1 for now if needed, or null if allowed
+    const selectedBranchId = Number(localStorage.getItem("selectedBranchId"));
+    createEmployeeMutation.mutate({ ...formData, branchId: selectedBranchId || 1 });
   };
 
   const handleUpdateContract = (e: React.FormEvent) => {

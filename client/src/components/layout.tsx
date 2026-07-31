@@ -418,13 +418,14 @@ export function Layout({
       icon: Briefcase,
       label: "HR & Payroll",
       children: [
-        { icon: FileSpreadsheet, label: "Payroll Workbench", href: "/payroll" },
-        { icon: Users, label: "Employees", href: "/payroll?tab=employees" },
-        { icon: CalendarDays, label: "Leave", href: "/payroll?tab=leave" },
+        { icon: LayoutDashboard, label: "HR Dashboard", href: "/hr" },
+        { icon: FileSpreadsheet, label: "Payroll Processing", href: "/hr/payroll" },
+        { icon: Users, label: "Employees", href: "/hr/employees" },
+        { icon: CalendarDays, label: "Leave", href: "/hr/leave" },
         {
           icon: CreditCard,
           label: "Loans & Advances",
-          href: "/payroll?tab=loans",
+          href: "/hr/loans",
         },
       ],
     },
@@ -809,7 +810,7 @@ export function Layout({
         title: "Expenses",
         subtitle: "Track operating expenses and business costs.",
       };
-    if (location.startsWith("/payroll"))
+    if (location.startsWith("/hr"))
       return {
         title: "Payroll & HR",
         subtitle:

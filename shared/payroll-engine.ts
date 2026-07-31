@@ -39,6 +39,7 @@ export interface PayrollElementInput {
 export interface CalculationInput {
   baseSalary: number; // Monthly base salary in run currency
   elements: PayrollElementInput[];
+  payFrequency?: "MONTHLY" | "WEEKLY" | "FORTNIGHTLY" | "DAILY";
   
   bonusAmount?: number;
   ytdBonusAmount?: number;
@@ -176,17 +177,39 @@ export class ZimbabwePayrollEngine {
     return r >= 1 ? r / 100 : r;
   }
 
-  private static computeAnnualPAYE(annualIncome: number, brackets: TaxBracket[]): number {
-    if (!brackets?.length || annualIncome <= 0) return 0;
+  // ZIMRA publishes monthly tax tables (min/max/rate/deduction constants).
+  // For non-monthly frequencies we normalize the period income to a monthly
+  // equivalent, apply the monthly table, then scale back to the period.
+  private static periodsPerMonth(freq: string, workingDaysPerMonth: number): number {
+    switch ((freq || "MONTHLY").toUpperCase()) {
+      case "WEEKLY": return 52 / 12;
+      case "FORTNIGHTLY": return 26 / 12;
+      case "DAILY": return workingDaysPerMonth;
+      default: return 1;
+    }
+  }
+
+  // Monthly PAYE: direct bracket walk against monthly constants.
+  // (The previous implementation annualized income ×12 but matched it against
+  // MONTHLY deduction constants, overtaxing every band — e.g. $3,000/mo became
+  // $1,163.75 instead of $865.00.)
+  private static computeMonthlyPAYE(monthlyIncome: number, brackets: TaxBracket[]): number {
+    if (!brackets?.length || monthlyIncome <= 0) return 0;
+    const income = Number(monthlyIncome);
     for (const bracket of brackets) {
       const min = Number(bracket.min);
       const max = bracket.max === null ? Infinity : Number(bracket.max);
-      if (annualIncome >= min && annualIncome <= max) {
-        const raw = annualIncome * ZimbabwePayrollEngine.normalizeRate(Number(bracket.rate)) - Number(bracket.deduction);
-        return Math.max(0, raw);
+      if (income >= min && income <= max) {
+        return Math.max(0, income * ZimbabwePayrollEngine.normalizeRate(Number(bracket.rate)) - Number(bracket.deduction));
       }
     }
     return 0;
+  }
+
+  // Annual PAYE derived from the monthly table (ZIMRA annual = monthly constant ×12).
+  private static computeAnnualPAYE(annualIncome: number, brackets: TaxBracket[]): number {
+    if (!brackets?.length || annualIncome <= 0) return 0;
+    return ZimbabwePayrollEngine.computeMonthlyPAYE(Number(annualIncome) / 12, brackets) * 12;
   }
 
   public static calculateEmployeeLine(input: CalculationInput): CalculationResult {
@@ -293,7 +316,10 @@ export class ZimbabwePayrollEngine {
 
     let payeRaw: number;
     let fdsAdjustment = 0;
-    const standalonePaye = Math.max(0, r2(ZimbabwePayrollEngine.computeAnnualPAYE(taxableIncome * 12, brackets) / 12));
+    const periodsPerMonth = ZimbabwePayrollEngine.periodsPerMonth(input.payFrequency || "MONTHLY", input.statutoryConfig.workingDaysPerMonth);
+    // Normalize the period income to a monthly equivalent, tax it on the
+    // monthly table, then scale back to the period being paid.
+    const standalonePaye = r2(ZimbabwePayrollEngine.computeMonthlyPAYE(taxableIncome / periodsPerMonth, brackets) * periodsPerMonth);
 
     if (useFds && monthNum > 0) {
       if (fdsMethod === "FORECASTING") {

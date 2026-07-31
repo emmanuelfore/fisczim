@@ -14,8 +14,9 @@ import {
   payrollStatutoryReports, payrollReportExports, payrollReportValidationIssues,
   payrollStatutoryDeadlines, payrollImportBatches, payrollImportRows, companies
 } from "../../../shared/schema.js";
-import { eq, and, desc, asc, ne, sql, gte, lte } from "drizzle-orm";
+import { eq, and, desc, asc, ne, sql, gte, lte, inArray } from "drizzle-orm";
 import { ZimbabwePayrollEngine, type TaxBracket } from "../../../shared/payroll-engine.js";
+import { reportService } from "../../services/reportService.js";
 import { logAction } from "../../audit.js";
 import crypto from "crypto";
 import { userHasPermission } from "../../lib/permissions.js";
@@ -733,7 +734,7 @@ router.post("/pay-grades", requirePayrollWrite, async (req, res) => {
     midpointSalary: z.coerce.string().default("0.00"),
     maxSalary: z.coerce.string().default("0.00"),
     necSectorId: z.coerce.number().int().optional().nullable(),
-    effectiveFrom: z.string(),
+    effectiveFrom: z.string().optional().nullable(),
     effectiveTo: z.string().optional().nullable(),
   });
   const parsed = schema.safeParse(req.body);
@@ -741,11 +742,15 @@ router.post("/pay-grades", requirePayrollWrite, async (req, res) => {
 
   try {
     const companyId = getTargetCompanyId(req);
+    const gradeData = {
+      ...parsed.data,
+      effectiveFrom: parsed.data.effectiveFrom || new Date().toISOString().slice(0, 10),
+    };
     const [grade] = await db.insert(payrollPayGrades)
-      .values({ ...parsed.data, companyId, isActive: true })
+      .values({ ...gradeData, companyId, isActive: true })
       .onConflictDoUpdate({
         target: [payrollPayGrades.companyId, payrollPayGrades.code],
-        set: { ...parsed.data, updatedAt: new Date(), isActive: true },
+        set: { ...gradeData, updatedAt: new Date(), isActive: true },
       })
       .returning();
 
@@ -794,7 +799,7 @@ router.post("/employees", requirePayrollWrite, async (req, res) => {
     departmentId: z.coerce.number().int().optional().nullable(),
     positionId: z.coerce.number().int().optional().nullable(),
     status: z.string().default("ACTIVE"),
-    joiningDate: z.string(),
+    joiningDate: z.string().optional().nullable(),
     terminationDate: z.string().optional().nullable(),
     bankName: z.string().optional().nullable(),
     bankBranch: z.string().optional().nullable(),
@@ -830,11 +835,17 @@ router.post("/employees", requirePayrollWrite, async (req, res) => {
   try {
     const companyId = getTargetCompanyId(req);
     const { contract, ...empData } = parsed.data;
+    if (!empData.joiningDate) {
+      empData.joiningDate = new Date().toISOString().slice(0, 10);
+    }
+    if (!empData.branchId) {
+      empData.branchId = 1;
+    }
 
     const result = await db.transaction(async (tx) => {
       // 1. Create employee
       const [emp] = await tx.insert(employees)
-        .values({ ...empData, companyId })
+        .values({ ...empData, joiningDate: empData.joiningDate || new Date().toISOString().slice(0, 10), companyId })
         .returning();
 
       // 2. Create contract if provided
@@ -844,7 +855,7 @@ router.post("/employees", requirePayrollWrite, async (req, res) => {
           .values({
             employeeId: emp.id,
             contractType: contract.contractType,
-            startDate: empData.joiningDate,
+            startDate: empData.joiningDate || new Date().toISOString().slice(0, 10),
             baseSalary: contract.baseSalary,
             currency: contract.currency,
             usdPercentage: contract.usdPercentage,
@@ -875,6 +886,138 @@ router.post("/employees", requirePayrollWrite, async (req, res) => {
       hasContract: !!result.contract,
     });
     res.status(201).json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
+router.get("/employees/export", async (req, res) => {
+  const companyId = getTargetCompanyId(req);
+  try {
+    const list = await db.query.employees.findMany({
+      where: eq(employees.companyId, companyId),
+      with: {
+        department: true,
+        position: true,
+        contracts: { where: eq(employeeContracts.isActive, true) }
+      },
+      orderBy: [asc(employees.lastName), asc(employees.firstName)]
+    });
+
+    const headers = ["Employee Number", "First Name", "Last Name", "National ID", "Email", "Phone", "Status", "Department", "Position", "Base Salary", "Currency", "USD %", "ZiG %", "Bank Name", "Account Number", "Ecocash Number"];
+    const rows = list.map(emp => {
+      const contract = emp.contracts?.[0];
+      return [
+        emp.employeeNumber || "",
+        emp.firstName,
+        emp.lastName,
+        emp.nationalId || "",
+        emp.email || "",
+        emp.phone || "",
+        emp.status,
+        emp.department?.name || "",
+        emp.position?.title || "",
+        contract?.baseSalary || "0",
+        contract?.currency || "USD",
+        contract?.usdPercentage || "100",
+        contract?.zigPercentage || "0",
+        emp.bankName || "",
+        emp.bankAccountNumber || "",
+        emp.ecocashNumber || ""
+      ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(",");
+    });
+
+    const csvStr = [headers.join(","), ...rows].join("\n");
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", `attachment; filename=employees_export_${new Date().getTime()}.csv`);
+    res.send(csvStr);
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
+// POST /employees/import - JSON array of employees (client parses the CSV with papaparse)
+router.post("/employees/import", requirePayrollWrite, async (req, res) => {
+  const companyId = getTargetCompanyId(req);
+  const { employees: importedEmployees } = req.body;
+
+  if (!Array.isArray(importedEmployees) || importedEmployees.length === 0) {
+    return res.status(400).json({ error: "VALIDATION_ERROR", message: "Invalid or empty employees array" });
+  }
+
+  try {
+    let importedCount = 0;
+    await db.transaction(async (tx) => {
+      for (const row of importedEmployees) {
+        if (!row.firstName || !row.lastName) continue;
+
+        const employeeNumber = row.employeeNumber || `EMP-${Math.floor(Math.random() * 10000)}`;
+        const [existing] = await tx.select({ id: employees.id })
+          .from(employees)
+          .where(and(
+            eq(employees.companyId, companyId),
+            eq(employees.employeeNumber, employeeNumber)
+          ))
+          .limit(1);
+
+        const empData = {
+          companyId,
+          branchId: row.branchId || 1,
+          employeeNumber,
+          firstName: row.firstName,
+          lastName: row.lastName,
+          nationalId: row.nationalId || null,
+          email: row.email || null,
+          phone: row.phone || null,
+          status: "ACTIVE",
+          joiningDate: row.joiningDate || new Date().toISOString().slice(0, 10),
+          bankName: row.bankName || null,
+          bankAccountNumber: row.bankAccountNumber || null,
+          ecocashNumber: row.ecocashNumber || null,
+        };
+
+        let newEmp = existing;
+        if (!existing) {
+          [newEmp] = await tx.insert(employees).values(empData).returning();
+          await tx.insert(leaveBalances).values({
+            employeeId: newEmp.id,
+            leaveType: "ANNUAL",
+            accruedDays: "0.00",
+            usedDays: "0.00",
+            pendingDays: "0.00",
+            availableDays: "0.00",
+          });
+        }
+
+        const [activeContract] = await tx.select({ id: employeeContracts.id })
+          .from(employeeContracts)
+          .where(and(
+            eq(employeeContracts.employeeId, newEmp.id),
+            eq(employeeContracts.isActive, true)
+          ))
+          .limit(1);
+
+        const contractData = {
+          employeeId: newEmp.id,
+          contractType: "PERMANENT",
+          startDate: row.joiningDate || new Date().toISOString().slice(0, 10),
+          baseSalary: row.baseSalary ? String(row.baseSalary) : "0",
+          currency: row.currency || "USD",
+          usdPercentage: row.usdPercentage ? String(row.usdPercentage) : "100",
+          zigPercentage: row.zigPercentage ? String(row.zigPercentage) : "0",
+          isActive: true,
+        };
+        if (activeContract) {
+          await tx.update(employeeContracts).set(contractData).where(eq(employeeContracts.id, activeContract.id));
+        } else {
+          await tx.insert(employeeContracts).values(contractData);
+        }
+
+        importedCount++;
+      }
+    });
+
+    res.json({ success: true, count: importedCount, message: `Successfully imported ${importedCount} employees.` });
   } catch (err: any) {
     res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
   }
@@ -1194,16 +1337,20 @@ router.post("/loans", requirePayrollWrite, async (req, res) => {
     principalAmount: z.coerce.string(),
     interestRate: z.coerce.string().default("0.00"),
     repaymentTermMonths: z.coerce.number().int(),
-    monthlyRepaymentAmount: z.coerce.string(),
+    monthlyRepaymentAmount: z.coerce.string().optional().nullable(),
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
 
   try {
     const companyId = getTargetCompanyId(req);
+    const monthlyRepaymentAmount = parsed.data.monthlyRepaymentAmount
+      ? parsed.data.monthlyRepaymentAmount
+      : (parseFloat(parsed.data.principalAmount) / Math.max(1, parsed.data.repaymentTermMonths)).toFixed(2);
     const [loan] = await db.insert(employeeLoans)
       .values({
         ...parsed.data,
+        monthlyRepaymentAmount,
         companyId,
         remainingBalance: parsed.data.principalAmount,
         status: "PENDING"
@@ -1315,14 +1462,17 @@ router.post("/statutory-rules", requirePayrollApproval, async (req, res) => {
     name: z.string().trim().min(1),
     currency: z.string().default("USD"),
     payFrequency: z.string().default("MONTHLY"),
-    employeeRate: z.coerce.string().default("0.000000"),
-    employerRate: z.coerce.string().default("0.000000"),
+    // UI-friendly shape: a single rate + ruleType; mapped to employee/employer below
+    ruleType: z.string().optional().nullable(),
+    rate: z.coerce.string().optional().nullable(),
+    employeeRate: z.coerce.string().optional(),
+    employerRate: z.coerce.string().optional(),
     ceilingAmount: z.coerce.string().optional().nullable(),
     floorAmount: z.coerce.string().optional().nullable(),
     calculationBasis: z.string().default("TAXABLE_INCOME"),
     formula: z.string().optional().nullable(),
     metadata: z.record(z.any()).default({}),
-    effectiveFrom: z.string(),
+    effectiveFrom: z.string().optional().nullable(),
     effectiveTo: z.string().optional().nullable(),
   });
   const parsed = schema.safeParse(req.body);
@@ -1330,8 +1480,24 @@ router.post("/statutory-rules", requirePayrollApproval, async (req, res) => {
 
   try {
     const companyId = getTargetCompanyId(req);
+    const rate = parsed.data.rate ?? parsed.data.employeeRate ?? "0.000000";
+    const ruleData = {
+      ruleCode: parsed.data.ruleCode,
+      name: parsed.data.name,
+      currency: parsed.data.currency,
+      payFrequency: parsed.data.payFrequency,
+      employeeRate: parsed.data.employeeRate ?? rate,
+      employerRate: parsed.data.employerRate ?? rate,
+      ceilingAmount: parsed.data.ceilingAmount,
+      floorAmount: parsed.data.floorAmount,
+      calculationBasis: parsed.data.calculationBasis,
+      formula: parsed.data.formula ?? (parsed.data.ruleType || null),
+      metadata: parsed.data.metadata,
+      effectiveFrom: parsed.data.effectiveFrom || new Date().toISOString().slice(0, 10),
+      effectiveTo: parsed.data.effectiveTo,
+    };
     const [rule] = await db.insert(payrollStatutoryRules)
-      .values({ ...parsed.data, companyId, countryCode: "ZW", isActive: true })
+      .values({ ...ruleData, companyId, countryCode: "ZW", isActive: true })
       .returning();
     await auditPayroll(req, "PAYROLL_STATUTORY_RULE_CREATED", "payroll_statutory_rules", rule.id, {
       ruleCode: rule.ruleCode,
@@ -1368,7 +1534,7 @@ router.post("/earning-types", requirePayrollApproval, async (req, res) => {
     isRecurring: z.boolean().default(false),
     calculationMethod: z.string().default("FIXED"),
     formula: z.string().optional().nullable(),
-    effectiveFrom: z.string(),
+    effectiveFrom: z.string().optional().nullable(),
     effectiveTo: z.string().optional().nullable(),
   });
   const parsed = schema.safeParse(req.body);
@@ -1377,10 +1543,58 @@ router.post("/earning-types", requirePayrollApproval, async (req, res) => {
   try {
     const companyId = getTargetCompanyId(req);
     const [row] = await db.insert(payrollEarningTypes)
-      .values({ ...parsed.data, companyId, countryCode: "ZW", isActive: true })
+      .values({
+        ...parsed.data,
+        effectiveFrom: parsed.data.effectiveFrom || new Date().toISOString().slice(0, 10),
+        companyId,
+        countryCode: "ZW",
+        isActive: true,
+      })
       .returning();
     await auditPayroll(req, "PAYROLL_EARNING_TYPE_CREATED", "payroll_earning_types", row.id, { code: row.code });
     res.status(201).json(row);
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
+router.patch("/earning-types/:id", requirePayrollApproval, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const companyId = getTargetCompanyId(req);
+  const schema = z.object({
+    code: z.string().trim().min(1).optional(),
+    name: z.string().trim().min(1).optional(),
+    category: z.string().optional(),
+    taxTreatment: z.enum(["TAXABLE", "NON_TAXABLE", "PARTIAL"]).optional(),
+    taxablePercentage: z.coerce.string().optional(),
+    isPensionable: z.boolean().optional(),
+    isNssaApplicable: z.boolean().optional(),
+    isRecurring: z.boolean().optional(),
+    calculationMethod: z.string().optional(),
+    formula: z.string().optional().nullable(),
+    effectiveFrom: z.string().optional().nullable(),
+    effectiveTo: z.string().optional().nullable(),
+    isActive: z.boolean().optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
+
+  try {
+    const [existing] = await db.select()
+      .from(payrollEarningTypes)
+      .where(and(
+        eq(payrollEarningTypes.id, id),
+        sql`${payrollEarningTypes.companyId} = ${companyId} OR ${payrollEarningTypes.companyId} IS NULL`
+      ))
+      .limit(1);
+    if (!existing) return res.status(404).json({ message: "Earning type not found" });
+
+    const [row] = await db.update(payrollEarningTypes)
+      .set({ ...parsed.data, effectiveFrom: parsed.data.effectiveFrom || undefined })
+      .where(eq(payrollEarningTypes.id, id))
+      .returning();
+    await auditPayroll(req, "PAYROLL_EARNING_TYPE_UPDATED", "payroll_earning_types", row.id, { code: row.code });
+    res.json(row);
   } catch (err: any) {
     res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
   }
@@ -1412,7 +1626,7 @@ router.post("/deduction-types", requirePayrollApproval, async (req, res) => {
     employerRate: z.coerce.string().default("0.000000"),
     maxAmount: z.coerce.string().optional().nullable(),
     priorityOrder: z.coerce.number().int().default(100),
-    effectiveFrom: z.string(),
+    effectiveFrom: z.string().optional().nullable(),
     effectiveTo: z.string().optional().nullable(),
   });
   const parsed = schema.safeParse(req.body);
@@ -1421,7 +1635,13 @@ router.post("/deduction-types", requirePayrollApproval, async (req, res) => {
   try {
     const companyId = getTargetCompanyId(req);
     const [row] = await db.insert(payrollDeductionTypes)
-      .values({ ...parsed.data, companyId, countryCode: "ZW", isActive: true })
+      .values({
+        ...parsed.data,
+        effectiveFrom: parsed.data.effectiveFrom || new Date().toISOString().slice(0, 10),
+        companyId,
+        countryCode: "ZW",
+        isActive: true,
+      })
       .returning();
     await auditPayroll(req, "PAYROLL_DEDUCTION_TYPE_CREATED", "payroll_deduction_types", row.id, { code: row.code });
     res.status(201).json(row);
@@ -1444,25 +1664,6 @@ router.get("/runs", async (req, res) => {
 });
 
 // GET /runs/:id/worksheet - Grid calculations worksheet
-router.get("/runs/:id/worksheet", async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const companyId = getTargetCompanyId(req);
-  try {
-    const run = await db.query.payrollRuns.findFirst({
-      where: and(eq(payrollRuns.id, id), eq(payrollRuns.companyId, companyId))
-    });
-    if (!run) return res.status(404).json({ message: "Payroll run not found" });
-
-    const lines = await db.query.payrollRunEmployees.findMany({
-      where: eq(payrollRunEmployees.payrollRunId, id),
-      with: { employee: true, allowances: true, deductions: true }
-    });
-    res.json({ run, lines });
-  } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
-  }
-});
-
 // POST /runs - Initiate draft run
 router.post("/runs", requirePayrollWrite, async (req, res) => {
   const schema = z.object({
@@ -1571,6 +1772,7 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
         // Perform calculation
         const calcs = ZimbabwePayrollEngine.calculateEmployeeLine({
           baseSalary: parseFloat(contract.baseSalary),
+          payFrequency: parsed.data.payFrequency as "MONTHLY" | "WEEKLY" | "FORTNIGHTLY" | "DAILY",
           pensionEmployeeRate: 0,
           pensionEmployerRate: 0,
           necRate: parseFloat(necRate),
@@ -1736,228 +1938,29 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
 });
 
 // PUT /runs/:id/adjustments - Update allowances, overtime, adjustments
-router.put("/runs/:id/adjustments", requirePayrollWrite, async (req, res) => {
+// GET /runs/:id/variances - Prior month comparison variances
+// POST /runs/:id/submit-for-approval - Move a DRAFT run into the approval queue
+router.post("/runs/:id/submit-for-approval", requirePayrollWrite, async (req, res) => {
   const runId = parseInt(req.params.id, 10);
   const companyId = getTargetCompanyId(req);
-  const schema = z.object({
-    employeeId: z.coerce.number().int(),
-    taxableAllowances: z.coerce.number().optional(),
-    nontaxableAllowances: z.coerce.number().optional(),
-    pensionEmployeeRate: z.coerce.number().optional(),
-    pensionEmployerRate: z.coerce.number().optional(),
-  });
-  const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
-
   try {
-    const run = await db.query.payrollRuns.findFirst({
-      where: and(eq(payrollRuns.id, runId), eq(payrollRuns.companyId, companyId))
-    });
+    const [run] = await db.select().from(payrollRuns)
+      .where(and(eq(payrollRuns.id, runId), eq(payrollRuns.companyId, companyId)))
+      .limit(1);
     if (!run) return res.status(404).json({ message: "Payroll run not found" });
-    if (run.status === "LOCKED") return res.status(422).json({ message: "Cannot edit locked payroll runs" });
+    if (run.status === "LOCKED") return res.status(422).json({ message: "Locked payroll runs cannot be resubmitted" });
+    if (run.status === "APPROVED") return res.status(422).json({ message: "Payroll run is already approved" });
 
-    // Fetch employee line
-    const [line] = await db.select().from(payrollRunEmployees)
-      .where(and(eq(payrollRunEmployees.payrollRunId, runId), eq(payrollRunEmployees.employeeId, parsed.data.employeeId)))
-      .limit(1);
-    if (!line) return res.status(404).json({ message: "Employee line not found in this run" });
+    const [updated] = await db.update(payrollRuns)
+      .set({ status: "PENDING_APPROVAL", updatedAt: new Date() })
+      .where(eq(payrollRuns.id, runId))
+      .returning();
 
-    // Fetch active contract to get fresh values
-    const [contract] = await db.select().from(employeeContracts)
-      .where(and(eq(employeeContracts.employeeId, parsed.data.employeeId), eq(employeeContracts.isActive, true)))
-      .limit(1);
-    if (!contract) return res.status(400).json({ message: "Employee does not have active contract" });
-
-    // Fetch tax tables configurations
-    const taxConfig = await loadEffectiveTaxConfig(db, run.currency, run.payFrequency, run.periodStart, run.periodEnd);
-    if (!taxConfig) throw new Error("Active tax configuration not found");
-
-    const previousSnapshot = (line.snapshotData as any) || {};
-    const taxableAllowances = parsed.data.taxableAllowances ?? toMoney(previousSnapshot.taxableAllowances);
-    const nontaxableAllowances = parsed.data.nontaxableAllowances ?? toMoney(previousSnapshot.nontaxableAllowances);
-    const recurringDeductionTotal = toMoney(previousSnapshot.recurringDeductionTotal);
-    const taxDeductibleDeductions = toMoney(previousSnapshot.taxDeductibleDeductions);
-    const pensionEmployeeRate = parsed.data.pensionEmployeeRate ?? toMoney(previousSnapshot.pensionEmployeeRate);
-    const pensionEmployerRate = parsed.data.pensionEmployerRate ?? toMoney(previousSnapshot.pensionEmployerRate);
-
-    // Fetch active loan deductions
-    const loanId = previousSnapshot.loanId;
-    let loanDeduction = 0;
-    if (loanId) {
-      const [loan] = await db.select().from(employeeLoans).where(eq(employeeLoans.id, loanId)).limit(1);
-      if (loan) {
-        loanDeduction = Math.min(parseFloat(loan.remainingBalance), parseFloat(loan.monthlyRepaymentAmount));
-      }
-    }
-
-    // Resolve NEC rates
-    let necRate = "0.0000";
-    let necEmployerRate = "0.0000";
-    let necFixedAmount = "0.00";
-    if (contract.necSectorId) {
-      const [nec] = await db.select().from(necSectorsConfig).where(eq(necSectorsConfig.id, contract.necSectorId)).limit(1);
-      if (nec) {
-        necRate = nec.employeeRate;
-        necEmployerRate = nec.employerRate;
-        necFixedAmount = nec.fixedAmount;
-      }
-    }
-
-    // Recompute
-    const calcs = ZimbabwePayrollEngine.calculateEmployeeLine({
-      baseSalary: parseFloat(line.basicSalary),
-      pensionEmployeeRate,
-      pensionEmployerRate,
-      necRate: parseFloat(necRate),
-      necEmployerRate: parseFloat(necEmployerRate),
-      necFixedAmount: parseFloat(necFixedAmount),
-      usdPercentage: parseFloat(line.usdPercentage),
-      zigPercentage: parseFloat(line.zigPercentage),
-      exchangeRate: parseFloat(run.exchangeRate),
-      elements: [],
-      taxConfig: {
-        brackets: taxConfig.brackets as TaxBracket[],
-      },
-      statutoryConfig: {
-        aidsLevyRate: parseFloat(taxConfig.aidsLevyRate),
-        nssaRateEmployee: parseFloat(taxConfig.nssaRateEmployee),
-        nssaRateEmployer: parseFloat(taxConfig.nssaRateEmployer),
-        nssaCeilingLimit: parseFloat(taxConfig.nssaCeilingLimit),
-        zimdefRate: 0.01,
-        standardsLevyRate: 0.005,
-        taxFreeBonusThreshold: 400,
-        medicalAidCreditMonthly: 75,
-        blindPersonCreditAnnual: 900,
-        elderlyPersonCreditAnnual: 900,
-        maxTaxDeductiblePensionAnnual: 54000,
-        hoursPerDay: 8,
-        workingDaysPerMonth: 22,
-        overtimeMultiplierStandard: 1.5,
-        overtimeMultiplierSunday: 2.0
-      }
+    await auditPayroll(req, "PAYROLL_RUN_SUBMITTED", "payroll_runs", runId, {
+      periodStart: updated.periodStart,
+      periodEnd: updated.periodEnd,
     });
-
-    // Update DB
-    await db.transaction(async (tx) => {
-      await tx.update(payrollRunEmployees)
-        .set({
-          basicSalary: calcs.basicSalary.toFixed(2),
-          grossSalary: calcs.grossSalary.toFixed(2),
-          netSalary: calcs.netSalary.toFixed(2),
-          paye: calcs.payeRaw.toFixed(2),
-          aidsLevy: calcs.aidsLevy.toFixed(2),
-          nssaEmployee: calcs.nssaEmployee.toFixed(2),
-          nssaEmployer: calcs.nssaEmployer.toFixed(2),
-          necEmployee: calcs.necEmployee.toFixed(2),
-          necEmployer: calcs.necEmployer.toFixed(2),
-          netSalaryUsd: calcs.netSalaryUsd.toFixed(2),
-          netSalaryZig: calcs.netSalaryZig.toFixed(2),
-          payeUsd: calcs.payeUsd.toFixed(2),
-          payeZig: calcs.payeZig.toFixed(2),
-          nssaEmployeeUsd: calcs.nssaEmployeeUsd.toFixed(2),
-          nssaEmployeeZig: calcs.nssaEmployeeZig.toFixed(2),
-          totalAllowances: calcs.totalAllowances.toFixed(2),
-          totalDeductions: calcs.totalDeductions.toFixed(2),
-          snapshotData: buildPayrollSnapshot({
-            ...calcs,
-            previousSnapshotHash: previousSnapshot.snapshotHash || null,
-            taxConfigId: taxConfig.id,
-            contractId: contract.id,
-            calculationBasis: "MANUAL_ADJUSTMENT",
-            loanId,
-            loanDeduction,
-            recurringItemIds: previousSnapshot.recurringItemIds || [],
-            taxableAllowances,
-            nontaxableAllowances,
-            recurringDeductionTotal,
-            taxDeductibleDeductions,
-            pensionEmployeeRate,
-            pensionEmployerRate
-          })
-        })
-        .where(eq(payrollRunEmployees.id, line.id));
-
-      // Recompute header totals
-      const lines = await tx.select().from(payrollRunEmployees).where(eq(payrollRunEmployees.payrollRunId, runId));
-      let totalBasic = 0, totalGross = 0, totalDeductions = 0, totalNet = 0;
-      for (const l of lines) {
-        totalBasic += parseFloat(l.basicSalary);
-        totalGross += parseFloat(l.grossSalary);
-        totalDeductions += parseFloat(l.totalDeductions);
-        totalNet += parseFloat(l.netSalary);
-      }
-      await tx.update(payrollRuns)
-        .set({
-          totalBasic: totalBasic.toFixed(2),
-          totalGross: totalGross.toFixed(2),
-          totalDeductions: totalDeductions.toFixed(2),
-          totalNet: totalNet.toFixed(2),
-        })
-        .where(eq(payrollRuns.id, runId));
-    });
-
-    await auditPayroll(req, "PAYROLL_RUN_EMPLOYEE_ADJUSTED", "payroll_run_employees", line.id, {
-      payrollRunId: runId,
-      employeeId: parsed.data.employeeId,
-      taxableAllowances: parsed.data.taxableAllowances,
-      nontaxableAllowances: parsed.data.nontaxableAllowances,
-    });
-    res.json({ success: true });
-  } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
-  }
-});
-
-// GET /runs/:id/variances - Prior month comparison variances
-router.get("/runs/:id/variances", async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const companyId = getTargetCompanyId(req);
-  try {
-    const run = await db.query.payrollRuns.findFirst({
-      where: and(eq(payrollRuns.id, id), eq(payrollRuns.companyId, companyId))
-    });
-    if (!run) return res.status(404).json({ message: "Payroll run not found" });
-
-    // Fetch prior month's locked run for company
-    const [priorRun] = await db.select().from(payrollRuns)
-      .where(and(
-        eq(payrollRuns.companyId, companyId),
-        eq(payrollRuns.status, "LOCKED"),
-        ne(payrollRuns.id, id)
-      ))
-      .orderBy(desc(payrollRuns.periodEnd))
-      .limit(1);
-
-    const currentLines = await db.select().from(payrollRunEmployees).where(eq(payrollRunEmployees.payrollRunId, id));
-    
-    const variances = [];
-    for (const cur of currentLines) {
-      let priorSalary = 0;
-      if (priorRun) {
-        const [priorLine] = await db.select().from(payrollRunEmployees)
-          .where(and(eq(payrollRunEmployees.payrollRunId, priorRun.id), eq(payrollRunEmployees.employeeId, cur.employeeId)))
-          .limit(1);
-        if (priorLine) {
-          priorSalary = parseFloat(priorLine.netSalary);
-        }
-      }
-
-      const diff = parseFloat(cur.netSalary) - priorSalary;
-      const pct = priorSalary > 0 ? (diff / priorSalary) * 100 : 100;
-      
-      const emp = await db.query.employees.findFirst({ where: eq(employees.id, cur.employeeId) });
-
-      variances.push({
-        employeeId: cur.employeeId,
-        employeeName: `${emp?.firstName} ${emp?.lastName}`,
-        currentSalary: parseFloat(cur.netSalary),
-        priorSalary,
-        varianceAmount: diff,
-        variancePercentage: pct
-      });
-    }
-
-    res.json(variances);
+    res.json(updated);
   } catch (err: any) {
     res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
   }
@@ -2109,140 +2112,7 @@ router.post("/runs/:id/lock", requirePayrollApproval, async (req, res) => {
 });
 
 // POST /runs/:id/rollback - Rollback a locked run, creating offsetting journals
-router.post("/runs/:id/rollback", requirePayrollApproval, async (req, res) => {
-  const runId = parseInt(req.params.id, 10);
-  const companyId = getTargetCompanyId(req);
-  const userId = (req as any).user?.id;
-  try {
-    const run = await db.query.payrollRuns.findFirst({
-      where: and(eq(payrollRuns.id, runId), eq(payrollRuns.companyId, companyId))
-    });
-    if (!run) return res.status(404).json({ message: "Payroll run not found" });
-    if (run.status !== "LOCKED") return res.status(400).json({ message: "Only locked payroll runs can be rolled back" });
-
-    // Fetch employee lines
-    const lines = await db.select().from(payrollRunEmployees).where(eq(payrollRunEmployees.payrollRunId, runId));
-
-    await db.transaction(async (tx) => {
-      // 1. Create reversing (negated) journal entry draft
-      const [reversalDraft] = await tx.insert(journalEntryDrafts).values({
-        companyId,
-        entryDate: new Date(),
-        description: `Payroll Reversal - Period Ending ${run.periodEnd}`,
-        referenceType: "PAYROLL",
-        referenceId: `${runId}-reversal`,
-        status: "PENDING_APPROVAL",
-        createdBy: userId || null
-      }).returning();
-
-      // Retrieve default accounts
-      const accountsList = await tx.select().from(accounts).where(eq(accounts.companyId, companyId));
-      const getAccount = (type: string, code: string) => {
-        return accountsList.find(a => a.code === code) || accountsList.find(a => a.type === type) || accountsList[0];
-      };
-
-      let totalBasic = 0, totalPaye = 0, totalNssaEmployee = 0, totalNssaEmployer = 0, totalNet = 0;
-      for (const line of lines) {
-        totalBasic += parseFloat(line.basicSalary);
-        totalPaye += parseFloat(line.paye) + parseFloat(line.aidsLevy);
-        totalNssaEmployee += parseFloat(line.nssaEmployee);
-        totalNssaEmployer += parseFloat(line.nssaEmployer);
-        totalNet += parseFloat(line.netSalary);
-
-        // Revert loan updates and delete installments
-        const loanId = (line.snapshotData as any).loanId;
-        const loanDeduction = (line.snapshotData as any).loanDeduction;
-        if (loanId && loanDeduction > 0) {
-          const [loan] = await tx.select().from(employeeLoans).where(eq(employeeLoans.id, loanId)).limit(1);
-          if (loan) {
-            const nextBal = parseFloat(loan.remainingBalance) + loanDeduction;
-            await tx.update(employeeLoans)
-              .set({ remainingBalance: nextBal.toFixed(2), status: "ACTIVE" })
-              .where(eq(employeeLoans.id, loanId));
-
-            // Delete specific installment record
-            await tx.delete(loanInstallments)
-              .where(and(
-                eq(loanInstallments.loanId, loanId),
-                eq(loanInstallments.payrollRunEmployeeId, line.id)
-              ));
-          }
-        }
-      }
-
-      const basicSalariesAcc = getAccount("EXPENSE", "6000");
-      const netSalariesAcc = getAccount("LIABILITY", "2000");
-      const payeAcc = getAccount("LIABILITY", "2100");
-      const nssaAcc = getAccount("LIABILITY", "2110");
-      
-      // Negated values
-      const journalLines = [
-        { draftId: reversalDraft.id, accountId: basicSalariesAcc.id, type: "DEBIT", amount: (-totalBasic).toFixed(2), currency: run.currency },
-        { draftId: reversalDraft.id, accountId: netSalariesAcc.id, type: "CREDIT", amount: (-totalNet).toFixed(2), currency: run.currency },
-        { draftId: reversalDraft.id, accountId: payeAcc.id, type: "CREDIT", amount: (-totalPaye).toFixed(2), currency: run.currency },
-        { draftId: reversalDraft.id, accountId: nssaAcc.id, type: "CREDIT", amount: (-(totalNssaEmployee + totalNssaEmployer)).toFixed(2), currency: run.currency },
-      ];
-      await tx.insert(journalEntryDraftLines).values(journalLines);
-
-      // 2. Change run status to REVERSED
-      await tx.update(payrollRuns)
-        .set({ status: "REVERSED", updatedAt: new Date() })
-        .where(eq(payrollRuns.id, runId));
-    });
-
-    await auditPayroll(req, "PAYROLL_RUN_REVERSED", "payroll_runs", runId, {
-      periodStart: run.periodStart,
-      periodEnd: run.periodEnd,
-    });
-    res.json({ success: true, status: "REVERSED" });
-  } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
-  }
-});
-
 // --- 9. BANK TRANSFER CSV EXPORTS & ECOCASH BULK PAYOUTS ---
-router.get("/runs/:id/export/bank", async (req, res) => {
-  const runId = parseInt(req.params.id, 10);
-  const companyId = getTargetCompanyId(req);
-  try {
-    const run = await db.query.payrollRuns.findFirst({
-      where: and(eq(payrollRuns.id, runId), eq(payrollRuns.companyId, companyId))
-    });
-    if (!run) return res.status(404).json({ message: "Payroll run not found" });
-
-    const lines = await db.query.payrollRunEmployees.findMany({
-      where: eq(payrollRunEmployees.payrollRunId, runId),
-      with: { employee: true }
-    });
-
-    // Generate CBZ CSV Salary file
-    let csv = "Account Number,Employee Name,Amount,Reference,Branch Code\n";
-    for (const line of lines) {
-      const name = `${line.employee.firstName} ${line.employee.lastName}`;
-      const acc = line.employee.bankAccountNumber || "N/A";
-      const branch = line.employee.bankBranch || "N/A";
-      csv += `"${acc}","${name}",${line.netSalaryUsd},"SALARY PERIOD END ${run.periodEnd}","${branch}"\n`;
-    }
-
-    await db.insert(payrollIntegrationEvents).values({
-      companyId,
-      integrationType: "BANK_CSV",
-      entityType: "payroll_runs",
-      entityId: String(runId),
-      direction: "OUTBOUND",
-      status: "GENERATED",
-      requestPayload: { runId },
-      responsePayload: { rows: lines.length, fileType: "CBZ_CSV" },
-    });
-    await auditPayroll(req, "PAYROLL_BANK_EXPORT_GENERATED", "payroll_runs", runId, { rows: lines.length });
-
-    res.header("Content-Type", "text/csv");
-    res.attachment(`CBZ_SALARY_EXPORT_${runId}.csv`);
-    res.send(csv);
-  } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
-  }
-});
 
 router.post("/runs/:id/export/ecocash", async (req, res) => {
   const runId = parseInt(req.params.id, 10);
@@ -2434,964 +2304,28 @@ router.post("/employees/:id/documents", requirePayrollWrite, async (req, res) =>
   }
 });
 
-router.get("/runs/:id/payslips", async (req, res) => {
-  const runId = parseInt(req.params.id, 10);
-  const companyId = getTargetCompanyId(req);
-  try {
-    const docs = await db.select().from(payslipDocuments)
-      .where(and(eq(payslipDocuments.companyId, companyId), eq(payslipDocuments.payrollRunId, runId)))
-      .orderBy(desc(payslipDocuments.generatedAt));
-    res.json(docs);
-  } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
-  }
-});
-
-router.post("/runs/:id/payslips", requirePayrollWrite, async (req, res) => {
-  const runId = parseInt(req.params.id, 10);
-  const schema = z.object({
-    deliveryChannel: z.string().default("DOWNLOAD"),
-    passwordProtected: z.boolean().default(false),
-  });
-  const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
-  try {
-    const companyId = getTargetCompanyId(req);
-    const run = await db.query.payrollRuns.findFirst({
-      where: and(eq(payrollRuns.id, runId), eq(payrollRuns.companyId, companyId))
-    });
-    if (!run) return res.status(404).json({ message: "Payroll run not found" });
-
-    const lines = await db.select().from(payrollRunEmployees).where(eq(payrollRunEmployees.payrollRunId, runId));
-    const docs = [];
-    for (const line of lines) {
-      const documentHash = crypto.createHash("sha256")
-        .update(JSON.stringify({ runId, lineId: line.id, employeeId: line.employeeId, netSalary: line.netSalary }))
-        .digest("hex");
-      const [doc] = await db.insert(payslipDocuments).values({
-        companyId,
-        payrollRunId: runId,
-        payrollRunEmployeeId: line.id,
-        employeeId: line.employeeId,
-        documentHash,
-        deliveryChannel: parsed.data.deliveryChannel,
-        deliveryStatus: "GENERATED",
-        passwordProtected: parsed.data.passwordProtected,
-        generatedBy: (req as any).user?.id || null,
-      }).returning();
-      docs.push(doc);
-    }
-    await auditPayroll(req, "PAYROLL_PAYSLIPS_GENERATED", "payroll_runs", runId, { count: docs.length });
-    res.status(201).json({ count: docs.length, documents: docs });
-  } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
-  }
-});
-
-router.get("/dashboard", async (req, res) => {
-  try {
-    const companyId = getTargetCompanyId(req);
-    const activeEmployees = await db.select({ count: sql<number>`count(*)::int` }).from(employees)
-      .where(and(eq(employees.companyId, companyId), eq(employees.status, "ACTIVE")));
-    const pendingLeave = await db.select({ count: sql<number>`count(*)::int` }).from(leaveRequests)
-      .where(and(eq(leaveRequests.companyId, companyId), eq(leaveRequests.status, "PENDING")));
-    const pendingLoans = await db.select({ count: sql<number>`count(*)::int` }).from(employeeLoans)
-      .where(and(eq(employeeLoans.companyId, companyId), eq(employeeLoans.status, "PENDING")));
-    const [latestRun] = await db.select().from(payrollRuns)
-      .where(eq(payrollRuns.companyId, companyId))
-      .orderBy(desc(payrollRuns.periodEnd))
-      .limit(1);
-    res.json({
-      activeEmployees: activeEmployees[0]?.count || 0,
-      pendingApprovals: (pendingLeave[0]?.count || 0) + (pendingLoans[0]?.count || 0),
-      latestPayrollCost: latestRun ? latestRun.totalGross : "0.00",
-      latestNetPay: latestRun ? latestRun.totalNet : "0.00",
-      latestRun,
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
-  }
-});
-
-router.get("/reports/summary", async (req, res) => {
-  try {
-    const companyId = getTargetCompanyId(req);
-    const from = typeof req.query.from === "string" ? req.query.from : "1900-01-01";
-    const to = typeof req.query.to === "string" ? req.query.to : "2999-12-31";
-    const runs = await db.select().from(payrollRuns)
-      .where(and(
-        eq(payrollRuns.companyId, companyId),
-        gte(payrollRuns.periodEnd, from),
-        lte(payrollRuns.periodEnd, to)
-      ))
-      .orderBy(desc(payrollRuns.periodEnd));
-    const totals = runs.reduce((acc, run) => {
-      acc.totalBasic += Number(run.totalBasic || 0);
-      acc.totalGross += Number(run.totalGross || 0);
-      acc.totalDeductions += Number(run.totalDeductions || 0);
-      acc.totalNet += Number(run.totalNet || 0);
-      return acc;
-    }, { totalBasic: 0, totalGross: 0, totalDeductions: 0, totalNet: 0 });
-    res.json({ from, to, totals, runs });
-  } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
-  }
-});
-
-router.get("/imports/templates/:type", (req, res) => {
-  const importType = normalizeImportType(req.params.type);
-  if (!importType) return res.status(404).json({ error: "UNKNOWN_IMPORT_TYPE" });
-  const header = IMPORT_TEMPLATES[importType];
-  const sample: Record<ImportType, string[]> = {
-    employees: ["EMP001", "Tariro", "Moyo", "12-345678A90", "tariro@example.com", "0772123456", "HQ", "FIN", "Accountant", monthStartIso(), "NSSA123", "ZIMRA123", "CBZ", "Borrowdale", "1234567890", "0772123456", "750.00", "USD", "100.00", "0.00", "MONTHLY", "B2", "COMM"],
-    "pay-grades": ["B2", "Senior Clerk", "USD", "MONTHLY", "500.00", "750.00", "1000.00", monthStartIso(), "COMM"],
-    "earning-types": ["TRANSPORT", "Transport allowance", "ALLOWANCE", "TAXABLE", "100.00", "false", "false", "true", "FIXED", "", monthStartIso()],
-    "deduction-types": ["MEDAID", "Medical aid", "COMPANY", "POST_TAX", "EMPLOYEE", "FIXED", "0.000000", "0.000000", "", "100", "", monthStartIso()],
-    "recurring-items": ["EMP001", "ALLOWANCE", "Transport allowance", "80.00", "true", "false", monthStartIso(), ""],
-    "leave-balances": ["EMP001", "ANNUAL", "21.00", "0.00", "0.00", "21.00"],
-    loans: ["EMP001", "300.00", "0.00", "3", "100.00", "PENDING"],
-  };
-  res.setHeader("Content-Type", "text/csv; charset=utf-8");
-  res.setHeader("Content-Disposition", `attachment; filename="payroll_${importType}_template.csv"`);
-  res.send(`${header.map(csvEscape).join(",")}\n${sample[importType].map(csvEscape).join(",")}\n`);
-});
-
-router.get("/imports/batches", async (req, res) => {
-  try {
-    const companyId = getTargetCompanyId(req);
-    const batches = await db.select().from(payrollImportBatches)
-      .where(eq(payrollImportBatches.companyId, companyId))
-      .orderBy(desc(payrollImportBatches.createdAt))
-      .limit(50);
-    res.json(batches);
-  } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
-  }
-});
-
-async function validateImportRow(companyId: number, importType: ImportType, row: ImportRow, tx: any = db): Promise<string[]> {
-  const errors: string[] = [];
-  if (importType === "employees") {
-    errors.push(...requireColumns(row, ["employeeNumber", "firstName", "lastName", "nationalId", "branchCode", "joiningDate"]));
-    if (textOrNull(row.joiningDate) && !dateOrNull(row.joiningDate)) errors.push("joiningDate must be YYYY-MM-DD");
-    const branchCode = textOrNull(row.branchCode);
-    if (branchCode) {
-      const [branch] = await tx.select({ id: branches.id }).from(branches)
-        .where(and(eq(branches.companyId, companyId), sql`lower(coalesce(${branches.code}, ${branches.name})) = lower(${branchCode})`))
-        .limit(1);
-      if (!branch) errors.push(`branchCode ${branchCode} was not found`);
-    }
-  }
-  if (importType === "pay-grades") {
-    errors.push(...requireColumns(row, ["code", "name", "currency", "minSalary", "midpointSalary", "maxSalary", "effectiveFrom"]));
-    if (textOrNull(row.effectiveFrom) && !dateOrNull(row.effectiveFrom)) errors.push("effectiveFrom must be YYYY-MM-DD");
-  }
-  if (importType === "earning-types") {
-    errors.push(...requireColumns(row, ["code", "name", "category", "taxTreatment", "effectiveFrom"]));
-  }
-  if (importType === "deduction-types") {
-    errors.push(...requireColumns(row, ["code", "name", "category", "timing", "contributionSide", "effectiveFrom"]));
-  }
-  if (["recurring-items", "leave-balances", "loans"].includes(importType)) {
-    errors.push(...requireColumns(row, ["employeeNumber"]));
-    if (textOrNull(row.employeeNumber)) {
-      const employee = await findEmployeeByNumber(companyId, row.employeeNumber, tx);
-      if (!employee) errors.push(`employeeNumber ${row.employeeNumber} was not found`);
-    }
-  }
-  if (importType === "recurring-items") errors.push(...requireColumns(row, ["type", "name", "amount", "startDate"]));
-  if (importType === "leave-balances") errors.push(...requireColumns(row, ["leaveType"]));
-  if (importType === "loans") errors.push(...requireColumns(row, ["principalAmount", "repaymentTermMonths", "monthlyRepaymentAmount"]));
-  return errors;
-}
-
-async function commitImportRow(companyId: number, importType: ImportType, row: ImportRow, tx: any) {
-  if (importType === "employees") {
-    const branchCode = textOrNull(row.branchCode)!;
-    const [branch] = await tx.select({ id: branches.id }).from(branches)
-      .where(and(eq(branches.companyId, companyId), sql`lower(coalesce(${branches.code}, ${branches.name})) = lower(${branchCode})`))
-      .limit(1);
-
-    let departmentId: number | null = null;
-    const departmentCode = textOrNull(row.departmentCode);
-    if (departmentCode) {
-      const [existing] = await tx.select().from(departments)
-        .where(and(eq(departments.companyId, companyId), eq(departments.code, departmentCode)))
-        .limit(1);
-      const department = existing ?? (await tx.insert(departments).values({ companyId, code: departmentCode, name: departmentCode }).returning())[0];
-      departmentId = department.id;
-    }
-
-    let positionId: number | null = null;
-    const positionTitle = textOrNull(row.positionTitle);
-    if (positionTitle) {
-      const [existing] = await tx.select().from(positions)
-        .where(and(eq(positions.companyId, companyId), eq(positions.title, positionTitle)))
-        .limit(1);
-      const position = existing ?? (await tx.insert(positions).values({ companyId, title: positionTitle }).returning())[0];
-      positionId = position.id;
-    }
-
-    const employeeValues = {
-      companyId,
-      branchId: branch.id,
-      departmentId,
-      positionId,
-      employeeNumber: textOrNull(row.employeeNumber)!,
-      firstName: textOrNull(row.firstName)!,
-      lastName: textOrNull(row.lastName)!,
-      nationalId: textOrNull(row.nationalId)!,
-      email: textOrNull(row.email),
-      phone: textOrNull(row.phone),
-      nssaNumber: textOrNull(row.nssaNumber),
-      zimraTaxNumber: textOrNull(row.zimraTaxNumber),
-      bankName: textOrNull(row.bankName),
-      bankBranch: textOrNull(row.bankBranch),
-      bankAccountNumber: textOrNull(row.bankAccountNumber),
-      ecocashNumber: textOrNull(row.ecocashNumber),
-      joiningDate: dateOrNull(row.joiningDate)!,
-      status: textOrDefault(row.status, "ACTIVE"),
-      updatedAt: new Date(),
-    };
-    const [employee] = await tx.insert(employees)
-      .values(employeeValues)
-      .onConflictDoUpdate({
-        target: [employees.companyId, employees.employeeNumber],
-        set: employeeValues,
-      })
-      .returning();
-
-    const baseSalary = numberOrNull(row.baseSalary);
-    if (baseSalary != null) {
-      const [grade] = textOrNull(row.payGradeCode)
-        ? await tx.select({ id: payrollPayGrades.id }).from(payrollPayGrades)
-          .where(and(eq(payrollPayGrades.companyId, companyId), eq(payrollPayGrades.code, textOrNull(row.payGradeCode)!))).limit(1)
-        : [null];
-      const [nec] = textOrNull(row.necSectorCode)
-        ? await tx.select({ id: necSectorsConfig.id }).from(necSectorsConfig)
-          .where(and(sql`(${necSectorsConfig.companyId} = ${companyId} or ${necSectorsConfig.companyId} is null)`, eq(necSectorsConfig.code, textOrNull(row.necSectorCode)!))).limit(1)
-        : [null];
-      await tx.update(employeeContracts).set({ isActive: false }).where(eq(employeeContracts.employeeId, employee.id));
-      await tx.insert(employeeContracts).values({
-        employeeId: employee.id,
-        startDate: dateOrNull(row.joiningDate)!,
-        payFrequency: textOrDefault(row.payFrequency, "MONTHLY"),
-        baseSalary: moneyString(baseSalary),
-        currency: textOrDefault(row.currency, "USD"),
-        usdPercentage: textOrDefault(row.usdPercentage, "100.00"),
-        zigPercentage: textOrDefault(row.zigPercentage, "0.00"),
-        payGradeId: grade?.id ?? null,
-        necSectorId: nec?.id ?? null,
-        isActive: true,
-      });
-    }
-    return { entityType: "employees", entityId: employee.id };
-  }
-
-  if (importType === "pay-grades") {
-    const [nec] = textOrNull(row.necSectorCode)
-      ? await tx.select({ id: necSectorsConfig.id }).from(necSectorsConfig)
-        .where(and(sql`(${necSectorsConfig.companyId} = ${companyId} or ${necSectorsConfig.companyId} is null)`, eq(necSectorsConfig.code, textOrNull(row.necSectorCode)!))).limit(1)
-      : [null];
-    const values = {
-      companyId,
-      code: textOrNull(row.code)!,
-      name: textOrNull(row.name)!,
-      currency: textOrDefault(row.currency, "USD"),
-      payFrequency: textOrDefault(row.payFrequency, "MONTHLY"),
-      minSalary: moneyString(row.minSalary),
-      midpointSalary: moneyString(row.midpointSalary),
-      maxSalary: moneyString(row.maxSalary),
-      effectiveFrom: dateOrNull(row.effectiveFrom)!,
-      necSectorId: nec?.id ?? null,
-      updatedAt: new Date(),
-      isActive: true,
-    };
-    const [grade] = await tx.insert(payrollPayGrades)
-      .values(values)
-      .onConflictDoUpdate({ target: [payrollPayGrades.companyId, payrollPayGrades.code], set: values })
-      .returning();
-    return { entityType: "payroll_pay_grades", entityId: grade.id };
-  }
-
-  if (importType === "earning-types") {
-    const [earningType] = await tx.insert(payrollEarningTypes).values({
-      companyId,
-      code: textOrNull(row.code)!,
-      name: textOrNull(row.name)!,
-      category: textOrDefault(row.category, "ALLOWANCE"),
-      taxTreatment: textOrDefault(row.taxTreatment, "TAXABLE"),
-      taxablePercentage: textOrDefault(row.taxablePercentage, "100.00"),
-      isPensionable: parseBool(row.isPensionable),
-      isNssaApplicable: parseBool(row.isNssaApplicable),
-      isRecurring: parseBool(row.isRecurring, true),
-      calculationMethod: textOrDefault(row.calculationMethod, "FIXED"),
-      formula: textOrNull(row.formula),
-      effectiveFrom: dateOrNull(row.effectiveFrom)!,
-      isActive: true,
-    }).returning();
-    return { entityType: "payroll_earning_types", entityId: earningType.id };
-  }
-
-  if (importType === "deduction-types") {
-    const [deductionType] = await tx.insert(payrollDeductionTypes).values({
-      companyId,
-      code: textOrNull(row.code)!,
-      name: textOrNull(row.name)!,
-      category: textOrDefault(row.category, "COMPANY"),
-      timing: textOrDefault(row.timing, "POST_TAX"),
-      contributionSide: textOrDefault(row.contributionSide, "EMPLOYEE"),
-      calculationMethod: textOrDefault(row.calculationMethod, "FIXED"),
-      employeeRate: textOrDefault(row.employeeRate, "0.000000"),
-      employerRate: textOrDefault(row.employerRate, "0.000000"),
-      maxAmount: textOrNull(row.maxAmount),
-      priorityOrder: numberOrNull(row.priorityOrder) ?? 100,
-      formula: textOrNull(row.formula),
-      effectiveFrom: dateOrNull(row.effectiveFrom)!,
-      isActive: true,
-    }).returning();
-    return { entityType: "payroll_deduction_types", entityId: deductionType.id };
-  }
-
-  const employee = await findEmployeeByNumber(companyId, row.employeeNumber, tx);
-  if (importType === "recurring-items") {
-    const [item] = await tx.insert(payrollRecurringItems).values({
-      employeeId: employee.id,
-      type: textOrDefault(row.type, "ALLOWANCE"),
-      name: textOrNull(row.name)!,
-      amount: moneyString(row.amount),
-      isTaxable: parseBool(row.isTaxable, true),
-      isTaxDeductible: parseBool(row.isTaxDeductible),
-      startDate: dateOrNull(row.startDate)!,
-      endDate: dateOrNull(row.endDate),
-      isActive: true,
-    }).returning();
-    return { entityType: "payroll_recurring_items", entityId: item.id };
-  }
-  if (importType === "leave-balances") {
-    const leaveType = textOrDefault(row.leaveType, "ANNUAL");
-    const existing = await tx.select().from(leaveBalances)
-      .where(and(eq(leaveBalances.employeeId, employee.id), eq(leaveBalances.leaveType, leaveType)))
-      .limit(1);
-    const values = {
-      employeeId: employee.id,
-      leaveType,
-      accruedDays: textOrDefault(row.accruedDays, "0.00"),
-      usedDays: textOrDefault(row.usedDays, "0.00"),
-      pendingDays: textOrDefault(row.pendingDays, "0.00"),
-      availableDays: textOrDefault(row.availableDays, "0.00"),
-      lastAccruedAt: new Date(),
-    };
-    const [balance] = existing.length
-      ? await tx.update(leaveBalances).set(values).where(eq(leaveBalances.id, existing[0].id)).returning()
-      : await tx.insert(leaveBalances).values(values).returning();
-    return { entityType: "leave_balances", entityId: balance.id };
-  }
-  const [loan] = await tx.insert(employeeLoans).values({
-    companyId,
-    employeeId: employee.id,
-    principalAmount: moneyString(row.principalAmount),
-    interestRate: textOrDefault(row.interestRate, "0.00"),
-    repaymentTermMonths: numberOrNull(row.repaymentTermMonths) ?? 1,
-    monthlyRepaymentAmount: moneyString(row.monthlyRepaymentAmount),
-    remainingBalance: moneyString(row.principalAmount),
-    status: textOrDefault(row.status, "PENDING"),
-  }).returning();
-  return { entityType: "employee_loans", entityId: loan.id };
-}
-
-router.post("/imports/:type/preview", requirePayrollWrite, async (req, res) => {
-  const importType = normalizeImportType(req.params.type);
-  if (!importType) return res.status(404).json({ error: "UNKNOWN_IMPORT_TYPE" });
-  try {
-    const companyId = getTargetCompanyId(req);
-    const rows = parseImportRows(req.body);
-    const results = [];
-    for (let index = 0; index < rows.length; index += 1) {
-      const errors = await validateImportRow(companyId, importType, rows[index]);
-      results.push({ rowNumber: index + 2, status: errors.length ? "ERROR" : "READY", errors, rawData: rows[index] });
-    }
-    const errorCount = results.filter((row) => row.status === "ERROR").length;
-    res.json({ importType, rowCount: rows.length, readyCount: rows.length - errorCount, errorCount, rows: results });
-  } catch (err: any) {
-    res.status(400).json({ error: "IMPORT_PARSE_ERROR", message: err.message });
-  }
-});
-
-router.post("/imports/:type/commit", requirePayrollWrite, async (req: any, res) => {
-  const importType = normalizeImportType(req.params.type);
-  if (!importType) return res.status(404).json({ error: "UNKNOWN_IMPORT_TYPE" });
-  try {
-    const companyId = getTargetCompanyId(req);
-    const rows = parseImportRows(req.body);
-    const sourceFileName = textOrNull(req.body?.sourceFileName);
-    const result = await db.transaction(async (tx) => {
-      const [batch] = await tx.insert(payrollImportBatches).values({
-        companyId,
-        importType: importType.toUpperCase().replace(/-/g, "_"),
-        sourceFileName,
-        status: "PENDING",
-        rowCount: rows.length,
-        createdBy: req.user?.id || null,
-      }).returning();
-      let successCount = 0;
-      let errorCount = 0;
-      const rowResults = [];
-      for (let index = 0; index < rows.length; index += 1) {
-        const row = rows[index];
-        const rowNumber = index + 2;
-        const errors = await validateImportRow(companyId, importType, row, tx);
-        if (errors.length) {
-          errorCount += 1;
-          const [saved] = await tx.insert(payrollImportRows).values({ batchId: batch.id, rowNumber, status: "ERROR", rawData: row, errors }).returning();
-          rowResults.push(saved);
-          continue;
-        }
-        try {
-          const entity = await commitImportRow(companyId, importType, row, tx);
-          successCount += 1;
-          const [saved] = await tx.insert(payrollImportRows).values({
-            batchId: batch.id,
-            rowNumber,
-            status: "SUCCESS",
-            entityType: entity.entityType,
-            entityId: String(entity.entityId),
-            rawData: row,
-            errors: [],
-          }).returning();
-          rowResults.push(saved);
-        } catch (err: any) {
-          errorCount += 1;
-          const [saved] = await tx.insert(payrollImportRows).values({ batchId: batch.id, rowNumber, status: "ERROR", rawData: row, errors: [err.message] }).returning();
-          rowResults.push(saved);
-        }
-      }
-      const status = errorCount === 0 ? "COMPLETED" : successCount === 0 ? "FAILED" : "PARTIAL";
-      const [updatedBatch] = await tx.update(payrollImportBatches).set({
-        status,
-        successCount,
-        errorCount,
-        validationSummary: { errors: errorCount, successfulRows: successCount },
-        completedAt: new Date(),
-      }).where(eq(payrollImportBatches.id, batch.id)).returning();
-      return { batch: updatedBatch, rows: rowResults };
-    });
-    await auditPayroll(req, "PAYROLL_IMPORT_COMMITTED", "payroll_import_batches", result.batch.id, {
-      importType,
-      rowCount: result.batch.rowCount,
-      successCount: result.batch.successCount,
-      errorCount: result.batch.errorCount,
-    });
-    res.status(201).json(result);
-  } catch (err: any) {
-    res.status(400).json({ error: "IMPORT_COMMIT_ERROR", message: err.message });
-  }
-});
-
-router.get("/reports/catalog", async (_req, res) => {
-  res.json([
-    { type: "P2", authority: "ZIMRA", name: "P2 PAYE Monthly Return", frequency: "MONTHLY", formats: ["PDF", "CSV", "EXCEL", "ZIMRA_EFILE"] },
-    { type: "P6", authority: "ZIMRA", name: "P6 Employee Tax Certificate", frequency: "ANNUAL_OR_TERMINATION", formats: ["PDF", "CSV", "EXCEL"] },
-    { type: "ITF16", authority: "ZIMRA", name: "ITF16 Annual Return", frequency: "ANNUAL", formats: ["PDF", "CSV", "EXCEL", "ZIMRA_EFILE"] },
-    { type: "NSSA", authority: "NSSA", name: "NSSA Contribution Schedule", frequency: "MONTHLY", formats: ["PDF", "CSV", "EXCEL"] },
-    { type: "NEC", authority: "NEC", name: "NEC Contribution Summary", frequency: "MONTHLY", formats: ["PDF", "CSV", "EXCEL"] },
-    { type: "PAYROLL_SUMMARY", authority: "MANAGEMENT", name: "Payroll Summary", frequency: "PERIOD", formats: ["PDF", "CSV", "EXCEL"] },
-    { type: "GROSS_TO_NET", authority: "MANAGEMENT", name: "Gross-to-Net Report", frequency: "PERIOD", formats: ["PDF", "CSV", "EXCEL"] },
-    { type: "BANK_PAYMENT", authority: "PAYMENTS", name: "Bank Payment Schedule", frequency: "PERIOD", formats: ["CSV", "EXCEL"] },
-    { type: "ECOCASH_PAYMENT", authority: "PAYMENTS", name: "EcoCash Payout Schedule", frequency: "PERIOD", formats: ["CSV", "EXCEL"] },
-  ]);
-});
-
-router.get("/reports/generated", async (req, res) => {
-  try {
-    const companyId = getTargetCompanyId(req);
-    const reports = await db.select().from(payrollStatutoryReports)
-      .where(eq(payrollStatutoryReports.companyId, companyId))
-      .orderBy(desc(payrollStatutoryReports.generatedAt))
-      .limit(100);
-    res.json(reports);
-  } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
-  }
-});
-
-router.get("/reports/compliance-dashboard", async (req, res) => {
-  try {
-    const companyId = getTargetCompanyId(req);
-    const periodStart = typeof req.query.from === "string" ? req.query.from : monthStartIso();
-    const periodEnd = typeof req.query.to === "string" ? req.query.to : monthEndIso();
-    const currency = typeof req.query.currency === "string" ? req.query.currency : undefined;
-    const { runs, lines } = await loadReportRuns(companyId, periodStart, periodEnd, currency);
-    const generated = await db.select().from(payrollStatutoryReports)
-      .where(and(eq(payrollStatutoryReports.companyId, companyId), gte(payrollStatutoryReports.periodEnd, periodStart), lte(payrollStatutoryReports.periodEnd, periodEnd)))
-      .orderBy(desc(payrollStatutoryReports.generatedAt));
-    const deadlines = await db.select().from(payrollStatutoryDeadlines)
-      .where(sql`(${payrollStatutoryDeadlines.companyId} = ${companyId} OR ${payrollStatutoryDeadlines.companyId} IS NULL) AND ${payrollStatutoryDeadlines.isActive} = true`)
-      .orderBy(asc(payrollStatutoryDeadlines.authority), asc(payrollStatutoryDeadlines.reportType));
-    const missingTaxData = new Set(lines.filter(({ line }) => !line.employee?.nationalId || !line.employee?.zimraTaxNumber || !line.employee?.nssaNumber).map(({ line }) => line.employeeId)).size;
-    const totals = lines.reduce((acc, { line }) => {
-      acc.payePayable += toMoney(line.paye) + toMoney(line.aidsLevy);
-      acc.aidsLevy += toMoney(line.aidsLevy);
-      acc.nssaPayable += toMoney(line.nssaEmployee) + toMoney(line.nssaEmployer);
-      acc.necPayable += toMoney(line.necEmployee) + toMoney(line.necEmployer);
-      return acc;
-    }, { payePayable: 0, aidsLevy: 0, nssaPayable: 0, necPayable: 0 });
-    const pendingRuns = await db.select({ count: sql<number>`count(*)::int` }).from(payrollRuns)
-      .where(and(eq(payrollRuns.companyId, companyId), ne(payrollRuns.status, "LOCKED")));
-    res.json({
-      periodStart,
-      periodEnd,
-      currentMonthP2Status: generated.find((report) => report.reportType === "P2")?.submissionStatus || "NOT_GENERATED",
-      totals: Object.fromEntries(Object.entries(totals).map(([key, value]) => [key, Number((value as number).toFixed(2))])),
-      itf16Readiness: missingTaxData === 0 && runs.length > 0 ? "READY" : "ACTION_REQUIRED",
-      missingEmployeeTaxData: missingTaxData,
-      pendingPayrollApprovals: pendingRuns[0]?.count || 0,
-      upcomingDeadlines: deadlines,
-      reportsGenerated: generated.length,
-      reportsSubmitted: generated.filter((report) => report.submissionStatus === "SUBMITTED").length,
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
-  }
-});
-
-router.get("/reports/validate", async (req, res) => {
-  try {
-    const companyId = getTargetCompanyId(req);
-    const reportType = String(req.query.type || "P2").toUpperCase();
-    const periodStart = typeof req.query.from === "string" ? req.query.from : monthStartIso();
-    const periodEnd = typeof req.query.to === "string" ? req.query.to : monthEndIso();
-    const currency = typeof req.query.currency === "string" ? req.query.currency : undefined;
-    const [company] = await db.select().from(companies).where(eq(companies.id, companyId)).limit(1);
-    const { runs, lines } = await loadReportRuns(companyId, periodStart, periodEnd, currency);
-    const issues = await validateStatutoryReport(company, reportType, runs, lines);
-    res.json({ reportType, periodStart, periodEnd, validationSummary: summarizeValidation(issues), issues });
-  } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
-  }
-});
-
-router.post("/reports/generate", requirePayrollWrite, async (req, res) => {
-  const schema = z.object({
-    reportType: z.string().trim().min(1),
-    periodStart: z.string(),
-    periodEnd: z.string(),
-    currency: z.string().default("USD"),
-    taxYear: z.coerce.number().int().optional().nullable(),
-    allowWarnings: z.boolean().default(true),
-  });
-  const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
-  try {
-    const companyId = getTargetCompanyId(req);
-    const reportType = parsed.data.reportType.toUpperCase();
-    const [company] = await db.select().from(companies).where(eq(companies.id, companyId)).limit(1);
-    const { runs, lines } = await loadReportRuns(companyId, parsed.data.periodStart, parsed.data.periodEnd, parsed.data.currency);
-    const issues = await validateStatutoryReport(company, reportType, runs, lines);
-    const validationSummary = summarizeValidation(issues);
-    if (validationSummary.exportBlocked) {
-      return res.status(422).json({ error: "REPORT_VALIDATION_FAILED", validationSummary, issues });
-    }
-
-    const reportData = buildStatutoryReportData(reportType, company, runs, lines, parsed.data.periodStart, parsed.data.periodEnd, parsed.data.currency);
-    const taxTablesUsed = Array.from(new Set(lines.map(({ line }) => (line.snapshotData as any)?.taxConfigId).filter(Boolean))).map((id) => ({ taxConfigId: id }));
-    const statutoryRatesUsed = Array.from(new Set(lines.map(({ line }) => JSON.stringify({
-      nssaRateEmployee: (line.snapshotData as any)?.taxConfig?.nssaRateEmployee,
-      nssaRateEmployer: (line.snapshotData as any)?.taxConfig?.nssaRateEmployer,
-      nssaCeilingLimit: (line.snapshotData as any)?.taxConfig?.nssaCeilingLimit,
-      aidsLevyRate: (line.snapshotData as any)?.taxConfig?.aidsLevyRate,
-    })))).map((item) => JSON.parse(item));
-    const auditManifest = buildReportAuditManifest(reportType, runs, lines, taxTablesUsed, statutoryRatesUsed, validationSummary);
-    const snapshotEnvelope = { ...reportData, auditManifest };
-    const reportHash = hashPayload({ reportType, reportData: snapshotEnvelope, taxTablesUsed, statutoryRatesUsed, validationSummary });
-    const existing = await db.select({ count: sql<number>`count(*)::int` }).from(payrollStatutoryReports)
-      .where(and(
-        eq(payrollStatutoryReports.companyId, companyId),
-        eq(payrollStatutoryReports.reportType, reportType),
-        eq(payrollStatutoryReports.periodStart, parsed.data.periodStart),
-        eq(payrollStatutoryReports.periodEnd, parsed.data.periodEnd),
-        eq(payrollStatutoryReports.currency, parsed.data.currency)
-      ));
-    const version = (existing[0]?.count || 0) + 1;
-
-    const [report] = await db.insert(payrollStatutoryReports).values({
-      companyId,
-      reportType,
-      periodStart: parsed.data.periodStart,
-      periodEnd: parsed.data.periodEnd,
-      taxYear: parsed.data.taxYear || new Date(parsed.data.periodEnd).getFullYear(),
-      currency: parsed.data.currency,
-      version,
-      payrollRunIds: runs.map((run) => run.id),
-      taxTablesUsed,
-      statutoryRatesUsed,
-      validationSummary,
-      reportData: snapshotEnvelope,
-      snapshotHash: reportHash,
-      generatedBy: (req as any).user?.id || null,
-      status: "GENERATED",
-      approvalStatus: "PENDING",
-      submissionStatus: "NOT_SUBMITTED",
-    }).returning();
-
-    if (issues.length > 0) {
-      await db.insert(payrollReportValidationIssues).values(issues.map((issue) => ({
-        reportId: report.id,
-        companyId,
-        reportType,
-        severity: issue.severity,
-        code: issue.code,
-        message: issue.message,
-        entityType: issue.entityType || null,
-        entityId: issue.entityId || null,
-        details: issue.details || {},
-      })));
-    }
-
-    await auditPayroll(req, "PAYROLL_STATUTORY_REPORT_GENERATED", "payroll_statutory_reports", report.id, {
-      reportType,
-      periodStart: parsed.data.periodStart,
-      periodEnd: parsed.data.periodEnd,
-      version,
-    });
-    res.status(201).json({ report, validationSummary, issues });
-  } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
-  }
-});
-
-router.get("/reports/:reportId/export", async (req, res) => {
-  const reportId = parseInt(req.params.reportId, 10);
-  const format = String(req.query.format || "CSV").toUpperCase();
-  const companyId = getTargetCompanyId(req);
-  try {
-    const [report] = await db.select().from(payrollStatutoryReports)
-      .where(and(eq(payrollStatutoryReports.id, reportId), eq(payrollStatutoryReports.companyId, companyId)))
-      .limit(1);
-    if (!report) return res.status(404).json({ message: "Report not found" });
-
-    const reportData = report.reportData as any;
-    const rows = reportData.employees || [reportData.totals || {}];
-    let content: string | Buffer = "";
-    let contentType = "application/json";
-    let extension = "json";
-    if (format === "CSV") {
-      content = toCsv(rows);
-      contentType = "text/csv";
-      extension = "csv";
-    } else if (format === "EXCEL" || format === "XLSX") {
-      const XLSX = await import("xlsx");
-      const workbook = XLSX.utils.book_new();
-      const employeeSheet = XLSX.utils.json_to_sheet(rows);
-      const summarySheet = XLSX.utils.json_to_sheet([reportData.totals || {}]);
-      XLSX.utils.book_append_sheet(workbook, summarySheet, "Summary");
-      XLSX.utils.book_append_sheet(workbook, employeeSheet, "Employees");
-      content = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
-      contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-      extension = "xlsx";
-    } else if (format === "ZIMRA_EFILE") {
-      content = JSON.stringify(buildZimraElectronicPayload(report), null, 2);
-      contentType = "application/json";
-      extension = "zimra.json";
-    } else {
-      content = JSON.stringify(reportData, null, 2);
-    }
-    const existingExports = await db.select({ count: sql<number>`count(*)::int` }).from(payrollReportExports)
-      .where(and(eq(payrollReportExports.reportId, reportId), eq(payrollReportExports.format, format)));
-    const exportVersion = (existingExports[0]?.count || 0) + 1;
-    const fileName = `${report.reportType}_${report.periodEnd}_v${report.version}_export${exportVersion}.${extension}`;
-    const fileHash = hashPayload({ reportId, format, content });
-    const [exportRecord] = await db.insert(payrollReportExports).values({
-      reportId,
-      format,
-      version: exportVersion,
-      fileName,
-      fileHash,
-      metadata: {
-        rowCount: rows.length,
-        generatedFromSnapshotHash: report.snapshotHash,
-        reportVersion: report.version,
-        approvalStatus: report.approvalStatus || "PENDING",
-        submissionStatus: report.submissionStatus,
-      },
-      generatedBy: (req as any).user?.id || null,
-    }).returning();
-
-    await auditPayroll(req, "PAYROLL_STATUTORY_REPORT_EXPORTED", "payroll_report_exports", exportRecord.id, {
-      reportId,
-      reportType: report.reportType,
-      format,
-    });
-
-    res.setHeader("Content-Type", contentType);
-    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
-    res.send(content);
-  } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
-  }
-});
-
-router.get("/reports/:reportId/preview", async (req, res) => {
-  const reportId = parseInt(req.params.reportId, 10);
-  const companyId = getTargetCompanyId(req);
-  try {
-    const report = await db.query.payrollStatutoryReports.findFirst({
-      where: and(eq(payrollStatutoryReports.id, reportId), eq(payrollStatutoryReports.companyId, companyId)),
-      with: { exports: true, validationIssues: true },
-    });
-    if (!report) return res.status(404).json({ message: "Report not found" });
-    res.json(report);
-  } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
-  }
-});
-
-router.post("/reports/:reportId/approve", requirePayrollApproval, async (req, res) => {
-  const reportId = parseInt(req.params.reportId, 10);
-  const companyId = getTargetCompanyId(req);
-  const schema = z.object({
-    approvalStatus: z.enum(["APPROVED", "REJECTED"]).default("APPROVED"),
-    notes: z.string().optional().nullable(),
-  });
-  const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
-  try {
-    const [report] = await db.update(payrollStatutoryReports)
-      .set({
-        approvalStatus: parsed.data.approvalStatus,
-        approvedBy: (req as any).user?.id || null,
-        approvedAt: new Date(),
-        status: parsed.data.approvalStatus === "APPROVED" ? "APPROVED" : "GENERATED",
-      })
-      .where(and(eq(payrollStatutoryReports.id, reportId), eq(payrollStatutoryReports.companyId, companyId), ne(payrollStatutoryReports.status, "REVERSED")))
-      .returning();
-    if (!report) return res.status(404).json({ message: "Report not found" });
-    await auditPayroll(req, "PAYROLL_STATUTORY_REPORT_APPROVED", "payroll_statutory_reports", report.id, {
-      reportType: report.reportType,
-      approvalStatus: report.approvalStatus,
-      notes: parsed.data.notes || null,
-      snapshotHash: report.snapshotHash,
-    });
-    res.json(report);
-  } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
-  }
-});
-
-router.post("/reports/:reportId/submit", requirePayrollApproval, async (req, res) => {
-  const reportId = parseInt(req.params.reportId, 10);
-  const companyId = getTargetCompanyId(req);
-  const schema = z.object({
-    submissionReference: z.string().trim().min(1),
-    submissionStatus: z.enum(["SUBMITTED", "ACCEPTED", "REJECTED"]).default("SUBMITTED"),
-  });
-  const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
-  try {
-    const [existing] = await db.select().from(payrollStatutoryReports)
-      .where(and(eq(payrollStatutoryReports.id, reportId), eq(payrollStatutoryReports.companyId, companyId)))
-      .limit(1);
-    if (!existing) return res.status(404).json({ message: "Report not found" });
-    if (existing.approvalStatus !== "APPROVED") {
-      return res.status(409).json({ error: "REPORT_NOT_APPROVED", message: "Approve the statutory report before marking it submitted." });
-    }
-    const [report] = await db.update(payrollStatutoryReports)
-      .set({
-        submissionStatus: parsed.data.submissionStatus,
-        submissionReference: parsed.data.submissionReference,
-        status: parsed.data.submissionStatus === "REJECTED" ? "GENERATED" : "SUBMITTED",
-        submittedAt: new Date(),
-      })
-      .where(and(eq(payrollStatutoryReports.id, reportId), eq(payrollStatutoryReports.companyId, companyId)))
-      .returning();
-    if (!report) return res.status(404).json({ message: "Report not found" });
-    await auditPayroll(req, "PAYROLL_STATUTORY_REPORT_SUBMITTED", "payroll_statutory_reports", report.id, {
-      reportType: report.reportType,
-      submissionStatus: report.submissionStatus,
-      submissionReference: report.submissionReference,
-    });
-    res.json(report);
-  } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
-  }
-});
-
-router.post("/reports/:reportId/reverse", requirePayrollApproval, async (req, res) => {
-  const reportId = parseInt(req.params.reportId, 10);
-  const companyId = getTargetCompanyId(req);
-  const schema = z.object({
-    reason: z.string().trim().min(1),
-  });
-  const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
-  try {
-    const [report] = await db.update(payrollStatutoryReports)
-      .set({
-        status: "REVERSED",
-        submissionStatus: "REVERSED",
-        approvalStatus: "REJECTED",
-      })
-      .where(and(eq(payrollStatutoryReports.id, reportId), eq(payrollStatutoryReports.companyId, companyId)))
-      .returning();
-    if (!report) return res.status(404).json({ message: "Report not found" });
-    await auditPayroll(req, "PAYROLL_STATUTORY_REPORT_REVERSED", "payroll_statutory_reports", report.id, {
-      reportType: report.reportType,
-      reason: parsed.data.reason,
-    });
-    res.json(report);
-  } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
-  }
-});
-
-router.get("/reports/reconciliation", async (req, res) => {
-  try {
-    const companyId = getTargetCompanyId(req);
-    const periodStart = typeof req.query.from === "string" ? req.query.from : monthStartIso();
-    const periodEnd = typeof req.query.to === "string" ? req.query.to : monthEndIso();
-    const currency = typeof req.query.currency === "string" ? req.query.currency : "USD";
-    const { runs, lines } = await loadReportRuns(companyId, periodStart, periodEnd, currency);
-    const reports = await db.select().from(payrollStatutoryReports)
-      .where(and(eq(payrollStatutoryReports.companyId, companyId), gte(payrollStatutoryReports.periodEnd, periodStart), lte(payrollStatutoryReports.periodEnd, periodEnd), eq(payrollStatutoryReports.currency, currency), ne(payrollStatutoryReports.status, "REVERSED")))
-      .orderBy(desc(payrollStatutoryReports.generatedAt));
-
-    const payrollTotals = lines.reduce((acc, { line }) => {
-      acc.gross += toMoney(line.grossSalary);
-      acc.taxable += toMoney((line.snapshotData as any)?.taxableIncome);
-      acc.paye += toMoney(line.paye);
-      acc.aidsLevy += toMoney(line.aidsLevy);
-      acc.nssa += toMoney(line.nssaEmployee) + toMoney(line.nssaEmployer);
-      acc.net += toMoney(line.netSalary);
-      return acc;
-    }, { gross: 0, taxable: 0, paye: 0, aidsLevy: 0, nssa: 0, net: 0 });
-
-    const latestByType = (type: string) => reports.find((report) => report.reportType === type);
-    const p2 = latestByType("P2")?.reportData as any;
-    const itf16 = latestByType("ITF16")?.reportData as any;
-    const nssa = latestByType("NSSA")?.reportData as any;
-
-    const checks = [
-      compareTotals("Payroll gross vs P2 gross", payrollTotals.gross, toMoney(p2?.totals?.grossRemuneration)),
-      compareTotals("Payroll PAYE vs P2 PAYE", payrollTotals.paye + payrollTotals.aidsLevy, toMoney(p2?.totals?.totalPayePayable)),
-      compareTotals("P2 gross vs ITF16 gross", toMoney(p2?.totals?.grossRemuneration), toMoney(itf16?.totals?.grossRemuneration)),
-      compareTotals("P2 PAYE vs ITF16 PAYE", toMoney(p2?.totals?.totalPayePayable), toMoney(itf16?.totals?.totalPayePayable)),
-      compareTotals("Payroll NSSA vs NSSA report", payrollTotals.nssa, toMoney(nssa?.totals?.nssaPayable)),
-    ];
-
-    res.json({
-      periodStart,
-      periodEnd,
-      currency,
-      payrollRunIds: runs.map((run) => run.id),
-      reportIds: reports.map((report) => ({ id: report.id, type: report.reportType, version: report.version })),
-      status: checks.every((check) => check.status === "PASS") ? "PASS" : "ACTION_REQUIRED",
-      checks,
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
-  }
-});
-
-router.get("/deadlines", async (req, res) => {
-  try {
-    const companyId = getTargetCompanyId(req);
-    const rows = await db.select().from(payrollStatutoryDeadlines)
-      .where(sql`(${payrollStatutoryDeadlines.companyId} = ${companyId} OR ${payrollStatutoryDeadlines.companyId} IS NULL) AND ${payrollStatutoryDeadlines.isActive} = true`)
-      .orderBy(asc(payrollStatutoryDeadlines.authority), asc(payrollStatutoryDeadlines.reportType));
-    res.json(rows);
-  } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
-  }
-});
-
-router.post("/deadlines", requirePayrollApproval, async (req, res) => {
-  const schema = z.object({
-    authority: z.string(),
-    reportType: z.string(),
-    name: z.string(),
-    dueDay: z.coerce.number().int().optional().nullable(),
-    dueMonth: z.coerce.number().int().optional().nullable(),
-    frequency: z.string().default("MONTHLY"),
-    reminderDaysBefore: z.coerce.number().int().default(7),
-    effectiveFrom: z.string(),
-    effectiveTo: z.string().optional().nullable(),
-  });
-  const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
-  try {
-    const companyId = getTargetCompanyId(req);
-    const [deadline] = await db.insert(payrollStatutoryDeadlines)
-      .values({ ...parsed.data, companyId, countryCode: "ZW", isActive: true })
-      .returning();
-    await auditPayroll(req, "PAYROLL_STATUTORY_DEADLINE_CREATED", "payroll_statutory_deadlines", deadline.id, {
-      authority: deadline.authority,
-      reportType: deadline.reportType,
-    });
-    res.status(201).json(deadline);
-  } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
-  }
-});
-
-router.get("/reports/statutory/:runId", async (req, res) => {
-  const runId = parseInt(req.params.runId, 10);
-  const companyId = getTargetCompanyId(req);
-  try {
-    const run = await db.query.payrollRuns.findFirst({
-      where: and(eq(payrollRuns.id, runId), eq(payrollRuns.companyId, companyId))
-    });
-    if (!run) return res.status(404).json({ message: "Payroll run not found" });
-    const lines = await db.select().from(payrollRunEmployees).where(eq(payrollRunEmployees.payrollRunId, runId));
-    const totals = lines.reduce((acc, line) => {
-      acc.paye += Number(line.paye || 0);
-      acc.aidsLevy += Number(line.aidsLevy || 0);
-      acc.nssaEmployee += Number(line.nssaEmployee || 0);
-      acc.nssaEmployer += Number(line.nssaEmployer || 0);
-      acc.necEmployee += Number(line.necEmployee || 0);
-      acc.necEmployer += Number(line.necEmployer || 0);
-      acc.pensionEmployee += Number(line.pensionEmployee || 0);
-      acc.pensionEmployer += Number(line.pensionEmployer || 0);
-      return acc;
-    }, {
-      paye: 0,
-      aidsLevy: 0,
-      nssaEmployee: 0,
-      nssaEmployer: 0,
-      necEmployee: 0,
-      necEmployer: 0,
-      pensionEmployee: 0,
-      pensionEmployer: 0,
-    });
-    res.json({
-      run,
-      totals,
-      exportReadiness: {
-        p2: true,
-        p6: true,
-        itf16: "READY_FOR_MAPPING",
-        itf12c: "READY_FOR_MAPPING",
-      }
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
-  }
-});
-
-router.get("/audit", async (req, res) => {
-  try {
-    const companyId = getTargetCompanyId(req);
-    const logs = await db.select().from(auditLogs)
-      .where(and(eq(auditLogs.companyId, companyId), sql`${auditLogs.action} LIKE 'PAYROLL_%'`))
-      .orderBy(desc(auditLogs.createdAt))
-      .limit(250);
-    res.json(logs);
-  } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
-  }
-});
 
 
-import { reportService } from '../../services/reportService.js';
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 router.get("/report/csv", async (req, res) => {
   try {
@@ -3506,6 +2440,147 @@ router.get("/runs/:runId/bank-export", async (req, res) => {
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader("Content-Disposition", `attachment; filename="bank_export_run_${runId}.csv"`);
     res.send(csvContent);
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
+// --- ZIMRA STATUTORY EXPORTS ---
+
+// ITF16: Annual income-tax return per employee (CSV download)
+router.get("/exports/itf16", async (req, res) => {
+  const companyId = getTargetCompanyId(req);
+  const taxYear = req.query.taxYear ? String(req.query.taxYear) : String(new Date().getFullYear());
+
+  try {
+    const startDate = `${taxYear}-01-01`;
+    const endDate = `${taxYear}-12-31`;
+
+    const runs = await db.select({ id: payrollRuns.id }).from(payrollRuns)
+      .where(and(
+        eq(payrollRuns.companyId, companyId),
+        gte(payrollRuns.periodStart, startDate),
+        lte(payrollRuns.periodEnd, endDate)
+      ));
+
+    if (runs.length === 0) {
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename=ITF16_${taxYear}.csv`);
+      return res.send("Employee ID,Surname,First Name,Tax Year,Period Employed (months),Total Gross Income,Total Taxable Income,Total PAYE,Total AIDS Levy,Total Medical Aid Credits,Total Net PAYE Payable\n");
+    }
+
+    const runIds = runs.map(r => r.id);
+    const lines = await db.query.payrollRunEmployees.findMany({
+      where: inArray(payrollRunEmployees.payrollRunId, runIds),
+      with: { employee: true }
+    });
+
+    const agg: Record<number, any> = {};
+    for (const line of lines) {
+      const eid = line.employeeId;
+      if (!agg[eid]) {
+        agg[eid] = { emp: line.employee, months: 0, gross: 0, taxable: 0, paye: 0, aids: 0, medical: 0, netPaye: 0 };
+      }
+      agg[eid].months++;
+      agg[eid].gross += parseFloat(line.grossSalary);
+      agg[eid].taxable += parseFloat(line.basicSalary) + parseFloat(line.totalAllowances);
+      agg[eid].paye += parseFloat(line.paye);
+      agg[eid].aids += parseFloat(line.aidsLevy);
+      agg[eid].netPaye += parseFloat(line.paye) + parseFloat(line.aidsLevy);
+    }
+
+    let csv = "Employee ID,Surname,First Name,Tax Year,Period Employed (months),Total Gross Income,Total Taxable Income,Total PAYE,Total AIDS Levy,Total Medical Aid Credits,Total Net PAYE Payable\n";
+    for (const [eid, data] of Object.entries(agg)) {
+      csv += `${data.emp.nationalId || eid},${data.emp.lastName || ''},${data.emp.firstName || ''},${taxYear},${data.months},${data.gross.toFixed(2)},${data.taxable.toFixed(2)},${data.paye.toFixed(2)},${data.aids.toFixed(2)},0.00,${data.netPaye.toFixed(2)}\n`;
+    }
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename=ITF16_${taxYear}.csv`);
+    res.send(csv);
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
+// P2: Monthly PAYE remittance summary
+router.get("/exports/p2", async (req, res) => {
+  const companyId = getTargetCompanyId(req);
+  const month = req.query.month ? String(req.query.month) : new Date().toISOString().slice(0, 7);
+
+  try {
+    const periodStart = `${month}-01`;
+    const periodEnd = `${month}-31`;
+
+    const runs = await db.query.payrollRuns.findMany({
+      where: and(
+        eq(payrollRuns.companyId, companyId),
+        gte(payrollRuns.periodStart, periodStart),
+        lte(payrollRuns.periodStart, periodEnd)
+      )
+    });
+
+    let totalGross = 0;
+    let totalPaye = 0;
+    let totalAids = 0;
+    let count = 0;
+
+    for (const run of runs) {
+      totalGross += parseFloat(run.totalGross || "0");
+      const lines = await db.select({ paye: payrollRunEmployees.paye, aids: payrollRunEmployees.aidsLevy })
+        .from(payrollRunEmployees)
+        .where(eq(payrollRunEmployees.payrollRunId, run.id));
+      count += lines.length;
+      for (const line of lines) {
+        totalPaye += parseFloat(line.paye);
+        totalAids += parseFloat(line.aids);
+      }
+    }
+
+    res.json({
+      month,
+      employeeCount: count,
+      totalGross: totalGross.toFixed(2),
+      totalPaye: totalPaye.toFixed(2),
+      totalAids: totalAids.toFixed(2),
+      totalRemittable: (totalPaye + totalAids).toFixed(2),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
+// ZIMDEF + Standards Levy: monthly employer levy summary
+router.get("/exports/zimdef", async (req, res) => {
+  const companyId = getTargetCompanyId(req);
+  const month = req.query.month ? String(req.query.month) : new Date().toISOString().slice(0, 7);
+
+  try {
+    const periodStart = `${month}-01`;
+    const periodEnd = `${month}-31`;
+
+    const runs = await db.query.payrollRuns.findMany({
+      where: and(
+        eq(payrollRuns.companyId, companyId),
+        gte(payrollRuns.periodStart, periodStart),
+        lte(payrollRuns.periodStart, periodEnd)
+      )
+    });
+
+    let totalGross = 0;
+    for (const run of runs) {
+      totalGross += parseFloat(run.totalGross || "0");
+    }
+
+    const zimdef = totalGross * 0.01;
+    const standards = totalGross * 0.005;
+
+    res.json({
+      month,
+      totalGrossWageBill: totalGross.toFixed(2),
+      zimdefAmount: zimdef.toFixed(2),
+      standardsLevyAmount: standards.toFixed(2),
+      totalDue: (zimdef + standards).toFixed(2),
+    });
   } catch (err: any) {
     res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
   }

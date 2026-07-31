@@ -24,6 +24,21 @@ const BLANK_FORM = {
   brackets: `[\n  { "min": 0, "max": null, "rate": 0, "deduction": 0 }\n]`
 };
 
+// Pre-fill the new config from the current active one so an empty form can
+// never silently zero-out the live PAYE table.
+function prefillFromActive(configs: any[]): typeof BLANK_FORM {
+  const active = configs?.find((c) => c.isActive) || configs?.[0];
+  if (!active) return BLANK_FORM;
+  return {
+    effectiveFrom: new Date().toISOString().slice(0, 10),
+    nssaRateEmployee: Number(active.nssaRateEmployee || 0.045),
+    nssaRateEmployer: Number(active.nssaRateEmployer || 0.045),
+    nssaCeilingLimit: Number(active.nssaCeilingLimit || 700),
+    aidsLevyRate: Number(active.aidsLevyRate || 0.03),
+    brackets: JSON.stringify(active.brackets || [], null, 2),
+  };
+}
+
 export default function TaxSetupPage() {
   const { user } = useAuth();
   const { activeCompanyId: companyId } = useActiveCompany(!!user, user?.id ?? null);
@@ -88,7 +103,7 @@ export default function TaxSetupPage() {
           
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
-              <Button onClick={() => setForm(BLANK_FORM)} className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md gap-2">
+              <Button onClick={() => setForm(prefillFromActive(taxConfigs))} className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md gap-2">
                 <Plus className="h-4 w-4" />
                 Create New
               </Button>

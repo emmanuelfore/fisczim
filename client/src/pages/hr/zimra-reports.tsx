@@ -1,12 +1,30 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { HRLayout } from "./layout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useAuth } from "@/hooks/use-auth";
+import { apiRequest } from "@/lib/queryClient";
 import { FileText, Download, Building, Users, Calendar, Calculator, Loader2 } from "lucide-react";
+
+type P2Result = {
+  month: string;
+  employeeCount: number;
+  totalGross: string;
+  totalPaye: string;
+  totalAids: string;
+  totalRemittable: string;
+};
+
+type ZimdefResult = {
+  month: string;
+  totalGrossWageBill: string;
+  zimdefAmount: string;
+  standardsLevyAmount: string;
+  totalDue: string;
+};
 
 export default function ZimraReports() {
   const { user } = useAuth();
@@ -16,15 +34,18 @@ export default function ZimraReports() {
   const currentYear = new Date().getFullYear();
   const [taxYear, setTaxYear] = useState<string>(String(currentYear));
   const [month, setMonth] = useState<string>(new Date().toISOString().slice(0, 7));
+  const [busy, setBusy] = useState<"itf16" | "p2" | "zimdef" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [p2, setP2] = useState<P2Result | null>(null);
+  const [zimdef, setZimdef] = useState<ZimdefResult | null>(null);
 
-  // --- REPORT EXPORT HANDLERS ---
   const downloadCSV = (filename: string, content: string) => {
-    const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob([content], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
     link.setAttribute("href", url);
     link.setAttribute("download", filename);
-    link.style.visibility = 'hidden';
+    link.style.visibility = "hidden";
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -32,39 +53,43 @@ export default function ZimraReports() {
 
   const handleItf16 = async () => {
     if (!companyId) return;
+    setBusy("itf16");
+    setError(null);
     try {
-      const res = await fetch(`/api/companies/${companyId}/payroll/exports/itf16?taxYear=${taxYear}`);
-      if (!res.ok) throw new Error("Failed to generate ITF16");
-      const csv = await res.text();
-      downloadCSV(`ITF16_${taxYear}.csv`, csv);
+      const res = await apiRequest("GET", `/api/companies/${companyId}/payroll/exports/itf16?taxYear=${taxYear}`);
+      downloadCSV(`ITF16_${taxYear}.csv`, await res.text());
     } catch (e: any) {
-      alert("Error: " + e.message);
+      setError(e.message || "Failed to generate ITF16");
+    } finally {
+      setBusy(null);
     }
   };
 
   const handleP2 = async () => {
     if (!companyId) return;
+    setBusy("p2");
+    setError(null);
     try {
-      const res = await fetch(`/api/companies/${companyId}/payroll/exports/p2?month=${month}`);
-      if (!res.ok) throw new Error("Failed to generate P2");
-      const data = await res.json();
-      console.log("P2 Data:", data);
-      alert(`P2 Report Generated! Total PAYE: $${data.totalPaye}`);
+      const res = await apiRequest("GET", `/api/companies/${companyId}/payroll/exports/p2?month=${month}`);
+      setP2(await res.json());
     } catch (e: any) {
-      alert("Error: " + e.message);
+      setError(e.message || "Failed to generate P2");
+    } finally {
+      setBusy(null);
     }
   };
 
   const handleZimdef = async () => {
     if (!companyId) return;
+    setBusy("zimdef");
+    setError(null);
     try {
-      const res = await fetch(`/api/companies/${companyId}/payroll/exports/zimdef?month=${month}`);
-      if (!res.ok) throw new Error("Failed to generate ZIMDEF");
-      const data = await res.json();
-      console.log("ZIMDEF Data:", data);
-      alert(`ZIMDEF Report Generated! Total Due: $${data.totalDue}`);
+      const res = await apiRequest("GET", `/api/companies/${companyId}/payroll/exports/zimdef?month=${month}`);
+      setZimdef(await res.json());
     } catch (e: any) {
-      alert("Error: " + e.message);
+      setError(e.message || "Failed to generate ZIMDEF");
+    } finally {
+      setBusy(null);
     }
   };
 
@@ -77,6 +102,12 @@ export default function ZimraReports() {
           </h1>
           <p className="text-slate-500">Generate statutory exports and remittance schedules for Zimbabwe.</p>
         </div>
+
+        {error && (
+          <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/40 dark:text-rose-300">
+            {error}
+          </div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
@@ -105,8 +136,8 @@ export default function ZimraReports() {
                   </SelectContent>
                 </Select>
               </div>
-              <Button onClick={handleItf16} className="w-full bg-gradient-to-r from-indigo-600 to-blue-600 text-white gap-2">
-                <Download className="h-4 w-4" /> Export CSV
+              <Button onClick={handleItf16} disabled={busy !== null} className="w-full bg-gradient-to-r from-indigo-600 to-blue-600 text-white gap-2">
+                {busy === "itf16" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Export CSV
               </Button>
             </CardContent>
           </Card>
@@ -126,9 +157,18 @@ export default function ZimraReports() {
                 <label className="text-xs font-semibold text-slate-500 uppercase">Month</label>
                 <Input type="month" value={month} onChange={(e: any) => setMonth(e.target.value)} />
               </div>
-              <Button onClick={handleP2} variant="outline" className="w-full gap-2 border-emerald-200 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-900 dark:text-emerald-400 dark:hover:bg-emerald-900/20">
-                <Calculator className="h-4 w-4" /> Generate Report
+              <Button onClick={handleP2} disabled={busy !== null} variant="outline" className="w-full gap-2 border-emerald-200 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-900 dark:text-emerald-400 dark:hover:bg-emerald-900/20">
+                {busy === "p2" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Calculator className="h-4 w-4" />} Generate Report
               </Button>
+              {p2 && (
+                <div className="rounded-lg border border-emerald-100 dark:border-emerald-900/40 bg-emerald-50/60 dark:bg-emerald-950/30 p-3 text-sm space-y-1">
+                  <div className="flex justify-between"><span className="text-slate-500">Employees paid</span><span className="font-semibold">{p2.employeeCount}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Total gross</span><span className="font-semibold">${p2.totalGross}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">PAYE</span><span className="font-semibold">${p2.totalPaye}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">AIDS Levy</span><span className="font-semibold">${p2.totalAids}</span></div>
+                  <div className="flex justify-between border-t border-emerald-200/60 dark:border-emerald-900/40 pt-1"><span className="text-slate-500">Total remittable</span><span className="font-semibold text-emerald-700 dark:text-emerald-400">${p2.totalRemittable}</span></div>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -157,8 +197,8 @@ export default function ZimraReports() {
                   </SelectContent>
                 </Select>
               </div>
-              <Button onClick={() => alert("P6 PDF Generation coming soon")} variant="outline" className="w-full gap-2 border-amber-200 text-amber-700 hover:bg-amber-50 dark:border-amber-900 dark:text-amber-400 dark:hover:bg-amber-900/20">
-                <FileText className="h-4 w-4" /> Generate PDFs
+              <Button disabled variant="outline" className="w-full gap-2 border-amber-200 text-amber-700 hover:bg-amber-50 dark:border-amber-900 dark:text-amber-400 dark:hover:bg-amber-900/20">
+                <FileText className="h-4 w-4" /> Coming Soon
               </Button>
             </CardContent>
           </Card>
@@ -178,9 +218,17 @@ export default function ZimraReports() {
                 <label className="text-xs font-semibold text-slate-500 uppercase">Month</label>
                 <Input type="month" value={month} onChange={(e: any) => setMonth(e.target.value)} />
               </div>
-              <Button onClick={handleZimdef} variant="outline" className="w-full gap-2 border-rose-200 text-rose-700 hover:bg-rose-50 dark:border-rose-900 dark:text-rose-400 dark:hover:bg-rose-900/20">
-                <Calculator className="h-4 w-4" /> Generate Report
+              <Button onClick={handleZimdef} disabled={busy !== null} variant="outline" className="w-full gap-2 border-rose-200 text-rose-700 hover:bg-rose-50 dark:border-rose-900 dark:text-rose-400 dark:hover:bg-rose-900/20">
+                {busy === "zimdef" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Calculator className="h-4 w-4" />} Generate Report
               </Button>
+              {zimdef && (
+                <div className="rounded-lg border border-rose-100 dark:border-rose-900/40 bg-rose-50/60 dark:bg-rose-950/30 p-3 text-sm space-y-1">
+                  <div className="flex justify-between"><span className="text-slate-500">Gross wage bill</span><span className="font-semibold">${zimdef.totalGrossWageBill}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">ZIMDEF (1%)</span><span className="font-semibold">${zimdef.zimdefAmount}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Standards Levy (0.5%)</span><span className="font-semibold">${zimdef.standardsLevyAmount}</span></div>
+                  <div className="flex justify-between border-t border-rose-200/60 dark:border-rose-900/40 pt-1"><span className="text-slate-500">Total due</span><span className="font-semibold text-rose-700 dark:text-rose-400">${zimdef.totalDue}</span></div>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -188,14 +236,4 @@ export default function ZimraReports() {
       </div>
     </HRLayout>
   );
-}
-
-// Ensure Input is imported, wait, let's add it manually here if it wasn't.
-function Input(props: any) {
-  return (
-    <input 
-      {...props} 
-      className="flex h-9 w-full rounded-md border border-slate-200 bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-slate-950 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-800 dark:placeholder:text-slate-400 dark:focus-visible:ring-slate-300"
-    />
-  )
 }

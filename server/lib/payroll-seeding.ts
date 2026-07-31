@@ -21,17 +21,17 @@ import { taxTablesConfig, necSectorsConfig } from "../../shared/schema.js";
 import { eq, and, isNull } from "drizzle-orm";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ZIMRA PAYE Tax Bracket Definitions
-// Finance Act 2024 — Effective 1 January 2024
-// Monthly income thresholds in USD
+// ZIMRA PAYE Tax Bracket Definitions (monthly tables, USD)
 // ─────────────────────────────────────────────────────────────────────────────
-const USD_PAYE_BRACKETS_2024 = [
+// ZIMRA official USD monthly table for 2025/2026 (per ZIMRA published tax tables):
+// the 40% band now starts at US$3,000 with a deduction constant of 335.
+const USD_PAYE_BRACKETS_2025 = [
   { min: 0,    max: 100,    rate: 0,    deduction: 0 },
   { min: 100,  max: 300,    rate: 20,   deduction: 20 },
   { min: 300,  max: 1000,   rate: 25,   deduction: 35 },
   { min: 1000, max: 2000,   rate: 30,   deduction: 85 },
-  { min: 2000, max: 5000,   rate: 35,   deduction: 185 },
-  { min: 5000, max: null,   rate: 40,   deduction: 435 },
+  { min: 2000, max: 3000,   rate: 35,   deduction: 185 },
+  { min: 3000, max: null,   rate: 40,   deduction: 335 },
 ];
 
 // Monthly ZiG (Zimbabwe Gold) brackets — Finance Act 2024
@@ -40,7 +40,7 @@ const ZIG_PAYE_BRACKETS_2024 = [
   { min: 0,     max: 1356,  rate: 0,    deduction: 0 },
   { min: 1356,  max: 4068,  rate: 20,   deduction: 271.2 },
   { min: 4068,  max: 13560, rate: 25,   deduction: 474.6 },
-  { min: 13560, max: 27120, rate: 30,   deduction: 1153.6 },
+  { min: 13560, max: 27120, rate: 30,   deduction: 1152.6 },
   { min: 27120, max: 67800, rate: 35,   deduction: 2509.6 },
   { min: 67800, max: null,  rate: 40,   deduction: 5899.6 },
 ];
@@ -184,12 +184,13 @@ export async function seedGlobalPayrollDefaults(): Promise<void> {
     }
   }
 
-  // 2. USD PAYE tax table (global)
-  await upsertGlobalTaxTable(
+  // 2. USD PAYE tax table (global) — current ZIMRA 2025/2026 structure.
+  //    Ensures every tenant (fresh DB or existing prod with the stale 2024
+  //    table) ends up on an active table that covers the current tax year.
+  await ensureActiveTaxTableFrom(
     "USD",
-    "2024-01-01",
-    null,
-    USD_PAYE_BRACKETS_2024,
+    "2025-01-01",
+    USD_PAYE_BRACKETS_2025,
     "700.00"   // NSSA ceiling limit USD
   );
 
@@ -208,6 +209,65 @@ export async function seedGlobalPayrollDefaults(): Promise<void> {
 // ─────────────────────────────────────────────────────────────────────────────
 // INTERNAL HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Ensures a global tax table exists for `currency` whose effectiveFrom is at
+ * or after `yearStart`. If only a stale (older) table is active, it is marked
+ * inactive and the current-year table is inserted — the effective loader picks
+ * the newest active table, so payroll runs are always computed on the latest
+ * statutory bands.
+ */
+async function ensureActiveTaxTableFrom(
+  currency: string,
+  yearStart: string,
+  brackets: { min: number; max: number | null; rate: number; deduction: number }[],
+  nssaCeilingLimit: string
+): Promise<void> {
+  try {
+    const [current] = await db
+      .select({ id: taxTablesConfig.id })
+      .from(taxTablesConfig)
+      .where(
+        and(
+          eq(taxTablesConfig.currency, currency),
+          eq(taxTablesConfig.isActive, true)
+        )
+      )
+      .limit(1);
+
+    if (current) {
+      const effectiveFrom = new Date(
+        (await db.select({ effectiveFrom: taxTablesConfig.effectiveFrom })
+          .from(taxTablesConfig)
+          .where(eq(taxTablesConfig.id, current.id))
+          .limit(1))[0]?.effectiveFrom || yearStart
+      );
+      if (effectiveFrom.getTime() >= new Date(yearStart).getTime()) {
+        console.log(`[PAYROLL-SEED] Active ${currency} tax table covers ${yearStart}+; no update needed.`);
+        return;
+      }
+      await db.update(taxTablesConfig)
+        .set({ isActive: false })
+        .where(eq(taxTablesConfig.currency, currency));
+      console.log(`[PAYROLL-SEED] Superseded stale ${currency} tax table (effectiveFrom < ${yearStart}).`);
+    }
+
+    await db.insert(taxTablesConfig).values({
+      currency,
+      effectiveFrom: yearStart,
+      effectiveTo: null,
+      brackets: brackets as any,
+      nssaRateEmployee: "0.0450",   // 4.5% per NSSA Act
+      nssaRateEmployer: "0.0450",   // 4.5% per NSSA Act
+      nssaCeilingLimit,
+      aidsLevyRate: "0.0300",       // 3% of PAYE per Finance Act
+      isActive: true,
+    });
+    console.log(`[PAYROLL-SEED] Global ${currency} tax table created (${yearStart}+).`);
+  } catch (err: any) {
+    console.error(`[PAYROLL-SEED] Failed to seed ${currency} tax table:`, err.message);
+  }
+}
 
 async function upsertGlobalTaxTable(
   currency: string,

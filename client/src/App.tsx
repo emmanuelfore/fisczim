@@ -124,7 +124,6 @@ import AccountingDashboardPage from "@/pages/accounting-dashboard";
 import AccountingSegmentsPage from "@/pages/accounting-segments";
 import ApprovalsPage from "@/pages/approvals";
 import PartnershipSalesReportPage from "@/pages/partnership-sales-report";
-import PayrollPage from "@/pages/payroll";
 import HRPayrollRuns from "@/pages/hr/payroll";
 import HREmployees from "@/pages/hr/employees";
 import HRIncomesSetup from "@/pages/hr/incomes-setup";

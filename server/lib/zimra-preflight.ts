@@ -39,7 +39,7 @@ function normalizedLineTotal(receipt: ReceiptData, line: any) {
  * tax once per bucket, then sum the buckets. Rounding per line produces
  * totals that ZIMRA rejects as Red.
  */
-function expectedReceiptTotal(receipt: ReceiptData): number {
+export function expectedReceiptTotal(receipt: ReceiptData): number {
   const buckets = new Map<string, { taxPercent: number; taxID: number; baseTotal: number }>();
 
   for (const line of receipt.receiptLines || []) {
@@ -240,9 +240,13 @@ export async function assertReceiptPreflight(args: {
 
   const expectedTotal = expectedReceiptTotal(receiptData);
   const paymentTotal = roundMoney((receiptData.receiptPayments || []).reduce((sum: number, p: any) => sum + Number(p.paymentAmount || 0), 0));
-  const signedInvoiceTotal = receiptType === "CreditNote" ? -Math.abs(Number(invoice.total || 0)) : Math.abs(Number(invoice.total || 0));
-  if (Number.isFinite(signedInvoiceTotal) && !approxEqual(expectedTotal, signedInvoiceTotal)) {
-    addIssue(issues, "RCPT027", `Receipt calculated total ${expectedTotal.toFixed(2)} does not match invoice total ${signedInvoiceTotal.toFixed(2)}.`);
+  // RCPT027 compares against the total actually being submitted (callers may
+  // already normalize to ZIMRA's bucket math), falling back to the invoice total.
+  const submittedTotal = Number.isFinite(Number(receiptData.receiptTotal))
+    ? Number(receiptData.receiptTotal)
+    : (receiptType === "CreditNote" ? -Math.abs(Number(invoice.total || 0)) : Math.abs(Number(invoice.total || 0)));
+  if (Number.isFinite(submittedTotal) && !approxEqual(expectedTotal, submittedTotal)) {
+    addIssue(issues, "RCPT027", `Receipt calculated total ${expectedTotal.toFixed(2)} does not match submitted receipt total ${submittedTotal.toFixed(2)}.`);
   }
 
   if (!approxEqual(paymentTotal, expectedTotal)) {

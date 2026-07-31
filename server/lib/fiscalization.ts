@@ -4,7 +4,7 @@ import { Invoice, products } from "../../shared/schema.js";
 import fs from "fs";
 import path from "path";
 import { logAction } from "../audit.js";
-import { assertReceiptPreflight, ZimraPreflightError } from "./zimra-preflight.js";
+import { assertReceiptPreflight, ZimraPreflightError, expectedReceiptTotal } from "./zimra-preflight.js";
 import { buildCompanyTaxMapping, resolveLineTaxID } from "./tax-mapping.js";
 import { db } from "../db.js";
 import { eq, and, isNotNull, ne } from "drizzle-orm";
@@ -120,7 +120,58 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
 
     try {
         let status: any = null;
-        
+
+        // RCPT041 fix: receipts submitted after the fiscal day's max hours are
+        // flagged "Invoice is issued after fiscal day end" (yellow). When a day
+        // is stale, close it (replay counters make this safe) and open a fresh
+        // one so submissions always land inside the valid window.
+        const formatHarareDayDate = (date: Date) => {
+            const parts = new Intl.DateTimeFormat('en-GB', {
+                timeZone: 'Africa/Harare',
+                year: 'numeric', month: '2-digit', day: '2-digit'
+            }).formatToParts(date);
+            const p = (t: string) => parts.find(x => x.type === t)?.value;
+            return `${p('year')}-${p('month')}-${p('day')}`;
+        };
+        const autoCloseAndReopenDay = async (reason: string) => {
+            const staleDayNo = fiscalConfig.currentFiscalDayNo || company.currentFiscalDayNo;
+            if (!staleDayNo) return false;
+            const openAt = fiscalConfig.fiscalDayOpenedAt ? new Date(fiscalConfig.fiscalDayOpenedAt) : null;
+            const dayDate = openAt && !Number.isNaN(openAt.getTime()) ? formatHarareDayDate(openAt) : formatHarareDayDate(new Date());
+            const closeCounter = fiscalConfig.dailyReceiptCount || company.dailyReceiptCount || 0;
+            if (closeCounter < 1) {
+                vLog(`[Fiscalize] Stale day ${staleDayNo} has no receipts; not closing.`);
+                return false;
+            }
+            vLog(`[Fiscalize] Stale day auto-close (${reason}): closing day ${staleDayNo}...`);
+            try {
+                const counters = await storage.calculateFiscalCounters(company.id, staleDayNo);
+                await device.closeDay(staleDayNo, dayDate, closeCounter, counters);
+                const nextDay = staleDayNo + 1;
+                const openResult = await device.openDay(nextDay) as any;
+                const openedAt = new Date();
+                const updateData = {
+                    currentFiscalDayNo: openResult.fiscalDayNo || nextDay,
+                    fiscalDayOpen: true,
+                    fiscalDayOpenedAt: openedAt,
+                    lastFiscalDayStatus: 'FiscalDayOpened',
+                    dailyReceiptCount: 0,
+                    lastFiscalHash: null
+                };
+                if (activeBranch) {
+                    await storage.updateBranch(activeBranch.id, updateData);
+                } else {
+                    await storage.updateCompany(company.id, updateData);
+                }
+                fiscalConfig = { ...fiscalConfig, ...updateData };
+                vLog(`[Fiscalize] Stale day ${staleDayNo} closed; opened new fiscal day ${updateData.currentFiscalDayNo}.`);
+                return true;
+            } catch (closeErr: any) {
+                console.warn(`[Fiscalize] Stale-day auto-close failed (${reason}): ${closeErr.message}; continuing on stale day.`);
+                return false;
+            }
+        };
+
         // 🚀 OPTIMIZATION: Skip getStatus if the day is already open locally
         const needsStatusSync = !fiscalConfig.fiscalDayOpen || !fiscalConfig.currentFiscalDayNo;
 
@@ -193,6 +244,12 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
                 console.warn(`[ZIMRA] Unknown day status: ${status.fiscalDayStatus}. Proceeding with caution.`);
             }
 
+            // RCPT041: if ZIMRA still has the (stale) day open, close it and
+            // reopen a fresh one before submitting.
+            if (isStale && (statusStr === 'fiscaldayopened' || statusStr === 'fiscaldayclosefailed')) {
+                await autoCloseAndReopenDay('status sync staleness');
+            }
+
             // 2. SYNC COUNTERS FROM ZIMRA
             const zimraGlobalNo = status.lastReceiptGlobalNo || 0;
             let zimraDailyCount = status.lastReceiptCounter || 0;
@@ -263,6 +320,18 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
                 if (refreshed) {
                     fiscalConfig = { ...fiscalConfig, ...refreshed };
                 }
+            }
+        }
+
+        // RCPT041: local-only staleness check — when the day is open locally
+        // we skip getStatus for speed, but a day older than the configured
+        // threshold still needs closing so ZIMRA doesn't flag receipts yellow.
+        if (fiscalConfig.fiscalDayOpen) {
+            const openedAtCheck = fiscalConfig.fiscalDayOpenedAt ? new Date(fiscalConfig.fiscalDayOpenedAt) : null;
+            const stalenessHoursCheck = activeBranch?.fiscalDayStalenessHours || company.fiscalDayStalenessHours || 24;
+            if (openedAtCheck && !Number.isNaN(openedAtCheck.getTime()) &&
+                (Date.now() - openedAtCheck.getTime() > stalenessHoursCheck * 60 * 60 * 1000)) {
+                await autoCloseAndReopenDay('local staleness');
             }
         }
 
@@ -386,8 +455,14 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
                 vLog(`[Fiscalize] WARN: heuristic tax ID ${taxID} used for rate ${taxPercent}% (no live config match for ${item.description || 'item'}); check tax config.`);
             }
 
-            let hsCode = (item.product?.hsCode || "").trim();
-            if (!hsCode || hsCode === "0000.00.00") {
+            // HS code must be exactly 4 or 8 digits (RCPT048). Normalize by
+            // stripping separators/dots and validating, else fall back.
+            const normalizeHs = (code: any) => {
+                const digits = String(code || "").replace(/\D/g, "");
+                return /^\d{4}$|^\d{8}$/.test(digits) ? digits : "";
+            };
+            let hsCode = normalizeHs(item.product?.hsCode);
+            if (!hsCode) {
                 const categoryMatch = await db
                     .select()
                     .from(products)
@@ -403,8 +478,9 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
                     .limit(1);
 
                 if (categoryMatch.length > 0 && categoryMatch[0].hsCode) {
-                    hsCode = categoryMatch[0].hsCode.trim();
-                } else {
+                    hsCode = normalizeHs(categoryMatch[0].hsCode.trim());
+                }
+                if (!hsCode) {
                     hsCode = "99999999"; // Default fallback for services
                 }
             }
@@ -438,6 +514,16 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
             return 'Other';
         };
 
+        // ── RCPT024/027/039: Normalize totals to ZIMRA's exact arithmetic ──
+        // Line totals must equal price × quantity (2dp) and the receipt total
+        // must be the per-tax-bucket sum ZIMRA computes — not the POS's per-line
+        // rounded totals. Sending POS totals causes Red RCPT024/027/039 even
+        // when the invoice is internally consistent.
+        const roundMoney = (v: number) => Math.round((Number(v) + Number.EPSILON) * 100) / 100;
+        for (const line of receiptLines) {
+            line.receiptLineTotal = roundMoney(Number(line.receiptLineQuantity) * Number(line.receiptLinePrice));
+        }
+
         const totalAmount = parseFloat(Number(invoice.total).toFixed(2));
         let payments: Array<{ moneyTypeCode: string, paymentAmount: number }> = [];
 
@@ -465,6 +551,35 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
 
         if (transactionType === "CreditNote") receiptType = "CreditNote";
         if (transactionType === "DebitNote") receiptType = "DebitNote";
+
+        // Receipt total via ZIMRA's bucket math (credit notes negative).
+        const computedTotal = expectedReceiptTotal({
+            receiptType,
+            receiptLines: receiptLines as any,
+            receiptLinesTaxInclusive: invoice.taxInclusive || false
+        } as any);
+        if (Math.abs(computedTotal - totalAmount) > 0.01) {
+            vLog(`[Fiscalize] Total differs: invoice ${totalAmount.toFixed(2)} vs ZIMRA bucket math ${computedTotal.toFixed(2)}; submitting ZIMRA total.`);
+        }
+        const zimraTotal = roundMoney(computedTotal);
+
+        // Re-anchor payments to the computed total (RCPT039). Split payments
+        // are scaled proportionally; the last payment absorbs rounding so the
+        // sum equals the computed total exactly.
+        if (payments.length === 1) {
+            payments[0].paymentAmount = Math.abs(zimraTotal);
+        } else if (Math.abs(zimraTotal - totalAmount) > 0.01) {
+            const scale = Math.abs(zimraTotal) / (Math.abs(totalAmount) || 1);
+            let assigned = 0;
+            for (let i = 0; i < payments.length; i++) {
+                if (i === payments.length - 1) {
+                    payments[i].paymentAmount = roundMoney(Math.abs(zimraTotal) - assigned);
+                } else {
+                    payments[i].paymentAmount = roundMoney(Number(payments[i].paymentAmount) * scale);
+                    assigned = roundMoney(assigned + payments[i].paymentAmount);
+                }
+            }
+        }
 
         if (receiptType === "CreditNote") {
             payments = payments.map(p => ({
@@ -602,7 +717,7 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
             receiptLines: receiptLines as any,
             receiptTaxes: [],
             receiptPayments: payments as any,
-            receiptTotal: totalAmount,
+            receiptTotal: zimraTotal,
             receiptLinesTaxInclusive: invoice.taxInclusive || false,
             buyerData: buyerData,
             creditDebitNote: creditDebitNote,
@@ -870,6 +985,30 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
             }
         }
 
+        // RCPT012/011 fix: ZIMRA rejected the receipt because the submitted
+        // global/daily number was not the next one (usually a number burned by
+        // an earlier failure). Re-align the local high-water marks with ZIMRA's
+        // actual state so the desync does not cascade into every later receipt.
+        if (validationStatus === 'red' && validationErrors.some((e) => e.errorCode === 'RCPT012' || e.errorCode === 'RCPT011')) {
+            try {
+                const syncStatus = await device.getStatus() as any;
+                const syncGlobal = Number(syncStatus.lastReceiptGlobalNo || 0);
+                const syncCounter = Number(syncStatus.lastReceiptCounter || 0);
+                const counterUpdate: any = {};
+                if (syncGlobal > (company.lastReceiptGlobalNo || 0)) counterUpdate.lastReceiptGlobalNo = syncGlobal;
+                if (syncCounter > (company.dailyReceiptCount || 0)) counterUpdate.dailyReceiptCount = syncCounter;
+                if (Object.keys(counterUpdate).length > 0) {
+                    if (activeBranch) await storage.updateBranch(activeBranch.id, counterUpdate);
+                    await storage.updateCompany(company.id, counterUpdate);
+                    vLog(`[Fiscalize] RCPT012/011: realigned counters to ZIMRA (global=${counterUpdate.lastReceiptGlobalNo ?? 'keep'}, daily=${counterUpdate.dailyReceiptCount ?? 'keep'}).`);
+                } else {
+                    vLog(`[Fiscalize] RCPT012/011 detected but ZIMRA counters are not ahead; no realignment needed.`);
+                }
+            } catch (syncErr: any) {
+                console.warn(`[Fiscalize] Counter realignment failed: ${syncErr.message}`);
+            }
+        }
+
         // Generate QR Code (if successful and synced/signed - validation errors don't prevent signature)
         let qrCode = '';
         if (result.synced) {
@@ -893,15 +1032,21 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
         });
 
         // Update Company Counters (Important!)
-        // Always update if it was synced (ZIMRA received it and assigned a receipt ID), regardless of validation results.
-        // This ensures the local sequence follows ZIMRA's actual counter state.
-        // We also update if it was an offline submission (not synced) to maintain the local sequence.
-        await storage.updateCompany(company.id, {
-            lastReceiptGlobalNo: receiptData.receiptGlobalNo,
-            dailyReceiptCount: receiptData.receiptCounter,
-            lastFiscalHash: result.hash, // Chaining
+        // ZIMRA only stores receipts it validates; a Red receipt is NOT stored
+        // and must NOT advance the local sequence (else the next receipt is
+        // "not sequential" / chains onto a hash ZIMRA never kept). Yellow/grey
+        // are accepted-with-warning and DO advance the sequence.
+        const companyUpdateData: any = {
             lastReceiptAt: nowAtHarare  // Use the actual UTC Date object, not re-parsed from the Harare-formatted string
-        });
+        };
+        if (validationStatus === 'red') {
+            vLog(`[Fiscalize] Receipt ${receiptData.receiptGlobalNo} is Red — counters and hash preserved; next receipt will reuse the same numbers.`);
+        } else {
+            companyUpdateData.lastReceiptGlobalNo = receiptData.receiptGlobalNo;
+            companyUpdateData.dailyReceiptCount = receiptData.receiptCounter;
+            companyUpdateData.lastFiscalHash = result.hash;
+        }
+        await storage.updateCompany(company.id, companyUpdateData);
 
         return updatedInvoice;
 

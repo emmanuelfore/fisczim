@@ -4673,7 +4673,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/companies/:id/zimra/day/x-report", requireAuthOrApiKey, async (req, res) => {
+  app.post("/api/companies/:id/zimra/day/close", requireAuthOrApiKey, async (req, res) => {
     const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
     const maxRetries = 3;
     const retryDelay = 2000; // 2 seconds between retries
@@ -4684,10 +4684,11 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Company not registered with ZIMRA" });
       }
 
-      // Check if fiscal day is actually open or failed close
-      if (!company.fiscalDayOpen && company.lastFiscalDayStatus !== 'FiscalDayCloseFailed') {
+      // Manual close is always allowed when a fiscal day exists; ZIMRA is the authority.
+      // Local flags (fiscalDayOpen/lastFiscalDayStatus) can drift from ZIMRA's actual state.
+      if (!company.currentFiscalDayNo) {
         return res.status(400).json({
-          message: "No fiscal day is currently open",
+          message: "No fiscal day has been opened yet",
           suggestion: "Open a fiscal day before attempting to close it"
         });
       }
@@ -4927,6 +4928,23 @@ export async function registerRoutes(
   });
 
   app.get("/api/companies/:id/zimra/day/z-report", requireAuthOrApiKey, async (req, res) => {
+    try {
+      const companyId = Number(req.params.id);
+      const company = await storage.getCompany(companyId);
+      if (!company) return res.status(404).json({ message: "Company not found" });
+      if (!company.currentFiscalDayNo) {
+        return res.status(400).json({ message: "No fiscal day has been opened yet" });
+      }
+
+      const data = await storage.getZReportData(companyId, company.currentFiscalDayNo);
+      res.json(data);
+    } catch (err: any) {
+      console.error("Z-Report Error:", err);
+      res.status(500).json({ message: "Failed to generate Z-Report: " + err.message });
+    }
+  });
+
+  app.get("/api/companies/:id/zimra/day/x-report", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const company = await storage.getCompany(companyId);

@@ -144,11 +144,14 @@ router.post("/open-day", async (req, res) => {
 // POST /close-day — manual day close (Task 9.5, Req 8.2)
 router.post("/close-day", async (req, res) => {
   const company = req.company as any;
+  // manual: true — always attempt the close and let ZIMRA be the authority.
+  // Skips local state guard and preflight blocking (issues are logged as warnings).
+  const manual = req.body?.manual === true || req.body?.force === true;
 
   try {
     const device = getDeviceConfig(company);
 
-    if (!company.fiscalDayOpen && company.lastFiscalDayStatus !== 'FiscalDayCloseFailed') {
+    if (!manual && !company.fiscalDayOpen && company.lastFiscalDayStatus !== 'FiscalDayCloseFailed') {
       return res.status(400).json({
         error: "VALIDATION_ERROR",
         message: "No fiscal day is currently open",
@@ -156,11 +159,28 @@ router.post("/close-day", async (req, res) => {
     }
 
     const fiscalDayNo = company.currentFiscalDayNo || 0;
+    if (!fiscalDayNo) {
+      return res.status(400).json({
+        error: "VALIDATION_ERROR",
+        message: "No fiscal day has been opened yet",
+      });
+    }
     
     // Attempt closing without the complex retry logic here for simplicity,
     // or simulate the basic structure of a single pass
-    const closePreflight = await assertFiscalDayClosePreflight(company.id, fiscalDayNo);
-    const receiptCount = closePreflight.dayInvoices.reduce((max, inv) => Math.max(max, inv.receiptCounter || 0), 0);
+    let receiptCount: number;
+    let counters: any[];
+    try {
+      const closePreflight = await assertFiscalDayClosePreflight(company.id, fiscalDayNo);
+      receiptCount = closePreflight.dayInvoices.reduce((max, inv) => Math.max(max, inv.receiptCounter || 0), 0);
+      counters = closePreflight.counters;
+    } catch (e) {
+      if (!manual) throw e;
+      console.warn(`[ZIMRA] Manual close bypassing preflight issues: ${(e as Error).message}`);
+      const dayInvoices = await storage.getInvoicesByFiscalDay(company.id, fiscalDayNo);
+      receiptCount = dayInvoices.reduce((max, inv) => Math.max(max, inv.receiptCounter || 0), 0);
+      counters = await storage.calculateFiscalCounters(company.id, fiscalDayNo);
+    }
     
     // Identify opening date
     const formatHarareDateOnly = (date: Date) => {
@@ -176,8 +196,6 @@ router.post("/close-day", async (req, res) => {
     if (company.fiscalDayOpenedAt) {
       fiscalDayDate = formatHarareDateOnly(new Date(company.fiscalDayOpenedAt));
     }
-
-    const counters = closePreflight.counters;
 
     let response: any;
     try {

@@ -61,7 +61,7 @@ namespace Revmax_Interface_Promun
 
         public async Task<string> CloseDayAsync()
         {
-            var content = new StringContent("{\"action\": \"close\"}", Encoding.UTF8, "application/json");
+            var content = new StringContent("{\"action\": \"close\", \"manual\": true}", Encoding.UTF8, "application/json");
             var response = await _httpClient.PostAsync("fiscal/close-day", content);
             
             if (!response.IsSuccessStatusCode)

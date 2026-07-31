@@ -40,6 +40,7 @@ import {
   MapPin,
   CalendarDays,
   Clock,
+  CalendarClock,
   ClipboardCheck,
   UserRoundCheck,
   BarChart2,
@@ -433,6 +434,7 @@ export function Layout({
       children: [
         { icon: Server, label: "ZIMRA Device Settings", href: "/settings?tab=zimra" },
         { icon: ClipboardList, label: "Transaction Logs", href: "/zimra-logs" },
+        { icon: CalendarClock, label: "Scheduled Jobs", href: "/jobs" },
         { icon: Activity, label: "API Logs", href: "/api-logs" },
         { icon: Activity, label: "FDMS Test", href: "/fdms-test" },
         { icon: FileText, label: "Tax & ZIMRA Report", href: "/reports/tax" },
@@ -921,6 +923,11 @@ export function Layout({
       return {
         title: "Transaction Logs",
         subtitle: "Review FDMS communication and fiscal submission history.",
+      };
+    if (location.startsWith("/jobs"))
+      return {
+        title: "Scheduled Jobs",
+        subtitle: "Background schedules and their run outcomes.",
       };
     if (location.startsWith("/api-logs"))
       return {

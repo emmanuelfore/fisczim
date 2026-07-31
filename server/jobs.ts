@@ -4,9 +4,73 @@ import { addDays, addWeeks, addMonths, addYears } from "date-fns";
 import { ZimraDevice } from "./zimra.js";
 import { getZimraLogger } from "./lib/fiscalization.js";
 
+// In-memory scheduler status: lets the API surface schedules and outcomes
+export interface JobSchedulerEntry {
+  name: string;
+  description: string;
+  schedule: string;
+  nextRunAt: string | null;
+  lastRunAt: string | null;
+  lastRunStatus: 'running' | 'completed' | 'failed' | null;
+  lastRunDurationMs: number | null;
+  lastRunSummary: any | null;
+}
+
+const schedulerEntries: JobSchedulerEntry[] = [
+  {
+    name: 'fiscal_day_closure',
+    description: 'Closes open ZIMRA fiscal days for all companies at Zimbabwe midnight (00:05 CAT).',
+    schedule: 'Daily at 00:05 CAT (22:05 UTC)',
+    nextRunAt: null,
+    lastRunAt: null,
+    lastRunStatus: null,
+    lastRunDurationMs: null,
+    lastRunSummary: null
+  },
+  {
+    name: 'recurring_invoices',
+    description: 'Generates invoices from due recurring invoice templates.',
+    schedule: 'Every hour',
+    nextRunAt: null,
+    lastRunAt: null,
+    lastRunStatus: null,
+    lastRunDurationMs: null,
+    lastRunSummary: null
+  }
+];
+
+export function getJobsStatus(): JobSchedulerEntry[] {
+  return schedulerEntries.map((e) => ({ ...e }));
+}
+
+function summarizeResult(jobName: string, result: any): any {
+  if (jobName === 'fiscal_day_closure' && result && Array.isArray(result.companies)) {
+    return {
+      totalCompanies: result.totalCompanies,
+      successfulClosures: result.successfulClosures,
+      failedClosures: result.failedClosures,
+      alreadyClosed: result.alreadyClosed,
+      closeFailed: result.closeFailed,
+      failedCompanies: result.companies
+        .filter((c: any) => c.status === 'close_failed' || c.status === 'error')
+        .map((c: any) => ({
+          companyId: c.companyId,
+          companyName: c.companyName,
+          status: c.status,
+          fiscalDayNo: c.fiscalDayNo,
+          error: c.error
+        }))
+    };
+  }
+  return result;
+}
+
 // Helper function to log job execution
 async function logJobExecution(jobName: string, companyId: number | null, jobFn: () => Promise<any>, metadata?: any) {
   const startTime = new Date();
+  const schedulerEntry = schedulerEntries.find((e) => e.name === jobName);
+  if (schedulerEntry) schedulerEntry.lastRunStatus = 'running';
+
   const jobLog = await storage.createJobLog({
     jobName,
     status: 'started',
@@ -18,7 +82,14 @@ async function logJobExecution(jobName: string, companyId: number | null, jobFn:
     const result = await jobFn();
     const completedAt = new Date();
     const duration = completedAt.getTime() - startTime.getTime();
-    
+
+    if (schedulerEntry) {
+      schedulerEntry.lastRunAt = completedAt.toISOString();
+      schedulerEntry.lastRunStatus = 'completed';
+      schedulerEntry.lastRunDurationMs = duration;
+      schedulerEntry.lastRunSummary = summarizeResult(jobName, result);
+    }
+
     await storage.updateJobLog(jobLog.id, {
       status: 'completed',
       completedAt,
@@ -30,7 +101,14 @@ async function logJobExecution(jobName: string, companyId: number | null, jobFn:
   } catch (error: any) {
     const completedAt = new Date();
     const duration = completedAt.getTime() - startTime.getTime();
-    
+
+    if (schedulerEntry) {
+      schedulerEntry.lastRunAt = completedAt.toISOString();
+      schedulerEntry.lastRunStatus = 'failed';
+      schedulerEntry.lastRunDurationMs = duration;
+      schedulerEntry.lastRunSummary = { error: error.message };
+    }
+
     await storage.updateJobLog(jobLog.id, {
       status: 'failed',
       completedAt,
@@ -150,9 +228,14 @@ export function startRecurringInvoiceWorker() {
     console.log("[Job] Starting Recurring Invoice Worker...");
     // Initial run
     processRecurringInvoices();
+    const recurringEntry = schedulerEntries.find((e) => e.name === 'recurring_invoices');
+    if (recurringEntry) recurringEntry.nextRunAt = new Date(Date.now() + 1000 * 60 * 60).toISOString();
 
     // Run every hour
-    setInterval(processRecurringInvoices, 1000 * 60 * 60);
+    setInterval(() => {
+        processRecurringInvoices();
+        if (recurringEntry) recurringEntry.nextRunAt = new Date(Date.now() + 1000 * 60 * 60).toISOString();
+    }, 1000 * 60 * 60);
 }
 
 /**
@@ -328,6 +411,8 @@ export function startFiscalDayClosingWorker() {
         const hours = Math.floor(delay / (1000 * 60 * 60));
         const mins = Math.floor((delay % (1000 * 60 * 60)) / (1000 * 60));
         console.log(`[Job] Next Zimbabwe midnight closure scheduled in ${hours}h ${mins}m (Target: ${target.toISOString()})`);
+        const closureEntry = schedulerEntries.find((e) => e.name === 'fiscal_day_closure');
+        if (closureEntry) closureEntry.nextRunAt = target.toISOString();
 
         setTimeout(async () => {
             try {

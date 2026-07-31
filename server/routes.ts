@@ -995,6 +995,16 @@ export async function registerRoutes(
     }
   });
 
+  // Scheduler status: schedules + latest run outcomes (in-memory)
+  app.get("/api/jobs/status", requireAuth, async (_req, res) => {
+    try {
+      const { getJobsStatus } = await import("./jobs.js");
+      res.json({ serverTime: new Date().toISOString(), jobs: getJobsStatus() });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // Health Check (Public)
   app.get("/api/health", async (_req, res) => {
     let internet = false;

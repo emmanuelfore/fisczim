@@ -14,11 +14,12 @@ import {
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { ShieldCheck, Calculator, Smartphone, Pencil } from "lucide-react";
+import { ShieldCheck, Calculator, Smartphone, Pencil, RefreshCw, CheckCircle, XCircle, AlertTriangle } from "lucide-react";
 
 import { apiFetch } from "@/lib/api";
 
 import { useActiveCompany } from "@/hooks/use-active-company";
+import { useState } from "react";
 
 export default function TaxConfigPage() {
   const {
@@ -29,6 +30,41 @@ export default function TaxConfigPage() {
   const currentCompany = activeCompany;
   const isLoadingCompanies = isLoadingActive;
   const companyId = activeCompanyId;
+
+  const [health, setHealth] = useState<any>(null);
+  const [checkingHealth, setCheckingHealth] = useState(false);
+  const [healthError, setHealthError] = useState("");
+
+  const runHealthCheck = async () => {
+    if (!companyId) return;
+    setCheckingHealth(true);
+    setHealthError("");
+    setHealth(null);
+    try {
+      const res = await apiFetch(`/api/companies/${companyId}/zimra/tax-health`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        setHealthError(err?.message || "Health check failed");
+      } else {
+        setHealth(await res.json());
+      }
+    } catch (err: any) {
+      setHealthError(err?.message || "Health check failed");
+    } finally {
+      setCheckingHealth(false);
+    }
+  };
+
+  const healthStatusStyles: Record<string, string> = {
+    ok: "bg-green-50 text-green-700 border-green-200",
+    mismatch: "bg-red-50 text-red-700 border-red-200",
+    missing: "bg-red-50 text-red-700 border-red-200",
+    ambiguous: "bg-amber-50 text-amber-700 border-amber-200",
+    unmapped: "bg-slate-100 text-slate-600 border-slate-200",
+    "no-live": "bg-slate-100 text-slate-600 border-slate-200",
+  };
 
   const { data: products } = useProducts(companyId || 0);
   const { taxTypes, taxCategories } = useTaxConfig(companyId || undefined);
@@ -225,6 +261,118 @@ export default function TaxConfigPage() {
                   </tbody>
                 </table>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* ZIMRA Tax Mapping Health */}
+          <Card className="card-depth border-none">
+            <CardHeader>
+              <div className="flex justify-between items-center">
+                <div>
+                  <CardTitle className="flex items-center text-purple-700">
+                    <Smartphone className="w-5 h-5 mr-2" />
+                    ZIMRA Tax Mapping Health
+                  </CardTitle>
+                  <CardDescription>
+                    Validates your tax types against the live ZIMRA device config — catches
+                    duplicate rates, wrong tax IDs and percent mismatches that cause Red
+                    invoices.
+                  </CardDescription>
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={runHealthCheck}
+                  disabled={checkingHealth}
+                >
+                  <RefreshCw className={`mr-2 h-4 w-4 ${checkingHealth ? "animate-spin" : ""}`} />
+                  Check Against ZIMRA
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {healthError && (
+                <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                  <XCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                  {healthError}
+                </div>
+              )}
+
+              {health && (
+                <div className="space-y-4">
+                  {health.issues.length > 0 ? (
+                    <div className="space-y-2">
+                      {health.issues.map((issue: any, i: number) => (
+                        <div
+                          key={i}
+                          className={`flex items-start gap-2 p-3 rounded-lg border text-sm ${
+                            issue.severity === "error"
+                              ? "bg-red-50 border-red-200 text-red-800"
+                              : "bg-amber-50 border-amber-200 text-amber-800"
+                          }`}
+                        >
+                          {issue.severity === "error" ? (
+                            <XCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                          ) : (
+                            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+                          )}
+                          <span>
+                            <span className="font-mono text-xs mr-2 opacity-70">
+                              {issue.code}
+                            </span>
+                            {issue.message}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm">
+                      <CheckCircle className="w-4 h-4 shrink-0" />
+                      All tax types map cleanly to the ZIMRA device.
+                    </div>
+                  )}
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm">
+                      <thead className="bg-slate-50 border-b border-slate-100">
+                        <tr>
+                          <th className="p-2.5 font-medium text-slate-500">Local Tax Type</th>
+                          <th className="p-2.5 font-medium text-slate-500 text-right">Rate</th>
+                          <th className="p-2.5 font-medium text-slate-500">ZIMRA ID</th>
+                          <th className="p-2.5 font-medium text-slate-500">Maps To (Live)</th>
+                          <th className="p-2.5 font-medium text-slate-500">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {health.localTaxes.map((t: any) => (
+                          <tr key={t.taxTypeId} className="hover:bg-slate-50/50">
+                            <td className="p-2.5 font-medium text-slate-900">
+                              {t.name}
+                              <div className="text-xs text-slate-500 font-normal font-mono">{t.code}</div>
+                            </td>
+                            <td className="p-2.5 text-right font-bold text-slate-900">{t.rate}%</td>
+                            <td className="p-2.5 font-mono text-slate-700">{t.zimraTaxId || "—"}</td>
+                            <td className="p-2.5 font-mono text-slate-700">
+                              {t.resolvedTaxId ? `${t.resolvedTaxId} (${t.resolvedTaxName || "?"})` : "—"}
+                            </td>
+                            <td className="p-2.5">
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${healthStatusStyles[t.status] || ""}`}>
+                                {t.status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {!health && !healthError && (
+                <p className="text-sm text-muted-foreground">
+                  Run a check to see how each of your tax types maps to the ZIMRA device
+                  and whether any configuration will produce invalid receipts.
+                </p>
+              )}
             </CardContent>
           </Card>
         </div>

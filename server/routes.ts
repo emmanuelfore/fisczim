@@ -24,6 +24,7 @@ import { seedCompanyDefaults } from "./lib/seeding.js";
 import { processInvoiceFiscalization, getZimraLogger } from "./lib/fiscalization.js";
 import { classifyProduct } from "./utils/productClassifier.js";
 import { ZimraPreflightError } from "./lib/zimra-preflight.js";
+import { buildCompanyTaxMapping } from "./lib/tax-mapping.js";
 import sageWebhookRouter from "./lib/sage-webhook.js";
 import sageOAuthRouter from "./lib/sage-oauth.js";
 import v1Router from "./api/v1/index.js";
@@ -4462,8 +4463,53 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/companies/:id/zimra/applicable-taxes", requireAuthOrApiKey, async (req, res) => {
+  // Tax mapping health: validates local tax types against the live ZIMRA
+  // device config so invalid tax is fixed before invoices turn Red.
+  app.get("/api/companies/:id/zimra/tax-health", requireAuthOrApiKey, async (req, res) => {
     try {
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
+      const company = await storage.getCompany(companyId);
+      if (!company || !company.fdmsDeviceId) {
+        return res.status(400).json({ message: "Company not registered with ZIMRA" });
+      }
+
+      const device = new ZimraDevice({
+        deviceId: company.fdmsDeviceId,
+        deviceSerialNo: company.fdmsDeviceSerialNo || "UNKNOWN",
+        activationKey: company.fdmsApiKey || "",
+        privateKey: company.zimraPrivateKey || undefined,
+        certificate: company.zimraCertificate || undefined,
+        baseUrl: getZimraBaseUrl((company.zimraEnvironment as "test" | "production") || 'test')
+      }, getZimraLogger(companyId));
+
+      const config = await device.getConfig();
+      const dbTaxTypes = await storage.getTaxTypes(companyId);
+      const mapping = buildCompanyTaxMapping(dbTaxTypes, config);
+
+      const issues = [...mapping.issues].sort((a, b) =>
+        a.severity === b.severity ? 0 : a.severity === 'error' ? -1 : 1
+      );
+
+      res.json({
+        liveAvailable: mapping.liveAvailable,
+        liveTaxes: mapping.liveTaxes.map((t) => ({
+          taxID: t.taxID,
+          taxName: t.taxName,
+          taxPercent: t.taxPercent,
+        })),
+        localTaxes: mapping.localTaxes,
+        issues
+      });
+    } catch (err: any) {
+      console.error("ZIMRA Tax Health Check Error:", err);
+      if (err instanceof ZimraApiError) {
+        return res.status(err.statusCode).json({ message: err.message, details: err.details });
+      }
+      res.status(500).json({ message: "Failed to check tax mapping: " + err.message });
+    }
+  });
+
+  app.get("/api/companies/:id/zimra/applicable-taxes", requireAuthOrApiKey, async (req, res) => {    try {
       const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const company = await storage.getCompany(companyId);
       if (!company || !company.fdmsDeviceId) {

@@ -99,6 +99,7 @@ export async function assertReceiptPreflight(args: {
   receiptData: ReceiptData;
   originalInvoice?: any;
   zimraConfig?: ZimraConfigResponse;
+  taxIssues?: { code: string; message: string }[];
 }) {
   const { company, invoice, receiptData, originalInvoice, zimraConfig } = args;
   const issues: ZimraPreflightIssue[] = [];
@@ -223,6 +224,12 @@ export async function assertReceiptPreflight(args: {
     }
 
     if (line.taxID) expectedTaxRows++;
+  }
+
+  // Deterministic tax-mapping failures (ambiguous/broken local tax config)
+  // block the submission with an actionable message instead of a ZIMRA Red.
+  for (const taxIssue of args.taxIssues || []) {
+    addIssue(issues, taxIssue.code, taxIssue.message);
   }
 
   // Skip tax rows validation for non-VAT registered companies

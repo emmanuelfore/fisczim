@@ -5,6 +5,7 @@ import fs from "fs";
 import path from "path";
 import { logAction } from "../audit.js";
 import { assertReceiptPreflight, ZimraPreflightError } from "./zimra-preflight.js";
+import { buildCompanyTaxMapping, resolveLineTaxID } from "./tax-mapping.js";
 import { db } from "../db.js";
 import { eq, and, isNotNull, ne } from "drizzle-orm";
 
@@ -322,6 +323,13 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
 
         const explicitlyNotVatRegistered = company.vatRegistered === false || company.vatEnabled === false;
 
+        // Build the deterministic company tax mapping ONCE from live ZIMRA
+        // config + local tax types. All lines resolve through this map so a
+        // broken/ambiguous tax config surfaces as an actionable error before
+        // the receipt ever reaches FDMS (instead of a Red validation from ZIMRA).
+        const taxMapping = buildCompanyTaxMapping(dbTaxTypes, zimraConfig);
+        const lineTaxIssues: { code: string; message: string }[] = [];
+
         // Map Invoice to ReceiptData
         const receiptLines = await Promise.all(invoice.items.map(async (item, index) => {
             let taxPercent = parseFloat(item.taxRate as any);
@@ -339,125 +347,43 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
 
             let taxID = 0;
 
-            // PRIORITY 1: ZIMRA Live Config (most current, directly from API)
-            if (zimraConfig?.applicableTaxes) {
-                const effectiveTaxTypeId = (item as any).product?.taxTypeId || (item as any).taxTypeId;
-                const dbTax = effectiveTaxTypeId ? dbTaxTypes.find(t => t.id === effectiveTaxTypeId) : null;
-
-                // For non-VAT registered companies, force use of "Non-VAT 0%" tax
-                const explicitlyNotVatRegistered = fiscalConfig.vatRegistered === false || fiscalConfig.vatEnabled === false;
-                if (explicitlyNotVatRegistered) {
-                    const nonVatTax = zimraConfig.applicableTaxes.find(t =>
-                        t.taxPercent === 0 &&
-                        t.taxName?.toLowerCase().includes('non-vat')
-                    );
-                    if (nonVatTax) {
-                        taxID = nonVatTax.taxID;
-                    }
-                }
-
-                // If not non-VAT or no match found, proceed with normal matching
-                if (taxID === 0) {
-                    // Strategy: Match by {Percent, Name} combination which is more stable than IDs
-                    const targetPercent = dbTax ? parseFloat(dbTax.rate) : taxPercent;
-                    const targetNameHint = (dbTax?.name || item.description || '').toLowerCase();
-
-                    // 1. Precise Match (Percent + Name keyword correlation)
-                    let match = zimraConfig.applicableTaxes.find(t => {
-                        const pctMatch = Math.abs((t.taxPercent || 0) - targetPercent) < 0.01;
-                        if (!pctMatch) return false;
-
-                        // For 0% rates, strictly disambiguate Exempt vs Zero Rated by name
-                        if (targetPercent === 0) {
-                            const isExempt = targetNameHint.includes('exempt');
-                            const liveIsExempt = t.taxName?.toLowerCase().includes('exempt');
-                            return isExempt === liveIsExempt;
-                        }
-                        return true; // For non-zero, percent is usually sufficient
-                    });
-
-                    // 2. Fallback: Match by Percent only if name match failed
-                    if (!match) {
-                        match = zimraConfig.applicableTaxes.find(t => Math.abs((t.taxPercent || 0) - targetPercent) < 0.01);
-                    }
-
-                    // 3. Fallback: Match by stored ZIMRA Tax ID from DB if all else fails
-                    if (!match && dbTax?.zimraTaxId) {
-                        const storedId = parseInt(dbTax.zimraTaxId);
-                        match = zimraConfig.applicableTaxes.find(t => t.taxID === storedId);
-                    }
-
-                    if (match) {
-                        taxID = match.taxID;
-                    }
-                }
+            if (explicitlyNotVatRegistered) {
+                const nonVatTax = zimraConfig?.applicableTaxes?.find(t =>
+                    Math.abs(t.taxPercent || 0) < 0.01 &&
+                    t.taxName?.toLowerCase().includes('non-vat')
+                );
+                if (nonVatTax) taxID = nonVatTax.taxID;
             }
 
-            // PRIORITY 2: Database Tax Types (fallback when ZIMRA config unavailable)
-            // Priority 2a: Product/Item Config (Master Data)
             if (taxID === 0) {
-                const effectiveTaxTypeId = (item as any).product?.taxTypeId || (item as any).taxTypeId;
+                const itemTaxTypeId = (item as any).product?.taxTypeId || (item as any).taxTypeId;
+                const resolution = resolveLineTaxID(taxMapping, {
+                    taxTypeId: itemTaxTypeId,
+                    rate: taxPercent,
+                    description: item.description || "",
+                    forceNonVat: explicitlyNotVatRegistered
+                });
 
-                if (effectiveTaxTypeId) {
-                    const matchedTax = dbTaxTypes.find(t => t.id === effectiveTaxTypeId);
-                    if (matchedTax) {
-                        // 1. Explicit ZIMRA Mapping
-                        if (matchedTax.zimraTaxId) {
-                            taxID = parseInt(matchedTax.zimraTaxId);
-                        }
-                        // 2. Name-based resolution
-                        else {
-                            const name = matchedTax.name.toLowerCase();
-                            let dbTaxMatch;
-
-                            if (name.includes('exempt')) {
-                                dbTaxMatch = dbTaxTypes.find(t => t.name.toLowerCase().includes('exempt'));
-                            } else if (name.includes('zero') || name.includes('0%') || name.includes('non')) {
-                                dbTaxMatch = dbTaxTypes.find(t => t.name.toLowerCase().includes('zero') || t.name.toLowerCase().includes('non'));
-                            } else if (name.includes('standard') || name.includes('vat')) {
-                                dbTaxMatch = dbTaxTypes.find(t => t.name.toLowerCase().includes('standard') || t.name.toLowerCase().includes('vat'));
-                            }
-
-                            if (dbTaxMatch && dbTaxMatch.zimraTaxId) {
-                                taxID = parseInt(dbTaxMatch.zimraTaxId);
-                            }
-                        }
+                if (resolution.taxID) {
+                    taxID = resolution.taxID;
+                }
+                if (resolution.issue) {
+                    const label = (item.description || '').trim() || 'Item';
+                    if (resolution.issue.severity === 'error') {
+                        lineTaxIssues.push({
+                            code: resolution.issue.code,
+                            message: `Line ${index + 1} (${label}) — ${resolution.issue.message}`
+                        });
+                    } else {
+                        vLog(`[Fiscalize] ${resolution.issue.code} (line ${index + 1} ${label}): ${resolution.issue.message}`);
                     }
                 }
             }
 
-            // Secondary fallback: Look in database synced tax types
             if (taxID === 0) {
-                let dbMatchingTax;
-                if (taxPercent === 0 && item.description.toLowerCase().includes('exempt')) {
-                    dbMatchingTax = dbTaxTypes.find(t => t.name.toLowerCase().includes('exempt'));
-                }
-
-                if (!dbMatchingTax) {
-                    dbMatchingTax = dbTaxTypes.find(t => Math.abs(Number(t.rate) - taxPercent) < 0.01);
-                }
-
-                if (dbMatchingTax) {
-                    taxID = dbMatchingTax.zimraTaxId ? parseInt(dbMatchingTax.zimraTaxId) : 0;
-                }
-            }
-
-            // Tertiary fallback for non-VAT or general 0% if still 0
-            if (taxID === 0 && taxPercent === 0) {
-                // Dynamic lookup for Exempt or Zero Rated
-                if (item.description.toLowerCase().includes('exempt')) {
-                    const exemptTax = dbTaxTypes.find(t => t.name.toLowerCase().includes('exempt') && t.zimraTaxId);
-                    if (exemptTax) taxID = parseInt(exemptTax.zimraTaxId!);
-                } else {
-                    // Default to Zero Rated (search for "Zero" or "0%")
-                    const zeroTax = dbTaxTypes.find(t => (t.name.toLowerCase().includes('zero') || t.name.includes('0%')) && t.zimraTaxId);
-                    if (zeroTax) taxID = parseInt(zeroTax.zimraTaxId!);
-                }
-            }
-
-            // NEW: Use ZimraDevice helpers for consistent mapping if no match found
-            if (taxID === 0) {
+                // Last resort heuristic — flagged as a warning so admins notice
                 taxID = ZimraDevice.getTaxID(taxPercent);
+                vLog(`[Fiscalize] WARN: heuristic tax ID ${taxID} used for rate ${taxPercent}% (no live config match for ${item.description || 'item'}); check tax config.`);
             }
 
             let hsCode = (item.product?.hsCode || "").trim();
@@ -705,7 +631,8 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
                 invoice,
                 receiptData,
                 originalInvoice,
-                zimraConfig
+                zimraConfig,
+                taxIssues: lineTaxIssues
             });
         } catch (preflightErr: any) {
             if (preflightErr instanceof ZimraPreflightError) {
@@ -834,7 +761,8 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
                             invoice,
                             receiptData,
                             originalInvoice,
-                            zimraConfig
+                            zimraConfig,
+                            taxIssues: lineTaxIssues
                         });
                         
                         vTime(`[ZIMRA] submitReceipt-retry-${companyId}-${nextGlobalNo}`);

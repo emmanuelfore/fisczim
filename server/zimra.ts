@@ -750,8 +750,14 @@ export class ZimraDevice {
             const amount = Math.round(t.taxAmount * 100);
             const sales = Math.round(t.salesAmountWithTax * 100);
 
-            // Removed taxCode from signature as per user request
-            return `${percentStr}${amount}${sales}`;
+            // ZIMRA spec 13.2.1: each tax line in the signature is concatenated as
+            // taxCode || taxPercent || taxAmount || salesAmountWithTax.
+            // prepareReceipt always assigns a taxCode to the payload taxes, so ZIMRA
+            // recomputes the canonical hash WITH the taxCode. Omitting it here makes
+            // the device signature mismatch the payload and ZIMRA rejects it with
+            // RCPT020 "Invoice signature is not valid" (Red, blocks fiscal day close).
+            // When the payload has no taxCode (''), empty value is used — same string.
+            return `${t.taxCode || ''}${percentStr}${amount}${sales}`;
         }).join('');
 
         const deviceIdStr = parseInt(this.config.deviceId).toString();

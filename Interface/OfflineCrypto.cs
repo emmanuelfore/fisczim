@@ -136,6 +136,21 @@ namespace Revmax_Interface_Promun
             }
         }
 
+        // Mirrors the server's prepareReceipt taxCode fallback (assigned when the
+        // receipt line has no taxCode): taxID 3 -> 'A' (Standard), 2 -> 'B' (Zero
+        // Rated), 1 -> 'C' (Exempt), 4 -> 'E', anything else -> 'A'. Offline items
+        // only carry a rate, so resolve the taxID the server would use
+        // (ZimraDevice.getTaxID: 15.5/15 -> 3, 0 -> 2, else -> 3).
+        private static string TaxCodeForRate(decimal rate)
+        {
+            int taxID = (rate == 15.5m || rate == 15m) ? 3 : (rate == 0 ? 2 : 3);
+            if (taxID == 3) return "A";
+            if (taxID == 2) return "B";
+            if (taxID == 1) return "C";
+            if (taxID == 4) return "E";
+            return "A";
+        }
+
         public string GenerateOfflineSignatureString(PassThroughFiscalizeRequest request, out string stringToSign)
         {
             if (!IsConfigured())
@@ -190,7 +205,13 @@ namespace Revmax_Interface_Promun
                 string pctStr = pct.ToString("0.00");
                 int amount = (int)Math.Round(tax.Value.Key * 100);
                 int sales = (int)Math.Round(tax.Value.Value * 100);
-                taxesStr.Append(string.Format("{0}{1}{2}", pctStr, amount, sales));
+                // ZIMRA spec 13.2.1 concatenates each tax line as
+                // taxCode || taxPercent || taxAmount || salesAmountWithTax.
+                // The server's prepareReceipt always assigns a taxCode to the
+                // payload taxes (3/else -> 'A', 2 -> 'B', 1 -> 'C', 4 -> 'E'),
+                // so the offline signature must include it too, otherwise ZIMRA
+                // rejects the synced receipt with RCPT020.
+                taxesStr.Append(string.Format("{0}{1}{2}{3}", TaxCodeForRate(pct), pctStr, amount, sales));
             }
 
             string prevHash = (_state.DailyReceiptCount == 0) ? "" : _state.LastFiscalHash;

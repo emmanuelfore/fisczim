@@ -3136,6 +3136,109 @@ export class DatabaseStorage implements IStorage {
   }
 
   async calculateFiscalCounters(companyId: number, fiscalDayNo: number): Promise<FiscalDayCounter[]> {
+    // ZIMRA builds its fiscal day counters from the submitted receipts (per-taxID
+    // sales/tax amounts, per-moneyType payment totals). Replay the exact submitted
+    // payloads so our counters and signature match ZIMRA's internal state; the
+    // item-derived computation below diverges whenever invoice items are edited,
+    // re-rounded or mapped differently and causes FiscalDayCloseFailed.
+    const fromReceipts = await this.calculateFiscalCountersFromReceiptLogs(companyId, fiscalDayNo);
+    if (fromReceipts !== null) return fromReceipts;
+    return this.calculateFiscalCountersFromItems(companyId, fiscalDayNo);
+  }
+
+  private moneyTypeForMethod(method?: string | null): string {
+    const m = String(method || '').toUpperCase();
+    if (['CARD', 'SWIPE', 'POS'].includes(m)) return 'Card';
+    if (['ECOCASH', 'MOBILE', 'MOBILEWALLET', 'ONE_MONEY', 'TELE_CASH', 'INNBUCKS'].includes(m)) return 'MobileWallet';
+    if (['EFT', 'RTGS', 'TRANSFER', 'ZIPIT', 'BANKTRANSFER'].includes(m)) return 'BankTransfer';
+    if (m === 'CASH') return 'Cash';
+    return 'Other';
+  }
+
+  /**
+   * Rebuild fiscal day counters from the exact receipt payloads that were
+   * submitted to ZIMRA (zimra_logs.request_payload), mirroring how ZIMRA's
+   * device accumulates counters: SaleByTax/SaleTaxByTax per taxID from the
+   * receipt tax rows, BalanceByMoneyType per payment moneyType. Returns null
+   * when no receipt submissions were logged for the day.
+   */
+  private async calculateFiscalCountersFromReceiptLogs(companyId: number, fiscalDayNo: number): Promise<FiscalDayCounter[] | null> {
+    const receiptEndpoints = ['Invoice Submission', 'Credit Note Submission', 'Debit Note Submission'];
+    const rows = await db
+      .select({ endpoint: zimraLogs.endpoint, payload: zimraLogs.requestPayload, createdAt: zimraLogs.createdAt })
+      .from(zimraLogs)
+      .where(eq(zimraLogs.companyId, companyId));
+
+    // Dedupe re-submissions of the same receipt (same receiptCounter); keep the latest.
+    const latestByCounter = new Map<number, { at: number; receipt: any }>();
+    for (const row of rows) {
+      if (!receiptEndpoints.includes(row.endpoint || '')) continue;
+      const payload = row.payload as any;
+      const receipt = payload?.receipt || payload;
+      if (!receipt || receipt.fiscalDayNo !== fiscalDayNo || !receipt.receiptCounter) continue;
+      const at = row.createdAt?.getTime() || 0;
+      const existing = latestByCounter.get(receipt.receiptCounter);
+      if (!existing || at >= existing.at) {
+        latestByCounter.set(receipt.receiptCounter, { at, receipt });
+      }
+    }
+
+    if (latestByCounter.size === 0) return null;
+
+    const countersMap = new Map<string, any>();
+
+    const getCounter = (key: string, type: string, currency: string, taxID: number, taxPercent: number, moneyType: string | null = null) => {
+      if (!countersMap.has(key)) {
+        const isExempt = taxID === 1;
+        const isBalanceCounter = type === 'BalanceByMoneyType';
+        countersMap.set(key, {
+          fiscalCounterType: type,
+          fiscalCounterCurrency: currency,
+          // Exempt (taxID 1) sends no tax percent in the signature (spec 13.3.1);
+          // balance counters send moneyType instead of tax percent
+          ...(!isExempt && !isBalanceCounter ? { fiscalCounterTaxPercent: taxPercent } : {}),
+          ...(taxID && !isBalanceCounter ? { fiscalCounterTaxID: taxID } : {}),
+          ...(moneyType ? { fiscalCounterMoneyType: moneyType } : {}),
+          fiscalCounterValue: 0
+        });
+      }
+      return countersMap.get(key);
+    };
+
+    const receiptTypeToCounters: Record<string, [string, string]> = {
+      FiscalInvoice: ['SaleByTax', 'SaleTaxByTax'],
+      CreditNote: ['CreditNoteByTax', 'CreditNoteTaxByTax'],
+      DebitNote: ['DebitNoteByTax', 'DebitNoteTaxByTax']
+    };
+
+    for (const { receipt } of latestByCounter.values()) {
+      const [saleType, taxType] = receiptTypeToCounters[receipt.receiptType] || ['SaleByTax', 'SaleTaxByTax'];
+      const currency = receipt.receiptCurrency || 'USD';
+
+      for (const tax of receipt.receiptTaxes || []) {
+        const taxID = Number(tax.taxID);
+        if (!taxID) continue;
+        const taxPercent = Number(tax.taxPercent ?? 0);
+        getCounter(`${saleType}-${currency}-${taxID}`, saleType, currency, taxID, taxPercent)
+          .fiscalCounterValue += Number(tax.salesAmountWithTax ?? 0);
+        getCounter(`${taxType}-${currency}-${taxID}`, taxType, currency, taxID, taxPercent)
+          .fiscalCounterValue += Number(tax.taxAmount ?? 0);
+      }
+
+      for (const payment of receipt.receiptPayments || []) {
+        const moneyType = this.moneyTypeForMethod(payment.moneyTypeCode);
+        getCounter(`BalanceByMoneyType-${currency}-${moneyType}`, 'BalanceByMoneyType', currency, 0, 0, moneyType)
+          .fiscalCounterValue += Number(payment.paymentAmount ?? 0);
+      }
+    }
+
+    return Array.from(countersMap.values()).map(c => ({
+      ...c,
+      fiscalCounterValue: Math.round(c.fiscalCounterValue * 100) / 100
+    }));
+  }
+
+  async calculateFiscalCountersFromItems(companyId: number, fiscalDayNo: number): Promise<FiscalDayCounter[]> {
     const dayInvoicesInfo = await db
       .select({
         invoice: invoices,
@@ -3336,12 +3439,7 @@ export class DatabaseStorage implements IStorage {
       }
 
       const method = (inv.paymentMethod || "CASH").toUpperCase();
-      let moneyType = "Other"; // Default to Other
-
-      if (['CARD', 'SWIPE', 'POS'].includes(method)) moneyType = "Card";
-      else if (['ECOCASH', 'MOBILE', 'MOBILEWALLET', 'ONE_MONEY', 'TELE_CASH', 'INNBUCKS'].includes(method)) moneyType = "MobileWallet";
-      else if (['EFT', 'RTGS', 'TRANSFER', 'ZIPIT', 'BANKTRANSFER'].includes(method)) moneyType = "BankTransfer";
-      else if (method === 'CASH') moneyType = "Cash";
+      const moneyType = this.moneyTypeForMethod(method);
       const keyBal = `BalanceByMoneyType-${currency}-${moneyType}`;
       // Fix: Ensure we correctly create the counter for this money type
       const cBal = getCounter(keyBal, 'BalanceByMoneyType', currency, 0, 0, moneyType);

@@ -645,25 +645,51 @@ export class ZimraDevice {
             return 0;
         });
 
-        // NEW: Normalize all string values in counters to uppercase for compliance [CloseDay Request values should be CAPS]
+        // Normalize counters to canonical ZIMRA enum values for the payload
+        // (spec: fiscalCounterType/fiscalCounterMoneyType are enums like
+        // "SaleByTax" and "Cash"). The signature concatenation below
+        // uppercases explicitly as required by spec 13.3.1.
+        const canonicalCounterType = (type: any) => {
+            const map: Record<string, string> = {
+                'SALEBYTAX': 'SaleByTax',
+                'SALETAXBYTAX': 'SaleTaxByTax',
+                'CREDITNOTEBYTAX': 'CreditNoteByTax',
+                'CREDITNOTETAXBYTAX': 'CreditNoteTaxByTax',
+                'DEBITNOTEBYTAX': 'DebitNoteByTax',
+                'DEBITNOTETAXBYTAX': 'DebitNoteTaxByTax',
+                'BALANCEBYMONEYTYPE': 'BalanceByMoneyType',
+                'PAYOUTBYTAX': 'PayoutByTax',
+                'PAYOUTTAXBYTAX': 'PayoutTaxByTax'
+            };
+            return map[String(type).toUpperCase()] || String(type);
+        };
+        const canonicalMoneyType = (mType: any) => {
+            const map: Record<string, string> = {
+                'CASH': 'Cash',
+                'CARD': 'Card',
+                'MOBILEWALLET': 'MobileWallet',
+                'COUPON': 'Coupon',
+                'CREDIT': 'Credit',
+                'BANKTRANSFER': 'BankTransfer',
+                'OTHER': 'Other'
+            };
+            return map[String(mType).toUpperCase()] || String(mType);
+        };
         const normalizedCounters = sortedCounters.map(c => {
             const normalized = { ...c };
             if (typeof normalized.fiscalCounterType === 'string') {
-                normalized.fiscalCounterType = normalized.fiscalCounterType.toUpperCase();
-            }
-            if (typeof normalized.fiscalCounterCurrency === 'string') {
-                normalized.fiscalCounterCurrency = normalized.fiscalCounterCurrency.toUpperCase();
+                normalized.fiscalCounterType = canonicalCounterType(normalized.fiscalCounterType);
             }
             if (typeof normalized.fiscalCounterMoneyType === 'string') {
-                normalized.fiscalCounterMoneyType = normalized.fiscalCounterMoneyType.toUpperCase();
+                normalized.fiscalCounterMoneyType = canonicalMoneyType(normalized.fiscalCounterMoneyType);
             }
             return normalized;
         });
 
         console.log("Step 1 - Convert fiscalDayCounters:");
         const concatenatedCounters = normalizedCounters.map((c: any) => {
-            const type = c.fiscalCounterType;
-            const currency = c.fiscalCounterCurrency;
+            const type = String(c.fiscalCounterType).toUpperCase();
+            const currency = String(c.fiscalCounterCurrency).toUpperCase();
             const valueInCents = Math.round(c.fiscalCounterValue * 100);
 
             // Python Reference Logic: Concatenate TaxPercent (if exists) then MoneyType (if exists)

@@ -15,7 +15,7 @@ import {
   payrollStatutoryDeadlines, payrollImportBatches, payrollImportRows, companies,
   employeeSalaryChanges, payrollRemittances
 } from "../../../shared/schema.js";
-import { eq, and, desc, asc, ne, sql, gte, lte, inArray } from "drizzle-orm";
+import { eq, and, desc, asc, ne, sql, gte, lte, inArray, ilike } from "drizzle-orm";
 import { ZimbabwePayrollEngine, type TaxBracket, type PayrollElementInput } from "../../../shared/payroll-engine.js";
 import { reportService } from "../../services/reportService.js";
 import { logAction } from "../../audit.js";
@@ -72,7 +72,7 @@ router.get("/self-service", async (req, res) => {
     if (!userEmail) return res.status(401).json({ error: "UNAUTHORIZED", message: "No user email on session" });
 
     const [emp] = await db.select().from(employees)
-      .where(and(eq(employees.companyId, companyId), eq(employees.email, userEmail)))
+      .where(and(eq(employees.companyId, companyId), ilike(employees.email, userEmail)))
       .limit(1);
     if (!emp) return res.status(404).json({ error: "NOT_FOUND", message: "No employee record linked to this account" });
 
@@ -134,7 +134,7 @@ router.post("/self-service/leave", async (req, res) => {
     const companyId = getTargetCompanyId(req);
     const userEmail = (req.user?.email || "").toLowerCase();
     const [emp] = await db.select().from(employees)
-      .where(and(eq(employees.companyId, companyId), eq(employees.email, userEmail)))
+      .where(and(eq(employees.companyId, companyId), ilike(employees.email, userEmail)))
       .limit(1);
     if (!emp) return res.status(404).json({ error: "NOT_FOUND", message: "No employee record linked to this account" });
 
@@ -190,7 +190,7 @@ router.put("/self-service/profile", async (req, res) => {
     const companyId = getTargetCompanyId(req);
     const userEmail = (req.user?.email || "").toLowerCase();
     const [emp] = await db.select().from(employees)
-      .where(and(eq(employees.companyId, companyId), eq(employees.email, userEmail)))
+      .where(and(eq(employees.companyId, companyId), ilike(employees.email, userEmail)))
       .limit(1);
     if (!emp) return res.status(404).json({ error: "NOT_FOUND", message: "No employee record linked to this account" });
 
@@ -209,6 +209,43 @@ router.put("/self-service/profile", async (req, res) => {
       changedFields: Object.keys(updates),
     });
     res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
+// GET /self-service/payslip/:runId - employee downloads their own payslip PDF
+// (matches employee by login email, run must be LOCKED and contain the employee)
+router.get("/self-service/payslip/:runId", async (req, res) => {
+  try {
+    const companyId = getTargetCompanyId(req);
+    const runId = parseInt(req.params.runId, 10);
+    const userEmail = (req.user?.email || "").toLowerCase();
+    if (!userEmail) return res.status(401).json({ error: "UNAUTHORIZED", message: "No user email on session" });
+    if (!Number.isInteger(runId)) return res.status(400).json({ error: "VALIDATION_ERROR", message: "Invalid run id" });
+
+    const [emp] = await db.select().from(employees)
+      .where(and(eq(employees.companyId, companyId), ilike(employees.email, userEmail)))
+      .limit(1);
+    if (!emp) return res.status(404).json({ error: "NOT_FOUND", message: "No employee record linked to this account" });
+
+    const [run] = await db.select().from(payrollRuns)
+      .where(and(eq(payrollRuns.id, runId), eq(payrollRuns.companyId, companyId)))
+      .limit(1);
+    if (!run) return res.status(404).json({ error: "NOT_FOUND", message: "Payroll run not found" });
+    if (run.status !== "LOCKED") {
+      return res.status(403).json({ error: "FORBIDDEN", message: "Payslips are available after the run is locked" });
+    }
+
+    const [line] = await db.select().from(payrollRunEmployees)
+      .where(and(eq(payrollRunEmployees.payrollRunId, runId), eq(payrollRunEmployees.employeeId, emp.id)))
+      .limit(1);
+    if (!line) return res.status(404).json({ error: "NOT_FOUND", message: "No payslip for this employee in that run" });
+
+    const pdfData = await reportService.generatePayslip(emp.id, run.periodStart.slice(0, 7), runId);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="payslip_${run.periodStart.slice(0, 7)}.pdf"`);
+    res.send(Buffer.from(pdfData));
   } catch (err: any) {
     res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
   }
@@ -304,6 +341,10 @@ function monthStartIso(date = new Date()): string {
 
 function monthEndIso(date = new Date()): string {
   return new Date(Date.UTC(date.getFullYear(), date.getMonth() + 1, 0)).toISOString().slice(0, 10);
+}
+
+function todayLocalIso(date = new Date()): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 const IMPORT_TEMPLATES: Record<string, string[]> = {
@@ -2247,7 +2288,8 @@ router.get("/dashboard", async (req, res) => {
       .where(and(
         eq(payrollRuns.companyId, companyId),
         gte(payrollRuns.periodStart, `${year}-01-01`),
-        lte(payrollRuns.periodEnd, `${year}-12-31`)
+        lte(payrollRuns.periodEnd, `${year}-12-31`),
+        ne(payrollRuns.status, "REVERSED")
       ));
     const yearTotals = yearRuns.reduce((acc, r) => ({
       totalGross: acc.totalGross + parseFloat(r.totalGross || "0"),
@@ -2388,6 +2430,32 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
         const bonusAmount = isBonusRun ? (bonusMap.get(emp.id) ?? 0) : 0;
         const isTerminal = !!emp.terminationDate && emp.terminationDate >= parsed.data.periodStart && emp.terminationDate <= parsed.data.periodEnd;
 
+        // Bonus runs only pay employees who have a bonus amount set; a $0 line
+        // would otherwise pollute the run with empty payslips.
+        if (isBonusRun && bonusAmount <= 0) continue;
+
+        // 13th cheque annual accumulation: the $400 tax-free threshold applies
+        // per tax year, so bonuses already paid in earlier bonus runs this year
+        // count towards it (otherwise every run would re-grant the $400).
+        let ytdBonusAmount = 0;
+        if (isBonusRun) {
+          const yearStart = `${new Date(parsed.data.periodStart + "T00:00:00").getFullYear()}-01-01`;
+          const priorBonus = await tx
+            .select({ bonus: sql<number>`(${payrollRunEmployees.snapshotData}->>'bonusAmount')::numeric` })
+            .from(payrollRunEmployees)
+            .innerJoin(payrollRuns, eq(payrollRuns.id, payrollRunEmployees.payrollRunId))
+            .where(and(
+              eq(payrollRunEmployees.employeeId, emp.id),
+              eq(payrollRuns.runType, "BONUS"),
+              ne(payrollRuns.status, "REVERSED"),
+              gte(payrollRuns.periodStart, yearStart)
+            ));
+          for (const row of priorBonus) {
+            const val = Number(row.bonus || 0);
+            if (Number.isFinite(val)) ytdBonusAmount += val;
+          }
+        }
+
         // For bonus runs the employee's regular salary is not paid again; the
         // engine receives base 0 + bonusAmount and taxes it per the 13th
         // cheque rules (tax-free threshold + cumulative annual treatment).
@@ -2468,6 +2536,7 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
           baseSalary: engineBaseSalary,
           payFrequency: parsed.data.payFrequency as "MONTHLY" | "WEEKLY" | "FORTNIGHTLY" | "DAILY",
           bonusAmount: isBonusRun ? bonusAmount : undefined,
+          ytdBonusAmount: isBonusRun ? ytdBonusAmount : undefined,
           pensionEmployeeRate,
           pensionEmployerRate,
           apwcsRate: statutoryRules["APWCS"] ? statutoryRate(statutoryRules["APWCS"], "employerRate", 0.005) : undefined,
@@ -2546,6 +2615,7 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
               proration: prorated ? { daysWorked, totalDays, factor: prorationFactor } : null,
               isTerminal: isTerminal || false,
               bonusAmount: isBonusRun ? bonusAmount : null,
+              ytdBonusAmount: isBonusRun ? ytdBonusAmount : null,
               loanId: activeLoan?.id || null,
               loanDeduction: isBonusRun ? 0 : loanDeduction,
               recurringItemIds: recurringItems.map((item: any) => item.id),
@@ -3244,11 +3314,12 @@ router.get("/exports/itf16", async (req, res) => {
     const startDate = `${taxYear}-01-01`;
     const endDate = `${taxYear}-12-31`;
 
-    const runs = await db.select({ id: payrollRuns.id }).from(payrollRuns)
+    const runs = await db.select({ id: payrollRuns.id, runType: payrollRuns.runType }).from(payrollRuns)
       .where(and(
         eq(payrollRuns.companyId, companyId),
         gte(payrollRuns.periodStart, startDate),
-        lte(payrollRuns.periodEnd, endDate)
+        lte(payrollRuns.periodEnd, endDate),
+        ne(payrollRuns.status, "REVERSED")
       ));
 
     if (runs.length === 0) {
@@ -3256,6 +3327,9 @@ router.get("/exports/itf16", async (req, res) => {
       res.setHeader('Content-Disposition', `attachment; filename=ITF16_${taxYear}.csv`);
       return res.send("Employee ID,Surname,First Name,Tax Year,Period Employed (months),Total Gross Income,Total Taxable Income,Total PAYE,Total AIDS Levy,Total Medical Aid Credits,Total Net PAYE Payable\n");
     }
+
+    const runTypes: Record<number, string> = {};
+    for (const run of runs) runTypes[run.id] = run.runType;
 
     const runIds = runs.map(r => r.id);
     const lines = await db.query.payrollRunEmployees.findMany({
@@ -3269,9 +3343,15 @@ router.get("/exports/itf16", async (req, res) => {
       if (!agg[eid]) {
         agg[eid] = { emp: line.employee, months: 0, gross: 0, taxable: 0, paye: 0, aids: 0, medical: 0, netPaye: 0 };
       }
-      agg[eid].months++;
+      const isBonusLine = runTypes[line.payrollRunId] === "BONUS";
+      const snapshot = (line.snapshotData as any) || {};
+      if (!isBonusLine) agg[eid].months++;
       agg[eid].gross += parseFloat(line.grossSalary);
-      agg[eid].taxable += parseFloat(line.basicSalary) + parseFloat(line.totalAllowances);
+      // Bonus runs carry their taxable bonus in the snapshot (base is 0 in
+      // those lines, so basic + allowances would understate taxable income).
+      agg[eid].taxable += isBonusLine
+        ? (Number(snapshot.taxableBonus) || 0)
+        : parseFloat(line.basicSalary) + parseFloat(line.totalAllowances);
       agg[eid].paye += parseFloat(line.paye);
       agg[eid].aids += parseFloat(line.aidsLevy);
       agg[eid].netPaye += parseFloat(line.paye) + parseFloat(line.aidsLevy);
@@ -3303,7 +3383,8 @@ router.get("/exports/p2", async (req, res) => {
       where: and(
         eq(payrollRuns.companyId, companyId),
         gte(payrollRuns.periodStart, periodStart),
-        lte(payrollRuns.periodStart, periodEnd)
+        lte(payrollRuns.periodStart, periodEnd),
+        ne(payrollRuns.status, "REVERSED")
       )
     });
 
@@ -3360,7 +3441,8 @@ router.get("/exports/zimdef", async (req, res) => {
       where: and(
         eq(payrollRuns.companyId, companyId),
         gte(payrollRuns.periodStart, periodStart),
-        lte(payrollRuns.periodStart, periodEnd)
+        lte(payrollRuns.periodStart, periodEnd),
+        ne(payrollRuns.status, "REVERSED")
       )
     });
 
@@ -3503,7 +3585,7 @@ router.post("/statutory-remittances/:id/mark-paid", requirePayrollApproval, asyn
         status: "SUBMITTED",
         referenceNumber: parsed.data.referenceNumber || null,
         paidAmount: parsed.data.paidAmount != null ? parsed.data.paidAmount.toFixed(2) : undefined,
-        paidDate: parsed.data.paidDate || new Date().toISOString().slice(0, 10),
+        paidDate: parsed.data.paidDate || todayLocalIso(),
       })
       .where(and(eq(payrollRemittances.id, id), eq(payrollRemittances.companyId, companyId)))
       .returning();
@@ -3535,11 +3617,12 @@ router.get("/exports/p6", async (req, res) => {
     const startDate = `${taxYear}-01-01`;
     const endDate = `${taxYear}-12-31`;
 
-    const runs = await db.select({ id: payrollRuns.id }).from(payrollRuns)
+    const runs = await db.select({ id: payrollRuns.id, runType: payrollRuns.runType }).from(payrollRuns)
       .where(and(
         eq(payrollRuns.companyId, companyId),
         gte(payrollRuns.periodStart, startDate),
-        lte(payrollRuns.periodEnd, endDate)
+        lte(payrollRuns.periodEnd, endDate),
+        ne(payrollRuns.status, "REVERSED")
       ));
 
     const header = "Employee ID,Surname,First Name,National ID,PAYE Number,Tax Year,Months Employed,Total Gross Income,Total Taxable Income,Total PAYE,Total AIDS Levy,Total NSSA,Total Net PAYE Payable\n";
@@ -3548,6 +3631,9 @@ router.get("/exports/p6", async (req, res) => {
       res.setHeader('Content-Disposition', `attachment; filename=P6_${taxYear}.csv`);
       return res.send(header);
     }
+
+    const runTypes: Record<number, string> = {};
+    for (const run of runs) runTypes[run.id] = run.runType;
 
     const runIds = runs.map(r => r.id);
     const lines = await db.query.payrollRunEmployees.findMany({
@@ -3564,9 +3650,13 @@ router.get("/exports/p6", async (req, res) => {
       if (!agg[eid]) {
         agg[eid] = { emp: line.employee, months: 0, gross: 0, taxable: 0, paye: 0, aids: 0, nssa: 0 };
       }
-      agg[eid].months++;
+      const isBonusLine = runTypes[line.payrollRunId] === "BONUS";
+      const snapshot = (line.snapshotData as any) || {};
+      if (!isBonusLine) agg[eid].months++;
       agg[eid].gross += parseFloat(line.grossSalary);
-      agg[eid].taxable += parseFloat(line.basicSalary) + parseFloat(line.totalAllowances);
+      agg[eid].taxable += isBonusLine
+        ? (Number(snapshot.taxableBonus) || 0)
+        : parseFloat(line.basicSalary) + parseFloat(line.totalAllowances);
       agg[eid].paye += parseFloat(line.paye);
       agg[eid].aids += parseFloat(line.aidsLevy);
       agg[eid].nssa += parseFloat(line.nssaEmployee);

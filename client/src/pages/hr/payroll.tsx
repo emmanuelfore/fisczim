@@ -431,6 +431,7 @@ export default function HRPayrollRuns() {
                               run.status === "LOCKED" ? "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-400"
                               : run.status === "APPROVED" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
                               : run.status === "PENDING_APPROVAL" ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                              : run.status === "REVERSED" ? "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400"
                               : "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
                             }
                           >
@@ -438,6 +439,7 @@ export default function HRPayrollRuns() {
                             {run.status === "APPROVED" && <CheckCircle2 className="h-3 w-3 mr-1" />}
                             {run.status === "PENDING_APPROVAL" && <Clock className="h-3 w-3 mr-1" />}
                             {run.status === "DRAFT" && <PlayCircle className="h-3 w-3 mr-1" />}
+                            {run.status === "REVERSED" && <XCircle className="h-3 w-3 mr-1" />}
                             {run.status}
                           </Badge>
                         </TableCell>

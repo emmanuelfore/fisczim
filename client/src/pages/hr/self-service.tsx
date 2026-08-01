@@ -194,7 +194,7 @@ export default function HRSelfService() {
                         </TableCell>
                         <TableCell className="text-right pr-6">
                           <a
-                            href={`/api/companies/${companyId}/payroll/report/payslip/${emp.id}?runId=${p.runId}`}
+                            href={`/api/companies/${companyId}/payroll/self-service/payslip/${p.runId}`}
                             download={`payslip_${p.periodStart.slice(0, 7)}.pdf`}
                             className="text-blue-600 dark:text-blue-400 hover:underline text-sm"
                           >

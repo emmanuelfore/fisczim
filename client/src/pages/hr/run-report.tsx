@@ -97,7 +97,7 @@ export default function HrRunReport() {
             </p>
           </div>
           <div className="ml-auto flex items-center gap-2">
-            <Link href="/hr/zimra-reports">
+            <Link href="/hr/reports/zimra">
               <Button variant="outline">
                 <Landmark className="mr-2 h-4 w-4" />
                 ZIMRA Reports

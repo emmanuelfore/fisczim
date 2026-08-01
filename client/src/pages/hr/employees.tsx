@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { downloadExcel } from "@/lib/export-utils";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { 
@@ -14,7 +14,8 @@ import {
   Download,
   Trash2,
   ShieldAlert,
-  Wallet
+  Wallet,
+  X
 } from "lucide-react";
 import Papa from "papaparse";
 import { format } from "date-fns";
@@ -188,21 +189,30 @@ export default function HREmployees() {
 
   const importEmployeesMutation = useMutation({
     mutationFn: async (data: any[]) => {
-      const res = await apiRequest("POST", `/api/companies/${companyId}/payroll/employees/import`, { employees: data });
+      const res = await apiRequest("POST", `/api/companies/${companyId}/payroll/employees/import`, { rows: data, fileName: importFileName.current });
       return res.json();
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/payroll/employees`] });
-      toast({ title: "Import Successful", description: `Imported ${data.count} employees.` });
+      setImportResult(data);
+      toast({
+        title: data.errors > 0 ? "Import completed with errors" : "Import Successful",
+        description: data.message || `Imported ${data.imported} employees.`,
+        variant: data.errors > 0 ? "default" : "default",
+      });
     },
     onError: (error: any) => {
       toast({ title: "Import Failed", description: error.message, variant: "destructive" });
     }
   });
 
+  const importFileName = useRef<string | null>(null);
+  const [importResult, setImportResult] = useState<any | null>(null);
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    importFileName.current = file.name;
 
     Papa.parse(file, {
       header: true,
@@ -321,6 +331,33 @@ export default function HREmployees() {
   return (
     <HRLayout>
       <div className="flex flex-col gap-6">
+        {importResult && (
+          <div className={`rounded-lg border px-4 py-3 text-sm ${
+            importResult.errors > 0
+              ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-300"
+              : "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-300"
+          }`}>
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-1">
+                <div className="font-semibold">
+                  {importResult.total} rows: {importResult.imported} imported, {importResult.updated} updated, {importResult.errors} failed
+                </div>
+                {importResult.errors > 0 && (
+                  <ul className="list-disc list-inside space-y-0.5 text-xs max-h-40 overflow-y-auto">
+                    {importResult.report.filter((r: any) => r.status === "ERROR").slice(0, 20).map((r: any, i: number) => (
+                      <li key={i} className="text-amber-700 dark:text-amber-400">
+                        Row {r.rowNumber}: {r.reason}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <Button variant="ghost" size="sm" className="h-7 w-7 p-0 shrink-0" onClick={() => setImportResult(null)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        )}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 tracking-tight">Employee Directory</h1>

@@ -955,47 +955,91 @@ router.get("/employees/export", async (req, res) => {
   }
 });
 
-// POST /employees/import - JSON array of employees (client parses the CSV with papaparse)
+// POST /employees/import - Import employees from CSV text or JSON rows.
+// Accepts { rows: [...] }, { csv: "..." }, or a raw CSV request body.
+// Returns a per-row validation report (imported / updated / skipped / errors).
 router.post("/employees/import", requirePayrollWrite, async (req, res) => {
   const companyId = getTargetCompanyId(req);
-  const { employees: importedEmployees } = req.body;
 
-  if (!Array.isArray(importedEmployees) || importedEmployees.length === 0) {
-    return res.status(400).json({ error: "VALIDATION_ERROR", message: "Invalid or empty employees array" });
+  let sourceRows: ImportRow[];
+  try {
+    sourceRows = parseImportRows(req.body);
+  } catch (err: any) {
+    return res.status(400).json({ error: "VALIDATION_ERROR", message: err.message });
+  }
+  if (sourceRows.length === 0) {
+    return res.status(400).json({ error: "VALIDATION_ERROR", message: "No rows found in the import" });
   }
 
   try {
-    let importedCount = 0;
-    await db.transaction(async (tx) => {
-      for (const row of importedEmployees) {
-        if (!row.firstName || !row.lastName) continue;
+    // Lookup maps for codes/titles referenced by the CSV columns
+    const branchList = await db.select({ id: branches.id, code: branches.code }).from(branches);
+    const deptList = await db.select({ id: departments.id, code: departments.code }).from(departments);
+    const posList = await db.select({ id: positions.id, title: positions.title }).from(positions);
+    const branchByCode = new Map(branchList.map((b) => [String(b.code).toLowerCase(), b.id]));
+    const deptByCode = new Map(deptList.map((d) => [String(d.code).toLowerCase(), d.id]));
+    const posByTitle = new Map(posList.map((p) => [String(p.title).toLowerCase(), p.id]));
 
-        const employeeNumber = row.employeeNumber || `EMP-${Math.floor(Math.random() * 10000)}`;
+    const report: { rowNumber: number; status: "SUCCESS" | "UPDATED" | "SKIPPED" | "ERROR"; reason?: string; employeeNumber?: string }[] = [];
+    let importedCount = 0;
+    let updatedCount = 0;
+    let skippedCount = 0;
+
+    await db.transaction(async (tx) => {
+      for (let idx = 0; idx < sourceRows.length; idx++) {
+        const row = sourceRows[idx];
+        const rowNumber = idx + 2; // header is row 1
+        const errors: string[] = [];
+
+        if (textOrNull(row.firstName) == null) errors.push("firstName is required");
+        if (textOrNull(row.lastName) == null) errors.push("lastName is required");
+        if (textOrNull(row.email) != null && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(row.email).trim())) {
+          errors.push(`email "${row.email}" is not a valid email address`);
+        }
+        if (textOrNull(row.baseSalary) != null && numberOrNull(row.baseSalary) == null) {
+          errors.push(`baseSalary "${row.baseSalary}" is not a valid number`);
+        }
+        if (textOrNull(row.joiningDate) != null && dateOrNull(row.joiningDate) == null) {
+          errors.push(`joiningDate "${row.joiningDate}" is not a valid date (expected YYYY-MM-DD)`);
+        }
+        if (errors.length > 0) {
+          report.push({ rowNumber, status: "ERROR", reason: errors.join("; ") });
+          continue;
+        }
+
+        const employeeNumber = textOrDefault(row.employeeNumber, `EMP-${Date.now().toString(36)}-${idx}`);
         const [existing] = await tx.select({ id: employees.id })
           .from(employees)
-          .where(and(
-            eq(employees.companyId, companyId),
-            eq(employees.employeeNumber, employeeNumber)
-          ))
+          .where(and(eq(employees.companyId, companyId), eq(employees.employeeNumber, employeeNumber)))
           .limit(1);
+
+        const departmentId = deptByCode.get(String(row.departmentCode ?? "").toLowerCase()) ?? null;
+        const positionId = posByTitle.get(String(row.positionTitle ?? "").toLowerCase()) ?? null;
+        const joiningDate = textOrDefault(row.joiningDate, new Date().toISOString().slice(0, 10));
 
         const empData = {
           companyId,
-          branchId: row.branchId || 1,
+          branchId: branchByCode.get(String(row.branchCode ?? "").toLowerCase()) ?? (row.branchId ? Number(row.branchId) : 1),
+          departmentId,
+          positionId,
           employeeNumber,
-          firstName: row.firstName,
-          lastName: row.lastName,
-          nationalId: row.nationalId || null,
-          email: row.email || null,
-          phone: row.phone || null,
+          firstName: String(row.firstName).trim(),
+          lastName: String(row.lastName).trim(),
+          nationalId: textOrNull(row.nationalId) ?? employeeNumber,
+          email: textOrNull(row.email),
+          phone: textOrNull(row.phone),
+          nssaNumber: textOrNull(row.nssaNumber),
+          zimraTaxNumber: textOrNull(row.zimraTaxNumber),
+          bankName: textOrNull(row.bankName),
+          bankBranch: textOrNull(row.bankBranch),
+          bankAccountNumber: textOrNull(row.bankAccountNumber),
+          ecocashNumber: textOrNull(row.ecocashNumber),
           status: "ACTIVE",
-          joiningDate: row.joiningDate || new Date().toISOString().slice(0, 10),
-          bankName: row.bankName || null,
-          bankAccountNumber: row.bankAccountNumber || null,
-          ecocashNumber: row.ecocashNumber || null,
+          joiningDate,
         };
 
         let newEmp = existing;
+        let status: "SUCCESS" | "UPDATED" = "SUCCESS";
         if (!existing) {
           [newEmp] = await tx.insert(employees).values(empData).returning();
           await tx.insert(leaveBalances).values({
@@ -1006,24 +1050,25 @@ router.post("/employees/import", requirePayrollWrite, async (req, res) => {
             pendingDays: "0.00",
             availableDays: "0.00",
           });
+        } else {
+          status = "UPDATED";
+          await tx.update(employees).set({ ...empData, updatedAt: new Date() }).where(eq(employees.id, existing.id));
         }
 
         const [activeContract] = await tx.select({ id: employeeContracts.id })
           .from(employeeContracts)
-          .where(and(
-            eq(employeeContracts.employeeId, newEmp.id),
-            eq(employeeContracts.isActive, true)
-          ))
+          .where(and(eq(employeeContracts.employeeId, newEmp.id), eq(employeeContracts.isActive, true)))
           .limit(1);
 
         const contractData = {
           employeeId: newEmp.id,
-          contractType: "PERMANENT",
-          startDate: row.joiningDate || new Date().toISOString().slice(0, 10),
-          baseSalary: row.baseSalary ? String(row.baseSalary) : "0",
-          currency: row.currency || "USD",
-          usdPercentage: row.usdPercentage ? String(row.usdPercentage) : "100",
-          zigPercentage: row.zigPercentage ? String(row.zigPercentage) : "0",
+          contractType: textOrDefault(row.contractType, "PERMANENT"),
+          startDate: joiningDate,
+          baseSalary: textOrDefault(row.baseSalary, "0"),
+          currency: textOrDefault(row.currency, "USD"),
+          usdPercentage: textOrDefault(row.usdPercentage, "100"),
+          zigPercentage: textOrDefault(row.zigPercentage, "0"),
+          payFrequency: textOrDefault(row.payFrequency, "MONTHLY"),
           isActive: true,
         };
         if (activeContract) {
@@ -1032,11 +1077,77 @@ router.post("/employees/import", requirePayrollWrite, async (req, res) => {
           await tx.insert(employeeContracts).values(contractData);
         }
 
-        importedCount++;
+        if (status === "SUCCESS") importedCount++;
+        else updatedCount++;
+        report.push({ rowNumber, status, employeeNumber });
       }
     });
 
-    res.json({ success: true, count: importedCount, message: `Successfully imported ${importedCount} employees.` });
+    const errorRows = report.filter((r) => r.status === "ERROR");
+    const skippedRows = report.filter((r) => r.status === "SKIPPED");
+    const batchStatus = errorRows.length === 0 ? "COMPLETED" : (importedCount + updatedCount > 0 ? "PARTIAL" : "FAILED");
+
+    const [batch] = await db.insert(payrollImportBatches)
+      .values({
+        companyId,
+        importType: "EMPLOYEES",
+        sourceFileName: req.body?.fileName || null,
+        status: batchStatus,
+        rowCount: sourceRows.length,
+        successCount: importedCount + updatedCount,
+        errorCount: errorRows.length + skippedRows.length,
+        validationSummary: report,
+        createdBy: req.user?.id || null,
+        completedAt: new Date(),
+      })
+      .returning();
+
+    for (const r of report) {
+      if (r.status === "ERROR") {
+        await db.insert(payrollImportRows).values({
+          batchId: batch.id,
+          rowNumber: r.rowNumber,
+          status: "ERROR",
+          entityType: "employees",
+          rawData: sourceRows[r.rowNumber - 2] ?? {},
+          errors: [r.reason],
+        });
+      }
+    }
+
+    await auditPayroll(req, "PAYROLL_EMPLOYEES_IMPORTED", "payroll_import_batches", batch.id, {
+      rowCount: sourceRows.length,
+      imported: importedCount,
+      updated: updatedCount,
+      errors: errorRows.length,
+      fileName: req.body?.fileName || null,
+    });
+
+    res.status(errorRows.length === sourceRows.length ? 400 : 200).json({
+      success: errorRows.length !== sourceRows.length,
+      total: sourceRows.length,
+      imported: importedCount,
+      updated: updatedCount,
+      skipped: skippedCount,
+      errors: errorRows.length,
+      report,
+      message: `Imported ${importedCount}, updated ${updatedCount}${errorRows.length ? `, ${errorRows.length} rows failed validation` : ""}.`,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
+// GET /employees/import/batches - Import history for the audit trail
+router.get("/employees/import/batches", async (req, res) => {
+  try {
+    const companyId = getTargetCompanyId(req);
+    const batches = await db.select()
+      .from(payrollImportBatches)
+      .where(eq(payrollImportBatches.companyId, companyId))
+      .orderBy(desc(payrollImportBatches.createdAt))
+      .limit(20);
+    res.json(batches);
   } catch (err: any) {
     res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
   }
@@ -1067,16 +1178,47 @@ router.put("/employees/:id", requirePayrollWrite, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   const companyId = getTargetCompanyId(req);
   try {
-    const [emp] = await db.update(employees)
-      .set({ ...req.body, updatedAt: new Date() })
+    const [emp] = await db.select().from(employees)
+      .where(and(eq(employees.id, id), eq(employees.companyId, companyId)))
+      .limit(1);
+    if (!emp) return res.status(404).json({ message: "Employee not found" });
+
+    const ALLOWED = [
+      "firstName", "lastName", "email", "phone", "nationalId", "nssaNumber", "zimraTaxNumber",
+      "bankName", "bankBranch", "bankAccountNumber", "ecocashNumber", "emergencyContactName",
+      "emergencyContactPhone", "status", "joiningDate", "terminationDate", "departmentId", "positionId",
+    ];
+
+    const updates: Record<string, unknown> = {};
+    for (const key of Object.keys(req.body || {})) {
+      if (!ALLOWED.includes(key)) continue;
+      const value = req.body[key] === "" ? null : req.body[key];
+      if (key === "email" && value != null && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value))) {
+        return res.status(400).json({ error: "VALIDATION_ERROR", message: `"${value}" is not a valid email address` });
+      }
+      updates[key] = value;
+    }
+
+    if (updates.employeeNumber) {
+      return res.status(400).json({ error: "VALIDATION_ERROR", message: "employeeNumber cannot be changed" });
+    }
+
+    if (Object.keys(updates).length === 0) return res.json(emp);
+
+    const [updated] = await db.update(employees)
+      .set({ ...updates, updatedAt: new Date() })
       .where(and(eq(employees.id, id), eq(employees.companyId, companyId)))
       .returning();
-    if (!emp) return res.status(404).json({ message: "Employee not found" });
+    if (!updated) return res.status(404).json({ message: "Employee not found" });
+
     await auditPayroll(req, "PAYROLL_EMPLOYEE_UPDATED", "employees", emp.id, {
-      changedFields: Object.keys(req.body || {}),
+      changedFields: Object.keys(updates),
     });
-    res.json(emp);
+    res.json(updated);
   } catch (err: any) {
+    if (err?.code === "23505") {
+      return res.status(409).json({ error: "CONFLICT", message: "A record with the same value already exists" });
+    }
     res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
   }
 });

@@ -15,7 +15,8 @@ import {
   Trash2,
   ShieldAlert,
   Wallet,
-  X
+  X,
+  BadgeDollarSign
 } from "lucide-react";
 import Papa from "papaparse";
 import { format } from "date-fns";
@@ -208,6 +209,49 @@ export default function HREmployees() {
 
   const importFileName = useRef<string | null>(null);
   const [importResult, setImportResult] = useState<any | null>(null);
+
+  const [salaryModal, setSalaryModal] = useState<{ employee: any; open: boolean }>({ employee: null, open: false });
+  const [salaryForm, setSalaryForm] = useState({ newBaseSalary: "", reason: "", effectiveDate: new Date().toISOString().slice(0, 10) });
+
+  const { data: salaryHistory = [] as any[] } = useQuery<any[]>({
+    queryKey: [`/api/companies/${companyId}/payroll/employees/${salaryModal.employee?.id}/salary-changes`],
+    enabled: !!companyId && !!salaryModal.employee?.id && salaryModal.open,
+  });
+
+  const salaryChangeMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await apiRequest("POST", `/api/companies/${companyId}/payroll/employees/${salaryModal.employee.id}/salary-change`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/payroll/salary-changes/pending`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/payroll/employees/${salaryModal.employee?.id}/salary-changes`] });
+      toast({ title: "Salary change requested", description: "It will apply after an approver approves it." });
+      setSalaryForm({ newBaseSalary: "", reason: "", effectiveDate: new Date().toISOString().slice(0, 10) });
+    },
+    onError: (error: any) => {
+      toast({ title: "Request failed", description: error.message, variant: "destructive" });
+    }
+  });
+
+  const openSalaryChangeModal = (employee: any) => {
+    setSalaryModal({ employee, open: true });
+    setSalaryForm({
+      newBaseSalary: employee.contracts?.[0]?.baseSalary ?? "",
+      reason: "",
+      effectiveDate: new Date().toISOString().slice(0, 10),
+    });
+  };
+
+  const submitSalaryChange = (e: React.FormEvent) => {
+    e.preventDefault();
+    salaryChangeMutation.mutate({
+      ...salaryForm,
+      newBaseSalary: parseFloat(salaryForm.newBaseSalary),
+      currency: salaryModal.employee.contracts?.[0]?.currency || "USD",
+      payFrequency: salaryModal.employee.contracts?.[0]?.payFrequency || "MONTHLY",
+    });
+  };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -663,6 +707,9 @@ export default function HREmployees() {
                               <DropdownMenuItem className="cursor-pointer text-blue-600 dark:text-blue-400" onSelect={() => openContractModal(employee)}>
                                 <Briefcase className="mr-2 h-4 w-4" /> Manage Contract
                               </DropdownMenuItem>
+                              <DropdownMenuItem className="cursor-pointer text-amber-600 dark:text-amber-400" onSelect={() => openSalaryChangeModal(employee)}>
+                                <BadgeDollarSign className="mr-2 h-4 w-4" /> Request Salary Change
+                              </DropdownMenuItem>
                               <DropdownMenuItem className="cursor-pointer text-indigo-600 dark:text-indigo-400" onSelect={() => openStatutoryModal(employee)}>
                                 <ShieldAlert className="mr-2 h-4 w-4" /> Statutory Settings
                               </DropdownMenuItem>
@@ -680,6 +727,79 @@ export default function HREmployees() {
             </div>
           </CardContent>
         </Card>
+
+        {/* SALARY CHANGE MODAL */}
+        <Dialog open={salaryModal.open} onOpenChange={(open) => setSalaryModal((s) => ({ ...s, open }))}>
+          <DialogContent className="sm:max-w-[480px]">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <BadgeDollarSign className="h-5 w-5 text-amber-500" />
+                Request Salary Change
+              </DialogTitle>
+              <DialogDescription>
+                {salaryModal.employee?.firstName} {salaryModal.employee?.lastName} — current{" "}
+                {salaryModal.employee?.contracts?.[0]?.currency || "USD"}{" "}
+                {Number(salaryModal.employee?.contracts?.[0]?.baseSalary || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                . An approver must confirm the change before it applies to the contract.
+              </DialogDescription>
+            </DialogHeader>
+            <form onSubmit={submitSalaryChange} className="space-y-4 pt-2">
+              <div className="space-y-2">
+                <Label>New Base Salary</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  required
+                  value={salaryForm.newBaseSalary}
+                  onChange={(e) => setSalaryForm((f) => ({ ...f, newBaseSalary: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Effective Date</Label>
+                <Input
+                  type="date"
+                  required
+                  value={salaryForm.effectiveDate}
+                  onChange={(e) => setSalaryForm((f) => ({ ...f, effectiveDate: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Reason</Label>
+                <Input
+                  required
+                  minLength={3}
+                  placeholder="e.g. Annual review / promotion to Senior Accountant"
+                  value={salaryForm.reason}
+                  onChange={(e) => setSalaryForm((f) => ({ ...f, reason: e.target.value }))}
+                />
+              </div>
+
+              {salaryHistory.length > 0 && (
+                <div className="rounded-md border border-slate-200 dark:border-slate-800 p-3 space-y-1.5">
+                  <div className="text-xs font-semibold text-slate-500 uppercase">Recent changes</div>
+                  {salaryHistory.slice(0, 5).map((c: any) => (
+                    <div key={c.id} className="flex items-center justify-between text-xs">
+                      <span className="text-slate-600 dark:text-slate-300">
+                        {new Date(c.createdAt).toLocaleDateString()} — ${Number(c.previousBaseSalary).toLocaleString()} → ${Number(c.newBaseSalary).toLocaleString()}
+                      </span>
+                      <Badge variant="secondary" className={c.status === "APPROVED" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" : c.status === "REJECTED" ? "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400" : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"}>
+                        {c.status}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button type="button" variant="outline" onClick={() => setSalaryModal((s) => ({ ...s, open: false }))}>Cancel</Button>
+                <Button type="submit" disabled={salaryChangeMutation.isPending} className="bg-amber-600 hover:bg-amber-700 text-white gap-2">
+                  {salaryChangeMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                  Submit for Approval
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
 
         {/* STATUTORY MODAL */}
         <Dialog open={isStatutoryModalOpen} onOpenChange={setIsStatutoryModalOpen}>

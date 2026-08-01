@@ -56,6 +56,7 @@ import {
   ShoppingBag,
   ShoppingCart,
   AlertTriangle,
+  UserRound,
 } from "lucide-react";
 import { useBranding } from "@/hooks/use-branding";
 import {
@@ -426,6 +427,11 @@ export function Layout({
           icon: CreditCard,
           label: "Loans & Advances",
           href: "/hr/loans",
+        },
+        {
+          icon: UserRound,
+          label: "Employee Self-Service",
+          href: "/hr/self-service",
         },
       ],
     },

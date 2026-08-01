@@ -8,6 +8,8 @@ import {
   PieChart,
   Briefcase,
   FileBarChart2,
+  Landmark,
+  UserRound,
   ChevronDown,
   ChevronRight,
 } from "lucide-react";
@@ -21,6 +23,7 @@ const hrNavigation = [
   { name: "Processing", href: "/hr/payroll", icon: FileSpreadsheet },
   { name: "Leave", href: "/hr/leave", icon: CalendarCheck },
   { name: "Loans & Advances", href: "/hr/loans", icon: Banknote },
+  { name: "Self-Service", href: "/hr/self-service", icon: UserRound },
 ];
 
 const hrSetupNav = [
@@ -29,6 +32,7 @@ const hrSetupNav = [
 
 const hrReportsNav = [
   { name: "ZIMRA Compliance", href: "/hr/reports/zimra", icon: FileBarChart2 },
+  { name: "Statutory Remittances", href: "/hr/reports/remittances", icon: Landmark },
 ];
 
 export function HRLayout({ children }: { children: React.ReactNode }) {

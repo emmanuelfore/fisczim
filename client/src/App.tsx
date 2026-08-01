@@ -131,6 +131,7 @@ import HRLeave from "@/pages/hr/leave";
 import HRSetup from "@/pages/hr/setup";
 import HrRunReport from "@/pages/hr/run-report";
 import HRZimraReports from "@/pages/hr/zimra-reports";
+import HRSelfService from "@/pages/hr/self-service";
 import SuperadminVisibilityPage from "@/pages/superadmin-visibility";
 import MaterialDocumentLedger from "@/pages/inventory/reports/ledger";
 import StockOverview from "@/pages/inventory/reports/overview";
@@ -728,6 +729,9 @@ function Router() {
       <Route path="/hr/employees">
         {() => <ProtectedRoute component={HREmployees} />}
       </Route>
+      <Route path="/hr/self-service">
+        {() => <ProtectedRoute component={HRSelfService} />}
+      </Route>
       <Route path="/hr/loans">
         {() => <ProtectedRoute component={HRLoans} />}
       </Route>
@@ -741,6 +745,9 @@ function Router() {
         {() => <Redirect to="/hr/setup" />}
       </Route>
       <Route path="/hr/reports/zimra">
+        {() => <ProtectedRoute component={HRZimraReports} />}
+      </Route>
+      <Route path="/hr/reports/remittances">
         {() => <ProtectedRoute component={HRZimraReports} />}
       </Route>
       <Route path="/">{user ? <AuthRedirect /> : <LandingPage />}</Route>

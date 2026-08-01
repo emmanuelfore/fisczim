@@ -12,7 +12,8 @@ import {
   employeeDocuments, payslipDocuments, payrollPayGrades,
   payrollEarningTypes, payrollDeductionTypes, payrollStatutoryRules,
   payrollStatutoryReports, payrollReportExports, payrollReportValidationIssues,
-  payrollStatutoryDeadlines, payrollImportBatches, payrollImportRows, companies
+  payrollStatutoryDeadlines, payrollImportBatches, payrollImportRows, companies,
+  employeeSalaryChanges, payrollRemittances
 } from "../../../shared/schema.js";
 import { eq, and, desc, asc, ne, sql, gte, lte, inArray } from "drizzle-orm";
 import { ZimbabwePayrollEngine, type TaxBracket, type PayrollElementInput } from "../../../shared/payroll-engine.js";
@@ -59,6 +60,159 @@ async function resolvePayrollRole(req: any, companyId: number): Promise<string |
     .limit(1);
   return membership?.role || null;
 }
+
+// --- EMPLOYEE SELF-SERVICE (registered BEFORE the payroll.view permission
+// gate so employees without HR roles can access their own data) ---
+
+// GET /self-service - the authenticated user's own HR data (matched by email)
+router.get("/self-service", async (req, res) => {
+  try {
+    const companyId = getTargetCompanyId(req);
+    const userEmail = (req.user?.email || "").toLowerCase();
+    if (!userEmail) return res.status(401).json({ error: "UNAUTHORIZED", message: "No user email on session" });
+
+    const [emp] = await db.select().from(employees)
+      .where(and(eq(employees.companyId, companyId), eq(employees.email, userEmail)))
+      .limit(1);
+    if (!emp) return res.status(404).json({ error: "NOT_FOUND", message: "No employee record linked to this account" });
+
+    const balances = await db.select().from(leaveBalances)
+      .where(eq(leaveBalances.employeeId, emp.id));
+    const requests = await db.select().from(leaveRequests)
+      .where(eq(leaveRequests.employeeId, emp.id))
+      .orderBy(desc(leaveRequests.createdAt))
+      .limit(20);
+
+    const since = new Date();
+    since.setFullYear(since.getFullYear() - 2);
+    const payslips = await db.query.payrollRunEmployees.findMany({
+      where: and(
+        eq(payrollRunEmployees.employeeId, emp.id),
+        sql`${payrollRunEmployees.createdAt} >= ${since.toISOString()}`
+      ),
+      with: { payrollRun: true },
+      orderBy: [desc(payrollRunEmployees.createdAt)],
+      limit: 100,
+    });
+
+    res.json({
+      employee: emp,
+      leaveBalances: balances,
+      leaveRequests: requests,
+      payslips: payslips
+        .filter((p) => p.payrollRun && p.payrollRun.companyId === companyId && p.payrollRun.status === "LOCKED")
+        .map((p) => ({
+          runId: p.payrollRun.id,
+          periodStart: p.payrollRun.periodStart,
+          periodEnd: p.payrollRun.periodEnd,
+          currency: p.payrollRun.currency,
+          grossSalary: p.grossSalary,
+          paye: p.paye,
+          aidsLevy: p.aidsLevy,
+          nssaEmployee: p.nssaEmployee,
+          totalDeductions: p.totalDeductions,
+          netSalary: p.netSalary,
+        })),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
+// POST /self-service/leave - employee submits their own leave request
+router.post("/self-service/leave", async (req, res) => {
+  const schema = z.object({
+    leaveType: z.string(),
+    startDate: z.string(),
+    endDate: z.string(),
+    reason: z.string().min(1),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
+
+  try {
+    const companyId = getTargetCompanyId(req);
+    const userEmail = (req.user?.email || "").toLowerCase();
+    const [emp] = await db.select().from(employees)
+      .where(and(eq(employees.companyId, companyId), eq(employees.email, userEmail)))
+      .limit(1);
+    if (!emp) return res.status(404).json({ error: "NOT_FOUND", message: "No employee record linked to this account" });
+
+    const start = new Date(parsed.data.startDate);
+    const end = new Date(parsed.data.endDate);
+    const workingDays = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000) + 1);
+
+    const [balance] = await db.select().from(leaveBalances)
+      .where(and(eq(leaveBalances.employeeId, emp.id), eq(leaveBalances.leaveType, parsed.data.leaveType)))
+      .limit(1);
+    if (balance && parseFloat(balance.availableDays) < workingDays) {
+      return res.status(400).json({
+        error: "VALIDATION_ERROR",
+        message: `Insufficient leave balance (${balance.availableDays} days available for ${parsed.data.leaveType})`,
+      });
+    }
+
+    const [request] = await db.insert(leaveRequests).values({
+      companyId,
+      employeeId: emp.id,
+      leaveType: parsed.data.leaveType,
+      startDate: parsed.data.startDate,
+      endDate: parsed.data.endDate,
+      totalDays: workingDays,
+      reason: parsed.data.reason,
+      status: "PENDING",
+    }).returning();
+
+    await auditPayroll(req, "PAYROLL_LEAVE_REQUESTED", "leave_requests", request.id, {
+      leaveType: request.leaveType,
+      startDate: request.startDate,
+      endDate: request.endDate,
+      days: workingDays,
+    });
+    res.status(201).json(request);
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
+// PUT /self-service/profile - employee updates their own contact details
+router.put("/self-service/profile", async (req, res) => {
+  const schema = z.object({
+    email: z.string().email().optional(),
+    phone: z.string().optional().nullable(),
+    emergencyContactName: z.string().optional().nullable(),
+    emergencyContactPhone: z.string().optional().nullable(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
+
+  try {
+    const companyId = getTargetCompanyId(req);
+    const userEmail = (req.user?.email || "").toLowerCase();
+    const [emp] = await db.select().from(employees)
+      .where(and(eq(employees.companyId, companyId), eq(employees.email, userEmail)))
+      .limit(1);
+    if (!emp) return res.status(404).json({ error: "NOT_FOUND", message: "No employee record linked to this account" });
+
+    const updates: Record<string, unknown> = {};
+    if (parsed.data.email) updates.email = parsed.data.email;
+    if (parsed.data.phone !== undefined) updates.phone = parsed.data.phone;
+    if (parsed.data.emergencyContactName !== undefined) updates.emergencyContactName = parsed.data.emergencyContactName;
+    if (parsed.data.emergencyContactPhone !== undefined) updates.emergencyContactPhone = parsed.data.emergencyContactPhone;
+
+    const [updated] = await db.update(employees)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(employees.id, emp.id))
+      .returning();
+
+    await auditPayroll(req, "PAYROLL_SELF_SERVICE_PROFILE_UPDATED", "employees", emp.id, {
+      changedFields: Object.keys(updates),
+    });
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
 
 router.use(async (req: any, res, next) => {
   try {
@@ -1223,6 +1377,156 @@ router.put("/employees/:id", requirePayrollWrite, async (req, res) => {
   }
 });
 
+// --- SALARY CHANGE REQUESTS & APPROVAL WORKFLOW ---
+
+// POST /employees/:id/salary-change - request a salary revision (pending approval)
+router.post("/employees/:id/salary-change", requirePayrollWrite, async (req, res) => {
+  const employeeId = parseInt(req.params.id, 10);
+  const schema = z.object({
+    newBaseSalary: z.coerce.number().positive(),
+    currency: z.string().default("USD"),
+    payFrequency: z.string().default("MONTHLY"),
+    reason: z.string().min(3),
+    effectiveDate: z.string(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
+
+  try {
+    const companyId = getTargetCompanyId(req);
+    const [emp] = await db.select().from(employees)
+      .where(and(eq(employees.id, employeeId), eq(employees.companyId, companyId)))
+      .limit(1);
+    if (!emp) return res.status(404).json({ message: "Employee not found" });
+
+    const [contract] = await db.select().from(employeeContracts)
+      .where(and(eq(employeeContracts.employeeId, employeeId), eq(employeeContracts.isActive, true)))
+      .limit(1);
+
+    const [change] = await db.insert(employeeSalaryChanges).values({
+      companyId,
+      employeeId,
+      previousBaseSalary: (contract?.baseSalary ?? "0"),
+      newBaseSalary: parsed.data.newBaseSalary.toFixed(2),
+      currency: parsed.data.currency,
+      payFrequency: parsed.data.payFrequency,
+      reason: parsed.data.reason,
+      effectiveDate: parsed.data.effectiveDate,
+      status: "PENDING",
+      requestedBy: req.user?.id || null,
+    }).returning();
+
+    await auditPayroll(req, "PAYROLL_SALARY_CHANGE_REQUESTED", "employee_salary_changes", change.id, {
+      employeeId,
+      previousBaseSalary: change.previousBaseSalary,
+      newBaseSalary: change.newBaseSalary,
+      effectiveDate: change.effectiveDate,
+      reason: change.reason,
+    });
+    res.status(201).json(change);
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
+// GET /employees/:id/salary-changes - salary revision history for one employee
+router.get("/employees/:id/salary-changes", async (req, res) => {
+  const employeeId = parseInt(req.params.id, 10);
+  try {
+    const companyId = getTargetCompanyId(req);
+    const changes = await db.select().from(employeeSalaryChanges)
+      .where(and(eq(employeeSalaryChanges.companyId, companyId), eq(employeeSalaryChanges.employeeId, employeeId)))
+      .orderBy(desc(employeeSalaryChanges.createdAt));
+    res.json(changes);
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
+// GET /salary-changes/pending - approval queue
+router.get("/salary-changes/pending", async (req, res) => {
+  try {
+    const companyId = getTargetCompanyId(req);
+    const changes = await db.query.employeeSalaryChanges.findMany({
+      where: and(eq(employeeSalaryChanges.companyId, companyId), eq(employeeSalaryChanges.status, "PENDING")),
+      with: { employee: true },
+      orderBy: [asc(employeeSalaryChanges.createdAt)],
+    });
+    res.json(changes);
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
+// POST /salary-changes/:id/approve - approve and apply to the active contract
+router.post("/salary-changes/:id/approve", requirePayrollApproval, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  try {
+    const companyId = getTargetCompanyId(req);
+    const [change] = await db.select().from(employeeSalaryChanges)
+      .where(and(eq(employeeSalaryChanges.id, id), eq(employeeSalaryChanges.companyId, companyId)))
+      .limit(1);
+    if (!change) return res.status(404).json({ message: "Salary change not found" });
+    if (change.status !== "PENDING") return res.status(400).json({ error: "STATE_ERROR", message: `Already ${change.status}` });
+
+    const [approved] = await db.update(employeeSalaryChanges)
+      .set({ status: "APPROVED", approvedBy: req.user?.id || null, approvedAt: new Date() })
+      .where(eq(employeeSalaryChanges.id, id))
+      .returning();
+
+    await db.transaction(async (tx) => {
+      const [activeContract] = await tx.select().from(employeeContracts)
+        .where(and(eq(employeeContracts.employeeId, change.employeeId), eq(employeeContracts.isActive, true)))
+        .limit(1);
+      if (activeContract) {
+        await tx.update(employeeContracts)
+          .set({ baseSalary: change.newBaseSalary, currency: change.currency, payFrequency: change.payFrequency })
+          .where(eq(employeeContracts.id, activeContract.id));
+      }
+    });
+
+    await auditPayroll(req, "PAYROLL_SALARY_CHANGE_APPROVED", "employee_salary_changes", change.id, {
+      employeeId: change.employeeId,
+      previousBaseSalary: change.previousBaseSalary,
+      newBaseSalary: change.newBaseSalary,
+      approvedBy: req.user?.id,
+    });
+    res.json(approved);
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
+// POST /salary-changes/:id/reject - reject with a reason
+router.post("/salary-changes/:id/reject", requirePayrollApproval, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const schema = z.object({ rejectionReason: z.string().optional().nullable() });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
+
+  try {
+    const companyId = getTargetCompanyId(req);
+    const [change] = await db.select().from(employeeSalaryChanges)
+      .where(and(eq(employeeSalaryChanges.id, id), eq(employeeSalaryChanges.companyId, companyId)))
+      .limit(1);
+    if (!change) return res.status(404).json({ message: "Salary change not found" });
+    if (change.status !== "PENDING") return res.status(400).json({ error: "STATE_ERROR", message: `Already ${change.status}` });
+
+    const [rejected] = await db.update(employeeSalaryChanges)
+      .set({ status: "REJECTED", approvedBy: req.user?.id || null, rejectionReason: parsed.data.rejectionReason || null })
+      .where(eq(employeeSalaryChanges.id, id))
+      .returning();
+
+    await auditPayroll(req, "PAYROLL_SALARY_CHANGE_REJECTED", "employee_salary_changes", change.id, {
+      employeeId: change.employeeId,
+      rejectionReason: rejected.rejectionReason,
+    });
+    res.json(rejected);
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
 router.post("/employees/:id/contract", requirePayrollWrite, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   const companyId = getTargetCompanyId(req);
@@ -1995,9 +2299,15 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
     currency: z.string().default("USD"),
     exchangeRate: z.coerce.string().default("1.000000"),
     branchId: z.coerce.number().int().optional().nullable(),
+    runType: z.enum(["REGULAR", "BONUS"]).default("REGULAR"),
+    prorate: z.boolean().default(true),
+    bonuses: z.array(z.object({ employeeId: z.number().int(), amount: z.number() })).optional(),
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
+
+  const isBonusRun = parsed.data.runType === "BONUS";
+  const bonusMap = new Map((parsed.data.bonuses || []).map((b) => [b.employeeId, b.amount]));
 
   try {
     const companyId = getTargetCompanyId(req);
@@ -2035,6 +2345,7 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
           payFrequency: parsed.data.payFrequency,
           currency: parsed.data.currency,
           exchangeRate: parsed.data.exchangeRate,
+          runType: parsed.data.runType,
           status: "DRAFT"
         })
         .returning();
@@ -2054,6 +2365,33 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
       for (const emp of activeEmployees) {
         const contract = emp.contracts[0];
         if (!contract) continue; // Skip if no active contract
+
+        // --- Proration: mid-period joins and terminations ---
+        // Salary is scaled by calendar days actually worked inside the period.
+        const periodStartDate = new Date(parsed.data.periodStart + "T00:00:00");
+        const periodEndDate = new Date(parsed.data.periodEnd + "T00:00:00");
+        const totalDays = Math.floor((periodEndDate.getTime() - periodStartDate.getTime()) / 86400000) + 1;
+        const joinDate = new Date(emp.joiningDate + "T00:00:00");
+        const termDate = emp.terminationDate ? new Date(emp.terminationDate + "T00:00:00") : null;
+        const effectiveStart = joinDate > periodStartDate ? joinDate : periodStartDate;
+        const effectiveEnd = termDate && termDate < periodEndDate ? termDate : periodEndDate;
+        if (effectiveStart > effectiveEnd) continue; // joined after period end / left before period start
+
+        const daysWorked = Math.floor((effectiveEnd.getTime() - effectiveStart.getTime()) / 86400000) + 1;
+        const prorated = parsed.data.prorate && !isBonusRun && daysWorked < totalDays;
+        const prorationFactor = totalDays > 0 ? daysWorked / totalDays : 1;
+
+        let effectiveBaseSalary = prorated
+          ? Math.round(parseFloat(contract.baseSalary) * prorationFactor * 100) / 100
+          : parseFloat(contract.baseSalary);
+
+        const bonusAmount = isBonusRun ? (bonusMap.get(emp.id) ?? 0) : 0;
+        const isTerminal = !!emp.terminationDate && emp.terminationDate >= parsed.data.periodStart && emp.terminationDate <= parsed.data.periodEnd;
+
+        // For bonus runs the employee's regular salary is not paid again; the
+        // engine receives base 0 + bonusAmount and taxes it per the 13th
+        // cheque rules (tax-free threshold + cumulative annual treatment).
+        const engineBaseSalary = isBonusRun ? 0 : effectiveBaseSalary;
 
         // Fetch selected NEC rates if available
         let necRate = "0.0000";
@@ -2086,7 +2424,8 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
         // taxable income, PAYE and net pay all reflect them. (Previously the
         // engine received elements: [] and the recurring amounts only appeared
         // as side rows on the payslip without affecting the calculation.)
-        const elements: PayrollElementInput[] = [
+        // Bonus runs contain only the bonus payment - no recurring items/loans.
+        const elements: PayrollElementInput[] = isBonusRun ? [] : [
           ...recurringItems
             .filter((item: any) => item.type === "ALLOWANCE")
             .map((item: any) => ({
@@ -2108,7 +2447,7 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
               isRecurring: true,
             })),
         ];
-        if (loanDeduction > 0) {
+        if (loanDeduction > 0 && !isBonusRun) {
           elements.push({
             type: "DEDUCTION",
             name: "Loan repayment",
@@ -2126,8 +2465,9 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
 
         // Perform calculation
         const calcs = ZimbabwePayrollEngine.calculateEmployeeLine({
-          baseSalary: parseFloat(contract.baseSalary),
+          baseSalary: engineBaseSalary,
           payFrequency: parsed.data.payFrequency as "MONTHLY" | "WEEKLY" | "FORTNIGHTLY" | "DAILY",
+          bonusAmount: isBonusRun ? bonusAmount : undefined,
           pensionEmployeeRate,
           pensionEmployerRate,
           apwcsRate: statutoryRules["APWCS"] ? statutoryRate(statutoryRules["APWCS"], "employerRate", 0.005) : undefined,
@@ -2202,9 +2542,12 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
               ...calcs,
               taxConfigId: taxConfig.id,
               contractId: contract.id,
-              calculationBasis: "INITIAL_RUN",
+              calculationBasis: isBonusRun ? "BONUS_RUN" : (prorated ? "PRORATED" : "INITIAL_RUN"),
+              proration: prorated ? { daysWorked, totalDays, factor: prorationFactor } : null,
+              isTerminal: isTerminal || false,
+              bonusAmount: isBonusRun ? bonusAmount : null,
               loanId: activeLoan?.id || null,
-              loanDeduction,
+              loanDeduction: isBonusRun ? 0 : loanDeduction,
               recurringItemIds: recurringItems.map((item: any) => item.id),
               taxableAllowances,
               nontaxableAllowances,
@@ -2477,6 +2820,75 @@ router.post("/runs/:id/lock", requirePayrollApproval, async (req, res) => {
       totalNet: run.totalNet,
     });
     res.json({ success: true, status: "LOCKED" });
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
+// POST /runs/:id/reverse - reverse a LOCKED run, post a reversing journal entry
+router.post("/runs/:id/reverse", requirePayrollApproval, async (req, res) => {
+  const runId = parseInt(req.params.id, 10);
+  try {
+    const companyId = getTargetCompanyId(req);
+    const [run] = await db.select().from(payrollRuns)
+      .where(and(eq(payrollRuns.id, runId), eq(payrollRuns.companyId, companyId)))
+      .limit(1);
+    if (!run) return res.status(404).json({ message: "Payroll run not found" });
+    if (run.status !== "LOCKED") {
+      return res.status(400).json({ error: "STATE_ERROR", message: `Only LOCKED runs can be reversed (current: ${run.status})` });
+    }
+    if (run.runType === "BONUS") {
+      return res.status(400).json({ error: "STATE_ERROR", message: "Bonus runs cannot be reversed" });
+    }
+
+    const userId = req.user?.id || null;
+
+    await db.transaction(async (tx) => {
+      // 1. Reversing journal entry: negate the original draft lines
+      const [originalDraft] = await tx.select().from(journalEntryDrafts)
+        .where(and(eq(journalEntryDrafts.referenceType, "PAYROLL"), eq(journalEntryDrafts.referenceId, String(runId))))
+        .limit(1);
+
+      if (originalDraft) {
+        const originalLines = await tx.select().from(journalEntryDraftLines)
+          .where(eq(journalEntryDraftLines.draftId, originalDraft.id));
+
+        const [reverseDraft] = await tx.insert(journalEntryDrafts).values({
+          companyId,
+          entryDate: new Date(),
+          description: `Reversal of Payroll Journal - Run #${runId} (${run.periodEnd})`,
+          referenceType: "PAYROLL_REVERSAL",
+          referenceId: String(runId),
+          status: "PENDING_APPROVAL",
+          createdBy: userId
+        }).returning();
+
+        if (originalLines.length > 0) {
+          await tx.insert(journalEntryDraftLines).values(
+            originalLines.map((line) => ({
+              draftId: reverseDraft.id,
+              accountId: line.accountId,
+              type: line.type === "DEBIT" ? "CREDIT" : "DEBIT",
+              amount: line.amount,
+              memo: line.memo ?? null,
+            }))
+          );
+        }
+      }
+
+      // 2. Mark the run as reversed
+      await tx.update(payrollRuns)
+        .set({ status: "REVERSED", updatedAt: new Date() })
+        .where(eq(payrollRuns.id, runId));
+    });
+
+    await auditPayroll(req, "PAYROLL_RUN_REVERSED", "payroll_runs", runId, {
+      periodStart: run.periodStart,
+      periodEnd: run.periodEnd,
+      totalNet: run.totalNet,
+      reversedBy: userId,
+    });
+    res.json({ success: true, status: "REVERSED", message: `Run #${runId} reversed. A reversing journal entry has been posted for GL approval.` });
   } catch (err: any) {
     res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
   }
@@ -2977,6 +3389,134 @@ router.get("/exports/zimdef", async (req, res) => {
     }
 
     res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
+// --- STATUTORY REMITTANCE TRACKER ---
+// Computes monthly obligations (P2 PAYE, ZIMDEF + Standards Levy, NSSA) from
+// LOCKED payroll runs, upserts them into payroll_remittances and returns the
+// schedule with filing status so compliance officers can track what is due.
+
+// GET /statutory-remittances?months=13 - schedule for the last N months
+router.get("/statutory-remittances", async (req, res) => {
+  try {
+    const companyId = getTargetCompanyId(req);
+    const months = Math.min(36, Math.max(1, parseInt(String(req.query.months || "13"), 10) || 13));
+
+    const today = new Date();
+    const startMonth = new Date(today.getFullYear(), today.getMonth() - (months - 1), 1);
+
+    const runs = await db.select().from(payrollRuns)
+      .where(and(
+        eq(payrollRuns.companyId, companyId),
+        eq(payrollRuns.status, "LOCKED"),
+        gte(payrollRuns.periodStart, startMonth.toISOString().slice(0, 7) + "-01")
+      ))
+      .orderBy(asc(payrollRuns.periodStart));
+
+    // Aggregate per period
+    const byPeriod: Record<string, { gross: number; payeAids: number; nssa: number }> = {};
+    for (const run of runs) {
+      const period = String(run.periodStart).slice(0, 7);
+      const agg = byPeriod[period] || (byPeriod[period] = { gross: 0, payeAids: 0, nssa: 0 });
+      const lines = await db.select({
+        paye: payrollRunEmployees.paye,
+        aids: payrollRunEmployees.aidsLevy,
+        nssaEmp: payrollRunEmployees.nssaEmployee,
+        nssaEr: payrollRunEmployees.nssaEmployer,
+      }).from(payrollRunEmployees).where(eq(payrollRunEmployees.payrollRunId, run.id));
+      agg.gross += parseFloat(run.totalGross || "0");
+      for (const line of lines) {
+        agg.payeAids += parseFloat(line.paye) + parseFloat(line.aids);
+        agg.nssa += parseFloat(line.nssaEmp) + parseFloat(line.nssaEr);
+      }
+    }
+
+    const obligations = [
+      { reportType: "P2", name: "ZIMRA PAYE & AIDS Levy Return", authority: "ZIMRA", dueDay: 10, dueEndOfMonth: false, compute: (a: any) => a.payeAids },
+      { reportType: "ZIMDEF", name: "ZIMDEF & Standards Development Levy", authority: "ZIMRA", dueDay: 10, dueEndOfMonth: false, compute: (a: any) => a.gross * 0.015 },
+      { reportType: "NSSA", name: "NSSA Contributions Schedule", authority: "NSSA", dueDay: 0, dueEndOfMonth: true, compute: (a: any) => a.nssa },
+    ];
+
+    const schedule = [];
+    for (let d = new Date(startMonth); d <= today; d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) {
+      const period = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      const agg = byPeriod[period];
+      for (const obligation of obligations) {
+        const amount = agg ? obligation.compute(agg) : 0;
+        const due = new Date(d.getFullYear(), d.getMonth() + 1, obligation.dueEndOfMonth ? 0 : obligation.dueDay);
+        const dueDate = due.toISOString().slice(0, 10);
+
+        const [existing] = await db.select().from(payrollRemittances)
+          .where(and(
+            eq(payrollRemittances.companyId, companyId),
+            eq(payrollRemittances.reportType, obligation.reportType),
+            eq(payrollRemittances.period, period)
+          ))
+          .limit(1);
+
+        let record;
+        if (existing) {
+          [record] = await db.update(payrollRemittances)
+            .set({ amount: amount.toFixed(2), dueDate })
+            .where(eq(payrollRemittances.id, existing.id))
+            .returning();
+        } else {
+          [record] = await db.insert(payrollRemittances).values({
+            companyId,
+            authority: obligation.authority,
+            reportType: obligation.reportType,
+            name: obligation.name,
+            period,
+            currency: "USD",
+            amount: amount.toFixed(2),
+            dueDate,
+          }).returning();
+        }
+        schedule.push(record);
+      }
+    }
+
+    res.json(schedule.sort((a: any, b: any) => b.period.localeCompare(a.period) || b.reportType.localeCompare(a.reportType)));
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
+// POST /statutory-remittances/:id/mark-paid - record submission/remittance
+router.post("/statutory-remittances/:id/mark-paid", requirePayrollApproval, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const schema = z.object({
+    referenceNumber: z.string().optional().nullable(),
+    paidAmount: z.coerce.number().optional().nullable(),
+    paidDate: z.string().optional().nullable(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
+
+  try {
+    const companyId = getTargetCompanyId(req);
+    const [updated] = await db.update(payrollRemittances)
+      .set({
+        status: "SUBMITTED",
+        referenceNumber: parsed.data.referenceNumber || null,
+        paidAmount: parsed.data.paidAmount != null ? parsed.data.paidAmount.toFixed(2) : undefined,
+        paidDate: parsed.data.paidDate || new Date().toISOString().slice(0, 10),
+      })
+      .where(and(eq(payrollRemittances.id, id), eq(payrollRemittances.companyId, companyId)))
+      .returning();
+    if (!updated) return res.status(404).json({ message: "Remittance record not found" });
+
+    await auditPayroll(req, "PAYROLL_REMITTANCE_MARKED_PAID", "payroll_remittances", updated.id, {
+      reportType: updated.reportType,
+      period: updated.period,
+      referenceNumber: updated.referenceNumber,
+      paidAmount: updated.paidAmount,
+      paidDate: updated.paidDate,
+    });
+    res.json(updated);
   } catch (err: any) {
     res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
   }

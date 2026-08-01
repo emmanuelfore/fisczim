@@ -3156,6 +3156,7 @@ export const payrollRuns = pgTable("payroll_runs", {
   status: text("status").default("DRAFT").notNull(), // DRAFT, REVIEW, APPROVED, LOCKED, REVERSED
   version: integer("version").default(1).notNull(),
   reversalOfRunId: integer("reversal_of_run_id"), // Points to run being reversed
+  runType: text("run_type").default("REGULAR").notNull(), // REGULAR, BONUS (13th cheque / annual bonus)
   
   // Aggregate calculation metrics
   totalBasic: decimal("total_basic", { precision: 15, scale: 2 }).default("0.00").notNull(),
@@ -3550,6 +3551,52 @@ export const payrollStatutoryDeadlines = pgTable("payroll_statutory_deadlines", 
   payrollDeadlineCompanyIdx: index("payroll_deadline_company_idx").on(table.companyId),
 }));
 
+// 25b. Salary change requests with approval workflow
+// A structured, audited salary revision: PENDING until an approver approves it,
+// then applied to the employee's active contract.
+export const employeeSalaryChanges = pgTable("employee_salary_changes", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  employeeId: integer("employee_id").references(() => employees.id).notNull(),
+  previousBaseSalary: decimal("previous_base_salary", { precision: 15, scale: 2 }).notNull(),
+  newBaseSalary: decimal("new_base_salary", { precision: 15, scale: 2 }).notNull(),
+  currency: text("currency").default("USD").notNull(),
+  payFrequency: text("pay_frequency").default("MONTHLY").notNull(),
+  reason: text("reason").notNull(),
+  effectiveDate: date("effective_date").notNull(),
+  status: text("status").default("PENDING").notNull(), // PENDING, APPROVED, REJECTED
+  requestedBy: uuid("requested_by").references(() => users.id),
+  approvedBy: uuid("approved_by").references(() => users.id),
+  approvedAt: timestamp("approved_at"),
+  rejectionReason: text("rejection_reason"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  salaryChangesCompanyIdx: index("salary_changes_company_idx").on(table.companyId, table.status),
+  salaryChangesEmployeeIdx: index("salary_changes_employee_idx").on(table.employeeId),
+}));
+
+// 25c. Statutory remittance tracker - generated from locked payroll runs
+// One row per obligation per period (e.g. ZIMRA P2 for 2026-06) with due date,
+// computed amount and filing/remittance status.
+export const payrollRemittances = pgTable("payroll_remittances", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  authority: text("authority").notNull(), // ZIMRA, NSSA, NEC
+  reportType: text("report_type").notNull(), // P2, ZIMDEF, NSSA, NEC
+  name: text("name").notNull(),
+  period: text("period").notNull(), // YYYY-MM
+  currency: text("currency").default("USD").notNull(),
+  amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
+  dueDate: date("due_date").notNull(),
+  status: text("status").default("NOT_SUBMITTED").notNull(), // NOT_SUBMITTED, SUBMITTED, ACKNOWLEDGED
+  referenceNumber: text("reference_number"),
+  paidAmount: decimal("paid_amount", { precision: 15, scale: 2 }),
+  paidDate: date("paid_date"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  remittancesCompanyIdx: index("remittances_company_idx").on(table.companyId, table.reportType, table.period),
+}));
+
 // 26. Payroll data import batches with row-level validation history
 export const payrollImportBatches = pgTable("payroll_import_batches", {
   id: serial("id").primaryKey(),
@@ -3741,6 +3788,11 @@ export const payrollImportBatchesRelations = relations(payrollImportBatches, ({ 
 
 export const payrollImportRowsRelations = relations(payrollImportRows, ({ one }) => ({
   batch: one(payrollImportBatches, { fields: [payrollImportRows.batchId], references: [payrollImportBatches.id] }),
+}));
+
+export const employeeSalaryChangesRelations = relations(employeeSalaryChanges, ({ one }) => ({
+  employee: one(employees, { fields: [employeeSalaryChanges.employeeId], references: [employees.id] }),
+  company: one(companies, { fields: [employeeSalaryChanges.companyId], references: [companies.id] }),
 }));
 
 // Insert Schemas & Type Exports

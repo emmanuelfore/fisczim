@@ -12,7 +12,11 @@ import {
   Clock,
   Send,
   MoreHorizontal,
-  ChevronDown
+  ChevronDown,
+  Undo2,
+  BadgeDollarSign,
+  Gift,
+  XCircle
 } from "lucide-react";
 import { format } from "date-fns";
 import { HRLayout } from "./layout";
@@ -73,10 +77,23 @@ export default function HRPayrollRuns() {
     periodEnd: format(new Date(), "yyyy-MM-28"),
     payFrequency: "MONTHLY",
     currency: "USD",
+    runType: "REGULAR" as "REGULAR" | "BONUS",
+    prorate: true,
+    bonuses: {} as Record<number, number>,
   });
 
   const { data: runs = [] as any[], isLoading } = useQuery<any[]>({
     queryKey: [`/api/companies/${companyId}/payroll/runs`],
+    enabled: !!companyId,
+  });
+
+  const { data: activeEmployees = [] as any[] } = useQuery<any[]>({
+    queryKey: [`/api/companies/${companyId}/payroll/employees`],
+    enabled: !!companyId && isAddModalOpen && formData.runType === "BONUS",
+  });
+
+  const { data: pendingSalaryChanges = [] as any[] } = useQuery<any[]>({
+    queryKey: [`/api/companies/${companyId}/payroll/salary-changes/pending`],
     enabled: !!companyId,
   });
 
@@ -137,9 +154,58 @@ export default function HRPayrollRuns() {
     }
   });
 
+  const reverseRunMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("POST", `/api/companies/${companyId}/payroll/runs/${id}/reverse`);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/payroll/runs`] });
+      toast({ title: "Run Reversed", description: data.message || "Run reversed and reversing journal posted." });
+    },
+    onError: (error: any) => {
+      toast({ title: "Reversal Failed", description: error.message, variant: "destructive" });
+    }
+  });
+
+  const salaryApproveMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("POST", `/api/companies/${companyId}/payroll/salary-changes/${id}/approve`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/payroll/salary-changes/pending`] });
+      toast({ title: "Salary change approved and applied to contract" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Approval Failed", description: error.message, variant: "destructive" });
+    }
+  });
+
+  const salaryRejectMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("POST", `/api/companies/${companyId}/payroll/salary-changes/${id}/reject`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/payroll/salary-changes/pending`] });
+      toast({ title: "Salary change rejected" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Rejection Failed", description: error.message, variant: "destructive" });
+    }
+  });
+
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
-    createRunMutation.mutate(formData);
+    const payload: any = {
+      ...formData,
+      bonuses: formData.runType === "BONUS"
+        ? Object.entries(formData.bonuses).filter(([, v]) => v > 0).map(([employeeId, amount]) => ({ employeeId: Number(employeeId), amount }))
+        : undefined,
+    };
+    if (payload.runType !== "BONUS") delete payload.bonuses;
+    createRunMutation.mutate(payload);
   };
 
   return (
@@ -208,6 +274,62 @@ export default function HRPayrollRuns() {
                     </Select>
                   </div>
                 </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Run Type</Label>
+                    <Select value={formData.runType} onValueChange={(v) => setFormData({...formData, runType: v as any, bonuses: {}})}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="REGULAR">Regular Salary</SelectItem>
+                        <SelectItem value="BONUS">Bonus / 13th Cheque</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {formData.runType === "REGULAR" && (
+                    <div className="space-y-2">
+                      <Label>Proration</Label>
+                      <label className="flex items-center gap-2 rounded-md border border-slate-200 dark:border-slate-800 px-3 py-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={formData.prorate}
+                          onChange={(e) => setFormData({ ...formData, prorate: e.target.checked })}
+                          className="h-4 w-4 accent-blue-600"
+                        />
+                        <span className="text-sm text-slate-600 dark:text-slate-300">Prorate mid-period joins / leavers</span>
+                      </label>
+                    </div>
+                  )}
+                </div>
+
+                {formData.runType === "BONUS" && (
+                  <div className="space-y-2 max-h-56 overflow-y-auto rounded-md border border-slate-200 dark:border-slate-800 p-3">
+                    <div className="text-xs font-semibold text-slate-500 uppercase">13th Cheque / Bonus Amounts (tax-free up to $400/yr per Finance Act)</div>
+                    {activeEmployees.filter((emp: any) => emp.contracts?.[0]).map((emp: any) => (
+                      <div key={emp.id} className="flex items-center gap-2">
+                        <span className="flex-1 truncate text-sm text-slate-700 dark:text-slate-300">
+                          {emp.firstName} {emp.lastName}
+                        </span>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          placeholder="0.00"
+                          className="h-8 w-28"
+                          value={formData.bonuses[emp.id] ?? ""}
+                          onChange={(e) => setFormData({
+                            ...formData,
+                            bonuses: { ...formData.bonuses, [emp.id]: parseFloat(e.target.value) || 0 },
+                          })}
+                        />
+                      </div>
+                    ))}
+                    {activeEmployees.length === 0 && (
+                      <p className="text-xs text-slate-400">No employees with active contracts found.</p>
+                    )}
+                  </div>
+                )}
                 <Button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700" disabled={createRunMutation.isPending}>
                   {createRunMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Create Payroll Run"}
                 </Button>
@@ -215,6 +337,41 @@ export default function HRPayrollRuns() {
             </DialogContent>
           </Dialog>
         </div>
+
+        {pendingSalaryChanges.length > 0 && (
+          <Card className="border-amber-200/70 dark:border-amber-900/40 shadow-sm bg-amber-50/40 dark:bg-amber-950/20">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <BadgeDollarSign className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                <h2 className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+                  Pending Salary Changes ({pendingSalaryChanges.length})
+                </h2>
+              </div>
+              <div className="space-y-2">
+                {pendingSalaryChanges.map((change: any) => (
+                  <div key={change.id} className="flex items-center gap-3 rounded-md border border-amber-200/70 dark:border-amber-900/40 bg-white/60 dark:bg-slate-900/40 px-3 py-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-slate-900 dark:text-white truncate">
+                        {change.employee?.firstName} {change.employee?.lastName}
+                        <span className="text-slate-400 font-normal"> · {change.employee?.employeeNumber}</span>
+                      </div>
+                      <div className="text-xs text-slate-500">
+                        ${Number(change.previousBaseSalary).toLocaleString()} → <span className="font-semibold text-emerald-600 dark:text-emerald-400">${Number(change.newBaseSalary).toLocaleString()}</span>
+                        {change.currency} · effective {change.effectiveDate} · {change.reason}
+                      </div>
+                    </div>
+                    <Button size="sm" className="h-8 bg-emerald-600 hover:bg-emerald-700 text-white gap-1" onClick={() => salaryApproveMutation.mutate(change.id)}>
+                      <CheckCircle2 className="h-3.5 w-3.5" /> Approve
+                    </Button>
+                    <Button size="sm" variant="outline" className="h-8 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-900 gap-1" onClick={() => salaryRejectMutation.mutate(change.id)}>
+                      <XCircle className="h-3.5 w-3.5" /> Reject
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <Card className="border-slate-200/60 shadow-sm bg-white/50 dark:bg-slate-950/50 backdrop-blur-sm">
           <CardContent className="p-0">
@@ -255,6 +412,11 @@ export default function HRPayrollRuns() {
                           <Badge variant="outline" className="text-xs font-mono">
                             {run.currency}
                           </Badge>
+                          {run.runType === "BONUS" && (
+                            <Badge className="ml-1 bg-purple-100 text-purple-700 hover:bg-purple-100 dark:bg-purple-900/40 dark:text-purple-400">
+                              <Gift className="h-3 w-3 mr-1" /> 13th Cheque
+                            </Badge>
+                          )}
                         </TableCell>
                         <TableCell className="text-right font-medium text-emerald-600 dark:text-emerald-400">
                           {money(run.totalNet, run.currency)}
@@ -322,6 +484,19 @@ export default function HRPayrollRuns() {
                                   <DropdownMenuItem onClick={() => lockRunMutation.mutate(run.id)}>
                                     <LockKeyhole className="mr-2 h-4 w-4 text-slate-500" />
                                     Lock & Post Journals
+                                  </DropdownMenuItem>
+                                )}
+                                {run.status === "LOCKED" && run.runType !== "BONUS" && (
+                                  <DropdownMenuItem
+                                    onClick={() => {
+                                      if (window.confirm(`Reverse run #${run.id}? This posts a reversing journal entry and marks the run REVERSED.`)) {
+                                        reverseRunMutation.mutate(run.id);
+                                      }
+                                    }}
+                                    className="text-rose-600 dark:text-rose-400"
+                                  >
+                                    <Undo2 className="mr-2 h-4 w-4" />
+                                    Reverse Run
                                   </DropdownMenuItem>
                                 )}
                               </DropdownMenuContent>

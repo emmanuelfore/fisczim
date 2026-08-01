@@ -4377,14 +4377,25 @@ export async function registerRoutes(
 
       const status = await device.getStatus();
 
-      // Update local state
-      const updateData = {
+      // Update local state. CRITICAL: never regress the local counters.
+      // ZIMRA's getStatus.lastReceiptGlobalNo / lastReceiptCounter describe
+      // the CURRENT fiscal day, while the local lastReceiptGlobalNo is the
+      // device-lifetime sequence. Blindly copying ZIMRA's values (as this
+      // endpoint once did) reset the lifetime counter after every day
+      // rollover, producing duplicate/regressed receipt numbers.
+      const updateData: any = {
         currentFiscalDayNo: status.lastFiscalDayNo,
         lastFiscalDayStatus: status.fiscalDayStatus,
-        lastReceiptGlobalNo: status.lastReceiptGlobalNo,
-        dailyReceiptCount: status.lastReceiptCounter, // Syncing daily receipt count
         fiscalDayOpen: status.fiscalDayStatus === 'FiscalDayOpened'
       };
+
+      if (status.lastReceiptGlobalNo !== undefined && status.lastReceiptGlobalNo > (company.lastReceiptGlobalNo || 0)) {
+        updateData.lastReceiptGlobalNo = status.lastReceiptGlobalNo;
+      }
+
+      if (status.lastReceiptCounter !== undefined && status.lastReceiptCounter > (company.dailyReceiptCount || 0)) {
+        updateData.dailyReceiptCount = status.lastReceiptCounter;
+      }
 
       if (activeBranch) {
         await storage.updateBranch(activeBranch.id, updateData);
@@ -4880,47 +4891,87 @@ export async function registerRoutes(
 
 
       // ------------------------------------------------------------------
-      // CRITICAL VERIFICATION: Check if ZIMRA actually closed the day
+      // CRITICAL VERIFICATION: ZIMRA processes day closure asynchronously —
+      // a 200 response only means the request was accepted, not that the day
+      // is closed. Poll getStatus until the day is CONFIRMED closed (or the
+      // close is confirmed failed). Never report success from the response
+      // body alone, or the UI will show "closed" while ZIMRA is still
+      // processing / failed (observed: CloseInitiated -> later CloseFailed).
       // ------------------------------------------------------------------
-      console.log(`[CloseDay] Verifying closure status with ZIMRA...`);
+      console.log(`[CloseDay] Verifying closure status with ZIMRA (polling)...`);
+      const closeVerifyStarted = Date.now();
+      const CLOSE_VERIFY_TIMEOUT_MS = Number(process.env.CLOSE_DAY_VERIFY_TIMEOUT_MS) || 90_000;
+      const CLOSE_VERIFY_INTERVAL_MS = 3000;
+      let verificationStatus: any = null;
+      let closeConfirmed = false;
+
       try {
-        // Wait for ZIMRA to process the closure (5 seconds as per user request/best practice)
-        await new Promise(resolve => setTimeout(resolve, 4000));
-        const status = await device.getStatus() as any;
-        console.log(`[CloseDay] Verification Status:`, JSON.stringify(status, null, 2));
+        while (Date.now() - closeVerifyStarted < CLOSE_VERIFY_TIMEOUT_MS) {
+          await new Promise(resolve => setTimeout(resolve, CLOSE_VERIFY_INTERVAL_MS));
+          verificationStatus = await device.getStatus() as any;
+          console.log(`[CloseDay] Verification poll: ${JSON.stringify(verificationStatus)}`);
 
-        if (status.fiscalDayStatus === 'FiscalDayCloseFailed') {
-          console.error(`[CloseDay] ✗ ZIMRA reported FiscalDayCloseFailed even after API returned success.`);
+          if (verificationStatus.fiscalDayStatus === 'FiscalDayClosed') {
+            closeConfirmed = true;
+            break;
+          }
 
-          // Preserve the open day and its dailyReceiptCount so closure can be retried.
-          await storage.updateCompany(companyId, {
-            fiscalDayOpen: true,
-            lastFiscalDayStatus: 'FiscalDayCloseFailed'
-          });
+          if (verificationStatus.fiscalDayStatus === 'FiscalDayCloseFailed') {
+            break;
+          }
 
-          // Map specific error codes to user-friendly messages
-          const errorCode = status.fiscalDayClosingErrorCode || "UnknownError";
-          const errorMessages: Record<string, string> = {
-            "BadCertificateSignature": "ZIMRA rejected closure: Invalid certificate signature detected.",
-            "MissingReceipts": "ZIMRA rejected closure: One or more receipts are missing from the sequence (Grey Error).",
-            "ReceiptsWithValidationErrors": "ZIMRA rejected closure: There are receipts with validation errors (Red Error).",
-            "CountersMismatch": "ZIMRA rejected closure: Internal device counters do not match submitted totals."
-          };
-
-          const userMessage = errorMessages[errorCode] || `Fiscal day closure failed with error: ${errorCode}`;
-          const detailedDesc = "ZIMRA rejected the closure request during verification.";
-
-          return res.status(400).json({
-            message: userMessage,
-            fiscalDayStatus: status.fiscalDayStatus,
-            fiscalDayClosingErrorCode: errorCode,
-            details: detailedDesc,
-            recovery: "Please resolve the specific validation error above before retrying closure."
-          });
+          // FiscalDayOpened / FiscalDayCloseInitiated / unknown -> keep polling
         }
       } catch (verifyErr) {
-        console.warn(`[CloseDay] ⚠️ Failed to verify status after closure (Network issue?):`, verifyErr);
-        // Proceed with caution, assuming success from the first call if verification fails due to network
+        console.warn(`[CloseDay] ⚠️ Verification poll failed (Network issue?):`, verifyErr);
+        verificationStatus = null;
+      }
+
+      if (!closeConfirmed && verificationStatus?.fiscalDayStatus === 'FiscalDayCloseFailed') {
+        console.error(`[CloseDay] ✗ ZIMRA reported FiscalDayCloseFailed even after API returned success.`);
+
+        // Preserve the open day and its dailyReceiptCount so closure can be retried.
+        await storage.updateCompany(companyId, {
+          fiscalDayOpen: true,
+          lastFiscalDayStatus: 'FiscalDayCloseFailed'
+        });
+
+        // Map specific error codes to user-friendly messages
+        const errorCode = verificationStatus.fiscalDayClosingErrorCode || "UnknownError";
+        const errorMessages: Record<string, string> = {
+          "BadCertificateSignature": "ZIMRA rejected closure: Invalid certificate signature detected.",
+          "MissingReceipts": "ZIMRA rejected closure: One or more receipts are missing from the sequence (Grey Error).",
+          "ReceiptsWithValidationErrors": "ZIMRA rejected closure: There are receipts with validation errors (Red Error).",
+          "CountersMismatch": "ZIMRA rejected closure: Internal device counters do not match submitted totals."
+        };
+
+        const userMessage = errorMessages[errorCode] || `Fiscal day closure failed with error: ${errorCode}`;
+        const detailedDesc = "ZIMRA rejected the closure request during verification.";
+
+        return res.status(400).json({
+          message: userMessage,
+          fiscalDayStatus: verificationStatus.fiscalDayStatus,
+          fiscalDayClosingErrorCode: errorCode,
+          details: detailedDesc,
+          recovery: "Please resolve the specific validation error above before retrying closure."
+        });
+      }
+
+      if (!closeConfirmed) {
+        console.error(`[CloseDay] ✗ Closure not confirmed within ${CLOSE_VERIFY_TIMEOUT_MS}ms (last status: ${verificationStatus?.fiscalDayStatus || 'unknown'}).`);
+
+        // Day is still open or close is still processing — do NOT mark it closed.
+        await storage.updateCompany(companyId, {
+          fiscalDayOpen: true,
+          lastFiscalDayStatus: verificationStatus?.fiscalDayStatus || 'FiscalDayCloseFailed'
+        });
+
+        return res.status(202).json({
+          message: "Fiscal day closure was submitted to ZIMRA but is not yet confirmed. Please check the fiscal day status and try again if it failed.",
+          fiscalDayStatus: verificationStatus?.fiscalDayStatus || "unknown",
+          fiscalDayNo,
+          success: false
+        });
       }
 
       // Success! Update company state
@@ -5793,22 +5844,39 @@ export async function registerRoutes(
         const fiscalDayDate = company.fiscalDayOpenedAt ? formatHarareDateOnly(new Date(company.fiscalDayOpenedAt)) : formatHarareDateOnly(new Date());
 
         const result = await device.closeDay(fiscalDayNo, fiscalDayDate, receiptCounter, counters) as any;
-        const resultStatus = (result.fiscalDayStatus || "").toLowerCase();
 
-        // Only reset local state if ZIMRA confirms the day is closed
-        if (resultStatus === 'fiscaldayclosed') {
-          await storage.updateCompany(companyId, {
-            fiscalDayOpen: false,
-            lastFiscalDayStatus: 'FiscalDayClosed',
-            dailyReceiptCount: 0
-          });
-        } else {
-          console.warn(`[ZIMRA] CloseDay returned status: ${result.fiscalDayStatus}. Local counters preserved.`);
+        // ZIMRA closes days asynchronously — the response body carries no
+        // fiscalDayStatus. Poll getStatus until the closure is confirmed.
+        let verificationStatus: any = null;
+        let closeConfirmed = false;
+        const verifyStarted = Date.now();
+        const VERIFY_TIMEOUT_MS = Number(process.env.CLOSE_DAY_VERIFY_TIMEOUT_MS) || 90_000;
+        try {
+          while (Date.now() - verifyStarted < VERIFY_TIMEOUT_MS) {
+            await new Promise(resolve => setTimeout(resolve, 3000));
+            verificationStatus = await device.getStatus() as any;
+            if (verificationStatus.fiscalDayStatus === 'FiscalDayClosed') { closeConfirmed = true; break; }
+            if (verificationStatus.fiscalDayStatus === 'FiscalDayCloseFailed') break;
+          }
+        } catch (verifyErr: any) {
+          console.warn(`[ZIMRA] zreport close verification poll failed: ${verifyErr.message}`);
+          verificationStatus = null;
+        }
+
+        if (!closeConfirmed) {
+          console.warn(`[ZIMRA] zreport close not confirmed (status: ${verificationStatus?.fiscalDayStatus || 'unknown'}). Local counters preserved.`);
           await storage.updateCompany(companyId, {
             fiscalDayOpen: true,
-            lastFiscalDayStatus: result.fiscalDayStatus || 'FiscalDayCloseFailed'
+            lastFiscalDayStatus: verificationStatus?.fiscalDayStatus || 'FiscalDayCloseFailed'
           });
+          return res.json(formatRevMaxResponse("0", `Fiscal day closure not confirmed by ZIMRA (status: ${verificationStatus?.fiscalDayStatus || 'unknown'})`, {}, company));
         }
+
+        await storage.updateCompany(companyId, {
+          fiscalDayOpen: false,
+          lastFiscalDayStatus: 'FiscalDayClosed',
+          dailyReceiptCount: 0
+        });
 
         // Get Z-Report data
         const zReportData = await storage.getZReportData(companyId, fiscalDayNo);

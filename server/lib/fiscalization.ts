@@ -147,6 +147,25 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
             try {
                 const counters = await storage.calculateFiscalCounters(company.id, staleDayNo);
                 await device.closeDay(staleDayNo, dayDate, closeCounter, counters);
+
+                // ZIMRA closes days asynchronously: a 200 response only means
+                // the request was accepted. Poll getStatus until the closure
+                // is confirmed before opening the next day — otherwise the
+                // OpenDay call fails (FISC01) and we keep the stale day.
+                let closeConfirmed = false;
+                const verifyStart = Date.now();
+                while (Date.now() - verifyStart < 20_000) {
+                    await new Promise(resolve => setTimeout(resolve, 2500));
+                    const st = await device.getStatus() as any;
+                    if (st.fiscalDayStatus === 'FiscalDayClosed') { closeConfirmed = true; break; }
+                    if (st.fiscalDayStatus === 'FiscalDayCloseFailed') break;
+                }
+
+                if (!closeConfirmed) {
+                    console.warn(`[Fiscalize] Stale-day auto-close not confirmed (${reason}); continuing on stale day.`);
+                    return false;
+                }
+
                 const nextDay = staleDayNo + 1;
                 const openResult = await device.openDay(nextDay) as any;
                 const openedAt = new Date();

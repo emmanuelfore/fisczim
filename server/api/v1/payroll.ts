@@ -7,9 +7,9 @@ import {
   necSectorsConfig, taxTablesConfig, payrollRuns, payrollRunEmployees,
   payrollAllowances, payrollDeductions, payrollRecurringItems, leaveRequests, leaveBalances,
   employeeLoans, loanInstallments, tenantIntegrationCredentials,
-  paymentBatches, paymentBatchDetails, accounts, journalEntryDrafts,
+  accounts, journalEntryDrafts,
   journalEntryDraftLines, companyUsers, auditLogs, payrollAttendanceImports,
-  employeeDocuments, payslipDocuments, payrollIntegrationEvents, payrollPayGrades,
+  employeeDocuments, payslipDocuments, payrollPayGrades,
   payrollEarningTypes, payrollDeductionTypes, payrollStatutoryRules,
   payrollStatutoryReports, payrollReportExports, payrollReportValidationIssues,
   payrollStatutoryDeadlines, payrollImportBatches, payrollImportRows, companies
@@ -36,22 +36,6 @@ function encrypt(text: string): string {
   encrypted += cipher.final("hex");
   const authTag = cipher.getAuthTag().toString("hex");
   return `${iv.toString("hex")}:${authTag}:${encrypted}`;
-}
-
-function decrypt(text: string): string {
-  const parts = text.split(":");
-  if (parts.length !== 3) throw new Error("Invalid cipher format");
-  const [ivHex, authTagHex, encryptedHex] = parts;
-  
-  const iv = Buffer.from(ivHex, "hex");
-  const authTag = Buffer.from(authTagHex, "hex");
-  const key = crypto.createHash("sha256").update(ENCRYPTION_KEY).digest();
-  
-  const decipher = crypto.createDecipheriv(CIPHER_ALGORITHM, key, iv) as crypto.DecipherGCM;
-  decipher.setAuthTag(authTag);
-  let decrypted = decipher.update(encryptedHex, "hex", "utf8");
-  decrypted += decipher.final("utf8");
-  return decrypted;
 }
 
 // Helper to resolve company context from session/API headers
@@ -2190,114 +2174,6 @@ router.post("/runs/:id/lock", requirePayrollApproval, async (req, res) => {
       totalNet: run.totalNet,
     });
     res.json({ success: true, status: "LOCKED" });
-  } catch (err: any) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
-  }
-});
-
-// POST /runs/:id/rollback - Rollback a locked run, creating offsetting journals
-// --- 9. BANK TRANSFER CSV EXPORTS & ECOCASH BULK PAYOUTS ---
-
-router.post("/runs/:id/export/ecocash", async (req, res) => {
-  const runId = parseInt(req.params.id, 10);
-  const companyId = getTargetCompanyId(req);
-  try {
-    const run = await db.query.payrollRuns.findFirst({
-      where: and(eq(payrollRuns.id, runId), eq(payrollRuns.companyId, companyId))
-    });
-    if (!run) return res.status(404).json({ message: "Payroll run not found" });
-
-    // Retrieve and decrypt EcoCash Merchant API credentials
-    const [cred] = await db.select()
-      .from(tenantIntegrationCredentials)
-      .where(and(
-        eq(tenantIntegrationCredentials.companyId, companyId),
-        eq(tenantIntegrationCredentials.integrationType, "ECOCASH_BULK_PAYOUT")
-      ))
-      .limit(1);
-
-    if (!cred) {
-      return res.status(400).json({ message: "EcoCash integration credentials not configured" });
-    }
-
-    const credsObj = JSON.parse(decrypt(cred.credentialData));
-    const merchantCode = credsObj.merchantCode;
-    const merchantPin = credsObj.pin;
-
-    // Fetch employee lines with ecocash mobile wallets
-    const lines = await db.query.payrollRunEmployees.findMany({
-      where: eq(payrollRunEmployees.payrollRunId, runId),
-      with: { employee: true }
-    });
-
-    const ecocashPayments = lines
-      .filter(l => l.employee.ecocashNumber)
-      .map(l => ({
-        subscriberNumber: l.employee.ecocashNumber,
-        amount: parseFloat(l.netSalaryUsd), // Payout ratio partition
-        reference: `PAY-${l.id}`,
-        narrative: `Salary Period End ${run.periodEnd}`
-      }));
-
-    if (ecocashPayments.length === 0) {
-      return res.status(400).json({ message: "No employees in this run have EcoCash wallet numbers registered" });
-    }
-
-    // Mock EcoCash API request transmission
-    const batchRequest = {
-      originator: { merchantCode, pin: merchantPin },
-      batchName: `SALARY_RUN_${runId}`,
-      currency: "USD",
-      transactions: ecocashPayments
-    };
-
-    console.log("[ECOCASH GATEWAY] Transmitting Bulk Payout request:", JSON.stringify(batchRequest, null, 2));
-
-    // Create payment batch record
-    const [batch] = await db.insert(paymentBatches)
-      .values({
-        companyId,
-        name: `EcoCash Salary Batch - Run #${runId}`,
-        paymentMethod: "ECOCASH",
-        currency: "USD",
-        totalAmount: ecocashPayments.reduce((sum, p) => sum + p.amount, 0).toFixed(2),
-        status: "TRANSMITTED",
-        exportedAt: new Date()
-      })
-      .returning();
-
-    await db.insert(payrollIntegrationEvents).values({
-      companyId,
-      integrationType: "ECOCASH",
-      entityType: "payment_batches",
-      entityId: String(batch.id),
-      direction: "OUTBOUND",
-      status: "TRANSMITTED",
-      requestPayload: batchRequest,
-      responsePayload: { transactionsSent: ecocashPayments.length },
-    });
-
-    // Insert payment batch lines
-    for (const l of lines.filter(l => l.employee.ecocashNumber)) {
-      await db.insert(paymentBatchDetails)
-        .values({
-          batchId: batch.id,
-          payrollRunEmployeeId: l.id,
-          amount: l.netSalaryUsd,
-          status: "SUCCESS"
-        });
-        
-      // Mark payslip as paid
-      await db.update(payrollRunEmployees)
-        .set({ isPaid: true, paidAt: new Date(), paymentReference: `ECOCASH-BATCH-${batch.id}` })
-        .where(eq(payrollRunEmployees.id, l.id));
-    }
-
-    await auditPayroll(req, "PAYROLL_ECOCASH_BATCH_TRANSMITTED", "payment_batches", batch.id, {
-      payrollRunId: runId,
-      transactionsSent: ecocashPayments.length,
-    });
-    res.json({ success: true, batchId: batch.id, status: "TRANSMITTED", transactionsSent: ecocashPayments.length });
   } catch (err: any) {
     res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
   }

@@ -15,6 +15,10 @@ vi.mock("../../../storage.js", () => ({
     createCustomer: vi.fn(),
     createInvoice: vi.fn(),
     getNextInvoiceNumber: vi.fn(),
+    getTaxTypes: vi.fn(),
+    getCustomers: vi.fn(),
+    getInvoices: vi.fn(),
+    deleteInvoice: vi.fn(),
   },
 }));
 
@@ -32,10 +36,14 @@ import fiscalizeRouter from "../fiscalize.js";
 
 /** Minimal valid item */
 const minimalItem = {
-  description: "Test Item",
+  name: "Test Item",
   quantity: 1,
   unitPrice: 100,
 };
+
+// Handler validates vatNumber as exactly 9 digits and TIN as exactly 10 digits.
+const digitString9 = fc.stringMatching(/^\d{9}$/);
+const digitString10 = fc.stringMatching(/^\d{10}$/);
 
 function setupDefaultMocks(authCompanyId: number) {
   vi.mocked(storage.createCustomer).mockResolvedValue({
@@ -57,6 +65,11 @@ function setupDefaultMocks(authCompanyId: number) {
   } as any);
 
   vi.mocked(storage.getNextInvoiceNumber).mockResolvedValue("INV-001");
+
+  vi.mocked(storage.getTaxTypes).mockResolvedValue([]);
+  vi.mocked(storage.getCustomers).mockResolvedValue([]);
+  vi.mocked(storage.getInvoices).mockResolvedValue([]);
+  vi.mocked(storage.deleteInvoice).mockResolvedValue(true);
 
   vi.mocked(processInvoiceFiscalization).mockResolvedValue({
     fiscalCode: "FC123",
@@ -260,10 +273,9 @@ describe("Pass-Through Handler — Property 5: Invoice total arithmetic is alway
     const epsilon = 0.01;
 
     const itemArb = fc.record({
-      description: fc.constant("Item"),
-      quantity: fc.float({ min: 0, max: 10_000, noNaN: true }),
+      name: fc.constant("Item"),
+      quantity: fc.float({ min: 1, max: 10_000, noNaN: true }),
       unitPrice: fc.float({ min: 0, max: 10_000, noNaN: true }),
-      taxRate: fc.float({ min: 0, max: 100, noNaN: true }),
     });
 
     await fc.assert(
@@ -289,17 +301,19 @@ describe("Pass-Through Handler — Property 5: Invoice total arithmetic is alway
 
           expect(createInvoiceArgs).not.toBeNull();
 
-          // Compute expected values using the formula
+          // Compute expected values using the formula.
+          // The handler: computes each line total from the RAW unitPrice,
+          // rounds EACH line total to 2 decimals, aggregates the taxable net
+          // per tax bucket and rounds tax ONCE per bucket. (unitPrice is only
+          // normalised to 4 decimals for storage, not for arithmetic.)
+          // All items default to STANDARD → company defaultTaxRate (15%).
+          const expectedLineTotal = (item: any) => parseFloat((item.quantity * item.unitPrice).toFixed(2));
           const expectedSubtotal = items.reduce(
-            (sum, item) => sum + item.quantity * item.unitPrice,
+            (sum, item) => sum + expectedLineTotal(item),
             0
           );
-          const expectedTaxAmount = items.reduce(
-            (sum, item) =>
-              sum + item.quantity * item.unitPrice * (item.taxRate / 100),
-            0
-          );
-          const expectedTotal = expectedSubtotal + expectedTaxAmount;
+          const expectedTaxAmount = Math.round(expectedSubtotal * (15 / 100) * 100) / 100;
+          const expectedTotal = parseFloat((expectedSubtotal + expectedTaxAmount).toFixed(2));
 
           // The handler stores these as toFixed(2) strings — parse them back
           const actualSubtotal = parseFloat(createInvoiceArgs.subtotal);
@@ -331,7 +345,7 @@ describe("Pass-Through Handler — Property 5: Invoice total arithmetic is alway
     };
 
     const { createInvoiceArgs } = await dispatchFiscalize(authCompany, {
-      items: [{ description: "Widget", quantity: 3, unitPrice: 100, taxRate: 15 }],
+      items: [{ name: "Widget", quantity: 3, unitPrice: 100 }],
     });
 
     // lineTotal = 3 × 100 = 300
@@ -360,18 +374,18 @@ describe("Pass-Through Handler — Property 5: Invoice total arithmetic is alway
 
     const { createInvoiceArgs } = await dispatchFiscalize(authCompany, {
       items: [
-        { description: "A", quantity: 2, unitPrice: 50, taxRate: 15 },  // lineTotal=100, tax=15
-        { description: "B", quantity: 1, unitPrice: 200, taxRate: 0 },  // lineTotal=200, tax=0
-        { description: "C", quantity: 4, unitPrice: 25, taxRate: 10 },  // lineTotal=100, tax=10
+        { name: "A", quantity: 2, unitPrice: 50 },   // lineTotal=100
+        { name: "B", quantity: 1, unitPrice: 200 },  // lineTotal=200
+        { name: "C", quantity: 4, unitPrice: 25 },   // lineTotal=100
       ],
     });
 
-    // subtotal  = 100 + 200 + 100 = 400
-    // taxAmount = 15 + 0 + 10 = 25
-    // total     = 425
+    // subtotal  = 400 (all items STANDARD at 15%, tax rounded once per bucket)
+    // taxAmount = round(400 × 0.15) = 60
+    // total     = 460
     expect(parseFloat(createInvoiceArgs.subtotal)).toBeCloseTo(400, 2);
-    expect(parseFloat(createInvoiceArgs.taxAmount)).toBeCloseTo(25, 2);
-    expect(parseFloat(createInvoiceArgs.total)).toBeCloseTo(425, 2);
+    expect(parseFloat(createInvoiceArgs.taxAmount)).toBeCloseTo(60, 2);
+    expect(parseFloat(createInvoiceArgs.total)).toBeCloseTo(460, 2);
   });
 });
 
@@ -404,7 +418,7 @@ describe("Pass-Through Handler — Property 6: Item defaults are applied when op
         // Arbitrary items without taxRate or hsCode
         fc.array(
           fc.record({
-            description: fc.string({ minLength: 1, maxLength: 50 }),
+            name: fc.string({ minLength: 1, maxLength: 50 }),
             quantity: fc.integer({ min: 1, max: 1000 }),
             unitPrice: fc.integer({ min: 1, max: 10000 }),
           }),
@@ -454,7 +468,7 @@ describe("Pass-Through Handler — Property 6: Item defaults are applied when op
       fc.asyncProperty(
         fc.array(
           fc.record({
-            description: fc.string({ minLength: 1, maxLength: 50 }),
+            name: fc.string({ minLength: 1, maxLength: 50 }),
             quantity: fc.integer({ min: 1, max: 1000 }),
             unitPrice: fc.integer({ min: 1, max: 10000 }),
           }),
@@ -508,7 +522,7 @@ describe("Pass-Through Handler — Property 6: Item defaults are applied when op
         fc.option(fc.string({ minLength: 1, maxLength: 20 }), { nil: undefined }),
         fc.array(
           fc.record({
-            description: fc.string({ minLength: 1, maxLength: 50 }),
+            name: fc.string({ minLength: 1, maxLength: 50 }),
             quantity: fc.integer({ min: 1, max: 1000 }),
             unitPrice: fc.integer({ min: 1, max: 10000 }),
           }),
@@ -539,9 +553,9 @@ describe("Pass-Through Handler — Property 6: Item defaults are applied when op
   });
 
   /**
-   * Sanity check: explicit taxRate on item overrides company default.
+   * Sanity check: explicit taxType on item overrides company default.
    */
-  test("item with explicit taxRate uses its own taxRate, not company default", async () => {
+  test("item with explicit taxType (ZERO_RATED) uses 0%, not company default", async () => {
     const authCompanyId = 10;
     setupDefaultMocks(authCompanyId);
 
@@ -554,11 +568,11 @@ describe("Pass-Through Handler — Property 6: Item defaults are applied when op
     };
 
     const { createInvoiceArgs, statusCode } = await dispatchFiscalize(authCompany, {
-      items: [{ description: "Widget", quantity: 1, unitPrice: 100, taxRate: 5 }],
+      items: [{ name: "Widget", quantity: 1, unitPrice: 100, taxType: "ZERO_RATED" }],
     });
 
     expect(statusCode).toBe(200);
-    expect(parseFloat(createInvoiceArgs.items[0].taxRate)).toBeCloseTo(5, 5);
+    expect(parseFloat(createInvoiceArgs.items[0].taxRate)).toBeCloseTo(0, 5);
   });
 
   /**
@@ -577,7 +591,7 @@ describe("Pass-Through Handler — Property 6: Item defaults are applied when op
     };
 
     const { createInvoiceArgs, statusCode } = await dispatchFiscalize(authCompany, {
-      items: [{ description: "Widget", quantity: 1, unitPrice: 100 }],
+      items: [{ name: "Widget", quantity: 1, unitPrice: 100 }],
     });
 
     expect(statusCode).toBe(200);
@@ -600,7 +614,7 @@ describe("Pass-Through Handler — Property 6: Item defaults are applied when op
     };
 
     const { createInvoiceArgs, statusCode } = await dispatchFiscalize(authCompany, {
-      items: [{ description: "Widget", quantity: 1, unitPrice: 100 }],
+      items: [{ name: "Widget", quantity: 1, unitPrice: 100 }],
     });
 
     expect(statusCode).toBe(200);
@@ -633,8 +647,8 @@ describe("Pass-Through Handler — Property 7: Buyer info stored inline on invoi
         // Arbitrary buyer objects
         fc.record({
           name: fc.string({ minLength: 1, maxLength: 100 }),
-          vatNumber: fc.option(fc.string({ minLength: 1, maxLength: 50 }), { nil: undefined }),
-          tin: fc.option(fc.string({ minLength: 1, maxLength: 50 }), { nil: undefined }),
+          vatNumber: fc.option(digitString9, { nil: undefined }),
+          tin: fc.option(digitString10, { nil: undefined }),
         }),
         async (buyer) => {
           vi.clearAllMocks();
@@ -661,8 +675,8 @@ describe("Pass-Through Handler — Property 7: Buyer info stored inline on invoi
           expect(statusCode).toBe(200);
           expect(createInvoiceArgs).not.toBeNull();
 
-          // Buyer name must be stored inline on the invoice
-          expect(createInvoiceArgs.buyerName).toBe(buyer.name);
+          // Buyer name must be stored inline on the invoice (as customerName)
+          expect(createInvoiceArgs.customerName).toBe(buyer.name);
 
           // VAT number must be stored inline if provided
           if (buyer.vatNumber !== undefined) {
@@ -692,8 +706,8 @@ describe("Pass-Through Handler — Property 7: Buyer info stored inline on invoi
       fc.asyncProperty(
         fc.record({
           name: fc.string({ minLength: 1, maxLength: 100 }),
-          vatNumber: fc.option(fc.string({ minLength: 1, maxLength: 50 }), { nil: undefined }),
-          tin: fc.option(fc.string({ minLength: 1, maxLength: 50 }), { nil: undefined }),
+          vatNumber: fc.option(digitString9, { nil: undefined }),
+          tin: fc.option(digitString10, { nil: undefined }),
         }),
         async (buyer) => {
           vi.clearAllMocks();
@@ -743,8 +757,8 @@ describe("Pass-Through Handler — Property 7: Buyer info stored inline on invoi
 
     const buyer = {
       name: "Acme Corp",
-      vatNumber: "VAT123456",
-      tin: "TIN789",
+      vatNumber: "123456789",
+      tin: "1234567890",
     };
 
     const { createInvoiceArgs, statusCode } = await dispatchFiscalize(authCompany, {
@@ -753,15 +767,15 @@ describe("Pass-Through Handler — Property 7: Buyer info stored inline on invoi
     });
 
     expect(statusCode).toBe(200);
-    expect(createInvoiceArgs.buyerName).toBe("Acme Corp");
-    expect(createInvoiceArgs.buyerVat).toBe("VAT123456");
-    expect(createInvoiceArgs.buyerTin).toBe("TIN789");
+    expect(createInvoiceArgs.customerName).toBe("Acme Corp");
+    expect(createInvoiceArgs.buyerVat).toBe("123456789");
+    expect(createInvoiceArgs.buyerTin).toBe("1234567890");
   });
 
   /**
    * Sanity check: buyer with only name (no vatNumber or tin).
    */
-  test("buyer with only name stores buyerName on the invoice", async () => {
+  test("buyer with only name stores customerName on the invoice", async () => {
     const authCompanyId = 21;
     setupDefaultMocks(authCompanyId);
 
@@ -779,7 +793,7 @@ describe("Pass-Through Handler — Property 7: Buyer info stored inline on invoi
     });
 
     expect(statusCode).toBe(200);
-    expect(createInvoiceArgs.buyerName).toBe("John Doe");
+    expect(createInvoiceArgs.customerName).toBe("John Doe");
   });
 });
 
@@ -838,7 +852,12 @@ describe("Pass-Through Handler — Property 12: Fiscalization failure returns 42
             status: "pending",
           } as any);
 
-          vi.mocked(storage.getNextInvoiceNumber).mockResolvedValue("INV-001");
+  vi.mocked(storage.getNextInvoiceNumber).mockResolvedValue("INV-001");
+
+  vi.mocked(storage.getTaxTypes).mockResolvedValue([]);
+  vi.mocked(storage.getCustomers).mockResolvedValue([]);
+  vi.mocked(storage.getInvoices).mockResolvedValue([]);
+  vi.mocked(storage.deleteInvoice).mockResolvedValue(true);
 
           // processInvoiceFiscalization throws with the generated error message
           vi.mocked(processInvoiceFiscalization).mockRejectedValue(

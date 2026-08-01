@@ -32,7 +32,7 @@ export interface LocalTaxMapping {
   zimraTaxId: string | null;
   resolvedTaxId: number | null;
   resolvedTaxName: string | null;
-  status: "ok" | "mismatch" | "missing" | "ambiguous" | "unmapped" | "no-live";
+  status: "ok" | "healed" | "mismatch" | "missing" | "ambiguous" | "unmapped" | "no-live";
 }
 
 export interface CompanyTaxMapping {
@@ -113,12 +113,31 @@ export function buildCompanyTaxMapping(
         resolvedTaxName = String(live.taxName || "");
         const livePercent = Number(live.taxPercent || 0);
         if (Math.abs(livePercent - rate) > 0.01) {
-          status = "mismatch";
-          issues.push({
-            code: "TAX_PERCENT_MISMATCH",
-            severity: "error",
-            message: `Tax type "${t.name}" (${rate}%) maps to ZIMRA tax ID ${explicitId} which is ${livePercent}% on the device. Receipts using it will fail validation.`,
-          });
+          // Stale mapping: the device's tax ID has a different percent than the
+          // local rate. The live device is authoritative — resolve by rate to
+          // the live tax that actually matches, so receipts never carry a
+          // wrong tax ID. Only if the rate matches NO live tax do we block.
+          const healCandidates = (byRate.get(roundRate(rate)) || []).filter(
+            (c) => c.taxID !== explicitId,
+          );
+          if (healCandidates.length === 1) {
+            const heal = healCandidates[0];
+            resolvedTaxId = heal.taxID;
+            resolvedTaxName = heal.name;
+            status = "healed";
+            issues.push({
+              code: "TAX_ID_HEALED",
+              severity: "warning",
+              message: `Tax type "${t.name}" (${rate}%) maps to ZIMRA tax ID ${explicitId} (${livePercent}% on device); using device tax ID ${heal.taxID} (${rate}%). Update the ZIMRA tax ID in Tax Config to ${heal.taxID} to clear this.`,
+            });
+          } else {
+            status = "mismatch";
+            issues.push({
+              code: "TAX_PERCENT_MISMATCH",
+              severity: "error",
+              message: `Tax type "${t.name}" (${rate}%) maps to ZIMRA tax ID ${explicitId} which is ${livePercent}% on the device, and no other device tax matches ${rate}%. Fix the ZIMRA tax ID or rate in Tax Config.`,
+            });
+          }
         } else {
           status = "ok";
         }
@@ -233,6 +252,11 @@ export function resolveLineTaxID(
   const mapped = taxTypeId ? mapping.byTaxTypeId.get(taxTypeId) : null;
   if (mapped && mapped.taxID) {
     if (mapped.status === "ok" || mapped.status === "no-live") return { taxID: mapped.taxID, issue: null };
+    if (mapped.status === "healed") {
+      // Auto-healed to the device's rate-matching tax ID — no issue on the
+      // receipt path (the mismatch is recorded on the tax-health screen).
+      return { taxID: mapped.taxID, issue: null };
+    }
     if (mapped.status === "mismatch") {
       return {
         taxID: mapped.taxID,

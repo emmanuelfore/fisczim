@@ -241,36 +241,31 @@ async function loadOperationalData(companyId: number, start: Date, end: Date) {
   // Production from manufacturing module (optional tables)
   let manufacturingProduction: { date: string; productId: number; productName: string; quantity: number }[] = [];
   try {
-    const { manufacturingMaterialTransactions, workOrders } = await import(
-      "../../shared/schema.js"
-    );
+    const { goodsReceipts, productionRuns } = await import("../../shared/schema.js");
     const mfgRows = await db
       .select({
-        date: manufacturingMaterialTransactions.date,
-        productId: manufacturingMaterialTransactions.productId,
+        date: goodsReceipts.postedAt,
+        productId: goodsReceipts.productId,
         productName: products.name,
-        quantity: manufacturingMaterialTransactions.quantity,
-        type: manufacturingMaterialTransactions.type,
+        quantity: goodsReceipts.quantity,
       })
-      .from(manufacturingMaterialTransactions)
-      .innerJoin(workOrders, eq(manufacturingMaterialTransactions.workOrderId, workOrders.id))
-      .innerJoin(products, eq(manufacturingMaterialTransactions.productId, products.id))
+      .from(goodsReceipts)
+      .innerJoin(productionRuns, eq(goodsReceipts.productionRunId, productionRuns.id))
+      .innerJoin(products, eq(goodsReceipts.productId, products.id))
       .where(
         and(
-          eq(workOrders.companyId, companyId),
-          gte(manufacturingMaterialTransactions.date, rangeStart),
-          lte(manufacturingMaterialTransactions.date, rangeEnd),
+          eq(productionRuns.companyId, companyId),
+          gte(goodsReceipts.postedAt, rangeStart),
+          lte(goodsReceipts.postedAt, rangeEnd),
         ),
       );
 
-    manufacturingProduction = mfgRows
-      .filter((r) => r.type === "FINISHED_GOOD" || r.type === "CO_PRODUCT")
-      .map((r) => ({
-        date: r.date ? dateKey(new Date(r.date)) : "unknown",
-        productId: r.productId,
-        productName: r.productName,
-        quantity: Number(r.quantity || 0),
-      }));
+    manufacturingProduction = mfgRows.map((r) => ({
+      date: r.date ? dateKey(new Date(r.date)) : "unknown",
+      productId: r.productId,
+      productName: r.productName,
+      quantity: Number(r.quantity || 0),
+    }));
   } catch {
     // Manufacturing tables may not exist in all deployments
   }

@@ -240,8 +240,8 @@ export default function CustomersPage() {
                       </div>
                     </div>
                     <div className="text-right">
-                      <span className={`font-bold font-mono ${Number((c as any).openingBalance) > 0 ? "text-red-600" : "text-slate-600"}`}>
-                        ${Number((c as any).openingBalance || 0).toFixed(2)}
+                      <span className={`font-bold font-mono ${Number((c as any).balance) > 0 ? "text-red-600" : "text-slate-600"}`}>
+                        ${Number((c as any).balance || 0).toFixed(2)}
                       </span>
                       <span
                         className={`mt-1 inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide border shadow-sm block w-fit ml-auto ${
@@ -459,8 +459,8 @@ export default function CustomersPage() {
                       </span>
                     </td>
                     <td className="hidden sm:table-cell px-5 py-4 align-middle text-right">
-                      <span className={`font-bold font-mono ${Number((c as any).openingBalance) > 0 ? "text-red-600" : "text-slate-600"}`}>
-                        ${Number((c as any).openingBalance || 0).toFixed(2)}
+                      <span className={`font-bold font-mono ${Number((c as any).balance) > 0 ? "text-red-600" : "text-slate-600"}`}>
+                        ${Number((c as any).balance || 0).toFixed(2)}
                       </span>
                     </td>
                     <td className="px-5 py-4 text-right align-middle">

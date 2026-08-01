@@ -219,7 +219,7 @@ export interface IStorage {
   addLaybyPayment(laybyId: number, companyId: number, data: InsertLaybyPayment & { createdBy?: string | null; branchId?: number | null }): Promise<LaybyPayment>;
 
   // Invoices
-  getInvoicesPaginated(companyId: number, page?: number, limit?: number, search?: string, status?: string, type?: string, dateFrom?: Date, dateTo?: Date, isPos?: boolean, branchId?: number): Promise<{ data: (Invoice & { customer?: Customer; latestError?: { message: string, color: string }; relatedInvoiceNumber?: string | null; linkedDocuments?: Array<{ id: number; invoiceNumber: string; transactionType: string | null }> })[]; total: number; pages: number }>;
+  getInvoicesPaginated(companyId: number, page?: number, limit?: number, search?: string, status?: string, type?: string, dateFrom?: Date, dateTo?: Date, isPos?: boolean, branchId?: number, customerId?: string): Promise<{ data: (Invoice & { customer?: Customer; latestError?: { message: string, color: string }; relatedInvoiceNumber?: string | null; linkedDocuments?: Array<{ id: number; invoiceNumber: string; transactionType: string | null }> })[]; total: number; pages: number }>;
   getInvoices(companyId: number, branchId?: number): Promise<(Invoice & { customer?: Customer })[]>;
   getInvoice(id: number): Promise<(Invoice & { items: (InvoiceItem & { product?: Product })[]; customer?: Customer; validationErrors?: any[]; relatedInvoiceNumber?: string; relatedInvoiceDate?: Date | null; relatedFiscalCode?: string; relatedReceiptGlobalNo?: number; relatedReceiptCounter?: number }) | undefined>;
   getInvoiceWithItems(id: number): Promise<(Invoice & { items: (InvoiceItem & { product?: Product })[]; customer?: Customer; validationErrors?: any[]; relatedInvoiceNumber?: string; relatedInvoiceDate?: Date | null; relatedFiscalCode?: string; relatedReceiptGlobalNo?: number; relatedReceiptCounter?: number }) | undefined>;
@@ -1370,7 +1370,8 @@ export class DatabaseStorage implements IStorage {
     dateFrom?: Date,
     dateTo?: Date,
     isPos?: boolean,
-    branchId?: number
+    branchId?: number,
+    customerId?: string
   ): Promise<{ data: (Invoice & { customer?: Customer; latestError?: { message: string, color: string }; relatedInvoiceNumber?: string | null; linkedDocuments?: Array<{ id: number; invoiceNumber: string; transactionType: string | null }> })[]; total: number; pages: number }> {
     const offset = (page - 1) * limit;
 
@@ -1383,6 +1384,17 @@ export class DatabaseStorage implements IStorage {
     // Add POS filter if specified
     if (isPos !== undefined) {
       filters.push(eq(invoices.isPos, isPos));
+    }
+
+    if (customerId && customerId !== 'all') {
+      if (customerId === 'walk-in' || customerId === '0') {
+        filters.push(isNull(invoices.customerId));
+      } else {
+        const parsedCustomerId = parseInt(customerId, 10);
+        if (!isNaN(parsedCustomerId)) {
+          filters.push(eq(invoices.customerId, parsedCustomerId));
+        }
+      }
     }
 
     if (search) {
@@ -1403,6 +1415,16 @@ export class DatabaseStorage implements IStorage {
         filters.push(and(
           eq(invoices.syncedWithFdms, false),
           eq(invoices.status, 'issued')
+        ));
+      } else if (status === 'unpaid') {
+        filters.push(or(
+          eq(invoices.status, 'issued'),
+          eq(invoices.status, 'partial')
+        ));
+      } else if (status === 'failed') {
+        filters.push(or(
+          eq(invoices.validationStatus, 'red'),
+          eq(invoices.fdmsStatus, 'failed')
         ));
       } else {
         filters.push(eq(invoices.status, status));
@@ -2506,23 +2528,13 @@ export class DatabaseStorage implements IStorage {
 
       const results: TaxType[] = [];
       const processedZimraIds = new Set<string>();
+      const claimedIds = new Set<number>();
 
-      // Helper for fuzzy name matching
-      const findSimilarTax = (targetName: string, targetRate: string) => {
-        const targetLower = targetName.toLowerCase();
-        const targetRateNum = parseFloat(targetRate);
-        return existing.find(t => {
-          const existingLower = t.name.toLowerCase();
-          const existingRateNum = parseFloat(t.rate);
-          // Check if names are similar (contains each other's keywords)
-          const nameSimilar = targetLower.includes(existingLower) || existingLower.includes(targetLower);
-          // Check if rates match
-          const rateMatch = Math.abs(targetRateNum - existingRateNum) < 0.01;
-          return nameSimilar && rateMatch;
-        });
-      };
-
-      // Upsert: update existing or insert new
+      // Upsert: update existing or insert new.
+      // Matching is rate-aware: a stored ZIMRA ID whose live percent differs
+      // from the local rate is a stale mapping. The live device is
+      // authoritative, so we prefer the local tax whose RATE matches the live
+      // tax (and reassign its ZIMRA ID) instead of clobbering its rate.
       for (const zTax of zimraTaxes) {
         if (!zTax.taxID) continue;
 
@@ -2540,57 +2552,75 @@ export class DatabaseStorage implements IStorage {
         const effectiveFrom = (zTax.validFrom || new Date().toISOString()).split('T')[0];
 
         const existingTax = existingByZimraId.get(zimraTaxId);
+        const exactIsClaimed = !!existingTax && claimedIds.has(existingTax.id);
+        const exactMatchesRate =
+          !!existingTax &&
+          !exactIsClaimed &&
+          Math.abs(parseFloat(existingTax.rate) - percent) < 0.01;
 
-        if (existingTax) {
-          // Update existing by zimraTaxId
+        let match: TaxType | undefined;
+
+        if (exactMatchesRate) {
+          // Stored ID matches AND rate matches — keep using it.
+          match = existingTax;
+        } else {
+          // Stored ID is missing or stale (percent differs): find the local
+          // tax whose rate matches this live tax, so wrong IDs get healed.
+          const rateCandidates = existing.filter(
+            (t) =>
+              !claimedIds.has(t.id) &&
+              Math.abs(parseFloat(t.rate) - percent) < 0.01,
+          );
+          if (rateCandidates.length === 1) {
+            match = rateCandidates[0];
+          } else if (rateCandidates.length > 1) {
+            // Multiple local taxes at this rate (e.g. Exempt 0% vs Zero Rated
+            // 0%): disambiguate by name like the deterministic tax mapping.
+            const lowerName = String(taxName).toLowerCase();
+            const exempt = lowerName.includes("exempt");
+            const byName = rateCandidates.filter((t) =>
+              exempt
+                ? String(t.name).toLowerCase().includes("exempt")
+                : !String(t.name).toLowerCase().includes("exempt"),
+            );
+            match = byName.length === 1 ? byName[0] : undefined;
+          }
+          // If the stored-ID row exists with a different rate, leave it
+          // untouched; the live tax at its true rate claims it when processed.
+        }
+
+        if (match) {
           const [updated] = await tx.update(taxTypes)
             .set({
               code: code,
               name: taxName,
               rate: taxRate,
               description: `ZIMRA Tax Level ${zTax.taxID} (${zTax.taxName})`,
+              ...(match.zimraTaxId !== zimraTaxId ? { zimraTaxId: zimraTaxId } : {}),
               zimraCode: zimraCode,
               effectiveFrom: effectiveFrom,
               isActive: true
             })
-            .where(eq(taxTypes.id, existingTax.id))
+            .where(eq(taxTypes.id, match.id))
             .returning();
           results.push(updated);
+          claimedIds.add(updated.id);
+          existingByZimraId.set(zimraTaxId, updated);
         } else {
-          // Try fuzzy name matching before inserting new
-          const similarTax = findSimilarTax(taxName, taxRate);
-          if (similarTax && !existingByZimraId.has(similarTax.zimraTaxId)) {
-            // Update the similar tax with new zimraTaxId
-            const [updated] = await tx.update(taxTypes)
-              .set({
-                code: code,
-                name: taxName,
-                rate: taxRate,
-                description: `ZIMRA Tax Level ${zTax.taxID} (${zTax.taxName})`,
-                zimraTaxId: zimraTaxId,
-                zimraCode: zimraCode,
-                effectiveFrom: effectiveFrom,
-                isActive: true
-              })
-              .where(eq(taxTypes.id, similarTax.id))
-              .returning();
-            results.push(updated);
-            existingByZimraId.set(zimraTaxId, updated);
-          } else {
-            // Insert new
-            const [created] = await tx.insert(taxTypes).values({
-              companyId: companyId,
-              code: code,
-              name: taxName,
-              rate: taxRate,
-              description: `ZIMRA Tax Level ${zTax.taxID} (${zTax.taxName})`,
-              zimraTaxId: zimraTaxId,
-              zimraCode: zimraCode,
-              effectiveFrom: effectiveFrom,
-              isActive: true
-            }).returning();
-            results.push(created);
-          }
+          // Insert new
+          const [created] = await tx.insert(taxTypes).values({
+            companyId: companyId,
+            code: code,
+            name: taxName,
+            rate: taxRate,
+            description: `ZIMRA Tax Level ${zTax.taxID} (${zTax.taxName})`,
+            zimraTaxId: zimraTaxId,
+            zimraCode: zimraCode,
+            effectiveFrom: effectiveFrom,
+            isActive: true
+          }).returning();
+          results.push(created);
+          claimedIds.add(created.id);
         }
       }
 
@@ -9174,7 +9204,7 @@ export class DatabaseStorage implements IStorage {
       productionRuns, billOfMaterials, bomItems, productionRunConsumptions,
       manufacturingMaterialTransactions, products, inventoryLocations,
       inventoryLocationStocks, branchStocks, accounts, journalEntries, ledgerEntries,
-      financialPeriods, customerStock
+      financialPeriods, customerStock, goodsIssues, goodsReceipts
     } = await import("@shared/schema.js");
     const { eq, and, inArray, sql } = await import("drizzle-orm");
 
@@ -9281,34 +9311,71 @@ export class DatabaseStorage implements IStorage {
 
       // 4. Deduct raw materials (Goods Issue) & log consumptions based on total quantity attempted
       // Only for RECIPE type - SIMPLE type relies on direct material transactions
+      // NOTE: If materials were already pulled via POST /goods-issues during the run,
+      // skip auto-deduction to avoid double-charging stock.
       let totalMaterialCost = 0;
       if (wo.type === "RECIPE") {
-        for (const { line, product } of lines) {
-          const neededQty = Number(line.quantity) * totalQty;
-          const scrapFactor = 1 + (Number(line.scrapPercentage || 0) / 100);
-          const actualQty = neededQty * scrapFactor;
+        const existingIssues = await tx.select({ id: goodsIssues.id })
+          .from(goodsIssues)
+          .where(and(eq(goodsIssues.productionRunId, id), eq(goodsIssues.type, "ISSUE")))
+          .limit(1);
 
-          // Deduct from stock (negative delta)
-          await adjustProductStock(line.componentProductId, -actualQty);
+        if (existingIssues.length === 0) {
+          for (const { line, product } of lines) {
+            const neededQty = Number(line.quantity) * totalQty;
+            const scrapFactor = 1 + (Number(line.scrapPercentage || 0) / 100);
+            const actualQty = neededQty * scrapFactor;
 
-          // Log consumption
-          await tx.insert(productionRunConsumptions).values({
-            productionRunId: id,
-            productId: line.componentProductId,
-            quantityConsumed: actualQty.toString(),
-            date: new Date(),
-          });
+            // Deduct from stock (negative delta)
+            await adjustProductStock(line.componentProductId, -actualQty);
 
-          // Log material transaction via manufacturingMaterialTransactions
-          await tx.insert(manufacturingMaterialTransactions).values({
-            productionRunId: id,
-            productId: line.componentProductId,
-            type: "ISSUE",
-            quantity: actualQty.toString(),
-            date: new Date(),
-          });
+            // Log goods issue (audit trail + drives actual_material_cost accumulation)
+            await tx.insert(goodsIssues).values({
+              productionRunId: id,
+              productId: line.componentProductId,
+              locationId: defaultLocation ? defaultLocation.id : null,
+              quantity: actualQty.toString(),
+              unitCost: (Number(product?.costPrice || 0)).toString(),
+              totalCost: (actualQty * Number(product?.costPrice || 0)).toString(),
+              type: "ISSUE",
+              postedAt: new Date(),
+              createdBy: userId || null,
+            });
 
-          totalMaterialCost += actualQty * Number(product?.costPrice || 0);
+            // Log consumption
+            await tx.insert(productionRunConsumptions).values({
+              productionRunId: id,
+              productId: line.componentProductId,
+              quantityConsumed: actualQty.toString(),
+              date: new Date(),
+            });
+
+            // Log material transaction via manufacturingMaterialTransactions (legacy compat)
+            await tx.insert(manufacturingMaterialTransactions).values({
+              productionRunId: id,
+              productId: line.componentProductId,
+              type: "ISSUE",
+              quantity: actualQty.toString(),
+              date: new Date(),
+            });
+
+            totalMaterialCost += actualQty * Number(product?.costPrice || 0);
+          }
+        } else {
+          // Materials already issued during the run: cost = net goods_issues value
+          const [issueSum] = await tx.select({
+            total: sql<string>`COALESCE(SUM(${goodsIssues.totalCost}::numeric), 0)`,
+          }).from(goodsIssues).where(and(
+            eq(goodsIssues.productionRunId, id),
+            eq(goodsIssues.type, "ISSUE")
+          ));
+          const [returnSum] = await tx.select({
+            total: sql<string>`COALESCE(SUM(${goodsIssues.totalCost}::numeric), 0)`,
+          }).from(goodsIssues).where(and(
+            eq(goodsIssues.productionRunId, id),
+            eq(goodsIssues.type, "RETURN")
+          ));
+          totalMaterialCost = Number(issueSum?.total || 0) - Number(returnSum?.total || 0);
         }
       }
 
@@ -9354,6 +9421,21 @@ export class DatabaseStorage implements IStorage {
           type: "FINISHED_GOOD",
           quantity: goodQty.toString(),
           date: new Date(),
+        });
+
+        // Log goods receipt (audit trail; returned by GET /production-runs/:id)
+        const runTotalCost = totalMaterialCost + Number(wo.actualLaborCost || 0) + Number(wo.actualOverheadCost || 0);
+        const receiptUnitCost = goodQty > 0 ? (runTotalCost / goodQty) : 0;
+        await tx.insert(goodsReceipts).values({
+          productionRunId: id,
+          productId: bom.productId,
+          locationId: defaultLocation ? defaultLocation.id : null,
+          customerId: wo.customerId || null,
+          quantity: goodQty.toString(),
+          unitCost: receiptUnitCost.toFixed(4),
+          totalCost: (goodQty * receiptUnitCost).toFixed(2),
+          postedAt: new Date(),
+          createdBy: userId || null,
         });
       } else if (wo.type === "SIMPLE") {
         // For SIMPLE type, material transactions are already posted manually

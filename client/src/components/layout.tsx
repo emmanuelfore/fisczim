@@ -810,11 +810,40 @@ export function Layout({
         title: "Expenses",
         subtitle: "Track operating expenses and business costs.",
       };
+    if (location.startsWith("/hr/payroll"))
+      return {
+        title: "Payroll Processing",
+        subtitle: "Run payroll and manage payslips.",
+      };
+    if (location.startsWith("/hr/employees"))
+      return {
+        title: "Employees",
+        subtitle: "Manage staff directory and contracts.",
+      };
+    if (location.startsWith("/hr/leave"))
+      return {
+        title: "Leave Management",
+        subtitle: "Track and approve employee leave requests.",
+      };
+    if (location.startsWith("/hr/loans"))
+      return {
+        title: "Loans & Advances",
+        subtitle: "Manage employee loans and repayments.",
+      };
+    if (location.startsWith("/hr/setup"))
+      return {
+        title: "HR Setup",
+        subtitle: "Configure statutory settings, taxes, and pay grades.",
+      };
+    if (location.startsWith("/hr/reports"))
+      return {
+        title: "HR Reports",
+        subtitle: "Generate ZIMRA and HR compliance reports.",
+      };
     if (location.startsWith("/hr"))
       return {
-        title: "Payroll & HR",
-        subtitle:
-          "Manage staff records, payroll runs, leave, loans, and statutory deductions.",
+        title: "HR Dashboard",
+        subtitle: "Overview of your HR & Payroll metrics.",
       };
     if (location.startsWith("/tax-config"))
       return {

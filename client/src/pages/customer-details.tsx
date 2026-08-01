@@ -1,10 +1,8 @@
 import { Layout } from "@/components/layout";
+import { useQuery } from "@tanstack/react-query";
 import { useRoute, useLocation } from "wouter";
-import {
-  useCustomers,
-  useUpdateCustomer,
-  useCustomerStatement,
-} from "@/hooks/use-customers";
+import { useCustomers, useUpdateCustomer, useCustomerStatement } from "@/hooks/use-customers";
+import { type Customer } from "@shared/schema";
 import { useCompany } from "@/hooks/use-companies";
 import { useInvoices } from "@/hooks/use-invoices";
 import { Button } from "@/components/ui/button";
@@ -67,8 +65,10 @@ export default function CustomerDetailsPage() {
 
   const companyId = parseInt(localStorage.getItem("selectedCompanyId") || "0");
   const { data: company } = useCompany(companyId);
-  const { data: customers, isLoading: isLoadingCustomer } =
-    useCustomers(companyId);
+  const { data: customer, isLoading: isLoadingCustomer } = useQuery<Customer>({
+    queryKey: [`/api/companies/${companyId}/customers/${customerId}`],
+    enabled: !!companyId && !!customerId,
+  });
   const updateCustomer = useUpdateCustomer();
 
   // We will fetch up to 100 recent invoices for this customer
@@ -77,7 +77,6 @@ export default function CustomerDetailsPage() {
     { limit: 100 },
   );
 
-  const customer = customers?.find((c) => c.id === customerId);
   const customerInvoices = invoicesResult?.data?.filter(
     (inv: any) => inv.customerId === customerId,
   );
@@ -132,7 +131,7 @@ export default function CustomerDetailsPage() {
   };
 
   const printStatement = () => {
-    if (!statementData || !company) return;
+    if (!statementData || !company || !customer) return;
     const win = window.open("", "_blank", "width=900,height=700");
     if (!win) return;
     const rows = statementData.transactions

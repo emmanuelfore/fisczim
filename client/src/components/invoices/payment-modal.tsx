@@ -44,6 +44,7 @@ const formSchema = z.object({
   paymentMethod: z.string().min(1, "Payment method is required"),
   reference: z.string().optional(),
   notes: z.string().optional(),
+  paymentDate: z.string().optional(),
 });
 
 interface PaymentModalProps {
@@ -82,6 +83,7 @@ export function PaymentModal({
       paymentMethod: "CASH",
       reference: "",
       notes: "",
+      paymentDate: new Date().toISOString().split('T')[0],
     },
   });
 
@@ -92,6 +94,7 @@ export function PaymentModal({
         paymentMethod: "CASH",
         reference: "",
         notes: "",
+        paymentDate: new Date().toISOString().split('T')[0],
       });
     }
   }, [open, remainingBalance, form]);
@@ -111,7 +114,7 @@ export function PaymentModal({
             supplierId: invoice.supplierId,
             amount,
             currency: invoice.currency || "USD",
-            paymentDate: new Date().toISOString(),
+            paymentDate: values.paymentDate ? new Date(values.paymentDate + 'T00:00:00').toISOString() : new Date().toISOString(),
             method: values.paymentMethod === "CARD" ? "Card" : values.paymentMethod === "ECOCASH" ? "EcoCash" : values.paymentMethod === "BANK_TRANSFER" ? "Bank" : "Cash",
             reference: values.reference,
             notes: values.notes,
@@ -124,7 +127,7 @@ export function PaymentModal({
             customerId: invoice.customerId,
             amount,
             currency: invoice.currency || "USD",
-            paymentDate: new Date().toISOString(),
+            paymentDate: values.paymentDate ? new Date(values.paymentDate + 'T00:00:00').toISOString() : new Date().toISOString(),
             paymentMethod: values.paymentMethod,
             reference: values.reference,
             notes: values.notes,
@@ -271,6 +274,14 @@ export function PaymentModal({
                   </FormItem>
                 )}
               />
+
+              <div className="space-y-2">
+                <FormLabel>Payment Date</FormLabel>
+                <Input
+                  type="date"
+                  {...form.register('paymentDate')}
+                />
+              </div>
 
               <FormField
                 control={form.control}

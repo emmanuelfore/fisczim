@@ -240,19 +240,24 @@ export function buildCostSummary(run: {
   varianceLabor: string | null;
   varianceOverhead: string | null;
 }): CostSummary {
-  const pMat = parseFloat(run.plannedMaterialCost ?? "0");
-  const pLab = parseFloat(run.plannedLaborCost ?? "0");
-  const pOvh = parseFloat(run.plannedOverheadCost ?? "0");
+  const safeNum = (v: string | null | undefined): number => {
+    const n = parseFloat(v ?? "");
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const pMat = safeNum(run.plannedMaterialCost);
+  const pLab = safeNum(run.plannedLaborCost);
+  const pOvh = safeNum(run.plannedOverheadCost);
   const pTot = pMat + pLab + pOvh;
 
-  const aMat = parseFloat(run.actualMaterialCost ?? "0");
-  const aLab = parseFloat(run.actualLaborCost ?? "0");
-  const aOvh = parseFloat(run.actualOverheadCost ?? "0");
+  const aMat = safeNum(run.actualMaterialCost);
+  const aLab = safeNum(run.actualLaborCost);
+  const aOvh = safeNum(run.actualOverheadCost);
   const aTot = aMat + aLab + aOvh;
 
-  const vMat = parseFloat(run.varianceMaterial ?? "0");
-  const vLab = parseFloat(run.varianceLabor ?? "0");
-  const vOvh = parseFloat(run.varianceOverhead ?? "0");
+  const vMat = safeNum(run.varianceMaterial);
+  const vLab = safeNum(run.varianceLabor);
+  const vOvh = safeNum(run.varianceOverhead);
   const vTot = vMat + vLab + vOvh;
 
   const safePct = (v: number, p: number) => (p === 0 ? 0 : Math.round((v / p) * 10000) / 100);

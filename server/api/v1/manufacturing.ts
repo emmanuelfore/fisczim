@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { z } from "zod";
 import { storage } from "../../storage.js";
 import { db } from "../../db.js";
 import { eq, and, desc, lte, isNull, or, sql } from "drizzle-orm";
@@ -13,7 +14,7 @@ import {
   purchaseOrders, stockTransfers,
   timeConfirmations, standardCosts,
   inventoryLocations, inventoryLocationStocks, customerProducts, salesOrders,
-  customerStock, goodsIssues, goodsReceipts,
+  customerStock, goodsIssues, goodsReceipts, companyUsers,
 } from "../../../shared/schema.js";
 import {
   snapshotPlannedCosts,
@@ -22,8 +23,188 @@ import {
   calculateVariances,
   buildCostSummary,
 } from "../../lib/productionCosting.js";
+import { userHasPermission } from "../../lib/permissions.js";
 
 const router = Router({ mergeParams: true });
+
+// ==========================================================================
+// AUTHZ: company scope + permission enforcement
+// ==========================================================================
+
+const MFG_ACCESS_ROLES = new Set(["owner", "admin", "manufacturing"]);
+
+async function getCompanyId(req: any): Promise<number> {
+  const raw = (req.params as any).companyId ?? req.apiKeyCompanyId;
+  const id = Number(raw);
+  if (Number.isNaN(id)) throw new Error("Missing or invalid company context");
+  return id;
+}
+
+async function resolveMfgRole(req: any, companyId: number): Promise<string | null> {
+  if (req.user?.isSuperAdmin) return "owner";
+  const userId = req.user?.id;
+  if (!userId) return null;
+  const [membership] = await db
+    .select({ role: companyUsers.role })
+    .from(companyUsers)
+    .where(and(eq(companyUsers.companyId, companyId), eq(companyUsers.userId, userId)))
+    .limit(1);
+  return membership?.role || null;
+}
+
+router.use(async (req: any, res: any, next: any) => {
+  try {
+    const companyId = await getCompanyId(req);
+
+    if (req.user?.isApiKey) {
+      if (req.apiKeyCompanyId !== companyId) {
+        return res.status(403).json({ message: "Forbidden: API key does not belong to this company" });
+      }
+      return next();
+    }
+
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized: Authentication required" });
+    }
+
+    const hasView = req.user?.isSuperAdmin || await userHasPermission(userId, companyId, "manufacturing.view", false);
+    const role = await resolveMfgRole(req, companyId);
+    if (!hasView && !(role && MFG_ACCESS_ROLES.has(role))) {
+      return res.status(403).json({ message: "Forbidden: Manufacturing access required for this company" });
+    }
+    (req as any).mfgRole = role;
+    next();
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+async function requireMfgWrite(req: any, res: any, next: any, permission: "manufacturing.bom" | "manufacturing.work_orders") {
+  try {
+    if (req.user?.isApiKey || req.user?.isSuperAdmin) return next();
+    const role = (req as any).mfgRole;
+    if (role && MFG_ACCESS_ROLES.has(role)) return next();
+    const companyId = await getCompanyId(req);
+    const hasPerm = await userHasPermission(req.user?.id, companyId, permission, false);
+    if (!hasPerm) {
+      return res.status(403).json({ message: "Forbidden: Insufficient manufacturing permissions" });
+    }
+    next();
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+const requireBomWrite = (req: any, res: any, next: any) => requireMfgWrite(req, res, next, "manufacturing.bom");
+const requireRunWrite = (req: any, res: any, next: any) => requireMfgWrite(req, res, next, "manufacturing.work_orders");
+
+// ==========================================================================
+// INPUT VALIDATION
+// ==========================================================================
+
+const idParam = z.coerce.number().int().positive();
+
+function validate<T>(schema: z.ZodType<T>, body: unknown): { ok: true; data: T } | { ok: false; error: string } {
+  const result = schema.safeParse(body);
+  if (!result.success) {
+    return { ok: false, error: result.error.issues.map((i) => `${i.path.join(".") || "body"}: ${i.message}`).join("; ") };
+  }
+  return { ok: true, data: result.data };
+}
+
+const bomLineSchema = z.object({
+  componentProductId: z.coerce.number().int().positive(),
+  type: z.enum(["COMPONENT", "BY_PRODUCT", "CO_PRODUCT"]).default("COMPONENT"),
+  quantity: z.coerce.number().positive(),
+  unitOfMeasure: z.string().min(1),
+  scrapPercentage: z.coerce.number().min(0).max(100).default(0),
+});
+
+const bomSchema = z.object({
+  productId: z.coerce.number().int().positive(),
+  name: z.string().min(1).max(255),
+  version: z.string().default("1.0"),
+  isActive: z.boolean().default(true),
+  lines: z.array(bomLineSchema).optional(),
+});
+
+const productionRunSchema = z.object({
+  type: z.enum(["RECIPE", "SIMPLE"]).default("RECIPE"),
+  bomId: z.coerce.number().int().positive().nullable().optional(),
+  status: z.enum(["PLANNED", "RELEASED", "IN_PROGRESS", "COMPLETED", "SETTLED", "CANCELLED"]).default("PLANNED"),
+  plannedQuantity: z.coerce.number().positive(),
+  customerId: z.coerce.number().int().positive().nullable().optional(),
+  salesOrderId: z.coerce.number().int().positive().nullable().optional(),
+  artworkVersionSnapshot: z.string().nullable().optional(),
+  plannedStart: z.string().nullable().optional(),
+  plannedCompletion: z.string().nullable().optional(),
+  routingId: z.coerce.number().int().positive().nullable().optional(),
+  routingOperationId: z.coerce.number().int().positive().nullable().optional(),
+  machineId: z.coerce.number().int().positive().nullable().optional(),
+  operatorId: z.coerce.number().int().positive().nullable().optional(),
+  shift: z.string().nullable().optional(),
+  downtimeMinutes: z.coerce.number().min(0).optional(),
+  notes: z.string().nullable().optional(),
+});
+
+const completeRunSchema = z.object({
+  goodQuantity: z.coerce.number().min(0).optional(),
+  rejectedQuantity: z.coerce.number().min(0).optional(),
+  completedQuantity: z.coerce.number().min(0).optional(),
+});
+
+const goodsMovementSchema = z.object({
+  productId: z.coerce.number().int().positive(),
+  locationId: z.coerce.number().int().positive().nullable().optional(),
+  quantity: z.coerce.number().positive(),
+  unitCost: z.coerce.number().min(0).optional(),
+  notes: z.string().nullable().optional(),
+});
+
+const timeConfirmationSchema = z.object({
+  workCenterId: z.coerce.number().int().positive(),
+  employeeId: z.coerce.number().int().positive().nullable().optional(),
+  hours: z.coerce.number().min(0).positive(),
+  hourlyRate: z.coerce.number().min(0).optional(),
+  notes: z.string().nullable().optional(),
+});
+
+const standardCostSchema = z.object({
+  productId: z.coerce.number().int().positive(),
+  materialCost: z.coerce.number().min(0).default(0),
+  laborCost: z.coerce.number().min(0).default(0),
+  overheadCost: z.coerce.number().min(0).default(0),
+  effectiveFrom: z.string().optional(),
+  effectiveTo: z.string().nullable().optional(),
+});
+
+const workCenterSchema = z.object({
+  name: z.string().min(1).max(255),
+  code: z.string().min(1).max(50),
+  description: z.string().nullable().optional(),
+  costPerHour: z.coerce.number().min(0).default(0),
+  overheadRate: z.coerce.number().min(0).default(0),
+  capacityHoursPerDay: z.coerce.number().min(0).default(8),
+  isActive: z.boolean().default(true),
+});
+
+const routingSchema = z.object({
+  productId: z.coerce.number().int().positive(),
+  name: z.string().min(1).max(255),
+  version: z.string().default("1.0"),
+  isActive: z.boolean().default(true),
+});
+
+const scheduleSchema = z.object({
+  startDate: z.string().min(1),
+  endDate: z.string().min(1),
+  status: z.enum(["DRAFT", "PUBLISHED"]).default("DRAFT"),
+});
+
+const mrpApproveSchema = z.object({
+  supplierId: z.coerce.number().int().positive().optional(),
+});
 
 // ==========================================================================
 // BOM
@@ -64,10 +245,11 @@ router.get("/bom/:id", async (req, res) => {
   }
 });
 
-router.post("/bom", async (req, res) => {
+router.post("/bom", requireBomWrite, async (req, res) => {
   try {
+    const parsed = validate(bomSchema, req.body); if (!parsed.ok) return res.status(400).json({ message: parsed.error }); const data = parsed.data;
     const created = await storage.createBillOfMaterial({
-      ...req.body,
+      ...data,
       companyId: Number((req.params as any).companyId)
     });
     res.status(201).json(created);
@@ -84,7 +266,20 @@ router.get("/production-runs", async (req, res) => {
   try {
     const companyId = Number((req.params as any).companyId);
     const rows = await db
-      .select({ run: productionRuns, bom: billOfMaterials, product: products })
+      .select({
+        run: productionRuns,
+        bom: billOfMaterials,
+        product: products,
+        plannedMaterialCost: productionRuns.plannedMaterialCost,
+        plannedLaborCost: productionRuns.plannedLaborCost,
+        plannedOverheadCost: productionRuns.plannedOverheadCost,
+        actualMaterialCost: productionRuns.actualMaterialCost,
+        actualLaborCost: productionRuns.actualLaborCost,
+        actualOverheadCost: productionRuns.actualOverheadCost,
+        varianceMaterial: productionRuns.varianceMaterial,
+        varianceLabor: productionRuns.varianceLabor,
+        varianceOverhead: productionRuns.varianceOverhead,
+      })
       .from(productionRuns)
       .innerJoin(billOfMaterials, eq(productionRuns.bomId, billOfMaterials.id))
       .leftJoin(products, eq(billOfMaterials.productId, products.id))
@@ -117,7 +312,10 @@ router.get("/production-runs/:id", async (req, res) => {
       .leftJoin(products, eq(productionRunConsumptions.productId, products.id))
       .where(eq(productionRunConsumptions.productionRunId, id));
 
-    const issuesRow = await db.select().from(goodsIssues)
+    const issuesRow = await db
+      .select({ issue: goodsIssues, product: products })
+      .from(goodsIssues)
+      .leftJoin(products, eq(goodsIssues.productId, products.id))
       .where(eq(goodsIssues.productionRunId, id))
       .orderBy(desc(goodsIssues.postedAt));
 
@@ -136,7 +334,7 @@ router.get("/production-runs/:id", async (req, res) => {
       bom: runRow.bom,
       product: runRow.product,
       consumptions: consumptionsRow.map((r: any) => ({ ...r.consumption, product: r.product })),
-      goodsIssues: issuesRow,
+      goodsIssues: issuesRow.map((r: any) => ({ ...r.issue, product: r.product })),
       goodsReceipts: receiptsRow,
       timeConfirmations: tcRow,
       costSummary,
@@ -146,10 +344,11 @@ router.get("/production-runs/:id", async (req, res) => {
   }
 });
 
-router.post("/production-runs", async (req, res) => {
+router.post("/production-runs", requireRunWrite, async (req, res) => {
   try {
-    const companyId = Number((req.params as any).companyId);
-    const body = { ...req.body, companyId };
+    const companyId = await getCompanyId(req);
+    const parsed = validate(productionRunSchema, req.body); if (!parsed.ok) return res.status(400).json({ message: parsed.error }); const data = parsed.data;
+    const body: any = { ...data, companyId };
 
     // Auto-set customerId from salesOrder if provided
     if (body.salesOrderId && !body.customerId) {
@@ -193,10 +392,12 @@ router.post("/production-runs", async (req, res) => {
 
 // --- State transitions ---
 
-router.post("/production-runs/:id/release", async (req, res) => {
+router.post("/production-runs/:id/release", requireRunWrite, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const [run] = await db.select().from(productionRuns).where(eq(productionRuns.id, id));
+    const companyId = await getCompanyId(req);
+    const [run] = await db.select().from(productionRuns)
+      .where(and(eq(productionRuns.id, id), eq(productionRuns.companyId, companyId)));
     if (!run) return res.status(404).json({ message: "Production run not found" });
     if (run.status !== "PLANNED") return res.status(400).json({ message: `Cannot release from status: ${run.status}` });
 
@@ -210,10 +411,12 @@ router.post("/production-runs/:id/release", async (req, res) => {
   }
 });
 
-router.post("/production-runs/:id/start", async (req, res) => {
+router.post("/production-runs/:id/start", requireRunWrite, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const [run] = await db.select().from(productionRuns).where(eq(productionRuns.id, id));
+    const companyId = await getCompanyId(req);
+    const [run] = await db.select().from(productionRuns)
+      .where(and(eq(productionRuns.id, id), eq(productionRuns.companyId, companyId)));
     if (!run) return res.status(404).json({ message: "Production run not found" });
     if (!["PLANNED", "RELEASED"].includes(run.status)) {
       return res.status(400).json({ message: `Cannot start from status: ${run.status}` });
@@ -229,20 +432,24 @@ router.post("/production-runs/:id/start", async (req, res) => {
   }
 });
 
-router.post("/production-runs/:id/complete", async (req, res) => {
+router.post("/production-runs/:id/complete", requireRunWrite, async (req, res) => {
   try {
     const userId = (req.user as any)?.id || "0";
     const productionRunId = Number(req.params.id);
+    const companyId = await getCompanyId(req);
 
-    const [run] = await db.select().from(productionRuns).where(eq(productionRuns.id, productionRunId));
+    const [run] = await db.select().from(productionRuns)
+      .where(and(eq(productionRuns.id, productionRunId), eq(productionRuns.companyId, companyId)));
     if (!run) return res.status(404).json({ message: "Production run not found" });
 
-    const goodQty = req.body.goodQuantity !== undefined
-      ? Number(req.body.goodQuantity)
-      : (req.body.completedQuantity ? Number(req.body.completedQuantity) : Number(run.plannedQuantity));
+    const parsed = validate(completeRunSchema, req.body); if (!parsed.ok) return res.status(400).json({ message: parsed.error }); const data = parsed.data;
+
+    const goodQty = data.goodQuantity !== undefined
+      ? Number(data.goodQuantity)
+      : (data.completedQuantity ? Number(data.completedQuantity) : Number(run.plannedQuantity));
       
-    const rejectedQty = req.body.rejectedQuantity !== undefined 
-      ? Number(req.body.rejectedQuantity) 
+    const rejectedQty = data.rejectedQuantity !== undefined
+      ? Number(data.rejectedQuantity)
       : 0;
 
     const result = await storage.completeWorkOrder(productionRunId, goodQty, rejectedQty, userId);
@@ -257,10 +464,12 @@ router.post("/production-runs/:id/complete", async (req, res) => {
   }
 });
 
-router.post("/production-runs/:id/settle", async (req, res) => {
+router.post("/production-runs/:id/settle", requireRunWrite, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const [run] = await db.select().from(productionRuns).where(eq(productionRuns.id, id));
+    const companyId = await getCompanyId(req);
+    const [run] = await db.select().from(productionRuns)
+      .where(and(eq(productionRuns.id, id), eq(productionRuns.companyId, companyId)));
     if (!run) return res.status(404).json({ message: "Production run not found" });
     if (run.status !== "COMPLETED") {
       return res.status(400).json({ message: `Cannot settle from status: ${run.status}` });
@@ -282,20 +491,23 @@ router.post("/production-runs/:id/settle", async (req, res) => {
 
 // --- Goods Issues ---
 
-router.post("/production-runs/:id/goods-issues", async (req, res) => {
+router.post("/production-runs/:id/goods-issues", requireRunWrite, async (req, res) => {
   try {
     const productionRunId = Number(req.params.id);
+    const companyId = await getCompanyId(req);
     const createdBy = (req.user as any)?.id || null;
-    const body = req.body;
 
-    const [run] = await db.select().from(productionRuns).where(eq(productionRuns.id, productionRunId));
+    const parsed = validate(goodsMovementSchema, req.body); if (!parsed.ok) return res.status(400).json({ message: parsed.error }); const body = parsed.data;
+
+    const [run] = await db.select().from(productionRuns)
+      .where(and(eq(productionRuns.id, productionRunId), eq(productionRuns.companyId, companyId)));
     if (!run) return res.status(404).json({ message: "Production run not found" });
     if (!["RELEASED", "IN_PROGRESS"].includes(run.status)) {
       return res.status(400).json({ message: `Cannot issue materials in status: ${run.status}` });
     }
 
-    const qty = parseFloat(body.quantity);
-    const unitCost = parseFloat(body.unitCost ?? "0");
+    const qty = body.quantity;
+    const unitCost = body.unitCost ?? 0;
     const totalCost = qty * unitCost;
 
     // Insert goods issue record
@@ -306,7 +518,7 @@ router.post("/production-runs/:id/goods-issues", async (req, res) => {
       quantity: qty.toString(),
       unitCost: unitCost.toString(),
       totalCost: totalCost.toString(),
-      type: body.type ?? "ISSUE",
+      type: "ISSUE",
       createdBy,
       notes: body.notes ?? null,
     }).returning();
@@ -331,14 +543,23 @@ router.post("/production-runs/:id/goods-issues", async (req, res) => {
   }
 });
 
-router.post("/production-runs/:id/goods-returns", async (req, res) => {
+router.post("/production-runs/:id/goods-returns", requireRunWrite, async (req, res) => {
   try {
     const productionRunId = Number(req.params.id);
+    const companyId = await getCompanyId(req);
     const createdBy = (req.user as any)?.id || null;
-    const body = req.body;
 
-    const qty = parseFloat(body.quantity);
-    const unitCost = parseFloat(body.unitCost ?? "0");
+    const parsed = validate(goodsMovementSchema, req.body); if (!parsed.ok) return res.status(400).json({ message: parsed.error }); const body = parsed.data;
+
+    const [run] = await db.select().from(productionRuns)
+      .where(and(eq(productionRuns.id, productionRunId), eq(productionRuns.companyId, companyId)));
+    if (!run) return res.status(404).json({ message: "Production run not found" });
+    if (!["RELEASED", "IN_PROGRESS"].includes(run.status)) {
+      return res.status(400).json({ message: `Cannot return materials in status: ${run.status}` });
+    }
+
+    const qty = body.quantity;
+    const unitCost = body.unitCost ?? 0;
     const totalCost = qty * unitCost;
 
     const [issue] = await db.insert(goodsIssues).values({
@@ -376,6 +597,10 @@ router.post("/production-runs/:id/goods-returns", async (req, res) => {
 router.get("/production-runs/:id/time-confirmations", async (req, res) => {
   try {
     const productionRunId = Number(req.params.id);
+    const companyId = await getCompanyId(req);
+    const [run] = await db.select().from(productionRuns)
+      .where(and(eq(productionRuns.id, productionRunId), eq(productionRuns.companyId, companyId)));
+    if (!run) return res.status(404).json({ message: "Production run not found" });
     const data = await db.select().from(timeConfirmations)
       .where(eq(timeConfirmations.productionRunId, productionRunId))
       .orderBy(desc(timeConfirmations.postedAt));
@@ -385,22 +610,25 @@ router.get("/production-runs/:id/time-confirmations", async (req, res) => {
   }
 });
 
-router.post("/production-runs/:id/time-confirmations", async (req, res) => {
+router.post("/production-runs/:id/time-confirmations", requireRunWrite, async (req, res) => {
   try {
     const productionRunId = Number(req.params.id);
+    const companyId = await getCompanyId(req);
     const createdBy = (req.user as any)?.id || null;
-    const body = req.body;
 
-    const [run] = await db.select().from(productionRuns).where(eq(productionRuns.id, productionRunId));
+    const parsed = validate(timeConfirmationSchema, req.body); if (!parsed.ok) return res.status(400).json({ message: parsed.error }); const body = parsed.data;
+
+    const [run] = await db.select().from(productionRuns)
+      .where(and(eq(productionRuns.id, productionRunId), eq(productionRuns.companyId, companyId)));
     if (!run) return res.status(404).json({ message: "Production run not found" });
 
     // Look up work center for rates
     const [wc] = await db.select().from(manufacturingWorkCenters)
       .where(eq(manufacturingWorkCenters.id, body.workCenterId));
 
-    const hours = parseFloat(body.hours ?? "0");
-    const hourlyRate = parseFloat(body.hourlyRate ?? wc?.costPerHour ?? "0");
-    const overheadRate = parseFloat(wc?.overheadRate ?? "0");
+    const hours = body.hours;
+    const hourlyRate = body.hourlyRate ?? Number(wc?.costPerHour ?? "0");
+    const overheadRate = Number(wc?.overheadRate ?? "0");
     const laborCost = hours * hourlyRate;
     const overheadCost = hours * overheadRate;
 
@@ -430,7 +658,9 @@ router.post("/production-runs/:id/time-confirmations", async (req, res) => {
 router.get("/production-runs/:id/cost-summary", async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const [run] = await db.select().from(productionRuns).where(eq(productionRuns.id, id));
+    const companyId = await getCompanyId(req);
+    const [run] = await db.select().from(productionRuns)
+      .where(and(eq(productionRuns.id, id), eq(productionRuns.companyId, companyId)));
     if (!run) return res.status(404).json({ message: "Production run not found" });
     res.json(buildCostSummary(run));
   } catch (err: any) {
@@ -462,10 +692,11 @@ router.get("/work-orders/:id", (req, res) => {
   res.redirect(307, req.originalUrl.replace("/work-orders/", "/production-runs/"));
 });
 
-router.post("/work-orders", async (req, res) => {
+router.post("/work-orders", requireRunWrite, async (req, res) => {
   try {
+    const parsed = validate(productionRunSchema, req.body); if (!parsed.ok) return res.status(400).json({ message: parsed.error }); const data = parsed.data;
     const created = await storage.createWorkOrder({
-      ...req.body,
+      ...data,
       companyId: Number((req.params as any).companyId)
     });
     res.status(201).json(created);
@@ -474,9 +705,13 @@ router.post("/work-orders", async (req, res) => {
   }
 });
 
-router.post("/work-orders/:id/start", async (req, res) => {
+router.post("/work-orders/:id/start", requireRunWrite, async (req, res) => {
   try {
     const id = Number(req.params.id);
+    const companyId = await getCompanyId(req);
+    const [run] = await db.select().from(productionRuns)
+      .where(and(eq(productionRuns.id, id), eq(productionRuns.companyId, companyId)));
+    if (!run) return res.status(404).json({ message: "Production run not found" });
     const [updated] = await db.update(productionRuns)
       .set({ status: "IN_PROGRESS", plannedStart: new Date(), updatedAt: new Date() })
       .where(eq(productionRuns.id, id))
@@ -487,14 +722,17 @@ router.post("/work-orders/:id/start", async (req, res) => {
   }
 });
 
-router.post("/work-orders/:id/complete", async (req, res) => {
+router.post("/work-orders/:id/complete", requireRunWrite, async (req, res) => {
   try {
     const userId = (req.user as any)?.id || "0";
     const productionRunId = Number(req.params.id);
-    const [run] = await db.select().from(productionRuns).where(eq(productionRuns.id, productionRunId));
+    const companyId = await getCompanyId(req);
+    const [run] = await db.select().from(productionRuns)
+      .where(and(eq(productionRuns.id, productionRunId), eq(productionRuns.companyId, companyId)));
     if (!run) return res.status(404).json({ message: "Production run not found" });
-    const completedQty = req.body.completedQuantity
-      ? Number(req.body.completedQuantity)
+    const parsed = validate(completeRunSchema, req.body); if (!parsed.ok) return res.status(400).json({ message: parsed.error }); const data = parsed.data;
+    const completedQty = data.completedQuantity
+      ? Number(data.completedQuantity)
       : Number(run.plannedQuantity);
     const result = await storage.completeWorkOrder(productionRunId, completedQty, 0, userId);
     await calculateVariances(productionRunId);
@@ -504,9 +742,13 @@ router.post("/work-orders/:id/complete", async (req, res) => {
   }
 });
 
-router.post("/work-orders/:id/issue-materials", async (req, res) => {
+router.post("/work-orders/:id/issue-materials", requireRunWrite, async (req, res) => {
   try {
     const productionRunId = Number(req.params.id);
+    const companyId = await getCompanyId(req);
+    const [run] = await db.select().from(productionRuns)
+      .where(and(eq(productionRuns.id, productionRunId), eq(productionRuns.companyId, companyId)));
+    if (!run) return res.status(404).json({ message: "Production run not found" });
     const [created] = await db.insert(manufacturingMaterialTransactions).values({
       ...req.body,
       productionRunId,
@@ -519,9 +761,13 @@ router.post("/work-orders/:id/issue-materials", async (req, res) => {
   }
 });
 
-router.post("/work-orders/:id/return-materials", async (req, res) => {
+router.post("/work-orders/:id/return-materials", requireRunWrite, async (req, res) => {
   try {
     const productionRunId = Number(req.params.id);
+    const companyId = await getCompanyId(req);
+    const [run] = await db.select().from(productionRuns)
+      .where(and(eq(productionRuns.id, productionRunId), eq(productionRuns.companyId, companyId)));
+    if (!run) return res.status(404).json({ message: "Production run not found" });
     const [created] = await db.insert(manufacturingMaterialTransactions).values({
       ...req.body,
       productionRunId,
@@ -558,18 +804,24 @@ router.get("/standard-costs", async (req, res) => {
   }
 });
 
-router.post("/standard-costs", async (req, res) => {
+router.post("/standard-costs", requireRunWrite, async (req, res) => {
   try {
-    const companyId = Number((req.params as any).companyId);
-    const body = req.body;
+    const companyId = await getCompanyId(req);
+    const parsed = validate(standardCostSchema, req.body); if (!parsed.ok) return res.status(400).json({ message: parsed.error }); const body = parsed.data;
+    const materialCost = (body.materialCost ?? 0).toFixed(2);
+    const laborCost = (body.laborCost ?? 0).toFixed(2);
+    const overheadCost = (body.overheadCost ?? 0).toFixed(2);
     const total = (
-      parseFloat(body.materialCost ?? "0") +
-      parseFloat(body.laborCost ?? "0") +
-      parseFloat(body.overheadCost ?? "0")
+      parseFloat(materialCost) +
+      parseFloat(laborCost) +
+      parseFloat(overheadCost)
     ).toFixed(2);
 
     const [created] = await db.insert(standardCosts).values({
       ...body,
+      materialCost,
+      laborCost,
+      overheadCost,
       companyId,
       totalCost: total,
     }).returning();
@@ -579,19 +831,23 @@ router.post("/standard-costs", async (req, res) => {
   }
 });
 
-router.put("/standard-costs/:id", async (req, res) => {
+router.put("/standard-costs/:id", requireRunWrite, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const body = req.body;
+    const companyId = await getCompanyId(req);
+    const parsed = validate(standardCostSchema, req.body); if (!parsed.ok) return res.status(400).json({ message: parsed.error }); const body = parsed.data;
+    const materialCost = (body.materialCost ?? 0).toFixed(2);
+    const laborCost = (body.laborCost ?? 0).toFixed(2);
+    const overheadCost = (body.overheadCost ?? 0).toFixed(2);
     const total = (
-      parseFloat(body.materialCost ?? "0") +
-      parseFloat(body.laborCost ?? "0") +
-      parseFloat(body.overheadCost ?? "0")
+      parseFloat(materialCost) +
+      parseFloat(laborCost) +
+      parseFloat(overheadCost)
     ).toFixed(2);
 
     const [updated] = await db.update(standardCosts)
-      .set({ ...body, totalCost: total, updatedAt: new Date() })
-      .where(eq(standardCosts.id, id))
+      .set({ ...body, materialCost, laborCost, overheadCost, totalCost: total, updatedAt: new Date() })
+      .where(and(eq(standardCosts.id, id), eq(standardCosts.companyId, companyId)))
       .returning();
     if (!updated) return res.status(404).json({ message: "Standard cost not found" });
     res.json(updated);
@@ -616,11 +872,18 @@ router.get("/work-centers", async (req, res) => {
   }
 });
 
-router.post("/work-centers", async (req, res) => {
+router.post("/work-centers", requireRunWrite, async (req, res) => {
   try {
-    const companyId = Number((req.params as any).companyId);
+    const companyId = await getCompanyId(req);
+    const parsed = validate(workCenterSchema, req.body); if (!parsed.ok) return res.status(400).json({ message: parsed.error }); const data = parsed.data;
     const [created] = await db.insert(manufacturingWorkCenters)
-      .values({ ...req.body, companyId }).returning();
+      .values({
+        ...data,
+        costPerHour: (data.costPerHour ?? 0).toFixed(2),
+        overheadRate: (data.overheadRate ?? 0).toFixed(2),
+        capacityHoursPerDay: (data.capacityHoursPerDay ?? 8).toFixed(2),
+        companyId,
+      }).returning();
     res.status(201).json(created);
   } catch (err: any) {
     res.status(400).json({ message: err.message });
@@ -629,15 +892,25 @@ router.post("/work-centers", async (req, res) => {
 
 router.get("/machines", async (req, res) => {
   try {
-    const data = await db.select().from(manufacturingMachines);
-    res.json(data);
+    const companyId = await getCompanyId(req);
+    const data = await db
+      .select({ machine: manufacturingMachines, workCenter: manufacturingWorkCenters })
+      .from(manufacturingMachines)
+      .innerJoin(manufacturingWorkCenters, eq(manufacturingMachines.workCenterId, manufacturingWorkCenters.id))
+      .where(eq(manufacturingWorkCenters.companyId, companyId))
+      .orderBy(desc(manufacturingMachines.createdAt));
+    res.json(data.map((r: any) => ({ ...r.machine, workCenter: r.workCenter })));
   } catch (err: any) {
     res.status(500).json({ message: err.message });
   }
 });
 
-router.post("/machines", async (req, res) => {
+router.post("/machines", requireRunWrite, async (req, res) => {
   try {
+    const companyId = await getCompanyId(req);
+    const [wc] = await db.select().from(manufacturingWorkCenters)
+      .where(and(eq(manufacturingWorkCenters.id, req.body.workCenterId), eq(manufacturingWorkCenters.companyId, companyId)));
+    if (!wc) return res.status(400).json({ message: "Work center does not belong to this company" });
     const [created] = await db.insert(manufacturingMachines).values(req.body).returning();
     res.status(201).json(created);
   } catch (err: any) {
@@ -657,20 +930,25 @@ router.get("/routings", async (req, res) => {
   }
 });
 
-router.post("/routings", async (req, res) => {
+router.post("/routings", requireRunWrite, async (req, res) => {
   try {
-    const companyId = Number((req.params as any).companyId);
+    const companyId = await getCompanyId(req);
+    const parsed = validate(routingSchema, req.body); if (!parsed.ok) return res.status(400).json({ message: parsed.error }); const data = parsed.data;
     const [created] = await db.insert(manufacturingRoutings)
-      .values({ ...req.body, companyId }).returning();
+      .values({ ...data, companyId }).returning();
     res.status(201).json(created);
   } catch (err: any) {
     res.status(400).json({ message: err.message });
   }
 });
 
-router.post("/routings/:id/operations", async (req, res) => {
+router.post("/routings/:id/operations", requireRunWrite, async (req, res) => {
   try {
     const routingId = Number(req.params.id);
+    const companyId = await getCompanyId(req);
+    const [routing] = await db.select().from(manufacturingRoutings)
+      .where(and(eq(manufacturingRoutings.id, routingId), eq(manufacturingRoutings.companyId, companyId)));
+    if (!routing) return res.status(404).json({ message: "Routing not found" });
     const [created] = await db.insert(manufacturingRoutingOperations)
       .values({ ...req.body, routingId }).returning();
     res.status(201).json(created);
@@ -695,20 +973,25 @@ router.get("/schedules", async (req, res) => {
   }
 });
 
-router.post("/schedules", async (req, res) => {
+router.post("/schedules", requireRunWrite, async (req, res) => {
   try {
-    const companyId = Number((req.params as any).companyId);
+    const companyId = await getCompanyId(req);
+    const parsed = validate(scheduleSchema, req.body); if (!parsed.ok) return res.status(400).json({ message: parsed.error }); const data = parsed.data;
     const [created] = await db.insert(manufacturingProductionSchedules)
-      .values({ ...req.body, companyId }).returning();
+      .values({ ...data, companyId }).returning();
     res.status(201).json(created);
   } catch (err: any) {
     res.status(400).json({ message: err.message });
   }
 });
 
-router.post("/schedules/:id/lines", async (req, res) => {
+router.post("/schedules/:id/lines", requireRunWrite, async (req, res) => {
   try {
     const scheduleId = Number(req.params.id);
+    const companyId = await getCompanyId(req);
+    const [schedule] = await db.select().from(manufacturingProductionSchedules)
+      .where(and(eq(manufacturingProductionSchedules.id, scheduleId), eq(manufacturingProductionSchedules.companyId, companyId)));
+    if (!schedule) return res.status(404).json({ message: "Schedule not found" });
     const [created] = await db.insert(manufacturingProductionScheduleLines)
       .values({ ...req.body, scheduleId }).returning();
     res.status(201).json(created);
@@ -717,7 +1000,7 @@ router.post("/schedules/:id/lines", async (req, res) => {
   }
 });
 
-router.post("/mrp/run", async (req, res) => {
+router.post("/mrp/run", requireRunWrite, async (req, res) => {
   try {
     const companyId = Number((req.params as any).companyId);
 
@@ -792,6 +1075,10 @@ router.get("/mrp/runs", async (req, res) => {
 router.get("/mrp/runs/:id/recommendations", async (req, res) => {
   try {
     const mrpRunId = Number(req.params.id);
+    const companyId = await getCompanyId(req);
+    const [run] = await db.select().from(manufacturingMrpRuns)
+      .where(and(eq(manufacturingMrpRuns.id, mrpRunId), eq(manufacturingMrpRuns.companyId, companyId)));
+    if (!run) return res.status(404).json({ message: "MRP run not found" });
     const data = await db.select().from(manufacturingMrpRecommendations)
       .where(eq(manufacturingMrpRecommendations.mrpRunId, mrpRunId));
     res.json(data);
@@ -800,7 +1087,7 @@ router.get("/mrp/runs/:id/recommendations", async (req, res) => {
   }
 });
 
-router.post("/mrp/recommendations/:id/approve", async (req, res) => {
+router.post("/mrp/recommendations/:id/approve", requireRunWrite, async (req, res) => {
   try {
     const recommendationId = Number(req.params.id);
     const companyId = Number((req.params as any).companyId);
@@ -808,14 +1095,18 @@ router.post("/mrp/recommendations/:id/approve", async (req, res) => {
     const [rec] = await db.select().from(manufacturingMrpRecommendations)
       .where(eq(manufacturingMrpRecommendations.id, recommendationId));
     if (!rec) return res.status(404).json({ message: "Recommendation not found" });
+    const [mrpRun] = await db.select().from(manufacturingMrpRuns)
+      .where(and(eq(manufacturingMrpRuns.id, rec.mrpRunId), eq(manufacturingMrpRuns.companyId, companyId)));
+    if (!mrpRun) return res.status(404).json({ message: "Recommendation does not belong to this company" });
     if (rec.status === "APPROVED") return res.status(400).json({ message: "Already approved" });
 
+    const parsed = validate(mrpApproveSchema, req.body); if (!parsed.ok) return res.status(400).json({ message: parsed.error }); const body = parsed.data;
     let referenceId = null;
 
     if (rec.type === "PURCHASE") {
       const poNum = "PO-MRP-" + Date.now();
       // NOTE: supplierId must be provided in req.body for real use; placeholder removed
-      const supplierId = req.body.supplierId;
+      const supplierId = body.supplierId;
       if (!supplierId) return res.status(400).json({ message: "supplierId required to approve PURCHASE recommendation" });
       const [po] = await db.insert(purchaseOrders).values({
         companyId, supplierId, poNumber: poNum, status: "DRAFT",

@@ -13,6 +13,8 @@ import {
   useConvertQuotation,
 } from "@/hooks/use-invoices";
 import { useCreateRecurringInvoice } from "@/hooks/use-recurring";
+import { useCustomers } from "@/hooks/use-customers";
+import { LinkedDocumentChips } from "@/components/invoices/document-links";
 import { Button } from "@/components/ui/button";
 import {
   Plus,
@@ -85,9 +87,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Sheet,
+import { Sheet,
   SheetContent,
   SheetDescription,
   SheetHeader,
@@ -258,7 +258,8 @@ export function InvoicePreviewPanel({
   if (!invoice) return null;
 
   const isCreditNote = invoice.transactionType === "CreditNote";
-  const canPreview = !invoice.fiscalCode || !!qrCodeDataUrl;
+  const canPreview = !invoice.fiscalCode || !!qrCodeDataUrl || !company?.qrCodeUrl;
+  const qrUnavailable = !!invoice.fiscalCode && !qrCodeDataUrl;
 
   return (
     <div className="flex flex-col h-full">
@@ -321,7 +322,9 @@ export function InvoicePreviewPanel({
               </Button>
             )}
           {!isPaid &&
-            ["issued", "fiscalized"].includes(invoice.status || "") && (
+            ["issued", "fiscalized", "partial"].includes(
+              invoice.status || "",
+            ) && (
               <Button
                 variant="outline"
                 size="sm"
@@ -473,6 +476,16 @@ export function InvoicePreviewPanel({
               taxTypes={taxTypes.data}
             />
           </PDFViewer>
+        ) : qrUnavailable ? (
+          <div className="flex flex-col items-center justify-center h-full gap-2 px-6 text-center text-slate-400">
+            <p className="text-sm font-semibold text-slate-500">
+              Preview unavailable
+            </p>
+            <p className="text-xs max-w-sm">
+              This receipt is fiscalized but no QR code data is configured for
+              the company, so the PDF preview cannot be generated.
+            </p>
+          </div>
         ) : (
           <div className="flex items-center justify-center h-full gap-2 text-slate-400">
             <Loader2 className="w-5 h-5 animate-spin" /> Generating preview...
@@ -544,13 +557,7 @@ function StatCard({ label, value, trend, trendTone = "green" }: StatCardProps) {
   );
 }
 
-function BillingPageActions({
-  onExport,
-  onSync,
-}: {
-  onExport: () => void;
-  onSync: () => void;
-}) {
+function BillingPageActions({ onExport }: { onExport: () => void }) {
   const [, setLocation] = useLocation();
   return (
     <div className="flex w-full flex-col justify-end gap-2 sm:flex-row sm:flex-wrap">
@@ -560,13 +567,6 @@ function BillingPageActions({
         onClick={onExport}
       >
         <Download className="h-4 w-4 text-[#64748B]" /> Export
-      </Button>
-      <Button
-        variant="outline"
-        className="h-10 w-full rounded-[10px] border-[#E5E7EB] bg-white px-4  font-semibold text-[#0F172A] shadow-none hover:bg-[#F8FAFC] sm:w-auto"
-        onClick={onSync}
-      >
-        <RefreshCw className="h-4 w-4 text-[#64748B]" /> Sync FDMS
       </Button>
       <Button
         variant="outline"
@@ -684,8 +684,9 @@ function getFiscalStatus(
   return "pending";
 }
 
-function getPaymentStatus(invoice: any): "paid" | "unpaid" {
+function getPaymentStatus(invoice: any): "paid" | "partial" | "unpaid" {
   if (invoice.status === "paid") return "paid";
+  if (invoice.status === "partial") return "partial";
   return "unpaid";
 }
 
@@ -694,6 +695,10 @@ function formatMoney(
   value: number | string | null | undefined,
 ) {
   return `${currency || "USD"} ${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function paymentStatusLabel(status: "paid" | "partial" | "unpaid") {
+  return status === "paid" ? "Paid" : status === "partial" ? "Partial" : "Open";
 }
 
 function percentOf(count: number, total: number) {
@@ -771,7 +776,7 @@ export default function InvoicesPage() {
   const convertToSalesOrder = useConvertToSalesOrder();
   const { can } = usePermissions();
   const { user } = useAuth();
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const { activeCompanyId } = useActiveCompany();
   const { selectedBranchId } = useBranchContext();
   const selectedCompanyId = activeCompanyId || 0;
@@ -816,7 +821,21 @@ export default function InvoicesPage() {
     dateFrom: dateRange?.from,
     dateTo: dateRange?.to,
     branchId: selectedBranchId || undefined,
+    customerId: customerFilter !== "all" ? customerFilter : undefined,
   });
+  const { data: customers } = useCustomers(selectedCompanyId);
+  const { taxTypes } = useTaxConfig(selectedCompanyId);
+  const [payInvoice, setPayInvoice] = useState<any | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.split("?")[1] || "");
+    const customerId = params.get("customerId");
+    if (customerId && customerId !== customerFilter) {
+      setCustomerFilter(customerId);
+      setPage(1);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location]);
 
   const { data: currencies } = useCurrencies(selectedCompanyId);
   const currentSymbol =
@@ -835,29 +854,11 @@ export default function InvoicesPage() {
   });
 
   const invoices = result?.data || [];
-  const customerFilteredInvoices =
-    customerFilter === "all"
-      ? invoices
-      : invoices.filter(
-          (invoice: any) =>
-            String(
-              invoice.customerId || invoice.customer?.name || "walk-in",
-            ) === customerFilter,
-        );
-  const displayedInvoices = customerFilteredInvoices.filter((invoice: any) => {
-    if (quickFilter === "failed")
-      return getFiscalStatus(invoice, useFiscalWorkflow) === "failed";
-    if (quickFilter === "unpaid") return getPaymentStatus(invoice) === "unpaid";
-    return true;
-  });
-  const uniqueCustomers = Array.from(
-    new Map<string, string>(
-      invoices.map((invoice: any) => [
-        String(invoice.customerId || invoice.customer?.name || "walk-in"),
-        invoice.customer?.name || "Walk-in",
-      ]),
-    ).entries(),
-  );
+  const displayedInvoices = invoices;
+  const uniqueCustomers = [
+    { id: "walk-in", name: "Walk-in" },
+    ...(customers || []).map((c: any) => ({ id: String(c.id), name: c.name })),
+  ];
   const fiscalisedCount = displayedInvoices.filter(
     (invoice: any) =>
       getFiscalStatus(invoice, useFiscalWorkflow) === "fiscalized",
@@ -906,11 +907,11 @@ export default function InvoicesPage() {
     } else if (filter === "fiscalized")
       setStatusFilter(useFiscalWorkflow ? "fiscalized" : "issued");
     else if (filter === "pending") setStatusFilter("issued");
-    else if (filter === "failed") setStatusFilter("all");
+    else if (filter === "failed") setStatusFilter("failed");
     else if (filter === "draft") setStatusFilter("draft");
     else if (filter === "quotation") setStatusFilter("quote");
     else if (filter === "paid") setStatusFilter("paid");
-    else if (filter === "unpaid") setStatusFilter("all");
+    else if (filter === "unpaid") setStatusFilter("unpaid");
     else if (filter === "today") {
       const today = new Date();
       setDateRange({ from: today, to: today });
@@ -927,17 +928,101 @@ export default function InvoicesPage() {
       });
     }
   };
-  const handleExport = () => {
-    toast({
-      title: "Export started",
-      description: "Preparing invoice export for the current company.",
-    });
+  const handleExport = async () => {
+    if (!selectedCompanyId) return;
+    const params = new URLSearchParams({ page: "1", limit: "10000" });
+    if (searchTerm) params.set("search", searchTerm);
+    if (statusFilter !== "all") params.set("status", statusFilter);
+    if (typeFilter !== "all") params.set("type", typeFilter);
+    if (customerFilter !== "all") params.set("customerId", customerFilter);
+    if (dateRange?.from) params.set("dateFrom", dateRange.from.toISOString());
+    if (dateRange?.to) params.set("dateTo", dateRange.to.toISOString());
+    if (selectedBranchId) params.set("branchId", String(selectedBranchId));
+    try {
+      const res = await apiFetch(
+        `/api/companies/${selectedCompanyId}/invoices?${params.toString()}`,
+      );
+      if (!res.ok) throw new Error("Export failed");
+      const data = await res.json();
+      const header = [
+        "Invoice #",
+        "Type",
+        "Date",
+        "Customer",
+        "Status",
+        "Payment Status",
+        "Currency",
+        "Subtotal",
+        "Tax",
+        "Total",
+      ];
+      const rows = (data.data || []).map((inv: any) => [
+        inv.invoiceNumber,
+        inv.transactionType || "Invoice",
+        inv.issueDate ? format(new Date(inv.issueDate), "yyyy-MM-dd") : "",
+        inv.customer?.name || "Walk-in",
+        inv.status,
+        getPaymentStatus(inv),
+        inv.currency || "USD",
+        Number(inv.subtotal || 0).toFixed(2),
+        Number(inv.taxAmount || 0).toFixed(2),
+        Number(inv.total || 0).toFixed(2),
+      ]);
+      const csv = [header, ...rows]
+        .map((r) =>
+          r
+            .map((cell: any) => {
+              const val = String(cell ?? "").replace(/"/g, '""');
+              return val.includes(",") ? `"${val}"` : val;
+            })
+            .join(","),
+        )
+        .join("\n");
+      const blob = new Blob([csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `invoices_${new Date().toISOString().split("T")[0]}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast({
+        title: "Export complete",
+        description: `${data.data?.length || 0} invoices exported.`,
+      });
+    } catch (e: any) {
+      toast({
+        title: "Export failed",
+        description: e.message,
+        variant: "destructive",
+      });
+    }
   };
-  const handleSyncFdms = () => {
-    toast({
-      title: "FDMS sync queued",
-      description: "Use row actions to resync a specific invoice.",
-    });
+  const downloadInvoicePdf = async (invoice: any) => {
+    try {
+      const res = await apiFetch(`/api/invoices/${invoice.id}`);
+      if (!res.ok) throw new Error("Failed to load invoice");
+      const invoiceData = await res.json();
+      const blob = await pdf(
+        <InvoicePDF
+          invoice={invoiceData}
+          company={company}
+          customer={invoiceData.customer}
+          taxTypes={taxTypes.data}
+        />,
+      ).toBlob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${invoice.invoiceNumber}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      toast({
+        title: "Download failed",
+        description: e.message,
+        variant: "destructive",
+      });
+    }
   };
 
   const handleIssue = async (invoice: any) => {
@@ -989,7 +1074,7 @@ export default function InvoicesPage() {
 
       <div className="space-y-4">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-end">
-          <BillingPageActions onExport={handleExport} onSync={handleSyncFdms} />
+          <BillingPageActions onExport={handleExport} />
         </div>
 
         <div className="space-y-3">
@@ -1101,9 +1186,9 @@ export default function InvoicesPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Customers</SelectItem>
-                      {uniqueCustomers.map(([id, name]) => (
-                        <SelectItem key={id} value={id}>
-                          {name}
+                      {uniqueCustomers.map((c: any) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -1140,13 +1225,6 @@ export default function InvoicesPage() {
                       />
                     </PopoverContent>
                   </Popover>
-                  <Button
-                    variant="outline"
-                    className="h-10 rounded-[10px] border-[#E5E7EB] bg-white px-3  font-semibold text-[#0F172A] shadow-none"
-                  >
-                    <SlidersHorizontal className="h-4 w-4 text-[#64748B]" />{" "}
-                    More Filters
-                  </Button>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -1296,6 +1374,13 @@ export default function InvoicesPage() {
                                 <span className="text-xs text-[#64748B] font-medium">
                                   {invoice.issueDate ? format(new Date(invoice.issueDate), "dd MMM yyyy") : "-"}
                                 </span>
+                                <LinkedDocumentChips
+                                  invoice={invoice}
+                                  compact
+                                  onNavigate={(id) =>
+                                    setLocation(`/invoices/${id}`)
+                                  }
+                                />
                               </div>
                             </div>
                             <div className="text-right">
@@ -1330,11 +1415,38 @@ export default function InvoicesPage() {
                                 />
                                 <StatusPill
                                   status={paymentStatus}
-                                  label={paymentStatus === "paid" ? "Paid" : "Open"}
+                                  label={paymentStatusLabel(paymentStatus)}
                                 />
                               </div>
                             </div>
                           </div>
+                          {["issued", "fiscalized", "partial"].includes(
+                            invoice.status || "",
+                          ) && (
+                            <div className="flex justify-end gap-2 pt-2 border-t border-[#F1F5F9]">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 text-xs gap-1.5 border-slate-200 text-slate-700"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setLocation(`/invoices/${invoice.id}`);
+                                }}
+                              >
+                                <Eye className="w-3.5 h-3.5" /> View
+                              </Button>
+                              <Button
+                                size="sm"
+                                className="h-8 text-xs gap-1.5 bg-blue-50 text-blue-700 border border-blue-200"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setPayInvoice(invoice);
+                                }}
+                              >
+                                <CreditCard className="w-3.5 h-3.5" /> Pay
+                              </Button>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -1345,12 +1457,6 @@ export default function InvoicesPage() {
                     <table className="w-full text-left">
                     <thead>
                       <tr className="bg-[#F8FAFC] border-b border-[#E5E7EB]">
-                        <th className="px-5 py-3 w-12 font-semibold text-[#64748B] uppercase tracking-wide text-[12px]">
-                          <Checkbox
-                            aria-label="Select all invoices"
-                            className="border-[#CBD5E1]"
-                          />
-                        </th>
                         <th className="px-5 py-3 font-semibold text-[#64748B] uppercase tracking-wide text-[12px] w-[30%] md:w-auto">
                           Invoice #
                         </th>
@@ -1399,19 +1505,7 @@ export default function InvoicesPage() {
                               setLocation(`/invoices/${invoice.id}`)
                             }
                           >
-                            <td
-                              className={cn(
-                                "px-5 py-4",
-                                hasError && "border-l-2 border-l-[#EF4444]",
-                              )}
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <Checkbox
-                                aria-label={`Select invoice ${invoice.invoiceNumber}`}
-                                className="border-[#CBD5E1]"
-                              />
-                            </td>
-                            <td className="px-5 py-4">
+                            <td className={cn("px-5 py-4")}>
                               <div className="flex min-w-[110px] items-center gap-2">
                                 {hasError && (
                                   <Tooltip>
@@ -1433,6 +1527,13 @@ export default function InvoicesPage() {
                                     {invoice.invoiceNumber}
                                   </span>
                                   <DocumentTypePill invoice={invoice} />
+                                  <LinkedDocumentChips
+                                    invoice={invoice}
+                                    compact
+                                    onNavigate={(id) =>
+                                      setLocation(`/invoices/${id}`)
+                                    }
+                                  />
                                 </div>
                               </div>
                             </td>
@@ -1514,7 +1615,7 @@ export default function InvoicesPage() {
                                       className="h-8 w-8 rounded-[10px] text-[#64748B] hover:bg-slate-100 hover:text-[#0F172A]"
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        setLocation(`/invoices/${invoice.id}`);
+                                        setLocation(`/invoices/${invoice.id}?print=true`);
                                       }}
                                     >
                                       <Printer className="h-4 w-4" />
@@ -1530,7 +1631,7 @@ export default function InvoicesPage() {
                                       className="h-8 w-8 rounded-[10px] text-[#64748B] hover:bg-slate-100 hover:text-[#0F172A]"
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        setLocation(`/invoices/${invoice.id}`);
+                                        downloadInvoicePdf(invoice);
                                       }}
                                     >
                                       <Download className="h-4 w-4" />

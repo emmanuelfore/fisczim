@@ -20,7 +20,8 @@
     "desktop:install": "npm --prefix desktop install",
     "desktop:start": "npm --prefix desktop start",
     "desktop": "npm run desktop:start",
-    "desktop:build": "npm --prefix desktop run build:win"
+    "desktop:build": "npm --prefix desktop run build:win",
+    "test": "vitest run"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

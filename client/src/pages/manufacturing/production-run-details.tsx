@@ -190,10 +190,10 @@ export default function ProductionRunDetails() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {((wo as any)?.manufacturingMaterialTransactions as any[])?.length === 0 && (
+                {((wo as any)?.goodsIssues as any[])?.length === 0 && (
                   <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-4">No materials issued yet.</TableCell></TableRow>
                 )}
-                {((wo as any)?.manufacturingMaterialTransactions as any[])?.map((issue: any) => (
+                {((wo as any)?.goodsIssues as any[])?.map((issue: any) => (
                   <TableRow key={issue.id}>
                     <TableCell><Badge variant={issue.type === 'ISSUE' ? 'secondary' : 'outline'}>{issue.type}</Badge></TableCell>
                     <TableCell>{issue.product?.name}</TableCell>

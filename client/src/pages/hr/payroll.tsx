@@ -41,6 +41,13 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -176,11 +183,29 @@ export default function HRPayrollRuns() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Frequency</Label>
-                    <Input required value={formData.payFrequency} disabled />
+                    <Select value={formData.payFrequency} onValueChange={(v) => setFormData({...formData, payFrequency: v})}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="MONTHLY">Monthly</SelectItem>
+                        <SelectItem value="WEEKLY">Weekly</SelectItem>
+                        <SelectItem value="FORTNIGHTLY">Fortnightly</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="space-y-2">
                     <Label>Currency</Label>
-                    <Input required value={formData.currency} disabled />
+                    <Select value={formData.currency} onValueChange={(v) => setFormData({...formData, currency: v})}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="USD">USD</SelectItem>
+                        <SelectItem value="ZiG">ZiG</SelectItem>
+                        <SelectItem value="SPLIT">SPLIT</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
                 <Button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700" disabled={createRunMutation.isPending}>

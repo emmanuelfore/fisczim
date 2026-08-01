@@ -99,6 +99,7 @@ type LineItem = {
   hsCode?: string;
   taxTypeId?: number | null;
   serialNumber?: string;
+  isDiscount?: boolean;
 };
 
 export default function CreateInvoicePage() {
@@ -112,14 +113,6 @@ export default function CreateInvoicePage() {
   const duplicateId = searchParams.get("duplicate");
   const isEditing = !!editId;
   const isDuplicating = !!duplicateId;
-
-  console.log("Location info:", {
-    path: location,
-    search: window.location.search,
-    editId,
-    duplicateId,
-    isEditing,
-  });
 
   const { data: company } = useCompany(companyId);
   const { data: partners } = usePartners(companyId);
@@ -195,13 +188,7 @@ export default function CreateInvoicePage() {
 
   // Pre-fill form when editing or duplicating
   useEffect(() => {
-    console.log("Form Population Effect:", {
-      isEditing,
-      isDuplicating,
-      existingInvoice,
-    });
     if (existingInvoice && (isEditing || isDuplicating)) {
-      console.log("Populating form with:", existingInvoice);
       if (existingInvoice.customerId)
         setCustomerId(existingInvoice.customerId.toString());
 
@@ -253,7 +240,6 @@ export default function CreateInvoicePage() {
       }
 
       if (existingInvoice.items && existingInvoice.items.length > 0) {
-        console.log("Populating items:", existingInvoice.items);
         setItems(
           existingInvoice.items.map((item) => ({
             localId: Math.random().toString(36).substring(2, 11),
@@ -460,6 +446,21 @@ export default function CreateInvoicePage() {
     ]);
   };
 
+  const handleAddDiscount = () => {
+    setItems([
+      ...items,
+      {
+        localId: Math.random().toString(36).substring(2, 11),
+        productId: null,
+        description: 'Discount',
+        quantity: 1,
+        unitPrice: 0,
+        taxRate: 0,
+        isDiscount: true,
+      },
+    ]);
+  };
+
   const handleRemoveItem = (localId: string) => {
     setItems(items.filter((item) => item.localId !== localId));
   };
@@ -637,6 +638,10 @@ export default function CreateInvoicePage() {
       invoiceNumber,
       customerId: parseInt(customerId),
       partnerId: partnerId === "none" ? null : parseInt(partnerId),
+      bankName,
+      accountName,
+      accountNumber,
+      branchCode,
       issueDate: issueDate ? new Date(issueDate) : new Date(),
       dueDate: dueDate ? new Date(dueDate) : null,
       notes,
@@ -725,6 +730,10 @@ export default function CreateInvoicePage() {
       invoiceNumber,
       customerId: parseInt(customerId),
       partnerId: partnerId === "none" ? null : parseInt(partnerId),
+      bankName,
+      accountName,
+      accountNumber,
+      branchCode,
       issueDate: issueDate ? new Date(issueDate) : new Date(),
       dueDate: dueDate
         ? new Date(dueDate)
@@ -819,6 +828,10 @@ export default function CreateInvoicePage() {
       invoiceNumber,
       customerId: parseInt(customerId),
       partnerId: partnerId === "none" ? null : parseInt(partnerId),
+      bankName,
+      accountName,
+      accountNumber,
+      branchCode,
       issueDate: new Date(issueDate),
       dueDate: dueDate ? new Date(dueDate) : null,
       notes,
@@ -1682,13 +1695,33 @@ export default function CreateInvoicePage() {
                         size="sm"
                         className="h-9 gap-2 rounded-xl"
                         type="button"
+                        onClick={() => {
+                          const barcode = window.prompt('Enter barcode or SKU:');
+                          if (barcode) {
+                            const product = products?.find((p: any) => 
+                              p.sku === barcode || p.barcode === barcode || p.name?.toLowerCase().includes(barcode.toLowerCase())
+                            );
+                            if (product) {
+                              setItems([...items, {
+                                localId: Math.random().toString(36).substring(2, 11),
+                                productId: product.id,
+                                description: product.name,
+                                quantity: 1,
+                                unitPrice: Number(product.sellingPrice || product.price || 0),
+                                taxRate: getDefaultTaxRate(),
+                              }]);
+                            } else {
+                              toast({ title: 'Product not found', description: `No product matching "${barcode}"`, variant: 'destructive' });
+                            }
+                          }
+                        }}
                       >
                         <Search className="h-4 w-4" /> Scan Barcode
                       </Button>
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={handleAddItem}
+                        onClick={handleAddDiscount}
                         className="h-9 gap-2 rounded-xl"
                         type="button"
                       >

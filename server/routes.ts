@@ -1847,7 +1847,7 @@ export async function registerRoutes(
         c.tin || "",
         c.vatNumber || "",
         c.customerType || "individual",
-        c.openingBalance || "0.00"
+        c.balance ?? "0.00"
       ]);
 
       const csvContent = [
@@ -6322,6 +6322,19 @@ export async function registerRoutes(
     res.json(customers);
   });
 
+  app.get('/api/companies/:companyId/customers/:customerId', requireAuth, async (req, res) => {
+    try {
+      const companyId = parseInt(req.params.companyId);
+      const customerId = parseInt(req.params.customerId);
+      const customers = await storage.getCustomers(companyId);
+      const customer = customers.find(c => c.id === customerId);
+      if (!customer) return res.status(404).json({ error: 'Customer not found' });
+      res.json(customer);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.post(api.customers.create.path, requireAuth, async (req, res) => {
     const input = api.customers.create.input.parse(req.body);
     const customer = await storage.createCustomer({
@@ -10055,6 +10068,8 @@ export async function registerRoutes(
 
     const branchId = getBranchId(req);
 
+    const customerId = req.query.customerId as string | undefined;
+
     const result = await storage.getInvoicesPaginated(
       Number(req.params.companyId),
       page,
@@ -10065,7 +10080,8 @@ export async function registerRoutes(
       dateFrom,
       dateTo,
       isPos,
-      branchId
+      branchId,
+      customerId
     );
     res.json(result);
   });
@@ -10553,8 +10569,15 @@ export async function registerRoutes(
       const existingInvoice = await storage.getInvoice(Number(req.params.id));
       if (!existingInvoice) return res.status(404).json({ message: "Invoice not found" });
       await assertOpenAccountingPeriod(existingInvoice.companyId, body.issueDate || existingInvoice.issueDate || new Date(), "Invoice editing");
+      
+      let updateData = { ...input };
+      const newStatus = input.status || existingInvoice.status;
+      if (existingInvoice.status?.toLowerCase() === 'draft' && newStatus?.toLowerCase() === 'issued' && existingInvoice.invoiceNumber?.startsWith('DRAFT')) {
+        updateData.invoiceNumber = await storage.getNextInvoiceNumber(existingInvoice.companyId);
+      }
+      
       const invoice = await storage.updateInvoice(Number(req.params.id), {
-        ...input,
+        ...updateData,
         items: input.items as any
       });
       res.json(invoice);
@@ -14076,41 +14099,6 @@ export async function registerRoutes(
       const asOfDate = req.body.date ? new Date(req.body.date) : new Date();
       const result = await storage.runConsolidationEliminations(companyId, asOfDate, req.user?.id || 'system');
       res.json(result);
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
-    }
-  });
-
-  // --- MANUFACTURING API ---
-  app.post("/api/manufacturing/bom", requireAuth, async (req: any, res: any) => {
-    try {
-      const companyId = resolveAccountingCompanyId(req);
-      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
-      
-      const bom = await storage.createBillOfMaterial({ ...req.body, companyId });
-      res.json(bom);
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
-    }
-  });
-
-  app.post("/api/manufacturing/work-orders", requireAuth, async (req: any, res: any) => {
-    try {
-      const companyId = resolveAccountingCompanyId(req);
-      if (!companyId) return res.status(401).json({ message: "No company profile selected" });
-      
-      const wo = await storage.createWorkOrder({ ...req.body, companyId });
-      res.json(wo);
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
-    }
-  });
-
-  app.post("/api/manufacturing/work-orders/:id/complete", requireAuth, async (req: any, res: any) => {
-    try {
-      const { completedQuantity } = req.body;
-      const wo = await storage.completeWorkOrder(Number(req.params.id), Number(completedQuantity), 0, req.user?.id || 'system');
-      res.json(wo);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

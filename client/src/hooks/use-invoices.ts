@@ -13,6 +13,7 @@ export interface InvoiceFilters {
   dateFrom?: Date;
   dateTo?: Date;
   branchId?: number;
+  customerId?: string;
 }
 
 export function useInvoices(companyId: number, filters: InvoiceFilters = {}) {
@@ -24,6 +25,7 @@ export function useInvoices(companyId: number, filters: InvoiceFilters = {}) {
       if (filters.dateFrom) queryParams.dateFrom = filters.dateFrom.toISOString();
       if (filters.dateTo) queryParams.dateTo = filters.dateTo.toISOString();
       if (filters.branchId) queryParams.branchId = filters.branchId;
+      if (filters.customerId) queryParams.customerId = filters.customerId;
 
       const url = buildUrl(api.invoices.list.path, queryParams);
       const res = await apiFetch(url);

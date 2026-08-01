@@ -1528,6 +1528,94 @@ router.post("/statutory-rules", requirePayrollApproval, async (req, res) => {
   }
 });
 
+// Edit an existing tax table configuration (isActive is not touched here)
+router.patch("/tax-config/:id", requirePayrollApproval, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: "VALIDATION_ERROR", message: "Invalid id" });
+
+  const schema = z.object({
+    currency: z.string().default("USD"),
+    effectiveFrom: z.string(),
+    effectiveTo: z.string().optional().nullable(),
+    brackets: z.array(z.object({
+      min: z.number(),
+      max: z.number().nullable(),
+      rate: z.number(),
+      deduction: z.number(),
+    })),
+    nssaRateEmployee: z.coerce.string().default("0.0450"),
+    nssaRateEmployer: z.coerce.string().default("0.0450"),
+    nssaCeilingLimit: z.coerce.string(),
+    aidsLevyRate: z.coerce.string().default("0.0300"),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
+
+  try {
+    const [existing] = await db.select().from(taxTablesConfig).where(eq(taxTablesConfig.id, id)).limit(1);
+    if (!existing) return res.status(404).json({ error: "NOT_FOUND", message: "Tax configuration not found" });
+
+    const [updated] = await db.update(taxTablesConfig)
+      .set(parsed.data)
+      .where(eq(taxTablesConfig.id, id))
+      .returning();
+
+    await auditPayroll(req, "PAYROLL_TAX_CONFIG_UPDATED", "tax_tables_config", updated.id, {
+      currency: updated.currency,
+      effectiveFrom: updated.effectiveFrom,
+    });
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
+// Activate a configuration - deactivates every other config in the same currency
+router.post("/tax-config/:id/activate", requirePayrollApproval, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  try {
+    const [config] = await db.select().from(taxTablesConfig).where(eq(taxTablesConfig.id, id)).limit(1);
+    if (!config) return res.status(404).json({ error: "NOT_FOUND", message: "Tax configuration not found" });
+
+    await db.update(taxTablesConfig)
+      .set({ isActive: false })
+      .where(eq(taxTablesConfig.currency, config.currency));
+
+    const [updated] = await db.update(taxTablesConfig)
+      .set({ isActive: true })
+      .where(eq(taxTablesConfig.id, id))
+      .returning();
+
+    await auditPayroll(req, "PAYROLL_TAX_CONFIG_ACTIVATED", "tax_tables_config", updated.id, {
+      currency: updated.currency,
+      effectiveFrom: updated.effectiveFrom,
+    });
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
+// Deactivate a configuration
+router.post("/tax-config/:id/deactivate", requirePayrollApproval, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  try {
+    const [updated] = await db.update(taxTablesConfig)
+      .set({ isActive: false })
+      .where(eq(taxTablesConfig.id, id))
+      .returning();
+    if (!updated) return res.status(404).json({ error: "NOT_FOUND", message: "Tax configuration not found" });
+
+    await auditPayroll(req, "PAYROLL_TAX_CONFIG_DEACTIVATED", "tax_tables_config", updated.id, {
+      currency: updated.currency,
+      effectiveFrom: updated.effectiveFrom,
+    });
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
 router.get("/earning-types", async (req, res) => {
   try {
     const companyId = getTargetCompanyId(req);
@@ -1677,6 +1765,79 @@ router.get("/runs", async (req, res) => {
       .where(eq(payrollRuns.companyId, companyId))
       .orderBy(desc(payrollRuns.periodEnd));
     res.json(results);
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
+// GET /dashboard - HR dashboard live metrics
+router.get("/dashboard", async (req, res) => {
+  try {
+    const companyId = getTargetCompanyId(req);
+
+    const [empCount] = await db.select({ count: sql<number>`count(*)::int` })
+      .from(employees)
+      .where(and(eq(employees.companyId, companyId), eq(employees.status, "ACTIVE")));
+    const [deptCount] = await db.select({ count: sql<number>`count(*)::int` })
+      .from(departments)
+      .where(eq(departments.companyId, companyId));
+    const [leavePending] = await db.select({ count: sql<number>`count(*)::int` })
+      .from(leaveRequests)
+      .where(and(eq(leaveRequests.companyId, companyId), eq(leaveRequests.status, "PENDING")));
+    const [loansPending] = await db.select({ count: sql<number>`count(*)::int` })
+      .from(employeeLoans)
+      .where(and(eq(employeeLoans.companyId, companyId), eq(employeeLoans.status, "PENDING")));
+
+    const recentRuns = await db.select()
+      .from(payrollRuns)
+      .where(eq(payrollRuns.companyId, companyId))
+      .orderBy(desc(payrollRuns.periodEnd))
+      .limit(6);
+
+    // Current-year payroll totals from locked runs
+    const year = String(new Date().getFullYear());
+    const yearRuns = await db.select({ totalGross: payrollRuns.totalGross, totalDeductions: payrollRuns.totalDeductions, totalNet: payrollRuns.totalNet })
+      .from(payrollRuns)
+      .where(and(
+        eq(payrollRuns.companyId, companyId),
+        gte(payrollRuns.periodStart, `${year}-01-01`),
+        lte(payrollRuns.periodEnd, `${year}-12-31`)
+      ));
+    const yearTotals = yearRuns.reduce((acc, r) => ({
+      totalGross: acc.totalGross + parseFloat(r.totalGross || "0"),
+      totalDeductions: acc.totalDeductions + parseFloat(r.totalDeductions || "0"),
+      totalNet: acc.totalNet + parseFloat(r.totalNet || "0"),
+    }), { totalGross: 0, totalDeductions: 0, totalNet: 0 });
+
+    const statusCounts: Record<string, number> = {};
+    for (const r of recentRuns) {
+      statusCounts[r.status] = (statusCounts[r.status] ?? 0) + 1;
+    }
+
+    res.json({
+      totalEmployees: empCount?.count ?? 0,
+      totalDepartments: deptCount?.count ?? 0,
+      pendingLeaveRequests: leavePending?.count ?? 0,
+      pendingLoans: loansPending?.count ?? 0,
+      latestRun: recentRuns[0] ?? null,
+      recentRuns: recentRuns.map((r) => ({
+        id: r.id,
+        periodStart: r.periodStart,
+        periodEnd: r.periodEnd,
+        status: r.status,
+        totalGross: r.totalGross,
+        totalDeductions: r.totalDeductions,
+        totalNet: r.totalNet,
+      })),
+      statusCounts,
+      yearTotals: {
+        ...yearTotals,
+        totalTax: yearTotals.totalDeductions,
+        totalGross: Math.round(yearTotals.totalGross * 100) / 100,
+        totalDeductions: Math.round(yearTotals.totalDeductions * 100) / 100,
+        totalNet: Math.round(yearTotals.totalNet * 100) / 100,
+      },
+    });
   } catch (err: any) {
     res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
   }
@@ -2609,14 +2770,24 @@ router.get("/exports/p2", async (req, res) => {
       }
     }
 
-    res.json({
+    const result = {
       month,
       employeeCount: count,
       totalGross: totalGross.toFixed(2),
       totalPaye: totalPaye.toFixed(2),
       totalAids: totalAids.toFixed(2),
       totalRemittable: (totalPaye + totalAids).toFixed(2),
-    });
+    };
+
+    if (req.query.format === "csv") {
+      const csv = "Month,Employees Paid,Total Gross,PAYE,AIDS Levy,Total Remittable\n"
+        + `${month},${count},${result.totalGross},${result.totalPaye},${result.totalAids},${result.totalRemittable}\n`;
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename=P2_${month}.csv`);
+      return res.send(csv);
+    }
+
+    res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
   }
@@ -2647,13 +2818,87 @@ router.get("/exports/zimdef", async (req, res) => {
     const zimdef = totalGross * 0.01;
     const standards = totalGross * 0.005;
 
-    res.json({
+    const result = {
       month,
       totalGrossWageBill: totalGross.toFixed(2),
       zimdefAmount: zimdef.toFixed(2),
       standardsLevyAmount: standards.toFixed(2),
       totalDue: (zimdef + standards).toFixed(2),
+    };
+
+    if (req.query.format === "csv") {
+      const csv = "Month,Gross Wage Bill,ZIMDEF (1%),Standards Levy (0.5%),Total Due\n"
+        + `${month},${result.totalGrossWageBill},${result.zimdefAmount},${result.standardsLevyAmount},${result.totalDue}\n`;
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename=ZIMDEF_${month}.csv`);
+      return res.send(csv);
+    }
+
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
+// P6: Employee annual tax deduction certificates
+// One row per employee for the selected tax year (or a single employee with ?employeeId=).
+// Fields mirror the ZIMRA P6 certificate: identity, tax year, months employed,
+// gross remuneration, taxable income, PAYE, AIDS Levy, NSSA and net tax remitted.
+router.get("/exports/p6", async (req, res) => {
+  const companyId = getTargetCompanyId(req);
+  const taxYear = req.query.taxYear ? String(req.query.taxYear) : String(new Date().getFullYear());
+  const employeeId = req.query.employeeId ? parseInt(String(req.query.employeeId), 10) : null;
+
+  try {
+    const startDate = `${taxYear}-01-01`;
+    const endDate = `${taxYear}-12-31`;
+
+    const runs = await db.select({ id: payrollRuns.id }).from(payrollRuns)
+      .where(and(
+        eq(payrollRuns.companyId, companyId),
+        gte(payrollRuns.periodStart, startDate),
+        lte(payrollRuns.periodEnd, endDate)
+      ));
+
+    const header = "Employee ID,Surname,First Name,National ID,PAYE Number,Tax Year,Months Employed,Total Gross Income,Total Taxable Income,Total PAYE,Total AIDS Levy,Total NSSA,Total Net PAYE Payable\n";
+    if (runs.length === 0) {
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename=P6_${taxYear}.csv`);
+      return res.send(header);
+    }
+
+    const runIds = runs.map(r => r.id);
+    const lines = await db.query.payrollRunEmployees.findMany({
+      where: and(
+        inArray(payrollRunEmployees.payrollRunId, runIds),
+        employeeId ? eq(payrollRunEmployees.employeeId, employeeId) : undefined
+      ),
+      with: { employee: true }
     });
+
+    const agg: Record<number, any> = {};
+    for (const line of lines) {
+      const eid = line.employeeId;
+      if (!agg[eid]) {
+        agg[eid] = { emp: line.employee, months: 0, gross: 0, taxable: 0, paye: 0, aids: 0, nssa: 0 };
+      }
+      agg[eid].months++;
+      agg[eid].gross += parseFloat(line.grossSalary);
+      agg[eid].taxable += parseFloat(line.basicSalary) + parseFloat(line.totalAllowances);
+      agg[eid].paye += parseFloat(line.paye);
+      agg[eid].aids += parseFloat(line.aidsLevy);
+      agg[eid].nssa += parseFloat(line.nssaEmployee);
+    }
+
+    let csv = header;
+    for (const [eid, data] of Object.entries(agg)) {
+      const netPaye = data.paye + data.aids;
+      csv += `${csvEscape(data.emp.employeeNumber || eid)},${csvEscape(data.emp.lastName || '')},${csvEscape(data.emp.firstName || '')},${csvEscape(data.emp.nationalId || '')},${csvEscape(data.emp.zimraTaxNumber || '')},${taxYear},${data.months},${data.gross.toFixed(2)},${data.taxable.toFixed(2)},${data.paye.toFixed(2)},${data.aids.toFixed(2)},${data.nssa.toFixed(2)},${netPaye.toFixed(2)}\n`;
+    }
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename=P6_${taxYear}${employeeId ? `_${employeeId}` : ''}.csv`);
+    res.send(csv);
   } catch (err: any) {
     res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
   }

@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useParams, Link } from "wouter";
 import { HRLayout } from "@/pages/hr/layout";
 import { useActiveCompany } from "@/hooks/use-active-company";
-import { Loader2, ArrowLeft, Download, Printer, FileBarChart2 } from "lucide-react";
+import { Loader2, ArrowLeft, Download, Printer, FileBarChart2, Landmark } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -63,6 +63,10 @@ export default function HrRunReport() {
 
   const taxes = totals.paye + totals.aids;
 
+  const monthValue = String(run.periodEnd).slice(0, 7);
+  const yearValue = String(run.periodEnd).slice(0, 4);
+  const monthLabel = format(new Date(run.periodEnd), "MMMM yyyy");
+
   const printReport = () => window.print();
 
   return (
@@ -93,6 +97,12 @@ export default function HrRunReport() {
             </p>
           </div>
           <div className="ml-auto flex items-center gap-2">
+            <Link href="/hr/zimra-reports">
+              <Button variant="outline">
+                <Landmark className="mr-2 h-4 w-4" />
+                ZIMRA Reports
+              </Button>
+            </Link>
             <Button
               variant="outline"
               onClick={() => downloadExcel(`/api/companies/${companyId}/payroll/report/csv?runId=${runId}`, `payroll_report_run_${runId}.csv`)}
@@ -105,6 +115,46 @@ export default function HrRunReport() {
               Print Report
             </Button>
           </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 print:hidden rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/40 px-4 py-3">
+          <span className="text-sm font-medium text-slate-500 mr-1">ZIMRA exports for this run:</span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 text-blue-700 dark:text-blue-400"
+            title={`P2 monthly return for ${monthLabel}`}
+            onClick={() => downloadExcel(`/api/companies/${companyId}/payroll/exports/p2?month=${monthValue}&format=csv`, `P2_${monthValue}.csv`)}
+          >
+            P2 Return (month)
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 text-indigo-700 dark:text-indigo-400"
+            title={`ITF16 annual return for ${yearValue}`}
+            onClick={() => downloadExcel(`/api/companies/${companyId}/payroll/exports/itf16?taxYear=${yearValue}`, `ITF16_${yearValue}.csv`)}
+          >
+            ITF16 (year)
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 text-amber-700 dark:text-amber-400"
+            title={`P6 certificates for ${yearValue}`}
+            onClick={() => downloadExcel(`/api/companies/${companyId}/payroll/exports/p6?taxYear=${yearValue}`, `P6_${yearValue}.csv`)}
+          >
+            P6 Certificates (year)
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 text-rose-700 dark:text-rose-400"
+            title={`ZIMDEF & Standards Levy for ${monthLabel}`}
+            onClick={() => downloadExcel(`/api/companies/${companyId}/payroll/exports/zimdef?month=${monthValue}&format=csv`, `ZIMDEF_${monthValue}.csv`)}
+          >
+            ZIMDEF (month)
+          </Button>
         </div>
 
         <div id="run-report" className="space-y-6">

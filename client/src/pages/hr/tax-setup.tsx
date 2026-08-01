@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Loader2, Save, Calculator } from "lucide-react";
+import { Plus, Loader2, Save, Calculator, Pencil, Power, PowerOff } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,6 +38,17 @@ function prefillFromActive(configs: any[]): typeof BLANK_FORM {
   };
 }
 
+function fromConfig(config: any): typeof BLANK_FORM {
+  return {
+    effectiveFrom: (config.effectiveFrom || new Date().toISOString().slice(0, 10)).slice(0, 10),
+    nssaRateEmployee: Number(config.nssaRateEmployee || 0.045),
+    nssaRateEmployer: Number(config.nssaRateEmployer || 0.045),
+    nssaCeilingLimit: Number(config.nssaCeilingLimit || 700),
+    aidsLevyRate: Number(config.aidsLevyRate || 0.03),
+    brackets: JSON.stringify(config.brackets || [], null, 2),
+  };
+}
+
 export function TaxTablesTab() {
   const { user } = useAuth();
   const { activeCompanyId: companyId } = useActiveCompany(!!user, user?.id ?? null);
@@ -45,6 +56,7 @@ export function TaxTablesTab() {
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [form, setForm] = useState(BLANK_FORM);
+  const [editingId, setEditingId] = useState<number | null>(null);
 
   const { data: taxConfigs = [], isLoading } = useQuery<any[]>({
     queryKey: [`/api/companies/${companyId}/payroll/tax-config`],
@@ -52,7 +64,7 @@ export function TaxTablesTab() {
   });
 
   const saveMutation = useMutation({
-    mutationFn: async (data: any) => {
+    mutationFn: async ({ id, data }: { id: number | null; data: any }) => {
       // Parse brackets back to JSON
       let parsedBrackets;
       try {
@@ -70,13 +82,16 @@ export function TaxTablesTab() {
         brackets: parsedBrackets,
       };
 
-      const res = await apiRequest("POST", `/api/companies/${companyId}/payroll/tax-config`, payload);
+      const res = id
+        ? await apiRequest("PATCH", `/api/companies/${companyId}/payroll/tax-config/${id}`, payload)
+        : await apiRequest("POST", `/api/companies/${companyId}/payroll/tax-config`, payload);
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/payroll/tax-config`] });
       toast({ title: "Tax configuration saved successfully!" });
       setIsDialogOpen(false);
+      setEditingId(null);
       setForm(BLANK_FORM);
     },
     onError: (err: any) => {
@@ -84,9 +99,29 @@ export function TaxTablesTab() {
     }
   });
 
+  const toggleMutation = useMutation({
+    mutationFn: async ({ id, activate }: { id: number; activate: boolean }) => {
+      const res = await apiRequest("POST", `/api/companies/${companyId}/payroll/tax-config/${id}/${activate ? "activate" : "deactivate"}`);
+      return res.json();
+    },
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/payroll/tax-config`] });
+      toast({ title: vars.activate ? "Configuration activated" : "Configuration deactivated" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Action failed", description: err.message, variant: "destructive" });
+    }
+  });
+
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
-    saveMutation.mutate(form);
+    saveMutation.mutate({ id: editingId, data: form });
+  };
+
+  const openEdit = (config: any) => {
+    setEditingId(config.id);
+    setForm(fromConfig(config));
+    setIsDialogOpen(true);
   };
 
   return (
@@ -101,14 +136,14 @@ export function TaxTablesTab() {
           
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
-              <Button onClick={() => setForm(prefillFromActive(taxConfigs))} className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md gap-2">
+              <Button onClick={() => { setEditingId(null); setForm(prefillFromActive(taxConfigs)); }} className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md gap-2">
                 <Plus className="h-4 w-4" />
                 Create New
               </Button>
             </DialogTrigger>
             <DialogContent className="max-w-2xl border-slate-200 dark:border-slate-800 shadow-xl">
               <DialogHeader>
-                <DialogTitle className="text-xl">Create Tax Configuration</DialogTitle>
+                <DialogTitle className="text-xl">{editingId ? "Edit Tax Configuration" : "Create Tax Configuration"}</DialogTitle>
               </DialogHeader>
               
               <form onSubmit={handleSave} className="space-y-4 mt-2">
@@ -219,6 +254,7 @@ export function TaxTablesTab() {
                     <TableHead>AIDS Levy</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Brackets</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -246,6 +282,42 @@ export function TaxTablesTab() {
                         <Badge variant="outline" className="font-mono text-xs">
                           {Array.isArray(config.brackets) ? config.brackets.length : 0} Bands
                         </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0 text-slate-500 hover:text-blue-600"
+                            title="Edit configuration"
+                            onClick={() => openEdit(config)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          {config.isActive ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 p-0 text-slate-500 hover:text-rose-600"
+                              title="Deactivate (stop using for new payroll)"
+                              disabled={toggleMutation.isPending}
+                              onClick={() => toggleMutation.mutate({ id: config.id, activate: false })}
+                            >
+                              <PowerOff className="h-4 w-4" />
+                            </Button>
+                          ) : (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 p-0 text-slate-500 hover:text-emerald-600"
+                              title="Activate (used for payroll from now on)"
+                              disabled={toggleMutation.isPending}
+                              onClick={() => toggleMutation.mutate({ id: config.id, activate: true })}
+                            >
+                              <Power className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}

@@ -34,7 +34,7 @@ export default function ZimraReports() {
   const currentYear = new Date().getFullYear();
   const [taxYear, setTaxYear] = useState<string>(String(currentYear));
   const [month, setMonth] = useState<string>(new Date().toISOString().slice(0, 7));
-  const [busy, setBusy] = useState<"itf16" | "p2" | "zimdef" | null>(null);
+  const [busy, setBusy] = useState<"itf16" | "p2" | "zimdef" | "p6" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [p2, setP2] = useState<P2Result | null>(null);
   const [zimdef, setZimdef] = useState<ZimdefResult | null>(null);
@@ -88,6 +88,20 @@ export default function ZimraReports() {
       setZimdef(await res.json());
     } catch (e: any) {
       setError(e.message || "Failed to generate ZIMDEF");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleP6 = async () => {
+    if (!companyId) return;
+    setBusy("p6");
+    setError(null);
+    try {
+      const res = await apiRequest("GET", `/api/companies/${companyId}/payroll/exports/p6?taxYear=${taxYear}`);
+      downloadCSV(`P6_${taxYear}.csv`, await res.text());
+    } catch (e: any) {
+      setError(e.message || "Failed to generate P6 certificates");
     } finally {
       setBusy(null);
     }
@@ -180,7 +194,7 @@ export default function ZimraReports() {
                 <Users className="h-5 w-5" />
               </div>
               <CardTitle>P6 Certificates</CardTitle>
-              <CardDescription>Employee annual tax certificates (PDF generation)</CardDescription>
+              <CardDescription>Employee annual tax deduction certificates (CSV for e-Taxes portal)</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4 relative z-10">
               <div className="flex flex-col gap-1.5">
@@ -197,8 +211,8 @@ export default function ZimraReports() {
                   </SelectContent>
                 </Select>
               </div>
-              <Button disabled variant="outline" className="w-full gap-2 border-amber-200 text-amber-700 hover:bg-amber-50 dark:border-amber-900 dark:text-amber-400 dark:hover:bg-amber-900/20">
-                <FileText className="h-4 w-4" /> Coming Soon
+              <Button onClick={handleP6} disabled={busy !== null} variant="outline" className="w-full gap-2 border-amber-200 text-amber-700 hover:bg-amber-50 dark:border-amber-900 dark:text-amber-400 dark:hover:bg-amber-900/20">
+                {busy === "p6" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Export CSV
               </Button>
             </CardContent>
           </Card>

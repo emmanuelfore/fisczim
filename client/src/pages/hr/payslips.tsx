@@ -393,6 +393,19 @@ export default function HRPayslips() {
                             <Download className="mr-2 h-4 w-4" />
                             PDF
                           </Button>
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="h-8 text-amber-600 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/50"
+                            title="Download P6 annual certificate for this employee"
+                            onClick={() => downloadExcel(
+                              `/api/companies/${companyId}/payroll/exports/p6?taxYear=${new Date(run.periodEnd).getFullYear()}&employeeId=${p.employee.id}`,
+                              `P6_${p.employee.employeeNumber || p.employee.id}_${new Date(run.periodEnd).getFullYear()}.csv`
+                            )}
+                          >
+                            <FileBarChart2 className="mr-2 h-4 w-4" />
+                            P6
+                          </Button>
                         </div>
                       </TableCell>
                     </TableRow>

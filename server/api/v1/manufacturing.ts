@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { storage } from "../../storage.js";
 import { db } from "../../db.js";
-import { eq, and, desc, lte, isNull, or, sql } from "drizzle-orm";
+import { eq, and, desc, lte, isNull, or, sql, inArray, gte } from "drizzle-orm";
 import {
   billOfMaterials, bomItems, productionRuns, productionRunConsumptions, products,
   manufacturingWorkCenters, manufacturingMachines, manufacturingRoutings,
@@ -663,6 +663,342 @@ router.get("/production-runs/:id/cost-summary", async (req, res) => {
       .where(and(eq(productionRuns.id, id), eq(productionRuns.companyId, companyId)));
     if (!run) return res.status(404).json({ message: "Production run not found" });
     res.json(buildCostSummary(run));
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// --- Manufacturing Reports (aggregated) ---
+
+// Production performance report
+router.get("/reports/production-performance", async (req, res) => {
+  try {
+    const companyId = await getCompanyId(req);
+    const { from, to, status } = req.query;
+    const dateFrom = from ? new Date(from as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const dateTo = to ? new Date(to as string) : new Date();
+
+    const runs = await db
+      .select({
+        run: productionRuns,
+        bom: billOfMaterials,
+        product: products,
+      })
+      .from(productionRuns)
+      .innerJoin(billOfMaterials, eq(productionRuns.bomId, billOfMaterials.id))
+      .leftJoin(products, eq(billOfMaterials.productId, products.id))
+      .where(and(
+        eq(productionRuns.companyId, companyId),
+        gte(productionRuns.createdAt, dateFrom),
+        lte(productionRuns.createdAt, dateTo),
+        status ? eq(productionRuns.status, status as string) : sql`true`,
+      ))
+      .orderBy(desc(productionRuns.createdAt));
+
+    const completed = runs.filter((r: any) => r.run.status === "COMPLETED");
+    const totalPlannedQty = completed.reduce((sum: number, r: any) => sum + Number(r.run.plannedQuantity || 0), 0);
+    const totalCompletedQty = completed.reduce((sum: number, r: any) => sum + Number(r.run.completedQuantity || 0), 0);
+    const yieldRate = totalPlannedQty > 0 ? (totalCompletedQty / totalPlannedQty) * 100 : 0;
+
+    res.json({
+      period: { from: dateFrom.toISOString(), to: dateTo.toISOString() },
+      summary: {
+        totalRuns: runs.length,
+        completedRuns: completed.length,
+        inProgressRuns: runs.filter((r: any) => r.run.status === "IN_PROGRESS").length,
+        plannedQuantity: totalPlannedQty,
+        completedQuantity: totalCompletedQty,
+        yieldRate: Number(yieldRate.toFixed(2)),
+      },
+      runs: completed.map((r: any) => ({
+        id: r.run.id,
+        product: r.product?.name || `BOM #${r.bom.id}`,
+        plannedQuantity: Number(r.run.plannedQuantity || 0),
+        completedQuantity: Number(r.run.completedQuantity || 0),
+        yieldPct: Number(r.run.plannedQuantity) > 0 
+          ? Number(((Number(r.run.completedQuantity) / Number(r.run.plannedQuantity)) * 100).toFixed(1))
+          : 0,
+        status: r.run.status,
+        completedAt: r.run.updatedAt,
+      })),
+    });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Cost variance report
+router.get("/reports/cost-variance", async (req, res) => {
+  try {
+    const companyId = await getCompanyId(req);
+    const { from, to } = req.query;
+    const dateFrom = from ? new Date(from as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const dateTo = to ? new Date(to as string) : new Date();
+
+    const runs = await db
+      .select({
+        run: productionRuns,
+        bom: billOfMaterials,
+        product: products,
+      })
+      .from(productionRuns)
+      .innerJoin(billOfMaterials, eq(productionRuns.bomId, billOfMaterials.id))
+      .leftJoin(products, eq(billOfMaterials.productId, products.id))
+      .where(and(
+        eq(productionRuns.companyId, companyId),
+        eq(productionRuns.status, "COMPLETED"),
+        gte(productionRuns.updatedAt, dateFrom),
+        lte(productionRuns.updatedAt, dateTo),
+      ))
+      .orderBy(desc(productionRuns.updatedAt));
+
+    const totalPlannedMaterial = runs.reduce((sum: number, r: any) => sum + Number(r.run.plannedMaterialCost || 0), 0);
+    const totalActualMaterial = runs.reduce((sum: number, r: any) => sum + Number(r.run.actualMaterialCost || 0), 0);
+    const totalPlannedLabor = runs.reduce((sum: number, r: any) => sum + Number(r.run.plannedLaborCost || 0), 0);
+    const totalActualLabor = runs.reduce((sum: number, r: any) => sum + Number(r.run.actualLaborCost || 0), 0);
+    const totalPlannedOverhead = runs.reduce((sum: number, r: any) => sum + Number(r.run.plannedOverheadCost || 0), 0);
+    const totalActualOverhead = runs.reduce((sum: number, r: any) => sum + Number(r.run.actualOverheadCost || 0), 0);
+
+    res.json({
+      period: { from: dateFrom.toISOString(), to: dateTo.toISOString() },
+      summary: {
+        runsAnalyzed: runs.length,
+        plannedMaterialCost: Number(totalPlannedMaterial.toFixed(2)),
+        actualMaterialCost: Number(totalActualMaterial.toFixed(2)),
+        materialVariance: Number((totalPlannedMaterial - totalActualMaterial).toFixed(2)),
+        plannedLaborCost: Number(totalPlannedLabor.toFixed(2)),
+        actualLaborCost: Number(totalActualLabor.toFixed(2)),
+        laborVariance: Number((totalPlannedLabor - totalActualLabor).toFixed(2)),
+        plannedOverheadCost: Number(totalPlannedOverhead.toFixed(2)),
+        actualOverheadCost: Number(totalActualOverhead.toFixed(2)),
+        overheadVariance: Number((totalPlannedOverhead - totalActualOverhead).toFixed(2)),
+        totalVariance: Number(((totalPlannedMaterial + totalPlannedLabor + totalPlannedOverhead) - 
+          (totalActualMaterial + totalActualLabor + totalActualOverhead)).toFixed(2)),
+      },
+      runs: runs.map((r: any) => ({
+        id: r.run.id,
+        product: r.product?.name || `BOM #${r.bom.id}`,
+        plannedMaterialCost: Number(r.run.plannedMaterialCost || 0),
+        actualMaterialCost: Number(r.run.actualMaterialCost || 0),
+        materialVariance: Number(((r.run.plannedMaterialCost || 0) - (r.run.actualMaterialCost || 0)).toFixed(2)),
+        plannedLaborCost: Number(r.run.plannedLaborCost || 0),
+        actualLaborCost: Number(r.run.actualLaborCost || 0),
+        laborVariance: Number(((r.run.plannedLaborCost || 0) - (r.run.actualLaborCost || 0)).toFixed(2)),
+        plannedOverheadCost: Number(r.run.plannedOverheadCost || 0),
+        actualOverheadCost: Number(r.run.actualOverheadCost || 0),
+        overheadVariance: Number(((r.run.plannedOverheadCost || 0) - (r.run.actualOverheadCost || 0)).toFixed(2)),
+      })),
+    });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Work center utilization report
+router.get("/reports/work-center-utilization", async (req, res) => {
+  try {
+    const companyId = await getCompanyId(req);
+    const { from, to } = req.query;
+    const dateFrom = from ? new Date(from as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const dateTo = to ? new Date(to as string) : new Date();
+
+    const workCenters = await db
+      .select()
+      .from(manufacturingWorkCenters)
+      .where(eq(manufacturingWorkCenters.companyId, companyId));
+
+    const timeConfirmationsData = await db
+      .select({
+        tc: timeConfirmations,
+        run: productionRuns,
+        wc: manufacturingWorkCenters,
+      })
+      .from(timeConfirmations)
+      .innerJoin(productionRuns, eq(timeConfirmations.productionRunId, productionRuns.id))
+      .innerJoin(manufacturingWorkCenters, eq(timeConfirmations.workCenterId, manufacturingWorkCenters.id))
+      .where(and(
+        eq(productionRuns.companyId, companyId),
+        gte(timeConfirmations.postedAt, dateFrom),
+        lte(timeConfirmations.postedAt, dateTo),
+      ));
+
+    const byWorkCenter = workCenters.map((wc: any) => {
+      const tcs = timeConfirmationsData.filter((t: any) => t.wc.id === wc.id);
+      const totalHours = tcs.reduce((sum: number, t: any) => sum + Number(t.tc.hours || 0), 0);
+      const totalLaborCost = tcs.reduce((sum: number, t: any) => sum + Number(t.tc.laborCost || 0), 0);
+      const totalOverheadCost = tcs.reduce((sum: number, t: any) => sum + Number(t.tc.overheadCost || 0), 0);
+      const runsProcessed = new Set(tcs.map((t: any) => t.run.id)).size;
+
+      return {
+        id: wc.id,
+        name: wc.name,
+        description: wc.description,
+        costPerHour: Number(wc.costPerHour || 0),
+        totalHours: Number(totalHours.toFixed(2)),
+        totalLaborCost: Number(totalLaborCost.toFixed(2)),
+        totalOverheadCost: Number(totalOverheadCost.toFixed(2)),
+        runsProcessed,
+        utilization: totalHours > 0 ? "Active" : "Idle",
+      };
+    });
+
+    res.json({
+      period: { from: dateFrom.toISOString(), to: dateTo.toISOString() },
+      workCenters: byWorkCenter,
+    });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// WIP (Work in Progress) report
+router.get("/reports/wip", async (req, res) => {
+  try {
+    const companyId = await getCompanyId(req);
+    const runs = await db
+      .select({
+        run: productionRuns,
+        bom: billOfMaterials,
+        product: products,
+      })
+      .from(productionRuns)
+      .innerJoin(billOfMaterials, eq(productionRuns.bomId, billOfMaterials.id))
+      .leftJoin(products, eq(billOfMaterials.productId, products.id))
+      .where(and(
+        eq(productionRuns.companyId, companyId),
+        inArray(productionRuns.status, ["RELEASED", "IN_PROGRESS", "COMPLETED"]),
+      ))
+      .orderBy(desc(productionRuns.createdAt));
+
+    res.json({
+      runs: runs.map((r: any) => ({
+        id: r.run.id,
+        product: r.product?.name || `BOM #${r.bom.id}`,
+        status: r.run.status,
+        plannedQuantity: Number(r.run.plannedQuantity || 0),
+        completedQuantity: Number(r.run.completedQuantity || 0),
+        progressPct: Number(r.run.plannedQuantity) > 0
+          ? Number(((Number(r.run.completedQuantity) / Number(r.run.plannedQuantity)) * 100).toFixed(1))
+          : 0,
+        plannedStart: r.run.plannedStart,
+        plannedCompletion: r.run.plannedCompletion,
+        daysInProgress: r.run.plannedStart
+          ? Math.floor((new Date().getTime() - new Date(r.run.plannedStart).getTime()) / (1000 * 60 * 60 * 24))
+          : 0,
+      })),
+    });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// BOM cost breakdown report
+router.get("/reports/bom-costs", async (req, res) => {
+  try {
+    const companyId = await getCompanyId(req);
+    const boms = await db
+      .select({
+        bom: billOfMaterials,
+        product: products,
+        lines: bomItems,
+        componentProduct: products,
+      })
+      .from(billOfMaterials)
+      .leftJoin(products, eq(billOfMaterials.productId, products.id))
+      .leftJoin(bomItems, eq(bomItems.bomId, billOfMaterials.id))
+      .leftJoin(products, eq(bomItems.componentProductId, products.id))
+      .where(eq(billOfMaterials.companyId, companyId));
+
+    // Group by BOM
+    const bomMap = new Map();
+    for (const row of boms) {
+      if (!bomMap.has(row.bom.id)) {
+        bomMap.set(row.bom.id, {
+          id: row.bom.id,
+          name: row.bom.name,
+          product: row.product?.name || "-",
+          version: row.bom.version || "1.0",
+          lines: [],
+          materialCost: 0,
+        });
+      }
+      if (row.lines?.id) {
+        const lineCost = Number(row.lines.quantity) * Number(row.componentProduct?.costPrice || 0);
+        bomMap.get(row.bom.id).lines.push({
+          component: row.componentProduct?.name || `Product #${row.lines.componentProductId}`,
+          quantity: Number(row.lines.quantity),
+          unitCost: Number(row.componentProduct?.costPrice || 0),
+          lineCost: Number(lineCost.toFixed(2)),
+        });
+        bomMap.get(row.bom.id).materialCost += lineCost;
+      }
+    }
+
+    res.json({
+      boms: Array.from(bomMap.values()).map((b: any) => ({
+        ...b,
+        materialCost: Number(b.materialCost.toFixed(2)),
+        componentCount: b.lines.length,
+      })),
+    });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Material consumption report (goods issues)
+router.get("/reports/material-consumption", async (req, res) => {
+  try {
+    const companyId = await getCompanyId(req);
+    const { from, to, type } = req.query;
+    const dateFrom = from ? new Date(from as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const dateTo = to ? new Date(to as string) : new Date();
+
+    const issues = await db
+      .select({
+        issue: goodsIssues,
+        run: productionRuns,
+        product: products,
+      })
+      .from(goodsIssues)
+      .innerJoin(productionRuns, eq(goodsIssues.productionRunId, productionRuns.id))
+      .leftJoin(products, eq(goodsIssues.productId, products.id))
+      .where(and(
+        eq(productionRuns.companyId, companyId),
+        gte(goodsIssues.postedAt, dateFrom),
+        lte(goodsIssues.postedAt, dateTo),
+        type ? eq(goodsIssues.type, type as string) : sql`true`,
+      ))
+      .orderBy(desc(goodsIssues.postedAt));
+
+    const totalIssued = issues
+      .filter((i: any) => i.issue.type === "ISSUE")
+      .reduce((sum: number, i: any) => sum + Number(i.issue.totalCost || 0), 0);
+    const totalReturned = issues
+      .filter((i: any) => i.issue.type === "RETURN")
+      .reduce((sum: number, i: any) => sum + Number(i.issue.totalCost || 0), 0);
+
+    res.json({
+      period: { from: dateFrom.toISOString(), to: dateTo.toISOString() },
+      summary: {
+        totalIssues: issues.filter((i: any) => i.issue.type === "ISSUE").length,
+        totalReturns: issues.filter((i: any) => i.issue.type === "RETURN").length,
+        totalIssuedCost: Number(totalIssued.toFixed(2)),
+        totalReturnedCost: Number(totalReturned.toFixed(2)),
+        netCost: Number((totalIssued - totalReturned).toFixed(2)),
+      },
+      transactions: issues.map((i: any) => ({
+        id: i.issue.id,
+        type: i.issue.type,
+        runId: i.run.id,
+        product: i.product?.name || `Product #${i.issue.productId}`,
+        quantity: Number(i.issue.quantity),
+        unitCost: Number(i.issue.unitCost || 0),
+        totalCost: Number(i.issue.totalCost || 0),
+        date: i.issue.postedAt,
+        reason: i.issue.notes,
+      })),
+    });
   } catch (err: any) {
     res.status(500).json({ message: err.message });
   }

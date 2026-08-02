@@ -723,6 +723,31 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
             nowAtHarare = new Date(lastRcptAt.getTime() + 2000);
         }
 
+        // Offline-signed receipts carry the timestamp from signing time; it must
+        // still satisfy RCPT014 (after day open) and RCPT030 (after the previous
+        // receipt). Route it through the same guards as "now": the server re-signs
+        // its own payload (see submitReceipt below), so bumping the submitted date
+        // is safe. Without this, a queued offline sale whose signed date predates
+        // the current day/receipt (day closed and reopened while it waited) would
+        // be rejected — or worse, stored Grey against a chain it does not fit.
+        let effectiveReceiptDate = invoice.offlineDate || formatZimraDate(nowAtHarare);
+        if (invoice.offlineDate) {
+            const parseHarareLocal = (v: string) => {
+                const m = v.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/);
+                return m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4] - 2, +m[5], +m[6])) : null;
+            };
+            const signedAt = parseHarareLocal(invoice.offlineDate);
+            if (signedAt) {
+                if (dayOpenedAt && signedAt.getTime() <= dayOpenedAt.getTime() + 1000) {
+                    effectiveReceiptDate = formatZimraDate(new Date(dayOpenedAt.getTime() + 2000));
+                    vLog(`[ZIMRA] Guard (offline): signed date ${invoice.offlineDate} predates day open (${dayOpenedAt.toISOString()}). Bumped to ${effectiveReceiptDate}.`);
+                } else if (!(lastRcptAt && lastRcptAt.getTime() > realNow.getTime() + fiveMinutes) && lastRcptAt && signedAt.getTime() <= lastRcptAt.getTime() + 1000) {
+                    effectiveReceiptDate = formatZimraDate(new Date(lastRcptAt.getTime() + 2000));
+                    vLog(`[ZIMRA] Guard (offline): signed date ${invoice.offlineDate} <= last receipt (${lastRcptAt.toISOString()}). Bumped to ${effectiveReceiptDate}.`);
+                }
+            }
+        }
+
         const activeFiscalDayNo = fiscalConfig.currentFiscalDayNo || status?.lastFiscalDayNo || company.currentFiscalDayNo;
 
         const receiptData: ReceiptData = {
@@ -732,7 +757,7 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
             receiptGlobalNo: nextGlobalNo,
             fiscalDayNo: activeFiscalDayNo, // Use refreshed day after auto-open, not stale company state.
             invoiceNo: invoice.invoiceNumber,
-            receiptDate: invoice.offlineDate || formatZimraDate(nowAtHarare),
+            receiptDate: effectiveReceiptDate,
             receiptLines: receiptLines as any,
             receiptTaxes: [],
             receiptPayments: payments as any,
@@ -794,7 +819,27 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
             nextReceiptCounter = zimraSync.nextReceiptCounter;
         } else if (invoice.fiscalSignature && invoice.receiptGlobalNo && invoice.receiptCounter) {
             // Offline-signed receipt: use the counters that were signed offline.
-            // Do NOT match against company counters — offline values are authoritative.
+            // Per the ZIMRA spec these must be EXACTLY one greater than the live
+            // sequence (previous receipt + 1) — "ahead" is not enough. A
+            // skip-ahead number (a gap in the chain) is stored Grey ("previous
+            // receipt missing") and poisons the chain exactly like the day-4
+            // anchor break did. Require an exact match on BOTH counters, and
+            // if the client sent the previous hash it signed against, it must
+            // still match the live chain. Otherwise reject with a clear error
+            // so the sale is re-issued with fresh numbers rather than burning
+            // a corrupt receipt.
+            const liveGlobal = fiscalConfig.lastReceiptGlobalNo ?? company.lastReceiptGlobalNo ?? 0;
+            const liveCounter = fiscalConfig.dailyReceiptCount ?? company.dailyReceiptCount ?? 0;
+            if (invoice.receiptGlobalNo !== liveGlobal + 1) {
+                throw new Error(`Offline receipt global number ${invoice.receiptGlobalNo} is not the next in sequence (expected ${liveGlobal + 1}). The POS claimed these numbers from an outdated or skipped cached sequence. Re-issue this sale from the POS to obtain fresh numbers.`);
+            }
+            if (invoice.receiptCounter !== liveCounter + 1) {
+                throw new Error(`Offline receipt daily counter ${invoice.receiptCounter} is not the next in sequence (expected ${liveCounter + 1}). The POS claimed these numbers from an outdated or skipped cached sequence. Re-issue this sale from the POS to obtain fresh numbers.`);
+            }
+            const liveHash = fiscalConfig.lastFiscalHash || company.lastFiscalHash || null;
+            if (invoice.offlinePreviousHash && liveHash && invoice.offlinePreviousHash !== liveHash) {
+                throw new Error(`Offline receipt was signed against a previous hash that no longer matches the live chain. Re-issue this sale from the POS to obtain fresh numbers.`);
+            }
             nextGlobalNo = invoice.receiptGlobalNo;
             nextReceiptCounter = invoice.receiptCounter;
             vLog(`[Fiscalize] Offline — using signed counters: GlobalNo=${nextGlobalNo}, Counter=${nextReceiptCounter}`);
@@ -824,15 +869,17 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
         prevHash = invoice.offlinePreviousHash || ((receiptData.receiptCounter === 1) ? null : (fiscalConfig.lastFiscalHash || company.lastFiscalHash || null));
 
         // Note: The signature generation inside submitReceipt relies on these final counters!
-        let offlineSignature: string | undefined;
-        if (invoice.fiscalSignature && invoice.receiptGlobalNo && invoice.receiptCounter) {
-            offlineSignature = invoice.fiscalSignature;
-        }
+        // The client's offline signature (if any) is intentionally NOT forwarded to
+        // submitReceipt: the server recomputes taxes/totals/date from its own prepared
+        // payload, and ZIMRA verifies the signature against exactly what is submitted.
+        // Forwarding a client-computed signature (whose tax rounding or timestamp may
+        // differ by a cent/second) makes ZIMRA reject the receipt with RCPT020
+        // "Invoice signature is not valid". The server re-signs its own payload instead.
 
         try {
             try {
                 vTime(`[ZIMRA] submitReceipt-${companyId}-${nextGlobalNo}`);
-                result = await device.submitReceipt(receiptData, prevHash, true, offlineSignature);
+                result = await device.submitReceipt(receiptData, prevHash, true);
                 vTimeEnd(`[ZIMRA] submitReceipt-${companyId}-${nextGlobalNo}`);
             } catch (submitErr: any) {
                 // Auto-Open Retry Logic: Trigger on ZIMRA error code 310 or RCPT01 (FiscalDayClosed).
@@ -900,7 +947,7 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
                         });
                         
                         vTime(`[ZIMRA] submitReceipt-retry-${companyId}-${nextGlobalNo}`);
-                        result = await device.submitReceipt(receiptData, prevHash, true, offlineSignature);
+                        result = await device.submitReceipt(receiptData, prevHash, true);
                         vTimeEnd(`[ZIMRA] submitReceipt-retry-${companyId}-${nextGlobalNo}`);
 
                     } catch (retryErr: any) {
@@ -1007,21 +1054,23 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
         // RCPT012/011 fix: ZIMRA rejected the receipt because the submitted
         // global/daily number was not the next one (usually a number burned by
         // an earlier failure). Re-align the local high-water marks with ZIMRA's
-        // actual state so the desync does not cascade into every later receipt.
+        // actual state in BOTH directions so the desync does not cascade into
+        // every later receipt: if ZIMRA's counters differ from ours (ahead or
+        // behind), take ZIMRA's — it is authoritative for what it stored.
         if (validationStatus === 'red' && validationErrors.some((e) => e.errorCode === 'RCPT012' || e.errorCode === 'RCPT011')) {
             try {
                 const syncStatus = await device.getStatus() as any;
                 const syncGlobal = Number(syncStatus.lastReceiptGlobalNo || 0);
                 const syncCounter = Number(syncStatus.lastReceiptCounter || 0);
                 const counterUpdate: any = {};
-                if (syncGlobal > (company.lastReceiptGlobalNo || 0)) counterUpdate.lastReceiptGlobalNo = syncGlobal;
-                if (syncCounter > (company.dailyReceiptCount || 0)) counterUpdate.dailyReceiptCount = syncCounter;
+                if (syncGlobal !== (company.lastReceiptGlobalNo || 0)) counterUpdate.lastReceiptGlobalNo = syncGlobal;
+                if (syncCounter !== (company.dailyReceiptCount || 0)) counterUpdate.dailyReceiptCount = syncCounter;
                 if (Object.keys(counterUpdate).length > 0) {
                     if (activeBranch) await storage.updateBranch(activeBranch.id, counterUpdate);
                     await storage.updateCompany(company.id, counterUpdate);
                     vLog(`[Fiscalize] RCPT012/011: realigned counters to ZIMRA (global=${counterUpdate.lastReceiptGlobalNo ?? 'keep'}, daily=${counterUpdate.dailyReceiptCount ?? 'keep'}).`);
                 } else {
-                    vLog(`[Fiscalize] RCPT012/011 detected but ZIMRA counters are not ahead; no realignment needed.`);
+                    vLog(`[Fiscalize] RCPT012/011 detected but ZIMRA counters already match; no realignment needed.`);
                 }
             } catch (syncErr: any) {
                 console.warn(`[Fiscalize] Counter realignment failed: ${syncErr.message}`);
@@ -1050,21 +1099,20 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
             lastValidationAttempt: new Date()
         });
 
-        // Update Company Counters (Important!)
-        // ZIMRA only stores receipts it validates; a Red receipt is NOT stored
-        // and must NOT advance the local sequence (else the next receipt is
-        // "not sequential" / chains onto a hash ZIMRA never kept). Yellow/grey
-        // are accepted-with-warning and DO advance the sequence.
+
         const companyUpdateData: any = {
             lastReceiptAt: nowAtHarare  // Use the actual UTC Date object, not re-parsed from the Harare-formatted string
         };
-        if (validationStatus === 'red') {
-            vLog(`[Fiscalize] Receipt ${receiptData.receiptGlobalNo} is Red — counters and hash preserved; next receipt will reuse the same numbers.`);
-        } else {
-            companyUpdateData.lastReceiptGlobalNo = receiptData.receiptGlobalNo;
-            companyUpdateData.dailyReceiptCount = receiptData.receiptCounter;
-            companyUpdateData.lastFiscalHash = result.hash;
-        }
+        // Update Company Counters (Important!)
+        // ZIMRA stores every receipt it accepts over the wire — including ones
+        // with Red/Grey validation errors — and its sequence advances for all
+        // of them. So as long as ZIMRA processed the call, the local counters
+        // and hash must advance too, or the next receipt submits a number ZIMRA
+        // already has (RCPT012/011). The RCPT012/011 realignment below heals the
+        // only exception (a call ZIMRA rejected as non-sequential).
+        companyUpdateData.lastReceiptGlobalNo = receiptData.receiptGlobalNo;
+        companyUpdateData.dailyReceiptCount = receiptData.receiptCounter;
+        companyUpdateData.lastFiscalHash = result.hash;
         await storage.updateCompany(company.id, companyUpdateData);
 
         return updatedInvoice;

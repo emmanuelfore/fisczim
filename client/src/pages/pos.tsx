@@ -36,7 +36,7 @@ import {
   cacheFiscalSequence,
   generateOfflineReport,
 } from "@/lib/offline-db";
-import { generateOfflineFiscalData } from "@/lib/fiscalization-offline";
+import { generateOfflineFiscalData, resolveTaxCode } from "@/lib/fiscalization-offline";
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import {
   Search,
@@ -145,6 +145,26 @@ import { normalizeAppMode } from "@shared/app-mode";
 import { RestaurantTableMap } from "@/components/pos/restaurant-table-map";
 
 import { useAuth } from "@/hooks/use-auth";
+
+// Refresh the local offline fiscal-sequence cache from the server's
+// authoritative counters. Always attempts the live fetch and only falls
+// back to the existing cache on failure — this prevents offline claims from
+// minting numbers out of a stale sequence (which ZIMRA flags Red).
+async function refreshCachedFiscalSequence(companyId: number): Promise<any | undefined> {
+  try {
+    const res = await apiFetch(`/api/companies/${companyId}/zimra/sequence`);
+    if (res.ok) {
+      const seq = await res.json();
+      if (seq && typeof seq.lastReceiptGlobalNo === "number") {
+        await cacheFiscalSequence(companyId, seq);
+        return seq;
+      }
+    }
+  } catch (e) {
+    console.warn("[POS] Failed to refresh fiscal sequence from server:", e);
+  }
+  return getCachedFiscalSequence(companyId);
+}
 
 export default function POSPage() {
   const { user, logout } = useAuth();
@@ -280,6 +300,11 @@ export default function POSPage() {
         queryClient.invalidateQueries({
           queryKey: ["/api/tax/types", companyId],
         }),
+      );
+      // Keep the offline sequence cache aligned with the live counters now
+      // that we are online again.
+      runOnIdle(() =>
+        refreshCachedFiscalSequence(companyId).catch(() => {}),
       );
     }
   }, [isOnline, companyId, queryClient, runOnIdle]);
@@ -1855,7 +1880,7 @@ export default function POSPage() {
         if (isFiscalized) {
           try {
             const zimraConfig = await getCachedZimraConfig(companyId);
-            const fiscalSequence = await getCachedFiscalSequence(companyId);
+            const fiscalSequence = await refreshCachedFiscalSequence(companyId);
             if (zimraConfig?.zimraPrivateKey && fiscalSequence) {
               const nextGlobalNo = fiscalSequence.lastReceiptGlobalNo + 1;
               const nextDailyCount = fiscalSequence.dailyReceiptCount + 1;
@@ -1863,15 +1888,6 @@ export default function POSPage() {
               const dateLocal = new Date(dateObj.getTime() - (dateObj.getTimezoneOffset() * 60000));
               const receiptDate = dateLocal.toISOString().slice(0, 19);
 
-              const formattedTaxes = invoiceData.items.map((i: any) => ({
-                taxID: i.taxTypeId || 1,
-                taxCode: undefined, // Usually fetched from taxConfig, but okay to omit for offline hashing fallback logic or we can fetch it? Actually, wait, node-forge offline signature just uses taxAmount and salesAmount.
-                taxPercent: Number(i.taxRate),
-                taxAmount: Number(i.discountAmount) > 0 ? (Number(i.unitPrice) * Number(i.quantity) - Number(i.discountAmount)) - ((Number(i.unitPrice) * Number(i.quantity) - Number(i.discountAmount)) / (1 + (Number(i.taxRate) / 100))) : Number(i.unitPrice) * Number(i.quantity) - (Number(i.unitPrice) * Number(i.quantity) / (1 + (Number(i.taxRate) / 100))),
-                salesAmountWithTax: Number(i.unitPrice) * Number(i.quantity) - Number(i.discountAmount)
-              }));
-              
-              // We need aggregate taxes for signature
               const taxesMap = new Map<number, any>();
               for (const item of invoiceData.items) {
                 const taxId = item.taxTypeId || 1;
@@ -1881,7 +1897,7 @@ export default function POSPage() {
                 const salesWithTax = taxInclusive ? lineTotal : lineTotal + taxAmount;
                 
                 if (!taxesMap.has(taxId)) {
-                  taxesMap.set(taxId, { taxID: taxId, taxPercent: taxRate, taxAmount: 0, salesAmountWithTax: 0 });
+                  taxesMap.set(taxId, { taxID: taxId, taxCode: resolveTaxCode(taxId), taxPercent: taxRate, taxAmount: 0, salesAmountWithTax: 0 });
                 }
                 const t = taxesMap.get(taxId);
                 t.taxAmount += taxAmount;
@@ -1995,6 +2011,11 @@ export default function POSPage() {
         result = await createInvoice.mutateAsync(invoiceData as any);
       }
 
+      // Keep the offline sequence cache aligned after a successful online sale.
+      runOnIdle(() =>
+        refreshCachedFiscalSequence(companyId).catch(() => {}),
+      );
+
       // Save successful online sale to offline sales history for reprinting
       try {
         const { addSalesHistory } = await import("@/lib/offline-db");
@@ -2085,7 +2106,7 @@ export default function POSPage() {
           if (isFiscalized) {
             try {
               const zimraConfig = await getCachedZimraConfig(companyId);
-              const fiscalSequence = await getCachedFiscalSequence(companyId);
+              const fiscalSequence = await refreshCachedFiscalSequence(companyId);
               if (zimraConfig?.zimraPrivateKey && fiscalSequence) {
                 const nextGlobalNo = fiscalSequence.lastReceiptGlobalNo + 1;
                 const nextDailyCount = fiscalSequence.dailyReceiptCount + 1;
@@ -2102,7 +2123,7 @@ export default function POSPage() {
                   const salesWithTax = taxInclusive ? lineTotal : lineTotal + taxAmount;
                   
                   if (!taxesMap.has(taxId)) {
-                    taxesMap.set(taxId, { taxID: taxId, taxPercent: taxRate, taxAmount: 0, salesAmountWithTax: 0 });
+                    taxesMap.set(taxId, { taxID: taxId, taxCode: resolveTaxCode(taxId), taxPercent: taxRate, taxAmount: 0, salesAmountWithTax: 0 });
                   }
                   const t = taxesMap.get(taxId);
                   t.taxAmount += taxAmount;

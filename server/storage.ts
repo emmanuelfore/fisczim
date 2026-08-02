@@ -1324,6 +1324,7 @@ export class DatabaseStorage implements IStorage {
         taxRate: products.taxRate,
         taxCode: taxTypes.code,
         category: products.category,
+        ownerGroup: products.ownerGroup,
         productType: products.productType,
         stockLevel: products.stockLevel,
         hsCode: products.hsCode,

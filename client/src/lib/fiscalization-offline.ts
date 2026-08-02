@@ -60,6 +60,20 @@ export function calculateVerificationCode(signature: string): string {
 }
 
 /**
+ * Resolves the ZIMRA taxCode for a taxID using the same mapping as the
+ * server's prepareReceipt (server/zimra.ts). The taxCode is part of the
+ * canonical signature string (spec 13.2.1) — omitting it makes the device
+ * signature mismatch and ZIMRA rejects the receipt with RCPT020.
+ */
+export function resolveTaxCode(taxID: number): string {
+    if (taxID === 3) return 'A'; // Standard
+    if (taxID === 2) return 'B'; // Zero Rated
+    if (taxID === 1) return 'C'; // Exempt
+    if (taxID === 4) return 'E'; // Other
+    return 'A'; // Fallback
+}
+
+/**
  * Generates the offline signature and sequence numbers for an invoice.
  */
 export function generateOfflineFiscalData(params: {
@@ -83,7 +97,10 @@ export function generateOfflineFiscalData(params: {
         }
         const amount = Math.round(t.taxAmount * 100);
         const sales = Math.round(t.salesAmountWithTax * 100);
-        return `${percentStr}${amount}${sales}`;
+        // ZIMRA spec 13.2.1: taxCode || taxPercent || taxAmount || salesAmountWithTax.
+        // The server always assigns a taxCode to the payload taxes, so ZIMRA
+        // recomputes the canonical hash WITH the taxCode.
+        return `${t.taxCode || resolveTaxCode(t.taxID)}${percentStr}${amount}${sales}`;
     }).join('');
 
     const rType = receiptData.receiptType.toUpperCase();

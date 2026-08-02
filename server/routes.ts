@@ -1536,6 +1536,7 @@ export async function registerRoutes(
 
       const taxTypesList = await storage.getTaxTypes(targetCompanyId);
       const categoriesList = await storage.getProductCategories(targetCompanyId);
+      const costCentersList = await storage.getCostCenters(targetCompanyId);
 
       for (const [index, row] of records.entries()) {
         try {
@@ -1576,28 +1577,43 @@ export async function registerRoutes(
           // Run auto-classifier on product name
           const classification = classifyProduct(name || "");
 
-          // Resolve Tax Type ID and Rate
-          let taxTypeId: number | undefined;
+          // Filter ZIMRA taxes (prefer those with zimraTaxId)
+          const activeTaxes = taxTypesList.filter(t => t.isActive !== false);
+          const zimraTaxes = activeTaxes.filter(t => t.zimraTaxId != null);
+          const searchTaxes = zimraTaxes.length > 0 ? zimraTaxes : activeTaxes;
           
-          // Apply smart defaults from classification
-          let taxRateValue = classification.isZeroRated ? "0.00" : "15.50";
+          // Find system default tax IDs based on FDMS sync if available
+          const defaultStandardTaxObj = searchTaxes.find(t => t.zimraTaxId === '3' || t.zimraCode === 'C' || t.rate.toString() === "15.00" || t.rate.toString() === "15.5" || t.rate.toString() === "15.50");
+          const defaultZeroTaxObj = searchTaxes.find(t => t.zimraTaxId === '2' || t.zimraTaxId === '1' || t.zimraCode === 'A' || t.zimraCode === 'E' || t.rate.toString() === "0" || t.rate.toString() === "0.00");
           
-          // Find system default tax IDs based on classification rate
-          const defaultStandardTax = taxTypesList.find(t => t.rate.toString() === "15.5" || t.rate.toString() === "15.50")?.id || 188;
-          const defaultZeroTax = taxTypesList.find(t => t.rate.toString() === "0" || t.rate.toString() === "0.00")?.id || 175;
-          taxTypeId = classification.isZeroRated ? defaultZeroTax : defaultStandardTax;
+          const defaultStandardTax = defaultStandardTaxObj?.id || 188;
+          const defaultZeroTax = defaultZeroTaxObj?.id || 175;
+
+          const defaultTaxObj = classification.isZeroRated ? (defaultZeroTaxObj || activeTaxes.find(t => t.id === defaultZeroTax)) : (defaultStandardTaxObj || activeTaxes.find(t => t.id === defaultStandardTax));
+          
+          let taxTypeId = defaultTaxObj?.id;
+          let taxRateValue = defaultTaxObj?.rate?.toString() || (classification.isZeroRated ? "0.00" : "15.00");
 
           if (taxTypeHeader && (row as any)[taxTypeHeader]) {
             const rawTaxType = (row as any)[taxTypeHeader]?.toString().trim().toUpperCase();
             
             // Map standardized types to internal codes
             let lookupCode = rawTaxType;
-            if (rawTaxType === 'EXEMPT') lookupCode = 'EXE';
+            if (rawTaxType === 'EXEMPT' || rawTaxType === 'NON' || rawTaxType === 'ZERO') lookupCode = 'EXE';
+            if (rawTaxType === 'VAT') lookupCode = 'STD';
             
-            const matchedTax = taxTypesList.find(t => t.code.toUpperCase() === lookupCode || t.name.toUpperCase() === rawTaxType);
+            const matchedTax = searchTaxes.find(t => t.code.toUpperCase() === lookupCode || t.name.toUpperCase() === rawTaxType)
+              || activeTaxes.find(t => t.code.toUpperCase() === lookupCode || t.name.toUpperCase() === rawTaxType);
+              
             if (matchedTax) {
               taxTypeId = matchedTax.id;
               taxRateValue = matchedTax.rate.toString();
+            } else if (rawTaxType === 'VAT' || rawTaxType === 'STD') {
+              taxTypeId = defaultStandardTax;
+              if (defaultStandardTaxObj) taxRateValue = defaultStandardTaxObj.rate.toString();
+            } else if (rawTaxType === 'EXEMPT' || rawTaxType === 'NON' || rawTaxType === 'ZERO') {
+              taxTypeId = defaultZeroTax;
+              if (defaultZeroTaxObj) taxRateValue = defaultZeroTaxObj.rate.toString();
             }
           }
 
@@ -1607,6 +1623,20 @@ export async function registerRoutes(
           const ownerGroupValue = ownerGroupValueRaw !== null && ownerGroupValueRaw !== undefined
             ? ownerGroupValueRaw.toString().trim()
             : "";
+
+          if (ownerGroupValue.length > 0) {
+            const existingCostCenter = costCentersList.find(c => c.name.toLowerCase() === ownerGroupValue.toLowerCase());
+            if (!existingCostCenter) {
+              const newCostCenter = await storage.createCostCenter({
+                name: ownerGroupValue,
+                code: ownerGroupValue.substring(0, 5).toUpperCase() + Math.floor(Math.random() * 1000).toString(),
+                companyId: targetCompanyId,
+                isActive: true
+              });
+              costCentersList.push(newCostCenter);
+            }
+          }
+
           if (categoryName && categoryName !== "") {
             const existingCat = categoriesList.find(c => c.name.toLowerCase() === categoryName.toLowerCase());
             if (!existingCat) {
@@ -1715,7 +1745,7 @@ export async function registerRoutes(
       const products = await storage.getProductsForExport(companyId);
 
       // Construct CSV
-      const headers = ["Name", "Description", "SKU", "Barcode", "Brand", "OEM Part No", "Supplier Part No", "Vehicle Fitment", "Serial Tracking", "Warranty Months", "Price", "Cost Price", "Tax Rate", "Tax Type", "Type", "Stock", "HS Code", "Category", "Track Inventory"];
+      const headers = ["Name", "Description", "SKU", "Barcode", "Brand", "OEM Part No", "Supplier Part No", "Vehicle Fitment", "Serial Tracking", "Warranty Months", "Price", "Cost Price", "Tax Rate", "Tax Type", "Type", "Stock", "HS Code", "Category", "Cost Center", "Track Inventory"];
       const rows = products.map(p => [
         p.name,
         p.description || "",
@@ -1735,6 +1765,7 @@ export async function registerRoutes(
         p.stockLevel || "0.00",
         p.hsCode || "0000.00.00",
         p.category || "General",
+        p.ownerGroup || "",
         p.isTracked ? "Yes" : "No"
       ]);
 
@@ -2775,6 +2806,27 @@ export async function registerRoutes(
     } catch (err: any) {
       console.error("Sequence Report Error:", err);
       res.status(500).json({ message: "Failed to generate sequence report" });
+    }
+  });
+
+  // Lightweight live fiscal sequence — the POS refreshes its offline
+  // sequence cache from this endpoint so offline claims never go stale.
+  app.get("/api/companies/:id/zimra/sequence", requireAuthOrApiKey, async (req, res) => {
+    try {
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
+      const company = await storage.getCompany(companyId);
+      if (!company) return res.status(404).json({ message: "Company not found" });
+
+      res.json({
+        lastReceiptGlobalNo: company.lastReceiptGlobalNo || 0,
+        dailyReceiptCount: company.dailyReceiptCount || 0,
+        lastFiscalHash: company.lastFiscalHash || null,
+        currentFiscalDayNo: company.currentFiscalDayNo || 0,
+        fiscalDayOpen: company.fiscalDayOpen,
+      });
+    } catch (err: any) {
+      console.error("Fiscal Sequence Error:", err);
+      res.status(500).json({ message: "Failed to fetch fiscal sequence" });
     }
   });
 

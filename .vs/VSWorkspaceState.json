@@ -1,7 +1,8 @@
 {
   "ExpandedNodes": [
-    ""
+    "",
+    "\\server"
   ],
-  "SelectedNode": "\\package.json",
+  "SelectedNode": "\\server\\zimra.ts",
   "PreviewInSolutionExplorer": false
 }

@@ -709,7 +709,7 @@ export default function InvoiceDetailsPage() {
                       </Button>
                     )}
                   {!isPaid &&
-                    ["issued", "fiscalized"].includes(invoice.status || "") && (
+                    ["issued", "fiscalized", "partial"].includes(invoice.status || "") && (
                       <Button
                         variant="outline"
                         size="sm"
@@ -1017,7 +1017,7 @@ export default function InvoiceDetailsPage() {
                           </div>
                         </div>
                         {!isPaid &&
-                          ["issued", "fiscalized"].includes(
+                          ["issued", "fiscalized", "partial"].includes(
                             invoice.status || "",
                           ) && (
                             <Button
@@ -1143,7 +1143,7 @@ export default function InvoiceDetailsPage() {
                                 Receipt history
                               </p>
                               {!isPaid &&
-                                ["issued", "fiscalized"].includes(
+                                ["issued", "fiscalized", "partial"].includes(
                                   invoice.status || "",
                                 ) && (
                                   <Button

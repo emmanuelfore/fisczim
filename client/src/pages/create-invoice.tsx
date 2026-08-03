@@ -1736,13 +1736,13 @@ export default function CreateInvoicePage() {
                           <TableHead className="pl-4">
                             Item & Description
                           </TableHead>
-                          <TableHead className="w-[100px]">
+                          {/* <TableHead className="w-[100px]">
                             Segment
-                          </TableHead>
+                          </TableHead> */}
                           <TableHead className="w-[140px] text-center">
                             Qty
                           </TableHead>
-                          <TableHead className="w-[220px] text-right">
+                          <TableHead className="w-[320px] text-right">
                             Price
                           </TableHead>
                           <TableHead className="w-[100px] text-right">
@@ -2056,7 +2056,7 @@ export default function CreateInvoicePage() {
                                     )}
                                   </div>
                                 </TableCell>
-                                <TableCell className="align-top py-3">
+                                {/* <TableCell className="align-top py-3">
                                   <Select
                                     value={item.segmentId?.toString() || "none"}
                                     onValueChange={(val) =>
@@ -2075,7 +2075,7 @@ export default function CreateInvoicePage() {
                                       ))}
                                     </SelectContent>
                                   </Select>
-                                </TableCell>
+                                </TableCell> */}
                                 <TableCell className="align-top py-3">
                                   <QuantityInput
                                     type="number"

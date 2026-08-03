@@ -4399,12 +4399,15 @@ export default function POSPage() {
                   onValueChange={setSelectedCustomerId}
                 >
                   <SelectTrigger
-                    className="w-9 h-8 border-none bg-transparent hover:bg-slate-200/30 transition-all font-bold text-slate-700 px-1"
+                    className="h-8 border-none bg-transparent hover:bg-slate-200/30 transition-all font-bold text-slate-700 px-2 flex items-center gap-1.5"
                     title="Select Customer"
                   >
-                    <div className="flex items-center justify-center shrink-0">
-                      <User className="h-4 w-4 text-slate-500 md:text-slate-400 shrink-0" />
-                    </div>
+                    <User className="h-4 w-4 text-slate-500 shrink-0" />
+                    <span className="truncate text-xs max-w-[80px]">
+                      {resolvedCustomers
+                        ?.find((c: any) => c.id.toString() === selectedCustomerId)
+                        ?.name.split(" ")[0] || "Guest"}
+                    </span>
                   </SelectTrigger>
                   <SelectContent className="rounded-xl border-slate-200 shadow-2xl">
                     {resolvedCustomers?.map((c: any) => (
@@ -5189,6 +5192,14 @@ export default function POSPage() {
                         placeholder="Enter payment"
                         value={paidAmount}
                         onChange={(e) => setPaidAmount(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === "F10") {
+                            e.preventDefault();
+                            if (!isProcessing && (paymentMethod === "CREDIT" || paidAmount || splitPayments.length > 0)) {
+                              processOrder();
+                            }
+                          }
+                        }}
                         className="h-10 sm:h-12 pl-8 pr-8 text-2xl sm:text-3xl font-black bg-transparent border-none text-slate-900 text-center shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-slate-100"
                       />
                       {paidAmount && (

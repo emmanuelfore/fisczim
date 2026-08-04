@@ -101,13 +101,28 @@ export function buildCompanyTaxMapping(
     if (!Number.isNaN(explicitId)) {
       const live = liveTaxes.find((l) => l.taxID === explicitId);
       if (!live) {
-        status = "missing";
-        resolvedTaxId = explicitId;
-        issues.push({
-          code: "TAX_LIVE_MISSING",
-          severity: "error",
-          message: `Tax type "${t.name}" (${rate}%) maps to ZIMRA tax ID ${explicitId} which is not on the device. Check the ZIMRA tax ID in Tax Config.`,
-        });
+        const healCandidates = (byRate.get(roundRate(rate)) || []).filter(
+          (c) => c.taxID !== explicitId,
+        );
+        if (healCandidates.length === 1) {
+          const heal = healCandidates[0];
+          resolvedTaxId = heal.taxID;
+          resolvedTaxName = heal.name;
+          status = "healed";
+          issues.push({
+            code: "TAX_ID_HEALED",
+            severity: "warning",
+            message: `Tax type "${t.name}" (${rate}%) maps to ZIMRA tax ID ${explicitId} which is not on the device; using device tax ID ${heal.taxID} (${rate}%).`,
+          });
+        } else {
+          status = "missing";
+          resolvedTaxId = explicitId;
+          issues.push({
+            code: "TAX_LIVE_MISSING",
+            severity: "error",
+            message: `Tax type "${t.name}" (${rate}%) maps to ZIMRA tax ID ${explicitId} which is not on the device, and no other device tax uniquely matches ${rate}%.`,
+          });
+        }
       } else {
         resolvedTaxId = explicitId;
         resolvedTaxName = String(live.taxName || "");
@@ -251,42 +266,12 @@ export function resolveLineTaxID(
 
   const mapped = taxTypeId ? mapping.byTaxTypeId.get(taxTypeId) : null;
   if (mapped && mapped.taxID) {
-    if (mapped.status === "ok" || mapped.status === "no-live") return { taxID: mapped.taxID, issue: null };
-    if (mapped.status === "healed") {
-      // Auto-healed to the device's rate-matching tax ID — no issue on the
-      // receipt path (the mismatch is recorded on the tax-health screen).
+    if (mapped.status === "ok" || mapped.status === "no-live" || mapped.status === "healed") {
       return { taxID: mapped.taxID, issue: null };
     }
-    if (mapped.status === "mismatch") {
-      return {
-        taxID: mapped.taxID,
-        issue: {
-          code: "TAX_PERCENT_MISMATCH",
-          severity: "error",
-          message: `Item rate ${rate}% maps to ZIMRA tax ID ${mapped.taxID} whose live percent differs. Fix the ZIMRA tax ID in Tax Config.`,
-        },
-      };
-    }
-    if (mapped.status === "missing") {
-      return {
-        taxID: mapped.taxID,
-        issue: {
-          code: "TAX_LIVE_MISSING",
-          severity: "error",
-          message: `Item maps to ZIMRA tax ID ${mapped.taxID} which is not on the device. Fix the ZIMRA tax ID in Tax Config.`,
-        },
-      };
-    }
-    if (mapped.status === "ambiguous") {
-      return {
-        taxID: mapped.taxID,
-        issue: {
-          code: "TAX_AMBIGUOUS",
-          severity: "warning",
-          message: `Rate ${rate}% matches multiple ZIMRA taxes; using tax ID ${mapped.taxID}. Set a ZIMRA tax ID on the tax type to disambiguate.`,
-        },
-      };
-    }
+    // If the local mapping is 'missing', 'mismatch', or 'ambiguous',
+    // we intentionally ignore it here and fall through to resolve
+    // the tax ID dynamically from the live ZIMRA config based on the rate.
   }
 
   const candidates = mapping.byRate.get(rounded) || [];

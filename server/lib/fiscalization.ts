@@ -807,7 +807,19 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
                         await storage.createValidationErrors(parsedValidationErrors);
                         await storage.updateInvoice(invoiceId, { validationStatus: 'invalid', fdmsStatus: 'failed' });
                     }
-                } catch (saveErr) {}
+                    
+                    const needsTaxSync = preflightErr.issues.some((issue: any) => issue.code === 'TAX_LIVE_MISSING' || issue.code === 'RCPT025');
+                    if (needsTaxSync && zimraConfig) {
+                        vLog(`[Fiscalize] Tax error detected (TAX_LIVE_MISSING or RCPT025). Auto-syncing ZIMRA taxes...`);
+                        const taxesToSync = zimraConfig.applicableTaxes || zimraConfig.taxLevels || [];
+                        if (taxesToSync.length > 0) {
+                            await storage.syncTaxTypes(company.id, taxesToSync);
+                            zimraConfigCache.delete(company.id);
+                        }
+                    }
+                } catch (saveErr) {
+                    console.error("Error handling preflight failure details:", saveErr);
+                }
             }
             throw preflightErr; // Propagate preflight errors WITHOUT locking sequence numbers
         }

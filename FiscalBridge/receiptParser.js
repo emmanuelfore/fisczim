@@ -138,7 +138,7 @@ class ReceiptParser {
             columnPriceIndex,
             columnAmountIndex,
             vatFlag: this.config.vatFlag,
-            vatA: this.config.vatA || '0.15',
+            vatA: this.config.vatA || '0.155',
             vatE: this.config.vatE || '0.00',
             taxSymbol: this.config.taxSymbol,
             nonTaxSymbol: this.config.nonTaxSymbol
@@ -168,7 +168,7 @@ class ReceiptParser {
             columnPriceIndex: parts.length - 2,
             columnAmountIndex: parts.length - 1,
             vatFlag: this.config.vatFlag,
-            vatA: this.config.vatA || '0.15',
+            vatA: this.config.vatA || '0.155',
             vatE: this.config.vatE || '0.00',
             taxSymbol: this.config.taxSymbol,
             nonTaxSymbol: this.config.nonTaxSymbol

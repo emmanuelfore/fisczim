@@ -24,10 +24,11 @@ vi.mock("../../../storage.js", () => ({
 
 vi.mock("../../../lib/fiscalization.js", () => ({
   processInvoiceFiscalization: vi.fn(),
+  getCompanyZimraConfig: vi.fn(),
 }));
 
 import { storage } from "../../../storage.js";
-import { processInvoiceFiscalization } from "../../../lib/fiscalization.js";
+import { processInvoiceFiscalization, getCompanyZimraConfig } from "../../../lib/fiscalization.js";
 import fiscalizeRouter from "../fiscalize.js";
 
 // ---------------------------------------------------------------------------
@@ -78,6 +79,10 @@ function setupDefaultMocks(authCompanyId: number) {
     receiptCounter: 1,
     fiscalDayNo: 1,
     invoiceNumber: "INV-001",
+  } as any);
+
+  vi.mocked(getCompanyZimraConfig).mockResolvedValue({
+    applicableTaxes: []
   } as any);
 }
 
@@ -176,7 +181,7 @@ describe("Pass-Through Handler — Property 3: companyId always comes from API k
             id: authCompanyId,
             name: "Auth Company",
             currency: "USD",
-            defaultTaxRate: 15,
+            defaultTaxRate: 15.5,
             defaultHsCode: "04021099",
           };
 
@@ -207,7 +212,7 @@ describe("Pass-Through Handler — Property 3: companyId always comes from API k
       id: authCompanyId,
       name: "Test Co",
       currency: "USD",
-      defaultTaxRate: 15,
+      defaultTaxRate: 15.5,
       defaultHsCode: "04021099",
     };
 
@@ -231,7 +236,7 @@ describe("Pass-Through Handler — Property 3: companyId always comes from API k
       id: authCompanyId,
       name: "Test Co",
       currency: "USD",
-      defaultTaxRate: 15,
+      defaultTaxRate: 15.5,
       defaultHsCode: "04021099",
     };
 
@@ -289,7 +294,7 @@ describe("Pass-Through Handler — Property 5: Invoice total arithmetic is alway
             id: authCompanyId,
             name: "Test Co",
             currency: "USD",
-            defaultTaxRate: 15,
+            defaultTaxRate: 15.5,
             defaultHsCode: "04021099",
           };
 
@@ -312,7 +317,7 @@ describe("Pass-Through Handler — Property 5: Invoice total arithmetic is alway
             (sum, item) => sum + expectedLineTotal(item),
             0
           );
-          const expectedTaxAmount = Math.round(expectedSubtotal * (15 / 100) * 100) / 100;
+          const expectedTaxAmount = Math.round(expectedSubtotal * (15.5 / 100) * 100) / 100;
           const expectedTotal = parseFloat((expectedSubtotal + expectedTaxAmount).toFixed(2));
 
           // The handler stores these as toFixed(2) strings — parse them back
@@ -340,7 +345,7 @@ describe("Pass-Through Handler — Property 5: Invoice total arithmetic is alway
       id: authCompanyId,
       name: "Test Co",
       currency: "USD",
-      defaultTaxRate: 15,
+      defaultTaxRate: 15.5,
       defaultHsCode: "04021099",
     };
 
@@ -350,11 +355,11 @@ describe("Pass-Through Handler — Property 5: Invoice total arithmetic is alway
 
     // lineTotal = 3 × 100 = 300
     // subtotal  = 300
-    // taxAmount = 300 × 15/100 = 45
+    // taxAmount = 300 × 15.5/100 = 46.5
     // total     = 345
     expect(parseFloat(createInvoiceArgs.subtotal)).toBeCloseTo(300, 2);
-    expect(parseFloat(createInvoiceArgs.taxAmount)).toBeCloseTo(45, 2);
-    expect(parseFloat(createInvoiceArgs.total)).toBeCloseTo(345, 2);
+    expect(parseFloat(createInvoiceArgs.taxAmount)).toBeCloseTo(46.5, 2);
+    expect(parseFloat(createInvoiceArgs.total)).toBeCloseTo(346.5, 2);
   });
 
   /**
@@ -368,7 +373,7 @@ describe("Pass-Through Handler — Property 5: Invoice total arithmetic is alway
       id: authCompanyId,
       name: "Test Co",
       currency: "USD",
-      defaultTaxRate: 15,
+      defaultTaxRate: 15.5,
       defaultHsCode: "04021099",
     };
 
@@ -380,12 +385,12 @@ describe("Pass-Through Handler — Property 5: Invoice total arithmetic is alway
       ],
     });
 
-    // subtotal  = 400 (all items STANDARD at 15%, tax rounded once per bucket)
-    // taxAmount = round(400 × 0.15) = 60
+    // subtotal  = 400 (all items STANDARD at 15.5%, tax rounded once per bucket)
+    // taxAmount = round(400 × 0.155) = 62
     // total     = 460
     expect(parseFloat(createInvoiceArgs.subtotal)).toBeCloseTo(400, 2);
-    expect(parseFloat(createInvoiceArgs.taxAmount)).toBeCloseTo(60, 2);
-    expect(parseFloat(createInvoiceArgs.total)).toBeCloseTo(460, 2);
+    expect(parseFloat(createInvoiceArgs.taxAmount)).toBeCloseTo(62, 2);
+    expect(parseFloat(createInvoiceArgs.total)).toBeCloseTo(462, 2);
   });
 });
 
@@ -410,7 +415,7 @@ describe("Pass-Through Handler — Property 6: Item defaults are applied when op
    * And when company has no defaultHsCode, the handler succeeds (hsCode
    * resolves to "04021099" internally, though not stored in createInvoice items).
    */
-  test("items without taxRate use company.defaultTaxRate; fallback to 15 when company has no default", async () => {
+  test("items without taxRate use company.defaultTaxRate; fallback to 15.5.5 when company has no default", async () => {
     await fc.assert(
       fc.asyncProperty(
         // Arbitrary company defaultTaxRate (0–100)
@@ -463,7 +468,7 @@ describe("Pass-Through Handler — Property 6: Item defaults are applied when op
    * When company has no defaultTaxRate (undefined/null), items without taxRate
    * must fall back to 15%.
    */
-  test("items without taxRate fall back to 15% when company has no defaultTaxRate", async () => {
+  test("items without taxRate fall back to 15.5% when company has no defaultTaxRate", async () => {
     await fc.assert(
       fc.asyncProperty(
         fc.array(
@@ -497,9 +502,9 @@ describe("Pass-Through Handler — Property 6: Item defaults are applied when op
           expect(statusCode).toBe(200);
           expect(createInvoiceArgs).not.toBeNull();
 
-          // Every item must use the 15% fallback
+          // Every item must use the 15.5% fallback
           for (const storedItem of createInvoiceArgs.items) {
-            expect(parseFloat(storedItem.taxRate)).toBeCloseTo(15, 5);
+            expect(parseFloat(storedItem.taxRate)).toBeCloseTo(15.5, 5);
           }
         }
       ),
@@ -536,7 +541,7 @@ describe("Pass-Through Handler — Property 6: Item defaults are applied when op
             id: authCompanyId,
             name: "HS Test Co",
             currency: "USD",
-            defaultTaxRate: 15,
+            defaultTaxRate: 15.5,
             defaultHsCode,
           };
 
@@ -601,7 +606,7 @@ describe("Pass-Through Handler — Property 6: Item defaults are applied when op
   /**
    * Sanity check: item without taxRate and company with no default uses 15%.
    */
-  test("item without taxRate and no company default uses 15%", async () => {
+  test("item without taxRate and no company default uses 15.5%", async () => {
     const authCompanyId = 12;
     setupDefaultMocks(authCompanyId);
 
@@ -618,7 +623,7 @@ describe("Pass-Through Handler — Property 6: Item defaults are applied when op
     });
 
     expect(statusCode).toBe(200);
-    expect(parseFloat(createInvoiceArgs.items[0].taxRate)).toBeCloseTo(15, 5);
+    expect(parseFloat(createInvoiceArgs.items[0].taxRate)).toBeCloseTo(15.5, 5);
   });
 });
 
@@ -658,7 +663,7 @@ describe("Pass-Through Handler — Property 7: Buyer info stored inline on invoi
             id: authCompanyId,
             name: "Test Co",
             currency: "USD",
-            defaultTaxRate: 15,
+            defaultTaxRate: 15.5,
             defaultHsCode: "04021099",
           };
 
@@ -717,7 +722,7 @@ describe("Pass-Through Handler — Property 7: Buyer info stored inline on invoi
             id: authCompanyId,
             name: "Test Co",
             currency: "USD",
-            defaultTaxRate: 15,
+            defaultTaxRate: 15.5,
             defaultHsCode: "04021099",
           };
 
@@ -751,7 +756,7 @@ describe("Pass-Through Handler — Property 7: Buyer info stored inline on invoi
       id: authCompanyId,
       name: "Test Co",
       currency: "USD",
-      defaultTaxRate: 15,
+      defaultTaxRate: 15.5,
       defaultHsCode: "04021099",
     };
 
@@ -783,7 +788,7 @@ describe("Pass-Through Handler — Property 7: Buyer info stored inline on invoi
       id: authCompanyId,
       name: "Test Co",
       currency: "USD",
-      defaultTaxRate: 15,
+      defaultTaxRate: 15.5,
       defaultHsCode: "04021099",
     };
 
@@ -829,7 +834,7 @@ describe("Pass-Through Handler — Property 12: Fiscalization failure returns 42
             id: authCompanyId,
             name: "Test Co",
             currency: "USD",
-            defaultTaxRate: 15,
+            defaultTaxRate: 15.5,
             defaultHsCode: "04021099",
           };
 

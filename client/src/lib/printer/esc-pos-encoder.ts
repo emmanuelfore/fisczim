@@ -93,8 +93,9 @@ export class EscPosEncoder {
    * Uses the GS ( k command
    */
   qrcode(data: string, size: number = 6): this {
-    const pL = (data.length + 3) % 256;
-    const pH = Math.floor((data.length + 3) / 256);
+    const safeData = String(data || "");
+    const pL = (safeData.length + 3) % 256;
+    const pH = Math.floor((safeData.length + 3) / 256);
 
     // 1. Function 167: Set QR Model
     this.buffer.push(0x1d, 0x28, 0x6b, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00);
@@ -104,7 +105,7 @@ export class EscPosEncoder {
 
     // 3. Function 180: Store data
     this.buffer.push(0x1d, 0x28, 0x6b, pL, pH, 0x31, 0x50, 0x30);
-    const bytes = this.encoder.encode(data);
+    const bytes = this.encoder.encode(safeData);
     this.buffer.push(...Array.from(bytes));
 
     // 4. Function 181: Print QR from symbol storage
@@ -137,9 +138,10 @@ export class EscPosEncoder {
 
   /** Print a two-column row with padding */
   tableRow(left: string, right: string, width: number = 32): this {
-    const safeRight = right.length > width ? right.substring(0, width) : right;
+    const safeR = String(right ?? "");
+    const safeRight = safeR.length > width ? safeR.substring(0, width) : safeR;
     const leftRoom = width - safeRight.length - 1;
-    let label = left;
+    let label = String(left ?? "");
     if (leftRoom <= 0) {
       label = "";
     } else if (label.length > leftRoom && leftRoom <= 3) {

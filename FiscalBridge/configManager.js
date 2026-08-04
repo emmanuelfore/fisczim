@@ -167,7 +167,7 @@ class ConfigManager {
      * Set VAT rates
      */
     setVatRates(vatA, vatB, vatC, vatD, vatE, vatF) {
-        this.config.vatA = vatA || '0.15';
+        this.config.vatA = vatA || '0.155';
         this.config.vatB = vatB || '0';
         this.config.vatC = vatC || '0';
         this.config.vatD = vatD || '0';

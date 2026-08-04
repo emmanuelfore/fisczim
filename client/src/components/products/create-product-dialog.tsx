@@ -82,7 +82,7 @@ export function CreateProductDialog({
       ownerGroup: "",
       price: "0.00",
       costPrice: "0.00",
-      taxRate: "15.00",
+      taxRate: "15.50",
       taxCategoryId: undefined, // Will be set by select
       brandName: "",
       oemPartNumber: "",

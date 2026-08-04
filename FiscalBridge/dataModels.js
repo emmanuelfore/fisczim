@@ -220,7 +220,7 @@ class DeviceStatus {
 class FiscalConfig {
     constructor() {
         this.vatFlag = '1';
-        this.vatA = '0.15';
+        this.vatA = '0.155';
         this.vatB = '0';
         this.vatC = '0';
         this.vatD = '0';

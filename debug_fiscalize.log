@@ -2569,3 +2569,24 @@
         Calculated NextGlobalNo: 76
         Calculated NextReceiptCounter: 1
         --------------------------------
+[2026-08-04T08:02:12.263Z] Invoice 12138
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 26
+        Calculated NextReceiptCounter: 26
+        --------------------------------
+[2026-08-04T08:23:53.178Z] Invoice 12145
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 704
+        Calculated NextReceiptCounter: 343
+        --------------------------------
+[2026-08-04T09:03:01.184Z] Invoice 12143
+        Existing GlobalNo: null
+        Existing ReceiptCounter: null
+        ZimraSync: undefined
+        Calculated NextGlobalNo: 31
+        Calculated NextReceiptCounter: 1
+        --------------------------------

@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { apiFetch } from "@/lib/api";
 import { useCompanies } from "@/hooks/use-companies";
 import { Layout } from "@/components/layout";
 import { format } from "date-fns";
@@ -66,16 +67,20 @@ export default function ApiLogs() {
   const {
     data: logs,
     isLoading,
+    isError,
+    error,
     refetch,
   } = useQuery({
     queryKey: ["/api/companies", companyId, "api-logs"],
     queryFn: async () => {
       if (!companyId) return [];
-      const res = await fetch(
+      const res = await apiFetch(
         `/api/companies/${companyId}/api-logs?limit=500`,
-        { credentials: "include" },
       );
-      if (!res.ok) throw new Error("Failed to fetch API logs");
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Failed to fetch API logs: ${res.status} ${res.statusText} ${text}`);
+      }
       return res.json();
     },
     enabled: !!companyId,
@@ -213,6 +218,12 @@ export default function ApiLogs() {
                     <TableRow>
                       <TableCell colSpan={5} className="text-center py-8">
                         Loading API logs...
+                      </TableCell>
+                    </TableRow>
+                  ) : isError ? (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-center py-8 text-red-500">
+                        Error loading logs: {error instanceof Error ? error.message : "Unknown error"}
                       </TableCell>
                     </TableRow>
                   ) : filteredLogs.length === 0 ? (

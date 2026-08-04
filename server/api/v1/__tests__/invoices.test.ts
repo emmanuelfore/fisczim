@@ -75,8 +75,8 @@ function mockInvoice(overrides: Record<string, any> = {}) {
     dueDate: new Date(),
     currency: "USD",
     subtotal: "100.00",
-    taxAmount: "15.00",
-    total: "115.00",
+    taxAmount: "15.50",
+    total: "115.50",
     fiscalCode: null,
     qrCodeData: null,
     receiptGlobalNo: null,
@@ -172,7 +172,7 @@ describe("Invoices Router — Property 3: companyId always comes from API key, n
             id: authCompanyId,
             name: "Auth Company",
             currency: "USD",
-            defaultTaxRate: 15,
+            defaultTaxRate: 15.5,
           };
 
           let capturedArgs: any = null;
@@ -197,7 +197,7 @@ describe("Invoices Router — Property 3: companyId always comes from API key, n
 
   test("createInvoice companyId matches req.company.id even when body has same companyId", async () => {
     const authCompanyId = 42;
-    const authCompany = { id: authCompanyId, name: "Test Co", currency: "USD", defaultTaxRate: 15 };
+    const authCompany = { id: authCompanyId, name: "Test Co", currency: "USD", defaultTaxRate: 15.5 };
 
     let capturedArgs: any = null;
     vi.mocked(storage.getNextInvoiceNumber).mockResolvedValue("INV-001");
@@ -388,7 +388,7 @@ describe("Invoices Router — Property 5: Invoice total arithmetic is always cor
             id: authCompanyId,
             name: "Test Co",
             currency: "USD",
-            defaultTaxRate: 15,
+            defaultTaxRate: 15.5,
           };
 
           let capturedArgs: any = null;
@@ -427,7 +427,7 @@ describe("Invoices Router — Property 5: Invoice total arithmetic is always cor
 
   test("single item: subtotal, taxAmount, total are computed correctly", async () => {
     const authCompanyId = 7;
-    const authCompany = { id: authCompanyId, name: "Test Co", currency: "USD", defaultTaxRate: 15 };
+    const authCompany = { id: authCompanyId, name: "Test Co", currency: "USD", defaultTaxRate: 15.5 };
 
     let capturedArgs: any = null;
     vi.mocked(storage.getNextInvoiceNumber).mockResolvedValue("INV-001");
@@ -437,18 +437,18 @@ describe("Invoices Router — Property 5: Invoice total arithmetic is always cor
     });
 
     await dispatch("POST", "/", authCompany, {
-      items: [{ description: "Widget", quantity: 3, unitPrice: 100, taxRate: 15 }],
+      items: [{ description: "Widget", quantity: 3, unitPrice: 100, taxRate: 15.5 }],
     });
 
     // lineTotal=300, subtotal=300, taxAmount=45, total=345
     expect(parseFloat(capturedArgs.subtotal)).toBeCloseTo(300, 2);
-    expect(parseFloat(capturedArgs.taxAmount)).toBeCloseTo(45, 2);
-    expect(parseFloat(capturedArgs.total)).toBeCloseTo(345, 2);
+    expect(parseFloat(capturedArgs.taxAmount)).toBeCloseTo(46.5, 2);
+    expect(parseFloat(capturedArgs.total)).toBeCloseTo(346.5, 2);
   });
 
   test("multiple items with mixed tax rates: totals are computed correctly", async () => {
     const authCompanyId = 8;
-    const authCompany = { id: authCompanyId, name: "Test Co", currency: "USD", defaultTaxRate: 15 };
+    const authCompany = { id: authCompanyId, name: "Test Co", currency: "USD", defaultTaxRate: 15.5 };
 
     let capturedArgs: any = null;
     vi.mocked(storage.getNextInvoiceNumber).mockResolvedValue("INV-001");
@@ -459,7 +459,7 @@ describe("Invoices Router — Property 5: Invoice total arithmetic is always cor
 
     await dispatch("POST", "/", authCompany, {
       items: [
-        { description: "A", quantity: 2, unitPrice: 50, taxRate: 15 },  // lineTotal=100, tax=15
+        { description: "A", quantity: 2, unitPrice: 50, taxRate: 15.5 },  // lineTotal=100, tax=15.5
         { description: "B", quantity: 1, unitPrice: 200, taxRate: 0 },  // lineTotal=200, tax=0
         { description: "C", quantity: 4, unitPrice: 25, taxRate: 10 },  // lineTotal=100, tax=10
       ],
@@ -467,8 +467,8 @@ describe("Invoices Router — Property 5: Invoice total arithmetic is always cor
 
     // subtotal=400, taxAmount=25, total=425
     expect(parseFloat(capturedArgs.subtotal)).toBeCloseTo(400, 2);
-    expect(parseFloat(capturedArgs.taxAmount)).toBeCloseTo(25, 2);
-    expect(parseFloat(capturedArgs.total)).toBeCloseTo(425, 2);
+    expect(parseFloat(capturedArgs.taxAmount)).toBeCloseTo(25.5, 2);
+    expect(parseFloat(capturedArgs.total)).toBeCloseTo(425.5, 2);
   });
 });
 
@@ -506,7 +506,7 @@ describe("Invoices Router — Property 10: productId causes tax and HS code to b
             id: authCompanyId,
             name: "Test Co",
             currency: "USD",
-            defaultTaxRate: 15,
+            defaultTaxRate: 15.5,
           };
 
           const productId = 42;
@@ -550,7 +550,7 @@ describe("Invoices Router — Property 10: productId causes tax and HS code to b
 
   test("hsCode in stored item comes from product record when productId is provided", async () => {
     const authCompanyId = 5;
-    const authCompany = { id: authCompanyId, name: "Test Co", currency: "USD", defaultTaxRate: 15 };
+    const authCompany = { id: authCompanyId, name: "Test Co", currency: "USD", defaultTaxRate: 15.5 };
     const productId = 10;
 
     mockDbChain._result = [{
@@ -578,7 +578,7 @@ describe("Invoices Router — Property 10: productId causes tax and HS code to b
 
   test("returns 400 when productId references a product not found", async () => {
     const authCompanyId = 6;
-    const authCompany = { id: authCompanyId, name: "Test Co", currency: "USD", defaultTaxRate: 15 };
+    const authCompany = { id: authCompanyId, name: "Test Co", currency: "USD", defaultTaxRate: 15.5 };
 
     // db returns empty array — product not found
     mockDbChain._result = [];

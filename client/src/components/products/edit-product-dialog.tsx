@@ -83,7 +83,7 @@ export function EditProductDialog({ product, trigger, children }: Props) {
       ownerGroup: product.ownerGroup || "",
       price: product.price?.toString() || "0.00",
       costPrice: product.costPrice?.toString() || "0.00",
-      taxRate: product.taxRate?.toString() || "15.00",
+      taxRate: product.taxRate?.toString() || "15.50",
       taxCategoryId: product.taxCategoryId,
       isActive: product.isActive,
       isTracked: product.isTracked,

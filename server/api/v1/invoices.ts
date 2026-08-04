@@ -96,7 +96,7 @@ router.post("/", async (req, res) => {
         });
       }
 
-      taxRate = parseFloat(product.taxRate ?? "15");
+      taxRate = parseFloat(product.taxRate ?? "15.5");
       hsCode = product.hsCode ?? null;
 
       // Background lookup for HS Code if missing
@@ -121,8 +121,8 @@ router.post("/", async (req, res) => {
         }
       }
     } else {
-      // Use item taxRate, fall back to company default, then 15 (Req 3.4)
-      taxRate = item.taxRate ?? company.defaultTaxRate ?? 15;
+      // Use item taxRate, fall back to company default, then 15.5 (Req 3.4)
+      taxRate = item.taxRate ?? company.defaultTaxRate ?? 15.5;
       hsCode = "99999999"; // Default fallback for custom items without a product
     }
 

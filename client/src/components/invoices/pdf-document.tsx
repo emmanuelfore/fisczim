@@ -492,7 +492,7 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                         const qty = Number(item.quantity);
                         const unitPrice = Number(item.unitPrice);
                         // If company is not VAT registered, effective tax rate is 0
-                        const effectiveTaxRate = company?.vatRegistered ? Number(item.taxRate || 15) : 0;
+                        const effectiveTaxRate = company?.vatRegistered ? Number(item.taxRate || 15.5) : 0;
                         const taxRate = effectiveTaxRate;
 
                         let displayPrice = unitPrice;
@@ -511,7 +511,7 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
                         } else {
                             // Inclusive Logic: Price is Incl.
                             // Total (Incl) = Price * Qty
-                            // VAT = Total - (Total / 1.15)
+                            // VAT = Total - (Total / 1.155)
                             displayTotalIncl = unitPrice * qty; // item.lineTotal should match this
                             vatAmt = displayTotalIncl - (displayTotalIncl / (1 + taxRate / 100));
                         }

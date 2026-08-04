@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { storage } from "../../storage.js";
-import { processInvoiceFiscalization } from "../../lib/fiscalization.js";
+import { processInvoiceFiscalization, getCompanyZimraConfig } from "../../lib/fiscalization.js";
 
 const router = Router();
 
@@ -151,7 +151,7 @@ router.post("/", async (req, res) => {
   }
 
   // ── 3. Resolve company defaults and tax types ─────────────────────────────
-  const companyTaxRate  = company.defaultTaxRate ?? 15;
+  const companyTaxRate  = company.defaultTaxRate ?? 15.5;
   const companyCurrency = body.currency; // enum with default "USD"
 
   // Declared here: referenced by the branch-settings lookup below before the
@@ -169,16 +169,34 @@ router.post("/", async (req, res) => {
   // Fetch actual tax types from database for proper tax ID mapping
   const dbTaxTypes = await storage.getTaxTypes(company.id);
   
+  // Also fetch live ZIMRA config to avoid DB sync issues overriding rates
+  const zimraConfig = await getCompanyZimraConfig(company.id, company, branchSettings);
+  const liveTaxes = zimraConfig?.applicableTaxes || zimraConfig?.taxLevels || [];
+
   // Find tax types by zimraTaxId (ZIMRA standard IDs)
-  const standardTax = dbTaxTypes.find(t => t.zimraTaxId && ['4', '515'].includes(t.zimraTaxId));
-  const zeroRatedTax = dbTaxTypes.find(t => t.zimraTaxId && ['2'].includes(t.zimraTaxId));
-  const exemptTax = dbTaxTypes.find(t => t.zimraTaxId && ['1', '3'].includes(t.zimraTaxId));
+  const standardTax = dbTaxTypes.find(t => (t.zimraTaxId && ['3', '4', '515', '517'].includes(t.zimraTaxId) && Number(t.rate) > 0) || Number(t.rate) === 15.5);
+  const zeroRatedTax = dbTaxTypes.find(t => (t.zimraTaxId && ['2'].includes(t.zimraTaxId)) || (Number(t.rate) === 0 && t.name.toLowerCase().includes('zero'))) || dbTaxTypes.find(t => Number(t.rate) === 0);
+  const exemptTax = dbTaxTypes.find(t => (t.zimraTaxId && ['1', '3', '513'].includes(t.zimraTaxId) && Number(t.rate) === 0) || (Number(t.rate) === 0 && t.name.toLowerCase().includes('exempt'))) || dbTaxTypes.find(t => Number(t.rate) === 0);
+
+  let standardTaxRate = standardTax?.rate ? Number(standardTax.rate) : companyTaxRate;
+  let zeroRatedTaxRate = zeroRatedTax?.rate ? Number(zeroRatedTax.rate) : 0;
+  let exemptTaxRate = exemptTax?.rate ? Number(exemptTax.rate) : 0;
+
+  if (liveTaxes.length > 0) {
+    const std = liveTaxes.find((t: any) => (t.taxID && [3, 4, 515, 517].includes(t.taxID) && Number(t.taxPercent) > 0) || Number(t.taxPercent) === 15.5);
+    const zero = liveTaxes.find((t: any) => (t.taxID && [2].includes(t.taxID)) || (Number(t.taxPercent) === 0 && t.taxName?.toLowerCase().includes('zero'))) || liveTaxes.find((t: any) => Number(t.taxPercent) === 0);
+    const exe = liveTaxes.find((t: any) => (t.taxID && [1, 3, 513].includes(t.taxID) && Number(t.taxPercent) === 0) || (Number(t.taxPercent) === 0 && t.taxName?.toLowerCase().includes('exempt'))) || liveTaxes.find((t: any) => Number(t.taxPercent) === 0);
+
+    if (std?.taxPercent !== undefined) standardTaxRate = Number(std.taxPercent);
+    if (zero?.taxPercent !== undefined) zeroRatedTaxRate = Number(zero.taxPercent);
+    if (exe?.taxPercent !== undefined) exemptTaxRate = Number(exe.taxPercent);
+  }
 
   // taxType enum → numeric rate using database tax types
   const resolveTaxRate = (taxType: "STANDARD" | "ZERO_RATED" | "EXEMPT"): number => {
-    if (taxType === "STANDARD") return standardTax?.rate ? Number(standardTax.rate) : companyTaxRate;
-    if (taxType === "ZERO_RATED") return zeroRatedTax?.rate ? Number(zeroRatedTax.rate) : 0;
-    if (taxType === "EXEMPT") return exemptTax?.rate ? Number(exemptTax.rate) : 0;
+    if (taxType === "STANDARD") return standardTaxRate;
+    if (taxType === "ZERO_RATED") return zeroRatedTaxRate;
+    if (taxType === "EXEMPT") return exemptTaxRate;
     return companyTaxRate; // fallback
   };
 

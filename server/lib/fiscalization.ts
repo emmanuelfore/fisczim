@@ -49,6 +49,60 @@ export const getZimraLogger = (companyId: number) => ({
     }
 });
 
+export const getCompanyZimraConfig = async (companyId: number, company: any, activeBranch?: any): Promise<ZimraConfigResponse | undefined> => {
+    // Check cache first
+    const cached = zimraConfigCache.get(companyId);
+    const now = Date.now();
+    if (cached && cached.expiresAt > now) {
+        return cached.config;
+    }
+
+    let fiscalConfig = { ...company };
+    if (activeBranch) {
+        fiscalConfig = {
+            ...fiscalConfig,
+            fdmsDeviceId: activeBranch.fdmsDeviceId || fiscalConfig.fdmsDeviceId,
+            fdmsDeviceSerialNo: activeBranch.fdmsDeviceSerialNo || fiscalConfig.fdmsDeviceSerialNo,
+            fdmsApiKey: activeBranch.fdmsApiKey || fiscalConfig.fdmsApiKey,
+            zimraPrivateKey: activeBranch.zimraPrivateKey || fiscalConfig.zimraPrivateKey,
+            zimraCertificate: activeBranch.zimraCertificate || fiscalConfig.zimraCertificate,
+            zimraEnvironment: activeBranch.zimraEnvironment || fiscalConfig.zimraEnvironment
+        };
+    }
+
+    if (!fiscalConfig.zimraPrivateKey || !fiscalConfig.zimraCertificate || !fiscalConfig.fdmsDeviceId) {
+        return undefined;
+    }
+
+    const device = new ZimraDevice({
+        deviceId: fiscalConfig.fdmsDeviceId,
+        deviceSerialNo: fiscalConfig.fdmsDeviceSerialNo || "UNKNOWN",
+        activationKey: fiscalConfig.fdmsApiKey || "",
+        privateKey: fiscalConfig.zimraPrivateKey,
+        certificate: fiscalConfig.zimraCertificate,
+        baseUrl: fiscalConfig.zimraEnvironment === 'production' ? 'https://fdmsapi.zimra.co.zw' : 'https://fdmsapitest.zimra.co.zw'
+    }, getZimraLogger(companyId));
+
+    try {
+        const zimraConfig = await device.getConfig();
+        if (zimraConfig) {
+            zimraConfigCache.set(companyId, {
+                config: zimraConfig,
+                expiresAt: now + CONFIG_CACHE_TTL
+            });
+            // Auto-update QR URL if needed
+            if (zimraConfig.qrUrl && (!company.qrUrl || company.qrUrl !== zimraConfig.qrUrl)) {
+                await storage.updateCompany(companyId, { qrUrl: zimraConfig.qrUrl });
+                company.qrUrl = zimraConfig.qrUrl;
+            }
+        }
+        return zimraConfig;
+    } catch (e) {
+        console.warn(`[getCompanyZimraConfig] Failed to fetch ZIMRA config for company ${companyId}`);
+        return undefined;
+    }
+};
+
 export const processInvoiceFiscalization = async (invoiceId: number, companyId: number, userId?: number | string, isSuperAdmin: boolean = false, zimraSync?: any, isPos: boolean = false) => {
     // Retrieve full invoice with line items
     const invoice = await storage.getInvoice(invoiceId);

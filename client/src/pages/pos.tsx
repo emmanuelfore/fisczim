@@ -2554,10 +2554,9 @@ export default function POSPage() {
     return () => clearInterval(pollInterval);
   }, [pendingPrintQueue, companyId, posSettings, isInvoiceReadyForPrint]);
 
-  // Fetch available printers when settings dialog opens
+  // Fetch available printers when POS loads
   useEffect(() => {
     const fetchPrinters = async () => {
-      if (!isSettingsOpen) return;
       try {
         if (window.electronAPI) {
           const data = await window.electronAPI.getPrinters();
@@ -6893,7 +6892,7 @@ export default function POSPage() {
                     <div className="border border-slate-100 rounded-2xl overflow-hidden mt-4">
                       <div className="bg-slate-800 px-4 py-2 flex items-center justify-between">
                         <span className="text-xs font-black text-white uppercase tracking-widest">
-                          Itemized Sales ({reportData.items.length})
+                          Itemized Sales ({reportData.items?.length || 0})
                         </span>
                         <button
                           type="button"
@@ -6910,7 +6909,7 @@ export default function POSPage() {
                       </div>
                       {isItemizedExpanded && (
                         <div className="divide-y divide-slate-50 max-h-[320px] overflow-y-auto">
-                          {reportData.items.map((item: any) => (
+                          {(reportData.items || []).map((item: any) => (
                             <div
                               key={item.productId}
                               className="flex items-center justify-between px-4 py-3"

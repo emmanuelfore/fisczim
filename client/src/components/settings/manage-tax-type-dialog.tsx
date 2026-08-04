@@ -66,7 +66,7 @@ export function ManageTaxTypeDialog({ taxType, trigger }: Props) {
       code: taxType?.code || "",
       zimraCode: taxType?.zimraCode || "",
       zimraTaxId: taxType?.zimraTaxId || "",
-      rate: taxType?.rate?.toString() || "15.00",
+      rate: taxType?.rate?.toString() || "15.50",
       effectiveFrom: taxType?.effectiveFrom
         ? new Date(taxType.effectiveFrom).toISOString().split("T")[0]
         : new Date().toISOString().split("T")[0],
@@ -225,7 +225,7 @@ export function ManageTaxTypeDialog({ taxType, trigger }: Props) {
                       <Input
                         type="number"
                         step="0.01"
-                        placeholder="15.00"
+                        placeholder="15.50"
                         {...field}
                       />
                     </FormControl>

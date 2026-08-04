@@ -79,11 +79,33 @@ export function PosTerminalSettings({
   >("checking");
   const [availablePrinters, setAvailablePrinters] = useState<any[]>([]);
 
-  // Check Printer Client Connectivity
+  const fetchPrintersForGlobal = async () => {
+    try {
+      if (window.electronAPI) {
+        const printers = await window.electronAPI.getPrinters();
+        setAvailablePrinters(Array.isArray(printers) ? printers : []);
+      } else {
+        const response = await fetch(`${formData?.posSettings?.printServerUrl || "http://localhost:12312"}/printers`);
+        if (response.ok) {
+          const data = await response.json();
+          setAvailablePrinters(Array.isArray(data) ? data : []);
+        }
+      }
+    } catch (error) {
+      console.error("Failed to fetch printers:", error);
+    }
+  };
+
+  // Check Printer Client Connectivity and fetch printers
   useEffect(() => {
     const checkPrinter = async () => {
       try {
-        const res = await fetch("http://localhost:3001/ping");
+        if (window.electronAPI) {
+          setPrinterClientStatus("online");
+          return;
+        }
+        const serverUrl = formData?.posSettings?.printServerUrl || "http://localhost:12312";
+        const res = await fetch(`${serverUrl}/status`);
         if (res.ok) setPrinterClientStatus("online");
         else setPrinterClientStatus("offline");
       } catch (e) {
@@ -91,7 +113,8 @@ export function PosTerminalSettings({
       }
     };
     checkPrinter();
-  }, []);
+    fetchPrintersForGlobal();
+  }, [formData?.posSettings?.printServerUrl]);
 
   const sections = [
     { id: "terminal", label: "Identity", icon: MonitorCheck },
@@ -254,22 +277,7 @@ export function PosTerminalSettings({
     },
   });
 
-  const fetchPrintersForGlobal = async () => {
-    try {
-      if (window.electronAPI) {
-        const printers = await window.electronAPI.getPrinters();
-        setAvailablePrinters(Array.isArray(printers) ? printers : []);
-      } else {
-        const response = await fetch(`${posSettings.printServerUrl}/printers`);
-        if (response.ok) {
-          const data = await response.json();
-          setAvailablePrinters(Array.isArray(data) ? data : []);
-        }
-      }
-    } catch (error) {
-      console.error("Failed to fetch printers:", error);
-    }
-  };
+  // (fetchPrintersForGlobal moved to the top)
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-8 animate-in fade-in slide-in-from-bottom-4 duration-500">

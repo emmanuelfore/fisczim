@@ -38,6 +38,8 @@ export function usePermissions() {
     let required = NAV_PERMISSION_MAP[path];
     
     if (!required) {
+      // Walk up the path segments to find a parent mapping.
+      // e.g. /inventory/grvs/42 inherits from /inventory/grvs
       const parts = path.split('/').filter(Boolean);
       for (let i = parts.length - 1; i >= 1; i--) {
         const prefix = '/' + parts.slice(0, i).join('/');
@@ -48,7 +50,10 @@ export function usePermissions() {
       }
     }
 
-    if (!required) return true;
+    // Deny-by-default: if a path has no entry in NAV_PERMISSION_MAP (and no
+    // matching parent prefix), access is DENIED. Add the path to NAV_PERMISSION_MAP
+    // in shared/permissions.ts to explicitly grant access.
+    if (!required) return false;
     if (Array.isArray(required)) return required.some((p) => permissions.has(p));
     return permissions.has(required);
   };

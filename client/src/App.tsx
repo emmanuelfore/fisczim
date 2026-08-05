@@ -231,13 +231,16 @@ function ProtectedRoute({
   }
 
   if (!isOffline && activeCompany && !user?.isSuperAdmin) {
+    // Paths that are always accessible to any authenticated company member
     const isAllowedPath =
       isPosPath ||
       location.startsWith("/profile") ||
-      location.startsWith("/approvals") ||
-      location.startsWith("/settings");
+      location.startsWith("/subscription") ||
+      location.startsWith("/approvals");
     if (isCashier && !isAllowedPath) return <Redirect to="/pos" />;
-    if (!isAllowedPath && pathPermission && !canAccessPath(location.split("?")[0])) {
+    // canAccessPath now returns false for any path not in NAV_PERMISSION_MAP (deny-by-default).
+    // We skip the check for explicitly allowed paths above.
+    if (!isAllowedPath && !canAccessPath(location.split("?")[0])) {
       if (can("nav.pos")) return <Redirect to="/pos" />;
       if (can("nav.dashboard")) return <Redirect to="/dashboard" />;
     }

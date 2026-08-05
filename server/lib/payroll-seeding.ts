@@ -257,10 +257,6 @@ async function ensureActiveTaxTableFrom(
       effectiveFrom: yearStart,
       effectiveTo: null,
       brackets: brackets as any,
-      nssaRateEmployee: "0.0450",   // 4.5% per NSSA Act
-      nssaRateEmployer: "0.0450",   // 4.5% per NSSA Act
-      nssaCeilingLimit,
-      aidsLevyRate: "0.0300",       // 3% of PAYE per Finance Act
       isActive: true,
     });
     console.log(`[PAYROLL-SEED] Global ${currency} tax table created (${yearStart}+).`);
@@ -295,10 +291,6 @@ async function upsertGlobalTaxTable(
         effectiveFrom,
         effectiveTo,
         brackets: brackets as any,
-        nssaRateEmployee: "0.0450",   // 4.5% per NSSA Act
-        nssaRateEmployer: "0.0450",   // 4.5% per NSSA Act
-        nssaCeilingLimit,
-        aidsLevyRate: "0.0300",       // 3% of PAYE per Finance Act
         isActive: true,
       });
       console.log(`[PAYROLL-SEED] Global tax table created: ${currency}`);

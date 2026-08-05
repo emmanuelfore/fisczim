@@ -175,6 +175,39 @@ router.post("/self-service/leave", async (req, res) => {
   }
 });
 
+// DELETE /self-service/leave/:id - employee cancels their own pending leave request
+router.delete("/self-service/leave/:id", async (req, res) => {
+  const requestId = parseInt(req.params.id, 10);
+  try {
+    const companyId = getTargetCompanyId(req);
+    const userEmail = (req.user?.email || "").toLowerCase();
+    
+    // verify ownership
+    const [emp] = await db.select().from(employees)
+      .where(and(eq(employees.companyId, companyId), ilike(employees.email, userEmail)))
+      .limit(1);
+    if (!emp) return res.status(404).json({ error: "NOT_FOUND", message: "No employee record linked to this account" });
+
+    const [request] = await db.select().from(leaveRequests)
+      .where(and(eq(leaveRequests.id, requestId), eq(leaveRequests.employeeId, emp.id)))
+      .limit(1);
+
+    if (!request) return res.status(404).json({ error: "NOT_FOUND", message: "Request not found" });
+    if (request.status !== "PENDING") {
+      return res.status(400).json({ error: "STATE_ERROR", message: "Only PENDING requests can be cancelled" });
+    }
+
+    await db.delete(leaveRequests).where(eq(leaveRequests.id, requestId));
+    await auditPayroll(req, "PAYROLL_LEAVE_CANCELLED", "leave_requests", requestId, {
+      leaveType: request.leaveType,
+    });
+
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
 // PUT /self-service/profile - employee updates their own contact details
 router.put("/self-service/profile", async (req, res) => {
   const schema = z.object({
@@ -1002,10 +1035,16 @@ router.get("/employees", async (req, res) => {
 router.post("/employees", requirePayrollWrite, async (req, res) => {
   const schema = z.object({
     employeeNumber: z.string().trim().min(1),
+    title: z.string().optional().nullable(),
     firstName: z.string().trim().min(1),
     lastName: z.string().trim().min(1),
+    dateOfBirth: z.string().optional().nullable(),
+    gender: z.string().optional().nullable(),
+    maritalStatus: z.string().optional().nullable(),
     email: z.string().email().optional().nullable(),
     phone: z.string().optional().nullable(),
+    physicalAddress: z.string().optional().nullable(),
+    postalAddress: z.string().optional().nullable(),
     nationalId: z.string().trim().min(1),
     nssaNumber: z.string().optional().nullable(),
     zimraTaxNumber: z.string().optional().nullable(),
@@ -1021,6 +1060,10 @@ router.post("/employees", requirePayrollWrite, async (req, res) => {
     ecocashNumber: z.string().optional().nullable(),
     emergencyContactName: z.string().optional().nullable(),
     emergencyContactPhone: z.string().optional().nullable(),
+    nextOfKinName: z.string().optional().nullable(),
+    nextOfKinRelationship: z.string().optional().nullable(),
+    nextOfKinPhone: z.string().optional().nullable(),
+    nextOfKinAddress: z.string().optional().nullable(),
     contract: z.object({
       contractType: z.string().default("PERMANENT"),
       baseSalary: z.coerce.string(),
@@ -1118,7 +1161,12 @@ router.get("/employees/export", async (req, res) => {
       orderBy: [asc(employees.lastName), asc(employees.firstName)]
     });
 
-    const headers = ["Employee Number", "First Name", "Last Name", "National ID", "Email", "Phone", "Status", "Department", "Position", "Base Salary", "Currency", "USD %", "ZiG %", "Bank Name", "Account Number", "Ecocash Number"];
+    const headers = [
+      "Employee Number", "First Name", "Last Name", "National ID", "Email", "Phone", "Status", 
+      "Branch", "Department", "Position", "Joining Date", "NSSA Number", "ZIMRA Tax Number",
+      "Contract Type", "Pay Frequency", "Base Salary", "Currency", "USD %", "ZiG %", 
+      "Bank Name", "Bank Branch", "Account Number", "Ecocash Number"
+    ];
     const rows = list.map(emp => {
       const contract = emp.contracts?.[0];
       return [
@@ -1129,13 +1177,20 @@ router.get("/employees/export", async (req, res) => {
         emp.email || "",
         emp.phone || "",
         emp.status,
+        emp.branchId ? String(emp.branchId) : "", // Branch ID or code
         emp.department?.name || "",
         emp.position?.title || "",
+        contract?.startDate || "",
+        emp.nssaNumber || "",
+        emp.zimraTaxNumber || "",
+        contract?.contractType || "",
+        contract?.payFrequency || "",
         contract?.baseSalary || "0",
         contract?.currency || "USD",
         contract?.usdPercentage || "100",
         contract?.zigPercentage || "0",
         emp.bankName || "",
+        emp.bankBranch || "",
         emp.bankAccountNumber || "",
         emp.ecocashNumber || ""
       ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(",");
@@ -1379,9 +1434,13 @@ router.put("/employees/:id", requirePayrollWrite, async (req, res) => {
     if (!emp) return res.status(404).json({ message: "Employee not found" });
 
     const ALLOWED = [
-      "firstName", "lastName", "email", "phone", "nationalId", "nssaNumber", "zimraTaxNumber",
-      "bankName", "bankBranch", "bankAccountNumber", "ecocashNumber", "emergencyContactName",
-      "emergencyContactPhone", "status", "joiningDate", "terminationDate", "departmentId", "positionId",
+      "title", "firstName", "lastName", "dateOfBirth", "gender", "maritalStatus", 
+      "email", "phone", "physicalAddress", "postalAddress", 
+      "nationalId", "nssaNumber", "zimraTaxNumber",
+      "bankName", "bankBranch", "bankAccountNumber", "ecocashNumber", 
+      "emergencyContactName", "emergencyContactPhone", 
+      "nextOfKinName", "nextOfKinRelationship", "nextOfKinPhone", "nextOfKinAddress",
+      "status", "joiningDate", "terminationDate", "departmentId", "positionId",
     ];
 
     const updates: Record<string, unknown> = {};
@@ -1840,6 +1899,7 @@ router.get("/loans", async (req, res) => {
 router.post("/loans", requirePayrollWrite, async (req, res) => {
   const schema = z.object({
     employeeId: z.coerce.number().int(),
+    loanType: z.enum(["LOAN", "ADVANCE"]).default("LOAN"),
     principalAmount: z.coerce.string(),
     interestRate: z.coerce.string().default("0.00"),
     repaymentTermMonths: z.coerce.number().int(),
@@ -1922,10 +1982,6 @@ router.post("/tax-config", requirePayrollApproval, async (req, res) => {
       rate: z.number(),
       deduction: z.number(),
     })),
-    nssaRateEmployee: z.coerce.string().default("0.0450"),
-    nssaRateEmployer: z.coerce.string().default("0.0450"),
-    nssaCeilingLimit: z.coerce.string(),
-    aidsLevyRate: z.coerce.string().default("0.0300"),
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
@@ -2015,6 +2071,59 @@ router.post("/statutory-rules", requirePayrollApproval, async (req, res) => {
   }
 });
 
+router.patch("/statutory-rules/:id", requirePayrollApproval, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const companyId = getTargetCompanyId(req);
+
+    const [existing] = await db.select().from(payrollStatutoryRules)
+      .where(and(eq(payrollStatutoryRules.id, id), sql`${payrollStatutoryRules.companyId} = ${companyId} OR ${payrollStatutoryRules.companyId} IS NULL`));
+    
+    if (!existing) return res.status(404).json({ error: "NOT_FOUND" });
+
+    // Allow updating rates and limits, but block changing ruleCode if system locked
+    if (existing.isSystemLocked && req.body.ruleCode && req.body.ruleCode !== existing.ruleCode) {
+      return res.status(403).json({ error: "FORBIDDEN", message: "Cannot change the ruleCode of a system-locked statutory rule." });
+    }
+
+    const [updated] = await db.update(payrollStatutoryRules)
+      .set({
+        ...req.body,
+        ruleCode: existing.isSystemLocked ? existing.ruleCode : (req.body.ruleCode || existing.ruleCode),
+        companyId: existing.companyId, // ensure it doesn't change
+        isSystemLocked: existing.isSystemLocked // ensure it cannot be unlocked via API
+      })
+      .where(eq(payrollStatutoryRules.id, id))
+      .returning();
+
+    await auditPayroll(req, "PAYROLL_STATUTORY_RULE_UPDATED", "payroll_statutory_rules", id, { updatedFields: Object.keys(req.body) });
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
+router.delete("/statutory-rules/:id", requirePayrollApproval, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const companyId = getTargetCompanyId(req);
+
+    const [existing] = await db.select().from(payrollStatutoryRules)
+      .where(and(eq(payrollStatutoryRules.id, id), sql`${payrollStatutoryRules.companyId} = ${companyId} OR ${payrollStatutoryRules.companyId} IS NULL`));
+    
+    if (!existing) return res.status(404).json({ error: "NOT_FOUND" });
+    if (existing.isSystemLocked) {
+      return res.status(403).json({ error: "FORBIDDEN", message: "Cannot delete a system-locked statutory rule." });
+    }
+
+    await db.delete(payrollStatutoryRules).where(eq(payrollStatutoryRules.id, id));
+    await auditPayroll(req, "PAYROLL_STATUTORY_RULE_DELETED", "payroll_statutory_rules", id, { ruleCode: existing.ruleCode });
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
 // Edit an existing tax table configuration (isActive is not touched here)
 router.patch("/tax-config/:id", requirePayrollApproval, async (req, res) => {
   const id = parseInt(req.params.id, 10);
@@ -2030,10 +2139,6 @@ router.patch("/tax-config/:id", requirePayrollApproval, async (req, res) => {
       rate: z.number(),
       deduction: z.number(),
     })),
-    nssaRateEmployee: z.coerce.string().default("0.0450"),
-    nssaRateEmployer: z.coerce.string().default("0.0450"),
-    nssaCeilingLimit: z.coerce.string(),
-    aidsLevyRate: z.coerce.string().default("0.0300"),
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
@@ -2402,6 +2507,10 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
       // 2b. Load effective statutory rule overrides (ZIMDEF, STANDARDS_LEVY,
       // APWCS, PENSION, NSSA_POBS, AIDS_LEVY) for the run period.
       const statutoryRules = await loadEffectiveStatutoryRules(tx, companyId, parsed.data.currency, parsed.data.payFrequency, parsed.data.periodStart, parsed.data.periodEnd);
+      
+      if (!statutoryRules["AIDS_LEVY"] || !statutoryRules["NSSA_POBS"]) {
+        throw new Error("Missing required statutory rules (AIDS_LEVY or NSSA_POBS). Please configure them in the Statutory Settings before running payroll.");
+      }
 
       // 3. For each employee, fetch contract details and perform payroll calculations
       for (const emp of activeEmployees) {
@@ -2551,10 +2660,10 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
             brackets: taxConfig.brackets as TaxBracket[],
           },
           statutoryConfig: {
-            aidsLevyRate: statutoryRules["AIDS_LEVY"] ? statutoryRate(statutoryRules["AIDS_LEVY"], "employeeRate", 0.03) : parseFloat(taxConfig.aidsLevyRate),
-            nssaRateEmployee: statutoryRules["NSSA_POBS"] ? statutoryRate(statutoryRules["NSSA_POBS"], "employeeRate", 0.045) : parseFloat(taxConfig.nssaRateEmployee),
-            nssaRateEmployer: statutoryRules["NSSA_POBS"] ? statutoryRate(statutoryRules["NSSA_POBS"], "employerRate", 0.045) : parseFloat(taxConfig.nssaRateEmployer),
-            nssaCeilingLimit: statutoryRules["NSSA_POBS"]?.ceilingAmount ? Number(statutoryRules["NSSA_POBS"].ceilingAmount) : parseFloat(taxConfig.nssaCeilingLimit),
+            aidsLevyRate: statutoryRate(statutoryRules["AIDS_LEVY"], "employeeRate", 0.03),
+            nssaRateEmployee: statutoryRate(statutoryRules["NSSA_POBS"], "employeeRate", 0.045),
+            nssaRateEmployer: statutoryRate(statutoryRules["NSSA_POBS"], "employerRate", 0.045),
+            nssaCeilingLimit: Number(statutoryRules["NSSA_POBS"].ceilingAmount || 0),
             zimdefRate: statutoryRules["ZIMDEF"] ? statutoryRate(statutoryRules["ZIMDEF"], "employerRate", 0.01) : 0.01,
             standardsLevyRate: (statutoryRules["STANDARDS_LEVY"] || statutoryRules["STANDARDS"]) ? statutoryRate(statutoryRules["STANDARDS_LEVY"] || statutoryRules["STANDARDS"], "employerRate", 0.005) : 0.005,
             taxFreeBonusThreshold: 400,
@@ -2626,10 +2735,10 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
               pensionEmployeeRate,
               pensionEmployerRate,
               statutoryRatesUsed: {
-                aidsLevyRate: calcs.aidsLevy > 0 ? statutoryRules["AIDS_LEVY"]?.employeeRate ?? taxConfig.aidsLevyRate : taxConfig.aidsLevyRate,
-                nssaRateEmployee: statutoryRules["NSSA_POBS"]?.employeeRate ?? taxConfig.nssaRateEmployee,
-                nssaRateEmployer: statutoryRules["NSSA_POBS"]?.employerRate ?? taxConfig.nssaRateEmployer,
-                nssaCeilingLimit: statutoryRules["NSSA_POBS"]?.ceilingAmount ?? taxConfig.nssaCeilingLimit,
+                aidsLevyRate: statutoryRules["AIDS_LEVY"].employeeRate,
+                nssaRateEmployee: statutoryRules["NSSA_POBS"].employeeRate,
+                nssaRateEmployer: statutoryRules["NSSA_POBS"].employerRate,
+                nssaCeilingLimit: statutoryRules["NSSA_POBS"].ceilingAmount || "0.00",
                 zimdefRate: statutoryRules["ZIMDEF"]?.employerRate ?? "0.010000",
                 standardsLevyRate: (statutoryRules["STANDARDS_LEVY"] || statutoryRules["STANDARDS"])?.employerRate ?? "0.005000",
                 apwcsRate: statutoryRules["APWCS"]?.employerRate ?? null,
@@ -2946,7 +3055,28 @@ router.post("/runs/:id/reverse", requirePayrollApproval, async (req, res) => {
         }
       }
 
-      // 2. Mark the run as reversed
+      // 2. Refund Loan Installments
+      const installments = await tx.select().from(loanInstallments).innerJoin(payrollRunEmployees, eq(loanInstallments.payrollRunEmployeeId, payrollRunEmployees.id)).where(eq(payrollRunEmployees.payrollRunId, runId));
+      for (const inst of installments) {
+        const [loan] = await tx.select().from(employeeLoans).where(eq(employeeLoans.id, inst.loan_installments.loanId)).limit(1);
+        if (loan) {
+          const refundedBal = parseFloat(loan.remainingBalance) + parseFloat(inst.loan_installments.principalPaid);
+          await tx.update(employeeLoans)
+            .set({ 
+              remainingBalance: refundedBal.toFixed(2), 
+              status: refundedBal > 0.001 ? "ACTIVE" : loan.status 
+            })
+            .where(eq(employeeLoans.id, loan.id));
+        }
+      }
+      
+      // Delete the installments created by this run
+      if (installments.length > 0) {
+        const idsToDelete = installments.map(i => i.loan_installments.id);
+        await tx.delete(loanInstallments).where(inArray(loanInstallments.id, idsToDelete));
+      }
+
+      // 3. Mark the run as reversed
       await tx.update(payrollRuns)
         .set({ status: "REVERSED", updatedAt: new Date() })
         .where(eq(payrollRuns.id, runId));

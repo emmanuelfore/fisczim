@@ -2889,10 +2889,16 @@ export const employees = pgTable("employees", {
   positionId: integer("position_id").references(() => positions.id),
   
   employeeNumber: text("employee_number").notNull(), // User-facing identifier
+  title: text("title"),
   firstName: text("first_name").notNull(),
   lastName: text("last_name").notNull(),
+  dateOfBirth: date("date_of_birth"),
+  gender: text("gender"),
+  maritalStatus: text("marital_status"),
   email: text("email"),
   phone: text("phone"),
+  physicalAddress: text("physical_address"),
+  postalAddress: text("postal_address"),
   
   // Compliance identifiers
   nationalId: text("national_id").notNull(), // ID number in format: 12-345678X90
@@ -2908,6 +2914,10 @@ export const employees = pgTable("employees", {
   // Personal Details
   emergencyContactName: text("emergency_contact_name"),
   emergencyContactPhone: text("emergency_contact_phone"),
+  nextOfKinName: text("next_of_kin_name"),
+  nextOfKinRelationship: text("next_of_kin_relationship"),
+  nextOfKinPhone: text("next_of_kin_phone"),
+  nextOfKinAddress: text("next_of_kin_address"),
   status: text("status").default("ACTIVE").notNull(), // ACTIVE, INACTIVE, SUSPENDED, TERMINATED
   joiningDate: date("joining_date").notNull(),
   terminationDate: date("termination_date"),
@@ -2954,14 +2964,6 @@ export const taxTablesConfig = pgTable("tax_tables_config", {
   // Tax bracket definitions stored as JSONB array of objects:
   // [{ min: 0, max: 100, rate: 0, deduction: 0 }, { min: 101, max: 500, rate: 20, deduction: 20.20 }]
   brackets: jsonb("brackets").notNull(), 
-  
-  // NSSA configurations
-  nssaRateEmployee: decimal("nssa_rate_employee", { precision: 5, scale: 4 }).default("0.0450").notNull(), // 4.5%
-  nssaRateEmployer: decimal("nssa_rate_employer", { precision: 5, scale: 4 }).default("0.0450").notNull(), // 4.5%
-  nssaCeilingLimit: decimal("nssa_ceiling_limit", { precision: 15, scale: 2 }).notNull(), // Max monthly salary base subject to NSSA
-  
-  // AIDS Levy
-  aidsLevyRate: decimal("aids_levy_rate", { precision: 5, scale: 4 }).default("0.0300").notNull(), // 3.0% of PAYE
   
   isActive: boolean("is_active").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
@@ -3021,6 +3023,7 @@ export const payrollStatutoryRules = pgTable("payroll_statutory_rules", {
   effectiveTo: date("effective_to"),
   version: integer("version").default(1).notNull(),
   isActive: boolean("is_active").default(true).notNull(),
+  isSystemLocked: boolean("is_system_locked").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
   statutoryRuleLookupIdx: index("payroll_statutory_rules_lookup_idx").on(table.countryCode, table.ruleCode, table.currency, table.payFrequency, table.effectiveFrom),
@@ -3295,6 +3298,7 @@ export const employeeLoans = pgTable("employee_loans", {
   id: serial("id").primaryKey(),
   companyId: integer("company_id").references(() => companies.id).notNull(),
   employeeId: integer("employee_id").references(() => employees.id).notNull(),
+  loanType: text("loan_type").default("LOAN").notNull(), // LOAN or ADVANCE
   principalAmount: decimal("principal_amount", { precision: 15, scale: 2 }).notNull(),
   interestRate: decimal("interest_rate", { precision: 5, scale: 2 }).default("0.00").notNull(), // Annual interest rate
   repaymentTermMonths: integer("repayment_term_months").notNull(),

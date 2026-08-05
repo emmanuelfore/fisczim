@@ -80,8 +80,8 @@ export const ALL_PERMISSIONS: PermissionDefinition[] = [
 
   // Goods Received
   { key: "grn.create", label: "Create GDN", description: "Record goods delivery notes for verification", group: "Procurement" },
-  { key: "grn.confirm", label: "Confirm GDN / Receive Stock", description: "Confirm GDN and post stock in", group: "Procurement", allowsDirect: true },
-  { key: "grn.direct", label: "Direct Goods Receipt", description: "Receive stock without GDN workflow", group: "Procurement", allowsDirect: true },
+  { key: "grn.confirm", label: "Approve GDN Confirmation", description: "Approve a pending GDN confirmation request", group: "Procurement" },
+  { key: "grn.confirm.direct", label: "Confirm GDN Directly", description: "Confirm GDN and receive stock immediately, bypassing approval", group: "Procurement", allowsDirect: true },
   { key: "grn.view", label: "View Goods Received", description: "View GRVs and GDNs", group: "Procurement" },
 
   // Accounting
@@ -147,31 +147,63 @@ export const PERMISSION_BY_KEY = Object.fromEntries(
 /** Built-in role templates — used when no custom role is assigned */
 export const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
   owner: [...ALL_PERMISSION_KEYS],
-  admin: [...ALL_PERMISSION_KEYS],
-  member: [
+
+  // Admin: full management access but must use approval workflow for financial actions.
+  // Does NOT hold *.direct bypass keys — changes go through approvals like everyone else.
+  admin: [
     "nav.dashboard", "nav.pos", "nav.invoices", "nav.customers", "nav.inventory",
-    "nav.expenses", "nav.reports", "nav.settings",
+    "nav.accounting", "nav.expenses", "nav.reports", "nav.restaurant",
+    "nav.compliance", "nav.settings", "nav.users", "nav.approvals",
+    "nav.payroll", "nav.bus", "nav.manufacturing",
+    // Sales
+    "pos.sell", "pos.shift", "pos.void", "pos.discount", "pos.reconcile",
+    "invoices.view", "invoices.create", "invoices.issue", "invoices.approve",
+    "invoices.void", "invoices.credit_note", "invoices.fiscalize",
+    // Inventory
+    "stock.view", "stock.adjust.request", "stock.adjust.approve",
+    "stock.count", "stock.transfer",
+    "grn.create", "grn.view", "grn.confirm",
+    // Accounting
+    "accounting.view", "accounting.journal.create", "accounting.journal.approve",
+    "accounting.receipts", "accounting.payments", "accounting.periods",
+    // Reports
+    "reports.sales", "reports.inventory", "reports.financial", "reports.tax",
+    // Users & Roles
+    "users.view", "users.manage", "roles.view", "roles.manage",
+    "approvals.view", "approvals.action",
+    // Settings
+    "settings.organization", "settings.zimra", "settings.pos", "settings.accounting",
+    // HR
+    "payroll.view", "payroll.write", "payroll.approve",
+    // Compliance
+    "compliance.logs", "compliance.test", "compliance.manage",
+    // Bus
+    "bus.view", "bus.operations", "bus.setup", "bus.reports",
+    // Restaurant
+    "restaurant.orders", "restaurant.kds", "restaurant.layout",
+    // Manufacturing
+    "manufacturing.view", "manufacturing.bom", "manufacturing.work_orders",
+  ],
+
+  // Member: basic operational access — can sell and view their own work.
+  // No payroll, compliance, settings, or user-management access.
+  member: [
+    "nav.dashboard", "nav.pos", "nav.invoices", "nav.customers",
+    "nav.inventory", "nav.expenses", "nav.reports",
     "pos.sell", "pos.shift",
     "invoices.view", "invoices.create", "invoices.issue",
-    "stock.view", "stock.adjust.request", "stock.count",
+    "stock.view", "stock.adjust.request",
     "grn.create", "grn.view",
-    "accounting.view", "accounting.journal.create",
-    "reports.sales", "reports.inventory",
-    "nav.users", "users.view",
-    "settings.organization",
-    "nav.payroll", "nav.bus",
-    "payroll.view", "bus.view",
-    "restaurant.orders", "restaurant.kds",
-    "compliance.logs", "compliance.test",
+    "accounting.view",
+    "reports.sales",
   ],
+
+  // Cashier: POS-only access.
   cashier: [
     "nav.pos",
     "pos.sell", "pos.shift",
-    "grn.create",
-    "stock.adjust.request",
-    "nav.bus",
-    "bus.view",
   ],
+
   manufacturing: [
     "nav.dashboard",
     "nav.inventory",
@@ -183,15 +215,18 @@ export const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     "manufacturing.work_orders",
     "manufacturing.view",
   ],
+
   sales: [
     "nav.dashboard",
     "nav.pos",
     "nav.invoices",
     "nav.customers",
+    "nav.reports",
     "pos.sell", "pos.shift",
     "invoices.view", "invoices.create", "invoices.issue",
     "reports.sales",
   ],
+
   accountant: [
     "nav.dashboard",
     "nav.invoices",
@@ -201,82 +236,195 @@ export const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     "nav.reports",
     "nav.payroll",
     "nav.compliance",
-    "invoices.view", "invoices.create", "invoices.issue", "invoices.void",
-    "accounting.view", "accounting.journal.create", "accounting.journal.approve", "accounting.close",
+    // Invoices — can create and issue; void requires explicit grant
+    "invoices.view", "invoices.create", "invoices.issue",
+    // Accounting — can create drafts, approve postings, manage periods & receipts
+    "accounting.view", "accounting.journal.create", "accounting.journal.approve",
+    "accounting.receipts", "accounting.payments", "accounting.periods",
+    // Reports
     "reports.sales", "reports.inventory", "reports.financial", "reports.tax",
-    "payroll.view", "payroll.process",
-    "compliance.logs", "compliance.test",
+    // Payroll — view only; processing requires payroll.write
+    "payroll.view",
+    // Compliance — view logs only; no diagnostic tests
+    "compliance.logs",
   ],
+
   logistics: [
     "nav.dashboard",
     "nav.inventory",
     "nav.bus",
-    "stock.view", "stock.adjust.request", "stock.count",
+    "stock.view", "stock.adjust.request", "stock.count", "stock.transfer",
     "grn.create", "grn.view",
     "bus.view",
   ],
+
   manager: [
-    "nav.dashboard", "nav.pos", "nav.invoices", "nav.customers", "nav.inventory", 
+    "nav.dashboard", "nav.pos", "nav.invoices", "nav.customers", "nav.inventory",
     "nav.expenses", "nav.reports", "nav.users", "nav.approvals", "nav.restaurant",
     "pos.sell", "pos.shift", "pos.void", "pos.discount",
-    "invoices.view", "invoices.create", "invoices.issue", "invoices.void",
-    "stock.view", "stock.adjust.request", "stock.adjust.approve", "stock.count",
-    "grn.create", "grn.view", "grn.approve",
+    "invoices.view", "invoices.create", "invoices.issue", "invoices.issue.direct",
+    "invoices.void", "invoices.credit_note",
+    "stock.view", "stock.adjust.request", "stock.adjust.approve", "stock.count", "stock.transfer",
+    "grn.create", "grn.view", "grn.confirm",
     "accounting.view",
     "reports.sales", "reports.inventory", "reports.financial", "reports.tax",
     "users.view",
-    "restaurant.orders", "restaurant.kds", "restaurant.menu",
+    "approvals.view",
+    "restaurant.orders", "restaurant.kds", "restaurant.layout",
   ],
+
   hr: [
     "nav.dashboard", "nav.payroll", "nav.users",
-    "payroll.view", "payroll.process",
+    "payroll.view", "payroll.write",
     "users.view",
   ],
+
   procurement: [
     "nav.dashboard", "nav.inventory",
-    "stock.view", "grn.create", "grn.view",
+    "stock.view", "stock.transfer",
+    "grn.create", "grn.view", "grn.confirm",
   ],
+
+  // Auditor: read-only access across all modules. No write or diagnostic actions.
   auditor: [
-    "nav.dashboard", "nav.invoices", "nav.customers", "nav.inventory", 
+    "nav.dashboard", "nav.invoices", "nav.customers", "nav.inventory",
     "nav.accounting", "nav.expenses", "nav.reports", "nav.payroll", "nav.compliance",
     "invoices.view", "stock.view", "grn.view", "accounting.view",
     "reports.sales", "reports.inventory", "reports.financial", "reports.tax",
-    "payroll.view", "users.view", "compliance.logs", "compliance.test"
+    "payroll.view", "users.view", "compliance.logs",
   ],
+
   restaurant: [
     "nav.restaurant",
     "restaurant.orders", "restaurant.kds",
   ],
 };
 
-/** Map nav hrefs to required permission */
+/** Map nav hrefs to required permission.
+ * IMPORTANT: Every client-side route must appear here.
+ * Any path NOT listed will be DENIED by default (canAccessPath returns false).
+ */
 export const NAV_PERMISSION_MAP: Record<string, PermissionKey | PermissionKey[]> = {
+  // ─── Dashboard ───────────────────────────────────────────────────────────────
   "/dashboard": "nav.dashboard",
+
+  // ─── Sales / POS ─────────────────────────────────────────────────────────────
   "/pos": "nav.pos",
+  "/pos/my-sales": "nav.pos",
+  "/pos/all-sales": "nav.pos",
   "/invoices": "nav.invoices",
+  "/invoices/new": "nav.invoices",
   "/invoice-templates": "nav.invoices",
   "/recurring": "nav.invoices",
   "/payments-received": "nav.invoices",
   "/customers": "nav.customers",
+  "/quotations": "nav.invoices",
+  "/quotations/new": "nav.invoices",
+  "/sales-orders": "nav.invoices",
+
+  // ─── Procurement / Inventory ──────────────────────────────────────────────────
   "/products": "nav.inventory",
   "/serial-tracking": "nav.inventory",
   "/services": "nav.inventory",
+  "/suppliers": "nav.inventory",
+  "/stock-receipt": "nav.inventory",
   "/inventory": "nav.inventory",
   "/inventory/purchase-orders": "nav.inventory",
+  "/inventory/purchase-returns": "nav.inventory",
   "/inventory/account": "nav.inventory",
   "/inventory/production": "nav.inventory",
   "/inventory/adjustments": "nav.inventory",
   "/inventory/stock-counts": "nav.inventory",
+  "/inventory/stock-take": "nav.inventory",
+  "/inventory/bulk-adjust": "nav.inventory",
+  "/inventory/transfers": "nav.inventory",
+  "/inventory/locations": "nav.inventory",
+  "/inventory/grvs": "nav.inventory",
+  // Inventory sub-reports
+  "/inventory/adjustments/report": "nav.inventory",
+  "/inventory/reports/ledger": "nav.inventory",
+  "/inventory/reports/overview": "nav.inventory",
+  "/inventory/reports/historical": "nav.inventory",
+  "/inventory/reports/dead-stock": "nav.inventory",
+  "/inventory/reports/production": "nav.inventory",
+
+  // ─── Manufacturing ────────────────────────────────────────────────────────────
+  "/manufacturing": "nav.manufacturing",
+  "/manufacturing/bom": "nav.manufacturing",
+  "/manufacturing/production-runs": "nav.manufacturing",
+  "/manufacturing/work-centers": "nav.manufacturing",
+  "/manufacturing/routings": "nav.manufacturing",
+  "/manufacturing/mrp": "nav.manufacturing",
+  "/manufacturing/reports": "nav.manufacturing",
+  "/manufacturing/standard-costs": "nav.manufacturing",
+
+  // ─── Accounting / Finance ─────────────────────────────────────────────────────
   "/accounting": "nav.accounting",
+  "/accounting/dashboard": "nav.accounting",
+  "/accounting/coa": "nav.accounting",
+  "/accounting/journal": "nav.accounting",
+  "/accounting/cashbook": "nav.accounting",
+  "/accounting/reconciliation": "nav.accounting",
+  "/accounting/accounts-payable": "nav.accounting",
+  "/accounting/accounts-receivable": "nav.accounting",
+  "/accounting/allocations": "nav.accounting",
+  "/accounting/periods": "nav.accounting",
+  "/accounting/segments": "nav.accounting",
+  "/accounting/opening-balances": "nav.accounting",
+  "/accounting/fixed-assets": "nav.accounting",
+  "/accounting/fixed-assets/depreciation": "nav.accounting",
+  "/accounting/audit-trail": "nav.accounting",
+  "/supplier-invoices": "nav.accounting",
+  "/supplier-credit-notes": "nav.accounting",
+  // Financial reports
+  "/accounting/reports/financial": "nav.accounting",
+  "/accounting/reports/balance-sheet": "nav.accounting",
+  "/accounting/reports/cash-flow": "nav.accounting",
+  "/accounting/reports/trial-balance": "nav.accounting",
+  "/accounting/reports/ledger": "nav.accounting",
+  "/accounting/reports/aging": "nav.accounting",
+  "/accounting/reports/cost-centers": "nav.accounting",
+  "/accounting/reports/vat-return": "nav.accounting",
+
+  // ─── Expenses ─────────────────────────────────────────────────────────────────
   "/expenses": "nav.expenses",
+
+  // ─── Reports ─────────────────────────────────────────────────────────────────
   "/reports": "nav.reports",
+  "/reports/sales": "nav.reports",
+  "/reports/daily": "nav.reports",
+  "/reports/pos": "nav.reports",
+  "/reports/sales-by-customer": "nav.reports",
+  "/reports/sales-by-item": "nav.reports",
+  "/reports/tax": "nav.reports",
+  "/reports/tax-summary": "nav.reports",
+  "/reports/inventory": "nav.reports",
+  "/reports/financial": "nav.reports",
+  "/reports/branches": "nav.reports",
+  "/reports/customer-statements": "nav.reports",
+  "/reports/customer-balance-summary": "nav.reports",
+  "/reports/cash-collection": "nav.reports",
+  "/reports/payments-received": "nav.reports",
+  "/reports/ar-aging-summary": "nav.reports",
+  "/reports/receivable-details": "nav.reports",
+  "/reports/stock-on-hand": "nav.reports",
+  "/reports/stock-alerts": "nav.reports",
+  "/reports/inventory-movements": "nav.reports",
+  "/reports/profit-margins-product": "nav.reports",
+  "/reports/stock-movement": "nav.reports",
+  "/reports/purchase-report": "nav.reports",
+  "/reports/operational-daily": "nav.reports",
+  "/reports/operational-weekly": "nav.reports",
+  "/reports/operational-monthly": "nav.reports",
+  "/reports/partnership-sales": "nav.reports",
+
+  // ─── Restaurant ───────────────────────────────────────────────────────────────
   "/restaurant": "nav.restaurant",
-  "/settings": "nav.settings",
-  "/team-settings": "nav.users",
-  "/approvals": "nav.approvals",
-  "/zimra-logs": "nav.compliance",
-  "/fdms-test": "nav.compliance",
-  "/suppliers": "nav.inventory",
+  "/restaurant/orders": "nav.restaurant",
+  "/restaurant/kds": "nav.restaurant",
+  "/restaurant/layout": "nav.restaurant",
+
+  // ─── Payroll / HR ─────────────────────────────────────────────────────────────
   "/payroll": "nav.payroll",
   "/hr": "nav.payroll",
   "/hr/payroll": "nav.payroll",
@@ -285,24 +433,36 @@ export const NAV_PERMISSION_MAP: Record<string, PermissionKey | PermissionKey[]>
   "/hr/loans": "nav.payroll",
   "/hr/setup": "nav.payroll",
   "/hr/reports": "nav.payroll",
-  "/bus/fleet": "nav.bus",
+  "/hr/self-service": "nav.payroll",
+  "/hr/reports/zimra": "nav.payroll",
+  "/hr/reports/remittances": "nav.payroll",
+
+  // ─── Bus Ticketing ────────────────────────────────────────────────────────────
   "/bus/dashboard": "nav.bus",
   "/bus/trips": "nav.bus",
+  "/bus/fleet": "nav.bus",
   "/bus/conductors": "nav.bus",
   "/bus/reports": "nav.bus",
-  "/restaurant/layout": "nav.restaurant",
-  "/restaurant/kds": "nav.restaurant",
-  "/restaurant/orders": "nav.restaurant",
-  "/quotations": "nav.invoices",
-  "/quotations/new": "nav.invoices",
+
+  // ─── Tax & Compliance ─────────────────────────────────────────────────────────
+  "/zimra-logs": "nav.compliance",
+  "/fdms-test": "nav.compliance",
+  "/jobs": "nav.compliance",
+  "/api-logs": "nav.compliance",
+
+  // ─── Settings ─────────────────────────────────────────────────────────────────
+  "/settings": "nav.settings",
   "/currencies": "nav.settings",
   "/zimra-settings": "nav.settings",
   "/tax-config": "nav.settings",
-  "/sales-orders": "nav.invoices",
-  "/stock-receipt": "nav.inventory",
-  "/supplier-invoices": "nav.accounting",
-  "/supplier-credit-notes": "nav.accounting",
-  "/manufacturing": "nav.manufacturing",
+
+  // ─── Administration ───────────────────────────────────────────────────────────
+  "/team-settings": "nav.users",
+  "/approvals": "nav.approvals",
+  "/audit-logs": "nav.users",
+
+  // ─── Profile (always allowed for any authenticated user) ──────────────────────
+  // NOTE: /profile is handled directly in ProtectedRoute — do not add here.
 };
 
 export const APPROVAL_TYPES = {
@@ -332,7 +492,7 @@ export const APPROVAL_TYPE_PERMISSION: Record<ApprovalType, PermissionKey> = {
 /** Permission for direct action (bypass approval) */
 export const DIRECT_ACTION_PERMISSION: Record<ApprovalType, PermissionKey> = {
   stock_adjustment: "stock.adjust.direct",
-  grn_confirm: "grn.confirm",
+  grn_confirm: "grn.confirm.direct",
   journal_post: "accounting.journal.post.direct",
   invoice_issue: "invoices.issue.direct",
 };

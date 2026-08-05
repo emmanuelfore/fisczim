@@ -1,5 +1,11 @@
 import { Layout } from "@/components/layout";
 import { PageHeader } from "@/components/page-header";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -35,6 +41,7 @@ import { useCostCenters } from "@/hooks/use-cost-centers";
 import { useCompanies } from "@/hooks/use-companies";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
+import { useAuth } from "@/hooks/use-auth";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Building2,
@@ -62,6 +69,7 @@ type AccessRole = {
 };
 
 export default function TeamSettingsPage() {
+  const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const rawId = parseInt(localStorage.getItem("selectedCompanyId") || "0");
@@ -111,6 +119,17 @@ export default function TeamSettingsPage() {
       return res.json();
     },
   });
+
+  const systemUsersQuery = useQuery({
+    queryKey: ["system-users"],
+    enabled: !!user?.isSuperAdmin,
+    queryFn: async () => {
+      const res = await apiFetch(`/api/system/users`);
+      if (!res.ok) throw new Error("Failed to fetch system users");
+      return res.json();
+    },
+  });
+
   const accessRolesQuery = useQuery<AccessRole[]>({
     queryKey: ["access-roles", companyId],
     enabled: !!companyId,
@@ -130,6 +149,9 @@ export default function TeamSettingsPage() {
 
   const invalidateTeam = () => {
     queryClient.invalidateQueries({ queryKey: ["users", companyId] });
+    queryClient.invalidateQueries({ queryKey: ["system-users"] });
+    toast({ title: "User updated" });
+    setEditingUser(null);
     queryClient.invalidateQueries({ queryKey: ["access-roles", companyId] });
   };
 
@@ -464,9 +486,11 @@ export default function TeamSettingsPage() {
 
       <Tabs defaultValue="users" className="space-y-4">
         <TabsList>
-          <TabsTrigger value="users">Users</TabsTrigger>
+          <TabsTrigger value="users">Company Users</TabsTrigger>
           <TabsTrigger value="roles">Roles</TabsTrigger>
-          <TabsTrigger value="permissions">Permission Catalogue</TabsTrigger>
+          {user?.isSuperAdmin && (
+            <TabsTrigger value="system-users">All System Users</TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="users">
@@ -565,32 +589,42 @@ export default function TeamSettingsPage() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="permissions">
-          <Card>
-            <CardHeader>
-              <CardTitle>Permission Catalogue</CardTitle>
-              <CardDescription>These permissions are used by roles.</CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-4 md:grid-cols-2">
-              {systemPermissionGroups.map((group) => (
-                <div key={group.label} className="rounded-lg border border-slate-200 p-4">
-                  <p className="mb-3 font-bold text-slate-900">{group.label}</p>
-                  <div className="space-y-2">
-                    {group.items.map(([key, label, description]) => (
-                      <div key={key} className="flex flex-col gap-1 border-b border-slate-100 py-2 last:border-0">
-                        <div className="flex items-center justify-between gap-3 text-sm font-semibold">
-                          <span>{label}</span>
-                          <code className="rounded bg-slate-100 px-2 py-1 text-[11px] text-slate-600">{key}</code>
+        {user?.isSuperAdmin && (
+          <TabsContent value="system-users">
+            <Card>
+              <CardHeader>
+                <CardTitle>All System Users</CardTitle>
+                <CardDescription>Global view for Superadmins to edit user details and passwords across all companies.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {systemUsersQuery.isLoading ? (
+                  <div className="py-8 text-center text-sm text-slate-500">Loading system users...</div>
+                ) : !systemUsersQuery.data?.length ? (
+                  <div className="py-8 text-center text-sm text-slate-500">No system users found.</div>
+                ) : (
+                  systemUsersQuery.data.map((sysUser: any) => (
+                    <div key={sysUser.id} className="flex flex-col gap-3 rounded-lg border border-slate-200 p-4 md:flex-row md:items-center md:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-bold text-slate-900">{sysUser.name || sysUser.email}</p>
+                          {sysUser.isSuperAdmin && <Badge className="bg-purple-600 hover:bg-purple-700">SuperAdmin</Badge>}
                         </div>
-                        {description && <span className="text-xs text-slate-400">{description}</span>}
+                        <p className="text-sm text-slate-500">{sysUser.email}</p>
                       </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        </TabsContent>
+                      <div className="flex gap-2">
+                        <Button variant="outline" onClick={() => openUserAccess(sysUser)}>
+                          <UserCog className="h-4 w-4" />
+                          Edit Profile & Password
+                        </Button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
+
       </Tabs>
 
       <Dialog open={!!editingUser} onOpenChange={(open) => !open && setEditingUser(null)}>
@@ -730,33 +764,47 @@ export default function TeamSettingsPage() {
                 <Button type="button" variant="outline" size="sm" onClick={deselectAllPermissions} disabled={editingRole?.isSystem}>Deselect All</Button>
               </div>
             </div>
-            <div className="grid gap-4 md:grid-cols-2">
-              {systemPermissionGroups.map((group) => {
-                const isAllSelected = group.items.length > 0 && group.items.every(([key]) => roleForm.permissions.includes(key));
-                const isIndeterminate = !isAllSelected && group.items.some(([key]) => roleForm.permissions.includes(key));
-                return (
-                  <div key={group.label} className="rounded-lg border border-slate-200 p-4">
-                    <label className="flex items-center gap-2 mb-3 cursor-pointer">
-                      <Checkbox 
-                        checked={isAllSelected || (isIndeterminate ? "indeterminate" : false)} 
-                        onCheckedChange={(checked) => toggleGroup(group.label, checked === true)} 
-                        disabled={editingRole?.isSystem}
-                      />
-                      <p className="font-bold text-slate-900">{group.label}</p>
-                    </label>
-                  <div className="space-y-3">
-                    {group.items.map(([key, label, description]) => (
-                      <label key={key} className="flex items-start gap-3 text-sm font-medium text-slate-700 hover:bg-slate-50 p-1.5 rounded-md cursor-pointer">
-                        <Checkbox checked={roleForm.permissions.includes(key)} onCheckedChange={(checked) => togglePermission(key, checked === true)} disabled={editingRole?.isSystem} />
-                        <div>
-                          <span className="block">{label}</span>
-                          {description && <span className="block text-xs text-slate-400 font-normal">{description}</span>}
+            <div className="w-full">
+              <Accordion type="multiple" className="w-full">
+                {systemPermissionGroups.map((group) => {
+                  const isAllSelected = group.items.length > 0 && group.items.every(([key]) => roleForm.permissions.includes(key));
+                  const isIndeterminate = !isAllSelected && group.items.some(([key]) => roleForm.permissions.includes(key));
+                  
+                  return (
+                    <AccordionItem key={group.label} value={group.label} className="border border-slate-200 rounded-lg mb-3 px-4 shadow-sm bg-white overflow-hidden data-[state=open]:border-slate-300 transition-colors">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3 py-3 w-full">
+                          <Checkbox 
+                            checked={isAllSelected || (isIndeterminate ? "indeterminate" : false)} 
+                            onCheckedChange={(checked) => toggleGroup(group.label, checked === true)} 
+                            disabled={editingRole?.isSystem}
+                            id={`group-${group.label.replace(/\s+/g, '-')}`}
+                          />
+                          <div className="flex items-center gap-3 flex-1 cursor-pointer">
+                            <label htmlFor={`group-${group.label.replace(/\s+/g, '-')}`} className="font-bold text-slate-900 cursor-pointer">{group.label}</label>
+                            {isIndeterminate && <Badge variant="secondary" className="text-[10px] uppercase font-semibold">Partial</Badge>}
+                            {isAllSelected && <Badge variant="secondary" className="text-[10px] uppercase font-semibold bg-emerald-100 text-emerald-700 hover:bg-emerald-100">All</Badge>}
+                          </div>
                         </div>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              )})}
+                        <AccordionTrigger className="w-auto p-3 hover:no-underline" />
+                      </div>
+                      <AccordionContent className="pt-2 pb-4 border-t border-slate-100 mt-1">
+                        <div className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
+                          {group.items.map(([key, label, description]) => (
+                            <label key={key} className="flex items-start gap-3 text-sm font-medium text-slate-700 hover:bg-slate-50 p-2 rounded-md cursor-pointer transition-colors border border-transparent hover:border-slate-200">
+                              <Checkbox checked={roleForm.permissions.includes(key)} onCheckedChange={(checked) => togglePermission(key, checked === true)} disabled={editingRole?.isSystem} className="mt-0.5" />
+                              <div className="flex-1">
+                                <span className="block text-slate-800">{label}</span>
+                                {description && <span className="block text-[11px] text-slate-500 font-normal mt-1 leading-snug">{description}</span>}
+                              </div>
+                            </label>
+                          ))}
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  );
+                })}
+              </Accordion>
             </div>
           </div>
           <DialogFooter className="mt-4">

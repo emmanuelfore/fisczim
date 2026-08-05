@@ -16,10 +16,6 @@ import { Badge } from "@/components/ui/badge";
 
 const BLANK_FORM = {
   effectiveFrom: new Date().toISOString().slice(0, 10),
-  nssaRateEmployee: 0.045,
-  nssaRateEmployer: 0.045,
-  nssaCeilingLimit: 700.00,
-  aidsLevyRate: 0.03,
   brackets: `[\n  { "min": 0, "max": null, "rate": 0, "deduction": 0 }\n]`
 };
 
@@ -30,10 +26,6 @@ function prefillFromActive(configs: any[]): typeof BLANK_FORM {
   if (!active) return BLANK_FORM;
   return {
     effectiveFrom: new Date().toISOString().slice(0, 10),
-    nssaRateEmployee: Number(active.nssaRateEmployee || 0.045),
-    nssaRateEmployer: Number(active.nssaRateEmployer || 0.045),
-    nssaCeilingLimit: Number(active.nssaCeilingLimit || 700),
-    aidsLevyRate: Number(active.aidsLevyRate || 0.03),
     brackets: JSON.stringify(active.brackets || [], null, 2),
   };
 }
@@ -41,10 +33,6 @@ function prefillFromActive(configs: any[]): typeof BLANK_FORM {
 function fromConfig(config: any): typeof BLANK_FORM {
   return {
     effectiveFrom: (config.effectiveFrom || new Date().toISOString().slice(0, 10)).slice(0, 10),
-    nssaRateEmployee: Number(config.nssaRateEmployee || 0.045),
-    nssaRateEmployer: Number(config.nssaRateEmployer || 0.045),
-    nssaCeilingLimit: Number(config.nssaCeilingLimit || 700),
-    aidsLevyRate: Number(config.aidsLevyRate || 0.03),
     brackets: JSON.stringify(config.brackets || [], null, 2),
   };
 }
@@ -75,10 +63,6 @@ export function TaxTablesTab() {
 
       const payload = {
         ...data,
-        nssaRateEmployee: Number(data.nssaRateEmployee),
-        nssaRateEmployer: Number(data.nssaRateEmployer),
-        nssaCeilingLimit: Number(data.nssaCeilingLimit),
-        aidsLevyRate: Number(data.aidsLevyRate),
         brackets: parsedBrackets,
       };
 
@@ -157,49 +141,6 @@ export function TaxTablesTab() {
                       onChange={e => setForm(f => ({ ...f, effectiveFrom: e.target.value }))} 
                     />
                   </div>
-                  <div className="space-y-2">
-                    <Label>NSSA Ceiling Limit (USD)</Label>
-                    <Input 
-                      type="number" 
-                      step="0.01" 
-                      required
-                      value={form.nssaCeilingLimit} 
-                      onChange={e => setForm(f => ({ ...f, nssaCeilingLimit: parseFloat(e.target.value) || 0 }))} 
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="space-y-2">
-                    <Label>NSSA Rate Employee</Label>
-                    <Input 
-                      type="number" 
-                      step="0.0001" 
-                      required
-                      value={form.nssaRateEmployee} 
-                      onChange={e => setForm(f => ({ ...f, nssaRateEmployee: parseFloat(e.target.value) || 0 }))} 
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>NSSA Rate Employer</Label>
-                    <Input 
-                      type="number" 
-                      step="0.0001" 
-                      required
-                      value={form.nssaRateEmployer} 
-                      onChange={e => setForm(f => ({ ...f, nssaRateEmployer: parseFloat(e.target.value) || 0 }))} 
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>AIDS Levy Rate</Label>
-                    <Input 
-                      type="number" 
-                      step="0.0001" 
-                      required
-                      value={form.aidsLevyRate} 
-                      onChange={e => setForm(f => ({ ...f, aidsLevyRate: parseFloat(e.target.value) || 0 }))} 
-                    />
-                  </div>
                 </div>
 
                 <div className="space-y-2">
@@ -248,10 +189,6 @@ export function TaxTablesTab() {
                 <TableHeader className="bg-slate-50 dark:bg-slate-900/50">
                   <TableRow className="hover:bg-transparent">
                     <TableHead>Effective Date</TableHead>
-                    <TableHead>NSSA Ceil.</TableHead>
-                    <TableHead>NSSA (Emp)</TableHead>
-                    <TableHead>NSSA (Er)</TableHead>
-                    <TableHead>AIDS Levy</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Brackets</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
@@ -263,12 +200,6 @@ export function TaxTablesTab() {
                       <TableCell className="font-medium">
                         {new Date(config.effectiveFrom).toLocaleDateString()}
                       </TableCell>
-                      <TableCell className="font-mono text-slate-600 dark:text-slate-300">
-                        ${Number(config.nssaCeilingLimit).toFixed(2)}
-                      </TableCell>
-                      <TableCell>{(Number(config.nssaRateEmployee) * 100).toFixed(2)}%</TableCell>
-                      <TableCell>{(Number(config.nssaRateEmployer) * 100).toFixed(2)}%</TableCell>
-                      <TableCell>{(Number(config.aidsLevyRate) * 100).toFixed(2)}%</TableCell>
                       <TableCell>
                         {config.isActive ? (
                           <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400">

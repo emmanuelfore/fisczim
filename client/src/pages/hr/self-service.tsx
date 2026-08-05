@@ -46,6 +46,20 @@ export default function HRSelfService() {
     }
   });
 
+  const cancelLeaveMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("DELETE", `/api/companies/${companyId}/payroll/self-service/leave/${id}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/payroll/self-service`] });
+      toast({ title: "Request cancelled" });
+    },
+    onError: (e: any) => {
+      toast({ title: "Cancel failed", description: e.message, variant: "destructive" });
+    }
+  });
+
   const profileMutation = useMutation({
     mutationFn: async (data: any) => {
       const res = await apiRequest("PUT", `/api/companies/${companyId}/payroll/self-service/profile`, data);
@@ -254,6 +268,7 @@ export default function HRSelfService() {
                       <TableHead>Type</TableHead>
                       <TableHead>Dates</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Action</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -271,6 +286,19 @@ export default function HRSelfService() {
                           }>
                             {r.status}
                           </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {r.status === "PENDING" && (
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              className="text-rose-600 hover:text-rose-700 hover:bg-rose-50"
+                              onClick={() => cancelLeaveMutation.mutate(r.id)}
+                              disabled={cancelLeaveMutation.isPending}
+                            >
+                              Cancel
+                            </Button>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}

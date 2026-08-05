@@ -2,7 +2,7 @@ import { db } from '../server/db.js';
 import { 
   companies, employees, payrollRuns, payrollRunEmployees, 
   payrollEarningTypes, payrollDeductionTypes, payrollPayGrades, taxTablesConfig, employeeContracts,
-  branches, departments, positions
+  branches, departments, positions, payrollStatutoryRules
 } from '../shared/schema.js';
 import { reportService } from '../server/services/reportService.js';
 import { eq } from 'drizzle-orm';
@@ -40,13 +40,41 @@ async function seedDemoCompany() {
       { min: 1001, max: 5000, rate: 0.30, deduction: 95.20 },
       { min: 5001, max: null, rate: 0.40, deduction: 595.20 }
     ],
-    nssaRateEmployee: '0.0450',
-    nssaRateEmployer: '0.0450',
-    nssaCeilingLimit: '700.00',
-    aidsLevyRate: '0.0300',
     isActive: true
   }).returning();
   console.log(`Created Tax Table ID: ${taxTable.id}`);
+
+  // 2.5 Setup Statutory Rules
+  await db.insert(payrollStatutoryRules).values([
+    {
+      companyId: demoCompany.id,
+      ruleCode: 'AIDS_LEVY',
+      name: 'AIDS Levy',
+      currency: 'USD',
+      payFrequency: 'MONTHLY',
+      employeeRate: '0.0300',
+      employerRate: '0.0000',
+      calculationBasis: 'PAYE',
+      isActive: true,
+      isSystemLocked: true,
+      effectiveFrom: '2023-01-01'
+    },
+    {
+      companyId: demoCompany.id,
+      ruleCode: 'NSSA_POBS',
+      name: 'NSSA POBS',
+      currency: 'USD',
+      payFrequency: 'MONTHLY',
+      employeeRate: '0.0450',
+      employerRate: '0.0450',
+      ceilingAmount: '700.00',
+      calculationBasis: 'TAXABLE_INCOME',
+      isActive: true,
+      isSystemLocked: true,
+      effectiveFrom: '2023-01-01'
+    }
+  ]);
+  console.log(`Created Statutory Rules`);
 
   // 3. Setup Pay Grades
   const payGrades = await db.insert(payrollPayGrades).values([

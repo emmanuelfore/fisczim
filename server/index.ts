@@ -55,8 +55,10 @@ app.use(async (req: any, res: any, next) => {
     else if (req.user?.companyId) companyId = req.user.companyId;
     else if ((req as any).apiKeyCompanyId) companyId = (req as any).apiKeyCompanyId;
     
-    // Only log if we have a companyId and it's an API request
-    if (companyId && req.path.startsWith('/api')) {
+    const usedApiKey = Boolean(req.headers['x-api-key']);
+
+    // Only log if we have a companyId, it's an API request, and it was made using an API key
+    if (companyId && req.path.startsWith('/api') && usedApiKey) {
       let responseBody = body;
       try {
         if (typeof body === 'string') {

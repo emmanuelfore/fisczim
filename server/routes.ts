@@ -1337,6 +1337,17 @@ export async function registerRoutes(
       const targetCompanyId = parseInt(req.body.companyId) || (req as any).user?.companyId;
       if (!targetCompanyId) return res.status(400).json({ message: "Target Company ID required" });
 
+      // Permission: must be a member of the target company with nav.customers
+      const importUserId = (req as any).user?.id;
+      const importIsSuperAdmin = !!(req as any).user?.isSuperAdmin;
+      if (!importIsSuperAdmin) {
+        const { userHasPermission } = await import("./lib/permissions.js");
+        const canImport = await userHasPermission(importUserId, targetCompanyId, "nav.customers");
+        if (!canImport) {
+          return res.status(403).json({ message: "You do not have permission to import customers" });
+        }
+      }
+
       const fileContent = req.file.buffer.toString("utf-8");
       const records = parse(fileContent, {
         columns: true,
@@ -1419,9 +1430,19 @@ export async function registerRoutes(
   app.post("/api/import/suppliers", requireAuth, csvUpload.single("file"), async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ message: "No CSV file uploaded" });
-
       const targetCompanyId = parseInt(req.body.companyId) || (req as any).user?.companyId;
       if (!targetCompanyId) return res.status(400).json({ message: "Target Company ID required" });
+
+      // Permission: must be a member of the target company with nav.inventory
+      const suppImportUserId = (req as any).user?.id;
+      const suppImportIsSuperAdmin = !!(req as any).user?.isSuperAdmin;
+      if (!suppImportIsSuperAdmin) {
+        const { userHasPermission } = await import("./lib/permissions.js");
+        const canImport = await userHasPermission(suppImportUserId, targetCompanyId, "nav.inventory");
+        if (!canImport) {
+          return res.status(403).json({ message: "You do not have permission to import suppliers" });
+        }
+      }
 
       const fileContent = req.file.buffer.toString("utf-8");
       const records = parse(fileContent, {
@@ -1502,8 +1523,18 @@ export async function registerRoutes(
   app.post("/api/import/products", requireAuth, csvUpload.single("file"), async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ message: "No CSV file uploaded" });
-
       const targetCompanyId = parseInt(req.body.companyId) || (req.user as any).companyId;
+
+      // Permission: stock.adjust.direct required (bulk product import affects stock levels)
+      const prodImportUserId = (req as any).user?.id;
+      const prodImportIsSuperAdmin = !!(req as any).user?.isSuperAdmin;
+      if (!prodImportIsSuperAdmin && targetCompanyId) {
+        const { userHasPermission } = await import("./lib/permissions.js");
+        const canImport = await userHasPermission(prodImportUserId, targetCompanyId, "stock.adjust.direct");
+        if (!canImport) {
+          return res.status(403).json({ message: "You do not have permission to import products" });
+        }
+      }
       if (!targetCompanyId) return res.status(400).json({ message: "Target Company ID required" });
 
       const fileContent = req.file.buffer.toString("utf-8");
@@ -1742,6 +1773,17 @@ export async function registerRoutes(
       const companyId = parseInt(req.query.companyId as string) || (req.user as any).companyId;
       if (!companyId) return res.status(400).json({ message: "Company ID required" });
 
+      // Permission: stock.view required to export product data
+      const exportUserId = (req as any).user?.id;
+      const exportIsSuperAdmin = !!(req as any).user?.isSuperAdmin;
+      if (!exportIsSuperAdmin) {
+        const { userHasPermission } = await import("./lib/permissions.js");
+        const canExport = await userHasPermission(exportUserId, companyId, "stock.view");
+        if (!canExport) {
+          return res.status(403).json({ message: "You do not have permission to export products" });
+        }
+      }
+
       const products = await storage.getProductsForExport(companyId);
 
       // Construct CSV
@@ -1863,8 +1905,19 @@ export async function registerRoutes(
   // Export Customers
   app.get("/api/export/customers", requireAuth, async (req, res) => {
     try {
-      const companyId = parseInt(req.query.companyId as string) || (req.user as any).companyId;
+      const companyId = parseInt(req.query.companyId as string) || (req as any).user?.companyId;
       if (!companyId) return res.status(400).json({ message: "Company ID required" });
+
+      // Permission: nav.customers required to export customer data
+      const custExportUserId = (req as any).user?.id;
+      const custExportIsSuperAdmin = !!(req as any).user?.isSuperAdmin;
+      if (!custExportIsSuperAdmin) {
+        const { userHasPermission } = await import("./lib/permissions.js");
+        const canExport = await userHasPermission(custExportUserId, companyId, "nav.customers");
+        if (!canExport) {
+          return res.status(403).json({ message: "You do not have permission to export customers" });
+        }
+      }
 
       const customers = await storage.getCustomers(companyId);
 
@@ -2120,14 +2173,31 @@ export async function registerRoutes(
   app.patch("/api/companies/:id", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
-      
+
+      // API-key requests are already scoped to their company — allow through.
+      // Session-based requests must verify the user belongs to this company and
+      // holds the settings.organization permission (or is owner/superadmin).
+      if (!(req as any).apiKeyCompanyId) {
+        const userId = (req as any).user?.id;
+        const isSuperAdmin = !!(req as any).user?.isSuperAdmin;
+        if (!isSuperAdmin) {
+          const membership = await storage.getCompanyMembership(userId, companyId);
+          if (!membership) {
+            return res.status(403).json({ message: "Forbidden: You are not a member of this company" });
+          }
+          const { userHasPermission } = await import("./lib/permissions.js");
+          const canEdit = await userHasPermission(userId, companyId, "settings.organization");
+          if (!canEdit) {
+            return res.status(403).json({ message: "Forbidden: You do not have permission to edit company settings" });
+          }
+        }
+      }
+
       // Transform empty strings to null to avoid unique constraint violations
       if (req.body.tin === "") req.body.tin = null;
       if (req.body.vatNumber === "") req.body.vatNumber = null;
       if (req.body.bpNumber === "") req.body.bpNumber = null;
 
-      console.log(`[STORAGE] PATCH /api/companies/${companyId} Body:`, JSON.stringify(req.body, null, 2));
-      // Ideally verify user owns this company
       const updated = await storage.updateCompany(companyId, req.body);
       res.json(updated);
     } catch (err: any) {
@@ -2180,9 +2250,21 @@ export async function registerRoutes(
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid branch ID" });
     try {
+      const branch = await storage.getBranch(id);
+      if (!branch) return res.status(404).json({ message: "Branch not found" });
+      // Verify the requesting user belongs to the same company as this branch
+      const userId = (req as any).user?.id;
+      const isSuperAdmin = !!(req as any).user?.isSuperAdmin;
+      if (!isSuperAdmin) {
+        const membership = await storage.getCompanyMembership(userId, branch.companyId);
+        if (!membership) return res.status(403).json({ message: "Forbidden: Branch does not belong to your company" });
+        const { userHasPermission } = await import("./lib/permissions.js");
+        const canEdit = await userHasPermission(userId, branch.companyId, "settings.organization");
+        if (!canEdit) return res.status(403).json({ message: "Forbidden: You do not have permission to edit branches" });
+      }
       const branchData = insertBranchSchema.partial().parse(req.body);
-      const branch = await storage.updateBranch(id, branchData);
-      res.json(branch);
+      const updated = await storage.updateBranch(id, branchData);
+      res.json(updated);
     } catch (error: any) {
       res.status(400).json({ message: error.message });
     }
@@ -2192,6 +2274,18 @@ export async function registerRoutes(
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid branch ID" });
     try {
+      const branch = await storage.getBranch(id);
+      if (!branch) return res.status(404).json({ message: "Branch not found" });
+      // Verify the requesting user belongs to the same company as this branch
+      const userId = (req as any).user?.id;
+      const isSuperAdmin = !!(req as any).user?.isSuperAdmin;
+      if (!isSuperAdmin) {
+        const membership = await storage.getCompanyMembership(userId, branch.companyId);
+        if (!membership) return res.status(403).json({ message: "Forbidden: Branch does not belong to your company" });
+        const { userHasPermission } = await import("./lib/permissions.js");
+        const canEdit = await userHasPermission(userId, branch.companyId, "settings.organization");
+        if (!canEdit) return res.status(403).json({ message: "Forbidden: You do not have permission to delete branches" });
+      }
       await storage.deleteBranch(id);
       res.sendStatus(204);
     } catch (error: any) {
@@ -3990,6 +4084,20 @@ export async function registerRoutes(
 
   // User Management
   // 1. List Users
+  app.get("/api/system/users", requireAuthOrApiKey, async (req, res) => {
+    try {
+      const isSuperAdmin = !!(req as any).user?.isSuperAdmin;
+      if (!isSuperAdmin) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      const users = await storage.getAllSystemUsers();
+      res.json(users);
+    } catch (err: any) {
+      console.error("List System Users Error:", err);
+      res.status(500).json({ message: "Failed to list system users" });
+    }
+  });
+
   app.get("/api/companies/:companyId/users", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
@@ -4203,22 +4311,39 @@ export async function registerRoutes(
     try {
       const companyId = Number(req.params.companyId);
       const targetUserId = req.params.userId;
-      const userId = (req as any).user.id;
+      const requesterId = (req as any).user?.id;
+      const isSuperAdmin = !!(req as any).user?.isSuperAdmin;
       const { role, ownerGroupScope, branchIds, accessRoleId, name, password } = req.body;
 
-      // Validate role
-      const validRoles = ['owner', 'admin', 'member', 'cashier', 'manufacturing'];
+      // Full list of valid legacy role values
+      const validRoles = [
+        'owner', 'admin', 'member', 'cashier', 'manufacturing',
+        'sales', 'accountant', 'logistics', 'manager', 'hr',
+        'procurement', 'auditor', 'restaurant',
+      ];
       if (role && !validRoles.includes(role)) {
         return res.status(400).json({ message: "Invalid role" });
       }
 
-      const users = await storage.getCompanyUsers(companyId);
-      const me = users.find(u => u.id === userId);
-      const isSuperAdmin = (req as any).user?.isSuperAdmin;
-
       if (!isSuperAdmin) {
-        if (!me || me.role !== 'owner') {
-          if (me?.role !== 'admin') return res.status(403).json({ message: "Insufficient permissions" });
+        // Must have users.manage permission
+        const { userHasPermission } = await import("./lib/permissions.js");
+        const canManage = await userHasPermission(requesterId, companyId, "users.manage");
+        if (!canManage) {
+          return res.status(403).json({ message: "Insufficient permissions: users.manage required" });
+        }
+
+        // Only owners can grant the owner role
+        if (role === 'owner') {
+          const membership = await storage.getCompanyMembership(requesterId, companyId);
+          if (!membership || membership.legacyRole !== 'owner') {
+            return res.status(403).json({ message: "Only company owners can grant the owner role" });
+          }
+        }
+
+        // Users cannot change their own role (prevents self-escalation)
+        if (role && targetUserId === requesterId) {
+          return res.status(403).json({ message: "You cannot change your own role" });
         }
       }
 
@@ -8400,6 +8525,17 @@ export async function registerRoutes(
       const idempotencyKey = await sendIdempotentHit(req, res);
       if (idempotencyKey === false) return;
       const companyId = Number(req.params.companyId);
+
+      // Permission check: stock.transfer required
+      const transferUserId = (req as any).user?.id;
+      const transferIsSuperAdmin = !!(req as any).user?.isSuperAdmin;
+      if (!transferIsSuperAdmin && transferUserId) {
+        const { userHasPermission } = await import("./lib/permissions.js");
+        const canTransfer = await userHasPermission(transferUserId, companyId, "stock.transfer");
+        if (!canTransfer) {
+          return res.status(403).json({ message: "You do not have permission to transfer stock" });
+        }
+      }
       const requestedFromLocationId = req.body?.fromLocationId ? Number(req.body.fromLocationId) : null;
       const requestedToLocationId = req.body?.toLocationId ? Number(req.body.toLocationId) : null;
       const requestedFromBranchId = req.body?.fromBranchId ? Number(req.body.fromBranchId) : null;
@@ -10808,13 +10944,15 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Invoice not found" });
       }
 
-      // Check permissions: User must belong to the company OR be a SuperAdmin
-      const users = await storage.getCompanyUsers(invoice.companyId);
-      const isMember = users.some(u => u.id === req.user?.id);
+      // Check permissions: User must belong to the company AND hold invoices.fiscalize
       const isSuperAdmin = (req.user as any)?.isSuperAdmin;
-
-      if (!isMember && !isSuperAdmin) {
-        return res.status(403).json({ message: "You do not have permission to fiscalize for this company" });
+      const userId = req.user?.id;
+      if (!isSuperAdmin) {
+        const { userHasPermission } = await import("./lib/permissions.js");
+        const canFiscalize = await userHasPermission(userId!, invoice.companyId, "invoices.fiscalize");
+        if (!canFiscalize) {
+          return res.status(403).json({ message: "You do not have permission to fiscalize invoices" });
+        }
       }
 
       console.log(`[Fiscalize] Processing Invoice ${invoiceId} for Company ${invoice.companyId}`);
@@ -10968,6 +11106,18 @@ export async function registerRoutes(
       const originalInvoice = await storage.getInvoice(id);
 
       if (!originalInvoice) return res.status(404).json({ message: "Invoice not found" });
+
+      // Permission check: invoices.credit_note required
+      const invoiceUserId = (req as any).user?.id;
+      const invoiceIsSuperAdmin = !!(req as any).user?.isSuperAdmin;
+      if (!invoiceIsSuperAdmin) {
+        const { userHasPermission } = await import("./lib/permissions.js");
+        const canCreditNote = await userHasPermission(invoiceUserId, originalInvoice.companyId, "invoices.credit_note");
+        if (!canCreditNote) {
+          return res.status(403).json({ message: "You do not have permission to create credit notes" });
+        }
+      }
+
       if (originalInvoice.status !== "issued" && originalInvoice.status !== "paid") {
         return res.status(400).json({ message: "Credit notes can only be created for issued invoices." });
       }
@@ -11025,6 +11175,17 @@ export async function registerRoutes(
       const id = Number(req.params.id);
       const originalInvoice = await storage.getInvoice(id);
       if (!originalInvoice) return res.status(404).json({ message: "Invoice not found" });
+
+      // Permission check: invoices.void required
+      const voidUserId = (req as any).user?.id;
+      const voidIsSuperAdmin = !!(req as any).user?.isSuperAdmin;
+      if (!voidIsSuperAdmin) {
+        const { userHasPermission } = await import("./lib/permissions.js");
+        const canVoid = await userHasPermission(voidUserId, originalInvoice.companyId, "invoices.void");
+        if (!canVoid) {
+          return res.status(403).json({ message: "You do not have permission to void invoices" });
+        }
+      }
 
       const reason = req.body?.reason || "Void transaction";
       if (originalInvoice.status === "draft" || originalInvoice.status === "quote") {

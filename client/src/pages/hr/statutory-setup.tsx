@@ -30,7 +30,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Loader2, Settings2 } from "lucide-react";
+import { Plus, Loader2, Settings2, Lock } from "lucide-react";
 import { format } from "date-fns";
 import { BankExportSettingsModal } from "@/components/hr/BankExportSettingsModal";
 
@@ -246,8 +246,11 @@ export function StatutoryTab() {
               ) : (
                 rules.map((rule: any) => (
                   <TableRow key={rule.id}>
-                    <TableCell className="font-medium">
+                    <TableCell className="font-medium flex items-center gap-2">
                       {rule.ruleCode}
+                      {rule.isSystemLocked && (
+                        <span title="System Locked (Required)"><Lock className="w-3.5 h-3.5 text-slate-400" /></span>
+                      )}
                     </TableCell>
                     <TableCell>{rule.name}</TableCell>
                     <TableCell>

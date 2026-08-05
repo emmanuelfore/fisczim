@@ -196,6 +196,7 @@ export function createRolesPermissionsRouter(
     try {
       const companyId = Number(req.params.companyId);
       await assertCompanyAccess(req, companyId);
+      await assertPermission(req, companyId, "approvals.view");
       const count = await storage.getPendingApprovalCount(companyId);
       res.json({ count });
     } catch (err: any) {
@@ -214,6 +215,13 @@ export function createRolesPermissionsRouter(
         referenceType: z.string().optional(),
         referenceId: z.string().optional(),
       }).parse(req.body);
+
+      // Verify the submitter has the request permission for this approval type
+      const { REQUEST_ACTION_PERMISSION } = await import("../../shared/permissions.js");
+      const requestPerm = REQUEST_ACTION_PERMISSION[body.type as keyof typeof REQUEST_ACTION_PERMISSION];
+      if (requestPerm) {
+        await assertPermission(req, companyId, requestPerm);
+      }
 
       const request = await createApprovalRequest({
         companyId,

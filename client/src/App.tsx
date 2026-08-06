@@ -31,6 +31,11 @@ import InvoiceTemplateDesignerPage from "@/pages/invoice-template-designer";
 import CustomersPage from "@/pages/customers";
 import CustomerDetailsPage from "@/pages/customer-details";
 import SuppliersPage from "@/pages/suppliers";
+import FreightForwardersPage from "@/pages/freight/forwarders";
+import ConsignmentsPage from "@/pages/freight/consignments";
+import FreightDashboardPage from "@/pages/freight/dashboard";
+import FreightReceivingPage from "@/pages/freight/receiving";
+import FreightReportsPage from "@/pages/freight/reports";
 import ExpensesPage from "@/pages/expenses";
 import InventoryTransactionsPage from "@/pages/inventory-transactions";
 import InventoryAdjustmentsPage from "@/pages/inventory-adjustments";
@@ -487,6 +492,24 @@ function Router() {
       </Route>
       <Route path="/serial-tracking">
         {() => <ProtectedRoute component={SerialTrackingPage} />}
+      </Route>
+      <Route path="/suppliers">
+        {user ? <SuppliersPage /> : <Redirect to="/auth" />}
+      </Route>
+      <Route path="/freight">
+        {user ? <FreightDashboardPage /> : <Redirect to="/auth" />}
+      </Route>
+      <Route path="/freight/forwarders">
+        {user ? <FreightForwardersPage /> : <Redirect to="/auth" />}
+      </Route>
+      <Route path="/freight/consignments">
+        {user ? <ConsignmentsPage /> : <Redirect to="/auth" />}
+      </Route>
+      <Route path="/freight/receiving">
+        {user ? <FreightReceivingPage /> : <Redirect to="/auth" />}
+      </Route>
+      <Route path="/freight/reports">
+        {user ? <FreightReportsPage /> : <Redirect to="/auth" />}
       </Route>
       <Route path="/services">
         {() => <Redirect to="/products" />}

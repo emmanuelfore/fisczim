@@ -327,8 +327,6 @@ router.post("/", async (req, res) => {
   }
 
   // ── 7. Resolve customer ─────────────────────────────────────────────────
-  //  Pass-through API: try to match buyer by TIN/VAT, otherwise use __walkin__.
-  //  Never pick an arbitrary active customer — that misattributes sales in reports.
   let customerId: number;
   try {
     const buyerTin = body.buyer?.tin?.trim();
@@ -344,6 +342,18 @@ router.post("/", async (req, res) => {
 
     if (matchedCustomer) {
       customerId = matchedCustomer.id;
+    } else if (body.buyer && (body.buyer.name || body.buyer.registeredName || body.buyer.tradeName || body.buyer.tin || body.buyer.vatNumber || body.buyer.email || body.buyer.phone)) {
+      // Create new customer based on buyer data
+      const created = await storage.createCustomer({
+        companyId: company.id,
+        name: body.buyer.registeredName || body.buyer.tradeName || body.buyer.name || (buyerTin ? `Customer ${buyerTin}` : "Unknown Customer"),
+        vatNumber: buyerVat || null,
+        tin: buyerTin || null,
+        phone: body.buyer.phone || null,
+        email: body.buyer.email || null,
+        address: [body.buyer.houseNo, body.buyer.street, body.buyer.city, body.buyer.province].filter(Boolean).join(", ") || null,
+      } as any);
+      customerId = created.id;
     } else {
       const existingWalkin = allCustomers.find((c: any) => c.name === "__walkin__");
       if (existingWalkin) {

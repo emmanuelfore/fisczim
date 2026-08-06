@@ -64,11 +64,10 @@ export default function HREmployees() {
   const { toast } = useToast();
 
   const [search, setSearch] = useState("");
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isEmployeeModalOpen, setIsEmployeeModalOpen] = useState(false);
   const [isContractModalOpen, setIsContractModalOpen] = useState(false);
   const [isStatutoryModalOpen, setIsStatutoryModalOpen] = useState(false);
   const [isRecurringModalOpen, setIsRecurringModalOpen] = useState(false);
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | null>(null);
   
   const [formData, setFormData] = useState({
@@ -94,6 +93,7 @@ export default function HREmployees() {
     nextOfKinAddress: "",
     emergencyContactName: "",
     emergencyContactPhone: "",
+    emergencyContactRelation: ""
   });
 
   const [contractData, setContractData] = useState({
@@ -139,8 +139,8 @@ export default function HREmployees() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/payroll/employees`] });
-      setIsAddModalOpen(false);
-      setFormData({ firstName: "", lastName: "", employeeNumber: "", nationalId: "", email: "", phone: "", bankName: "", bankBranch: "", bankAccountNumber: "", ecocashNumber: "", title: "", dateOfBirth: "", gender: "", maritalStatus: "", physicalAddress: "", postalAddress: "", nextOfKinName: "", nextOfKinRelationship: "", nextOfKinPhone: "", nextOfKinAddress: "", emergencyContactName: "", emergencyContactPhone: "" });
+      setIsEmployeeModalOpen(false);
+      setFormData({ firstName: "", lastName: "", employeeNumber: "", nationalId: "", email: "", phone: "", bankName: "", bankBranch: "", bankAccountNumber: "", ecocashNumber: "", title: "", dateOfBirth: "", gender: "", maritalStatus: "", physicalAddress: "", postalAddress: "", nextOfKinName: "", nextOfKinRelationship: "", nextOfKinPhone: "", nextOfKinAddress: "", emergencyContactName: "", emergencyContactPhone: "", emergencyContactRelation: "" });
       toast({ title: "Employee created successfully" });
     },
     onError: (error: any) => {
@@ -170,8 +170,7 @@ export default function HREmployees() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/payroll/employees`] });
-      setIsEditModalOpen(false);
-      setIsStatutoryModalOpen(false);
+      setIsEmployeeModalOpen(false);
       toast({ title: "Employee updated successfully" });
     },
     onError: (error: any) => {
@@ -283,7 +282,6 @@ export default function HREmployees() {
       header: true,
       skipEmptyLines: true,
       complete: (results) => {
-        // Map CSV headers to our schema expected by backend
         const mappedData = results.data.map((row: any) => ({
           employeeNumber: row['Employee Number'] || row.employeeNumber,
           firstName: row['First Name'] || row.firstName,
@@ -320,132 +318,110 @@ export default function HREmployees() {
     downloadExcel(`/api/companies/${companyId}/payroll/employees/export`, `employees_export_${new Date().toISOString().split("T")[0]}.csv`);
   };
 
-  const handleCreate = (e: React.FormEvent) => {
+  const handleSaveEmployee = (e: React.FormEvent) => {
     e.preventDefault();
-    const selectedBranchId = Number(localStorage.getItem("selectedBranchId"));
-    createEmployeeMutation.mutate({ ...formData, branchId: selectedBranchId || 1 });
+    if (selectedEmployeeId) {
+      updateEmployeeMutation.mutate({ ...formData, ...statutoryData, ...contractData });
+    } else {
+      const selectedBranchId = Number(localStorage.getItem("selectedBranchId")) || 1;
+      createEmployeeMutation.mutate({ ...formData, ...statutoryData, ...contractData, branchId: selectedBranchId });
+    }
   };
 
   const handleUpdateContract = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedEmployeeId) return;
-    updateContractMutation.mutate(contractData);
+    updateContractMutation.mutate({ employeeId: selectedEmployeeId, contractData });
   };
 
   const handleUpdateStatutory = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedEmployeeId) return;
-    updateEmployeeMutation.mutate(statutoryData);
-  };
-
-  const handleUpdateEmployee = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedEmployeeId) return;
-    updateEmployeeMutation.mutate(formData, {
-      onSuccess: () => {
-        // Also update the contract concurrently
-        updateContractMutation.mutate(contractData);
-      }
-    });
+    if (selectedEmployeeId) {
+      updateEmployeeMutation.mutate({
+        id: selectedEmployeeId,
+        ...statutoryData,
+      });
+    }
   };
 
   const handleAddRecurringItem = (e: React.FormEvent) => {
     e.preventDefault();
-    addRecurringItemMutation.mutate(newRecurringItem);
-    setNewRecurringItem({
-      type: "ALLOWANCE",
-      name: "",
-      amount: "",
-      isTaxable: true,
-      isTaxDeductible: false,
-      startDate: new Date().toISOString().slice(0, 10),
-    });
-  };
-
-  const openContractModal = (employee: any) => {
-    setSelectedEmployeeId(employee.id);
-    const contract = employee.contracts?.[0];
-    if (contract) {
-      setContractData({
-        contractType: contract.contractType || "PERMANENT",
-        startDate: contract.startDate ? new Date(contract.startDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
-        endDate: contract.endDate ? new Date(contract.endDate).toISOString().slice(0, 10) : "",
-        baseSalary: contract.baseSalary ? String(contract.baseSalary) : "0",
-        currency: contract.currency || "USD",
-        usdPercentage: contract.usdPercentage ? String(contract.usdPercentage) : "100",
-        zigPercentage: contract.zigPercentage ? String(contract.zigPercentage) : "0",
-        payGradeId: contract.payGradeId || "",
-      });
-    } else {
-      setContractData({
-        contractType: "PERMANENT",
-        startDate: new Date().toISOString().slice(0, 10),
-        endDate: "",
-        baseSalary: "0",
-        currency: "USD",
-        usdPercentage: "100",
-        zigPercentage: "0",
-        payGradeId: "",
+    if (selectedEmployeeId) {
+      addRecurringItemMutation.mutate({
+        employeeId: selectedEmployeeId,
+        ...newRecurringItem,
+        amount: parseFloat(newRecurringItem.amount)
       });
     }
-    setIsContractModalOpen(true);
-  };
-
-  const openEditModal = (employee: any) => {
-    setSelectedEmployeeId(employee.id);
-    setFormData({
-      firstName: employee.firstName || "",
-      lastName: employee.lastName || "",
-      employeeNumber: employee.employeeNumber || "",
-      nationalId: employee.nationalId || "",
-      email: employee.email || "",
-      phone: employee.phone || "",
-      bankName: employee.bankName || "",
-      bankBranch: employee.bankBranch || "",
-      bankAccountNumber: employee.bankAccountNumber || "",
-      ecocashNumber: employee.ecocashNumber || "",
-      ...(employee as any) // Copy all other fields too
-    });
-    const contract = employee.contracts?.[0];
-    if (contract) {
-      setContractData({
-        contractType: contract.contractType || "PERMANENT",
-        startDate: contract.startDate ? new Date(contract.startDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
-        endDate: contract.endDate ? new Date(contract.endDate).toISOString().slice(0, 10) : "",
-        baseSalary: contract.baseSalary ? String(contract.baseSalary) : "0",
-        currency: contract.currency || "USD",
-        usdPercentage: contract.usdPercentage ? String(contract.usdPercentage) : "100",
-        zigPercentage: contract.zigPercentage ? String(contract.zigPercentage) : "0",
-        payGradeId: contract.payGradeId || "",
-      });
-    } else {
-      setContractData({
-        contractType: "PERMANENT",
-        startDate: new Date().toISOString().slice(0, 10),
-        endDate: "",
-        baseSalary: "0",
-        currency: "USD",
-        usdPercentage: "100",
-        zigPercentage: "0",
-        payGradeId: "",
-      });
-    }
-    setIsEditModalOpen(true);
-  };
-
-  const openStatutoryModal = (employee: any) => {
-    setSelectedEmployeeId(employee.id);
-    setStatutoryData({
-      nationalId: employee.nationalId || "",
-      nssaNumber: employee.nssaNumber || "",
-      zimraTaxNumber: employee.zimraTaxNumber || ""
-    });
-    setIsStatutoryModalOpen(true);
   };
 
   const openRecurringModal = (employee: any) => {
     setSelectedEmployeeId(employee.id);
     setIsRecurringModalOpen(true);
+  };
+
+  const openEmployeeModal = (employee?: any) => {
+    if (employee) {
+      setSelectedEmployeeId(employee.id);
+      setFormData({
+        firstName: employee.firstName || "",
+        lastName: employee.lastName || "",
+        employeeNumber: employee.employeeNumber || "",
+        nationalId: employee.nationalId || "",
+        email: employee.email || "",
+        phone: employee.phone || "",
+        bankName: employee.bankName || "",
+        bankBranch: employee.bankBranch || "",
+        bankAccountNumber: employee.bankAccountNumber || "",
+        ecocashNumber: employee.ecocashNumber || "",
+        title: employee.title || "",
+        dateOfBirth: employee.dateOfBirth || "",
+        gender: employee.gender || "",
+        maritalStatus: employee.maritalStatus || "",
+        physicalAddress: employee.physicalAddress || "",
+        postalAddress: employee.postalAddress || "",
+        nextOfKinName: employee.nextOfKinName || "",
+        nextOfKinRelationship: employee.nextOfKinRelationship || "",
+        nextOfKinPhone: employee.nextOfKinPhone || "",
+        nextOfKinAddress: employee.nextOfKinAddress || "",
+        emergencyContactName: employee.emergencyContactName || "",
+        emergencyContactPhone: employee.emergencyContactPhone || "",
+        emergencyContactRelation: employee.emergencyContactRelation || "",
+      });
+      setStatutoryData({
+        nationalId: employee.nationalId || "",
+        nssaNumber: employee.nssaNumber || "",
+        zimraTaxNumber: employee.zimraTaxNumber || "",
+      });
+      const contract = employee.contracts?.[0];
+      if (contract) {
+        setContractData({
+          contractType: contract.contractType || "PERMANENT",
+          startDate: contract.startDate ? new Date(contract.startDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
+          endDate: contract.endDate ? new Date(contract.endDate).toISOString().slice(0, 10) : "",
+          baseSalary: contract.baseSalary ? String(contract.baseSalary) : "0",
+          currency: contract.currency || "USD",
+          usdPercentage: contract.usdPercentage ? String(contract.usdPercentage) : "100",
+          zigPercentage: contract.zigPercentage ? String(contract.zigPercentage) : "0",
+          payGradeId: contract.payGradeId || "",
+        });
+      }
+    } else {
+      setSelectedEmployeeId(null);
+      setFormData({
+        firstName: "", lastName: "", employeeNumber: `EMP-${Date.now().toString().slice(-4)}`,
+        nationalId: "", email: "", phone: "", bankName: "", bankBranch: "",
+        bankAccountNumber: "", ecocashNumber: "", title: "", dateOfBirth: "",
+        gender: "", maritalStatus: "", physicalAddress: "", postalAddress: "", 
+        nextOfKinName: "", nextOfKinRelationship: "", nextOfKinPhone: "", nextOfKinAddress: "",
+        emergencyContactName: "", emergencyContactPhone: "", emergencyContactRelation: ""
+      });
+      setStatutoryData({ nationalId: "", nssaNumber: "", zimraTaxNumber: "" });
+      setContractData({
+        contractType: "PERMANENT", startDate: new Date().toISOString().slice(0, 10), endDate: "",
+        baseSalary: "0", currency: "USD", usdPercentage: "100", zigPercentage: "0", payGradeId: "",
+      });
+    }
+    setIsEmployeeModalOpen(true);
   };
 
   const filteredEmployees = employees.filter((emp: any) => {
@@ -505,102 +481,29 @@ export default function HREmployees() {
                 </label>
               </Button>
             </div>
-            <Dialog open={isAddModalOpen} onOpenChange={setIsAddModalOpen}>
-              <DialogTrigger asChild>
-                <Button className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white gap-2 shadow-md">
-                  <Plus className="h-4 w-4" /> Add Employee
-                </Button>
-              </DialogTrigger>
-            <DialogContent className="sm:max-w-[425px]">
-              <DialogHeader>
-                <DialogTitle>Add New Employee</DialogTitle>
-                <DialogDescription>
-                  Enter the basic details for the new employee.
-                </DialogDescription>
-              </DialogHeader>
-              <form onSubmit={handleCreate} className="space-y-4 pt-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>First Name</Label>
-                    <Input required value={formData.firstName} onChange={(e) => setFormData({...formData, firstName: e.target.value})} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Last Name</Label>
-                    <Input required value={formData.lastName} onChange={(e) => setFormData({...formData, lastName: e.target.value})} />
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Employee Number</Label>
-                    <Input required value={formData.employeeNumber} onChange={(e) => setFormData({...formData, employeeNumber: e.target.value})} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>National ID</Label>
-                    <Input required value={formData.nationalId} onChange={(e) => setFormData({...formData, nationalId: e.target.value})} />
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Email</Label>
-                    <Input type="email" value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Phone</Label>
-                    <Input value={formData.phone} onChange={(e) => setFormData({...formData, phone: e.target.value})} />
-                  </div>
-                </div>
-
-                {/* Banking Section */}
-                <div className="border-t pt-4 mt-4 space-y-4">
-                  <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100 uppercase tracking-wide">Payment Details</h4>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label>Bank Name</Label>
-                      <Input placeholder="e.g. CABS, FBC" value={formData.bankName} onChange={(e) => setFormData({...formData, bankName: e.target.value})} />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Branch Code</Label>
-                      <Input placeholder="e.g. 112233" value={formData.bankBranch} onChange={(e) => setFormData({...formData, bankBranch: e.target.value})} />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label>Account Number</Label>
-                      <Input value={formData.bankAccountNumber} onChange={(e) => setFormData({...formData, bankAccountNumber: e.target.value})} />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Ecocash/Mobile Money</Label>
-                      <Input placeholder="e.g. 077... / 071..." value={formData.ecocashNumber} onChange={(e) => setFormData({...formData, ecocashNumber: e.target.value})} />
-                    </div>
-                  </div>
-                </div>
-
-                <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 mt-4" disabled={createEmployeeMutation.isPending}>
-                  {createEmployeeMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Save Employee"}
-                </Button>
-              </form>
-            </DialogContent>
-          </Dialog>
+            <Button onClick={() => openEmployeeModal()} className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white gap-2 shadow-md">
+              <Plus className="h-4 w-4" /> Create Employee
+            </Button>
         </div>
       </div>
 
-      <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
+      <Dialog open={isEmployeeModalOpen} onOpenChange={setIsEmployeeModalOpen}>
         <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Edit Employee Details</DialogTitle>
+            <DialogTitle>{selectedEmployeeId ? "Edit Employee Details" : "Create Employee"}</DialogTitle>
             <DialogDescription>
-              Update comprehensive personnel records and contact details.
+              {selectedEmployeeId ? "Update comprehensive personnel records and contact details." : "Fill in the details for the new team member."}
             </DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleUpdateEmployee} className="space-y-4 pt-2">
+          <form onSubmit={handleSaveEmployee} className="space-y-4 pt-2">
             <Tabs defaultValue="personal" className="w-full">
-              <TabsList className="grid w-full grid-cols-5">
-                <TabsTrigger value="personal">Personal</TabsTrigger>
-                <TabsTrigger value="contact">Contact</TabsTrigger>
-                <TabsTrigger value="kin">Next of Kin</TabsTrigger>
-                <TabsTrigger value="banking">Banking</TabsTrigger>
-                <TabsTrigger value="salary">Salary & Contract</TabsTrigger>
+              <TabsList className="grid w-full grid-cols-6 h-auto py-1">
+                <TabsTrigger value="personal" className="text-xs">Personal</TabsTrigger>
+                <TabsTrigger value="contact" className="text-xs">Contact</TabsTrigger>
+                <TabsTrigger value="kin" className="text-xs">Next of Kin</TabsTrigger>
+                <TabsTrigger value="banking" className="text-xs">Banking</TabsTrigger>
+                <TabsTrigger value="statutory" className="text-xs">Statutory</TabsTrigger>
+                <TabsTrigger value="salary" className="text-xs">Contract</TabsTrigger>
               </TabsList>
               
               <TabsContent value="personal" className="space-y-4 pt-4">
@@ -621,7 +524,7 @@ export default function HREmployees() {
                   </div>
                   <div className="space-y-2 md:col-span-3">
                     <Label>Employee Number</Label>
-                    <Input disabled value={formData.employeeNumber} className="bg-slate-50 dark:bg-slate-900" />
+                    <Input disabled={!!selectedEmployeeId} value={formData.employeeNumber} onChange={(e) => setFormData({...formData, employeeNumber: e.target.value})} className="bg-slate-50 dark:bg-slate-900" />
                   </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -636,15 +539,9 @@ export default function HREmployees() {
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label>National ID</Label>
-                    <Input required value={formData.nationalId} onChange={(e) => setFormData({...formData, nationalId: e.target.value})} />
-                  </div>
-                  <div className="space-y-2">
                     <Label>Date of Birth</Label>
                     <Input type="date" value={formData.dateOfBirth?.split('T')[0] || ""} onChange={(e) => setFormData({...formData, dateOfBirth: e.target.value})} />
                   </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Gender</Label>
                     <Select value={formData.gender || ""} onValueChange={(v) => setFormData({...formData, gender: v})}>
@@ -653,18 +550,6 @@ export default function HREmployees() {
                         <SelectItem value="MALE">Male</SelectItem>
                         <SelectItem value="FEMALE">Female</SelectItem>
                         <SelectItem value="OTHER">Other</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Marital Status</Label>
-                    <Select value={formData.maritalStatus || ""} onValueChange={(v) => setFormData({...formData, maritalStatus: v})}>
-                      <SelectTrigger><SelectValue placeholder="Marital Status" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="SINGLE">Single</SelectItem>
-                        <SelectItem value="MARRIED">Married</SelectItem>
-                        <SelectItem value="DIVORCED">Divorced</SelectItem>
-                        <SelectItem value="WIDOWED">Widowed</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -686,10 +571,6 @@ export default function HREmployees() {
                   <Label>Physical Address</Label>
                   <Input placeholder="House #, Street, Suburb, City" value={formData.physicalAddress || ""} onChange={(e) => setFormData({...formData, physicalAddress: e.target.value})} />
                 </div>
-                <div className="space-y-2">
-                  <Label>Postal Address</Label>
-                  <Input placeholder="P.O. Box etc." value={formData.postalAddress || ""} onChange={(e) => setFormData({...formData, postalAddress: e.target.value})} />
-                </div>
               </TabsContent>
               
               <TabsContent value="kin" className="space-y-4 pt-4">
@@ -709,13 +590,9 @@ export default function HREmployees() {
                     <Input value={formData.nextOfKinPhone || ""} onChange={(e) => setFormData({...formData, nextOfKinPhone: e.target.value})} />
                   </div>
                   <div className="space-y-2">
-                    <Label>Legacy Emergency Contact</Label>
-                    <Input value={formData.emergencyContactPhone || ""} onChange={(e) => setFormData({...formData, emergencyContactPhone: e.target.value})} />
+                    <Label>Next of Kin Address</Label>
+                    <Input value={formData.nextOfKinAddress || ""} onChange={(e) => setFormData({...formData, nextOfKinAddress: e.target.value})} />
                   </div>
-                </div>
-                <div className="space-y-2">
-                  <Label>Next of Kin Address</Label>
-                  <Input value={formData.nextOfKinAddress || ""} onChange={(e) => setFormData({...formData, nextOfKinAddress: e.target.value})} />
                 </div>
               </TabsContent>
               
@@ -736,8 +613,25 @@ export default function HREmployees() {
                     <Input value={formData.bankAccountNumber || ""} onChange={(e) => setFormData({...formData, bankAccountNumber: e.target.value})} />
                   </div>
                   <div className="space-y-2">
-                    <Label>Ecocash/Mobile Money</Label>
-                    <Input placeholder="e.g. 077... / 071..." value={formData.ecocashNumber || ""} onChange={(e) => setFormData({...formData, ecocashNumber: e.target.value})} />
+                    <Label>Ecocash Number</Label>
+                    <Input value={formData.ecocashNumber || ""} onChange={(e) => setFormData({...formData, ecocashNumber: e.target.value})} placeholder="077..." />
+                  </div>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="statutory" className="space-y-4 pt-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>National ID Number</Label>
+                    <Input value={statutoryData.nationalId} onChange={(e) => setStatutoryData({...statutoryData, nationalId: e.target.value})} placeholder="12-345678X90" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>NSSA Number</Label>
+                    <Input value={statutoryData.nssaNumber} onChange={(e) => setStatutoryData({...statutoryData, nssaNumber: e.target.value})} placeholder="NSSA ID" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>ZIMRA Tax Number</Label>
+                    <Input value={statutoryData.zimraTaxNumber} onChange={(e) => setStatutoryData({...statutoryData, zimraTaxNumber: e.target.value})} placeholder="BP Number" />
                   </div>
                 </div>
               </TabsContent>
@@ -750,9 +644,7 @@ export default function HREmployees() {
                       value={contractData.contractType} 
                       onValueChange={(v) => setContractData({...contractData, contractType: v})}
                     >
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Select contract type" />
-                      </SelectTrigger>
+                      <SelectTrigger><SelectValue placeholder="Contract type" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="PERMANENT">Permanent</SelectItem>
                         <SelectItem value="FIXED_TERM">Fixed Term</SelectItem>
@@ -766,9 +658,7 @@ export default function HREmployees() {
                       value={contractData.currency} 
                       onValueChange={(v) => setContractData({...contractData, currency: v})}
                     >
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Select base currency" />
-                      </SelectTrigger>
+                      <SelectTrigger><SelectValue placeholder="Currency" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="USD">USD</SelectItem>
                         <SelectItem value="ZiG">ZiG</SelectItem>
@@ -789,9 +679,7 @@ export default function HREmployees() {
                       value={String(contractData.payGradeId)} 
                       onValueChange={(v) => setContractData({...contractData, payGradeId: v})}
                     >
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Select pay grade" />
-                      </SelectTrigger>
+                      <SelectTrigger><SelectValue placeholder="Select pay grade" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="">No Pay Grade (Custom)</SelectItem>
                         {payGrades.map((grade: any) => (
@@ -818,10 +706,11 @@ export default function HREmployees() {
                 )}
               </TabsContent>
             </Tabs>
-            <div className="flex justify-end pt-4 border-t">
-              <Button type="button" variant="outline" className="mr-2" onClick={() => setIsEditModalOpen(false)}>Cancel</Button>
-              <Button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white" disabled={updateEmployeeMutation.isPending}>
-                {updateEmployeeMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Save Changes"}
+            <div className="flex justify-end pt-4 border-t border-slate-100">
+              <Button type="button" variant="outline" className="mr-2" onClick={() => setIsEmployeeModalOpen(false)}>Cancel</Button>
+              <Button type="submit" disabled={updateEmployeeMutation.isPending || createEmployeeMutation.isPending} className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md">
+                {(updateEmployeeMutation.isPending || createEmployeeMutation.isPending) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {selectedEmployeeId ? "Save Changes" : "Create Employee"}
               </Button>
             </div>
           </form>
@@ -1063,17 +952,11 @@ export default function HREmployees() {
                             <DropdownMenuContent align="end" className="w-[160px]">
                               <DropdownMenuLabel>Actions</DropdownMenuLabel>
                               <DropdownMenuSeparator />
-                              <DropdownMenuItem className="cursor-pointer font-medium" onSelect={() => openEditModal(employee)}>
+                              <DropdownMenuItem className="cursor-pointer font-medium" onSelect={() => openEmployeeModal(employee)}>
                                 Edit Employee Details
-                              </DropdownMenuItem>
-                              <DropdownMenuItem className="cursor-pointer text-blue-600 dark:text-blue-400" onSelect={() => openContractModal(employee)}>
-                                <Briefcase className="mr-2 h-4 w-4" /> Manage Contract
                               </DropdownMenuItem>
                               <DropdownMenuItem className="cursor-pointer text-amber-600 dark:text-amber-400" onSelect={() => openSalaryChangeModal(employee)}>
                                 <BadgeDollarSign className="mr-2 h-4 w-4" /> Request Salary Change
-                              </DropdownMenuItem>
-                              <DropdownMenuItem className="cursor-pointer text-indigo-600 dark:text-indigo-400" onSelect={() => openStatutoryModal(employee)}>
-                                <ShieldAlert className="mr-2 h-4 w-4" /> Statutory Settings
                               </DropdownMenuItem>
                               <DropdownMenuItem className="cursor-pointer text-emerald-600 dark:text-emerald-400" onSelect={() => openRecurringModal(employee)}>
                                 <Wallet className="mr-2 h-4 w-4" /> Incomes & Deductions

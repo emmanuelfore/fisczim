@@ -34,6 +34,7 @@ import manufacturingRouter from "./api/v1/manufacturing.js";
 import { createRolesPermissionsRouter } from "./routes/roles-permissions.js";
 import { createPartnershipsRouter } from "./routes/partnerships.js";
 import { createCustomerFlowRouter } from "./routes/customer-flow.js";
+import { createFreightRouter } from "./routes/freight.js";
 import { userHasPermission } from "./lib/permissions.js";
 import { resolveActionAccess } from "./lib/approval-policies.js";
 import { createApprovalRequest } from "./lib/approvals.js";
@@ -1591,8 +1592,22 @@ export async function registerRoutes(
           const fitmentHeader = findHeader(row, ['Vehicle Fitment', 'Fitment', 'Compatible Vehicles', 'Vehicle Compatibility']);
           const serialTrackingHeader = findHeader(row, ['Serial Tracking', 'Track Serial', 'Serial Number Tracking']);
           const warrantyHeader = findHeader(row, ['Warranty Months', 'Warranty']);
+          const originalNameHeader = findHeader(row, ['Original Name', 'Foreign Name', 'Supplier Name']);
+          const originalLanguageHeader = findHeader(row, ['Original Language', 'Foreign Language']);
 
-          const name = nameHeader ? (row as any)[nameHeader] : null;
+          let name = nameHeader ? (row as any)[nameHeader] : null;
+          let originalLanguageName = originalNameHeader ? (row as any)[originalNameHeader] : null;
+          let originalLanguageCode = originalLanguageHeader ? (row as any)[originalLanguageHeader] : null;
+          let translationVerified = false;
+
+          // Mock translation logic if original name provided but no English name
+          if (originalLanguageName && !name) {
+            name = `[EN] ${originalLanguageName}`;
+            translationVerified = true;
+          } else if (originalLanguageName && name) {
+            translationVerified = true;
+          }
+
           if (!name) throw new Error("Missing 'Name' column");
 
           const typeValue = typeHeader ? (row as any)[typeHeader].toLowerCase() : 'good';
@@ -1698,6 +1713,9 @@ export async function registerRoutes(
             oemPartNumber: oemPartHeader ? (row as any)[oemPartHeader]?.toString() : undefined,
             supplierPartNumber: supplierPartHeader ? (row as any)[supplierPartHeader]?.toString() : undefined,
             fitmentNotes: fitmentHeader ? (row as any)[fitmentHeader]?.toString() : undefined,
+            originalLanguageName,
+            originalLanguageCode,
+            translationVerified,
             serialTrackingEnabled,
             warrantyTrackingEnabled: warrantyMonths > 0,
             warrantyMonths,
@@ -6645,6 +6663,7 @@ export async function registerRoutes(
           itemId: purchaseOrderItems.id,
           productId: purchaseOrderItems.productId,
           productName: products.name,
+          productOriginalLanguageName: products.originalLanguageName,
           productSku: products.sku,
           description: purchaseOrderItems.description,
           accountCode: purchaseOrderItems.accountCode,
@@ -15834,6 +15853,7 @@ export async function registerRoutes(
   app.use("/api", createRolesPermissionsRouter(requireAuth));
   app.use("/api", createPartnershipsRouter(requireAuth));
   app.use("/api", createCustomerFlowRouter(requireAuth));
+  app.use("/api", createFreightRouter(requireAuth));
 
   return httpServer;
 

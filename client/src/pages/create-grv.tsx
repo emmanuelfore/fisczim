@@ -388,17 +388,9 @@ export default function CreateGrv() {
                               )}
                             </>
                           ) : (
-                            <div className="flex-1 flex gap-2">
-                              <Input 
-                                placeholder="Description (e.g. Freight)" 
-                                value={line.description}
-                                onChange={(e) => handleLineChange(idx, "description", e.target.value)}
-                                className="bg-white"
-                              />
-                              <Button variant="outline" onClick={() => openAccountModal(idx)}>
-                                {line.accountCode || "Select GL Account"}
-                              </Button>
-                            </div>
+                            <Button variant="outline" onClick={() => openAccountModal(idx)} className="w-full justify-start bg-white text-left font-normal">
+                              {line.accountCode || "Select GL Account"}
+                            </Button>
                           )}
                         </div>
                       </td>
@@ -418,7 +410,7 @@ export default function CreateGrv() {
                             updated[idx] = { ...updated[idx], quantity: qty, taxAmount: taxAmt.toFixed(2) };
                             setLines(updated);
                           }}
-                          className="font-mono text-right bg-white"
+                          className="w-full font-mono text-right bg-white"
                         />
                       </td>
                       <td className="p-4">
@@ -438,7 +430,7 @@ export default function CreateGrv() {
                             updated[idx] = { ...updated[idx], unitCost: cost, taxAmount: taxAmt.toFixed(2) };
                             setLines(updated);
                           }}
-                          className="font-mono text-right bg-white"
+                          className="w-full font-mono text-right bg-white"
                         />
                       </td>
                       <td className="p-4 space-y-1">

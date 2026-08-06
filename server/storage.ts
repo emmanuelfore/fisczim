@@ -2785,6 +2785,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async seedDefaultRolesForCompany(companyId: number): Promise<void> {
+    if (companyId === 60) return; // Skip seeding system roles for CLAMP INTEL APACHE as requested
     const existing = await db.select({ id: companyRoles.id, legacyRole: companyRoles.legacyRole, name: companyRoles.name })
       .from(companyRoles)
       .where(eq(companyRoles.companyId, companyId));
@@ -3572,11 +3573,14 @@ export class DatabaseStorage implements IStorage {
         CREATE TABLE IF NOT EXISTS document_number_counters (
           company_id integer NOT NULL,
           prefix text NOT NULL,
-          last_number integer NOT NULL DEFAULT 0,
+          last_number bigint NOT NULL DEFAULT 0,
           updated_at timestamp DEFAULT now() NOT NULL,
           PRIMARY KEY (company_id, prefix)
         )
       `);
+
+      // Ensure existing tables are upgraded to bigint to prevent overflow with timestamp-based IDs
+      await tx.execute(sql`ALTER TABLE document_number_counters ALTER COLUMN last_number TYPE bigint`);
 
       await tx.execute(sql`SELECT pg_advisory_xact_lock(${companyId}, hashtext(${normalizedPrefix}))`);
 
@@ -3600,9 +3604,9 @@ export class DatabaseStorage implements IStorage {
           WHERE company_id = ${companyId}
         ),
         seed AS (
-          SELECT coalesce(max(substring(document_number from ${`^${normalizedPrefix}-([0-9]+)$`})::integer), 0) AS last_number
+          SELECT coalesce(max(substring(document_number from ${`^${normalizedPrefix}-([0-9]+)$`})::bigint), 0) AS last_number
           FROM historical_numbers
-          WHERE document_number ~ ${`^${normalizedPrefix}-[0-9]+$`}
+          WHERE document_number ~ ${`^${normalizedPrefix}-[0-9]{1,18}$`}
         )
         INSERT INTO document_number_counters (company_id, prefix, last_number)
         SELECT ${companyId}, ${normalizedPrefix}, last_number
@@ -4232,7 +4236,17 @@ export class DatabaseStorage implements IStorage {
   async getApiLogs(companyId: number, limit: number = 100): Promise<ApiLog[]> {
     return await db.select()
       .from(apiLogs)
-      .where(eq(apiLogs.companyId, companyId))
+      .where(
+        and(
+          eq(apiLogs.companyId, companyId),
+          inArray(apiLogs.endpoint, [
+            '/api/v1/fiscalize',
+            '/api/v1/fiscalise',
+            '/api/v1/fiscal/open-day',
+            '/api/v1/fiscal/close-day'
+          ])
+        )
+      )
       .orderBy(desc(apiLogs.createdAt))
       .limit(limit);
   }

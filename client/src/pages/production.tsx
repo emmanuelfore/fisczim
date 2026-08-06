@@ -268,7 +268,7 @@ export default function ProductionPage() {
                   }
                   placeholder="Qty"
                   className={cn(
-                    "h-11 rounded-xl bg-white text-right font-bold",
+                    "h-11 w-full rounded-xl bg-white text-right font-bold",
                     insufficient && "border-rose-300 text-rose-700",
                   )}
                 />

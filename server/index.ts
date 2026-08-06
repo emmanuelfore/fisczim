@@ -58,7 +58,7 @@ app.use(async (req: any, res: any, next) => {
     const usedApiKey = Boolean(req.headers['x-api-key']);
 
     // Only log if we have a companyId, it's an API request, and it was made using an API key
-    if (companyId && req.path.startsWith('/api') && usedApiKey) {
+    if (companyId && (req.originalUrl || req.url).startsWith('/api') && usedApiKey) {
       let responseBody = body;
       try {
         if (typeof body === 'string') {

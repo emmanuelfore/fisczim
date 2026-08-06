@@ -107,6 +107,8 @@ export function EditProductDialog({ product, trigger, children }: Props) {
       warrantyTrackingEnabled:
         (product as any).warrantyTrackingEnabled ?? false,
       warrantyMonths: (product as any).warrantyMonths || 0,
+      originalLanguageName: (product as any).originalLanguageName || "",
+      originalLanguageCode: (product as any).originalLanguageCode || "",
       ...(product.unitOfMeasure
         ? { unitOfMeasure: product.unitOfMeasure }
         : {}),
@@ -610,6 +612,68 @@ export function EditProductDialog({ product, trigger, children }: Props) {
                 </FormItem>
               )}
             />
+
+            {/* Translation Settings */}
+            <div className="rounded-2xl bg-amber-50/50 border border-amber-100 p-5 space-y-4">
+              <h4 className=" font-bold text-amber-900 flex items-center gap-2">
+                <span className="w-1.5 h-4 bg-amber-500 rounded-full"></span>
+                Product Translations
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="originalLanguageName"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-slate-700 font-semibold">
+                        Original Name
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="e.g. 苹果手机壳"
+                          {...field}
+                          value={field.value || ""}
+                          className="rounded-xl bg-white border-amber-200 focus-visible:ring-amber-500/20"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="originalLanguageCode"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-slate-700 font-semibold">
+                        Original Language
+                      </FormLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        defaultValue={field.value || undefined}
+                        value={field.value || undefined}
+                      >
+                        <FormControl>
+                          <SelectTrigger className="rounded-xl bg-white border-amber-200 focus:ring-amber-500/20">
+                            <SelectValue placeholder="Select Language" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent className="rounded-xl shadow-xl">
+                          <SelectItem value="zh">Chinese (Mandarin)</SelectItem>
+                          <SelectItem value="ja">Japanese</SelectItem>
+                          <SelectItem value="ko">Korean</SelectItem>
+                          <SelectItem value="de">German</SelectItem>
+                          <SelectItem value="fr">French</SelectItem>
+                          <SelectItem value="es">Spanish</SelectItem>
+                          <SelectItem value="other">Other</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            </div>
 
             {!isService && (
               <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-5 space-y-4">

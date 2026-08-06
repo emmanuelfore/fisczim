@@ -45,7 +45,7 @@ export function ProductCombobox({
         >
           <span className="truncate text-sm flex-1 text-left">
             {selectedProduct 
-              ? `${selectedProduct.name}${selectedProduct.sku ? ` (${selectedProduct.sku})` : ""}` 
+              ? <>{selectedProduct.name} {selectedProduct.originalLanguageName ? <span className="text-xs text-slate-400 font-normal ml-1">({selectedProduct.originalLanguageName})</span> : ""}{selectedProduct.sku ? ` (${selectedProduct.sku})` : ""}</> 
               : "Select product..."}
           </span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
@@ -60,7 +60,7 @@ export function ProductCombobox({
               {products.map((product) => (
                 <CommandItem
                   key={product.id}
-                  value={`${product.name} ${product.sku || ""}`}
+                  value={`${product.name} ${product.originalLanguageName || ""} ${product.sku || ""}`}
                   onSelect={() => {
                     onChange(String(product.id))
                     setOpen(false)
@@ -73,7 +73,9 @@ export function ProductCombobox({
                     )}
                   />
                   <div className="flex flex-col min-w-0">
-                    <span className="truncate font-medium">{product.name}</span>
+                    <span className="truncate font-medium">
+                      {product.name} {product.originalLanguageName && <span className="text-xs text-slate-400 font-normal ml-1">({product.originalLanguageName})</span>}
+                    </span>
                     {product.sku && (
                       <span className="text-[10px] text-muted-foreground truncate">{product.sku}</span>
                     )}

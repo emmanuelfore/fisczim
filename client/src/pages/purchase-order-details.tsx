@@ -195,7 +195,18 @@ export default function PurchaseOrderDetailsPage() {
                       {order.items.map((item, idx) => (
                         <tr key={item.id || idx} className="border-t border-slate-50">
                           <td className="p-3 font-semibold text-slate-800">
-                            {item.productId ? item.productName : item.description || "—"}
+                            {item.productId ? (
+                              <>
+                                {item.productName}
+                                {item.productOriginalLanguageName && (
+                                  <span className="text-xs text-slate-400 font-normal ml-1">
+                                    ({item.productOriginalLanguageName})
+                                  </span>
+                                )}
+                              </>
+                            ) : (
+                              item.description || "—"
+                            )}
                             {!item.productId && item.accountCode && <div className="text-[10px] text-slate-400 mt-0.5">GL: {item.accountCode}</div>}
                           </td>
                           <td className="p-3 font-mono text-xs text-slate-500">{item.productSku || "—"}</td>

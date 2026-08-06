@@ -298,9 +298,8 @@ export default function PurchaseOrderFormPage({
                 <div className="rounded-xl border border-slate-100 overflow-hidden">
                   <div className="grid grid-cols-12 gap-0 bg-slate-50 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
                     <div className="col-span-3">Product</div>
-                    <div className="col-span-2">Segment</div>
-                    <div className="col-span-1 text-right">Qty</div>
-                    <div className="col-span-2 text-right">Unit Cost</div>
+                    <div className="col-span-2 text-right">Qty</div>
+                    <div className="col-span-3 text-right">Unit Cost</div>
                     <div className="col-span-2 text-right">Tax</div>
                     <div className="col-span-1 text-right">Total</div>
                     <div className="col-span-1" />
@@ -327,19 +326,12 @@ export default function PurchaseOrderFormPage({
                               className="w-[200px]"
                             />
                           ) : (
-                            <div className="flex gap-2">
-                              <Input
-                                placeholder="Description (e.g. Office Supplies)"
-                                value={line.description}
-                                onChange={(e) => updateLine(index, { description: e.target.value })}
-                                className="h-9 flex-1"
-                              />
                               <Popover open={openComboboxIndex === index} onOpenChange={(open) => setOpenComboboxIndex(open ? index : null)}>
                                 <PopoverTrigger asChild>
                                   <Button
                                     variant="outline"
                                     role="combobox"
-                                    className="h-9 w-[220px] justify-between font-normal"
+                                    className="h-9 w-full justify-between font-normal"
                                   >
                                     {line.accountCode
                                       ? (() => {
@@ -367,7 +359,7 @@ export default function PurchaseOrderFormPage({
                                           — None —
                                         </CommandItem>
                                         {accounts
-                                          .filter((a) => ["ASSET", "EXPENSE"].includes(a.type) && a.isActive)
+                                          .filter((a) => a.type === "EXPENSE" && a.isActive)
                                           .map((account) => (
                                             <CommandItem
                                               key={account.id}
@@ -395,7 +387,6 @@ export default function PurchaseOrderFormPage({
                                   </Command>
                                 </PopoverContent>
                               </Popover>
-                            </div>
                           )}
                           <div className="flex items-center gap-1 pt-1">
                             <input
@@ -411,24 +402,6 @@ export default function PurchaseOrderFormPage({
                           </div>
                         </div>
                         <div className="col-span-2">
-                          <Select
-                            value={line.segmentId || "none"}
-                            onValueChange={(val) => updateLine(index, { segmentId: val })}
-                          >
-                            <SelectTrigger className="h-9">
-                              <SelectValue placeholder="Segment" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="none">None</SelectItem>
-                              {segments?.map((seg) => (
-                                <SelectItem key={seg.id} value={String(seg.id)}>
-                                  {seg.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="col-span-1">
                           <QuantityInput
                             type="number" min="0" value={line.quantity}
                             onChange={(e) => {
@@ -444,10 +417,10 @@ export default function PurchaseOrderFormPage({
                               }
                               updateLine(index, { quantity: e.target.value, taxAmount: String(taxAmt.toFixed(2)) });
                             }}
-                            className="h-9 text-right"
+                            className="h-9 w-full text-right"
                           />
                         </div>
-                        <div className="col-span-2">
+                        <div className="col-span-3">
                           <Input
                             type="number" min="0" step="0.01" value={line.unitCost}
                             onChange={(e) => {
@@ -463,7 +436,7 @@ export default function PurchaseOrderFormPage({
                               }
                               updateLine(index, { unitCost: e.target.value, taxAmount: String(taxAmt.toFixed(2)) });
                             }}
-                            className="h-9 text-right"
+                            className="h-9 w-full text-right"
                           />
                         </div>
                         <div className="col-span-2 space-y-1">

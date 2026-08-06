@@ -5,6 +5,7 @@ import {
 } from "../../shared/permissions.js";
 import { storage } from "../storage.js";
 import { userHasPermission } from "./permissions.js";
+import { sendApprovalRequestEmail } from "../email.js";
 
 export interface CreateApprovalInput {
   companyId: number;
@@ -18,7 +19,7 @@ export interface CreateApprovalInput {
 }
 
 export async function createApprovalRequest(input: CreateApprovalInput) {
-  return storage.createApprovalRequest({
+  const request = await storage.createApprovalRequest({
     companyId: input.companyId,
     type: input.type,
     status: "pending",
@@ -29,6 +30,38 @@ export async function createApprovalRequest(input: CreateApprovalInput) {
     referenceId: input.referenceId || null,
     requestedBy: input.requestedBy,
   });
+
+  // Dispatch email notifications asynchronously
+  setTimeout(async () => {
+    try {
+      const company = await storage.getCompany(input.companyId);
+      const requester = await storage.getUser(input.requestedBy);
+      const requesterName = requester?.name || requester?.username || "A user";
+      const companyName = company?.name || "Your Company";
+
+      const approvePerm = APPROVAL_TYPE_PERMISSION[input.type];
+      const companyUsers = await storage.getCompanyUsers(input.companyId);
+
+      for (const u of companyUsers) {
+        if (!u.email) continue;
+        // Check if this specific user can approve
+        const canApprove = await userHasPermission(u.id, input.companyId, approvePerm, (u as any).isSuperAdmin || false);
+        if (canApprove) {
+          await sendApprovalRequestEmail(
+            u.email,
+            u.name || "Approver",
+            input.title,
+            requesterName,
+            companyName
+          ).catch(e => console.error("Email err", e));
+        }
+      }
+    } catch (err) {
+      console.error("Failed to process approval notifications:", err);
+    }
+  }, 0);
+
+  return request;
 }
 
 export async function approveRequest(
@@ -217,6 +250,8 @@ async function executeApprovalAction(
       const items = (payload.items as any[]) || (invoiceData.items as any[]) || [];
       const invoice = await storage.createInvoice({
         ...invoiceData,
+        issueDate: invoiceData.issueDate ? new Date(invoiceData.issueDate as string) : undefined,
+        dueDate: invoiceData.dueDate ? new Date(invoiceData.dueDate as string) : undefined,
         companyId,
         status: "issued",
         items,

@@ -520,6 +520,11 @@ export const products = pgTable("products", {
   warrantyTrackingEnabled: boolean("warranty_tracking_enabled").default(false),
   warrantyMonths: integer("warranty_months").default(0),
 
+  // Multi-Lingual Product Support
+  originalLanguageName: text("original_language_name"),
+  originalLanguageCode: text("original_language_code"), // e.g., 'zh', 'fr', 'es'
+  translationVerified: boolean("translation_verified").default(false),
+
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => {
   return {
@@ -1403,6 +1408,90 @@ export const suppliers = pgTable("suppliers", {
 export const suppliersRelations = relations(suppliers, ({ one }) => ({
   company: one(companies, { fields: [suppliers.companyId], references: [companies.id] }),
 }));
+
+// Freight Forwarders
+export const freightForwarders = pgTable("freight_forwarders", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  name: text("name").notNull(),
+  contactPerson: text("contact_person"),
+  email: text("email"),
+  phone: text("phone"),
+  address: text("address"),
+  isActive: boolean("is_active").default(true),
+  supportedShippingMethods: text("supported_shipping_methods").array(),
+  defaultCurrency: text("default_currency").default("USD"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const freightForwardersRelations = relations(freightForwarders, ({ one, many }) => ({
+  company: one(companies, { fields: [freightForwarders.companyId], references: [companies.id] }),
+  consignments: many(consignments),
+}));
+
+export const insertFreightForwarderSchema = createInsertSchema(freightForwarders).omit({ id: true, createdAt: true });
+export type FreightForwarder = typeof freightForwarders.$inferSelect;
+export type InsertFreightForwarder = z.infer<typeof insertFreightForwarderSchema>;
+
+// Consignments
+export const consignments = pgTable("consignments", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  forwarderId: integer("forwarder_id").references(() => freightForwarders.id).notNull(),
+  supplierId: integer("supplier_id").references(() => suppliers.id),
+  referenceNumber: text("reference_number").notNull(),
+  shippingMethod: text("shipping_method").notNull(), // AIR, SEA, ROAD, RAIL
+  status: text("status").default("PENDING"), // PENDING, DISPATCHED, IN_TRANSIT, CUSTOMS, ARRIVED, DELAYED
+  
+  dispatchDate: timestamp("dispatch_date"),
+  expectedArrivalDate: timestamp("expected_arrival_date"),
+  actualArrivalDate: timestamp("actual_arrival_date"),
+  
+  destinationLocationId: integer("destination_location_id").references(() => inventoryLocations.id),
+  
+  shippingCost: decimal("shipping_cost", { precision: 15, scale: 2 }).default("0.00"),
+  currency: text("currency").default("USD"),
+  delayNotes: text("delay_notes"),
+  
+  trackingUrl: text("tracking_url"),
+  containerNumber: text("container_number"),
+  flightNumber: text("flight_number"),
+  insuranceCost: decimal("insurance_cost", { precision: 15, scale: 2 }).default("0.00"),
+  customsDuty: decimal("customs_duty", { precision: 15, scale: 2 }).default("0.00"),
+  handlingCharges: decimal("handling_charges", { precision: 15, scale: 2 }).default("0.00"),
+  
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const consignmentsRelations = relations(consignments, ({ one, many }) => ({
+  company: one(companies, { fields: [consignments.companyId], references: [companies.id] }),
+  forwarder: one(freightForwarders, { fields: [consignments.forwarderId], references: [freightForwarders.id] }),
+  supplier: one(suppliers, { fields: [consignments.supplierId], references: [suppliers.id] }),
+  destination: one(inventoryLocations, { fields: [consignments.destinationLocationId], references: [inventoryLocations.id] }),
+  purchaseOrders: many(consignmentPurchaseOrders),
+}));
+
+export const insertConsignmentSchema = createInsertSchema(consignments).omit({ id: true, createdAt: true });
+export type Consignment = typeof consignments.$inferSelect;
+export type InsertConsignment = z.infer<typeof insertConsignmentSchema>;
+
+// Consignment Purchase Orders
+export const consignmentPurchaseOrders = pgTable("consignment_purchase_orders", {
+  id: serial("id").primaryKey(),
+  consignmentId: integer("consignment_id").references(() => consignments.id, { onDelete: "cascade" }).notNull(),
+  purchaseOrderId: integer("purchase_order_id").references(() => purchaseOrders.id, { onDelete: "cascade" }).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const consignmentPurchaseOrdersRelations = relations(consignmentPurchaseOrders, ({ one }) => ({
+  consignment: one(consignments, { fields: [consignmentPurchaseOrders.consignmentId], references: [consignments.id] }),
+  purchaseOrder: one(purchaseOrders, { fields: [consignmentPurchaseOrders.purchaseOrderId], references: [purchaseOrders.id] }),
+}));
+
+export const insertConsignmentPurchaseOrderSchema = createInsertSchema(consignmentPurchaseOrders).omit({ id: true, createdAt: true });
+export type ConsignmentPurchaseOrder = typeof consignmentPurchaseOrders.$inferSelect;
+export type InsertConsignmentPurchaseOrder = z.infer<typeof insertConsignmentPurchaseOrderSchema>;
 
 // Inventory Transactions (Stock Ledger)
 export const inventoryTransactions = pgTable("inventory_transactions", {

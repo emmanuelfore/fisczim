@@ -1736,9 +1736,6 @@ export default function CreateInvoicePage() {
                           <TableHead className="pl-4">
                             Item & Description
                           </TableHead>
-                          {/* <TableHead className="w-[100px]">
-                            Segment
-                          </TableHead> */}
                           <TableHead className="w-[140px] text-center">
                             Qty
                           </TableHead>
@@ -2019,18 +2016,6 @@ export default function CreateInvoicePage() {
                                         </Command>
                                       </PopoverContent>
                                     </Popover>
-                                    <Input
-                                      placeholder="Brand, model or description..."
-                                      value={item.description}
-                                      onChange={(e) =>
-                                        updateItem(
-                                          item.localId,
-                                          "description",
-                                          e.target.value,
-                                        )
-                                      }
-                                      className="h-8 rounded-lg border-slate-100 bg-slate-50/50 px-2 text-[12px] transition-all hover:border-slate-200 focus:border-primary focus:bg-white"
-                                    />
                                     {products?.find(p => p.id === item.productId)?.serialTrackingEnabled && (
                                       <Select
                                         value={item.serialNumber || ""}
@@ -2056,26 +2041,6 @@ export default function CreateInvoicePage() {
                                     )}
                                   </div>
                                 </TableCell>
-                                {/* <TableCell className="align-top py-3">
-                                  <Select
-                                    value={item.segmentId?.toString() || "none"}
-                                    onValueChange={(val) =>
-                                      updateItem(item.localId, "segmentId", val === "none" ? null : parseInt(val))
-                                    }
-                                  >
-                                    <SelectTrigger className="h-9">
-                                      <SelectValue placeholder="Segment" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="none">None</SelectItem>
-                                      {segments?.map((seg) => (
-                                        <SelectItem key={seg.id} value={String(seg.id)}>
-                                          {seg.name}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-                                </TableCell> */}
                                 <TableCell className="align-top py-3">
                                   <QuantityInput
                                     type="number"

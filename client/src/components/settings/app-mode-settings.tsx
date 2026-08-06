@@ -1,7 +1,7 @@
 import { APP_MODES, normalizeAppMode, type AppMode } from "@shared/app-mode";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Bus, MonitorCheck, Utensils, Briefcase } from "lucide-react";
+import { Bus, MonitorCheck, Utensils } from "lucide-react";
 import { useState, type Dispatch, type SetStateAction } from "react";
 
 interface Props {
@@ -14,7 +14,6 @@ const icons: Record<AppMode, any> = {
   pos: MonitorCheck,
   restaurant: Utensils,
   bus_ticketing: Bus,
-  hr: Briefcase,
 };
 
 export function AppModeSettings({ formData, setFormData, onSave }: Props) {

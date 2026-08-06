@@ -34,6 +34,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CsvImportDialog } from "@/components/csv-import-dialog";
+import { ImportProductDialog } from "@/components/inventory/import-product-dialog";
 import { ManageCategoriesDialog } from "@/components/products/manage-categories-dialog";
 import { useQueryClient, useMutation } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
@@ -153,6 +154,7 @@ export default function ProductsPage() {
   const filteredItems = typeFilteredItems?.filter((p) => {
     const matchesSearch =
       p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (p.originalLanguageName && p.originalLanguageName.toLowerCase().includes(searchTerm.toLowerCase())) ||
       (p.sku && p.sku.toLowerCase().includes(searchTerm.toLowerCase())) ||
       (p.description &&
         p.description.toLowerCase().includes(searchTerm.toLowerCase()));
@@ -293,6 +295,7 @@ export default function ProductsPage() {
             )}
 
             <ManageCategoriesDialog companyId={companyId} />
+            <ImportProductDialog />
             <CsvImportDialog
               type="product"
               companyId={companyId}
@@ -531,7 +534,7 @@ export default function ProductsPage() {
                         )}
                         <div className="flex flex-col min-w-0">
                           <span className="font-semibold tracking-tight truncate text-slate-900">
-                            {p.name}
+                            {p.name} {p.originalLanguageName && <span className="text-xs text-slate-400 font-normal ml-1">({p.originalLanguageName})</span>}
                           </span>
                           <div className="flex items-center gap-2 mt-0.5">
                             {isService && (
@@ -714,7 +717,7 @@ export default function ProductsPage() {
                           <div className="flex flex-col min-w-0">
                             <div className="flex items-center gap-2">
                               <span className="font-semibold tracking-tight truncate">
-                                {p.name}
+                                {p.name} {p.originalLanguageName && <span className="text-xs text-slate-400 font-normal ml-1">({p.originalLanguageName})</span>}
                               </span>
                               {isService && (
                                 <Badge

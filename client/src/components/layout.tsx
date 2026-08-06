@@ -57,8 +57,7 @@ import {
   ShoppingCart,
   AlertTriangle,
   UserRound,
-  FileBarChart2,
-  Landmark,
+  CheckSquare,
 } from "lucide-react";
 import { useBranding } from "@/hooks/use-branding";
 import {
@@ -296,6 +295,17 @@ export function Layout({
             { icon: ShoppingCart, label: "Purchases Report", href: "/reports/purchase-report" },
           ]
         },
+      ],
+    },
+    {
+      icon: Truck,
+      label: "Freight & Logistics",
+      children: [
+        { icon: LayoutDashboard, label: "Dashboard", href: "/freight" },
+        { icon: Truck, label: "Freight Forwarders", href: "/freight/forwarders" },
+        { icon: Package, label: "Consignments", href: "/freight/consignments" },
+        { icon: CheckSquare, label: "Receiving", href: "/freight/receiving" },
+        { icon: BarChart3, label: "Reports", href: "/freight/reports" },
       ],
     },
     {
@@ -590,40 +600,8 @@ export function Layout({
     { icon: Settings, label: "Bus Settings", children: busSettingsChildren },
   ];
 
-  const hrNavItems: NavItem[] = [
-    { icon: LayoutDashboard, label: "HR Dashboard", href: "/hr" },
-    { icon: Users, label: "Employees", href: "/hr/employees" },
-    { icon: FileSpreadsheet, label: "Payroll Processing", href: "/hr/payroll" },
-    { icon: CalendarDays, label: "Leave", href: "/hr/leave" },
-    { icon: CreditCard, label: "Loans & Advances", href: "/hr/loans" },
-    { icon: UserRound, label: "Employee Self-Service", href: "/hr/self-service" },
-    { icon: Settings, label: "HR Settings", href: "/hr/setup" },
-    {
-      icon: Calculator,
-      label: "Finance Ledgers",
-      children: [
-        { icon: ClipboardList, label: "Chart of Accounts", href: "/accounting/coa" },
-        { icon: History, label: "Journal Vouchers", href: "/accounting/journal" },
-        { icon: CreditCard, label: "Cashbook", href: "/accounting/cashbook" },
-      ]
-    },
-    {
-      icon: FileBarChart2,
-      label: "Reports",
-      children: [
-        { icon: FileBarChart2, label: "ZIMRA Compliance", href: "/hr/reports/zimra" },
-        { icon: Landmark, label: "Statutory Remittances", href: "/hr/reports/remittances" },
-        { icon: TrendingUp, label: "Profit & Loss", href: "/accounting/reports/financial?tab=pl" },
-      ]
-    },
-    { icon: UserCog, label: "User Management", href: "/team-settings" },
-    { icon: Settings, label: "Settings", href: "/settings?tab=app-mode" },
-  ];
-
   const allNavItems: NavItem[] = isBusOnlyMode
     ? busNavItems
-    : appMode === "hr"
-      ? hrNavItems
     : appMode === "restaurant"
       ? restaurantNavItems
       : posNavItems;

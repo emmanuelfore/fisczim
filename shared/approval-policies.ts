@@ -39,10 +39,10 @@ export const APPROVAL_POLICY_MODES: { value: ApprovalPolicyMode; label: string; 
 ];
 
 export const DEFAULT_APPROVAL_POLICIES: CompanyApprovalPolicies = {
-  [APPROVAL_TYPES.STOCK_ADJUSTMENT]: { mode: "by_permission", ownerBypass: true },
-  [APPROVAL_TYPES.GRN_CONFIRM]: { mode: "by_permission", ownerBypass: true },
-  [APPROVAL_TYPES.JOURNAL_POST]: { mode: "by_permission", amountThreshold: 0, ownerBypass: true },
-  [APPROVAL_TYPES.INVOICE_ISSUE]: { mode: "by_permission", amountThreshold: 0, ownerBypass: true },
+  [APPROVAL_TYPES.STOCK_ADJUSTMENT]: { mode: "disabled", ownerBypass: true },
+  [APPROVAL_TYPES.GRN_CONFIRM]: { mode: "disabled", ownerBypass: true },
+  [APPROVAL_TYPES.JOURNAL_POST]: { mode: "disabled", amountThreshold: 0, ownerBypass: true },
+  [APPROVAL_TYPES.INVOICE_ISSUE]: { mode: "disabled", amountThreshold: 0, ownerBypass: true },
 };
 
 export const APPROVAL_POLICY_DESCRIPTIONS: Record<ApprovalType, string> = {

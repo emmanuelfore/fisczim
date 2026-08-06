@@ -539,10 +539,9 @@ export default function CreateSalesOrderPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[150px]">Item</TableHead>
-                  <TableHead>Description</TableHead>
+                  <TableHead className="w-[200px]">Item</TableHead>
                   <TableHead className="w-[140px] text-center">Qty</TableHead>
-                  <TableHead className="text-right w-[220px]">Price</TableHead>
+                  <TableHead className="text-right w-[300px]">Price</TableHead>
                   <TableHead className="text-right w-[100px]">
                     VAT Amt
                   </TableHead>
@@ -553,77 +552,78 @@ export default function CreateSalesOrderPage() {
               <TableBody>
                 {items.map((item, index) => (
                   <TableRow key={item.localId}>
-                    <TableCell className="max-w-[200px]">
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button
-                            variant="outline"
-                            role="combobox"
-                            className={cn(
-                              "w-full justify-between h-9 px-3 font-medium text-[13px]",
-                              !item.productId && "text-muted-foreground",
-                            )}
-                          >
-                            <span className="truncate block w-full text-left">
-                              {item.productId
-                                ? products?.find((p) => p.id === item.productId)
-                                    ?.name || "Select Product"
-                                : "Select Product"}
-                            </span>
-                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-[300px] p-0" align="start">
-                          <Command>
-                            <CommandInput placeholder="Search products..." />
-                            <CommandList>
-                              <CommandEmpty>No product found.</CommandEmpty>
-                              <CommandGroup>
-                                {products?.map((product) => (
-                                  <CommandItem
-                                    key={product.id}
-                                    value={product.name}
-                                    onSelect={() =>
-                                      handleProductSelect(
-                                        item.localId,
-                                        product.id.toString(),
-                                      )
-                                    }
-                                  >
-                                    <Check
-                                      className={cn(
-                                        "mr-2 h-4 w-4",
-                                        item.productId === product.id
-                                          ? "opacity-100"
-                                          : "opacity-0",
-                                      )}
-                                    />
-                                    <div className="flex flex-col">
-                                      <span>{product.name}</span>
-                                      <span className="text-xs text-muted-foreground">
-                                        ${Number(product.price).toFixed(2)}
-                                      </span>
-                                    </div>
-                                  </CommandItem>
-                                ))}
-                              </CommandGroup>
-                            </CommandList>
-                          </Command>
-                        </PopoverContent>
-                      </Popover>
-                    </TableCell>
-                    <TableCell>
-                      <Input
-                        value={item.description}
-                        onChange={(e) =>
-                          updateItem(
-                            item.localId,
-                            "description",
-                            e.target.value,
-                          )
-                        }
-                        placeholder="Item description..."
-                      />
+                    <TableCell className="max-w-[200px] align-top">
+                      <div className="flex flex-col gap-2">
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button
+                              variant="outline"
+                              role="combobox"
+                              className={cn(
+                                "w-full justify-between h-9 px-3 font-medium text-[13px]",
+                                !item.productId && "text-muted-foreground",
+                              )}
+                            >
+                              <span className="truncate block w-full text-left">
+                                {item.productId
+                                  ? products?.find((p) => p.id === item.productId)
+                                      ?.name || "Select Product"
+                                  : "Select Product"}
+                              </span>
+                              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-[300px] p-0" align="start">
+                            <Command>
+                              <CommandInput placeholder="Search products..." />
+                              <CommandList>
+                                <CommandEmpty>No product found.</CommandEmpty>
+                                <CommandGroup>
+                                  {products?.map((product) => (
+                                    <CommandItem
+                                      key={product.id}
+                                      value={product.name}
+                                      onSelect={() =>
+                                        handleProductSelect(
+                                          item.localId,
+                                          product.id.toString(),
+                                        )
+                                      }
+                                    >
+                                      <Check
+                                        className={cn(
+                                          "mr-2 h-4 w-4",
+                                          item.productId === product.id
+                                            ? "opacity-100"
+                                            : "opacity-0",
+                                        )}
+                                      />
+                                      <div className="flex flex-col">
+                                        <span>{product.name}</span>
+                                        <span className="text-xs text-muted-foreground">
+                                          ${Number(product.price).toFixed(2)}
+                                        </span>
+                                      </div>
+                                    </CommandItem>
+                                  ))}
+                                </CommandGroup>
+                              </CommandList>
+                            </Command>
+                          </PopoverContent>
+                        </Popover>
+                        <Input
+                          value={item.description}
+                          onChange={(e) =>
+                            updateItem(
+                              item.localId,
+                              "description",
+                              e.target.value,
+                            )
+                          }
+                          placeholder="Item description..."
+                          className="h-8 text-xs"
+                        />
+                      </div>
                     </TableCell>
                     <TableCell>
                       <QuantityInput

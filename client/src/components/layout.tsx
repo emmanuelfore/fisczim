@@ -144,6 +144,7 @@ export function Layout({
   const { toast } = useToast();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [companySearchQuery, setCompanySearchQuery] = useState("");
   const [openNavGroups, setOpenNavGroups] = useState<Record<string, boolean>>(
     {},
   );
@@ -162,6 +163,20 @@ export function Layout({
   const handleCompanyChange = (id: number) => {
     setCompany(id);
   };
+
+  const filteredAndSortedCompanies = useMemo(() => {
+    if (!companies) return [];
+    let filtered = companies;
+    if (companySearchQuery) {
+      const q = companySearchQuery.toLowerCase();
+      filtered = companies.filter((c: any) => c.name.toLowerCase().includes(q));
+    }
+    return [...filtered].sort((a: any, b: any) => {
+      const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return dateA - dateB;
+    });
+  }, [companies, companySearchQuery]);
 
   const selectedCompanyId = activeCompanyId;
   const selectedCompany = activeCompany;
@@ -1944,8 +1959,22 @@ export function Layout({
                 side={isSidebarCollapsed ? "right" : "top"}
                 className="w-60 max-h-[400px] overflow-y-auto bg-white border-slate-200 rounded-xl shadow-2xl p-1 z-[60]"
               >
+                <div className="px-2 py-2 sticky top-0 bg-white z-10 border-b border-slate-50 mb-1">
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Search companies..."
+                      value={companySearchQuery}
+                      onChange={(e) => setCompanySearchQuery(e.target.value)}
+                      className="w-full pl-7 pr-3 py-1.5 text-xs bg-slate-50 border-none rounded-lg focus:outline-none focus:ring-1 focus:ring-[#2563EB] text-slate-700 placeholder:text-slate-400"
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => e.stopPropagation()}
+                    />
+                  </div>
+                </div>
                 <div className="px-1 py-1">
-                  {companies?.map((company) => (
+                  {filteredAndSortedCompanies.map((company: any) => (
                     <DropdownMenuItem
                       key={company.id}
                       onClick={() => handleCompanyChange(company.id)}
@@ -1957,7 +1986,7 @@ export function Layout({
                       )}
                     >
                       <div
-                        className={`w-6 h-6 rounded flex items-center justify-center text-[8px] font-bold ${selectedCompanyId === company.id ? "bg-[#DBEAFE] text-[#1D4ED8]" : "bg-slate-100 text-slate-400"}`}
+                        className={`w-6 h-6 rounded flex items-center justify-center text-[8px] font-bold relative ${selectedCompanyId === company.id ? "bg-[#DBEAFE] text-[#1D4ED8]" : "bg-slate-100 text-slate-400"}`}
                       >
                         {company.logoUrl ? (
                           <img
@@ -1966,6 +1995,9 @@ export function Layout({
                           />
                         ) : (
                           company.name.substring(0, 2).toUpperCase()
+                        )}
+                        {company.zimraEnvironment === "production" && (
+                          <div className="absolute -bottom-0.5 -right-0.5 w-2 h-2 bg-emerald-500 border border-white rounded-full" title="Production" />
                         )}
                       </div>
                       <span className="truncate flex-1 font-medium font-display text-[14px]">

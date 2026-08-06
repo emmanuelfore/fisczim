@@ -1681,19 +1681,20 @@ export default function CreateInvoicePage() {
                         </p>
                       </div>
                     </div>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 mt-1 sm:mt-0">
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={handleAddItem}
-                        className="h-9 gap-2 rounded-xl"
+                        className="h-10 sm:h-9 gap-2 rounded-xl justify-center font-medium"
+                        type="button"
                       >
                         <Plus className="h-4 w-4" /> Add Item
                       </Button>
                       <Button
                         variant="outline"
                         size="sm"
-                        className="h-9 gap-2 rounded-xl"
+                        className="h-10 sm:h-9 gap-2 rounded-xl justify-center font-medium"
                         type="button"
                         onClick={() => {
                           const barcode = window.prompt('Enter barcode or SKU:');
@@ -1722,16 +1723,16 @@ export default function CreateInvoicePage() {
                         variant="outline"
                         size="sm"
                         onClick={handleAddDiscount}
-                        className="h-9 gap-2 rounded-xl"
+                        className="h-10 sm:h-9 gap-2 rounded-xl justify-center font-medium"
                         type="button"
                       >
                         <Plus className="h-4 w-4" /> Add Discount
                       </Button>
                     </div>
                   </div>
-                  <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
-                    <Table>
-                      <TableHeader className="bg-slate-50 border-b border-slate-100">
+                  <div className="md:overflow-x-auto rounded-2xl border border-slate-200 bg-slate-50 md:bg-white">
+                    <Table className="block md:table" data-mobile-cards="false">
+                      <TableHeader className="hidden md:table-header-group bg-slate-50 border-b border-slate-100">
                         <TableRow className="hover:bg-slate-50">
                           <TableHead className="pl-4">
                             Item & Description
@@ -1751,7 +1752,7 @@ export default function CreateInvoicePage() {
                           <TableHead className="w-[50px]"></TableHead>
                         </TableRow>
                       </TableHeader>
-                      <TableBody>
+                      <TableBody className="block md:table-row-group p-3 md:p-0 space-y-3 md:space-y-0">
                         <AnimatePresence mode="popLayout">
                           {items.map((item, index) => {
                             const lineVal = item.quantity * item.unitPrice;
@@ -1795,9 +1796,23 @@ export default function CreateInvoicePage() {
                                 animate={{ opacity: 1, y: 0 }}
                                 exit={{ opacity: 0, x: -20 }}
                                 transition={{ duration: 0.2 }}
-                                className="group h-14 border-b border-slate-100 transition-colors hover:bg-[#F8FAFC]"
+                                className="group grid grid-cols-2 md:table-row p-4 md:p-0 mb-4 md:mb-0 rounded-2xl md:rounded-none border border-slate-200 md:border-0 md:border-b md:border-slate-100 bg-white md:bg-transparent shadow-sm md:shadow-none transition-colors hover:bg-[#F8FAFC]"
                               >
-                                <TableCell className="align-top py-3 pl-4">
+                                {/* Mobile Header for the Card */}
+                                <td className="col-span-2 flex md:hidden justify-between items-center mb-3 pb-3 border-b border-slate-100">
+                                  <span className="text-[11px] font-semibold uppercase text-slate-500 tracking-wider">Line Item {index + 1}</span>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-full"
+                                    onClick={() => handleRemoveItem(item.localId)}
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </Button>
+                                </td>
+
+                                <TableCell className="col-span-2 block md:table-cell align-top py-0 md:py-3 pl-0 md:pl-4 border-none md:border-b">
+                                  <div className="md:hidden text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Item & Description</div>
                                   <div className="flex flex-col gap-2">
                                     <Popover
                                       open={openRowIndex === index}
@@ -2041,7 +2056,8 @@ export default function CreateInvoicePage() {
                                     )}
                                   </div>
                                 </TableCell>
-                                <TableCell className="align-top py-3">
+                                <TableCell className="col-span-1 block md:table-cell align-top py-0 md:py-3 mt-4 md:mt-0 border-none md:border-b pr-2 md:pr-4">
+                                  <div className="md:hidden text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Qty</div>
                                   <QuantityInput
                                     type="number"
                                     min="1"
@@ -2056,7 +2072,8 @@ export default function CreateInvoicePage() {
                                     className="h-9 w-full rounded-xl border-slate-100 bg-slate-50/50 px-2 text-center font-semibold transition-all hover:border-slate-200 focus:border-primary focus:bg-white"
                                   />
                                 </TableCell>
-                                <TableCell className="align-top py-3">
+                                <TableCell className="col-span-1 block md:table-cell align-top py-0 md:py-3 mt-4 md:mt-0 border-none md:border-b pl-2 md:pl-4">
+                                  <div className="md:hidden text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Price</div>
                                   <Input
                                     type="number"
                                     step="0.01"
@@ -2080,19 +2097,21 @@ export default function CreateInvoicePage() {
                                     className="h-9 w-full rounded-xl border-slate-100 bg-slate-50/50 px-2 text-right font-mono font-semibold transition-all hover:border-slate-200 focus:border-primary focus:bg-white"
                                   />
                                 </TableCell>
-                                <TableCell className="align-top py-3 text-right font-mono  font-semibold text-slate-500">
-                                  <div className="h-9 flex items-center justify-end">
+                                <TableCell className="col-span-1 block md:table-cell align-top py-0 md:py-3 mt-4 md:mt-0 pt-4 md:pt-0 text-left md:text-right font-mono font-semibold text-slate-500 border-none md:border-b border-t border-slate-100 md:border-t-0 border-dashed md:border-solid">
+                                  <div className="md:hidden text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1">VAT Amount</div>
+                                  <div className="h-9 flex items-center justify-start md:justify-end">
                                     {vatAmt > 0
                                       ? `${currentSymbol}${vatAmt.toFixed(2)}`
                                       : "-"}
                                   </div>
                                 </TableCell>
-                                <TableCell className="text-right font-bold font-mono text-slate-900 align-top py-3 pr-4">
-                                  <div className="h-9 flex items-center justify-end">
+                                <TableCell className="col-span-1 block md:table-cell text-left md:text-right font-bold font-mono text-slate-900 align-top py-0 md:py-3 pr-0 md:pr-4 mt-4 md:mt-0 pt-4 md:pt-0 border-none md:border-b border-t border-slate-100 md:border-t-0 border-dashed md:border-solid">
+                                  <div className="md:hidden text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Total Amount</div>
+                                  <div className="h-9 flex items-center justify-start md:justify-end">
                                     {totalAmt.toFixed(2)}
                                   </div>
                                 </TableCell>
-                                <TableCell className="align-top py-3">
+                                <TableCell className="hidden md:table-cell align-top py-3 border-none md:border-b">
                                   <div className="h-9 flex items-center justify-center">
                                     <Button
                                       variant="ghost"
@@ -2113,12 +2132,13 @@ export default function CreateInvoicePage() {
                       </TableBody>
                     </Table>
                   </div>
-                  <div className="flex justify-between items-center px-4 py-3 bg-slate-50 border-t border-slate-200">
+                  <div className="flex justify-between items-center px-4 py-4 bg-slate-50 border-t border-slate-200 gap-3">
                     <Button
                       variant="ghost"
                       size="sm"
                       onClick={handleAddItem}
-                      className="text-primary hover:text-primary hover:bg-primary/5 h-9"
+                      className="text-primary hover:text-primary hover:bg-primary/5 h-10 flex-1 md:flex-none rounded-xl text-sm font-semibold"
+                      type="button"
                     >
                       <Plus className="mr-2 h-4 w-4" /> Add Line
                     </Button>

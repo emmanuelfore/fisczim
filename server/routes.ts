@@ -7927,30 +7927,7 @@ export async function registerRoutes(
       return res.status(400).json({ message: "Supplier is required." });
     }
 
-    if (access.requiresApproval) {
-      const approval = await createApprovalRequest({
-        companyId,
-        type: APPROVAL_TYPES.GRN_CONFIRM,
-        title: "Direct goods receipt",
-        description: notes || "Batch stock-in pending approval",
-        payload: {
-          batchStockIn: true,
-          items,
-          supplierId,
-          notes,
-          landedCosts,
-          allocationMethod,
-          grvNumber,
-        },
-        referenceType: "batch_stock_in",
-        requestedBy: userId,
-      });
-      return sendIdempotent(req, res, idempotencyKey, 202, {
-        message: "Goods receipt submitted for approval",
-        requiresApproval: true,
-        approvalId: approval.id,
-      });
-    }
+
 
     const { recordBatchStockIn } = await import("./lib/inventory.js");
 
@@ -8277,23 +8254,7 @@ export async function registerRoutes(
       if (!gdn) return res.status(404).json({ message: "GDN not found." });
       if (gdn.status !== "DRAFT") return res.status(409).json({ message: "This GDN has already been processed." });
 
-      if (access.requiresApproval) {
-        const approval = await createApprovalRequest({
-          companyId,
-          type: APPROVAL_TYPES.GRN_CONFIRM,
-          title: `Confirm GDN ${gdn.gdnNumber}`,
-          description: notes || gdn.notes || undefined,
-          payload: { gdnId, items, notes, landedCosts, allocationMethod, grvNumber },
-          referenceType: "gdn",
-          referenceId: String(gdnId),
-          requestedBy: userId,
-        });
-        return res.status(202).json({
-          message: "GDN confirmation submitted for approval",
-          requiresApproval: true,
-          approvalId: approval.id,
-        });
-      }
+
 
       const stockItems = items.map((raw: any) => {
         const productId = raw.productId ? Number(raw.productId) : null;

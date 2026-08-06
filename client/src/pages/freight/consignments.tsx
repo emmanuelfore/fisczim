@@ -60,31 +60,31 @@ export default function ConsignmentsPage() {
       <PageHeader
         title="Consignments"
         subtitle="Track incoming shipments across all stages"
-        actions={
-          <CreateConsignmentDialog 
-            companyId={companyId} 
-            forwarders={forwarders || []} 
-            suppliers={suppliers || []}
-            purchaseOrders={purchaseOrders || []}
-            locations={locations || []}
-          />
-        }
       />
 
       <Tabs defaultValue="kanban" className="w-full">
-        <div className="flex justify-between items-center mb-6">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
           <TabsList>
             <TabsTrigger value="kanban">Kanban Board</TabsTrigger>
             <TabsTrigger value="list">List View</TabsTrigger>
           </TabsList>
 
-          <div className="relative w-72">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-            <Input
-              placeholder="Search by reference or supplier..."
-              className="pl-9 bg-white"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+          <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
+            <div className="relative w-full sm:w-72">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <Input
+                placeholder="Search by reference or supplier..."
+                className="pl-9 bg-white"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+            <CreateConsignmentDialog 
+              companyId={companyId} 
+              forwarders={forwarders || []} 
+              suppliers={suppliers || []}
+              purchaseOrders={purchaseOrders || []}
+              locations={locations || []}
             />
           </div>
         </div>

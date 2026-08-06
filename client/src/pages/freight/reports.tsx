@@ -1,5 +1,6 @@
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { PageHeader } from "@/components/page-header";
+import { Layout } from "@/components/layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useConsignments } from "@/hooks/use-freight";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
@@ -47,7 +48,7 @@ export default function FreightReportsPage() {
   const methodData = Object.entries(methodsMap).map(([name, value]) => ({ name, value }));
 
   return (
-    <div className="flex flex-col h-full bg-slate-50">
+    <Layout>
       <PageHeader
         title="Freight Reports"
         subtitle="Analyze freight costs, transit times, and logistics performance"
@@ -136,6 +137,6 @@ export default function FreightReportsPage() {
           </Card>
         </div>
       </div>
-    </div>
+    </Layout>
   );
 }

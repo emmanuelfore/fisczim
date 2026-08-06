@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useActiveCompany } from "@/hooks/use-active-company";
+import { Layout } from "@/components/layout";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -84,7 +85,7 @@ export default function FreightReceivingPage() {
   };
 
   return (
-    <div className="flex flex-col h-full bg-slate-50">
+    <Layout>
       <PageHeader
         title="Freight Receiving"
         subtitle="Verify quantities and receive stock into the warehouse"
@@ -215,6 +216,6 @@ export default function FreightReceivingPage() {
           </Card>
         )}
       </div>
-    </div>
+    </Layout>
   );
 }

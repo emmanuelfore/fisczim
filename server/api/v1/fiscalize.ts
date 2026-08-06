@@ -327,46 +327,51 @@ router.post("/", async (req, res) => {
   }
 
   // ── 7. Resolve customer ─────────────────────────────────────────────────
+  // TEMPORARY: Always default to __walkin__ customer regardless of buyer details.
+  // The actual buyer resolution / customer creation is commented out below.
+  // TODO: Re-enable when buyer detail handling is finalised.
   let customerId: number;
   try {
-    const buyerTin = body.buyer?.tin?.trim();
-    const buyerVat = body.buyer?.vatNumber?.trim();
     const allCustomers = await storage.getCustomers(company.id);
 
-    // Try match by TIN first, then VAT number
-    const matchedCustomer = buyerTin
-      ? allCustomers.find((c: any) => c.tin === buyerTin)
-      : buyerVat
-        ? allCustomers.find((c: any) => c.vatNumber === buyerVat)
-        : null;
+    // // ── COMMENTED OUT: match by TIN / VAT or create new customer from buyer data ──
+    // const buyerTin = body.buyer?.tin?.trim();
+    // const buyerVat = body.buyer?.vatNumber?.trim();
+    // const matchedCustomer = buyerTin
+    //   ? allCustomers.find((c: any) => c.tin === buyerTin)
+    //   : buyerVat
+    //     ? allCustomers.find((c: any) => c.vatNumber === buyerVat)
+    //     : null;
+    // if (matchedCustomer) {
+    //   customerId = matchedCustomer.id;
+    // } else if (body.buyer && (body.buyer.name || body.buyer.registeredName || body.buyer.tradeName || body.buyer.tin || body.buyer.vatNumber || body.buyer.email || body.buyer.phone)) {
+    //   const created = await storage.createCustomer({
+    //     companyId: company.id,
+    //     name: body.buyer.registeredName || body.buyer.tradeName || body.buyer.name || (buyerTin ? `Customer ${buyerTin}` : "Unknown Customer"),
+    //     vatNumber: buyerVat || null,
+    //     tin: buyerTin || null,
+    //     phone: body.buyer.phone || null,
+    //     email: body.buyer.email || null,
+    //     address: [body.buyer.houseNo, body.buyer.street, body.buyer.city, body.buyer.province].filter(Boolean).join(", ") || null,
+    //   } as any);
+    //   customerId = created.id;
+    // } else {
 
-    if (matchedCustomer) {
-      customerId = matchedCustomer.id;
-    } else if (body.buyer && (body.buyer.name || body.buyer.registeredName || body.buyer.tradeName || body.buyer.tin || body.buyer.vatNumber || body.buyer.email || body.buyer.phone)) {
-      // Create new customer based on buyer data
+    // Always use / create the default walk-in customer
+    const existingWalkin = allCustomers.find((c: any) => c.name === "__walkin__");
+    if (existingWalkin) {
+      customerId = existingWalkin.id;
+    } else {
       const created = await storage.createCustomer({
         companyId: company.id,
-        name: body.buyer.registeredName || body.buyer.tradeName || body.buyer.name || (buyerTin ? `Customer ${buyerTin}` : "Unknown Customer"),
-        vatNumber: buyerVat || null,
-        tin: buyerTin || null,
-        phone: body.buyer.phone || null,
-        email: body.buyer.email || null,
-        address: [body.buyer.houseNo, body.buyer.street, body.buyer.city, body.buyer.province].filter(Boolean).join(", ") || null,
+        name: "__walkin__",
+        vatNumber: null, tin: null, phone: null, email: null, address: null,
       } as any);
       customerId = created.id;
-    } else {
-      const existingWalkin = allCustomers.find((c: any) => c.name === "__walkin__");
-      if (existingWalkin) {
-        customerId = existingWalkin.id;
-      } else {
-        const created = await storage.createCustomer({
-          companyId: company.id,
-          name: "__walkin__",
-          vatNumber: null, tin: null, phone: null, email: null, address: null,
-        } as any);
-        customerId = created.id;
-      }
     }
+
+    // // ── END COMMENTED OUT ──
+    // }
   } catch {
     return res.status(500).json({
       error: "INTERNAL_ERROR",
@@ -523,30 +528,36 @@ router.post("/", async (req, res) => {
       };
     });
 
-    const buyerTin = body.buyer?.tin?.trim();
+    // TEMPORARY: Always send no buyerData to ZIMRA — default customer only.
+    // The actual buyerData construction from buyer details is commented out below.
+    // TODO: Re-enable when buyer detail handling is finalised.
+    const buyerData = undefined;
 
-    // ZIMRA buyerData is optional, but buyerTIN is mandatory when buyerData is submitted.
-    const fallbackName = buyerDisplayName ?? (buyerTin ? "Customer" : null);
-    const buyerData = fallbackName && buyerTin ? {
-      buyerRegisterName: body.buyer?.registeredName ?? fallbackName,
-      buyerTradeName:    body.buyer?.tradeName      ?? fallbackName,
-      ...(body.buyer?.vatNumber ? { vatNumber: body.buyer.vatNumber } : {}),
-      buyerTIN: buyerTin,
-      ...((body.buyer?.phone || body.buyer?.email) ? {
-        buyerContacts: {
-          ...(body.buyer?.phone ? { phoneNo: body.buyer.phone } : {}),
-          ...(body.buyer?.email ? { email:   body.buyer.email } : {}),
-        }
-      } : {}),
-      ...(buyerAddress ? {
-        buyerAddress: {
-          ...(body.buyer?.street   ? { street:   body.buyer.street   } : {}),
-          ...(body.buyer?.houseNo  ? { houseNo:  body.buyer.houseNo  } : {}),
-          ...(body.buyer?.city     ? { city:     body.buyer.city     } : {}),
-          ...(body.buyer?.province ? { province: body.buyer.province } : {}),
-        }
-      } : {}),
-    } : undefined;
+    // // ── COMMENTED OUT: build ZIMRA buyerData from provided buyer fields ──
+    // const buyerTin = body.buyer?.tin?.trim();
+    // // ZIMRA buyerData is optional, but buyerTIN is mandatory when buyerData is submitted.
+    // const fallbackName = buyerDisplayName ?? (buyerTin ? "Customer" : null);
+    // const buyerData = fallbackName && buyerTin ? {
+    //   buyerRegisterName: body.buyer?.registeredName ?? fallbackName,
+    //   buyerTradeName:    body.buyer?.tradeName      ?? fallbackName,
+    //   ...(body.buyer?.vatNumber ? { vatNumber: body.buyer.vatNumber } : {}),
+    //   buyerTIN: buyerTin,
+    //   ...((body.buyer?.phone || body.buyer?.email) ? {
+    //     buyerContacts: {
+    //       ...(body.buyer?.phone ? { phoneNo: body.buyer.phone } : {}),
+    //       ...(body.buyer?.email ? { email:   body.buyer.email } : {}),
+    //     }
+    //   } : {}),
+    //   ...(buyerAddress ? {
+    //     buyerAddress: {
+    //       ...(body.buyer?.street   ? { street:   body.buyer.street   } : {}),
+    //       ...(body.buyer?.houseNo  ? { houseNo:  body.buyer.houseNo  } : {}),
+    //       ...(body.buyer?.city     ? { city:     body.buyer.city     } : {}),
+    //       ...(body.buyer?.province ? { province: body.buyer.province } : {}),
+    //     }
+    //   } : {}),
+    // } : undefined;
+    // // ── END COMMENTED OUT ──
 
     const getZimraPaymentMethodCode = (methodName: string): 'Cash' | 'Card' | 'Other' | 'BankTransfer' | 'MobileWallet' => {
         const m = methodName.toUpperCase();

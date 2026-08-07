@@ -56,6 +56,11 @@ export function EditProductDialog({ product, trigger, children }: Props) {
   const { taxCategories, taxTypes } = useTaxConfig(product.companyId);
   const { toast } = useToast();
 
+  // Refetch tax types every time the dialog opens to guarantee fresh data
+  useEffect(() => {
+    if (open) taxTypes.refetch();
+  }, [open]);
+
   const { data: categories } = useQuery({
     queryKey: ["product-categories", product.companyId],
     queryFn: async () => {

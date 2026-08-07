@@ -1872,6 +1872,7 @@ export async function registerRoutes(
         await db.delete(validationErrors).where(sql`${validationErrors.invoiceId} IN ${invoiceIds}`);
         await db.delete(payments).where(sql`${payments.invoiceId} IN ${invoiceIds}`);
         await db.delete(invoiceItems).where(sql`${invoiceItems.invoiceId} IN ${invoiceIds}`);
+        await db.delete(fiscalizationJobs).where(sql`${fiscalizationJobs.invoiceId} IN ${invoiceIds}`);
       }
 
       // Delete POS Shift Transactions

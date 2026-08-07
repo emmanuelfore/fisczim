@@ -137,49 +137,44 @@ export function EditProductDialog({ product, trigger, children }: Props) {
 
   const isTracked = form.watch("isTracked");
 
-  const [selectedTaxTypeId, setSelectedTaxTypeId] = useState<
-    string | undefined
-  >(undefined);
+  const [selectedTaxTypeId, setSelectedTaxTypeId] = useState<string>("");
 
-  // Sync with initial product once taxTypes load
+  // Sync with initial product once taxTypes load (or dialog opens)
   useEffect(() => {
-    if (taxTypes.data && product && !selectedTaxTypeId && open) {
-      // First try explicit taxTypeId from database
-      if (product.taxTypeId) {
-        setSelectedTaxTypeId(product.taxTypeId.toString());
-      } else {
-        // Fallback to heuristic for legacy data
-        const initial = taxTypes.data
-          ?.find((t: any) => {
-            if (t.rate === product.taxRate?.toString()) {
-              if (t.rate === "0" || t.rate === "0.00") {
-                const isExempt =
-                  product.name?.toLowerCase().includes("exempt") ||
-                  product.description?.toLowerCase().includes("exempt");
-                if (isExempt) {
-                  const zimraTaxId = t.zimraTaxId?.toString();
-                  return (
-                    zimraTaxId == "1" ||
-                    t.zimraCode === "C" ||
-                    t.zimraCode === "E" ||
-                    t.name.toLowerCase().includes("exempt")
-                  );
-                }
-                const zimraTaxId = t.zimraTaxId?.toString();
-                return (
-                  zimraTaxId == "2" ||
-                  t.zimraCode === "D" ||
-                  t.name.toLowerCase().includes("zero")
-                );
-              }
-              return true;
-            }
-            return false;
-          })
-          ?.id.toString();
-        if (initial) setSelectedTaxTypeId(initial);
-      }
+    if (!open || !taxTypes.data) return;
+    // First try explicit taxTypeId from database
+    if (product.taxTypeId) {
+      setSelectedTaxTypeId(product.taxTypeId.toString());
+      return;
     }
+    // Fallback to heuristic for legacy data: match by rate
+    const initial = taxTypes.data?.find((t: any) => {
+      if (t.rate === product.taxRate?.toString()) {
+        if (t.rate === "0" || t.rate === "0.00") {
+          const isExempt =
+            product.name?.toLowerCase().includes("exempt") ||
+            product.description?.toLowerCase().includes("exempt");
+          if (isExempt) {
+            const zimraTaxId = t.zimraTaxId?.toString();
+            return (
+              zimraTaxId == "1" ||
+              t.zimraCode === "C" ||
+              t.zimraCode === "E" ||
+              t.name.toLowerCase().includes("exempt")
+            );
+          }
+          const zimraTaxId = t.zimraTaxId?.toString();
+          return (
+            zimraTaxId == "2" ||
+            t.zimraCode === "D" ||
+            t.name.toLowerCase().includes("zero")
+          );
+        }
+        return true;
+      }
+      return false;
+    });
+    if (initial) setSelectedTaxTypeId(initial.id.toString());
   }, [taxTypes.data, product, open]);
 
   return (
@@ -187,7 +182,7 @@ export function EditProductDialog({ product, trigger, children }: Props) {
       open={open}
       onOpenChange={(val) => {
         setOpen(val);
-        if (!val) setSelectedTaxTypeId(undefined); // Reset on close
+        if (!val) setSelectedTaxTypeId(""); // Reset on close
       }}
     >
       <DialogTrigger asChild>
@@ -866,14 +861,14 @@ export function EditProductDialog({ product, trigger, children }: Props) {
                             form.setValue("taxCategoryId", null);
                           }
                         }}
-                        value={selectedTaxTypeId}
+                        value={selectedTaxTypeId || ""}
                       >
                         <FormControl>
                           <SelectTrigger className="rounded-xl bg-white border-blue-200 focus:ring-blue-500/20 text-slate-700">
                             <SelectValue placeholder="Select Tax Type" />
                           </SelectTrigger>
                         </FormControl>
-                        <SelectContent className="rounded-xl shadow-xl">
+                        <SelectContent position="popper" className="rounded-xl shadow-xl z-[9999]">
                           {taxTypes.data?.map((t: any) => (
                             <SelectItem key={t.id} value={t.id.toString()}>
                               {t.name} ({t.rate}%)

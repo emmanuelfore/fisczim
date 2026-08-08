@@ -110,6 +110,9 @@ import SupplierInvoiceFormPage from "@/pages/supplier-invoice-form";
 import SalesOrdersPage from "@/pages/sales-orders";
 import CreateSalesOrderPage from "@/pages/create-sales-order";
 import SalesOrderDetailsPage from "@/pages/sales-order-details";
+import CompoundProductsPage from "@/pages/compound-products";
+import CreateCompoundProductPage from "@/pages/create-compound-product";
+import SalesOrderReportsPage from "@/pages/sales-order-reports";
 import StockReceiptPage from "@/pages/stock-receipt";
 import CashbookPage from "@/pages/cashbook";
 import AgingReportsPage from "@/pages/aging-reports";
@@ -598,6 +601,18 @@ function Router() {
       </Route>
       <Route path="/sales-orders/:id">
         {() => <ProtectedRoute component={SalesOrderDetailsPage} />}
+      </Route>
+      <Route path="/compound-products/new">
+        {() => <ProtectedRoute component={CreateCompoundProductPage} />}
+      </Route>
+      <Route path="/compound-products/:id/edit">
+        {() => <ProtectedRoute component={CreateCompoundProductPage} />}
+      </Route>
+      <Route path="/compound-products">
+        {() => <ProtectedRoute component={CompoundProductsPage} />}
+      </Route>
+      <Route path="/sales-order-reports">
+        {() => <ProtectedRoute component={SalesOrderReportsPage} />}
       </Route>
       <Route path="/stock-receipt">
         {() => <ProtectedRoute component={StockReceiptPage} />}

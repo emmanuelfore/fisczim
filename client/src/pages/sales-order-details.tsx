@@ -1,5 +1,5 @@
 import { Layout } from "@/components/layout";
-import { useSalesOrder } from "@/hooks/use-sales-orders";
+import { useSalesOrder, useApproveSalesOrder, useRecordLayByPayment, useReceiveGoods } from "@/hooks/use-sales-orders";
 import { useParams, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,13 +15,21 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCompany } from "@/hooks/use-companies";
-import { ArrowLeft, Printer, Send, Package, FileText, Download, User, ShoppingCart, FileEdit } from "lucide-react";
-import { format } from "date-fns";
+import {
+  ArrowLeft, Printer, Package, FileText, User, FileEdit,
+  Plane, Ship, Clock, AlertTriangle, CheckCircle2, DollarSign,
+  ChevronRight, Truck, Box, Calendar
+} from "lucide-react";
+import { format, differenceInDays } from "date-fns";
 import { QuantityInput } from "@/components/ui/quantity-input";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 
 export default function SalesOrderDetailsPage() {
@@ -29,11 +37,22 @@ export default function SalesOrderDetailsPage() {
   const id = params.id;
   const { data: order, isLoading, error } = useSalesOrder(id);
   const { data: company } = useCompany(order?.companyId || 0);
+  const approveMutation = useApproveSalesOrder();
+  const recordPaymentMutation = useRecordLayByPayment();
+  const receiveGoodsMutation = useReceiveGoods();
   const [isAllocating, setIsAllocating] = useState(false);
   const [stockId, setStockId] = useState("");
   const [allocQty, setAllocQty] = useState("");
   const [isInvoicing, setIsInvoicing] = useState(false);
   const [invoiceItems, setInvoiceItems] = useState<any[]>([]);
+  const [isApproving, setIsApproving] = useState(false);
+  const [approvalAction, setApprovalAction] = useState<'approve' | 'reject'>('approve');
+  const [approvalNotes, setApprovalNotes] = useState("");
+  const [isPaymentDialog, setIsPaymentDialog] = useState(false);
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const [selectedScheduleId, setSelectedScheduleId] = useState<number | undefined>();
+  const [paymentMethod, setPaymentMethod] = useState("Cash");
+  const [paymentReference, setPaymentReference] = useState("");
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
@@ -41,6 +60,40 @@ export default function SalesOrderDetailsPage() {
   if (isLoading) return <Layout><div className="p-8 flex justify-center items-center h-full"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div></div></Layout>;
   if (error) return <Layout><div className="p-8 text-center text-slate-500">Error loading sales order: {error.message}</div></Layout>;
   if (!order) return <Layout><div className="p-8 text-center text-slate-500">Sales Order not found (ID: {id}). Please check if the sales order exists.</div></Layout>;
+
+  const handleApprove = async () => {
+    try {
+      await approveMutation.mutateAsync({ id: id!, action: approvalAction, notes: approvalNotes });
+      toast({ title: approvalAction === 'approve' ? "Order Approved" : "Order Rejected" });
+      setIsApproving(false);
+      setApprovalNotes("");
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
+
+  const handleRecordPayment = async () => {
+    try {
+      const amount = parseFloat(paymentAmount);
+      if (!amount || amount <= 0) throw new Error("Enter a valid amount");
+      await recordPaymentMutation.mutateAsync({ id: id!, amount, scheduleId: selectedScheduleId, paymentMethod, paymentReference });
+      toast({ title: "Payment Recorded", description: `$${amount.toFixed(2)} recorded successfully.` });
+      setIsPaymentDialog(false);
+      setPaymentAmount("");
+      setPaymentReference("");
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
+
+  const handleReceiveGoods = async () => {
+    try {
+      await receiveGoodsMutation.mutateAsync(id!);
+      toast({ title: "Goods Received", description: "Order status updated to Arrived." });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
 
   const handleAllocate = async () => {
     try {
@@ -234,6 +287,324 @@ export default function SalesOrderDetailsPage() {
             </Button>
           </div>
         </div>
+
+        {/* Type-Specific Panels */}
+        {order.orderType === 'preorder' && (
+          <div className="px-6 py-4 border-b border-slate-100 bg-white print:hidden">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Preorder Type & Status */}
+              <Card className="border-slate-200 shadow-sm">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                    {order.preorderType === 'air' ? <Plane className="w-4 h-4 text-sky-600" /> : <Ship className="w-4 h-4 text-blue-600" />}
+                    {order.preorderType === 'air' ? 'Air Preorder' : 'Sea Preorder'}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {order.expectedArrival && (
+                    <div className="flex items-center gap-2 text-sm">
+                      <Calendar className="w-4 h-4 text-slate-400" />
+                      <span className="text-slate-500">Expected:</span>
+                      <span className="font-medium">{format(new Date(order.expectedArrival), 'dd MMM yyyy')}</span>
+                    </div>
+                  )}
+                  {order.expectedArrival && new Date(order.expectedArrival) < new Date() && !['completed', 'cancelled'].includes(order.status) && (
+                    <div className="flex items-center gap-1.5 text-xs text-red-700 bg-red-50 rounded-lg px-3 py-2">
+                      <AlertTriangle className="w-3.5 h-3.5" />
+                      Delayed by {differenceInDays(new Date(), new Date(order.expectedArrival))} days — Refund recommended
+                    </div>
+                  )}
+                  {order.status === 'in_transit' || order.status === 'awaiting_shipment' ? (
+                    <Button size="sm" className="w-full mt-2" onClick={handleReceiveGoods} disabled={receiveGoodsMutation.isPending}>
+                      <Truck className="w-4 h-4 mr-2" /> Mark Goods Received
+                    </Button>
+                  ) : null}
+                </CardContent>
+              </Card>
+
+              {/* Deposit Summary */}
+              <Card className="border-slate-200 shadow-sm">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                    <DollarSign className="w-4 h-4 text-emerald-600" />
+                    Deposit Summary
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Order Total</span>
+                    <span className="font-semibold">${Number(order.total).toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Required ({order.depositPct || (order.preorderType === 'air' ? 50 : 30)}%)</span>
+                    <span className="font-medium text-amber-700">${(Number(order.total) * (parseFloat(order.depositPct || (order.preorderType === 'air' ? '50' : '30')) / 100)).toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Deposit Paid</span>
+                    <span className="font-medium text-emerald-700">${Number(order.depositPaid || 0).toFixed(2)}</span>
+                  </div>
+                  <div className="border-t border-slate-100 pt-2 flex justify-between font-semibold">
+                    <span>Balance Due</span>
+                    <span className="text-red-700">${Number(order.remainingBalance || 0).toFixed(2)}</span>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Status Stepper */}
+              <Card className="border-slate-200 shadow-sm">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-semibold text-slate-700">Order Progress</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {['awaiting_deposit', 'approved', 'awaiting_shipment', 'in_transit', 'arrived', 'ready_for_collection', 'completed'].map((step, idx, arr) => {
+                    const statuses = ['awaiting_deposit', 'approved', 'awaiting_shipment', 'in_transit', 'arrived', 'ready_for_collection', 'completed'];
+                    const currentIdx = statuses.indexOf(order.status);
+                    const isDone = idx < currentIdx;
+                    const isCurrent = idx === currentIdx;
+                    return (
+                      <div key={step} className="flex items-center gap-2 mb-1">
+                        <div className={cn(
+                          "w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0",
+                          isDone ? "bg-emerald-500 text-white" : isCurrent ? "bg-blue-500 text-white" : "bg-slate-200 text-slate-400"
+                        )}>
+                          {isDone ? <CheckCircle2 className="w-3 h-3" /> : idx + 1}
+                        </div>
+                        <span className={cn(
+                          "text-xs",
+                          isDone ? "text-emerald-700 font-medium" : isCurrent ? "text-blue-700 font-bold" : "text-slate-400"
+                        )}>
+                          {step.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        )}
+
+        {order.orderType === 'lay_by' && (
+          <div className="px-6 py-4 border-b border-slate-100 bg-white print:hidden">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Lay-by Progress */}
+              <Card className="border-slate-200 shadow-sm">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-indigo-600" />
+                    Lay-by {order.layByDuration}-Month Plan
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-500">Total Amount</span>
+                      <span className="font-semibold">${Number(order.total).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-500">Amount Paid</span>
+                      <span className="font-medium text-emerald-700">${Number(order.depositPaid || 0).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-500">Balance</span>
+                      <span className="font-medium text-red-700">${Number(order.remainingBalance || 0).toFixed(2)}</span>
+                    </div>
+                  </div>
+                  {/* Progress bar */}
+                  <div className="w-full bg-slate-100 rounded-full h-2.5">
+                    <div
+                      className="bg-emerald-500 h-2.5 rounded-full transition-all"
+                      style={{ width: `${Math.min(100, (Number(order.depositPaid || 0) / Number(order.total)) * 100)}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-slate-500 text-right">
+                    {((Number(order.depositPaid || 0) / Number(order.total)) * 100).toFixed(0)}% paid
+                  </p>
+                  {!['completed', 'cancelled', 'defaulted'].includes(order.status) && (
+                    <Button size="sm" className="w-full" onClick={() => setIsPaymentDialog(true)}>
+                      <DollarSign className="w-4 h-4 mr-2" /> Record Payment
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Payment Schedule */}
+              <Card className="border-slate-200 shadow-sm">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-semibold text-slate-700">Payment Schedule</CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  {order.layBySchedules && order.layBySchedules.length > 0 ? (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs text-left">
+                        <thead>
+                          <tr className="border-b border-slate-100 bg-slate-50 text-slate-500 font-semibold">
+                            <th className="py-2 px-3">#</th>
+                            <th className="py-2 px-3">Due Date</th>
+                            <th className="py-2 px-3 text-right">Amount Due</th>
+                            <th className="py-2 px-3 text-right">Paid</th>
+                            <th className="py-2 px-3 text-center">Status</th>
+                            <th className="py-2 px-3 text-right">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {order.layBySchedules.map((sch: any) => (
+                            <tr key={sch.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/50">
+                              <td className="py-2 px-3 font-bold text-slate-700">{sch.instalmentNumber}</td>
+                              <td className="py-2 px-3">{sch.dueDate ? format(new Date(sch.dueDate), 'dd/MM/yyyy') : '—'}</td>
+                              <td className="py-2 px-3 text-right font-medium">${Number(sch.amountDue).toFixed(2)}</td>
+                              <td className="py-2 px-3 text-right text-emerald-700 font-medium">${Number(sch.amountPaid || 0).toFixed(2)}</td>
+                              <td className="py-2 px-3 text-center">
+                                <Badge className={cn(
+                                  "text-[10px] px-1.5 py-0.5",
+                                  sch.status === 'paid' ? "bg-emerald-100 text-emerald-700 border-0" : "bg-amber-100 text-amber-700 border-0"
+                                )}>
+                                  {sch.status}
+                                </Badge>
+                              </td>
+                              <td className="py-2 px-3 text-right">
+                                {sch.status !== 'paid' && (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-6 px-2 text-[10px] text-blue-600 hover:bg-blue-50"
+                                    onClick={() => {
+                                      setSelectedScheduleId(sch.id);
+                                      setPaymentAmount((Number(sch.amountDue) - Number(sch.amountPaid || 0)).toFixed(2));
+                                      setIsPaymentDialog(true);
+                                    }}
+                                  >
+                                    Pay
+                                  </Button>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-slate-500 px-4 py-3">
+                      No payment schedule loaded.
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Payment Record Dialog */}
+            <Dialog open={isPaymentDialog} onOpenChange={setIsPaymentDialog}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Record Lay-by Payment</DialogTitle>
+                  <p className="text-sm text-slate-500 mt-1">Record a payment received for this lay-by order.</p>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                  <div className="grid gap-2">
+                    <Label>Payment Amount</Label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">$</span>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        className="pl-7"
+                        value={paymentAmount}
+                        onChange={e => setPaymentAmount(e.target.value)}
+                        placeholder="0.00"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Payment Method</Label>
+                    <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                      <SelectTrigger><SelectValue placeholder="Select Method" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Cash">Cash</SelectItem>
+                        <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
+                        <SelectItem value="Card">Card</SelectItem>
+                        <SelectItem value="EcoCash">EcoCash / Mobile Money</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Reference / Notes (Optional)</Label>
+                    <Input
+                      value={paymentReference}
+                      onChange={e => setPaymentReference(e.target.value)}
+                      placeholder="Transaction Ref, Receipt #..."
+                    />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setIsPaymentDialog(false)}>Cancel</Button>
+                  <Button onClick={handleRecordPayment} disabled={recordPaymentMutation.isPending}>Record Payment</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </div>
+        )}
+
+        {/* Approval Panel */}
+        {order.approvalStatus === 'pending' && (
+          <div className="px-6 py-4 border-b border-amber-100 bg-amber-50 print:hidden">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <AlertTriangle className="w-5 h-5 text-amber-600" />
+                <div>
+                  <p className="font-semibold text-amber-800">This order requires admin approval</p>
+                  <p className="text-sm text-amber-700">Deposit amount is below the minimum required threshold.</p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-red-300 text-red-700 hover:bg-red-50"
+                  onClick={() => { setApprovalAction('reject'); setIsApproving(true); }}
+                >
+                  Reject
+                </Button>
+                <Button
+                  size="sm"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                  onClick={() => { setApprovalAction('approve'); setIsApproving(true); }}
+                >
+                  <CheckCircle2 className="w-4 h-4 mr-1.5" /> Approve
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Approval Dialog */}
+        <Dialog open={isApproving} onOpenChange={setIsApproving}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{approvalAction === 'approve' ? 'Approve Order' : 'Reject Order'}</DialogTitle>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid gap-2">
+                <Label>Notes (optional)</Label>
+                <Textarea
+                  value={approvalNotes}
+                  onChange={e => setApprovalNotes(e.target.value)}
+                  placeholder="Add notes for this decision..."
+                  rows={3}
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsApproving(false)}>Cancel</Button>
+              <Button
+                onClick={handleApprove}
+                disabled={approveMutation.isPending}
+                className={approvalAction === 'reject' ? 'bg-red-600 hover:bg-red-700' : ''}
+              >
+                {approvalAction === 'approve' ? 'Confirm Approval' : 'Confirm Rejection'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* Main Document Area */}
         <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-slate-100/50 print:p-0 print:bg-white">

@@ -2458,6 +2458,26 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
 
   try {
     const companyId = getTargetCompanyId(req);
+
+    // 0. Duplicate run validation: check for existing active run for same period, currency, branch & runType
+    const existingRunConditions = [
+      eq(payrollRuns.companyId, companyId),
+      eq(payrollRuns.periodStart, parsed.data.periodStart),
+      eq(payrollRuns.periodEnd, parsed.data.periodEnd),
+      eq(payrollRuns.currency, parsed.data.currency),
+      eq(payrollRuns.runType, parsed.data.runType),
+      ne(payrollRuns.status, "REVERSED"),
+    ];
+    if (parsed.data.branchId) {
+      existingRunConditions.push(eq(payrollRuns.branchId, parsed.data.branchId));
+    }
+    const [existingRun] = await db.select().from(payrollRuns).where(and(...existingRunConditions)).limit(1);
+    if (existingRun) {
+      return res.status(400).json({
+        error: "DUPLICATE_PAYROLL_RUN",
+        message: `An active payroll run already exists for period ${parsed.data.periodStart} to ${parsed.data.periodEnd} (${parsed.data.currency} ${parsed.data.runType}).`,
+      });
+    }
     
     // Fetch active employees with active contracts matching company and branch
     const employeeConditions = [
@@ -2516,6 +2536,11 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
       for (const emp of activeEmployees) {
         const contract = emp.contracts[0];
         if (!contract) continue; // Skip if no active contract
+
+        // Skip employees whose contract currency does not match run currency (unless contract is SPLIT)
+        if (contract.currency !== "SPLIT" && contract.currency !== parsed.data.currency) {
+          continue;
+        }
 
         // --- Proration: mid-period joins and terminations ---
         // Salary is scaled by calendar days actually worked inside the period.
@@ -2678,6 +2703,11 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
           }
         });
 
+        // Req 5.13: Skip employees with zero gross salary in standard regular runs
+        if (calcs.grossSalary <= 0 && !isBonusRun) {
+          continue;
+        }
+
         const processedEarnings = calcs.processedEarnings;
         const processedDeductions = calcs.processedDeductions;
         const taxableAllowances = processedEarnings
@@ -2830,8 +2860,237 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
   }
 });
 
-// PUT /runs/:id/adjustments - Update allowances, overtime, adjustments
-// GET /runs/:id/variances - Prior month comparison variances
+// GET /runs/:id - Detailed payroll run view with employee lines, allowances, and deductions
+router.get("/runs/:id", async (req, res) => {
+  const runId = parseInt(req.params.id, 10);
+  if (!Number.isInteger(runId)) return res.status(400).json({ error: "VALIDATION_ERROR", message: "Invalid run ID" });
+
+  try {
+    const companyId = getTargetCompanyId(req);
+    const run = await db.query.payrollRuns.findFirst({
+      where: and(eq(payrollRuns.id, runId), eq(payrollRuns.companyId, companyId)),
+      with: {
+        branch: true,
+        approvedByUser: true,
+        lockedByUser: true,
+        journalEntry: true,
+        reversalOfRun: true,
+        runEmployees: {
+          with: {
+            employee: true,
+            allowances: true,
+            deductions: true,
+            payslipDocuments: true,
+          }
+        }
+      }
+    });
+
+    if (!run) return res.status(404).json({ error: "NOT_FOUND", message: "Payroll run not found" });
+    res.json(run);
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
+// PUT /runs/:id/adjustments - Update allowances, overtime, or manual line adjustments on DRAFT runs
+router.put("/runs/:id/adjustments", requirePayrollWrite, async (req, res) => {
+  const runId = parseInt(req.params.id, 10);
+  if (!Number.isInteger(runId)) return res.status(400).json({ error: "VALIDATION_ERROR", message: "Invalid run ID" });
+
+  const schema = z.object({
+    employeeId: z.number().int(),
+    allowances: z.array(z.object({
+      name: z.string().min(1),
+      amount: z.number().min(0),
+      isTaxable: z.boolean().default(true),
+      allowanceType: z.string().default("OTHER"),
+    })).optional(),
+    deductions: z.array(z.object({
+      name: z.string().min(1),
+      amount: z.number().min(0),
+      isTaxDeductible: z.boolean().default(false),
+      deductionType: z.string().default("OTHER"),
+    })).optional(),
+    auditNote: z.string().optional(),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
+
+  try {
+    const companyId = getTargetCompanyId(req);
+    const [run] = await db.select().from(payrollRuns)
+      .where(and(eq(payrollRuns.id, runId), eq(payrollRuns.companyId, companyId)))
+      .limit(1);
+
+    if (!run) return res.status(404).json({ error: "NOT_FOUND", message: "Payroll run not found" });
+    if (run.status !== "DRAFT") {
+      return res.status(400).json({ error: "STATE_ERROR", message: "Adjustments can only be made to DRAFT payroll runs" });
+    }
+
+    const [runLine] = await db.select().from(payrollRunEmployees)
+      .where(and(eq(payrollRunEmployees.payrollRunId, runId), eq(payrollRunEmployees.employeeId, parsed.data.employeeId)))
+      .limit(1);
+
+    if (!runLine) return res.status(404).json({ error: "NOT_FOUND", message: "Employee line not found in this payroll run" });
+
+    await db.transaction(async (tx) => {
+      // 1. Update/replace custom allowances if provided
+      if (parsed.data.allowances) {
+        await tx.delete(payrollAllowances).where(eq(payrollAllowances.payrollRunEmployeeId, runLine.id));
+        if (parsed.data.allowances.length > 0) {
+          await tx.insert(payrollAllowances).values(parsed.data.allowances.map((a) => ({
+            payrollRunEmployeeId: runLine.id,
+            name: a.name,
+            amount: a.amount.toFixed(2),
+            isTaxable: a.isTaxable,
+            isCash: true,
+            allowanceType: a.allowanceType,
+          })));
+        }
+      }
+
+      // 2. Update/replace custom deductions if provided
+      if (parsed.data.deductions) {
+        await tx.delete(payrollDeductions).where(and(
+          eq(payrollDeductions.payrollRunEmployeeId, runLine.id),
+          sql`${payrollDeductions.deductionType} NOT IN ('PAYE', 'AIDS_LEVY', 'NSSA', 'NEC')`
+        ));
+        if (parsed.data.deductions.length > 0) {
+          await tx.insert(payrollDeductions).values(parsed.data.deductions.map((d) => ({
+            payrollRunEmployeeId: runLine.id,
+            name: d.name,
+            amount: d.amount.toFixed(2),
+            isTaxDeductible: d.isTaxDeductible,
+            deductionType: d.deductionType,
+          })));
+        }
+      }
+
+      // 3. Re-calculate line financial totals
+      const currentAllowances = await tx.select().from(payrollAllowances).where(eq(payrollAllowances.payrollRunEmployeeId, runLine.id));
+      const currentDeductions = await tx.select().from(payrollDeductions).where(eq(payrollDeductions.payrollRunEmployeeId, runLine.id));
+
+      const totalAllowances = currentAllowances.reduce((sum, a) => sum + parseFloat(a.amount), 0);
+      const totalDeductions = currentDeductions.reduce((sum, d) => sum + parseFloat(d.amount), 0);
+      const grossSalary = parseFloat(runLine.basicSalary) + totalAllowances;
+      const netSalary = Math.max(0, grossSalary - totalDeductions);
+
+      await tx.update(payrollRunEmployees)
+        .set({
+          grossSalary: grossSalary.toFixed(2),
+          totalAllowances: totalAllowances.toFixed(2),
+          totalDeductions: totalDeductions.toFixed(2),
+          netSalary: netSalary.toFixed(2),
+          snapshotData: {
+            ...(runLine.snapshotData as object),
+            auditNote: parsed.data.auditNote || "Manual line adjustment updated",
+            lastAdjustedAt: new Date().toISOString(),
+          }
+        })
+        .where(eq(payrollRunEmployees.id, runLine.id));
+
+      // 4. Update parent run header totals
+      const allLines = await tx.select().from(payrollRunEmployees).where(eq(payrollRunEmployees.payrollRunId, runId));
+      let totalBasic = 0, totalGross = 0, totalDeductionsSum = 0, totalNet = 0;
+      for (const l of allLines) {
+        totalBasic += parseFloat(l.basicSalary);
+        totalGross += parseFloat(l.grossSalary);
+        totalDeductionsSum += parseFloat(l.totalDeductions);
+        totalNet += parseFloat(l.netSalary);
+      }
+      await tx.update(payrollRuns)
+        .set({
+          totalBasic: totalBasic.toFixed(2),
+          totalGross: totalGross.toFixed(2),
+          totalDeductions: totalDeductionsSum.toFixed(2),
+          totalNet: totalNet.toFixed(2),
+          updatedAt: new Date(),
+        })
+        .where(eq(payrollRuns.id, runId));
+    });
+
+    await auditPayroll(req, "PAYROLL_RUN_LINE_ADJUSTED", "payroll_run_employees", runLine.id, {
+      payrollRunId: runId,
+      employeeId: parsed.data.employeeId,
+      auditNote: parsed.data.auditNote,
+    });
+
+    res.json({ success: true, message: "Adjustments updated successfully" });
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
+// GET /runs/:id/variances - Compare current run against prior run for month-over-month variances
+router.get("/runs/:id/variances", async (req, res) => {
+  const runId = parseInt(req.params.id, 10);
+  if (!Number.isInteger(runId)) return res.status(400).json({ error: "VALIDATION_ERROR", message: "Invalid run ID" });
+
+  try {
+    const companyId = getTargetCompanyId(req);
+    const [currentRun] = await db.select().from(payrollRuns)
+      .where(and(eq(payrollRuns.id, runId), eq(payrollRuns.companyId, companyId)))
+      .limit(1);
+
+    if (!currentRun) return res.status(404).json({ error: "NOT_FOUND", message: "Payroll run not found" });
+
+    // Find previous locked or approved payroll run for same company & currency
+    const [priorRun] = await db.select().from(payrollRuns)
+      .where(and(
+        eq(payrollRuns.companyId, companyId),
+        eq(payrollRuns.currency, currentRun.currency),
+        sql`${payrollRuns.periodEnd} < ${currentRun.periodStart}`,
+        ne(payrollRuns.status, "REVERSED")
+      ))
+      .orderBy(desc(payrollRuns.periodEnd))
+      .limit(1);
+
+    const currentLines = await db.query.payrollRunEmployees.findMany({
+      where: eq(payrollRunEmployees.payrollRunId, currentRun.id),
+      with: { employee: true }
+    });
+
+    const priorLines = priorRun ? await db.query.payrollRunEmployees.findMany({
+      where: eq(payrollRunEmployees.payrollRunId, priorRun.id),
+      with: { employee: true }
+    }) : [];
+
+    const priorMap = new Map(priorLines.map(l => [l.employeeId, l]));
+
+    const variances = currentLines.map((cur) => {
+      const prior = priorMap.get(cur.employeeId);
+      const curGross = parseFloat(cur.grossSalary);
+      const priorGross = prior ? parseFloat(prior.grossSalary) : 0;
+      const curNet = parseFloat(cur.netSalary);
+      const priorNet = prior ? parseFloat(prior.netSalary) : 0;
+
+      return {
+        employeeId: cur.employeeId,
+        employeeNumber: cur.employee?.employeeNumber,
+        employeeName: cur.employee ? `${cur.employee.firstName} ${cur.employee.lastName}` : "Unknown",
+        currentGross: curGross,
+        priorGross,
+        grossVariance: Math.round((curGross - priorGross) * 100) / 100,
+        currentNet: curNet,
+        priorNet,
+        netVariance: Math.round((curNet - priorNet) * 100) / 100,
+        status: !prior ? "NEW_EMPLOYEE" : (Math.abs(curGross - priorGross) > 0.01 ? "CHANGED" : "UNCHANGED"),
+      };
+    });
+
+    res.json({
+      currentRunId: currentRun.id,
+      priorRunId: priorRun?.id || null,
+      priorPeriodEnd: priorRun?.periodEnd || null,
+      variances,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
 // POST /runs/:id/submit-for-approval - Move a DRAFT run into the approval queue
 router.post("/runs/:id/submit-for-approval", requirePayrollWrite, async (req, res) => {
   const runId = parseInt(req.params.id, 10);

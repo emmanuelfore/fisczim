@@ -178,6 +178,20 @@ export const companiesRelations = relations(companies, ({ many }) => ({
   busReconciliations: many(busReconciliations),
   accounts: many(accounts),
   journalEntries: many(journalEntries),
+  employees: many(employees),
+  payrollRuns: many(payrollRuns),
+  departments: many(departments),
+  positions: many(positions),
+  payrollPayGrades: many(payrollPayGrades),
+  leaveRequests: many(leaveRequests),
+  employeeLoans: many(employeeLoans),
+  disciplinaryRecords: many(disciplinaryRecords),
+  assignedAssets: many(assignedAssets),
+  paymentBatches: many(paymentBatches),
+  employeeDocuments: many(employeeDocuments),
+  payrollStatutoryReports: many(payrollStatutoryReports),
+  payrollRemittances: many(payrollRemittances),
+  employeeSalaryChanges: many(employeeSalaryChanges),
 }));
 
 export const branchesRelations = relations(branches, ({ one, many }) => ({
@@ -186,6 +200,8 @@ export const branchesRelations = relations(branches, ({ one, many }) => ({
   stocks: many(branchStocks),
   invoices: many(invoices),
   posShifts: many(posShifts),
+  employees: many(employees),
+  payrollRuns: many(payrollRuns),
 }));
 
 // User access to specific branches
@@ -948,7 +964,9 @@ export const payments = pgTable("payments", {
   id: serial("id").primaryKey(),
   companyId: integer("company_id").references(() => companies.id).notNull(),
   branchId: integer("branch_id").references(() => branches.id),
-  invoiceId: integer("invoice_id").references(() => invoices.id).notNull(),
+  invoiceId: integer("invoice_id").references(() => invoices.id), // Nullable for direct/sales order deposit payments
+  salesOrderId: integer("sales_order_id").references(() => salesOrders.id), // Soft/hard link for preorder/lay-by deposits
+  customerId: integer("customer_id").references(() => customers.id), // Direct customer link for ledger/statements
 
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   currency: text("currency").default("USD").notNull(),
@@ -3738,6 +3756,10 @@ export const employeesRelations = relations(employees, ({ one, many }) => ({
   assignedAssets: many(assignedAssets),
   documents: many(employeeDocuments),
   payrollRunEmployees: many(payrollRunEmployees),
+  recurringItems: many(payrollRecurringItems),
+  payrollProfiles: many(employeePayrollProfiles),
+  salaryChanges: many(employeeSalaryChanges),
+  payslipDocuments: many(payslipDocuments),
 }));
 
 export const employeeContractsRelations = relations(employeeContracts, ({ one }) => ({
@@ -3761,6 +3783,7 @@ export const payrollPayGradesRelations = relations(payrollPayGrades, ({ one, man
   company: one(companies, { fields: [payrollPayGrades.companyId], references: [companies.id] }),
   necSector: one(necSectorsConfig, { fields: [payrollPayGrades.necSectorId], references: [necSectorsConfig.id] }),
   contracts: many(employeeContracts),
+  steps: many(payrollPayGradeSteps),
 }));
 
 export const payrollRunsRelations = relations(payrollRuns, ({ one, many }) => ({
@@ -3769,7 +3792,9 @@ export const payrollRunsRelations = relations(payrollRuns, ({ one, many }) => ({
   approvedByUser: one(users, { fields: [payrollRuns.approvedBy], references: [users.id] }),
   lockedByUser: one(users, { fields: [payrollRuns.lockedBy], references: [users.id] }),
   journalEntry: one(journalEntries, { fields: [payrollRuns.journalEntryId], references: [journalEntries.id] }),
+  reversalOfRun: one(payrollRuns, { fields: [payrollRuns.reversalOfRunId], references: [payrollRuns.id] }),
   runEmployees: many(payrollRunEmployees),
+  payslipDocuments: many(payslipDocuments),
 }));
 
 export const payrollRunEmployeesRelations = relations(payrollRunEmployees, ({ one, many }) => ({
@@ -3777,6 +3802,9 @@ export const payrollRunEmployeesRelations = relations(payrollRunEmployees, ({ on
   employee: one(employees, { fields: [payrollRunEmployees.employeeId], references: [employees.id] }),
   allowances: many(payrollAllowances),
   deductions: many(payrollDeductions),
+  loanInstallments: many(loanInstallments),
+  paymentBatchDetails: many(paymentBatchDetails),
+  payslipDocuments: many(payslipDocuments),
 }));
 
 export const payrollAllowancesRelations = relations(payrollAllowances, ({ one }) => ({
@@ -3886,6 +3914,53 @@ export const payrollImportRowsRelations = relations(payrollImportRows, ({ one })
 export const employeeSalaryChangesRelations = relations(employeeSalaryChanges, ({ one }) => ({
   employee: one(employees, { fields: [employeeSalaryChanges.employeeId], references: [employees.id] }),
   company: one(companies, { fields: [employeeSalaryChanges.companyId], references: [companies.id] }),
+}));
+
+export const payrollRecurringItemsRelations = relations(payrollRecurringItems, ({ one }) => ({
+  employee: one(employees, { fields: [payrollRecurringItems.employeeId], references: [employees.id] }),
+}));
+
+export const payrollPayGradeStepsRelations = relations(payrollPayGradeSteps, ({ one }) => ({
+  payGrade: one(payrollPayGrades, { fields: [payrollPayGradeSteps.payGradeId], references: [payrollPayGrades.id] }),
+}));
+
+export const payrollTaxTablesRelations = relations(payrollTaxTables, ({ one, many }) => ({
+  company: one(companies, { fields: [payrollTaxTables.companyId], references: [companies.id] }),
+  brackets: many(payrollTaxBrackets),
+}));
+
+export const payrollTaxBracketsRelations = relations(payrollTaxBrackets, ({ one }) => ({
+  taxTable: one(payrollTaxTables, { fields: [payrollTaxBrackets.taxTableId], references: [payrollTaxTables.id] }),
+}));
+
+export const payrollStatutoryRulesRelations = relations(payrollStatutoryRules, ({ one }) => ({
+  company: one(companies, { fields: [payrollStatutoryRules.companyId], references: [companies.id] }),
+}));
+
+export const payrollEarningTypesRelations = relations(payrollEarningTypes, ({ one }) => ({
+  company: one(companies, { fields: [payrollEarningTypes.companyId], references: [companies.id] }),
+  glAccount: one(accounts, { fields: [payrollEarningTypes.glAccountId], references: [accounts.id] }),
+}));
+
+export const payrollDeductionTypesRelations = relations(payrollDeductionTypes, ({ one }) => ({
+  company: one(companies, { fields: [payrollDeductionTypes.companyId], references: [companies.id] }),
+  glAccount: one(accounts, { fields: [payrollDeductionTypes.glAccountId], references: [accounts.id] }),
+}));
+
+export const payrollSalaryStructuresRelations = relations(payrollSalaryStructures, ({ one }) => ({
+  company: one(companies, { fields: [payrollSalaryStructures.companyId], references: [companies.id] }),
+}));
+
+export const employeePayrollProfilesRelations = relations(employeePayrollProfiles, ({ one }) => ({
+  company: one(companies, { fields: [employeePayrollProfiles.companyId], references: [companies.id] }),
+  employee: one(employees, { fields: [employeePayrollProfiles.employeeId], references: [employees.id] }),
+  salaryStructure: one(payrollSalaryStructures, { fields: [employeePayrollProfiles.salaryStructureId], references: [payrollSalaryStructures.id] }),
+  payGrade: one(payrollPayGrades, { fields: [employeePayrollProfiles.payGradeId], references: [payrollPayGrades.id] }),
+  payGradeStep: one(payrollPayGradeSteps, { fields: [employeePayrollProfiles.payGradeStepId], references: [payrollPayGradeSteps.id] }),
+}));
+
+export const payrollRemittancesRelations = relations(payrollRemittances, ({ one }) => ({
+  company: one(companies, { fields: [payrollRemittances.companyId], references: [companies.id] }),
 }));
 
 // Insert Schemas & Type Exports
@@ -4643,7 +4718,7 @@ export const salesOrders = pgTable("sales_orders", {
   id: serial("id").primaryKey(),
   companyId: integer("company_id").references(() => companies.id).notNull(),
   branchId: integer("branch_id").references(() => branches.id),
-  customerId: integer("customer_id").references(() => customers.id).notNull(),
+  customerId: integer("customer_id").references(() => customers.id),
   quotationId: integer("quotation_id").references((): AnyPgColumn => invoices.id),
 
   orderNumber: text("order_number").notNull(),
@@ -4658,6 +4733,26 @@ export const salesOrders = pgTable("sales_orders", {
   status: text("status").default("draft").notNull(), // draft, confirmed, partially_invoiced, invoiced, closed
   currency: text("currency").default("USD"),
   notes: text("notes"),
+
+  // Order type extension
+  orderType: text("order_type").default("cash_and_carry").notNull(), // cash_and_carry | preorder | lay_by
+  
+  // Preorder fields
+  preorderType: text("preorder_type"), // air | sea
+  depositPct: decimal("deposit_pct", { precision: 5, scale: 2 }), // Required deposit %
+  depositPaid: decimal("deposit_paid", { precision: 15, scale: 2 }), // Amount received
+  remainingBalance: decimal("remaining_balance", { precision: 15, scale: 2 }),
+  expectedArrival: date("expected_arrival"), // Expected delivery date
+  shipmentId: integer("shipment_id"), // FK to freight/consignment (soft ref)
+  
+  // Lay-by fields  
+  layByDuration: integer("lay_by_duration"), // 3 or 6 (months)
+  
+  // Approval workflow
+  approvalStatus: text("approval_status").default("none"), // none | pending | approved | rejected
+  approvedBy: uuid("approved_by").references(() => users.id),
+  approvedAt: timestamp("approved_at"),
+  approvalNotes: text("approval_notes"),
 
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -4682,6 +4777,8 @@ export const salesOrdersRelations = relations(salesOrders, ({ one, many }) => ({
   quotation: one(quotations, { fields: [salesOrders.quotationId], references: [quotations.id] }),
   items: many(salesOrderItems),
   invoices: many(invoices),
+  layBySchedules: many(layBySchedules),
+  stockReservations: many(stockReservations),
 }));
 
 export const salesOrderItemsRelations = relations(salesOrderItems, ({ one }) => ({
@@ -4836,6 +4933,122 @@ export const salesOrderAuditLogs = pgTable("sales_order_audit_logs", {
 export const insertSalesOrderAuditLogSchema = createInsertSchema(salesOrderAuditLogs).omit({ id: true, changedAt: true });
 export type SalesOrderAuditLog = typeof salesOrderAuditLogs.$inferSelect;
 
+// ==========================================
+// LAY-BY SCHEDULES — payment instalment plan
+// ==========================================
+export const layBySchedules = pgTable("lay_by_schedules", {
+  id: serial("id").primaryKey(),
+  salesOrderId: integer("sales_order_id").references(() => salesOrders.id).notNull(),
+  instalmentNumber: integer("instalment_number").notNull(),
+  dueDate: date("due_date").notNull(),
+  amountDue: decimal("amount_due", { precision: 15, scale: 2 }).notNull(),
+  amountPaid: decimal("amount_paid", { precision: 15, scale: 2 }).default("0.00").notNull(),
+  status: text("status").default("pending").notNull(), // pending | paid | overdue | defaulted
+  paymentMethod: text("payment_method"), // Cash | Card | Bank Transfer | EcoCash
+  paymentReference: text("payment_reference"),
+  paidAt: timestamp("paid_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const layBySchedulesRelations = relations(layBySchedules, ({ one }) => ({
+  salesOrder: one(salesOrders, { fields: [layBySchedules.salesOrderId], references: [salesOrders.id] }),
+}));
+
+export const insertLayByScheduleSchema = createInsertSchema(layBySchedules).omit({ id: true, createdAt: true });
+export type LayBySchedule = typeof layBySchedules.$inferSelect;
+export type InsertLayBySchedule = z.infer<typeof insertLayByScheduleSchema>;
+
+// ==========================================
+// STOCK RESERVATIONS — for preorders
+// ==========================================
+export const stockReservations = pgTable("stock_reservations", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  salesOrderId: integer("sales_order_id").references(() => salesOrders.id).notNull(),
+  productId: integer("product_id").references(() => products.id).notNull(),
+  quantityReserved: decimal("quantity_reserved", { precision: 15, scale: 4 }).notNull(),
+  status: text("status").default("reserved").notNull(), // reserved | allocated | released | cancelled
+  reservedAt: timestamp("reserved_at").defaultNow().notNull(),
+  releasedAt: timestamp("released_at"),
+}, (table) => ({
+  salesOrderIdx: index("stock_reservations_sales_order_idx").on(table.salesOrderId),
+  productIdx: index("stock_reservations_product_idx").on(table.productId),
+}));
+
+export const stockReservationsRelations = relations(stockReservations, ({ one }) => ({
+  company: one(companies, { fields: [stockReservations.companyId], references: [companies.id] }),
+  salesOrder: one(salesOrders, { fields: [stockReservations.salesOrderId], references: [salesOrders.id] }),
+  product: one(products, { fields: [stockReservations.productId], references: [products.id] }),
+}));
+
+export const insertStockReservationSchema = createInsertSchema(stockReservations).omit({ id: true, reservedAt: true });
+export type StockReservation = typeof stockReservations.$inferSelect;
+export type InsertStockReservation = z.infer<typeof insertStockReservationSchema>;
+
+// ==========================================
+// COMPOUND PRODUCTS — product bundles
+// ==========================================
+export const compoundProducts = pgTable("compound_products", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  name: text("name").notNull(),
+  sku: text("sku").notNull(),
+  description: text("description"),
+  sellingPrice: decimal("selling_price", { precision: 15, scale: 2 }).notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  companyIdx: index("compound_products_company_idx").on(table.companyId),
+  skuIdx: index("compound_products_sku_idx").on(table.companyId, table.sku),
+}));
+
+export const compoundProductItems = pgTable("compound_product_items", {
+  id: serial("id").primaryKey(),
+  compoundProductId: integer("compound_product_id").references(() => compoundProducts.id).notNull(),
+  productId: integer("product_id").references(() => products.id).notNull(),
+  quantity: decimal("quantity", { precision: 10, scale: 4 }).notNull(),
+});
+
+export const compoundProductsRelations = relations(compoundProducts, ({ one, many }) => ({
+  company: one(companies, { fields: [compoundProducts.companyId], references: [companies.id] }),
+  items: many(compoundProductItems),
+}));
+
+export const compoundProductItemsRelations = relations(compoundProductItems, ({ one }) => ({
+  compoundProduct: one(compoundProducts, { fields: [compoundProductItems.compoundProductId], references: [compoundProducts.id] }),
+  product: one(products, { fields: [compoundProductItems.productId], references: [products.id] }),
+}));
+
+export const insertCompoundProductSchema = createInsertSchema(compoundProducts).omit({ id: true, createdAt: true });
+export type CompoundProduct = typeof compoundProducts.$inferSelect;
+export type InsertCompoundProduct = z.infer<typeof insertCompoundProductSchema>;
+
+export const insertCompoundProductItemSchema = createInsertSchema(compoundProductItems).omit({ id: true });
+export type CompoundProductItem = typeof compoundProductItems.$inferSelect;
+export type InsertCompoundProductItem = z.infer<typeof insertCompoundProductItemSchema>;
+
+// ==========================================
+// SALES ORDER SETTINGS — per company defaults
+// ==========================================
+export const salesOrderSettings = pgTable("sales_order_settings", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull().unique(),
+  airPreorderMinDepositPct: decimal("air_preorder_min_deposit_pct", { precision: 5, scale: 2 }).default("50.00").notNull(),
+  seaPreorderMinDepositPct: decimal("sea_preorder_min_deposit_pct", { precision: 5, scale: 2 }).default("30.00").notNull(),
+  laybyMinDepositPct: decimal("layby_min_deposit_pct", { precision: 5, scale: 2 }).default("10.00").notNull(),
+  laybyDefaultDurationMonths: integer("layby_default_duration_months").default(3).notNull(),
+  depositGlAccountId: integer("deposit_gl_account_id").references(() => accounts.id),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const salesOrderSettingsRelations = relations(salesOrderSettings, ({ one }) => ({
+  company: one(companies, { fields: [salesOrderSettings.companyId], references: [companies.id] }),
+  depositGlAccount: one(accounts, { fields: [salesOrderSettings.depositGlAccountId], references: [accounts.id] }),
+}));
+
+export const insertSalesOrderSettingsSchema = createInsertSchema(salesOrderSettings).omit({ id: true, updatedAt: true });
+export type SalesOrderSettings = typeof salesOrderSettings.$inferSelect;
+export type InsertSalesOrderSettings = z.infer<typeof insertSalesOrderSettingsSchema>;
 export const fiscalizationJobs = pgTable("fiscalization_jobs", {
   id: serial("id").primaryKey(),
   invoiceId: integer("invoice_id").references(() => invoices.id).notNull(),

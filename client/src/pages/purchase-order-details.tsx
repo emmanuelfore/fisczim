@@ -198,9 +198,9 @@ export default function PurchaseOrderDetailsPage() {
                             {item.productId ? (
                               <>
                                 {item.productName}
-                                {item.productOriginalLanguageName && (
+                                {(item as any).productOriginalLanguageName && (
                                   <span className="text-xs text-slate-400 font-normal ml-1">
-                                    ({item.productOriginalLanguageName})
+                                    ({(item as any).productOriginalLanguageName})
                                   </span>
                                 )}
                               </>

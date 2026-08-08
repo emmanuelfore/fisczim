@@ -6,6 +6,7 @@ import {
   useCreateSalesOrder,
   useSalesOrder,
   useUpdateSalesOrder,
+  useSalesOrderSettings,
 } from "@/hooks/use-sales-orders";
 import { useAuth } from "@/hooks/use-auth";
 import { useCurrencies } from "@/hooks/use-currencies";
@@ -45,6 +46,12 @@ import {
   Eye,
   Save,
   Download,
+  Plane,
+  Ship,
+  Clock,
+  ShoppingCart,
+  AlertTriangle,
+  Info,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -122,6 +129,17 @@ export default function CreateSalesOrderPage() {
     },
   ]);
   const [showPreview, setShowPreview] = useState(false);
+
+  const { data: salesOrderSettings } = useSalesOrderSettings(companyId);
+
+  const [orderType, setOrderType] = useState('cash_and_carry');
+  const [preorderType, setPreorderType] = useState('air');
+  const [depositPct, setDepositPct] = useState<number | ''>('');
+  const [depositPaid, setDepositPaid] = useState('');
+  const [expectedArrival, setExpectedArrival] = useState('');
+  const [layByDuration, setLayByDuration] = useState(3);
+  const [paymentMethod, setPaymentMethod] = useState('Cash');
+  const [paymentReference, setPaymentReference] = useState('');
 
   useEffect(() => {
     if (existingSalesOrder && isEditing) {
@@ -279,10 +297,10 @@ export default function CreateSalesOrderPage() {
   const { subtotal, taxAmount, total } = calculateTotals();
   const taxBreakdown = calculateTaxBreakdown();
   const handleSave = async (status: string = "draft") => {
-    if (!customerId)
+    if (orderType !== 'cash_and_carry' && !customerId)
       return toast({
         title: "Error",
-        description: "Select a customer",
+        description: "Select a customer for preorders and lay-by orders",
         variant: "destructive",
       });
 
@@ -298,7 +316,7 @@ export default function CreateSalesOrderPage() {
 
     const payload = {
       companyId,
-      customerId: parseInt(customerId),
+      customerId: customerId ? parseInt(customerId) : null,
       issueDate: new Date(issueDate),
       expiryDate: expiryDate ? new Date(expiryDate) : undefined,
       notes,
@@ -308,6 +326,14 @@ export default function CreateSalesOrderPage() {
       taxAmount: taxAmount.toFixed(2),
       total: total.toFixed(2),
       status,
+      orderType,
+      preorderType: orderType === 'preorder' ? preorderType : undefined,
+      depositPct: depositPct ? Number(depositPct) : undefined,
+      depositPaid: depositPaid ? Number(depositPaid) : undefined,
+      paymentMethod: Number(depositPaid) > 0 ? paymentMethod : undefined,
+      paymentReference: Number(depositPaid) > 0 ? paymentReference : undefined,
+      expectedArrival: expectedArrival ? new Date(expectedArrival).toISOString() : undefined,
+      layByDuration: orderType === 'lay_by' ? layByDuration : undefined,
       items: items.map((item) => ({
         productId: item.productId,
         description: item.description,
@@ -358,7 +384,7 @@ export default function CreateSalesOrderPage() {
         <div className="flex items-center gap-4">
           <Button
             variant="ghost"
-            onClick={() => setLocation("/salesOrders")}
+            onClick={() => setLocation("/sales-orders")}
             className="pl-0"
           >
             <ArrowLeft className="w-4 h-4 mr-2" /> Back
@@ -487,6 +513,151 @@ export default function CreateSalesOrderPage() {
             <CardTitle>Sales Order Details</CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
+            {/* Order Type Selector */}
+            <Card className="border-slate-200">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-semibold">Order Type</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {[
+                    { value: 'cash_and_carry', label: 'Cash & Carry', icon: ShoppingCart, color: 'slate' },
+                    { value: 'preorder_air', label: 'Air Preorder', icon: Plane, color: 'sky' },
+                    { value: 'preorder_sea', label: 'Sea Preorder', icon: Ship, color: 'blue' },
+                    { value: 'lay_by', label: 'Lay-by', icon: Clock, color: 'indigo' },
+                  ].map(type => (
+                    <button key={type.value} onClick={() => { 
+                      if (type.value === 'preorder_air') { setOrderType('preorder'); setPreorderType('air'); }
+                      else if (type.value === 'preorder_sea') { setOrderType('preorder'); setPreorderType('sea'); }
+                      else { setOrderType(type.value); }
+                    }} className={cn("flex flex-col items-center gap-2 p-3 rounded-xl border-2 transition-all", 
+                      (orderType === type.value || (type.value === 'preorder_air' && orderType === 'preorder' && preorderType === 'air') || (type.value === 'preorder_sea' && orderType === 'preorder' && preorderType === 'sea'))
+                        ? "border-blue-500 bg-blue-50" : "border-slate-200 hover:border-slate-300 bg-white")}>
+                      <type.icon className="w-5 h-5" />
+                      <span className="text-xs font-medium">{type.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            {orderType === 'preorder' && (
+              <Card className="border-sky-200 bg-sky-50/50">
+                <CardContent className="p-4 space-y-4">
+                  {(() => {
+                    const airMinPct = salesOrderSettings ? parseFloat(salesOrderSettings.airPreorderMinDepositPct) : 50;
+                    const seaMinPct = salesOrderSettings ? parseFloat(salesOrderSettings.seaPreorderMinDepositPct) : 30;
+                    const minPct = preorderType === 'air' ? airMinPct : seaMinPct;
+                    const minAmount = total * (minPct / 100);
+
+                    return (
+                      <>
+                        <div className="flex items-center gap-2 text-sm text-sky-800">
+                          <Info className="w-4 h-4" />
+                          <span>{preorderType === 'air' ? `Air Preorders require a minimum ${airMinPct}% deposit.` : `Sea Preorders require a minimum ${seaMinPct}% deposit.`} Minimum required: ${minAmount.toFixed(2)}</span>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label>Deposit Paid ($)</Label>
+                            <Input type="number" value={depositPaid} onChange={e => setDepositPaid(e.target.value)} placeholder="0.00" />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Expected Arrival Date</Label>
+                            <Input type="date" value={expectedArrival} onChange={e => setExpectedArrival(e.target.value)} />
+                          </div>
+                        </div>
+
+                        {Number(depositPaid) > 0 && (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-sky-200">
+                            <div className="space-y-2">
+                              <Label>Payment Method</Label>
+                              <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                                <SelectTrigger><SelectValue placeholder="Select Method" /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="Cash">Cash</SelectItem>
+                                  <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
+                                  <SelectItem value="Card">Card</SelectItem>
+                                  <SelectItem value="EcoCash">EcoCash / Mobile Money</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Payment Ref / Note</Label>
+                              <Input value={paymentReference} onChange={e => setPaymentReference(e.target.value)} placeholder="Txn Ref, Receipt #..." />
+                            </div>
+                          </div>
+                        )}
+
+                        {Number(depositPaid) < minAmount && Number(depositPaid) > 0 && (
+                          <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 p-2 rounded border border-amber-200">
+                            <AlertTriangle className="w-4 h-4" />
+                            <span>This order will require admin approval because the deposit is below the minimum required ({minPct}%).</span>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+                </CardContent>
+              </Card>
+            )}
+
+            {orderType === 'lay_by' && (
+              <Card className="border-indigo-200 bg-indigo-50/50">
+                <CardContent className="p-4 space-y-4">
+                  <div className="space-y-2">
+                    <Label>Lay-by Duration</Label>
+                    <div className="flex gap-2">
+                      <Button type="button" variant={layByDuration === 3 ? "default" : "outline"} onClick={() => setLayByDuration(3)}>3 Months</Button>
+                      <Button type="button" variant={layByDuration === 6 ? "default" : "outline"} onClick={() => setLayByDuration(6)}>6 Months</Button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Deposit Percentage (%)</Label>
+                      <Input type="number" value={depositPct} onChange={e => {
+                        const pct = parseFloat(e.target.value);
+                        setDepositPct(isNaN(pct) ? '' : pct);
+                        if (!isNaN(pct)) setDepositPaid((total * (pct / 100)).toFixed(2));
+                      }} placeholder="e.g. 20" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Deposit Amount Paid ($)</Label>
+                      <Input type="number" value={depositPaid} onChange={e => setDepositPaid(e.target.value)} placeholder="0.00" />
+                    </div>
+                  </div>
+
+                  {Number(depositPaid) > 0 && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-indigo-200">
+                      <div className="space-y-2">
+                        <Label>Payment Method</Label>
+                        <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                          <SelectTrigger><SelectValue placeholder="Select Method" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Cash">Cash</SelectItem>
+                            <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
+                            <SelectItem value="Card">Card</SelectItem>
+                            <SelectItem value="EcoCash">EcoCash / Mobile Money</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Payment Ref / Note</Label>
+                        <Input value={paymentReference} onChange={e => setPaymentReference(e.target.value)} placeholder="Txn Ref, Receipt #..." />
+                      </div>
+                    </div>
+                  )}
+
+                  {total > 0 && layByDuration > 0 && (
+                    <div className="text-xs text-indigo-800 bg-indigo-100 p-3 rounded-lg mt-2">
+                      <p className="font-semibold mb-1">Payment Schedule Preview</p>
+                      <p>Remaining balance: ${(total - Number(depositPaid || 0)).toFixed(2)}</p>
+                      <p>Monthly instalment ({layByDuration} months): ${((total - Number(depositPaid || 0)) / layByDuration).toFixed(2)} / month</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Customer</Label>

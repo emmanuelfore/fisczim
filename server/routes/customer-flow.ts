@@ -13,7 +13,13 @@ import {
   stockAllocations,
   salesOrderAuditLogs,
   products,
-  customers
+  customers,
+  layBySchedules,
+  stockReservations,
+  compoundProducts,
+  compoundProductItems,
+  salesOrderSettings,
+  payments
 } from "../../shared/schema.js";
 
 export function createCustomerFlowRouter(requireAuth: any) {
@@ -217,7 +223,7 @@ export function createCustomerFlowRouter(requireAuth: any) {
       const [newInvoice] = await db.insert(invoices).values({
         companyId: order.companyId,
         branchId: order.branchId,
-        customerId: order.customerId,
+        customerId: (order.customerId || undefined) as any,
         salesOrderId: order.id,
         invoiceNumber: `INV-${Date.now()}`,
         issueDate: new Date(),
@@ -516,21 +522,164 @@ export function createCustomerFlowRouter(requireAuth: any) {
 
 
 
-  // 1b. Direct Creation
+  // Report endpoints
+  router.get("/sales-orders/reports/preorders", async (req, res) => {
+    try {
+      const companyId = req.query.companyId ? parseInt(req.query.companyId as string) : undefined;
+      if (!companyId) return res.status(400).json({ error: "companyId required" });
+      
+      const all = await db.query.salesOrders.findMany({
+        where: and(eq(salesOrders.companyId, companyId), eq(salesOrders.orderType as any, 'preorder')),
+        with: { customer: true, items: true },
+        orderBy: (salesOrders, { desc }) => [desc(salesOrders.issueDate)],
+      });
+
+      const now = new Date();
+      const active = all.filter(o => !['completed','cancelled'].includes(o.status));
+      const delayed = all.filter(o => {
+        if (!(o as any).expectedArrival) return false;
+        return new Date((o as any).expectedArrival) < now && !['completed','cancelled'].includes(o.status);
+      });
+      const depositsCollected = all.reduce((s, o) => s + parseFloat((o as any).depositPaid || '0'), 0);
+      const outstandingBalances = all.reduce((s, o) => s + parseFloat((o as any).remainingBalance || '0'), 0);
+
+      res.json({ active, delayed, depositsCollected, outstandingBalances, all });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.get("/sales-orders/reports/lay-bys", async (req, res) => {
+    try {
+      const companyId = req.query.companyId ? parseInt(req.query.companyId as string) : undefined;
+      if (!companyId) return res.status(400).json({ error: "companyId required" });
+      
+      const all = await db.query.salesOrders.findMany({
+        where: and(eq(salesOrders.companyId, companyId), eq(salesOrders.orderType as any, 'lay_by')),
+        with: { customer: true, items: true },
+        orderBy: (salesOrders, { desc }) => [desc(salesOrders.issueDate)],
+      });
+
+      const schedules = await db
+        .select()
+        .from(layBySchedules)
+        .innerJoin(salesOrders, eq(layBySchedules.salesOrderId, salesOrders.id))
+        .where(eq(salesOrders.companyId, companyId));
+
+      const now = new Date();
+      const active = all.filter(o => o.status === 'active');
+      const defaulted = all.filter(o => o.status === 'defaulted');
+      const completed = all.filter(o => o.status === 'completed');
+      const upcomingPayments = schedules.filter((s: any) => {
+        const due = new Date(s.lay_by_schedules.dueDate);
+        const inNext30 = due >= now && due <= new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+        return inNext30 && s.lay_by_schedules.status === 'pending';
+      });
+
+      res.json({ active, defaulted, completed, upcomingPayments, all });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.get("/sales-orders/reports/bundles", async (req, res) => {
+    try {
+      const companyId = req.query.companyId ? parseInt(req.query.companyId as string) : undefined;
+      if (!companyId) return res.status(400).json({ error: "companyId required" });
+      
+      const bundles = await db.query.compoundProducts.findMany({
+        where: eq(compoundProducts.companyId, companyId),
+        with: { items: { with: { product: true } } },
+      });
+      res.json({ bundles });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Settings Endpoints
+  router.get("/sales-order-settings", async (req, res) => {
+    try {
+      const companyId = req.query.companyId ? parseInt(req.query.companyId as string) : undefined;
+      if (!companyId) return res.status(400).json({ error: "companyId required" });
+
+      const settings = await db.query.salesOrderSettings.findFirst({
+        where: eq(salesOrderSettings.companyId, companyId),
+      });
+
+      res.json(settings || {
+        companyId,
+        airPreorderMinDepositPct: "50.00",
+        seaPreorderMinDepositPct: "30.00",
+        laybyMinDepositPct: "10.00",
+        laybyDefaultDurationMonths: 3,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.patch("/sales-order-settings", async (req, res) => {
+    try {
+      const { companyId, airPreorderMinDepositPct, seaPreorderMinDepositPct, laybyMinDepositPct, laybyDefaultDurationMonths } = req.body;
+      if (!companyId) return res.status(400).json({ error: "companyId required" });
+
+      const existing = await db.query.salesOrderSettings.findFirst({
+        where: eq(salesOrderSettings.companyId, companyId),
+      });
+
+      const values: any = {
+        updatedAt: new Date(),
+      };
+      if (airPreorderMinDepositPct !== undefined) values.airPreorderMinDepositPct = airPreorderMinDepositPct.toString();
+      if (seaPreorderMinDepositPct !== undefined) values.seaPreorderMinDepositPct = seaPreorderMinDepositPct.toString();
+      if (laybyMinDepositPct !== undefined) values.laybyMinDepositPct = laybyMinDepositPct.toString();
+      if (laybyDefaultDurationMonths !== undefined) values.laybyDefaultDurationMonths = parseInt(laybyDefaultDurationMonths);
+
+      let settings;
+      if (existing) {
+        [settings] = await db.update(salesOrderSettings)
+          .set(values)
+          .where(eq(salesOrderSettings.companyId, companyId))
+          .returning();
+      } else {
+        [settings] = await db.insert(salesOrderSettings)
+          .values({ companyId, ...values })
+          .returning();
+      }
+
+      res.json(settings);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // 1b. Direct Creation - Enhanced for all order types
   router.post("/sales-orders", async (req, res) => {
     try {
-      const { companyId, branchId, customerId, items, currency, notes } = req.body;
-      
+      const {
+        companyId, branchId, customerId, items, currency, notes, status,
+        orderType = 'cash_and_carry',
+        preorderType,
+        depositPct,
+        depositPaid,
+        expectedArrival,
+        layByDuration,
+      } = req.body;
+
       let subtotal = 0;
       let taxAmount = 0;
-      
+
       const newItems = [];
       for (const item of items) {
         let unitPrice = item.unitPrice;
         if (unitPrice === undefined || unitPrice === null) {
-          const cp = await db.query.customerProducts.findFirst({
-            where: and(eq(customerProducts.customerId, customerId), eq(customerProducts.productId, item.productId))
-          });
+          let cp = null;
+          if (customerId) {
+            cp = await db.query.customerProducts.findFirst({
+              where: and(eq(customerProducts.customerId, customerId), eq(customerProducts.productId, item.productId))
+            });
+          }
           if (cp && (cp as any).negotiatedPrice) {
             unitPrice = (cp as any).negotiatedPrice;
           } else {
@@ -544,10 +693,10 @@ export function createCustomerFlowRouter(requireAuth: any) {
         const lineTotal = Number(unitPrice) * Number(item.quantity);
         const taxRate = item.taxRate || 0;
         const taxAmt = lineTotal * (taxRate / 100);
-        
+
         subtotal += lineTotal;
         taxAmount += taxAmt;
-        
+
         newItems.push({
           productId: item.productId,
           description: item.description,
@@ -559,23 +708,63 @@ export function createCustomerFlowRouter(requireAuth: any) {
           taxTypeId: item.taxTypeId,
         });
       }
-      
+
       const total = subtotal + taxAmount;
+      const depositPaidNum = parseFloat(depositPaid || '0');
+      const remainingBalance = total - depositPaidNum;
+
+      // Fetch company sales order settings if available
+      const companySettings = await db.query.salesOrderSettings.findFirst({
+        where: eq(salesOrderSettings.companyId, companyId),
+      });
+
+      const airMinPct = companySettings ? parseFloat(companySettings.airPreorderMinDepositPct) : 50;
+      const seaMinPct = companySettings ? parseFloat(companySettings.seaPreorderMinDepositPct) : 30;
+
+      // Determine approval status for preorders
+      let approvalStatus = 'none';
+      let initialStatus = status || 'draft';
+
+      if (orderType === 'preorder') {
+        initialStatus = 'awaiting_deposit';
+        const depositPctNum = parseFloat(depositPct || '0');
+        const depositPercentActual = total > 0 ? (depositPaidNum / total) * 100 : 0;
+        const minPct = preorderType === 'air' ? airMinPct : seaMinPct;
+
+        if (depositPercentActual >= minPct) {
+          approvalStatus = 'approved';
+          initialStatus = 'approved';
+        } else {
+          approvalStatus = 'pending';
+          initialStatus = 'awaiting_deposit';
+        }
+      } else if (orderType === 'lay_by') {
+        initialStatus = 'active';
+        approvalStatus = 'none';
+      }
 
       const [newOrder] = await db.insert(salesOrders).values({
         companyId,
         branchId: branchId || undefined,
-        customerId,
+        customerId: customerId || null,
         quotationId: null,
         orderNumber: `SO-${Date.now()}`,
         issueDate: new Date(),
         subtotal: subtotal.toString(),
         taxAmount: taxAmount.toString(),
         total: total.toString(),
-        status: "draft",
-        currency: currency || "USD",
+        status: initialStatus,
+        currency: currency || 'USD',
         notes,
-      }).returning();
+        orderType,
+        preorderType: preorderType || null,
+        depositPct: depositPct ? depositPct.toString() : null,
+        depositPaid: depositPaidNum.toString(),
+        remainingBalance: remainingBalance.toString(),
+        expectedArrival: expectedArrival || null,
+        layByDuration: layByDuration || null,
+        approvalStatus,
+      } as any).returning();
 
       const orderItemsToInsert = newItems.map(item => ({
         ...item,
@@ -585,9 +774,76 @@ export function createCustomerFlowRouter(requireAuth: any) {
         await db.insert(salesOrderItems).values(orderItemsToInsert);
       }
 
+      // Preorder: create stock reservations
+      if (orderType === 'preorder') {
+        const reservations = newItems
+          .filter(i => i.productId)
+          .map(i => ({
+            companyId,
+            salesOrderId: newOrder.id,
+            productId: i.productId!,
+            quantityReserved: i.quantity.toString(),
+            status: 'reserved',
+          }));
+        if (reservations.length > 0) {
+          await db.insert(stockReservations).values(reservations as any);
+        }
+      }
+
+      // Lay-by: generate payment schedule
+      if (orderType === 'lay_by') {
+        const months = layByDuration || 3;
+        const scheduleItems = [];
+        const now = new Date();
+
+        // 3-month: 40%, 30%, 30%
+        // 6-month: 20% each
+        const pcts = months === 3 ? [0.4, 0.3, 0.3] : [1/6, 1/6, 1/6, 1/6, 1/6, 1/6];
+        let runningTotal = 0;
+
+        for (let i = 0; i < months; i++) {
+          const dueDate = new Date(now);
+          dueDate.setMonth(dueDate.getMonth() + i + 1);
+          const isLast = i === months - 1;
+          const amt = isLast
+            ? total - runningTotal
+            : parseFloat((total * pcts[i]).toFixed(2));
+          runningTotal += amt;
+
+          scheduleItems.push({
+            salesOrderId: newOrder.id,
+            instalmentNumber: i + 1,
+            dueDate: dueDate.toISOString().split('T')[0],
+            amountDue: amt.toString(),
+            amountPaid: '0.00',
+            status: 'pending',
+          });
+        }
+
+        if (scheduleItems.length > 0) {
+          await db.insert(layBySchedules).values(scheduleItems as any);
+        }
+      }
+
+      // Record deposit payment in payments table for accounting & customer statements
+      if (depositPaidNum > 0) {
+        await db.insert(payments).values({
+          companyId,
+          branchId: branchId || undefined,
+          salesOrderId: newOrder.id,
+          customerId: customerId || null,
+          amount: depositPaidNum.toString(),
+          currency: currency || 'USD',
+          paymentMethod: req.body.paymentMethod || 'Cash',
+          reference: req.body.paymentReference || null,
+          notes: `Deposit payment for ${orderType} order ${newOrder.orderNumber}`,
+          createdBy: (req as any).user?.id || null,
+        } as any);
+      }
+
       const completeOrder = await db.query.salesOrders.findFirst({
         where: eq(salesOrders.id, newOrder.id),
-        with: { items: true }
+        with: { items: true },
       });
       res.json(completeOrder);
     } catch (error: any) {
@@ -620,9 +876,22 @@ export function createCustomerFlowRouter(requireAuth: any) {
       }
 
       // Handle Header Updates
+      const {
+        orderType, preorderType, depositPct, depositPaid, remainingBalance,
+        expectedArrival, layByDuration, approvalStatus
+      } = req.body;
+
       const headerUpdates: any = {};
       if (status !== undefined && status !== order.status) headerUpdates.status = status;
       if (notes !== undefined && notes !== order.notes) headerUpdates.notes = notes;
+      if (orderType !== undefined) headerUpdates.orderType = orderType;
+      if (preorderType !== undefined) headerUpdates.preorderType = preorderType;
+      if (depositPct !== undefined) headerUpdates.depositPct = depositPct?.toString();
+      if (depositPaid !== undefined) headerUpdates.depositPaid = depositPaid?.toString();
+      if (remainingBalance !== undefined) headerUpdates.remainingBalance = remainingBalance?.toString();
+      if (expectedArrival !== undefined) headerUpdates.expectedArrival = expectedArrival;
+      if (layByDuration !== undefined) headerUpdates.layByDuration = layByDuration;
+      if (approvalStatus !== undefined) headerUpdates.approvalStatus = approvalStatus;
 
       if (Object.keys(headerUpdates).length > 0) {
         if (zone === 2) {
@@ -651,8 +920,16 @@ export function createCustomerFlowRouter(requireAuth: any) {
   router.get("/sales-orders", async (req, res) => {
     try {
       const companyId = req.query.companyId ? parseInt(req.query.companyId as string) : undefined;
+      const typeFilter = req.query.type as string | undefined;
+      const approvalFilter = req.query.approvalStatus as string | undefined;
+
+      const conditions = [];
+      if (companyId) conditions.push(eq(salesOrders.companyId, companyId));
+      if (typeFilter) conditions.push(eq((salesOrders as any).orderType, typeFilter));
+      if (approvalFilter) conditions.push(eq((salesOrders as any).approvalStatus, approvalFilter));
+
       const orders = await db.query.salesOrders.findMany({
-        where: companyId ? eq(salesOrders.companyId, companyId) : undefined,
+        where: conditions.length > 0 ? and(...conditions) : undefined,
         with: { customer: true, items: true },
         orderBy: (salesOrders, { desc }) => [desc(salesOrders.issueDate)],
       });
@@ -668,6 +945,8 @@ export function createCustomerFlowRouter(requireAuth: any) {
         where: eq(salesOrders.id, parseInt(req.params.id)),
         with: { 
           items: true,
+          layBySchedules: true,
+          stockReservations: { with: { product: true } },
         },
       });
       
@@ -736,6 +1015,276 @@ export function createCustomerFlowRouter(requireAuth: any) {
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  router.post("/sales-orders/:id/approve", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { action, notes } = req.body; // action: 'approve' | 'reject'
+      const userId = (req as any).user?.id || null;
+
+      const order = await db.query.salesOrders.findFirst({
+        where: eq(salesOrders.id, parseInt(id))
+      });
+      if (!order) return res.status(404).json({ error: "Order not found" });
+      if ((order as any).approvalStatus !== 'pending') {
+        return res.status(400).json({ error: "Order is not pending approval" });
+      }
+
+      const newApprovalStatus = action === 'approve' ? 'approved' : 'rejected';
+      let newStatus = (order as any).status;
+      if (action === 'approve') {
+        // Advance preorder from awaiting_deposit to approved
+        if (newStatus === 'awaiting_deposit') newStatus = 'approved';
+      } else {
+        newStatus = 'cancelled';
+      }
+
+      await db.update(salesOrders)
+        .set({
+          approvalStatus: newApprovalStatus,
+          approvedBy: userId,
+          approvedAt: new Date(),
+          approvalNotes: notes || null,
+          status: newStatus,
+        } as any)
+        .where(eq(salesOrders.id, parseInt(id)));
+
+      res.json({ message: `Order ${action}d successfully` });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.post("/sales-orders/:id/record-payment", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { amount, scheduleId, paymentMethod = 'Cash', paymentReference } = req.body;
+
+      const order = await db.query.salesOrders.findFirst({
+        where: eq(salesOrders.id, parseInt(id))
+      });
+      if (!order) return res.status(404).json({ error: "Order not found" });
+      if ((order as any).orderType !== 'lay_by') {
+        return res.status(400).json({ error: "Only lay-by orders support payment recording" });
+      }
+
+      const paidAmount = parseFloat(amount);
+      const newDepositPaid = parseFloat((order as any).depositPaid || '0') + paidAmount;
+      const total = parseFloat(order.total);
+      const newBalance = total - newDepositPaid;
+
+      // Update the schedule instalment if scheduleId provided
+      if (scheduleId) {
+        const scheduleItem = await db.query.layBySchedules.findFirst({
+          where: eq(layBySchedules.id, parseInt(scheduleId))
+        });
+        if (scheduleItem) {
+          const prevPaid = parseFloat(scheduleItem.amountPaid || '0');
+          const newSchedulePaid = prevPaid + paidAmount;
+          const due = parseFloat(scheduleItem.amountDue);
+          const newScheduleStatus = newSchedulePaid >= due ? 'paid' : 'pending';
+
+          await db.update(layBySchedules)
+            .set({
+              amountPaid: newSchedulePaid.toString(),
+              status: newScheduleStatus,
+              paymentMethod,
+              paymentReference: paymentReference || null,
+              paidAt: new Date(),
+            })
+            .where(eq(layBySchedules.id, parseInt(scheduleId)));
+        }
+      }
+
+      // Record payment in payments table for statement & accounting integration
+      await db.insert(payments).values({
+        companyId: order.companyId,
+        branchId: order.branchId || undefined,
+        salesOrderId: order.id,
+        customerId: order.customerId || null,
+        amount: paidAmount.toString(),
+        currency: order.currency || 'USD',
+        paymentMethod: paymentMethod || 'Cash',
+        reference: paymentReference || null,
+        notes: `Lay-by instalment payment for order ${order.orderNumber}`,
+        createdBy: (req as any).user?.id || null,
+      } as any);
+
+      // Determine new order status
+      let newStatus = (order as any).status;
+      if (newBalance <= 0) {
+        newStatus = 'completed';
+      } else if ((order as any).status === 'active') {
+        newStatus = 'active';
+      }
+
+      await db.update(salesOrders)
+        .set({
+          depositPaid: newDepositPaid.toString(),
+          remainingBalance: Math.max(0, newBalance).toString(),
+          status: newStatus,
+        } as any)
+        .where(eq(salesOrders.id, parseInt(id)));
+
+      res.json({ message: "Payment recorded", depositPaid: newDepositPaid, remainingBalance: Math.max(0, newBalance) });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.post("/sales-orders/:id/receive-goods", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const order = await db.query.salesOrders.findFirst({
+        where: eq(salesOrders.id, parseInt(id))
+      });
+      if (!order) return res.status(404).json({ error: "Order not found" });
+      if ((order as any).orderType !== 'preorder') {
+        return res.status(400).json({ error: "Only preorder orders support goods receipt" });
+      }
+
+      // Update reservations to allocated
+      await db.update(stockReservations)
+        .set({ status: 'allocated' })
+        .where(eq(stockReservations.salesOrderId, parseInt(id)));
+
+      await db.update(salesOrders)
+        .set({ status: 'arrived' } as any)
+        .where(eq(salesOrders.id, parseInt(id)));
+
+      res.json({ message: "Goods received, order status updated to arrived" });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.get("/lay-by-schedules", async (req, res) => {
+    try {
+      const companyId = req.query.companyId ? parseInt(req.query.companyId as string) : undefined;
+      if (!companyId) return res.status(400).json({ error: "companyId required" });
+
+      const schedules = await db
+        .select()
+        .from(layBySchedules)
+        .innerJoin(salesOrders, eq(layBySchedules.salesOrderId, salesOrders.id))
+        .where(eq(salesOrders.companyId, companyId))
+        .orderBy(layBySchedules.dueDate);
+
+      res.json(schedules);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.get("/stock-reservations", async (req, res) => {
+    try {
+      const companyId = req.query.companyId ? parseInt(req.query.companyId as string) : undefined;
+      if (!companyId) return res.status(400).json({ error: "companyId required" });
+
+      const reservations = await db.query.stockReservations.findMany({
+        where: eq(stockReservations.companyId, companyId),
+        with: { product: true, salesOrder: true },
+      });
+      res.json(reservations);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.get("/compound-products", async (req, res) => {
+    try {
+      const companyId = req.query.companyId ? parseInt(req.query.companyId as string) : undefined;
+      if (!companyId) return res.status(400).json({ error: "companyId required" });
+      const bundles = await db.query.compoundProducts.findMany({
+        where: eq(compoundProducts.companyId, companyId),
+        with: { items: { with: { product: true } } },
+      });
+      res.json(bundles);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.get("/compound-products/:id", async (req, res) => {
+    try {
+      const bundle = await db.query.compoundProducts.findFirst({
+        where: eq(compoundProducts.id, parseInt(req.params.id)),
+        with: { items: { with: { product: true } } },
+      });
+      if (!bundle) return res.status(404).json({ error: "Bundle not found" });
+      res.json(bundle);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.post("/compound-products", async (req, res) => {
+    try {
+      const { companyId, name, sku, description, sellingPrice, isActive, items } = req.body;
+      const [bundle] = await db.insert(compoundProducts).values({
+        companyId, name, sku, description,
+        sellingPrice: sellingPrice.toString(),
+        isActive: isActive !== false,
+      }).returning();
+
+      if (items && items.length > 0) {
+        await db.insert(compoundProductItems).values(
+          items.map((item: any) => ({
+            compoundProductId: bundle.id,
+            productId: item.productId,
+            quantity: item.quantity.toString(),
+          }))
+        );
+      }
+
+      const fullBundle = await db.query.compoundProducts.findFirst({
+        where: eq(compoundProducts.id, bundle.id),
+        with: { items: { with: { product: true } } },
+      });
+      res.json(fullBundle);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.patch("/compound-products/:id", async (req, res) => {
+    try {
+      const { name, description, sellingPrice, isActive, items } = req.body;
+      const bundleId = parseInt(req.params.id);
+      
+      const updates: any = {};
+      if (name !== undefined) updates.name = name;
+      if (description !== undefined) updates.description = description;
+      if (sellingPrice !== undefined) updates.sellingPrice = sellingPrice.toString();
+      if (isActive !== undefined) updates.isActive = isActive;
+      
+      if (Object.keys(updates).length > 0) {
+        await db.update(compoundProducts).set(updates).where(eq(compoundProducts.id, bundleId));
+      }
+
+      // Replace items if provided
+      if (items !== undefined) {
+        await db.delete(compoundProductItems).where(eq(compoundProductItems.compoundProductId, bundleId));
+        if (items.length > 0) {
+          await db.insert(compoundProductItems).values(
+            items.map((item: any) => ({
+              compoundProductId: bundleId,
+              productId: item.productId,
+              quantity: item.quantity.toString(),
+            }))
+          );
+        }
+      }
+
+      const fullBundle = await db.query.compoundProducts.findFirst({
+        where: eq(compoundProducts.id, bundleId),
+        with: { items: { with: { product: true } } },
+      });
+      res.json(fullBundle);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
     }
   });
 

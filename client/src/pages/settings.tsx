@@ -45,10 +45,10 @@ import { CostCenterManagement } from "@/components/settings/cost-center-manageme
 import { AccountingSystemSettings } from "@/components/settings/accounting-system-settings";
 import { InventorySettings } from "@/components/settings/inventory-settings";
 import { BusTicketingSettings } from "@/components/settings/bus-ticketing-settings";
-import { DEFAULT_BUS_SETTINGS } from "@shared/bus-settings";
+import { DEFAULT_BUS_SETTINGS, normalizeBusSettings } from "@shared/bus-settings";
 import { AppModeSettings } from "@/components/settings/app-mode-settings";
 import { normalizeAppMode } from "@shared/app-mode";
-import { normalizeBusSettings } from "@shared/bus-settings";
+import { SalesOrdersSettings } from "@/components/settings/sales-orders-settings";
 
 export default function SettingsPage() {
   const { toast } = useToast();
@@ -171,6 +171,7 @@ export default function SettingsPage() {
       items: [
         { id: "banking", label: "Banking" },
         { id: "accounting", label: "Accounting" },
+        { id: "sales-orders", label: "Sales Orders" },
         { id: "cost-centers", label: "Cost Centers" },
         { id: "inventory", label: "Inventory" },
         { id: "currencies", label: "Currencies" },
@@ -225,12 +226,13 @@ export default function SettingsPage() {
       case 'security': return <SecuritySettings company={activeCompany} />;
       case 'banking': return <BankingSettings formData={formData} setFormData={setFormData} />;
       case 'accounting': return <AccountingSystemSettings companyId={activeCompany.id} formData={formData} setFormData={setFormData} />;
+      case 'sales-orders': return <SalesOrdersSettings companyId={activeCompany.id} />;
       case 'cost-centers': return <CostCenterManagement companyId={activeCompany.id} />;
       case 'inventory': return <InventorySettings formData={formData} setFormData={setFormData} />;
       case 'currencies': return <CurrencySettings companyId={activeCompany.id} />;
       case 'tax': return <TaxComplianceSettings companyId={activeCompany.id} formData={formData} setFormData={setFormData} />;
       case 'zimra': return <ZimraDeviceSettings company={activeCompany} />;
-      case 'app-mode': return <AppModeSettings formData={formData} setFormData={setFormData} onSave={async (data) => {
+      case 'app-mode': return <AppModeSettings formData={formData} setFormData={setFormData} onSave={async (data: any) => {
         await updateCompany.mutateAsync(data);
         toast({
           title: "App mode saved",
@@ -281,6 +283,7 @@ export default function SettingsPage() {
       case "security": return { title: "Security & Access Control", subtitle: "Configure access rules, password policies, and security settings." };
       case "banking": return { title: "Banking Details", subtitle: "Manage company banking details and default deposit accounts." };
       case "accounting": return { title: "Posting Setup", subtitle: "Configure automated transaction postings and defaults." };
+      case "sales-orders": return { title: "Sales Orders Configuration", subtitle: "Configure deposit percentages, preorder rules, and lay-by default durations." };
       case "inventory": return { title: "Inventory Controls", subtitle: "Configure inventory valuation methods and default controls." };
       case "currencies": return { title: "Currencies", subtitle: "Set default currencies and manage exchange rates." };
       case "zimra": return { title: "ZIMRA Device Settings", subtitle: "Configure fiscal device connectivity and ZIMRA settings." };

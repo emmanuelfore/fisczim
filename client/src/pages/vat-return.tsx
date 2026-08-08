@@ -11,6 +11,7 @@ import {
   Scale,
   CheckCircle2,
   Send,
+  Download,
 } from "lucide-react";
 import {
   Card,
@@ -100,6 +101,7 @@ export default function VatReturnPage() {
   const visibleCurrencyCodes = Array.from(new Set([
     "USD",
     "ZWG",
+    ...(report?.availableCurrencies || []),
     ...Object.keys(report?.outputVatByCurrency || {}),
     ...Object.keys(report?.inputVatByCurrency || {}),
     ...Object.keys(report?.netVatByCurrency || {}),
@@ -181,6 +183,35 @@ export default function VatReturnPage() {
         variant: "destructive",
       }),
   });
+
+  const exportToCsv = () => {
+    if (!report || !report.dailyBreakdown) return;
+    
+    let csv = "Date,Total Sales,Output VAT,Input VAT,Net VAT,Currency\n";
+    const rows: string[] = [];
+    
+    report.dailyBreakdown.forEach((day: any) => {
+      visibleCurrencyCodes.forEach((currency: string) => {
+        const sales = day.totalSalesByCurrency?.[currency] || 0;
+        const output = day.outputVatByCurrency?.[currency] || 0;
+        const input = day.inputVatByCurrency?.[currency] || 0;
+        const net = day.netVatByCurrency?.[currency] || 0;
+        
+        rows.push(`${day.date},${sales},${output},${input},${net},${currency}`);
+      });
+    });
+
+    csv += rows.join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `VAT_Return_${dateRange.from}_to_${dateRange.to}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <Layout hideHeaderTitle>
@@ -407,6 +438,46 @@ export default function VatReturnPage() {
             </div>
           </CardContent>
         </Card>
+
+        {report && report.dailyBreakdown && report.dailyBreakdown.length > 0 && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <div className="space-y-1">
+                <CardTitle>Daily Breakdown</CardTitle>
+                <CardDescription>
+                  Aggregated VAT metrics by date.
+                </CardDescription>
+              </div>
+              <Button variant="outline" size="sm" onClick={exportToCsv}>
+                <Download className="h-4 w-4 mr-2" /> Export CSV
+              </Button>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader className="bg-slate-50/50">
+                  <TableRow>
+                    <TableHead className="pl-6 font-bold text-slate-500 uppercase text-[11px] tracking-wider">Date</TableHead>
+                    <TableHead className="font-bold text-slate-500 uppercase text-[11px] tracking-wider">Total Sales</TableHead>
+                    <TableHead className="font-bold text-slate-500 uppercase text-[11px] tracking-wider">Output VAT</TableHead>
+                    <TableHead className="font-bold text-slate-500 uppercase text-[11px] tracking-wider">Input VAT</TableHead>
+                    <TableHead className="font-bold text-slate-500 uppercase text-[11px] tracking-wider text-right pr-6">Net VAT</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {report.dailyBreakdown.map((row: any) => (
+                    <TableRow key={row.date}>
+                      <TableCell className="pl-6 font-medium text-slate-900">{format(new Date(row.date), "dd MMM yyyy")}</TableCell>
+                      <TableCell>{currencyLines(row.totalSalesByCurrency, visibleCurrencyCodes)}</TableCell>
+                      <TableCell>{currencyLines(row.outputVatByCurrency, visibleCurrencyCodes)}</TableCell>
+                      <TableCell>{currencyLines(row.inputVatByCurrency, visibleCurrencyCodes)}</TableCell>
+                      <TableCell className="text-right pr-6 font-bold">{currencyLines(row.netVatByCurrency, visibleCurrencyCodes)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        )}
 
         {report && report.inputVatBreakdown && report.inputVatBreakdown.length > 0 && (
           <Card>

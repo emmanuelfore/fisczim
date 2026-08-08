@@ -557,7 +557,7 @@ export interface IStorage {
   postJournalEntryDraft(companyId: number, draftId: number, userId?: string): Promise<JournalEntry>;
   getLedgerEntries(companyId: number, accountId?: number, dateFrom?: Date, dateTo?: Date): Promise<any[]>;
   getTrialBalance(companyId: number, date?: Date): Promise<any[]>;
-  getVatReturn(companyId: number, fromDate?: Date, toDate?: Date): Promise<{ outputVat: number; inputVat: number; netVat: number; inputVatBreakdown?: any[]; outputVatBreakdown?: any[] }>;
+  getVatReturn(companyId: number, fromDate?: Date, toDate?: Date): Promise<{ outputVat: number; inputVat: number; netVat: number; outputVatByCurrency: Record<string, number>; inputVatByCurrency: Record<string, number>; netVatByCurrency: Record<string, number>; dailyBreakdown: any[]; inputVatBreakdown?: any[]; outputVatBreakdown?: any[]; includedInvoiceCount: number; availableCurrencies: string[]; }>;
   postToLedger(companyId: number, entryData: LedgerPostData, tx?: any): Promise<JournalEntry>;
   
   // Bank Reconciliation
@@ -3911,16 +3911,19 @@ export class DatabaseStorage implements IStorage {
     let userInvoicesQuery = db.select().from(invoices).where(eq(invoices.customerId, customerId));
     const userInvoices = await userInvoicesQuery;
 
-    // Fetch all payments for these invoices in a single query
+    // Fetch all payments for these invoices OR direct customer payments (preorders / lay-bys)
     const invoiceIds = userInvoices.map(inv => inv.id);
     let userPayments: Payment[] = [];
+    const paymentConditions = [eq(payments.customerId, customerId)];
     if (invoiceIds.length > 0) {
-      userPayments = await db.select().from(payments).where(inArray(payments.invoiceId, invoiceIds));
-      // Filter by currency if provided
-      if (currency) {
-        const currencyInvoiceIds = new Set(userInvoices.filter(inv => inv.currency === currency).map(inv => inv.id));
-        userPayments = userPayments.filter(p => p.invoiceId && currencyInvoiceIds.has(p.invoiceId));
-      }
+      paymentConditions.push(inArray(payments.invoiceId, invoiceIds));
+    }
+    userPayments = await db.select().from(payments).where(or(...paymentConditions));
+
+    // Filter by currency if provided
+    if (currency) {
+      const currencyInvoiceIds = new Set(userInvoices.filter(inv => inv.currency === currency).map(inv => inv.id));
+      userPayments = userPayments.filter(p => p.currency === currency || (p.invoiceId && currencyInvoiceIds.has(p.invoiceId)));
     }
 
     // Fetch active production runs for this customer
@@ -4005,7 +4008,7 @@ export class DatabaseStorage implements IStorage {
           date: date,
           type: 'Payment',
           reference: pay.reference || 'PAYMENT',
-          description: `Payment for ${userInvoices.find(i => i.id === pay.invoiceId)?.invoiceNumber || 'Invoice'}`,
+          description: pay.notes || (pay.invoiceId ? `Payment for Invoice ${userInvoices.find(i => i.id === pay.invoiceId)?.invoiceNumber || ''}` : 'Sales Order Deposit Payment'),
           debit: 0,
           credit: Number(pay.amount),
           id: pay.id
@@ -7639,9 +7642,11 @@ export class DatabaseStorage implements IStorage {
 
     const paymentsByInvoice = new Map<number, typeof paymentRows>();
     for (const pmt of paymentRows) {
-      const list = paymentsByInvoice.get(pmt.invoiceId) || [];
-      list.push(pmt);
-      paymentsByInvoice.set(pmt.invoiceId, list);
+      if (pmt.invoiceId) {
+        const list = paymentsByInvoice.get(pmt.invoiceId) || [];
+        list.push(pmt);
+        paymentsByInvoice.set(pmt.invoiceId, list);
+      }
     }
 
     const byDate = new Map<string, any>();
@@ -9131,7 +9136,10 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
-  async getVatReturn(companyId: number, fromDate?: Date, toDate?: Date): Promise<{ outputVat: number; inputVat: number; netVat: number; inputVatBreakdown?: any[]; outputVatBreakdown?: any[] }> {
+  async getVatReturn(companyId: number, fromDate?: Date, toDate?: Date): Promise<{ outputVat: number; inputVat: number; netVat: number; outputVatByCurrency: Record<string, number>; inputVatByCurrency: Record<string, number>; netVatByCurrency: Record<string, number>; dailyBreakdown: any[]; inputVatBreakdown?: any[]; outputVatBreakdown?: any[]; includedInvoiceCount: number; availableCurrencies: string[]; }> {
+    const compCurrencies = await db.select({ code: currencies.code }).from(currencies).where(eq(currencies.companyId, companyId));
+    const availableCurrencies = Array.from(new Set(compCurrencies.map(c => c.code.toUpperCase())));
+
     // Output VAT: Sum of tax amount from sales invoices
     const salesInvoices = await db.select({
       id: invoices.id,
@@ -9146,10 +9154,14 @@ export class DatabaseStorage implements IStorage {
       .where(and(
         eq(invoices.companyId, companyId),
         ne(invoices.status, 'CANCELLED'),
-        ...(fromDate ? [gte(invoices.createdAt, fromDate)] : []),
-        ...(toDate ? [lte(invoices.createdAt, toDate)] : [])
+        eq(invoices.syncedWithFdms, true),
+        or(
+          isNull(invoices.validationStatus),
+          not(inArray(invoices.validationStatus, ['red', 'invalid', 'grey']))
+        ),
+        ...(fromDate ? [gte(invoices.issueDate, fromDate)] : []),
+        ...(toDate ? [lte(invoices.issueDate, toDate)] : [])
       ));
-    const outputVat = salesInvoices.reduce((sum, inv) => sum + Number(inv.tax || 0), 0);
 
     // Input VAT: Sum of tax amount from supplier invoices
     const purchases = await db.select({
@@ -9168,22 +9180,76 @@ export class DatabaseStorage implements IStorage {
       .where(and(
         eq(supplierInvoices.companyId, companyId),
         ne(supplierInvoices.status, 'CANCELLED'),
-        ...(fromDate ? [gte(supplierInvoices.createdAt, fromDate)] : []),
-        ...(toDate ? [lte(supplierInvoices.createdAt, toDate)] : [])
+        ...(fromDate ? [gte(supplierInvoices.date, fromDate)] : []),
+        ...(toDate ? [lte(supplierInvoices.date, toDate)] : [])
       ));
     
-    // Calculate net input VAT (subtract Credit Notes)
-    const inputVat = purchases.reduce((sum, inv) => {
+    let outputVat = 0;
+    let inputVat = 0;
+    const outputVatByCurrency: Record<string, number> = {};
+    const inputVatByCurrency: Record<string, number> = {};
+    const netVatByCurrency: Record<string, number> = {};
+    const daysMap = new Map<string, any>();
+
+    const getDayKey = (d: Date | string | null) => {
+      if (!d) return "1970-01-01";
+      if (typeof d === "string") return d.split("T")[0];
+      return d.toISOString().split("T")[0];
+    };
+    
+    const initDay = (dayKey: string) => {
+      if (!daysMap.has(dayKey)) {
+        daysMap.set(dayKey, { date: dayKey, outputVatByCurrency: {}, inputVatByCurrency: {}, netVatByCurrency: {}, totalSalesByCurrency: {} });
+      }
+      return daysMap.get(dayKey);
+    };
+
+    const addCurr = (obj: Record<string, number>, curr: string, val: number) => {
+      const code = (curr || "USD").toUpperCase();
+      obj[code] = (obj[code] || 0) + val;
+    };
+
+    for (const inv of salesInvoices) {
+      const tax = Number(inv.tax || 0);
+      const total = Number(inv.total || 0);
+      const curr = inv.currency || "USD";
+      outputVat += tax;
+      addCurr(outputVatByCurrency, curr, tax);
+      addCurr(netVatByCurrency, curr, tax);
+
+      const day = initDay(getDayKey(inv.date));
+      addCurr(day.outputVatByCurrency, curr, tax);
+      addCurr(day.netVatByCurrency, curr, tax);
+      addCurr(day.totalSalesByCurrency, curr, total);
+    }
+
+    for (const inv of purchases) {
       const amount = Number(inv.tax || 0);
-      return sum + (inv.transactionType === "CreditNote" ? -amount : amount);
-    }, 0);
+      const tax = inv.transactionType === "CreditNote" ? -amount : amount;
+      const curr = inv.currency || "USD";
+      inputVat += tax;
+      addCurr(inputVatByCurrency, curr, tax);
+      addCurr(netVatByCurrency, curr, -tax);
+
+      const day = initDay(getDayKey(inv.date));
+      addCurr(day.inputVatByCurrency, curr, tax);
+      addCurr(day.netVatByCurrency, curr, -tax);
+    }
+
+    const dailyBreakdown = Array.from(daysMap.values()).sort((a, b) => a.date.localeCompare(b.date));
 
     return {
       outputVat,
       inputVat,
       netVat: outputVat - inputVat,
+      outputVatByCurrency,
+      inputVatByCurrency,
+      netVatByCurrency,
+      dailyBreakdown,
       inputVatBreakdown: purchases,
-      outputVatBreakdown: salesInvoices
+      outputVatBreakdown: salesInvoices,
+      includedInvoiceCount: salesInvoices.length,
+      availableCurrencies
     };
   }
 

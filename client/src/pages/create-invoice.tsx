@@ -2031,6 +2031,18 @@ export default function CreateInvoicePage() {
                                         </Command>
                                       </PopoverContent>
                                     </Popover>
+                                    <Input
+                                      placeholder="Description (optional)"
+                                      value={item.description}
+                                      onChange={(e) =>
+                                        updateItem(
+                                          item.localId,
+                                          "description",
+                                          e.target.value,
+                                        )
+                                      }
+                                      className="h-8 w-full rounded-xl border-slate-100 bg-slate-50/50 px-2 text-[12px] text-slate-700 placeholder:text-slate-400 transition-all hover:border-slate-200 focus:border-primary focus:bg-white"
+                                    />
                                     {products?.find(p => p.id === item.productId)?.serialTrackingEnabled && (
                                       <Select
                                         value={item.serialNumber || ""}

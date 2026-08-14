@@ -190,8 +190,8 @@ export const generateReceiptHtml = (data: TicketData) => {
         ` : ''}
 
         <div class="mb-2 pb-2 border-b-dashed">
-          <p>Invoice No: ${invoice.invoiceNumber || 'N/A'}</p>
-          ${invoice.fiscalCode ? `
+          <p>${suppressTaxDetails ? 'Ticket' : 'Invoice'} No: ${invoice.invoiceNumber || invoice.id || 'N/A'}</p>
+          ${(invoice.fiscalCode && !suppressTaxDetails) ? `
             <p>Receipt No: ${invoice.receiptCounter || 'N/A'} / ${invoice.receiptGlobalNo || 'N/A'}</p>
             <p>Fiscal Day No: ${invoice.fiscalDayNo || 'N/A'}</p>
             <p>Device Serial: ${company.fdmsDeviceSerialNo || company.deviceSerialNo || 'N/A'}</p>
@@ -299,6 +299,23 @@ export const printToBluetooth = async (data: TicketData, address?: string, confi
     throw new Error("Bluetooth printing is not available in this build. Please use a custom dev client.");
   }
 
+  // Request Android 12+ Runtime Permissions before printing
+  const { Platform: RNPlatform, PermissionsAndroid, NativeModules } = require("react-native");
+  if (RNPlatform.OS === "android") {
+    try {
+      const granted = await PermissionsAndroid.requestMultiple([
+        PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+      ]);
+      const connectOk = granted[PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT] === PermissionsAndroid.RESULTS.GRANTED;
+      if (!connectOk) {
+        throw new Error("Bluetooth connect permission denied. Cannot print.");
+      }
+    } catch (permError) {
+      // Android < 12 doesn't have these permissions; ignore the error and continue.
+      console.warn("[Printing] Permission request before print skipped:", permError);
+    }
+  }
+
   const { invoice, company, items, customer, cashierName, paperWidth, suppressTaxDetails } = data;
   const configuredPaperWidth = config?.paperWidth || paperWidth || 58;
   const configuredPrinterWidth = config?.printerWidth || (configuredPaperWidth === 80 ? 42 : 32);
@@ -325,15 +342,55 @@ export const printToBluetooth = async (data: TicketData, address?: string, confi
     suppressTaxDetails,
   });
 
-  await ThermalPrinterModule.printBluetooth({ 
-    payload: payloadStr, 
-    macAddress: address,
-    autoCut: config?.autoCut !== false,
-    openCashbox: !!config?.openDrawerOnPrint,
-    mmFeedPaper: Math.max(0, Number(config?.feedLines ?? 1)) * 4,
-    printerWidthMM: configuredPaperWidth,
-    printerNbrCharactersPerLine: configuredPrinterWidth,
-  });
+  const MAX_RETRIES = 3;
+  let lastError: any = null;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      console.log(`[Printing] Calling ThermalPrinterModule.printBluetooth to ${address} (Attempt ${attempt}/${MAX_RETRIES}) with payload length ${payloadStr.length}...`);
+
+      const PRINT_TIMEOUT_MS = 15000;
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Bluetooth connection timed out after 15s. Ensure printer is on and paired.")), PRINT_TIMEOUT_MS)
+      );
+
+      const printPromise = ThermalPrinterModule.printBluetooth({ 
+        payload: payloadStr, 
+        macAddress: address,
+        autoCut: config?.autoCut !== false,
+        openCashbox: !!config?.openDrawerOnPrint,
+        mmFeedPaper: Math.max(0, Number(config?.feedLines ?? 5)) * 4,
+        printerWidthMM: configuredPaperWidth,
+        printerNbrCharactersPerLine: configuredPrinterWidth,
+      });
+
+      await Promise.race([printPromise, timeout]);
+      console.log("[Printing] Successfully printed via Bluetooth native module.");
+      return; // Success, exit the retry loop
+    } catch (e: any) {
+      const errorMsg = e?.message || String(e);
+      console.warn(`[Printing] Attempt ${attempt} failed:`, errorMsg);
+      lastError = e;
+      
+      if (attempt < MAX_RETRIES) {
+        // If the native module says device not found, its internal array is empty 
+        // (happens when bypassing the scan screen or after JS reload). 
+        // Force a scan to repopulate the Java array before retrying.
+        if (errorMsg.includes("Bluetooth Device Not Found")) {
+          console.log("[Printing] Native cache empty. Running background scan to repopulate btDevicesList...");
+          try {
+            await ThermalPrinterModule.getBluetoothDeviceList();
+          } catch (scanErr) { /* ignore */ }
+        } else {
+          // General connection failure, wait 1s before retrying
+          await new Promise(res => setTimeout(res, 1000));
+        }
+      }
+    }
+  }
+
+  // If we get here, all retries failed
+  throw lastError;
 };
 
 export const printToZ100 = async (data: TicketData) => {
@@ -499,13 +556,19 @@ export const printToZ100 = async (data: TicketData) => {
 
     const counterStr = invoice.receiptCounter ? invoice.receiptCounter.toString() : "---";
     const globalStr = invoice.receiptGlobalNo ? invoice.receiptGlobalNo.toString() : "---";
-    await row("INVOICE NO:", `${counterStr}/${globalStr}`);
-    if (invoice.receiptGlobalNo || invoice._offline || invoice._simulation || invoice.fiscalCode) {
-      await row("FISCAL DAY NO:", (invoice.fiscalDayNo || "---").toString());
-      await row("DEVICE SERIAL NO:", activeCompany?.fdmsDeviceSerialNo || activeCompany?.deviceSerialNo || "stack1");
-      await row("DEVICE ID:", activeCompany?.fdmsDeviceId || activeCompany?.deviceId || "33697");
+    if (suppressTaxDetails) {
+      await row("TICKET NO:", invoice.invoiceNumber || invoice.id || "---");
+    } else {
+      await row("INVOICE NO:", `${counterStr}/${globalStr}`);
+      if (invoice.receiptGlobalNo || invoice._offline || invoice._simulation || invoice.fiscalCode) {
+        await row("FISCAL DAY NO:", (invoice.fiscalDayNo || "---").toString());
+        await row("DEVICE SERIAL NO:", activeCompany?.fdmsDeviceSerialNo || activeCompany?.deviceSerialNo || "stack1");
+        await row("DEVICE ID:", activeCompany?.fdmsDeviceId || activeCompany?.deviceId || "33697");
+      }
     }
-    await row("CUST REF NO:", invoice.invoiceNo || invoice.invoiceNumber || `INV-${invoice.id || "---"}`);
+    if (!suppressTaxDetails) {
+      await row("CUST REF NO:", invoice.invoiceNo || invoice.invoiceNumber || `INV-${invoice.id || "---"}`);
+    }
     await row("DATE & TIME:", formatDateTime(invoice.issueDate || invoice.createdAt));
     if (cashierName) await row("CASHIER:", cashierName);
 
@@ -614,16 +677,60 @@ export const printToZ100 = async (data: TicketData) => {
 };
 
 export const getBluetoothDevices = async (): Promise<{ deviceName: string; macAddress: string }[]> => {
-  if (typeof ThermalPrinterModule?.getBluetoothDeviceList !== "function") {
-    console.warn("[Printing] Bluetooth device scanning is not available in this build.");
-    return [];
-  }
+  const { Platform: RNPlatform, PermissionsAndroid, NativeModules } = require("react-native");
+  const Constants = require("expo-constants").default;
 
-  try {
+  const scanTask = async () => {
+    // 1. Mock Data for Expo Go testing without the native module
+    // We must check the actual NativeModules because the JS wrapper always has the methods.
+    if (!NativeModules.ThermalPrinterModule || Constants.appOwnership === "expo") {
+      console.log("[Printing] Bluetooth scanning unavailable (Expo Go / Missing Native Module). Returning mock data.");
+      return [
+        { deviceName: "MOCK: POS-58 Thermal", macAddress: "00:11:22:33:44:55" },
+        { deviceName: "MOCK: Z100 Internal", macAddress: "AA:BB:CC:DD:EE:FF" }
+      ];
+    }
+  
+    // 2. Request Android 12+ Runtime Permissions
+    if (RNPlatform.OS === "android") {
+      try {
+        const granted = await PermissionsAndroid.requestMultiple([
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+        ]);
+        const connectOk = granted[PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT] === PermissionsAndroid.RESULTS.GRANTED;
+        const scanOk = granted[PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN] === PermissionsAndroid.RESULTS.GRANTED;
+        if (!connectOk || !scanOk) {
+          console.warn("[Printing] Bluetooth permissions not granted by user – scan skipped.");
+          return [];
+        }
+      } catch (permError) {
+        console.warn("[Printing] Permission request skipped (likely Android < 12):", permError);
+      }
+    }
+  
+    // 3. Scan for devices
     const devices = await ThermalPrinterModule.getBluetoothDeviceList();
     return Array.isArray(devices) ? devices : [];
-  } catch (error) {
-    console.error("[Printing] Failed to scan bluetooth devices:", error);
+  };
+
+  try {
+    const SCAN_TIMEOUT_MS = 8000;
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("Bluetooth scan timed out after 8s")), SCAN_TIMEOUT_MS)
+    );
+    
+    // Race EVERYTHING - including the permission popup if the user ignores it
+    const devices = await Promise.race([scanTask(), timeout]);
+    
+    console.log("[Printing] Bluetooth scan returned", devices.length, "devices");
+    return devices;
+  } catch (error: any) {
+    if (error?.message?.includes("timed out")) {
+      console.warn("[Printing] Bluetooth scan timed out – check that Bluetooth is on and the device is paired.");
+    } else {
+      console.error("[Printing] Failed to scan bluetooth devices:", error);
+    }
     return [];
   }
 };

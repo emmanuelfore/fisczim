@@ -47,7 +47,13 @@ export function BusTicketIssueScreen({ onClose, companyId, company }: Props) {
   const modeIcon = showingSync ? 'sync' : isOnline ? 'wifi' : 'wifi-off';
   const modeLabel = showingSync ? 'System syncing' : isOnline ? 'Online mode' : 'Offline mode';
 
-  const totalAmount = selectedRoute ? parseFloat((selectedRoute.price * quantity).toFixed(2)) : 0;
+  const totalAmount = selectedRoute ? parseFloat((getPriceForDropOff(selectedRoute, dropOffPoint) * quantity).toFixed(2)) : 0;
+
+  function getPriceForDropOff(route: BusRoute, dropOff: string): number {
+    if (!dropOff) return route.price;
+    const stop = route.config.dropOffPoints?.find((s: any) => s.name === dropOff);
+    return stop?.price || route.price;
+  }
 
   const resetForm = useCallback(() => {
     setQuantity(1);
@@ -95,7 +101,7 @@ export function BusTicketIssueScreen({ onClose, companyId, company }: Props) {
         id: 'auto',
         routeId: selectedRoute.id,
         routeName: selectedRoute.name,
-        price: selectedRoute.price,
+        price: getPriceForDropOff(selectedRoute, dropOffPoint),
         quantity,
         totalAmount,
         currency: selectedRoute.currency,
@@ -116,21 +122,17 @@ export function BusTicketIssueScreen({ onClose, companyId, company }: Props) {
       setLastTicket(issuedTicket);
       resetForm();
       setSelectedRoute(activeTripRoute || null);
+      if (printerConfig.enabled) {
+        print(buildBusTicketPrintData(issuedTicket, company)).catch((e) => {
+          console.warn('[BusTicketIssue] Ticket print failed:', e?.message || e);
+          Alert.alert('Print Failed', e?.message || 'Ticket was issued, but printing failed.');
+        });
+      }
+
       Alert.alert(
         '✓ Ticket Issued',
         `${selectedRoute.name}\n${quantity} passenger(s) — ${selectedRoute.currency} ${totalAmount.toFixed(2)}`,
-        [
-          {
-            text: printerConfig.enabled ? 'Print' : 'OK',
-            onPress: () => {
-              if (!printerConfig.enabled) return;
-              print(buildBusTicketPrintData(issuedTicket, company)).catch((e) => {
-                console.warn('[BusTicketIssue] Ticket print failed:', e?.message || e);
-                Alert.alert('Print Failed', e?.message || 'Ticket was issued, but printing failed.');
-              });
-            },
-          },
-        ],
+        [{ text: 'OK' }]
       );
     } catch (e: any) {
       Alert.alert('Error', e.message);
@@ -234,17 +236,25 @@ export function BusTicketIssueScreen({ onClose, companyId, company }: Props) {
             <Text style={styles.label}>Quick Destination</Text>
             <View style={styles.quickGrid}>
               {[selectedRoute.destination, ...(cfg?.dropOffPoints || [])]
-                .filter((value, index, list) => value && list.indexOf(value) === index)
+                .filter((value, index, list) => {
+                  const stopName = typeof value === 'string' ? value : value?.name;
+                  return stopName && list.findIndex((v: any) => (typeof v === 'string' ? v : v?.name) === stopName) === index;
+                })
                 .slice(0, 6)
-                .map((stop) => (
-                  <TouchableOpacity
-                    key={stop}
-                    style={[styles.quickChip, dropOffPoint === stop && styles.quickChipActive]}
-                    onPress={() => setDropOffPoint(stop)}
-                  >
-                    <Text style={[styles.quickChipText, dropOffPoint === stop && styles.quickChipTextActive]}>{stop}</Text>
-                  </TouchableOpacity>
-                ))}
+                .map((stop: any) => {
+                  const stopName = typeof stop === 'string' ? stop : stop?.name;
+                  const stopPrice = typeof stop === 'string' ? selectedRoute.price : stop?.price;
+                  return (
+                    <TouchableOpacity
+                      key={stopName}
+                      style={[styles.quickChip, dropOffPoint === stopName && styles.quickChipActive]}
+                      onPress={() => setDropOffPoint(stopName)}
+                    >
+                      <Text style={[styles.quickChipText, dropOffPoint === stopName && styles.quickChipTextActive]}>{stopName}</Text>
+                      <Text style={[styles.quickChipPrice, dropOffPoint === stopName && styles.quickChipPriceActive]}>{selectedRoute.currency} {stopPrice.toFixed(2)}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
             </View>
 
             {/* Optional fields */}
@@ -294,17 +304,24 @@ export function BusTicketIssueScreen({ onClose, companyId, company }: Props) {
               <>
                 <Text style={styles.label}>Drop-off Point</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
-                  {cfg.dropOffPoints.map((stop) => (
-                    <TouchableOpacity
-                      key={stop}
-                      style={[styles.stopChip, dropOffPoint === stop && styles.stopChipActive]}
-                      onPress={() => setDropOffPoint(dropOffPoint === stop ? '' : stop)}
-                    >
-                      <Text style={[styles.stopChipText, dropOffPoint === stop && styles.stopChipTextActive]}>
-                        {stop}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
+                  {cfg.dropOffPoints.map((stop: any) => {
+                    const stopName = typeof stop === 'string' ? stop : stop?.name;
+                    const stopPrice = typeof stop === 'string' ? selectedRoute.price : stop?.price;
+                    return (
+                      <TouchableOpacity
+                        key={stopName}
+                        style={[styles.stopChip, dropOffPoint === stopName && styles.stopChipActive]}
+                        onPress={() => setDropOffPoint(dropOffPoint === stopName ? '' : stopName)}
+                      >
+                        <Text style={[styles.stopChipText, dropOffPoint === stopName && styles.stopChipTextActive]}>
+                          {stopName}
+                        </Text>
+                        <Text style={[styles.stopChipPrice, dropOffPoint === stopName && styles.stopChipPriceActive]}>
+                          {selectedRoute.currency} {stopPrice.toFixed(2)}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
                 </ScrollView>
               </>
             )}
@@ -442,18 +459,22 @@ const makeStyles = (C: BusColors) => StyleSheet.create({
   quickGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
   quickChip: {
     backgroundColor: C.surface, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 11,
-    borderWidth: 1, borderColor: C.border,
+    borderWidth: 1, borderColor: C.border, alignItems: 'center',
   },
   quickChipActive: { backgroundColor: C.fire, borderColor: C.fire },
   quickChipText: { color: C.white, fontSize: 13, fontWeight: '800' },
   quickChipTextActive: { color: C.white },
+  quickChipPrice: { color: C.amber, fontSize: 11, fontWeight: '600', marginTop: 2 },
+  quickChipPriceActive: { color: C.white },
   stopChip: {
     backgroundColor: C.surface, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10,
-    marginRight: 8, borderWidth: 1, borderColor: C.border,
+    marginRight: 8, borderWidth: 1, borderColor: C.border, alignItems: 'center',
   },
   stopChipActive: { backgroundColor: C.fire, borderColor: C.fire },
   stopChipText: { color: C.white, fontSize: 13, fontWeight: '600' },
   stopChipTextActive: { color: C.white },
+  stopChipPrice: { color: C.amber, fontSize: 11, fontWeight: '600', marginTop: 2 },
+  stopChipPriceActive: { color: C.white },
   payRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
   payChip: {
     borderRadius: 10, paddingHorizontal: 16, paddingVertical: 10,

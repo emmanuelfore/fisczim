@@ -96,8 +96,11 @@ import CustomerStatementsPage from "@/pages/customer-statements";
 import CashCollectionReportPage from "@/pages/cash-collection-report-page";
 import BusFleetPage from "@/pages/bus-fleet";
 import BusTripsPage from "@/pages/bus-trips";
+import BusTrackingPage from "@/pages/bus-tracking";
 import BusConductorsPage from "@/pages/bus-conductors";
 import BusReportsPage from "@/pages/bus-reports";
+import BusTripPerformancePage from "@/pages/bus-trip-performance";
+import BusTicketDetailsPage from "@/pages/bus-ticket-details";
 import BusDashboardPage from "@/pages/bus-dashboard";
 import AccountingCOAPage from "@/pages/accounting-coa";
 import AccountingJournalPage from "@/pages/accounting-journal";
@@ -646,6 +649,9 @@ function Router() {
       <Route path="/bus/trips">
         {() => <ProtectedRoute component={BusTripsPage} />}
       </Route>
+      <Route path="/bus/tracking">
+        {() => <ProtectedRoute component={BusTrackingPage} />}
+      </Route>
       <Route path="/bus/conductors">
         {() => <ProtectedRoute component={BusConductorsPage} />}
       </Route>
@@ -654,6 +660,12 @@ function Router() {
       </Route>
       <Route path="/bus/reports">
         {() => <ProtectedRoute component={BusReportsPage} />}
+      </Route>
+      <Route path="/bus/trip-performance">
+        {() => <ProtectedRoute component={BusTripPerformancePage} />}
+      </Route>
+      <Route path="/bus/tickets">
+        {() => <ProtectedRoute component={BusTicketDetailsPage} />}
       </Route>
       <Route path="/restaurant/kds">
         {() => <ProtectedRoute component={KDSPage} />}

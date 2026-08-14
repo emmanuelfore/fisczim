@@ -2,13 +2,18 @@
 //  Bus Ticketing — Data Models
 // ─────────────────────────────────────────────
 
+export type DropOffPoint = {
+  name: string;
+  price: number;
+};
+
 export type TicketFieldConfig = {
   passengerName: boolean;
   idNumber: boolean;
   phone: boolean;
   seatNumber: boolean;
   dropOffPoint: boolean;
-  dropOffPoints: string[]; // e.g. ["Kadoma","Kwe Kwe","Gweru"]
+  dropOffPoints: DropOffPoint[]; // e.g. [{name: "Kadoma", price: 15}, {name: "Kwekwe", price: 20}]
   requirePaymentMethod: boolean;
   allowMultiPassenger: boolean;
 };
@@ -33,6 +38,15 @@ export type BusTrip = {
   actualDeparture?: string;
   actualArrival?: string;
   localId?: string;
+  // Location tracking
+  currentLatitude?: number;
+  currentLongitude?: number;
+  lastLocationUpdate?: string;
+  locationHistory?: Array<{
+    latitude: number;
+    longitude: number;
+    timestamp: string;
+  }>;
 };
 
 export type BusRoute = {
@@ -60,6 +74,7 @@ export type IssuedTicket = {
   idNumber?: string;
   phone?: string;
   seatNumber?: string;
+  boardingPoint?: string;
   dropOffPoint?: string;
   issuedAt: string; // ISO datetime
   conductorId?: string;
@@ -92,6 +107,8 @@ export type ShiftRecord = {
   totalPassengers: number;
   totalRevenue: number;
   closedAt: string;
+  isSynced?: boolean;
+  syncedAt?: string;
 };
 
 export type ReconciliationRecord = {
@@ -110,6 +127,8 @@ export type ReconciliationRecord = {
   signedOffBy?: string;
   signedOffAt?: string;
   adminNotes?: string;
+  isSynced?: boolean;
+  syncedAt?: string;
 };
 
 export type RouteBreakdown = {

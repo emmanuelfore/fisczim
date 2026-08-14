@@ -17,11 +17,18 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useBusConductors, useBusReport } from "@/hooks/use-bus-ticketing";
+import { Button } from "@/components/ui/button";
+import {
+  useBusConductors,
+  useBusReconciliations,
+  useBusReport,
+  useSignOffReconciliation,
+} from "@/hooks/use-bus-ticketing";
 import { format } from "date-fns";
 import {
   BarChart3,
   Bus,
+  CheckCircle2,
   Clock,
   CreditCard,
   Download,
@@ -29,6 +36,7 @@ import {
   Ticket,
   UserRound,
   Users,
+  XCircle,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 
@@ -48,18 +56,45 @@ function addDays(date: Date, days: number) {
   return copy;
 }
 
+// Africa/Harare (UTC+2, no DST) is the business timezone. Tickets are stored
+// with UTC timestamps, so every date/hour bucketing must be done in Harare
+// time, otherwise the report drifts by the offset and mis-attributes tickets
+// to the wrong day/hour.
+const HARARE_OFFSET_MS = 2 * 60 * 60 * 1000;
+
+// Shift a UTC instant so its UTC wall-clock components match Harare time.
+function toHarare(date: Date): Date {
+  return new Date(date.getTime() + HARARE_OFFSET_MS);
+}
+
+function harareDayKey(date: Date): string {
+  return toHarare(date).toISOString().slice(0, 10);
+}
+
+function harareHour(date: Date): number {
+  return toHarare(date).getUTCHours();
+}
+
+const MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// Format a raw UTC instant as its Harare date/time using UTC components so the
+// output is identical regardless of the viewer's browser timezone.
+function harareDateLabel(date: Date): string {
+  const h = toHarare(date);
+  return `${MONTHS_SHORT[h.getUTCMonth()]} ${h.getUTCDate()}`;
+}
+
+function harareTimeLabel(date: Date): string {
+  const h = toHarare(date);
+  return `${String(h.getUTCHours()).padStart(2, "0")}:${String(h.getUTCMinutes()).padStart(2, "0")}`;
+}
+
 function dayBoundaryIso(value: string, endOfDay = false) {
   const [year, month, day] = value.split("-").map(Number);
-  const date = new Date(
-    year,
-    (month || 1) - 1,
-    day || 1,
-    endOfDay ? 23 : 0,
-    endOfDay ? 59 : 0,
-    endOfDay ? 59 : 0,
-    endOfDay ? 999 : 0,
-  );
-  return date.toISOString();
+  const utcMidnight = Date.UTC(year, (month || 1) - 1, day || 1);
+  return endOfDay
+    ? new Date(utcMidnight + 86400000 - 1 - HARARE_OFFSET_MS).toISOString()
+    : new Date(utcMidnight - HARARE_OFFSET_MS).toISOString();
 }
 
 function money(value: number) {
@@ -79,17 +114,15 @@ function buildDayRows(tickets: any[], from: string, to: string) {
     passengers: number;
     revenue: number;
   }> = [];
-  const start = new Date(`${from}T00:00:00`);
-  const end = new Date(`${to}T00:00:00`);
-  for (
-    const cur = new Date(start);
-    cur <= end;
-    cur.setDate(cur.getDate() + 1)
-  ) {
-    const id = cur.toISOString().slice(0, 10);
+  const [fy, fm, fd] = from.split("-").map(Number);
+  const [ty, tm, td] = to.split("-").map(Number);
+  const startUtc = Date.UTC(fy, (fm || 1) - 1, fd || 1);
+  const endUtc = Date.UTC(ty, (tm || 1) - 1, td || 1);
+  for (let cur = startUtc; cur <= endUtc; cur += 86400000) {
+    const rowDate = new Date(cur);
     rows.push({
-      id,
-      label: format(cur, "MMM d"),
+      id: harareDayKey(rowDate),
+      label: harareDateLabel(rowDate),
       tickets: 0,
       passengers: 0,
       revenue: 0,
@@ -98,7 +131,7 @@ function buildDayRows(tickets: any[], from: string, to: string) {
   const map = new Map(rows.map((row) => [row.id, row]));
   tickets.forEach((ticket) => {
     if (!ticket.timestamp) return;
-    const key = new Date(ticket.timestamp).toISOString().slice(0, 10);
+    const key = harareDayKey(new Date(ticket.timestamp));
     const row = map.get(key);
     if (!row) return;
     row.tickets += 1;
@@ -143,9 +176,9 @@ function summarize(
 function hourlyRows(tickets: any[]) {
   return summarize(
     tickets,
-    (ticket) => String(new Date(ticket.timestamp).getHours()).padStart(2, "0"),
+    (ticket) => String(harareHour(new Date(ticket.timestamp))).padStart(2, "0"),
     (ticket) =>
-      `${String(new Date(ticket.timestamp).getHours()).padStart(2, "0")}h`,
+      `${String(harareHour(new Date(ticket.timestamp))).padStart(2, "0")}h`,
   ).sort((a, b) => Number(a.id) - Number(b.id));
 }
 
@@ -252,7 +285,9 @@ function TripPerformanceTable({ trips }: { trips: any[] }) {
           <TableHeader>
             <TableRow>
               <TableHead>Trip</TableHead>
-              <TableHead>Schedule</TableHead>
+              <TableHead>Scheduled</TableHead>
+              <TableHead>Started</TableHead>
+              <TableHead>Arrived</TableHead>
               <TableHead>Vehicle</TableHead>
               <TableHead>Conductor</TableHead>
               <TableHead className="text-right">Passengers</TableHead>
@@ -265,7 +300,7 @@ function TripPerformanceTable({ trips }: { trips: any[] }) {
             {trips.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={8}
+                  colSpan={10}
                   className="h-24 text-center text-slate-500"
                 >
                   No trips in this period.
@@ -287,6 +322,22 @@ function TripPerformanceTable({ trips }: { trips: any[] }) {
                     {trip.scheduledDeparture
                       ? format(
                           new Date(trip.scheduledDeparture),
+                          "MMM d, HH:mm",
+                        )
+                      : "-"}
+                  </TableCell>
+                  <TableCell>
+                    {trip.actualDeparture
+                      ? format(
+                          new Date(trip.actualDeparture),
+                          "MMM d, HH:mm",
+                        )
+                      : "-"}
+                  </TableCell>
+                  <TableCell>
+                    {trip.actualArrival
+                      ? format(
+                          new Date(trip.actualArrival),
                           "MMM d, HH:mm",
                         )
                       : "-"}
@@ -565,6 +616,176 @@ function CashupReportTable({
   );
 }
 
+function ReconciliationApproval({ companyId }: { companyId: number }) {
+  const { data: reconciliations = [], isLoading } = useBusReconciliations(companyId);
+  const signOff = useSignOffReconciliation();
+  const pending = reconciliations.filter(
+    (row: any) => String(row.status) === "pending",
+  );
+  const signed = reconciliations.filter(
+    (row: any) => String(row.status) !== "pending",
+  );
+
+  async function handleSignOff(
+    row: any,
+    status: "approved" | "rejected",
+    adminNotes?: string,
+  ) {
+    try {
+      await signOff.mutateAsync({
+        companyId,
+        reconciliationId: Number(row.id),
+        status,
+        adminNotes,
+      });
+    } catch (error: any) {
+      alert(error.message || "Failed to update reconciliation");
+    }
+  }
+
+  return (
+    <Card className="mt-4 border-none shadow-sm">
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+          Conductor Cash-up Approval
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <p className="py-6 text-center text-slate-500">
+            Loading reconciliations...
+          </p>
+        ) : pending.length === 0 ? (
+          <p className="py-6 text-center text-slate-500">
+            No pending cash-ups. Approving a cash-up posts the corresponding
+            accounting entries.
+          </p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Conductor</TableHead>
+                <TableHead>Date</TableHead>
+                <TableHead className="text-right">Expected</TableHead>
+                <TableHead className="text-right">Received</TableHead>
+                <TableHead className="text-right">Gap</TableHead>
+                <TableHead>Notes</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {pending.map((row: any) => {
+                const gap = Number(row.gap || 0);
+                return (
+                  <TableRow key={row.id}>
+                    <TableCell className="font-semibold">
+                      {row.conductorName || row.conductorEmail || "-"}
+                    </TableCell>
+                    <TableCell>
+                      {format(new Date(`${row.date}T12:00:00`), "MMM d, yyyy")}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {money(row.expectedCash)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {money(row.cashReceived)}
+                    </TableCell>
+                    <TableCell
+                      className={`text-right font-bold ${
+                        gap < 0
+                          ? "text-red-600"
+                          : gap > 0
+                            ? "text-emerald-600"
+                            : "text-slate-500"
+                      }`}
+                    >
+                      {gap < 0 ? "-" : gap > 0 ? "+" : ""}
+                      {money(Math.abs(gap))}
+                    </TableCell>
+                    <TableCell className="max-w-[180px] truncate">
+                      {row.notes || "-"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="rounded-xl border-red-200 text-red-600 hover:bg-red-50"
+                          disabled={signOff.isPending}
+                          onClick={() => handleSignOff(row, "rejected")}
+                        >
+                          <XCircle className="mr-1 h-4 w-4" />
+                          Reject
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white"
+                          disabled={signOff.isPending}
+                          onClick={() => handleSignOff(row, "approved")}
+                        >
+                          <CheckCircle2 className="mr-1 h-4 w-4" />
+                          Approve
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        )}
+
+        {signed.length > 0 && (
+          <div className="mt-4 border-t border-slate-100 pt-3">
+            <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">
+              Signed-off ({signed.length})
+            </p>
+            <Table>
+              <TableBody>
+                {signed.slice(0, 10).map((row: any) => (
+                  <TableRow key={row.id}>
+                    <TableCell className="font-semibold">
+                      {row.conductorName || row.conductorEmail || "-"}
+                    </TableCell>
+                    <TableCell>
+                      {format(new Date(`${row.date}T12:00:00`), "MMM d, yyyy")}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {money(row.expectedCash)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {money(row.cashReceived)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <span
+                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
+                          String(row.status) === "approved"
+                            ? "bg-emerald-50 text-emerald-700"
+                            : "bg-red-50 text-red-600"
+                        }`}
+                      >
+                        {String(row.status)}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right text-xs text-slate-500">
+                      {row.accountingStatus === "posted"
+                        ? "Posted"
+                        : row.accountingStatus === "failed"
+                          ? "Posting failed"
+                          : "Not posted"}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function MiniBars({
   title,
   rows,
@@ -748,12 +969,12 @@ export default function BusReportsPage() {
       "Payment",
     ];
     const rows = tickets.map((ticket: any) => {
-      const d = ticket.timestamp ? new Date(ticket.timestamp) : null;
+      const raw = ticket.timestamp ? new Date(ticket.timestamp) : null;
       return [
         ticket.ticketNumber,
         ticket.tripId || "",
-        d ? format(d, "yyyy-MM-dd") : "",
-        d ? format(d, "HH:mm") : "",
+        raw ? harareDayKey(raw) : "",
+        raw ? harareTimeLabel(raw) : "",
         ticket.routeName || "",
         ticket.direction || "",
         ticket.conductorName || "",
@@ -959,6 +1180,8 @@ export default function BusReportsPage() {
         <CashupReportTable cashup={data?.cashup} variance={conductorVariance} />
         <AuditTable data={data?.syncAudit} />
       </div>
+
+      <ReconciliationApproval companyId={companyId} />
 
       <div className="mt-4 grid gap-4 xl:grid-cols-2">
         <BreakdownTable title="By Vehicle" rows={byVehicle} />

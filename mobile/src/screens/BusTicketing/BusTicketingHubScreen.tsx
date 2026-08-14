@@ -107,7 +107,13 @@ export function BusTicketingHubScreen({ onClose, busSettings, companyId, company
   if (activeScreen === 'routes') return <BusRouteAdminScreen companyId={companyId} onClose={() => setActiveScreen(null)} />;
   if (activeScreen === 'fleet') return <BusFleetAdminScreen companyId={companyId} onClose={() => setActiveScreen(null)} />;
   if (activeScreen === 'conductors') return <ConductorManagementScreen companyId={companyId} onClose={() => setActiveScreen(null)} />;
-  if (activeScreen === 'shiftSummary') return <ShiftSummaryScreen companyId={companyId} onClose={() => setActiveScreen(null)} />;
+  if (activeScreen === 'shiftSummary') return (
+    <ShiftSummaryScreen
+      companyId={companyId}
+      shiftStartTime={activeTrip?.actualDeparture ?? activeTrip?.scheduledDeparture}
+      onClose={() => setActiveScreen(null)}
+    />
+  );
   if (activeScreen === 'reconciliation') return <ReconciliationScreen companyId={companyId} userRole={userRole} userName={userName} onClose={() => setActiveScreen(null)} />;
   if (activeScreen === 'dailyReport') return <BusDailyReportScreen onClose={() => setActiveScreen(null)} />;
   if (activeScreen === 'rangeReport') return <BusRangeReportScreen onClose={() => setActiveScreen(null)} />;

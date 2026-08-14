@@ -13,6 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useBusTicketing } from '../../hooks/useBusTicketing';
 import { BusTrip, Conductor } from '../../types/busTicketing';
 import { type BusColors, useBusColors } from './theme';
+import { locationTrackingService } from '../../services/locationTracking';
 
 function uuid(): string {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -37,7 +38,7 @@ export function BusTripStartScreen({ onClose, companyId, userName = 'Conductor',
   const insets = useSafeAreaInsets();
   const C = useBusColors();
   const styles = makeStyles(C);
-  const { routes, vehicles, trips, activeConductor, saveConductor, setActiveConductor, startTrip, refreshCloudSetup } = useBusTicketing(companyId);
+  const { routes, vehicles, trips, activeConductor, saveConductor, setActiveConductor, startTrip, refreshCloudSetup, updateTripLocation } = useBusTicketing(companyId);
   
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
@@ -65,6 +66,12 @@ export function BusTripStartScreen({ onClose, companyId, userName = 'Conductor',
     }
   }, [busyVehicleIds, selectedVehicleId]);
 
+  useEffect(() => {
+    return () => {
+      locationTrackingService.stopTracking();
+    };
+  }, []);
+
   async function ensureActiveConductor(): Promise<Conductor> {
     if (activeConductor && (isUuid(activeConductor.id) || !userId)) return activeConductor;
     const conductor: Conductor = {
@@ -88,7 +95,28 @@ export function BusTripStartScreen({ onClose, companyId, userName = 'Conductor',
       return;
     }
 
+    // Check for duplicate trips (same route, vehicle, and date)
+    const today = new Date().toISOString().split('T')[0];
+    const isDuplicate = trips.some((trip) => {
+      const tripDate = new Date(trip.scheduledDeparture).toISOString().split('T')[0];
+      return (
+        trip.routeId === selectedRouteId &&
+        trip.vehicleId === selectedVehicleId &&
+        tripDate === today &&
+        trip.status !== 'cancelled' &&
+        trip.status !== 'completed'
+      );
+    });
+
+    if (isDuplicate) {
+      Alert.alert("Duplicate Trip", "A trip for this route and vehicle already exists today.");
+      return;
+    }
+
     const conductor = await ensureActiveConductor();
+
+    // Get initial location
+    const initialLocation = await locationTrackingService.getCurrentLocation();
 
     const trip: BusTrip = {
       id: uuid(),
@@ -98,10 +126,22 @@ export function BusTripStartScreen({ onClose, companyId, userName = 'Conductor',
       status: 'in_progress',
       scheduledDeparture: new Date().toISOString(),
       actualDeparture: new Date().toISOString(),
+      currentLatitude: initialLocation?.latitude,
+      currentLongitude: initialLocation?.longitude,
+      lastLocationUpdate: initialLocation?.timestamp,
+      locationHistory: initialLocation ? [initialLocation] : undefined,
     };
 
     try {
       await startTrip(trip);
+      
+      // Start location tracking after trip is successfully created
+      locationTrackingService.startTracking((location) => {
+        updateTripLocation(trip.id, location.latitude, location.longitude, location.timestamp).catch((e: any) => {
+          console.warn('[BusTripStart] Trip location update failed:', e?.message || e);
+        });
+      });
+      
       Alert.alert("Success", "Trip started successfully!", [
         { text: "OK", onPress: onClose }
       ]);

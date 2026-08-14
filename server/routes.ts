@@ -4219,7 +4219,10 @@ export async function registerRoutes(
           return res.status(500).json({ message: "Supabase Admin client not configured" });
         }
 
-        const defaultPassword = password || "Zimra123!"; // Secure default or provided
+        if (!password || String(password).length < 6) {
+          return res.status(400).json({ message: "Password is required and must be at least 6 characters" });
+        }
+        const defaultPassword = String(password);
 
         const { data: { user: sbUser }, error: sbError } = await supabaseAdmin.auth.admin.createUser({
           email,

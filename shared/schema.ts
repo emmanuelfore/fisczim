@@ -1,5 +1,5 @@
 
-import { pgTable, text, serial, integer, boolean, timestamp, decimal, numeric, jsonb, primaryKey, uuid, date, unique, index, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, decimal, numeric, jsonb, primaryKey, uuid, date, unique, index, doublePrecision, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -515,6 +515,7 @@ export const products = pgTable("products", {
   // Recipe Flags
   isIngredient: boolean("is_ingredient").default(false), // e.g. Flour, Sugar
   hasRecipe: boolean("has_recipe").default(false), // e.g. Burger, Cake
+  isCompound: boolean("is_compound").default(false), // e.g. Hampers, Combo Meals
 
   // POS Visibility
   isForSale: boolean("is_for_sale").default(true).notNull(), // When false, hides from POS/invoicing (raw materials)
@@ -553,6 +554,7 @@ export const productsRelations = relations(products, ({ one, many }) => ({
   company: one(companies, { fields: [products.companyId], references: [companies.id] }),
   branchStocks: many(branchStocks),
   inventoryTransactions: many(inventoryTransactions),
+  compoundItems: many(compoundProductItems, { relationName: "parentProduct" }),
 }));
 
 // Product Categories
@@ -611,6 +613,7 @@ export const validationErrors = pgTable("validation_errors", {
   requiresPreviousReceipt: boolean("requires_previous_receipt").default(false),
   createdAt: timestamp("created_at").defaultNow(),
 });
+
 
 // Product Variations (e.g., 500mg, 1000mg, 10-pack, 20-pack)
 export const productVariations = pgTable("product_variations", {
@@ -2093,6 +2096,9 @@ export const busTrips = pgTable("bus_trips", {
   scheduledDeparture: timestamp("scheduled_departure").notNull(),
   actualDeparture: timestamp("actual_departure"),
   actualArrival: timestamp("actual_arrival"),
+  currentLatitude: doublePrecision("current_latitude"),
+  currentLongitude: doublePrecision("current_longitude"),
+  lastLocationUpdate: timestamp("last_location_update"),
   status: text("status").default("scheduled").notNull(), // scheduled, boarding, en_route, in_progress, completed, cancelled
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
@@ -2142,6 +2148,10 @@ export const busShifts = pgTable("bus_shifts", {
   conductorId: uuid("conductor_id").references(() => users.id).notNull(),
   startTime: timestamp("start_time").notNull(),
   endTime: timestamp("end_time"),
+  vehicleId: integer("vehicle_id").references(() => busVehicles.id),
+  tripId: integer("trip_id").references(() => busTrips.id),
+  routeId: integer("route_id").references(() => busRoutes.id),
+  closedAt: timestamp("closed_at"),
   totalTickets: integer("total_tickets").default(0),
   totalRevenue: decimal("total_revenue", { precision: 10, scale: 2 }).default("0"),
   status: text("status").default("open"), // open, closed
@@ -2158,6 +2168,7 @@ export const busReconciliations = pgTable("bus_reconciliations", {
   cashReceived: decimal("cash_received", { precision: 10, scale: 2 }).notNull(),
   gap: decimal("gap", { precision: 10, scale: 2 }).notNull(),
   notes: text("notes"),
+  adminNotes: text("admin_notes"),
   status: text("status").default("pending").notNull(), // pending, approved, rejected
   signedOffBy: uuid("signed_off_by").references(() => users.id),
   signedOffAt: timestamp("signed_off_at"),

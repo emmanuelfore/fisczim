@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { DeviceEventEmitter } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -130,11 +130,11 @@ function normalizeCloudRoute(route: any): BusRoute {
   const config = route.config && typeof route.config === 'object' ? route.config : {};
   return {
     id: String(route.id),
-    name: route.name ?? `${route.fromLocation ?? route.origin ?? ''} - ${route.toLocation ?? route.destination ?? ''}`,
-    origin: route.origin ?? route.fromLocation ?? '',
-    destination: route.destination ?? route.toLocation ?? '',
-    price: Number(route.price ?? route.basePrice ?? 0),
-    currency: config.currency === 'ZWG' ? 'ZWG' : 'USD',
+    name: route.name || `${config.origin || route.fromLocation} → ${config.destination || route.toLocation}`,
+    origin: config.origin || route.fromLocation,
+    destination: config.destination || route.toLocation,
+    price: Number(route.basePrice || config.price || 0),
+    currency: config.currency || route.currency || 'USD',
     isActive: route.isActive !== false,
     config: {
       passengerName: Boolean(config.passengerName),
@@ -142,11 +142,15 @@ function normalizeCloudRoute(route: any): BusRoute {
       phone: Boolean(config.phone),
       seatNumber: config.seatNumber !== false,
       dropOffPoint: Boolean(config.dropOffPoint),
-      dropOffPoints: Array.isArray(config.dropOffPoints) ? config.dropOffPoints.map(String) : [],
+      dropOffPoints: Array.isArray(config.dropOffPoints) 
+        ? config.dropOffPoints.map((stop: any) => 
+            typeof stop === 'string' ? { name: stop, price: Number(route.basePrice || config.price || 0) } : stop
+          )
+        : [],
       requirePaymentMethod: config.requirePaymentMethod !== false,
       allowMultiPassenger: config.allowMultiPassenger !== false,
     },
-    createdAt: toIso(route.createdAt),
+    createdAt: route.createdAt || new Date().toISOString(),
   };
 }
 
@@ -209,6 +213,31 @@ function getPendingTicketTripIds(tickets: IssuedTicket[]): Set<string> {
       .filter((ticket) => !ticket.isSynced && ticket.tripId)
       .map((ticket) => String(ticket.tripId))
   );
+}
+
+// Resolve a local id (uuid) to its cloud numeric id after a trip/vehicle/route has synced.
+function toCloudRef(
+  localId: string | undefined,
+  items: Array<{ id: string; localId?: string }>
+): number | null {
+  if (!localId) return null;
+  if (isNumericId(localId)) return Number(localId);
+  const item = items.find((i) => i.id === localId || i.localId === localId);
+  if (item && isNumericId(item.id)) return Number(item.id);
+  return null;
+}
+
+// Combine a "YYYY-MM-DD" + "HH:MM" pair into an ISO timestamp, falling back to `closedAt`.
+function toShiftIso(date: string | undefined, hhmm: string | undefined, fallback?: string): string | null {
+  if (date && hhmm && /^\d{1,2}:\d{2}$/.test(hhmm)) {
+    const iso = new Date(`${date}T${hhmm}:00`).toISOString();
+    if (!Number.isNaN(new Date(iso).getTime())) return iso;
+  }
+  if (fallback) {
+    const iso = new Date(fallback).toISOString();
+    if (!Number.isNaN(new Date(iso).getTime())) return iso;
+  }
+  return null;
 }
 
 function resolveRouteIdFromTicket(ticket: IssuedTicket, sourceRoutes: BusRoute[]): string | undefined {
@@ -527,6 +556,9 @@ export function useBusTicketing(companyId?: number | null) {
         conductorId,
         scheduledDeparture: trip.scheduledDeparture,
         actualDeparture: trip.actualDeparture ?? null,
+        currentLatitude: trip.currentLatitude ?? null,
+        currentLongitude: trip.currentLongitude ?? null,
+        lastLocationUpdate: trip.lastLocationUpdate ?? null,
         status: toCloudTripStatus(trip.status),
       }),
     });
@@ -571,7 +603,9 @@ export function useBusTicketing(companyId?: number | null) {
     sourceTickets: IssuedTicket[],
     sourceTrips: BusTrip[] = trips,
     sourceRoutes: BusRoute[] = routes,
-    sourceVehicles: BusVehicle[] = vehicles
+    sourceVehicles: BusVehicle[] = vehicles,
+    sourceShifts: ShiftRecord[] = shifts,
+    sourceReconciliations: ReconciliationRecord[] = reconciliations
   ) => {
     if (!companyId) return { updatedTickets: sourceTickets, updatedTrips: sourceTrips, tickets: 0, skipped: 0 };
     let workingTickets = sourceTickets;
@@ -646,14 +680,20 @@ export function useBusTicketing(companyId?: number | null) {
           : 'Queued tickets still have local trip IDs. Cloud trip creation did not complete.'
       );
     }
-    if (syncable.length === 0) return { updatedTickets: workingTickets, updatedTrips: workingTrips, tickets: 0, skipped };
+    const syncableShifts = sourceShifts
+      .filter((shift) => !shift.isSynced && !!shift.conductorId && isUuid(shift.conductorId));
+    const syncableReconciliations = sourceReconciliations
+      .filter((record) => !record.isSynced && !!record.conductorId && isUuid(record.conductorId));
+
+    const hasNonTicketData = syncableShifts.length > 0 || syncableReconciliations.length > 0;
+    if (syncable.length === 0 && !hasNonTicketData) return { updatedTickets: workingTickets, updatedTrips: workingTrips, updatedShifts: sourceShifts, updatedReconciliations: sourceReconciliations, tickets: 0, skipped };
 
     const payload = {
       tickets: syncable.map((ticket) => ({
         tripId: Number(ticket.tripId),
         ticketNumber: ticket.id,
         passengerName: ticket.passengerName ?? null,
-        boardingPoint: ticket.routeName,
+        boardingPoint: ticket.boardingPoint ?? null,
         dropOffPoint: ticket.dropOffPoint ?? null,
         seatNumber: ticket.seatNumber ?? null,
         quantity: ticket.quantity,
@@ -664,8 +704,27 @@ export function useBusTicketing(companyId?: number | null) {
         isSynced: true,
         timestamp: ticket.issuedAt,
       })),
-      shifts: [],
-      reconciliations: [],
+      shifts: syncableShifts.map((shift) => ({
+        conductorId: shift.conductorId,
+        startTime: toShiftIso(shift.date, shift.shiftStart, shift.closedAt) ?? new Date().toISOString(),
+        endTime: toShiftIso(shift.date, shift.shiftEnd, shift.closedAt),
+        vehicleId: toCloudRef(shift.vehicleId, sourceVehicles),
+        tripId: toCloudRef(shift.tripId, sourceTrips),
+        routeId: toCloudRef(shift.routeId, sourceRoutes),
+        closedAt: shift.closedAt ? new Date(shift.closedAt).toISOString() : null,
+        totalTickets: shift.totalTickets ?? 0,
+        totalRevenue: String(shift.totalRevenue ?? 0),
+        status: 'closed',
+      })),
+      reconciliations: syncableReconciliations.map((record) => ({
+        conductorId: record.conductorId,
+        date: record.date,
+        expectedCash: String(record.expectedCash ?? 0),
+        cashReceived: String(record.cashReceived ?? 0),
+        gap: String(record.gap ?? 0),
+        notes: record.notes ?? null,
+        adminNotes: null,
+      })),
     };
 
     const res = await apiFetch(`/api/companies/${companyId}/bus-ticketing/sync`, {
@@ -690,9 +749,13 @@ export function useBusTicketing(companyId?: number | null) {
           ? { ...ticket, isSynced: true, syncedAt: new Date().toISOString() }
           : ticket
       ));
+      const syncedShifts = syncableShifts.map((shift) => ({ ...shift, isSynced: true, syncedAt: new Date().toISOString() }));
+      const syncedReconciliations = syncableReconciliations.map((record) => ({ ...record, isSynced: true, syncedAt: new Date().toISOString() }));
       return {
         updatedTickets: partiallyUpdated,
         updatedTrips: workingTrips,
+        updatedShifts: syncedShifts,
+        updatedReconciliations: syncedReconciliations,
         tickets: Number(syncResponse?.synced?.tickets || acceptedIds.size),
         skipped: Number(syncResponse?.skipped?.tickets || 0) + rejectedTicketNumbers.size,
         error: firstRejected?.reason || 'Some bus tickets were rejected during sync.',
@@ -705,13 +768,17 @@ export function useBusTicketing(companyId?: number | null) {
         ? { ...ticket, isSynced: true, syncedAt: new Date().toISOString() }
         : ticket
     ));
+    const syncedShifts = syncableShifts.map((shift) => ({ ...shift, isSynced: true, syncedAt: new Date().toISOString() }));
+    const syncedReconciliations = syncableReconciliations.map((record) => ({ ...record, isSynced: true, syncedAt: new Date().toISOString() }));
     return {
       updatedTickets: updated,
       updatedTrips: workingTrips,
+      updatedShifts: syncedShifts,
+      updatedReconciliations: syncedReconciliations,
       tickets: Number(syncResponse?.synced?.tickets || syncable.length),
       skipped: Number(syncResponse?.skipped?.tickets || skipped),
     };
-  }, [companyId, createCloudTrip, routes, trips, vehicles]);
+  }, [companyId, createCloudTrip, reconciliations, routes, shifts, trips, vehicles]);
 
   const syncPendingTickets = useCallback(async () => {
     if (companyId && isOnline) {
@@ -723,8 +790,12 @@ export function useBusTicketing(companyId?: number | null) {
     const latestTrips = await readJSON<BusTrip[]>(KEYS.trips, trips);
     const latestRoutes = await readJSON<BusRoute[]>(KEYS.routes, routes);
     const latestVehicles = await readJSON<BusVehicle[]>(KEYS.vehicles, vehicles);
+    const latestShifts = await readJSON<ShiftRecord[]>(KEYS.shifts, shifts);
+    const latestReconciliations = await readJSON<ReconciliationRecord[]>(KEYS.reconciliations, reconciliations);
     const latestPendingCount = latestTickets.filter((ticket) => !ticket.isSynced).length;
-    const hasPending = latestPendingCount > 0;
+    const hasPendingShifts = latestShifts.some((shift) => !shift.isSynced && !!shift.conductorId && isUuid(shift.conductorId));
+    const hasPendingReconciliations = latestReconciliations.some((record) => !record.isSynced && !!record.conductorId && isUuid(record.conductorId));
+    const hasPending = latestPendingCount > 0 || hasPendingShifts || hasPendingReconciliations;
     if (!hasPending) {
       setLastSyncError(null);
       setSyncStatus('idle');
@@ -738,9 +809,17 @@ export function useBusTicketing(companyId?: number | null) {
     setSyncStatus('syncing');
     setLastSyncError(null);
     try {
-      const result = await syncTickets(latestTickets, latestTrips, latestRoutes, latestVehicles);
+      const result = await syncTickets(latestTickets, latestTrips, latestRoutes, latestVehicles, latestShifts, latestReconciliations);
       setTrips(result.updatedTrips);
       setTickets(result.updatedTickets);
+      if (result.updatedShifts) {
+        setShifts(result.updatedShifts);
+        await writeJSON(KEYS.shifts, result.updatedShifts);
+      }
+      if (result.updatedReconciliations) {
+        setReconciliations(result.updatedReconciliations);
+        await writeJSON(KEYS.reconciliations, result.updatedReconciliations);
+      }
       await writeJSON(KEYS.trips, result.updatedTrips);
       await writeJSON(KEYS.tickets, result.updatedTickets);
       DeviceEventEmitter.emit(BUS_STATE_CHANGED);
@@ -762,14 +841,21 @@ export function useBusTicketing(companyId?: number | null) {
       setSyncStatus('error');
       throw e;
     }
-  }, [companyId, isOnline, refreshCloudSetup, routes, syncTickets, tickets, trips, vehicles]);
+  }, [companyId, isOnline, refreshCloudSetup, reconciliations, routes, shifts, syncTickets, tickets, trips, vehicles]);
 
+  const lastSyncAttemptRef = useRef(0);
   useEffect(() => {
-    if (!companyId || !isOnline || syncStatus !== 'idle' || pendingTicketCount === 0) return;
+    if (!companyId || !isOnline || syncStatus === 'syncing') return;
+    const hasPendingShifts = shifts.some((shift) => !shift.isSynced && !!shift.conductorId && isUuid(shift.conductorId));
+    const hasPendingReconciliations = reconciliations.some((record) => !record.isSynced && !!record.conductorId && isUuid(record.conductorId));
+    if (pendingTicketCount === 0 && !hasPendingShifts && !hasPendingReconciliations) return;
+    const now = Date.now();
+    if (now - lastSyncAttemptRef.current < 15000) return;
+    lastSyncAttemptRef.current = now;
     syncPendingTickets().catch((e) => {
       console.warn('[useBusTicketing] Auto ticket sync failed:', e?.message || e);
     });
-  }, [companyId, isOnline, pendingTicketCount, syncPendingTickets, syncStatus]);
+  }, [companyId, isOnline, pendingTicketCount, reconciliations, shifts, syncPendingTickets, syncStatus]);
 
   const getRoutes = useCallback(() => routes, [routes]);
 
@@ -837,6 +923,10 @@ export function useBusTicketing(companyId?: number | null) {
 
   // ── Vehicle helpers ───────────────────────────────────────────
   const saveVehicle = useCallback(async (vehicle: BusVehicle) => {
+    const capacity = Number(vehicle.capacity);
+    if (!Number.isFinite(capacity) || capacity <= 0) {
+      throw new Error('Vehicle capacity must be a positive number.');
+    }
     let vehicleToSave = vehicle;
     if (companyId && isOnline) {
       const res = await apiFetch(`/api/companies/${companyId}/bus-ticketing/vehicles`, {
@@ -844,7 +934,7 @@ export function useBusTicketing(companyId?: number | null) {
         body: JSON.stringify({
           regNumber: vehicle.registrationNumber,
           model: vehicle.model ?? null,
-          capacity: Number(vehicle.capacity || 1),
+          capacity,
           fleetId: vehicle.fleetNumber ?? null,
           isActive: vehicle.isActive,
         }),
@@ -865,12 +955,16 @@ export function useBusTicketing(companyId?: number | null) {
     if (companyId && isOnline && isNumericId(id)) {
       const next = vehicles.find((vehicle) => vehicle.id === id);
       const merged = next ? { ...next, ...updates } : updates;
+      const capacity = Number(merged.capacity);
+      if (!Number.isFinite(capacity) || capacity <= 0) {
+        throw new Error('Vehicle capacity must be a positive number.');
+      }
       const res = await apiFetch(`/api/companies/${companyId}/bus-ticketing/vehicles/${id}`, {
         method: 'PATCH',
         body: JSON.stringify({
           regNumber: merged.registrationNumber,
           model: merged.model ?? null,
-          capacity: Number(merged.capacity || 1),
+          capacity,
           fleetId: merged.fleetNumber ?? null,
           isActive: merged.isActive,
         }),
@@ -988,28 +1082,91 @@ export function useBusTicketing(companyId?: number | null) {
     setTrips(updated);
     await writeJSON(KEYS.trips, updated);
     DeviceEventEmitter.emit(BUS_STATE_CHANGED);
+    return finalTrip;
   }, [companyId, trips, createCloudTrip]);
+
+  const updateTripLocation = useCallback(async (
+    tripId: string,
+    latitude?: number | null,
+    longitude?: number | null,
+    timestamp?: string | null
+  ) => {
+    if (!companyId) return;
+    const updated = trips.map((t) => (
+      t.id === tripId || (t.localId && t.localId === tripId)
+        ? {
+          ...t,
+          currentLatitude: latitude ?? t.currentLatitude,
+          currentLongitude: longitude ?? t.currentLongitude,
+          lastLocationUpdate: timestamp ?? new Date().toISOString(),
+          locationHistory: latitude != null && longitude != null
+            ? [...(t.locationHistory || []), {
+              latitude,
+              longitude,
+              timestamp: timestamp ?? new Date().toISOString(),
+            }].slice(-100)
+            : t.locationHistory,
+        }
+        : t
+    ));
+    setTrips(updated);
+    await writeJSON(KEYS.trips, updated);
+
+    const cloudTripId = isNumericId(tripId) ? tripId : null;
+    if (!isOnline || !cloudTripId || latitude == null || longitude == null) {
+      DeviceEventEmitter.emit(BUS_STATE_CHANGED);
+      return;
+    }
+    try {
+      const res = await apiFetch(`/api/companies/${companyId}/bus-ticketing/trips/${cloudTripId}/location`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          currentLatitude: latitude,
+          currentLongitude: longitude,
+          lastLocationUpdate: timestamp ?? new Date().toISOString(),
+        }),
+      });
+      if (!res.ok) {
+        console.warn('[useBusTicketing] Trip location sync failed:', res.status);
+      }
+    } catch (e: any) {
+      console.warn('[useBusTicketing] Trip location sync failed:', e?.message || e);
+    } finally {
+      DeviceEventEmitter.emit(BUS_STATE_CHANGED);
+    }
+  }, [companyId, isOnline, trips]);
 
   const closeShift = useCallback(async (record: ShiftRecord) => {
     let updatedTrips = trips;
     if (activeTrip) {
       let closedTrip: BusTrip = { ...activeTrip, status: 'completed' as const };
-      const cloudTripId = isNumericId(activeTrip.id)
+      let tripIdForCloud: string | null = isNumericId(activeTrip.id)
         ? activeTrip.id
         : isNumericId(activeTrip.localId)
-          ? activeTrip.localId
+          ? (activeTrip.localId ?? null)
           : null;
-      if (companyId && isOnline && cloudTripId) {
+      // If we're online but the trip hasn't reached the cloud yet, sync it first
+      // so the shift can be recorded with a real cloud trip id.
+      if (companyId && isOnline && !tripIdForCloud) {
+        try {
+          const syncedTrip = await createCloudTrip(activeTrip);
+          tripIdForCloud = isNumericId(syncedTrip.id) ? syncedTrip.id : tripIdForCloud;
+          closedTrip = { ...syncedTrip, status: 'completed' as const };
+        } catch (e: any) {
+          console.warn('[useBusTicketing] Trip cloud create before close failed; closing locally:', e?.message || e);
+        }
+      }
+      if (companyId && isOnline && tripIdForCloud) {
         const closeBody = JSON.stringify({
           status: 'completed',
           actualArrival: new Date().toISOString(),
         });
-        let res = await apiFetch(`/api/companies/${companyId}/bus-ticketing/trips/${cloudTripId}`, {
+        let res = await apiFetch(`/api/companies/${companyId}/bus-ticketing/trips/${tripIdForCloud}`, {
           method: 'PATCH',
           body: closeBody,
         });
         if (!res.ok && (res.status === 404 || res.status === 405)) {
-          res = await apiFetch(`/api/companies/${companyId}/bus-ticketing/trips/${cloudTripId}/close`, {
+          res = await apiFetch(`/api/companies/${companyId}/bus-ticketing/trips/${tripIdForCloud}/close`, {
             method: 'POST',
             body: closeBody,
           });
@@ -1018,7 +1175,7 @@ export function useBusTicketing(companyId?: number | null) {
           try {
             closedTrip = normalizeCloudTrip(await readJsonResponse(res, 'Trip close failed'));
           } catch (firstError: any) {
-            res = await apiFetch(`/api/companies/${companyId}/bus-ticketing/trips/${cloudTripId}/close`, {
+            res = await apiFetch(`/api/companies/${companyId}/bus-ticketing/trips/${tripIdForCloud}/close`, {
               method: 'POST',
               body: closeBody,
             });
@@ -1034,8 +1191,6 @@ export function useBusTicketing(companyId?: number | null) {
         } else {
           throw new Error(await readApiError(res, `Trip close failed (${res.status})`));
         }
-      } else if (companyId && isOnline && !cloudTripId) {
-        throw new Error('Trip has not synced to the server yet. Sync the trip first, then end it.');
       }
       updatedTrips = trips.map(t => (
         t.id === activeTrip.id || (activeTrip.localId && t.id === activeTrip.localId)
@@ -1050,7 +1205,7 @@ export function useBusTicketing(companyId?: number | null) {
     await writeJSON(KEYS.shifts, updatedShifts);
     await writeJSON(KEYS.trips, updatedTrips);
     DeviceEventEmitter.emit(BUS_STATE_CHANGED);
-  }, [activeTrip, companyId, isOnline, shifts, trips]);
+  }, [activeTrip, companyId, createCloudTrip, isOnline, shifts, trips]);
 
   const getShifts = useCallback(async (): Promise<ShiftRecord[]> => {
     return readJSON<ShiftRecord[]>(KEYS.shifts, []);
@@ -1073,6 +1228,45 @@ export function useBusTicketing(companyId?: number | null) {
     signedOffBy: string,
     adminNotes?: string
   ) => {
+    // Persist the sign-off on the server when possible so the web approval
+    // flow and accounting see the same decision.
+    const target = reconciliations.find((record) => record.id === id);
+    if (companyId && isOnline && target) {
+      try {
+        const serverList = await apiJson<any[]>(`/api/companies/${companyId}/bus-ticketing/reconciliations`).catch(() => null);
+        const serverRecord = Array.isArray(serverList)
+          ? serverList.find((row) => (
+            String(row.conductorId) === String(target.conductorId) &&
+            String(row.date) === String(target.date) &&
+            Number(row.expectedCash) === Number(target.expectedCash) &&
+            Number(row.cashReceived) === Number(target.cashReceived)
+          ))
+          : null;
+        if (serverRecord?.id) {
+          const res = await apiFetch(`/api/companies/${companyId}/bus-ticketing/reconciliations/${serverRecord.id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({
+              status,
+              adminNotes: adminNotes?.trim() || undefined,
+            }),
+          });
+          if (!res.ok) {
+            const text = await res.text().catch(() => '');
+            const message = (() => {
+              try { return JSON.parse(text)?.message; } catch { return text; }
+            })();
+            if (message && !/self/i.test(String(message))) {
+              throw new Error(message);
+            }
+          }
+        } else if (target.isSynced) {
+          console.warn('[useBusTicketing] Server reconciliation not found for sign-off; updating locally only.');
+        }
+      } catch (e: any) {
+        console.warn('[useBusTicketing] Server reconciliation sign-off failed:', e?.message || e);
+      }
+    }
+
     const updated = reconciliations.map((record) => (
       record.id === id
         ? {
@@ -1087,7 +1281,7 @@ export function useBusTicketing(companyId?: number | null) {
     setReconciliations(updated);
     await writeJSON(KEYS.reconciliations, updated);
     DeviceEventEmitter.emit(BUS_STATE_CHANGED);
-  }, [reconciliations]);
+  }, [companyId, isOnline, reconciliations]);
 
   return {
     // State
@@ -1131,5 +1325,6 @@ export function useBusTicketing(companyId?: number | null) {
     getShifts,
     saveReconciliation,
     signOffReconciliation,
+    updateTripLocation,
   };
 }

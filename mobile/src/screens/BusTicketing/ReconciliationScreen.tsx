@@ -39,7 +39,12 @@ export function ReconciliationScreen({ onClose, companyId, userRole = 'member', 
     signOffReconciliation,
   } = useBusTicketing(companyId);
   const today = new Date();
-  const summary = useMemo(() => getDailySummary(allTickets, today), [allTickets]);
+  const conductorTickets = useMemo(() => (
+    activeConductor?.id
+      ? allTickets.filter((t) => t.conductorId === activeConductor.id)
+      : allTickets
+  ), [allTickets, activeConductor?.id]);
+  const summary = useMemo(() => getDailySummary(conductorTickets, today), [conductorTickets]);
 
   const [cashReceived, setCashReceived] = useState('');
   const [notes, setNotes] = useState('');

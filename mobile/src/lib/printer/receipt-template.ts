@@ -116,11 +116,12 @@ export class ReceiptTemplate {
     if (activeCompany.city) encoder.line(activeCompany.city);
     if (activeCompany.phone) encoder.line(`TEL: ${activeCompany.phone}`);
 
-    encoder.separator(width);
-
     // ZIMRA Company Details
-    if (!suppressTaxDetails && company.tin) encoder.line(`TIN: ${company.tin}`);
-    if (isVatPayer) encoder.line(`VAT No: ${company.vatNumber}`);
+    if (!suppressTaxDetails && (company.tin || isVatPayer)) {
+      encoder.separator(width);
+      if (company.tin) encoder.line(`TIN: ${company.tin}`);
+      if (isVatPayer) encoder.line(`VAT No: ${company.vatNumber}`);
+    }
 
     encoder.separator(width);
     encoder.bold(true);
@@ -130,13 +131,17 @@ export class ReceiptTemplate {
 
     // 2. Transaction Info
     encoder.align(TextAlignment.Left);
-    const counterStr = invoice.receiptCounter || "---";
-    const globalStr = invoice.receiptGlobalNo || "---";
-    encoder.tableRow("INVOICE NO:", `${counterStr}/${globalStr}`, width);
-    
-    if (invoice.receiptGlobalNo || invoice._offline || invoice._simulation) {
-      encoder.tableRow("FISCAL DAY NO:", (invoice.fiscalDayNo || "---").toString(), width);
-      encoder.tableRow("DEVICE ID:", (activeCompany.fdmsDeviceId || activeCompany.deviceId || "33697"), width);
+    if (suppressTaxDetails) {
+      encoder.tableRow("TICKET NO:", invoice.invoiceNumber || invoice.id || "---", width);
+    } else {
+      const counterStr = invoice.receiptCounter || "---";
+      const globalStr = invoice.receiptGlobalNo || "---";
+      encoder.tableRow("INVOICE NO:", `${counterStr}/${globalStr}`, width);
+      
+      if (invoice.receiptGlobalNo || invoice._offline || invoice._simulation) {
+        encoder.tableRow("FISCAL DAY NO:", (invoice.fiscalDayNo || "---").toString(), width);
+        encoder.tableRow("DEVICE ID:", (activeCompany.fdmsDeviceId || activeCompany.deviceId || "33697"), width);
+      }
     }
     
     const pad = (n: number) => n.toString().padStart(2, '0');
@@ -161,15 +166,17 @@ export class ReceiptTemplate {
     encoder.separator(width);
 
     // 3. Items List
-    encoder.bold(true);
-    if (width <= 32) {
-      encoder.line("DESCRIPTION");
-      encoder.line(suppressTaxDetails ? "QTY x PRICE             TOTAL" : "QTY x PRICE      VAT     TOTAL");
-    } else {
-      encoder.line(suppressTaxDetails ? "QTY   DESCRIPTION             TOTAL" : "QTY   DESCRIPTION             VAT    TOTAL");
+    if (!suppressTaxDetails) {
+      encoder.bold(true);
+      if (width <= 32) {
+        encoder.line("DESCRIPTION");
+        encoder.line("QTY x PRICE      VAT     TOTAL");
+      } else {
+        encoder.line("QTY   DESCRIPTION             VAT    TOTAL");
+      }
+      encoder.bold(false);
+      encoder.separator(width);
     }
-    encoder.bold(false);
-    encoder.separator(width);
 
     items.forEach((item) => {
       const qty = Number(item.quantity || 0);
@@ -248,8 +255,8 @@ export class ReceiptTemplate {
     // 7. Footer
     encoder.feed(1);
     encoder.line(invoice.notes || "Thank you for your business!");
-    encoder.line("--- End of Receipt ---");
-    encoder.feed(Math.max(0, Number(feedLines ?? 3)));
+    //encoder.line("--- End of Receipt ---");
+    encoder.feed(Math.max(0, Number(feedLines ?? 7)));
 
     return encoder.encode();
   }

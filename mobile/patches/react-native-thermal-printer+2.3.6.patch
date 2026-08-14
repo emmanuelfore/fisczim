@@ -1,0 +1,111 @@
+diff --git a/node_modules/react-native-thermal-printer/android/.gradle/6.5/executionHistory/executionHistory.bin b/node_modules/react-native-thermal-printer/android/.gradle/6.5/executionHistory/executionHistory.bin
+deleted file mode 100644
+index cce31fe..0000000
+Binary files a/node_modules/react-native-thermal-printer/android/.gradle/6.5/executionHistory/executionHistory.bin and /dev/null differ
+diff --git a/node_modules/react-native-thermal-printer/android/.gradle/6.5/executionHistory/executionHistory.lock b/node_modules/react-native-thermal-printer/android/.gradle/6.5/executionHistory/executionHistory.lock
+deleted file mode 100644
+index 7461e1d..0000000
+Binary files a/node_modules/react-native-thermal-printer/android/.gradle/6.5/executionHistory/executionHistory.lock and /dev/null differ
+diff --git a/node_modules/react-native-thermal-printer/android/.gradle/6.5/fileContent/fileContent.lock b/node_modules/react-native-thermal-printer/android/.gradle/6.5/fileContent/fileContent.lock
+deleted file mode 100644
+index 6f1224b..0000000
+Binary files a/node_modules/react-native-thermal-printer/android/.gradle/6.5/fileContent/fileContent.lock and /dev/null differ
+diff --git a/node_modules/react-native-thermal-printer/android/.gradle/6.5/fileHashes/fileHashes.bin b/node_modules/react-native-thermal-printer/android/.gradle/6.5/fileHashes/fileHashes.bin
+deleted file mode 100644
+index da104f6..0000000
+Binary files a/node_modules/react-native-thermal-printer/android/.gradle/6.5/fileHashes/fileHashes.bin and /dev/null differ
+diff --git a/node_modules/react-native-thermal-printer/android/.gradle/6.5/fileHashes/fileHashes.lock b/node_modules/react-native-thermal-printer/android/.gradle/6.5/fileHashes/fileHashes.lock
+deleted file mode 100644
+index 39116db..0000000
+Binary files a/node_modules/react-native-thermal-printer/android/.gradle/6.5/fileHashes/fileHashes.lock and /dev/null differ
+diff --git a/node_modules/react-native-thermal-printer/android/.gradle/6.5/fileHashes/resourceHashesCache.bin b/node_modules/react-native-thermal-printer/android/.gradle/6.5/fileHashes/resourceHashesCache.bin
+deleted file mode 100644
+index 772d7b9..0000000
+Binary files a/node_modules/react-native-thermal-printer/android/.gradle/6.5/fileHashes/resourceHashesCache.bin and /dev/null differ
+diff --git a/node_modules/react-native-thermal-printer/android/.gradle/6.5/javaCompile/classAnalysis.bin b/node_modules/react-native-thermal-printer/android/.gradle/6.5/javaCompile/classAnalysis.bin
+deleted file mode 100644
+index 301fda3..0000000
+Binary files a/node_modules/react-native-thermal-printer/android/.gradle/6.5/javaCompile/classAnalysis.bin and /dev/null differ
+diff --git a/node_modules/react-native-thermal-printer/android/.gradle/6.5/javaCompile/jarAnalysis.bin b/node_modules/react-native-thermal-printer/android/.gradle/6.5/javaCompile/jarAnalysis.bin
+deleted file mode 100644
+index 92d92b3..0000000
+Binary files a/node_modules/react-native-thermal-printer/android/.gradle/6.5/javaCompile/jarAnalysis.bin and /dev/null differ
+diff --git a/node_modules/react-native-thermal-printer/android/.gradle/6.5/javaCompile/javaCompile.lock b/node_modules/react-native-thermal-printer/android/.gradle/6.5/javaCompile/javaCompile.lock
+deleted file mode 100644
+index 07c370d..0000000
+Binary files a/node_modules/react-native-thermal-printer/android/.gradle/6.5/javaCompile/javaCompile.lock and /dev/null differ
+diff --git a/node_modules/react-native-thermal-printer/android/.gradle/6.5/javaCompile/taskHistory.bin b/node_modules/react-native-thermal-printer/android/.gradle/6.5/javaCompile/taskHistory.bin
+deleted file mode 100644
+index 0f7e7ff..0000000
+Binary files a/node_modules/react-native-thermal-printer/android/.gradle/6.5/javaCompile/taskHistory.bin and /dev/null differ
+diff --git a/node_modules/react-native-thermal-printer/android/.gradle/6.5/fileChanges/last-build.bin b/node_modules/react-native-thermal-printer/android/.gradle/6.9/fileChanges/last-build.bin
+similarity index 100%
+rename from node_modules/react-native-thermal-printer/android/.gradle/6.5/fileChanges/last-build.bin
+rename to node_modules/react-native-thermal-printer/android/.gradle/6.9/fileChanges/last-build.bin
+diff --git a/node_modules/react-native-thermal-printer/android/.gradle/6.9/fileHashes/fileHashes.lock b/node_modules/react-native-thermal-printer/android/.gradle/6.9/fileHashes/fileHashes.lock
+new file mode 100644
+index 0000000..660cd78
+Binary files /dev/null and b/node_modules/react-native-thermal-printer/android/.gradle/6.9/fileHashes/fileHashes.lock differ
+diff --git a/node_modules/react-native-thermal-printer/android/.gradle/6.5/gc.properties b/node_modules/react-native-thermal-printer/android/.gradle/6.9/gc.properties
+similarity index 100%
+rename from node_modules/react-native-thermal-printer/android/.gradle/6.5/gc.properties
+rename to node_modules/react-native-thermal-printer/android/.gradle/6.9/gc.properties
+diff --git a/node_modules/react-native-thermal-printer/android/src/main/java/com/reactnativethermalprinter/ThermalPrinterModule.java b/node_modules/react-native-thermal-printer/android/src/main/java/com/reactnativethermalprinter/ThermalPrinterModule.java
+index 335a6d6..870fe58 100644
+--- a/node_modules/react-native-thermal-printer/android/src/main/java/com/reactnativethermalprinter/ThermalPrinterModule.java
++++ b/node_modules/react-native-thermal-printer/android/src/main/java/com/reactnativethermalprinter/ThermalPrinterModule.java
+@@ -96,6 +96,7 @@ public class ThermalPrinterModule extends ReactContextBaseJavaModule {
+ 
+     if (btPrinter == null) {
+       this.jsPromise.reject("Connection Error", "Bluetooth Device Not Found");
++      return; // BUGFIX: was missing return, causing NPE on next line
+     }
+ 
+     if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S && ContextCompat.checkSelfPermission(getCurrentActivity(), Manifest.permission.BLUETOOTH) != PackageManager.PERMISSION_GRANTED) {
+@@ -108,9 +109,45 @@ public class ThermalPrinterModule extends ReactContextBaseJavaModule {
+       ActivityCompat.requestPermissions(getCurrentActivity(), new String[]{Manifest.permission.BLUETOOTH_SCAN}, 1);
+     } else {
+       try {
++        // First try the standard secure RFCOMM socket (dantsu BluetoothConnection.connect())
+         this.printIt(btPrinter.connect(), payload, autoCut, openCashbox, mmFeedPaper, printerDpi, printerWidthMM, printerNbrCharactersPerLine);
+       } catch (Exception e) {
+-        this.jsPromise.reject("Connection Error", e.getMessage());
++        // Secure socket failed — many consumer thermal printers only support insecure RFCOMM.
++        // Fall back to a raw insecure socket connection via BluetoothDevice.
++        android.util.Log.w("RN_Thermal_Printer", "Secure socket failed: " + e.getMessage() + ". Retrying with insecure socket...");
++        try {
++          android.bluetooth.BluetoothDevice device = btPrinter.getDevice();
++          java.util.UUID sppUuid = java.util.UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
++          android.bluetooth.BluetoothSocket socket = device.createInsecureRfcommSocketToServiceRecord(sppUuid);
++          BluetoothAdapter.getDefaultAdapter().cancelDiscovery();
++          socket.connect();
++          com.dantsu.escposprinter.connection.bluetooth.BluetoothConnection insecureConn = new com.dantsu.escposprinter.connection.bluetooth.BluetoothConnection(device);
++          // Inject the open socket via a custom DeviceConnection wrapper
++          android.bluetooth.BluetoothSocket finalSocket = socket;
++          DeviceConnection rawConn = new DeviceConnection() {
++            @Override
++            public DeviceConnection connect() throws com.dantsu.escposprinter.exceptions.EscPosConnectionException {
++                try {
++                    this.outputStream = finalSocket.getOutputStream();
++                } catch (Exception e) {
++                    throw new com.dantsu.escposprinter.exceptions.EscPosConnectionException(e.getMessage());
++                }
++                return this;
++            }
++
++            @Override
++            public DeviceConnection disconnect() {
++              try { 
++                  finalSocket.close(); 
++                  this.outputStream = null;
++              } catch (Exception ignored) {}
++              return this;
++            }
++          };
++          this.printIt(rawConn, payload, autoCut, openCashbox, mmFeedPaper, printerDpi, printerWidthMM, printerNbrCharactersPerLine);
++        } catch (Exception e2) {
++          this.jsPromise.reject("Connection Error", e2.getMessage());
++        }
+       }
+     }
+   }

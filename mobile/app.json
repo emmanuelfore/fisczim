@@ -29,9 +29,8 @@
         "INTERNET",
         "BLUETOOTH_SCAN",
         "BLUETOOTH_CONNECT",
-        "INTERNET",
-        "BLUETOOTH_SCAN",
-        "BLUETOOTH_CONNECT"
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
       ],
       "runtimeVersion": "1.0.0"
     },
@@ -54,10 +53,13 @@
     },
     "plugins": [
       "expo-asset",
-      "./scripts/withNetworkSecurityConfig"
-    ],
-    "updates": {
-      "url": "https://u.expo.dev/75764377-70c6-4866-8672-9a1320483381"
-    }
+      "./scripts/withNetworkSecurityConfig",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "FieldPOS uses your location to report live bus trip positions and improve fleet tracking."
+        }
+      ]
+    ]
   }
 }

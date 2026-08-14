@@ -1,17 +1,24 @@
 import { and, eq, inArray } from "drizzle-orm";
-import { accounts, busReconciliations, busTickets, companies, journalEntries } from "../../shared/schema.js";
+import { accounts, busReconciliations, busTickets, companies, journalEntries, ledgerEntries } from "../../shared/schema.js";
 import { storage } from "../storage.js";
 
-const BUS_DEFAULT_ACCOUNTS: Array<{ code: string; name: string; type: string; category: string }> = [];
+const BUS_DEFAULT_ACCOUNTS: Array<{ code: string; name: string; type: string; category: string }> = [
+  { code: "1000", name: "Cash on Hand", type: "ASSET", category: "Current Assets" },
+  { code: "1060", name: "Conductor Cash Clearing", type: "ASSET", category: "Current Assets" },
+  { code: "1070", name: "Mobile Money Clearing", type: "ASSET", category: "Current Assets" },
+  { code: "4110", name: "Passenger Transport Revenue", type: "REVENUE", category: "Revenue" },
+  { code: "4920", name: "Cash Overage Income", type: "REVENUE", category: "Other Income" },
+  { code: "5920", name: "Cash Shortage Expense", type: "EXPENSE", category: "Other Expenses" },
+];
 
 const BUS_ACCOUNTING_DEFAULTS = {
-  busConductorCashAccountCode: "1000",
+  busConductorCashAccountCode: "1060",
   busCashOnHandAccountCode: "1000",
-  busMobileMoneyAccountCode: "1000",
-  busCardClearingAccountCode: "1000",
-  busRevenueAccountCode: "4000",
-  busCashShortageAccountCode: "5300",
-  busCashOverageAccountCode: "4100",
+  busMobileMoneyAccountCode: "1070",
+  busCardClearingAccountCode: "1070",
+  busRevenueAccountCode: "4110",
+  busCashShortageAccountCode: "5920",
+  busCashOverageAccountCode: "4920",
 } as const;
 
 type BusAccountingSettings = typeof BUS_ACCOUNTING_DEFAULTS;
@@ -115,7 +122,7 @@ async function assertAccountCodes(companyId: number, codes: string[], tx: any) {
   }
 }
 
-async function markTicketPosting(ticketId: number, tx: any, status: "posted" | "skipped" | "failed", journalEntryId?: number, error?: string) {
+async function markTicketPosting(ticketId: number, tx: any, status: "posted" | "skipped" | "failed" | "voided", journalEntryId?: number, error?: string) {
   await tx.update(busTickets)
     .set({
       accountingStatus: status,
@@ -249,7 +256,7 @@ export async function postBusReconciliationAccounting(reconciliation: typeof bus
     }
 
     const entry = await storage.postToLedger(reconciliation.companyId, {
-      entryDate: new Date(`${reconciliation.date}T00:00:00`),
+      entryDate: new Date(`${reconciliation.date}T00:00:00.000Z`),
       description: `Bus conductor cash-up ${reconciliation.date}`,
       referenceType,
       referenceId,
@@ -260,5 +267,43 @@ export async function postBusReconciliationAccounting(reconciliation: typeof bus
     await markReconciliationPosting(reconciliation.id, tx, "posted", entry.id);
   } catch (err: any) {
     await markReconciliationPosting(reconciliation.id, tx, "failed", undefined, err?.message || "Posting failed");
+  }
+}
+
+export async function voidBusTicketAccounting(ticket: typeof busTickets.$inferSelect, tx: any) {
+  if (!ticket.postedJournalEntryId) return;
+
+  try {
+    const referenceType = "BUS_TICKET_VOID";
+    const referenceId = String(ticket.id);
+    const existing = await findExistingJournal(ticket.companyId, referenceType, referenceId, tx);
+    if (existing) return;
+
+    const originalLines = await tx.select({
+      accountCode: accounts.code,
+      type: ledgerEntries.type,
+      amount: ledgerEntries.amount,
+    })
+      .from(ledgerEntries)
+      .innerJoin(accounts, eq(ledgerEntries.accountId, accounts.id))
+      .where(eq(ledgerEntries.journalEntryId, ticket.postedJournalEntryId));
+
+    if (originalLines.length === 0) return;
+
+    const entry = await storage.postToLedger(ticket.companyId, {
+      entryDate: new Date(),
+      description: `Void bus ticket ${ticket.ticketNumber}${ticket.voidReason ? ` (${ticket.voidReason})` : ""}`,
+      referenceType,
+      referenceId,
+      lines: originalLines.map((line: { accountCode: string; type: string; amount: unknown }) => ({
+        accountCode: line.accountCode,
+        type: line.type === "DEBIT" ? ("CREDIT" as const) : ("DEBIT" as const),
+        amount: Number(line.amount),
+      })),
+    }, tx);
+
+    await markTicketPosting(ticket.id, tx, "voided", entry.id);
+  } catch (err: any) {
+    await markTicketPosting(ticket.id, tx, "failed", undefined, err?.message || "Void posting failed");
   }
 }

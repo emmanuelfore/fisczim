@@ -41,7 +41,7 @@ function toRoutePayload(data: any) {
     config: data.config ?? {
       distanceKm: Number(data.distanceKm || 0),
       currency: data.currency || "USD",
-      dropOffPoints: [],
+      dropOffPoints: data.dropOffPoints || [],
       passengerName: false,
       idNumber: false,
       phone: false,
@@ -109,6 +109,24 @@ export function useCreateBusVehicle() {
   });
 }
 
+export function useUpdateBusVehicle() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ companyId, vehicleId, data }: { companyId: number; vehicleId: number; data: any }) => {
+      const payload = toVehiclePayload({ ...data, companyId });
+      const response = await apiFetch(`/api/companies/${companyId}/bus-ticketing/vehicles/${vehicleId}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) throw new Error(await readError(response, "Failed to update vehicle"));
+      return normalizeVehicle(await response.json());
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["bus-vehicles", variables.companyId] });
+    }
+  });
+}
+
 export function useBusRoutes(companyId?: number) {
   return useQuery({
     queryKey: ["bus-routes", companyId],
@@ -133,6 +151,24 @@ export function useCreateBusRoute() {
         body: JSON.stringify(payload),
       });
       if (!response.ok) throw new Error("Failed to create route");
+      return normalizeRoute(await response.json());
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["bus-routes", variables.companyId] });
+    }
+  });
+}
+
+export function useUpdateBusRoute() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ companyId, routeId, data }: { companyId: number; routeId: number; data: any }) => {
+      const payload = toRoutePayload({ ...data, companyId });
+      const response = await apiFetch(`/api/companies/${companyId}/bus-ticketing/routes/${routeId}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) throw new Error(await readError(response, "Failed to update route"));
       return normalizeRoute(await response.json());
     },
     onSuccess: (_, variables) => {
@@ -248,5 +284,44 @@ export function useBusReport(companyId?: number, from?: string, to?: string) {
       return response.json();
     },
     enabled: !!companyId,
+  });
+}
+
+export function useBusReconciliations(companyId?: number) {
+  return useQuery({
+    queryKey: ["bus-reconciliations", companyId],
+    queryFn: async () => {
+      if (!companyId) return [];
+      const response = await apiFetch(`/api/companies/${companyId}/bus-ticketing/reconciliations`);
+      if (!response.ok) throw new Error(await readError(response, "Failed to fetch reconciliations"));
+      return response.json();
+    },
+    enabled: !!companyId,
+  });
+}
+
+export function useSignOffReconciliation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ companyId, reconciliationId, status, adminNotes }: {
+      companyId: number;
+      reconciliationId: number;
+      status: "approved" | "rejected";
+      adminNotes?: string;
+    }) => {
+      const response = await apiFetch(
+        `/api/companies/${companyId}/bus-ticketing/reconciliations/${reconciliationId}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ status, adminNotes: adminNotes?.trim() || undefined }),
+        },
+      );
+      if (!response.ok) throw new Error(await readError(response, "Failed to update reconciliation"));
+      return response.json();
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["bus-reconciliations", variables.companyId] });
+      queryClient.invalidateQueries({ queryKey: ["bus-report", variables.companyId] });
+    },
   });
 }

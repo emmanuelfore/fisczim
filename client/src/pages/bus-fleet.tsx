@@ -11,8 +11,8 @@ import {
   MapPin,
   Users,
 } from "lucide-react";
-import { CreateVehicleDialog } from "@/components/bus/create-vehicle-dialog";
-import { CreateRouteDialog } from "@/components/bus/create-route-dialog";
+import { CreateVehicleDialog, EditVehicleDialog } from "@/components/bus/create-vehicle-dialog";
+import { CreateRouteDialog, EditRouteDialog } from "@/components/bus/create-route-dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -29,9 +29,9 @@ export default function BusFleetPage() {
   const busSettings = normalizeBusSettings((activeCompany as any)?.busSettings);
   const canManageFleet = isBusFeatureEnabled(busSettings, "fleetManagement");
   const canManageFares = isBusFeatureEnabled(busSettings, "fareMatrix");
-  const { data: vehicles, isLoading: loadingVehicles } =
+  const { data: vehicles, isLoading: loadingVehicles, isError: vehiclesError } =
     useBusVehicles(companyId);
-  const { data: routes, isLoading: loadingRoutes } = useBusRoutes(companyId);
+  const { data: routes, isLoading: loadingRoutes, isError: routesError } = useBusRoutes(companyId);
 
   const [vehicleSearch, setVehicleSearch] = useState("");
   const [routeSearch, setRouteSearch] = useState("");
@@ -59,7 +59,7 @@ export default function BusFleetPage() {
         subtitle="Manage your vehicles and travel routes"
         actions={
           <div className="flex gap-2">
-            {canManageFares && <CreateRouteDialog companyId={companyId} />}
+            {canManageFares && <CreateRouteDialog companyId={companyId} existingRoutes={routes || []} />}
             {canManageFleet && <CreateVehicleDialog companyId={companyId} />}
           </div>
         }
@@ -135,6 +135,15 @@ export default function BusFleetPage() {
                             Loading vehicles...
                           </td>
                         </tr>
+                      ) : vehiclesError ? (
+                        <tr>
+                          <td
+                            colSpan={4}
+                            className="h-32 text-center text-red-500"
+                          >
+                            Failed to load vehicles. Check your connection and try again.
+                          </td>
+                        </tr>
                       ) : filteredVehicles?.length === 0 ? (
                         <tr>
                           <td
@@ -188,13 +197,9 @@ export default function BusFleetPage() {
                               </span>
                             </td>
                             <td className="px-6 py-4 text-right">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="rounded-xl text-slate-400 hover:text-orange-600 hover:bg-orange-50"
-                              >
-                                Edit
-                              </Button>
+                              {canManageFleet && (
+                                <EditVehicleDialog companyId={companyId} vehicle={v} />
+                              )}
                             </td>
                           </tr>
                         ))
@@ -239,6 +244,15 @@ export default function BusFleetPage() {
                             className="h-32 text-center text-slate-400"
                           >
                             Loading routes...
+                          </td>
+                        </tr>
+                      ) : routesError ? (
+                        <tr>
+                          <td
+                            colSpan={4}
+                            className="h-32 text-center text-red-500"
+                          >
+                            Failed to load routes. Check your connection and try again.
                           </td>
                         </tr>
                       ) : filteredRoutes?.length === 0 ? (
@@ -290,13 +304,9 @@ export default function BusFleetPage() {
                               </div>
                             </td>
                             <td className="px-6 py-4 text-right">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="rounded-xl text-slate-400 hover:text-orange-600 hover:bg-orange-50"
-                              >
-                                Edit
-                              </Button>
+                              {canManageFares && (
+                                <EditRouteDialog companyId={companyId} route={r} />
+                              )}
                             </td>
                           </tr>
                         ))

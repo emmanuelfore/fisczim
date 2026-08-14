@@ -40,6 +40,8 @@ export function BusFleetAdminScreen({ onClose, companyId }: Props) {
   const [editingVehicle, setEditingVehicle] = useState<BusVehicle | null>(null);
   
   const [regNo, setRegNo] = useState('');
+  const [model, setModel] = useState('');
+  const [fleetNumber, setFleetNumber] = useState('');
   const [capacity, setCapacity] = useState('');
   const [isActive, setIsActive] = useState(true);
 
@@ -53,6 +55,8 @@ export function BusFleetAdminScreen({ onClose, companyId }: Props) {
   function openCreate() {
     setEditingVehicle(null);
     setRegNo('');
+    setModel('');
+    setFleetNumber('');
     setCapacity('');
     setIsActive(true);
     setModalVisible(true);
@@ -61,6 +65,8 @@ export function BusFleetAdminScreen({ onClose, companyId }: Props) {
   function openEdit(vehicle: BusVehicle) {
     setEditingVehicle(vehicle);
     setRegNo(vehicle.registrationNumber);
+    setModel(vehicle.model ?? '');
+    setFleetNumber(vehicle.fleetNumber ?? '');
     setCapacity(vehicle.capacity ? String(vehicle.capacity) : '');
     setIsActive(vehicle.isActive);
     setModalVisible(true);
@@ -74,20 +80,27 @@ export function BusFleetAdminScreen({ onClose, companyId }: Props) {
     }
     
     const cap = parseInt(capacity, 10);
-    const parsedCapacity = isNaN(cap) || cap <= 0 ? undefined : cap;
+    if (isNaN(cap) || cap <= 0) {
+      Alert.alert('Validation', 'Seating capacity must be a positive number.');
+      return;
+    }
 
     try {
       if (editingVehicle) {
         await updateVehicle(editingVehicle.id, {
           registrationNumber: reg,
-          capacity: parsedCapacity,
+          model: model.trim() || undefined,
+          fleetNumber: fleetNumber.trim() || undefined,
+          capacity: cap,
           isActive,
         });
       } else {
         const vehicle: BusVehicle = {
           id: uuid(),
           registrationNumber: reg,
-          capacity: parsedCapacity,
+          model: model.trim() || undefined,
+          fleetNumber: fleetNumber.trim() || undefined,
+          capacity: cap,
           isActive,
           createdAt: new Date().toISOString(),
         };
@@ -181,6 +194,9 @@ export function BusFleetAdminScreen({ onClose, companyId }: Props) {
                       {item.registrationNumber}
                     </Text>
                     <Text style={styles.subText}>
+                      {[item.model, item.fleetNumber ? `Fleet ${item.fleetNumber}` : null].filter(Boolean).join(' · ')}
+                    </Text>
+                    <Text style={styles.subText}>
                       Capacity: {item.capacity ? `${item.capacity} seats` : 'Not set'}
                     </Text>
                   </View>
@@ -234,7 +250,25 @@ export function BusFleetAdminScreen({ onClose, companyId }: Props) {
                 autoCapitalize="characters"
               />
 
-              <Text style={styles.label}>Seating Capacity (Optional)</Text>
+              <Text style={styles.label}>Model</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="e.g. Marcopolo Paradiso"
+                placeholderTextColor={C.muted}
+                value={model}
+                onChangeText={setModel}
+              />
+
+              <Text style={styles.label}>Fleet Number</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="e.g. FL-042"
+                placeholderTextColor={C.muted}
+                value={fleetNumber}
+                onChangeText={setFleetNumber}
+              />
+
+              <Text style={styles.label}>Seating Capacity</Text>
               <TextInput
                 style={styles.input}
                 placeholder="e.g. 64"

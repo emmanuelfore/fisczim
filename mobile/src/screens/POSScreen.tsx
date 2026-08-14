@@ -2821,7 +2821,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
               <TouchableOpacity onPress={async () => {
                 const sales = await getPendingSales(companyId);
                 setOfflineQueueData(sales);
-                setShiftModalVisible(false);
+                setShowShiftModal(false);
                 setShowOfflineQueue(true);
               }}
                 style={{ marginTop: 14, alignItems: "center" }}>

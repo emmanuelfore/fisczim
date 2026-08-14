@@ -201,7 +201,9 @@ export const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
   // Cashier: POS-only access.
   cashier: [
     "nav.pos",
+    "nav.bus",
     "pos.sell", "pos.shift",
+    "bus.view", "bus.operations",
   ],
 
   manufacturing: [

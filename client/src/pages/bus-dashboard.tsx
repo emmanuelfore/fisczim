@@ -2,6 +2,7 @@ import { Layout } from "@/components/layout";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   useBusConductors,
   useBusReport,
@@ -16,6 +17,7 @@ import {
   BarChart3,
   Bus,
   CalendarClock,
+  Calendar,
   Gauge,
   Route,
   Ticket,
@@ -24,6 +26,7 @@ import {
   WifiOff,
 } from "lucide-react";
 import type { ReactNode } from "react";
+import { useState } from "react";
 
 function todayRange() {
   const now = new Date();
@@ -127,7 +130,35 @@ function ListPanel({
 
 export default function BusDashboardPage() {
   const companyId = parseInt(localStorage.getItem("selectedCompanyId") || "0");
-  const range = todayRange();
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  
+  const getDateRange = (dateStr: string) => {
+    const date = new Date(dateStr);
+    const start = new Date(
+      date.getFullYear(),
+      date.getMonth(),
+      date.getDate(),
+      0,
+      0,
+      0,
+      0,
+    );
+    const end = new Date(
+      date.getFullYear(),
+      date.getMonth(),
+      date.getDate(),
+      23,
+      59,
+      59,
+      999,
+    );
+    return {
+      from: start.toISOString(),
+      to: end.toISOString(),
+    };
+  };
+  
+  const range = getDateRange(selectedDate);
   const { data: report } = useBusReport(companyId, range.from, range.to);
   const { data: routes = [] } = useBusRoutes(companyId);
   const { data: vehicles = [] } = useBusVehicles(companyId);
@@ -165,9 +196,18 @@ export default function BusDashboardPage() {
     <Layout>
       <PageHeader
         title="Bus Ticketing Dashboard"
-        subtitle="Today's ticketing, dispatch, cash-up, and fleet position"
+        subtitle="Ticketing, dispatch, cash-up, and fleet position"
         actions={
           <div className="flex gap-2">
+            <div className="flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-slate-500" />
+              <Input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="w-auto"
+              />
+            </div>
             <Link href="/bus/trips">
               <Button variant="outline" className="gap-2">
                 <CalendarClock className="h-4 w-4" />

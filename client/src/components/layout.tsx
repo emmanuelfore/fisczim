@@ -44,6 +44,7 @@ import {
   ClipboardCheck,
   UserRoundCheck,
   BarChart2,
+  Ticket,
   Scale,
   Palette,
   FileSpreadsheet,
@@ -58,6 +59,7 @@ import {
   AlertTriangle,
   UserRound,
   CheckSquare,
+  Navigation,
 } from "lucide-react";
 import { useBranding } from "@/hooks/use-branding";
 import {
@@ -189,6 +191,9 @@ export function Layout({
     ...(isBusFeatureEnabled(busSettings, "tripManagement")
       ? [{ icon: Clock, label: "Trip Scheduling", href: "/bus/trips" }]
       : []),
+    ...(isBusFeatureEnabled(busSettings, "tripManagement")
+      ? [{ icon: Navigation, label: "Live Tracking", href: "/bus/tracking" }]
+      : []),
   ];
   const busSetupChildren = [
     ...(isBusFeatureEnabled(busSettings, "fleetManagement") ||
@@ -216,6 +221,16 @@ export function Layout({
             icon: UserRoundCheck,
             label: "Conductor Report",
             href: "/bus/reports?mode=conductor",
+          },
+          {
+            icon: TrendingUp,
+            label: "Trip Performance",
+            href: "/bus/trip-performance",
+          },
+          {
+            icon: Ticket,
+            label: "Ticket Details",
+            href: "/bus/tickets",
           },
         ]
       : []),
@@ -1200,6 +1215,16 @@ export function Layout({
       return {
         title: "Bus Reports",
         subtitle: "Review ticket revenue and conductor performance.",
+      };
+    if (location.startsWith("/bus/trip-performance"))
+      return {
+        title: "Trip Performance",
+        subtitle: "Trip-level dispatch and revenue across the selected period.",
+      };
+    if (location.startsWith("/bus/tickets"))
+      return {
+        title: "Ticket Details",
+        subtitle: "Every ticket issued across the selected period.",
       };
     if (location.startsWith("/bus/trips"))
       return { title: "Bus Trips", subtitle: "Dispatch and review bus trips." };

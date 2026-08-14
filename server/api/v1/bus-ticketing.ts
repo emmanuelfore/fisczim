@@ -3,12 +3,12 @@ import { z } from "zod";
 import { db } from "../../db.js";
 import { 
   busVehicles, busRoutes, busTrips, busTickets, busShifts, busReconciliations,
-  users,
+  users, companyUsers,
   insertBusVehicleSchema, insertBusRouteSchema, insertBusTripSchema,
   insertBusTicketSchema, insertBusShiftSchema, insertBusReconciliationSchema
 } from "../../../shared/schema.js";
 import { eq, and, desc, gte, lte, inArray, sql } from "drizzle-orm";
-import { postBusReconciliationAccounting, postBusTicketAccounting } from "../../lib/bus-accounting.js";
+import { postBusReconciliationAccounting, postBusTicketAccounting, voidBusTicketAccounting } from "../../lib/bus-accounting.js";
 import { userHasPermission } from "../../lib/permissions.js";
 
 const router = Router({ mergeParams: true });
@@ -43,6 +43,9 @@ const tripRequestSchema = insertBusTripSchema.omit({ companyId: true, conductorI
   scheduledDeparture: z.coerce.date(),
   actualDeparture: z.coerce.date().nullable().optional(),
   actualArrival: z.coerce.date().nullable().optional(),
+  currentLatitude: z.coerce.number().min(-90).max(90).nullable().optional(),
+  currentLongitude: z.coerce.number().min(-180).max(180).nullable().optional(),
+  lastLocationUpdate: z.coerce.date().nullable().optional(),
   status: z.string().default("scheduled"),
 });
 
@@ -89,17 +92,38 @@ const ticketSyncSchema = insertBusTicketSchema.omit({
 const shiftSyncSchema = insertBusShiftSchema.omit({ companyId: true }).extend({
   startTime: z.coerce.date(),
   endTime: z.coerce.date().nullable().optional(),
+  vehicleId: z.coerce.number().int().positive().nullable().optional(),
+  tripId: z.coerce.number().int().positive().nullable().optional(),
+  routeId: z.coerce.number().int().positive().nullable().optional(),
+  closedAt: z.coerce.date().nullable().optional(),
+});
+
+const tripLocationUpdateSchema = z.object({
+  currentLatitude: z.coerce.number().min(-90).max(90),
+  currentLongitude: z.coerce.number().min(-180).max(180),
+  lastLocationUpdate: z.coerce.date().optional(),
 });
 
 const reconciliationSyncSchema = insertBusReconciliationSchema.omit({
   companyId: true,
+  status: true,
+  signedOffBy: true,
+  signedOffAt: true,
   accountingStatus: true,
   accountingError: true,
   postedJournalEntryId: true,
   postedAt: true,
+}).extend({
+  adminNotes: z.string().max(500).nullable().optional(),
 });
 const ONGOING_TRIP_STATUSES = ["boarding", "en_route", "in_progress"] as const;
 const ACTIVE_TICKET_STATUS = "active";
+// Africa/Harare is UTC+2 (no DST). Tickets/reconciliations store UTC values,
+// so calendar-date filters must be converted to Harare local dates first.
+const HARARE_OFFSET_MS = 2 * 60 * 60 * 1000;
+function toHarareDateKey(date: Date): string {
+  return new Date(date.getTime() + HARARE_OFFSET_MS).toISOString().slice(0, 10);
+}
 let busTicketingSchemaReady: Promise<void> | null = null;
 
 async function ensureBusTicketingSchema() {
@@ -107,6 +131,12 @@ async function ensureBusTicketingSchema() {
     busTicketingSchemaReady = db.execute(sql`
       ALTER TABLE "bus_trips"
       ADD COLUMN IF NOT EXISTS "actual_arrival" timestamp;
+      ALTER TABLE "bus_trips"
+      ADD COLUMN IF NOT EXISTS "current_latitude" double precision;
+      ALTER TABLE "bus_trips"
+      ADD COLUMN IF NOT EXISTS "current_longitude" double precision;
+      ALTER TABLE "bus_trips"
+      ADD COLUMN IF NOT EXISTS "last_location_update" timestamp;
 
       ALTER TABLE "bus_tickets" ADD COLUMN IF NOT EXISTS "shift_id" integer;
       ALTER TABLE "bus_tickets" ADD COLUMN IF NOT EXISTS "device_id" text;
@@ -121,12 +151,18 @@ async function ensureBusTicketingSchema() {
       ALTER TABLE "bus_tickets" ADD COLUMN IF NOT EXISTS "void_reason" text;
 
       ALTER TABLE "bus_reconciliations" ADD COLUMN IF NOT EXISTS "status" text DEFAULT 'pending';
+      ALTER TABLE "bus_reconciliations" ADD COLUMN IF NOT EXISTS "admin_notes" text;
       ALTER TABLE "bus_reconciliations" ADD COLUMN IF NOT EXISTS "signed_off_by" uuid REFERENCES "users"("id");
       ALTER TABLE "bus_reconciliations" ADD COLUMN IF NOT EXISTS "signed_off_at" timestamp;
       ALTER TABLE "bus_reconciliations" ADD COLUMN IF NOT EXISTS "accounting_status" text DEFAULT 'unposted';
       ALTER TABLE "bus_reconciliations" ADD COLUMN IF NOT EXISTS "accounting_error" text;
       ALTER TABLE "bus_reconciliations" ADD COLUMN IF NOT EXISTS "posted_journal_entry_id" integer REFERENCES "journal_entries"("id");
       ALTER TABLE "bus_reconciliations" ADD COLUMN IF NOT EXISTS "posted_at" timestamp;
+
+      ALTER TABLE "bus_shifts" ADD COLUMN IF NOT EXISTS "vehicle_id" integer REFERENCES "bus_vehicles"("id");
+      ALTER TABLE "bus_shifts" ADD COLUMN IF NOT EXISTS "trip_id" integer REFERENCES "bus_trips"("id");
+      ALTER TABLE "bus_shifts" ADD COLUMN IF NOT EXISTS "route_id" integer REFERENCES "bus_routes"("id");
+      ALTER TABLE "bus_shifts" ADD COLUMN IF NOT EXISTS "closed_at" timestamp;
 
       UPDATE "bus_tickets" SET "currency" = 'USD' WHERE "currency" IS NULL;
       UPDATE "bus_tickets" SET "status" = 'active' WHERE "status" IS NULL;
@@ -157,10 +193,12 @@ router.use(async (req: any, res, next) => {
     await ensureBusTicketingSchema();
     const companyId = getTargetCompanyId(req);
     const userId = req.user?.id;
-    if (!userId) {
+    // API-key / device calls carry company context but no session user.
+    const isApiKey = Boolean((req as any).apiKeyCompanyId || (req.user?.isApiKey && !req.user?.id));
+    if (!userId && !isApiKey) {
       return res.status(401).json({ error: "UNAUTHORIZED", message: "User context missing" });
     }
-    const hasBusAccess = req.user?.isSuperAdmin || await userHasPermission(userId, companyId, "bus.view", false);
+    const hasBusAccess = isApiKey || req.user?.isSuperAdmin || await userHasPermission(userId, companyId, "bus.view", false);
     if (!hasBusAccess) {
       return res.status(403).json({ error: "FORBIDDEN", message: "Bus ticketing permission required" });
     }
@@ -170,6 +208,24 @@ router.use(async (req: any, res, next) => {
     res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
   }
 });
+
+function requireBusPermission(permission: "bus.view" | "bus.operations" | "bus.setup" | "bus.reports") {
+  return async (req: any, res: any, next: any) => {
+    try {
+      const companyId = getTargetCompanyId(req);
+      if ((req as any).apiKeyCompanyId || (req.user?.isApiKey && !req.user?.id)) return next();
+      const userId = req.user?.id;
+      if (req.user?.isSuperAdmin) return next();
+      const allowed = await userHasPermission(userId, companyId, permission, false);
+      if (!allowed) {
+        return res.status(403).json({ error: "FORBIDDEN", message: `Permission "${permission}" required` });
+      }
+      next();
+    } catch (err: any) {
+      res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+    }
+  };
+}
 
 function canonicalLocation(value: string) {
   return value.trim().replace(/\s+/g, " ").toLowerCase();
@@ -207,7 +263,7 @@ router.get("/vehicles", async (req, res) => {
 });
 
 // POST /vehicles - Create a new vehicle
-router.post("/vehicles", async (req, res) => {
+router.post("/vehicles", requireBusPermission("bus.setup"), async (req, res) => {
   const parsed = vehicleRequestSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
 
@@ -223,7 +279,7 @@ router.post("/vehicles", async (req, res) => {
 });
 
 // PATCH /vehicles/:vehicleId - Update vehicle details/status
-router.patch("/vehicles/:vehicleId", async (req, res) => {
+router.patch("/vehicles/:vehicleId", requireBusPermission("bus.setup"), async (req, res) => {
   const vehicleId = Number(req.params.vehicleId);
   if (!Number.isFinite(vehicleId) || vehicleId <= 0) {
     return res.status(400).json({ error: "VALIDATION_ERROR", message: "Invalid vehicle id" });
@@ -261,7 +317,7 @@ router.get("/routes", async (req, res) => {
 });
 
 // POST /routes - Create/Sync a route to cloud
-router.post("/routes", async (req, res) => {
+router.post("/routes", requireBusPermission("bus.setup"), async (req, res) => {
   const parsed = routeRequestSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
 
@@ -321,7 +377,7 @@ router.post("/routes", async (req, res) => {
 });
 
 // PATCH /routes/:routeId - Update route details/status
-router.patch("/routes/:routeId", async (req, res) => {
+router.patch("/routes/:routeId", requireBusPermission("bus.setup"), async (req, res) => {
   const routeId = Number(req.params.routeId);
   if (!Number.isFinite(routeId) || routeId <= 0) {
     return res.status(400).json({ error: "VALIDATION_ERROR", message: "Invalid route id" });
@@ -399,13 +455,15 @@ router.get("/trips/active", async (req, res) => {
 });
 
 // POST /trips - Schedule a trip
-router.post("/trips", async (req, res) => {
+router.post("/trips", requireBusPermission("bus.operations"), async (req, res) => {
   const parsed = tripRequestSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
 
   try {
     const companyId = getTargetCompanyId(req);
-    const conductorId = (req as any).user?.id || parsed.data.conductorId;
+    // Web admins pass the selected conductorId explicitly; mobile conductors
+    // fall back to their own authenticated user id.
+    const conductorId = parsed.data.conductorId || (req as any).user?.id;
     if (!conductorId) {
       return res.status(400).json({
         error: "MISSING_CONDUCTOR",
@@ -421,6 +479,45 @@ router.post("/trips", async (req, res) => {
       return res.status(400).json({
         error: "INVALID_CONDUCTOR",
         message: "The conductor user does not exist on the server.",
+      });
+    }
+
+    const [conductorCompany] = await db.select({ companyId: companyUsers.companyId })
+      .from(companyUsers)
+      .where(and(eq(companyUsers.userId, conductorId), eq(companyUsers.companyId, companyId)))
+      .limit(1);
+    if (!conductorCompany) {
+      return res.status(400).json({
+        error: "CONDUCTOR_NOT_IN_COMPANY",
+        message: "The selected conductor does not belong to this company.",
+      });
+    }
+
+    const [route] = await db.select({ id: busRoutes.id })
+      .from(busRoutes)
+      .where(and(eq(busRoutes.id, parsed.data.routeId), eq(busRoutes.companyId, companyId)))
+      .limit(1);
+    if (!route) {
+      return res.status(400).json({
+        error: "INVALID_ROUTE",
+        message: "The selected route does not belong to this company.",
+      });
+    }
+
+    const [vehicle] = await db.select({ id: busVehicles.id, isActive: busVehicles.isActive })
+      .from(busVehicles)
+      .where(and(eq(busVehicles.id, parsed.data.vehicleId), eq(busVehicles.companyId, companyId)))
+      .limit(1);
+    if (!vehicle) {
+      return res.status(400).json({
+        error: "INVALID_VEHICLE",
+        message: "The selected vehicle does not belong to this company.",
+      });
+    }
+    if (vehicle.isActive === false) {
+      return res.status(400).json({
+        error: "VEHICLE_INACTIVE",
+        message: "The selected vehicle is inactive.",
       });
     }
 
@@ -450,7 +547,7 @@ router.post("/trips", async (req, res) => {
 });
 
 // PATCH /trips/:tripId - Update trip state, used by mobile end-trip flow
-router.patch("/trips/:tripId", async (req, res) => {
+router.patch("/trips/:tripId", requireBusPermission("bus.operations"), async (req, res) => {
   const tripId = Number(req.params.tripId);
   if (!Number.isFinite(tripId) || tripId <= 0) {
     return res.status(400).json({ error: "VALIDATION_ERROR", message: "Invalid trip id" });
@@ -463,7 +560,7 @@ router.patch("/trips/:tripId", async (req, res) => {
 });
 
 // POST /trips/:tripId/close - Close a trip from mobile clients that cannot PATCH reliably
-router.post("/trips/:tripId/close", async (req, res) => {
+router.post("/trips/:tripId/close", requireBusPermission("bus.operations"), async (req, res) => {
   const tripId = Number(req.params.tripId);
   if (!Number.isFinite(tripId) || tripId <= 0) {
     return res.status(400).json({ error: "VALIDATION_ERROR", message: "Invalid trip id" });
@@ -475,13 +572,205 @@ router.post("/trips/:tripId/close", async (req, res) => {
   });
 });
 
+// PATCH /trips/:tripId/location - Update live location from conductor device
+router.patch("/trips/:tripId/location", requireBusPermission("bus.operations"), async (req, res) => {  const tripId = Number(req.params.tripId);
+  if (!Number.isFinite(tripId) || tripId <= 0) {
+    return res.status(400).json({ error: "VALIDATION_ERROR", message: "Invalid trip id" });
+  }
+
+  const parsed = tripLocationUpdateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
+
+  try {
+    const companyId = getTargetCompanyId(req);
+    const [trip] = await db.update(busTrips)
+      .set({
+        currentLatitude: parsed.data.currentLatitude,
+        currentLongitude: parsed.data.currentLongitude,
+        lastLocationUpdate: parsed.data.lastLocationUpdate ?? new Date(),
+      })
+      .where(and(eq(busTrips.id, tripId), eq(busTrips.companyId, companyId)))
+      .returning();
+
+    if (!trip) {
+      return res.status(404).json({ error: "NOT_FOUND", message: "Trip not found" });
+    }
+
+    res.json(trip);
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
+// GET /tickets - List tickets (optionally filtered by trip/date), used by reports & audit
+router.get("/tickets", async (req, res) => {
+  try {
+    const companyId = getTargetCompanyId(req);
+    const tripId = req.query.tripId ? Number(req.query.tripId) : undefined;
+    const status = req.query.status ? String(req.query.status) : undefined;
+    const limit = Math.min(Math.max(Number(req.query.limit) || 200, 1), 1000);
+
+    const conditions = [eq(busTickets.companyId, companyId)];
+    if (tripId && Number.isFinite(tripId)) conditions.push(eq(busTickets.tripId, tripId));
+    if (status) conditions.push(eq(busTickets.status, status));
+
+    const tickets = await db.select().from(busTickets)
+      .where(and(...conditions))
+      .orderBy(desc(busTickets.timestamp))
+      .limit(limit);
+
+    res.json(tickets);
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
+// POST /tickets/:ticketId/void - Void an active ticket (refund/void flow)
+router.post("/tickets/:ticketId/void", requireBusPermission("bus.operations"), async (req, res) => {  const ticketId = Number(req.params.ticketId);
+  if (!Number.isFinite(ticketId) || ticketId <= 0) {
+    return res.status(400).json({ error: "VALIDATION_ERROR", message: "Invalid ticket id" });
+  }
+
+  const parsed = z.object({
+    reason: z.string().trim().min(1, "Void reason is required").max(200),
+  }).safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
+
+  try {
+    const companyId = getTargetCompanyId(req);
+    const [ticket] = await db.select().from(busTickets)
+      .where(and(eq(busTickets.id, ticketId), eq(busTickets.companyId, companyId)))
+      .limit(1);
+
+    if (!ticket) {
+      return res.status(404).json({ error: "NOT_FOUND", message: "Ticket not found" });
+    }
+    if (ticket.status !== "active") {
+      return res.status(409).json({ error: "ALREADY_VOIDED", message: `Ticket is already ${ticket.status}.` });
+    }
+
+    await db.transaction(async (tx) => {
+      const [updated] = await tx.update(busTickets)
+        .set({
+          status: "voided",
+          voidedAt: new Date(),
+          voidReason: parsed.data.reason,
+        })
+        .where(eq(busTickets.id, ticketId))
+        .returning();
+
+      if (updated?.postedJournalEntryId) {
+        await voidBusTicketAccounting(updated, tx);
+      }
+
+      res.json(updated);
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
+// GET /reconciliations - List cash-ups for admin review/sign-off
+router.get("/reconciliations", async (req, res) => {
+  try {
+    const companyId = getTargetCompanyId(req);
+    const rows = await db.select({
+      id: busReconciliations.id,
+      shiftId: busReconciliations.shiftId,
+      conductorId: busReconciliations.conductorId,
+      conductorName: users.name,
+      conductorEmail: users.email,
+      date: busReconciliations.date,
+      expectedCash: busReconciliations.expectedCash,
+      cashReceived: busReconciliations.cashReceived,
+      gap: busReconciliations.gap,
+      notes: busReconciliations.notes,
+      adminNotes: busReconciliations.adminNotes,
+      status: busReconciliations.status,
+      signedOffBy: busReconciliations.signedOffBy,
+      signedOffAt: busReconciliations.signedOffAt,
+      accountingStatus: busReconciliations.accountingStatus,
+      accountingError: busReconciliations.accountingError,
+      postedAt: busReconciliations.postedAt,
+      createdAt: busReconciliations.createdAt,
+    })
+      .from(busReconciliations)
+      .leftJoin(users, eq(busReconciliations.conductorId, users.id))
+      .where(eq(busReconciliations.companyId, companyId))
+      .orderBy(desc(busReconciliations.date));
+
+    res.json(rows);
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
+// PATCH /reconciliations/:reconciliationId - Admin approve/reject a cash-up
+router.patch("/reconciliations/:reconciliationId", requireBusPermission("bus.operations"), async (req, res) => {
+  const reconciliationId = Number(req.params.reconciliationId);
+  if (!Number.isFinite(reconciliationId) || reconciliationId <= 0) {
+    return res.status(400).json({ error: "VALIDATION_ERROR", message: "Invalid reconciliation id" });
+  }
+
+  const parsed = z.object({
+    status: z.enum(["approved", "rejected"]),
+    adminNotes: z.string().trim().max(500).optional(),
+  }).safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
+
+  try {
+    const companyId = getTargetCompanyId(req);
+    const [existing] = await db.select().from(busReconciliations)
+      .where(and(eq(busReconciliations.id, reconciliationId), eq(busReconciliations.companyId, companyId)))
+      .limit(1);
+
+    if (!existing) {
+      return res.status(404).json({ error: "NOT_FOUND", message: "Reconciliation not found" });
+    }
+    // Prevent the submitting conductor from approving their own cash-up.
+    const userId = (req as any).user?.id;
+    if (userId && existing.conductorId === userId && existing.status !== parsed.data.status) {
+      return res.status(403).json({ error: "SELF_SIGN_OFF", message: "You cannot approve or reject your own cash-up." });
+    }
+    // Allow re-approval after a failed accounting posting (retry path).
+    const sameStatus = existing.status === parsed.data.status;
+    const failedPosting = sameStatus && parsed.data.status === "approved" && existing.accountingStatus === "failed";
+    if (sameStatus && !failedPosting) {
+      return res.status(409).json({ error: "ALREADY_SIGNED_OFF", message: `Reconciliation is already ${parsed.data.status}.` });
+    }
+
+    const [updated] = await db.update(busReconciliations)
+      .set({
+        status: parsed.data.status,
+        adminNotes: parsed.data.adminNotes ?? existing.adminNotes,
+        signedOffBy: userId ?? existing.signedOffBy,
+        signedOffAt: parsed.data.status === "approved" ? new Date() : existing.signedOffAt,
+      })
+      .where(eq(busReconciliations.id, reconciliationId))
+      .returning();
+
+    if (parsed.data.status === "approved") {
+      await postBusReconciliationAccounting(updated, db);
+    }
+
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
 // --- REPORTS ---
 
 router.get("/reports/summary", async (req, res) => {
   try {
     const companyId = getTargetCompanyId(req);
-    const from = req.query.from ? new Date(String(req.query.from)) : new Date(new Date().setHours(0, 0, 0, 0));
-    const to = req.query.to ? new Date(String(req.query.to)) : new Date(new Date().setHours(23, 59, 59, 999));
+    // Default to the current Harare day (UTC+2) when no explicit range is given.
+    const now = new Date();
+    const harareNow = new Date(now.getTime() + HARARE_OFFSET_MS);
+    const todayKey = harareNow.toISOString().slice(0, 10);
+    const todayStartUtc = new Date(`${todayKey}T00:00:00.000Z`).getTime() - HARARE_OFFSET_MS;
+    const from = req.query.from ? new Date(String(req.query.from)) : new Date(todayStartUtc);
+    const to = req.query.to ? new Date(String(req.query.to)) : new Date(todayStartUtc + 86400000 - 1);
 
     if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
       return res.status(400).json({ error: "VALIDATION_ERROR", message: "Invalid date range" });
@@ -493,6 +782,7 @@ router.get("/reports/summary", async (req, res) => {
       ticketNumber: busTickets.ticketNumber,
       quantity: busTickets.quantity,
       amount: busTickets.amount,
+      currency: busTickets.currency,
       paymentMethod: busTickets.paymentMethod,
       accountingStatus: busTickets.accountingStatus,
       accountingError: busTickets.accountingError,
@@ -529,18 +819,24 @@ router.get("/reports/summary", async (req, res) => {
     const totals = rows.reduce((acc, row) => {
       acc.tickets += 1;
       acc.passengers += Number(row.quantity || 1);
-      acc.revenue += Number(row.amount || 0);
+      const amount = Number(row.amount || 0);
+      acc.revenue += amount;
+      const currency = row.currency || "USD";
+      acc.byCurrency[currency] = (acc.byCurrency[currency] || 0) + amount;
       return acc;
-    }, { tickets: 0, passengers: 0, revenue: 0 });
+    }, { tickets: 0, passengers: 0, revenue: 0, byCurrency: {} as Record<string, number> });
 
     const summarize = (keyFn: (row: typeof rows[number]) => string, labelFn: (row: typeof rows[number]) => string) => {
-      const map = new Map<string, { id: string; label: string; tickets: number; passengers: number; revenue: number }>();
+      const map = new Map<string, { id: string; label: string; tickets: number; passengers: number; revenue: number; byCurrency: Record<string, number> }>();
       for (const row of rows) {
         const id = keyFn(row);
-        const current = map.get(id) || { id, label: labelFn(row), tickets: 0, passengers: 0, revenue: 0 };
+        const current = map.get(id) || { id, label: labelFn(row), tickets: 0, passengers: 0, revenue: 0, byCurrency: {} };
         current.tickets += 1;
         current.passengers += Number(row.quantity || 1);
-        current.revenue += Number(row.amount || 0);
+        const amount = Number(row.amount || 0);
+        current.revenue += amount;
+        const currency = row.currency || "USD";
+        current.byCurrency[currency] = (current.byCurrency[currency] || 0) + amount;
         map.set(id, current);
       }
       return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue);
@@ -757,8 +1053,8 @@ router.get("/reports/summary", async (req, res) => {
       .leftJoin(users, eq(busReconciliations.conductorId, users.id))
       .where(and(
         eq(busReconciliations.companyId, companyId),
-        gte(busReconciliations.date, from.toISOString().slice(0, 10)),
-        lte(busReconciliations.date, to.toISOString().slice(0, 10))
+        gte(busReconciliations.date, toHarareDateKey(from)),
+        lte(busReconciliations.date, toHarareDateKey(to))
       ));
 
     const conductorVarianceMap = new Map<string, { id: string; label: string; expectedCash: number; cashReceived: number; variance: number; reconciliations: number; exceptions: number }>();
@@ -1056,25 +1352,102 @@ router.post("/sync", async (req, res) => {
         }
       }
 
+      let insertedShifts = 0;
+      let skippedShifts = 0;
       if (shifts.length > 0) {
-        await tx.insert(busShifts).values(shifts.map(s => ({ ...s, companyId })));
-      }
-      if (reconciliations.length > 0) {
-        const insertedReconciliations = await tx.insert(busReconciliations)
-          .values(reconciliations.map(r => ({ ...r, companyId })))
-          .returning();
-        for (const reconciliation of insertedReconciliations) {
-          await postBusReconciliationAccounting(reconciliation, tx);
+        const shiftKeys = shifts.map((s) => ({
+          conductorId: s.conductorId,
+          startTime: new Date(s.startTime),
+        }));
+        const existingShiftRows = await tx.select({
+          id: busShifts.id,
+          conductorId: busShifts.conductorId,
+          startTime: busShifts.startTime,
+        })
+          .from(busShifts)
+          .where(and(
+            eq(busShifts.companyId, companyId),
+            inArray(busShifts.conductorId, shiftKeys.map((k) => k.conductorId))
+          ));
+
+        const existingShiftMap = new Set(existingShiftRows.map((row) =>
+          `${row.conductorId}|${row.startTime instanceof Date ? row.startTime.getTime() : new Date(row.startTime).getTime()}`
+        ));
+
+        for (const shift of shifts) {
+          const key = `${shift.conductorId}|${new Date(shift.startTime).getTime()}`;
+          if (existingShiftMap.has(key)) {
+            skippedShifts += 1;
+            continue;
+          }
+          const [inserted] = await tx.insert(busShifts)
+            .values({ ...shift, companyId })
+            .returning();
+          if (inserted) {
+            insertedShifts += 1;
+            existingShiftMap.add(key);
+          }
         }
       }
 
-      return { insertedTickets, skippedTickets, rejectedTickets };
+      let insertedReconciliations = 0;
+      let skippedReconciliations = 0;
+      if (reconciliations.length > 0) {
+        const existingReconRows = await tx.select({
+          id: busReconciliations.id,
+          conductorId: busReconciliations.conductorId,
+          date: busReconciliations.date,
+        })
+          .from(busReconciliations)
+          .where(and(
+            eq(busReconciliations.companyId, companyId),
+            inArray(busReconciliations.conductorId, reconciliations.map((r) => r.conductorId))
+          ));
+
+        const existingReconMap = new Set(existingReconRows.map((row) =>
+          `${row.conductorId}|${row.date}`
+        ));
+
+        for (const reconciliation of reconciliations) {
+          const key = `${reconciliation.conductorId}|${reconciliation.date}`;
+          if (existingReconMap.has(key)) {
+            skippedReconciliations += 1;
+            continue;
+          }
+          // Devices cannot approve/reject their own cash-ups — always land as pending
+          // until a company admin signs off via the web approval flow.
+          const [inserted] = await tx.insert(busReconciliations)
+            .values({
+              ...reconciliation,
+              companyId,
+              status: "pending",
+              signedOffBy: null,
+              signedOffAt: null,
+            })
+            .returning();
+          if (inserted) {
+            insertedReconciliations += 1;
+            existingReconMap.add(key);
+            await postBusReconciliationAccounting(inserted, tx);
+          }
+        }
+      }
+
+      return { insertedTickets, skippedTickets, rejectedTickets, insertedShifts, skippedShifts, insertedReconciliations, skippedReconciliations };
     });
 
     res.json({
       success: syncResult.rejectedTickets.length === 0,
-      synced: { tickets: syncResult.insertedTickets, shifts: shifts.length, reconciliations: reconciliations.length },
-      skipped: { tickets: syncResult.skippedTickets },
+      synced: {
+        tickets: syncResult.insertedTickets,
+        shifts: syncResult.insertedShifts,
+        reconciliations: syncResult.insertedReconciliations,
+      },
+      skipped: {
+        tickets: syncResult.skippedTickets,
+        shifts: syncResult.skippedShifts,
+        reconciliations: syncResult.skippedReconciliations,
+      },
       rejected: { tickets: syncResult.rejectedTickets },
     });
   } catch (err: any) {

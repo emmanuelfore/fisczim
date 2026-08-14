@@ -16,9 +16,10 @@ import {
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useBusTicketing } from '../../hooks/useBusTicketing';
-import { BusRoute, TicketFieldConfig } from '../../types/busTicketing';
+import { BusRoute, DropOffPoint, TicketFieldConfig } from '../../types/busTicketing';
 import { DoneTextInput as TextInput } from '../../ui/DoneTextInput';
 import { type BusColors, useBusColors } from './theme';
+import { ZIMBABWE_CITIES } from '../../../../shared/zimbabwe-cities';
 
 function uuid(): string {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -45,6 +46,9 @@ interface RouteFormState {
   currency: 'USD' | 'ZWG';
   config: TicketFieldConfig;
   newStop: string;
+  newStopPrice: string;
+  showOriginPicker: boolean;
+  showDestinationPicker: boolean;
 }
 
 interface Props {
@@ -66,6 +70,9 @@ export function BusRouteAdminScreen({ onClose, companyId }: Props) {
     currency: 'USD',
     config: { ...DEFAULT_CONFIG, dropOffPoints: [] },
     newStop: '',
+    newStopPrice: '',
+    showOriginPicker: false,
+    showDestinationPicker: false,
   });
   const swipeX = useRef<Map<string, Animated.Value>>(new Map()).current;
 
@@ -83,6 +90,9 @@ export function BusRouteAdminScreen({ onClose, companyId }: Props) {
       currency: 'USD',
       config: { ...DEFAULT_CONFIG, dropOffPoints: [] },
       newStop: '',
+      newStopPrice: '',
+      showOriginPicker: false,
+      showDestinationPicker: false,
     });
     setModalVisible(true);
   }
@@ -94,8 +104,18 @@ export function BusRouteAdminScreen({ onClose, companyId }: Props) {
       destination: route.destination,
       price: String(route.price),
       currency: route.currency,
-      config: { ...route.config, dropOffPoints: [...route.config.dropOffPoints] },
+      config: { 
+        ...route.config, 
+        dropOffPoints: Array.isArray(route.config.dropOffPoints) 
+          ? route.config.dropOffPoints.map((stop: any) => 
+              typeof stop === 'string' ? { name: stop, price: route.price } : stop
+            )
+          : [] 
+      },
       newStop: '',
+      newStopPrice: '',
+      showOriginPicker: false,
+      showDestinationPicker: false,
     });
     setModalVisible(true);
   }
@@ -111,6 +131,21 @@ export function BusRouteAdminScreen({ onClose, companyId }: Props) {
       return;
     }
     const name = `${form.origin.trim()} → ${form.destination.trim()}`;
+    
+    // Check for duplicate routes (only for new routes, not edits)
+    if (!editingRoute) {
+      const isDuplicate = routes.some(
+        (route) =>
+          (route.origin === form.origin.trim() && route.destination === form.destination.trim()) ||
+          (route.origin === form.destination.trim() && route.destination === form.origin.trim())
+      );
+      
+      if (isDuplicate) {
+        Alert.alert('Duplicate Route', 'A route between these cities already exists.');
+        return;
+      }
+    }
+    
     try {
       if (editingRoute) {
         await updateRoute(editingRoute.id, {
@@ -166,20 +201,21 @@ export function BusRouteAdminScreen({ onClose, companyId }: Props) {
     ]);
   }
 
-  function setConfigField(key: keyof TicketFieldConfig, value: boolean | string[]) {
+  function setConfigField(key: keyof TicketFieldConfig, value: boolean | string[] | DropOffPoint[]) {
     setForm((prev) => ({ ...prev, config: { ...prev.config, [key]: value } }));
   }
 
   function addStop() {
     const stop = form.newStop.trim();
+    const price = parseFloat(form.newStopPrice) || 0;
     if (!stop) return;
-    if (form.config.dropOffPoints.includes(stop)) return;
-    setConfigField('dropOffPoints', [...form.config.dropOffPoints, stop]);
-    setForm((prev) => ({ ...prev, newStop: '' }));
+    if (form.config.dropOffPoints.some((s: any) => s.name === stop)) return;
+    setConfigField('dropOffPoints', [...form.config.dropOffPoints, { name: stop, price }]);
+    setForm((prev) => ({ ...prev, newStop: '', newStopPrice: '' }));
   }
 
-  function removeStop(stop: string) {
-    setConfigField('dropOffPoints', form.config.dropOffPoints.filter((s) => s !== stop));
+  function removeStop(stopName: string) {
+    setConfigField('dropOffPoints', form.config.dropOffPoints.filter((s: any) => s.name !== stopName));
   }
 
   const routeName = form.origin && form.destination
@@ -286,22 +322,26 @@ export function BusRouteAdminScreen({ onClose, companyId }: Props) {
               <Text style={styles.routeNamePreview}>{routeName}</Text>
 
               <Text style={styles.label}>Origin</Text>
-              <TextInput
+              <TouchableOpacity
                 style={styles.input}
-                placeholder="e.g. Harare"
-                placeholderTextColor={C.muted}
-                value={form.origin}
-                onChangeText={(v) => setForm((p) => ({ ...p, origin: v }))}
-              />
+                onPress={() => setForm((p) => ({ ...p, showOriginPicker: true }))}
+              >
+                <Text style={[styles.inputText, form.origin ? styles.inputTextActive : styles.inputTextPlaceholder]}>
+                  {form.origin || 'Select origin city'}
+                </Text>
+                <MaterialCommunityIcons name="chevron-down" size={20} color={C.muted} />
+              </TouchableOpacity>
 
               <Text style={styles.label}>Destination</Text>
-              <TextInput
+              <TouchableOpacity
                 style={styles.input}
-                placeholder="e.g. Bulawayo"
-                placeholderTextColor={C.muted}
-                value={form.destination}
-                onChangeText={(v) => setForm((p) => ({ ...p, destination: v }))}
-              />
+                onPress={() => setForm((p) => ({ ...p, showDestinationPicker: true }))}
+              >
+                <Text style={[styles.inputText, form.destination ? styles.inputTextActive : styles.inputTextPlaceholder]}>
+                  {form.destination || 'Select destination city'}
+                </Text>
+                <MaterialCommunityIcons name="chevron-down" size={20} color={C.muted} />
+              </TouchableOpacity>
 
               <Text style={styles.label}>Price</Text>
               <View style={styles.priceRow}>
@@ -356,10 +396,13 @@ export function BusRouteAdminScreen({ onClose, companyId }: Props) {
                   {/* Drop-off sub-section */}
                   {key === 'dropOffPoint' && form.config.dropOffPoint && (
                     <View style={styles.subSection}>
-                      {form.config.dropOffPoints.map((stop) => (
-                        <View key={stop} style={styles.stopChip}>
-                          <Text style={styles.stopChipText}>{stop}</Text>
-                          <TouchableOpacity onPress={() => removeStop(stop)}>
+                      {form.config.dropOffPoints.map((stop: any) => (
+                        <View key={stop.name} style={styles.stopChip}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.stopChipText}>{stop.name}</Text>
+                            <Text style={styles.stopPriceText}>{form.currency} {stop.price.toFixed(2)}</Text>
+                          </View>
+                          <TouchableOpacity onPress={() => removeStop(stop.name)}>
                             <MaterialCommunityIcons name="close" size={14} color={C.muted} />
                           </TouchableOpacity>
                         </View>
@@ -367,10 +410,20 @@ export function BusRouteAdminScreen({ onClose, companyId }: Props) {
                       <View style={styles.addStopRow}>
                         <TextInput
                           style={[styles.input, { flex: 1, marginBottom: 0, height: 40 }]}
-                          placeholder="Add stop name"
+                          placeholder="Stop name"
                           placeholderTextColor={C.muted}
                           value={form.newStop}
                           onChangeText={(v) => setForm((p) => ({ ...p, newStop: v }))}
+                          onSubmitEditing={addStop}
+                          returnKeyType="next"
+                        />
+                        <TextInput
+                          style={[styles.input, { width: 80, marginBottom: 0, height: 40 }]}
+                          placeholder="Price"
+                          placeholderTextColor={C.muted}
+                          keyboardType="decimal-pad"
+                          value={form.newStopPrice}
+                          onChangeText={(v) => setForm((p) => ({ ...p, newStopPrice: v }))}
                           onSubmitEditing={addStop}
                           returnKeyType="done"
                         />
@@ -392,6 +445,64 @@ export function BusRouteAdminScreen({ onClose, companyId }: Props) {
               <TouchableOpacity style={styles.cancelBtn} onPress={() => setModalVisible(false)}>
                 <Text style={styles.cancelBtnText}>Cancel</Text>
               </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Origin City Picker Modal */}
+      <Modal visible={form.showOriginPicker} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>Select Origin</Text>
+              <TouchableOpacity onPress={() => setForm((p) => ({ ...p, showOriginPicker: false }))}>
+                <MaterialCommunityIcons name="close" size={22} color={C.muted} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {ZIMBABWE_CITIES.map((city) => (
+                <TouchableOpacity
+                  key={city}
+                  style={[styles.cityItem, form.origin === city && styles.cityItemActive]}
+                  onPress={() => setForm((p) => ({ ...p, origin: city, showOriginPicker: false }))}
+                >
+                  <Text style={[styles.cityText, form.origin === city && styles.cityTextActive]}>{city}</Text>
+                  {form.origin === city && (
+                    <MaterialCommunityIcons name="check" size={20} color={C.amber} />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Destination City Picker Modal */}
+      <Modal visible={form.showDestinationPicker} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>Select Destination</Text>
+              <TouchableOpacity onPress={() => setForm((p) => ({ ...p, showDestinationPicker: false }))}>
+                <MaterialCommunityIcons name="close" size={22} color={C.muted} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {ZIMBABWE_CITIES.map((city) => (
+                <TouchableOpacity
+                  key={city}
+                  style={[styles.cityItem, form.destination === city && styles.cityItemActive]}
+                  onPress={() => setForm((p) => ({ ...p, destination: city, showDestinationPicker: false }))}
+                >
+                  <Text style={[styles.cityText, form.destination === city && styles.cityTextActive]}>{city}</Text>
+                  {form.destination === city && (
+                    <MaterialCommunityIcons name="check" size={20} color={C.amber} />
+                  )}
+                </TouchableOpacity>
+              ))}
             </ScrollView>
           </View>
         </View>
@@ -450,8 +561,18 @@ const makeStyles = (C: BusColors) => StyleSheet.create({
   input: {
     backgroundColor: C.bg, color: C.white, borderWidth: 1, borderColor: C.border,
     borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12,
-    fontSize: 15, marginBottom: 16,
+    fontSize: 15, marginBottom: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
   },
+  inputText: { fontSize: 15, flex: 1 },
+  inputTextActive: { color: C.white },
+  inputTextPlaceholder: { color: C.muted },
+  cityItem: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 16, paddingHorizontal: 20, borderBottomWidth: 1, borderBottomColor: C.border,
+  },
+  cityItemActive: { backgroundColor: C.amberSoft },
+  cityText: { fontSize: 16, fontWeight: '600', color: C.white },
+  cityTextActive: { color: C.amber },
   priceRow: { flexDirection: 'row', gap: 8, marginBottom: 16, alignItems: 'center' },
   pill: {
     paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10,
@@ -480,6 +601,7 @@ const makeStyles = (C: BusColors) => StyleSheet.create({
     backgroundColor: C.surface, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8,
   },
   stopChipText: { color: C.white, fontSize: 13 },
+  stopPriceText: { color: C.amber, fontSize: 11, marginTop: 2 },
   addStopRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   addStopBtn: {
     backgroundColor: C.amber, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 10,

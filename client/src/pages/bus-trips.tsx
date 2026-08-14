@@ -76,7 +76,7 @@ const tripFormSchema = z.object({
   status: z.string().default("scheduled"),
 });
 
-function CreateTripDialog({ companyId }: { companyId: number }) {
+function CreateTripDialog({ companyId, existingTrips }: { companyId: number; existingTrips?: any[] }) {
   const [open, setOpen] = useState(false);
   const createTrip = useCreateBusTrip();
   const { data: routes } = useBusRoutes(companyId);
@@ -118,6 +118,31 @@ function CreateTripDialog({ companyId }: { companyId: number }) {
   });
 
   const onSubmit = async (data: any) => {
+    // Check for duplicate trips (same route, vehicle, and time slot)
+    const tripDate = new Date(data.scheduledDeparture);
+    const tripDateStr = tripDate.toISOString().split('T')[0];
+    
+    const isDuplicate = existingTrips?.some((trip: any) => {
+      const existingDate = new Date(trip.scheduledDeparture);
+      const existingDateStr = existingDate.toISOString().split('T')[0];
+      
+      // Check same route, vehicle, and date
+      return (
+        trip.routeId === data.routeId &&
+        trip.vehicleId === data.vehicleId &&
+        existingDateStr === tripDateStr &&
+        trip.status !== 'cancelled' &&
+        trip.status !== 'completed'
+      );
+    });
+    
+    if (isDuplicate) {
+      form.setError("root", {
+        message: "A trip for this route and vehicle already exists on this date",
+      });
+      return;
+    }
+
     try {
       await createTrip.mutateAsync(data);
       setOpen(false);
@@ -314,7 +339,7 @@ export default function BusTripsPage() {
   const { toast } = useToast();
   const busSettings = normalizeBusSettings((activeCompany as any)?.busSettings);
   const canManageTrips = isBusFeatureEnabled(busSettings, "tripManagement");
-  const { data: trips, isLoading } = useBusTrips(companyId);
+  const { data: trips, isLoading, isError } = useBusTrips(companyId);
   const { data: routes } = useBusRoutes(companyId);
   const { data: vehicles } = useBusVehicles(companyId);
   const updateTripStatus = useUpdateBusTripStatus();
@@ -396,7 +421,7 @@ export default function BusTripsPage() {
         title="Trip Scheduling"
         subtitle="Manage and track active bus trips"
         actions={
-          canManageTrips ? <CreateTripDialog companyId={companyId} /> : null
+          canManageTrips ? <CreateTripDialog companyId={companyId} existingTrips={trips || []} /> : null
         }
       />
 
@@ -431,6 +456,7 @@ export default function BusTripsPage() {
                   <th className="px-6 py-4">Trip Details</th>
                   <th className="px-6 py-4">Vehicle</th>
                   <th className="px-6 py-4">Schedule</th>
+                  <th className="px-6 py-4">Location</th>
                   <th className="px-6 py-4">Status</th>
                   <th className="px-6 py-4 text-right">Actions</th>
                 </tr>
@@ -438,13 +464,19 @@ export default function BusTripsPage() {
               <tbody className="divide-y divide-slate-50">
                 {isLoading ? (
                   <tr>
-                    <td colSpan={5} className="h-32 text-center text-slate-400">
+                    <td colSpan={6} className="h-32 text-center text-slate-400">
                       Loading trips...
+                    </td>
+                  </tr>
+                ) : isError ? (
+                  <tr>
+                    <td colSpan={6} className="h-32 text-center text-red-500">
+                      Failed to load trips. Check your connection and try again.
                     </td>
                   </tr>
                 ) : filteredTrips?.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="h-32 text-center text-slate-400">
+                    <td colSpan={6} className="h-32 text-center text-slate-400">
                       No trips found
                     </td>
                   </tr>
@@ -503,6 +535,23 @@ export default function BusTripsPage() {
                               {format(new Date(t.scheduledDeparture), "h:mm a")}
                             </div>
                           </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          {t.currentLatitude && t.currentLongitude ? (
+                            <div className="flex flex-col gap-1">
+                              <div className="text-xs font-semibold text-slate-600 flex items-center gap-1.5">
+                                <MapPin className="w-3 h-3 text-blue-500" />
+                                {t.currentLatitude.toFixed(4)}, {t.currentLongitude.toFixed(4)}
+                              </div>
+                              {t.lastLocationUpdate && (
+                                <div className="text-[10px] text-slate-400 font-medium">
+                                  {format(new Date(t.lastLocationUpdate), "HH:mm")}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-xs text-slate-400">No location data</span>
+                          )}
                         </td>
                         <td className="px-6 py-4">
                           <span

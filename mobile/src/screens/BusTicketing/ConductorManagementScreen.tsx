@@ -37,7 +37,7 @@ export function ConductorManagementScreen({ onClose, companyId }: Props) {
   const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');
   const [phone, setPhone] = useState('');
-  const [password, setPassword] = useState('Zimra123!');
+  const [password, setPassword] = useState('');
 
   const syncCashierToConductor = useCallback(async (user: any) => {
     const conductor: Conductor = {
@@ -104,12 +104,12 @@ export function ConductorManagementScreen({ onClose, companyId }: Props) {
   }, [cashiers, conductorById, conductors, search]);
 
   function openCreate() {
-    setEditing(null); setName(''); setEmail(''); setUsername(''); setPhone(''); setPassword('Zimra123!');
+    setEditing(null); setName(''); setEmail(''); setUsername(''); setPhone(''); setPassword('');
     setModalVisible(true);
   }
 
   function openEdit(c: Conductor) {
-    setEditing(c); setName(c.name); setEmail(''); setUsername(''); setPhone(c.phone ?? ''); setPassword('Zimra123!');
+    setEditing(c); setName(c.name); setEmail(''); setUsername(''); setPhone(c.phone ?? ''); setPassword('');
     setModalVisible(true);
   }
 
@@ -126,6 +126,10 @@ export function ConductorManagementScreen({ onClose, companyId }: Props) {
         Alert.alert('Email required', 'Enter the cashier email address for this conductor.');
         return;
       }
+      if (!password.trim() || password.trim().length < 6) {
+        Alert.alert('Password required', 'Enter a password (at least 6 characters) for the new cashier account.');
+        return;
+      }
       if (!companyId) {
         Alert.alert('Company missing', 'Select a company before adding conductors.');
         return;
@@ -136,7 +140,7 @@ export function ConductorManagementScreen({ onClose, companyId }: Props) {
           email: email.trim(),
           name: name.trim(),
           username: username.trim() || email.trim().split('@')[0],
-          password: password.trim() || 'Zimra123!',
+          password: password.trim(),
           role: 'cashier',
         }),
       });
@@ -145,7 +149,7 @@ export function ConductorManagementScreen({ onClose, companyId }: Props) {
         throw new Error(text || 'Could not create cashier account.');
       }
       setModalVisible(false);
-      setName(''); setEmail(''); setUsername(''); setPhone(''); setPassword('Zimra123!');
+      setName(''); setEmail(''); setUsername(''); setPhone(''); setPassword('');
       await loadCashiers();
       Alert.alert('Conductor added', 'Cashier account created and added as a conductor.');
     } catch (e: any) {
@@ -267,7 +271,7 @@ export function ConductorManagementScreen({ onClose, companyId }: Props) {
                 />
                 <Text style={styles.label}>Initial Password</Text>
                 <TextInput
-                  style={styles.input} placeholder="Zimra123!"
+                  style={styles.input} placeholder="Min 6 characters"
                   placeholderTextColor={C.muted} value={password}
                   onChangeText={setPassword} secureTextEntry
                 />

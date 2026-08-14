@@ -88,9 +88,12 @@ export function PrinterSettingsModal({ visible, onClose }: Props) {
     await updateConfig(draft);
 
     try {
-      await executePrint(testData as any);
+      console.log(`[PrinterSettings] Test Print triggered with MAC: ${draft.macAddress}`);
+      // Pass the draft directly as forceConfig since state hasn't updated yet in this macro-task
+      await executePrint(testData as any, draft);
       Alert.alert("Success", "Test print sent!");
     } catch (error: any) {
+      console.error("[PrinterSettings] Test print failed:", error);
       Alert.alert("Print Failed", error.message || "Test print failed. Check your printer connection.");
     }
   };

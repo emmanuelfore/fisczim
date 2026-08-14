@@ -47,12 +47,15 @@ export function ShiftSummaryScreen({ onClose, companyId, shiftStartTime }: Props
           setClosing(true);
           try {
             const now = new Date();
+            const startTime = shiftStartTime
+              ? fmtTime24(new Date(shiftStartTime))
+              : fmtTime24(activeTrip.actualDeparture ? new Date(activeTrip.actualDeparture) : today);
             const record: ShiftRecord = {
               id: uuid(),
               conductorId: activeConductor?.id,
               conductorName: activeConductor?.name,
               date: today.toISOString().slice(0, 10),
-              shiftStart: shiftStartTime ?? fmtTime24(today),
+              shiftStart: startTime,
               shiftEnd: fmtTime24(now),
               vehicleId: activeTrip.vehicleId,
               tripId: activeTrip.id,

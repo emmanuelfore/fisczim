@@ -82,10 +82,9 @@ export function createRolesPermissionsRouter(
         permissions: z.array(z.string()).default([]),
       }).parse(req.body);
 
-      const invalid = body.permissions.filter((p) => !ALL_PERMISSION_KEYS.includes(p));
-      if (invalid.length > 0) {
-        return res.status(400).json({ message: `Invalid permissions: ${invalid.join(", ")}` });
-      }
+      // Drop unknown/stale permission keys (e.g. legacy keys no longer in the
+      // catalog) instead of failing the whole save.
+      body.permissions = body.permissions.filter((p) => ALL_PERMISSION_KEYS.includes(p));
 
       const role = await storage.createCompanyRole(companyId, body);
       res.status(201).json(role);
@@ -106,10 +105,8 @@ export function createRolesPermissionsRouter(
       }).parse(req.body);
 
       if (body.permissions) {
-        const invalid = body.permissions.filter((p) => !ALL_PERMISSION_KEYS.includes(p));
-        if (invalid.length > 0) {
-          return res.status(400).json({ message: `Invalid permissions: ${invalid.join(", ")}` });
-        }
+        // Drop unknown/stale permission keys instead of failing the whole save.
+        body.permissions = body.permissions.filter((p) => ALL_PERMISSION_KEYS.includes(p));
       }
 
       const role = await storage.updateCompanyRole(roleId, companyId, body);

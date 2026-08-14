@@ -3,6 +3,8 @@
 *
 !mobile
 !mobile/**
+!shared
+!shared/**
 !.easignore
 
 # Mobile-local caches and generated output.

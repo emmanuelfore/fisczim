@@ -203,7 +203,7 @@ export const LEGACY_ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     "nav.pos",
     "nav.bus",
     "pos.sell", "pos.shift",
-    "bus.view", "bus.operations",
+    "bus.view", "bus.operations", "bus.setup", "bus.reports",
   ],
 
   manufacturing: [

@@ -10,6 +10,7 @@ import {
 import { eq, and, desc, gte, lte, inArray, sql } from "drizzle-orm";
 import { postBusReconciliationAccounting, postBusTicketAccounting, voidBusTicketAccounting } from "../../lib/bus-accounting.js";
 import { userHasPermission } from "../../lib/permissions.js";
+import { storage } from "../../storage.js";
 
 const router = Router({ mergeParams: true });
 
@@ -198,7 +199,29 @@ router.use(async (req: any, res, next) => {
     if (!userId && !isApiKey) {
       return res.status(401).json({ error: "UNAUTHORIZED", message: "User context missing" });
     }
-    const hasBusAccess = isApiKey || req.user?.isSuperAdmin || await userHasPermission(userId, companyId, "bus.view", false);
+    let hasBusAccess = isApiKey || req.user?.isSuperAdmin;
+    if (!hasBusAccess && userId) {
+      hasBusAccess = await userHasPermission(userId, companyId, "bus.view", false);
+      if (!hasBusAccess) {
+        const membership = await storage.getCompanyMembership(userId, companyId);
+        if (!membership) {
+          // Auto-link authenticated users who operate this company's bus module
+          // (e.g. conductors signing in on the mobile app whose Supabase user
+          // auto-registered without a company membership).
+          try {
+            await storage.addUserToCompany(userId, companyId, "cashier");
+          } catch (linkErr: any) {
+            // Ignore duplicate-membership races; the user is now (or already was) linked.
+            if (!String(linkErr?.message || "").includes("duplicate")) {
+              console.error("[BusTicketing] Auto-link failed:", linkErr?.message || linkErr);
+            }
+          }
+          hasBusAccess = await userHasPermission(userId, companyId, "bus.view", false);
+        } else {
+          hasBusAccess = true;
+        }
+      }
+    }
     if (!hasBusAccess) {
       return res.status(403).json({ error: "FORBIDDEN", message: "Bus ticketing permission required" });
     }

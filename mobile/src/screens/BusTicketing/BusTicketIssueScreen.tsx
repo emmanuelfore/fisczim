@@ -240,7 +240,6 @@ export function BusTicketIssueScreen({ onClose, companyId, company }: Props) {
                   const stopName = typeof value === 'string' ? value : value?.name;
                   return stopName && list.findIndex((v: any) => (typeof v === 'string' ? v : v?.name) === stopName) === index;
                 })
-                .slice(0, 6)
                 .map((stop: any) => {
                   const stopName = typeof stop === 'string' ? stop : stop?.name;
                   const stopPrice = typeof stop === 'string' ? selectedRoute.price : stop?.price;
@@ -248,7 +247,7 @@ export function BusTicketIssueScreen({ onClose, companyId, company }: Props) {
                     <TouchableOpacity
                       key={stopName}
                       style={[styles.quickChip, dropOffPoint === stopName && styles.quickChipActive]}
-                      onPress={() => setDropOffPoint(stopName)}
+                      onPress={() => setDropOffPoint(dropOffPoint === stopName ? '' : stopName)}
                     >
                       <Text style={[styles.quickChipText, dropOffPoint === stopName && styles.quickChipTextActive]}>{stopName}</Text>
                       <Text style={[styles.quickChipPrice, dropOffPoint === stopName && styles.quickChipPriceActive]}>{selectedRoute.currency} {stopPrice.toFixed(2)}</Text>
@@ -385,7 +384,8 @@ export function BusTicketIssueScreen({ onClose, companyId, company }: Props) {
               </Text>
               {quantity > 1 && (
                 <Text style={styles.totalBreakdown}>
-                  {selectedRoute.price.toFixed(2)} × {quantity} passengers
+                  {getPriceForDropOff(selectedRoute, dropOffPoint).toFixed(2)} ×{' '}
+                  {quantity} passengers
                 </Text>
               )}
             </View>

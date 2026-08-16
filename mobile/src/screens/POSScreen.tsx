@@ -14,6 +14,8 @@ import {
   Image,
   Alert,
   Animated,
+  Easing,
+  useWindowDimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import NetInfo from "@react-native-community/netinfo";
@@ -54,17 +56,17 @@ import {
   Pause,
   MonitorSmartphone,
   Package,
-  FileText
+  FileText,
+  ArrowRight
 } from "lucide-react-native";
 import { usePrinter } from "../hooks/usePrinter";
 import { PrinterSettingsModal } from "../ui/PrinterSettingsModal";
 import { StatusBar } from "expo-status-bar";
 import { useTheme, hexAlpha } from "../ui/PremiumColors";
 import * as Haptics from "expo-haptics";
-import { playCheckoutSound } from "../lib/checkoutSound";
+import { playCheckoutSound, playAddToCartSound } from "../lib/checkoutSound";
 import { resolveMediaUrl } from "../lib/media";
 import { useFrequentItems } from "../hooks/useFrequentItems";
-import { Swipeable } from "react-native-gesture-handler";
 import { useProducts, useCreateInvoice, useCustomers, useCompany, useCurrencies, useTaxTypes, useBranches } from "../hooks/usePosData";
 import { apiFetch } from "../lib/api";
 import { DoneTextInput as TextInput } from "../ui/DoneTextInput";
@@ -93,6 +95,11 @@ const CAT_PALETTE = [
 ];
 
 const PROD_EMOJIS = ["📦", "💼", "🏷️", "📋", "🗂️", "🔑", "⚙️", "🛠️", "🧩", "💡", "🎯", "🖥️", "📱", "🔧", "🗃️", "💎"];
+
+/** Units sold by weight/volume — quantity is a decimal amount, price is per unit (e.g. per kg). */
+const isWeighed = (p: any) => {
+  return p?.sellByWeight === true;
+};
 
 /** Convert hex color + 2-digit hex alpha to rgba() — Android 7 doesn't support 8-char hex */
 // hexAlpha moved to PremiumColors.tsx for global availability
@@ -150,6 +157,8 @@ interface CartItem {
   category?: string;
   stockLevel?: number;
   isTracked?: boolean;
+  unitOfMeasure?: string;
+  isWeighed?: boolean;
 }
 
 interface HeldSale {
@@ -175,20 +184,24 @@ const FlyingParticle = ({ startX, startY, endX, endY, onComplete, color, emoji }
   React.useEffect(() => {
     Animated.timing(anim, {
       toValue: 1,
-      duration: 550,
+      duration: 650,
+      easing: Easing.bezier(0.22, 1, 0.36, 1),
       useNativeDriver: true,
     }).start(onComplete);
   }, []);
 
+  const arcPeak = Math.min(startY, endY) - 60;
   const translateX = anim.interpolate({ inputRange: [0, 1], outputRange: [startX, endX] });
-  const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [startY, endY] });
-  const scale = anim.interpolate({ inputRange: [0, 0.2, 0.8, 1], outputRange: [0.5, 1.2, 1, 0.2] });
+  const translateY = anim.interpolate({ inputRange: [0, 0.45, 1], outputRange: [startY, arcPeak, endY] });
+  const scale = anim.interpolate({ inputRange: [0, 0.15, 0.85, 1], outputRange: [0.4, 1.15, 0.95, 0.15] });
   const rotate = anim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
+  const opacity = anim.interpolate({ inputRange: [0, 0.85, 1], outputRange: [0, 1, 0] });
 
   return (
     <Animated.View style={{
       position: 'absolute', left: 0, top: 0,
       transform: [{ translateX }, { translateY }, { scale }, { rotate }],
+      opacity,
       zIndex: 9999, backgroundColor: color,
       width: 26, height: 26, borderRadius: 13,
       alignItems: 'center', justifyContent: 'center',
@@ -223,6 +236,8 @@ const ProductImage = ({ url, fallbackColor, color }: { url: string; fallbackColo
 export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectionSignal = 0 }: Props) {
   const insets = useSafeAreaInsets();
   const { theme: C, isDark } = useTheme();
+  const { width: windowWidth } = useWindowDimensions();
+  const isWide = windowWidth >= 768;
 
   // Unified Brand Core
   const POS_SURFACE = C.bg.base; 
@@ -241,11 +256,13 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
   const cartIconRef = useRef<View>(null);
   const [cartPos, setCartPos] = useState<{ x: number; y: number } | null>(null);
   const cartBounceAnim = useRef(new Animated.Value(1)).current;
+  const [weightProduct, setWeightProduct] = useState<any | null>(null);
+  const [weightInput, setWeightInput] = useState("");
 
   const triggerCartBounce = () => {
     Animated.sequence([
-      Animated.timing(cartBounceAnim, { toValue: 1.15, duration: 100, useNativeDriver: true }),
-      Animated.spring(cartBounceAnim, { toValue: 1, friction: 3, tension: 40, useNativeDriver: true })
+      Animated.timing(cartBounceAnim, { toValue: 1.18, duration: 120, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+      Animated.spring(cartBounceAnim, { toValue: 1, friction: 3.5, tension: 60, useNativeDriver: true })
     ]).start();
   };
 
@@ -282,7 +299,6 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
   const [priceInputs, setPriceInputs] = useState<Record<number, string>>({});
   const [focusedPriceProductId, setFocusedPriceProductId] = useState<number | null>(null);
   const [selectedCustomerId, setSelectedCustomerId] = useState<number | null>(null);
-  const [paymentMethod, setPaymentMethod] = useState("CASH");
   const [selectedCurrency, setSelectedCurrency] = useState("USD");
   const [orderDiscount, setOrderDiscount] = useState(0);
   const [orderDiscountInput, setOrderDiscountInput] = useState("");
@@ -290,7 +306,6 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
   const [showOfflineQueue, setShowOfflineQueue] = useState(false);
   const [offlineQueueData, setOfflineQueueData] = useState<any[]>([]);
   const [showCustomerPicker, setShowCustomerPicker] = useState(false);
-  const [showCart, setShowCart] = useState(false);
   const [paidAmount, setPaidAmount] = useState("");
   const [saleDate, setSaleDate] = useState(formatLocalDateInput());
   const [showSaleDatePicker, setShowSaleDatePicker] = useState(false);
@@ -523,6 +538,13 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
     return `${currencyInfo.symbol}${converted.toFixed(2)}`;
   };
 
+  const fmtQty = (item: CartItem) => {
+    if (item.isWeighed) {
+      return `${Number(item.quantity).toFixed(3).replace(/\.?0+$/, "")} ${item.unitOfMeasure ?? ""}`.trim();
+    }
+    return String(item.quantity);
+  };
+
   const handleSaleDateChange = (value: string) => {
     const digits = value.replace(/\D/g, "").slice(0, 8);
     const parts = [
@@ -560,7 +582,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
   };
 
   useEffect(() => {
-    if (!showCheckout && !showCart) {
+    if (!showCheckout) {
       setPriceInputs({});
       setFocusedPriceProductId(null);
       return;
@@ -574,7 +596,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
       });
       return next;
     });
-  }, [showCart, showCheckout, cart, currencyInfo.rate, focusedPriceProductId]);
+  }, [showCheckout, cart, currencyInfo.rate, focusedPriceProductId]);
 
   const { subtotal, taxAmount } = useMemo(() => {
     try {
@@ -607,25 +629,36 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
     }
   }, [showCheckout, selectedCurrency, total, currencyInfo.rate, isAmountFocused]);
 
-  useEffect(() => {
-    if (paymentMethod === "CREDIT") {
-      setPaymentMethod("CASH");
-    }
-  }, [paymentMethod]);
-
   const selectedCustomer = resolvedCustomers.find((c: any) => c.id === selectedCustomerId);
   const isDefaultCustomerSelected = selectedCustomerId === defaultCustomerId;
 
-  const addToCart = (product: any, event?: any) => {
+  const addToCart = (product: any, event?: any, qty?: number) => {
+    if (isWeighed(product) && qty === undefined) {
+      setWeightProduct(product);
+      setWeightInput("");
+      return;
+    }
     const availableStock = Number(product.branchStock ?? product.stockLevel ?? 0);
     if (product.isTracked) {
       const inCart = cart.find((item: CartItem) => item.productId === product.id)?.quantity || 0;
-      if (inCart >= availableStock) {
+      const nextQty = inCart + (qty ?? 1);
+      if (nextQty > availableStock) {
         if (availableStock === 0) {
           Alert.alert("Out of Stock", `${product.name} is out of stock in this branch.`);
+        } else {
+          Alert.alert("Insufficient Stock", `Only ${availableStock} ${product.unitOfMeasure ?? "units"} available for ${product.name}.`);
         }
         return;
       }
+    }
+
+    // Spawn flying particle animation towards cart
+    if (event?.nativeEvent && cartPos) {
+      const { pageX, pageY } = event.nativeEvent;
+      const idx = (product.id || 0) % CAT_PALETTE.length;
+      const id = Date.now() + Math.random();
+      setFlyingItems(prev => [...prev, { id, x: pageX - 13, y: pageY - 13, color: CAT_PALETTE[idx], emoji: PROD_EMOJIS[idx] }]);
+      setTimeout(triggerCartBounce, 640);
     }
 
     const existing = cart.find((item: CartItem) => item.productId === product.id);
@@ -634,12 +667,14 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
     } else {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
+    playAddToCartSound().catch(() => {});
 
     setCart((prev: CartItem[]) => {
       const existingInPre = prev.find((item: CartItem) => item.productId === product.id);
+      const addQty = qty ?? 1;
       if (existingInPre) {
         return prev.map((item: CartItem) =>
-          item.productId === product.id ? { ...item, quantity: item.quantity + 1 } : item
+          item.productId === product.id ? { ...item, quantity: +(item.quantity + addQty).toFixed(3) } : item
         );
       }
       let taxRate = company?.vatRegistered ? Number(product.taxRate ?? 15) : 0;
@@ -649,9 +684,11 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
       }
       return [...prev, {
         productId: product.id, name: product.name, price: Number(product.price),
-        quantity: 1, discountAmount: 0, taxRate,
+        quantity: addQty, discountAmount: 0, taxRate,
         taxTypeId: product.taxTypeId, hsCode: product.hsCode, category: product.category,
-        stockLevel: availableStock, isTracked: product.isTracked
+        stockLevel: availableStock, isTracked: product.isTracked,
+        unitOfMeasure: product.unitOfMeasure ?? product.unit,
+        isWeighed: isWeighed(product),
       }];
     });
     // Record this product as frequently sold (fire-and-forget)
@@ -659,14 +696,36 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
   };
 
   const updateQuantity = (productId: number, delta: number, event?: any) => {
+    const item = cart.find((it: CartItem) => it.productId === productId);
+    if (!item) return;
+    const step = item.isWeighed ? 0.1 : 1;
+    const nextQty = +(item.quantity + delta * step).toFixed(3);
+    if (delta < 0 && nextQty < step) {
+      return;
+    }
+    if (delta > 0 && item.isTracked && nextQty > (item.stockLevel || 0)) {
+      return;
+    }
+
+    if (delta > 0 && event?.nativeEvent && cartPos) {
+      const { pageX, pageY } = event.nativeEvent;
+      const idx = productId % CAT_PALETTE.length;
+      const id = Date.now() + Math.random();
+      setFlyingItems(prev => [...prev, { id, x: pageX - 13, y: pageY - 13, color: CAT_PALETTE[idx], emoji: PROD_EMOJIS[idx] }]);
+      setTimeout(triggerCartBounce, 640);
+    }
+
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (delta > 0) {
+      playAddToCartSound().catch(() => {});
+    }
     setCart((prev: CartItem[]) =>
-      prev.map((item: CartItem) => {
-        if (item.productId !== productId) return item;
-        const newQty = item.quantity + delta;
-        if (newQty < 1) return item;
-        if (item.isTracked && newQty > (item.stockLevel || 0)) return item;
-        return { ...item, quantity: newQty };
+      prev.map((it: CartItem) => {
+        if (it.productId !== productId) return it;
+        const newQty = +(it.quantity + delta * step).toFixed(3);
+        if (newQty < step) return it;
+        if (it.isTracked && newQty > (it.stockLevel || 0)) return it;
+        return { ...it, quantity: newQty };
       })
     );
   };
@@ -674,6 +733,24 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
   const removeFromCart = (productId: number) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setCart((prev: CartItem[]) => prev.filter((item: CartItem) => item.productId !== productId));
+  };
+
+  const confirmWeightAdd = () => {
+    if (!weightProduct) return;
+    const amount = Number.parseFloat(weightInput.replace(",", "."));
+    const unitPrice = Number(weightProduct?.price ?? 0);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      Alert.alert("Invalid Amount", "Enter an amount greater than zero.");
+      return;
+    }
+    if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
+      Alert.alert("Invalid Price", "This item has no unit price set.");
+      return;
+    }
+    const weight = amount / unitPrice;
+    addToCart(weightProduct, undefined, +weight.toFixed(3));
+    setWeightProduct(null);
+    setWeightInput("");
   };
 
   const updateItemPrice = (productId: number, value: string) => {
@@ -1042,7 +1119,6 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
       setOrderDiscountInput("");
       setPaidAmount("");
       setHoldName("");
-      setShowCart(false);
     } catch (e: any) {
       Alert.alert("Error", e.message || "An unexpected error occurred.");
     } finally {
@@ -1054,16 +1130,18 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
     setCart(hold.cartData);
     setOrderDiscount(hold.orderDiscount || 0);
     setOrderDiscountInput((hold.orderDiscount || 0).toString());
-    setShowHoldsModal(false); setShowCart(true);
+    setShowHoldsModal(false);
+    handleCheckout(hold.cartData);
     try {
       if (!hold._offline) await apiFetch(`/api/pos/holds/${hold.id}`, { method: "DELETE" });
       await fetchHeldSales();
     } catch { /* ignore */ }
   };
 
-  const handleCheckout = async () => {
+  const handleCheckout = async (cartOverride?: CartItem[]) => {
     Keyboard.dismiss();
-    if (!cart.length) return;
+    const checkoutCart = cartOverride ?? cart;
+    if (!checkoutCart.length) return;
     if (!selectedCustomerId) {
       if (defaultCustomerId) {
         setSelectedCustomerId(defaultCustomerId);
@@ -1111,10 +1189,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
     if (!selectedCustomerId) return;
 
     // paid is in local currency, total is in base — compare in same unit
-    // CARD bypasses the amount check (amount is locked)
-    const paid = paymentMethod === "CARD"
-      ? total * currencyInfo.rate
-      : parseFloat(paidAmount || "0");
+    const paid = parseFloat(paidAmount || "0");
     if (paid < total * currencyInfo.rate - 0.001) return;
     const currencyObj = resolvedCurrencies.find((c: any) => c.code === selectedCurrency) || { code: "USD", exchangeRate: "1" };
     const issueDate = buildSaleIssueDate(saleDate);
@@ -1134,7 +1209,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
       branchId: selectedBranchId,
       subtotal: subtotal.toFixed(2), taxAmount: taxAmount.toFixed(2), total: total.toFixed(2),
       currency: currencyObj.code, exchangeRate: currencyObj.exchangeRate,
-      paymentMethod, status: "issued", notes: "POS Transaction (Mobile)",
+      paymentMethod: "CASH", status: "issued", notes: "POS Transaction (Mobile)",
       discountAmount: orderDiscount.toFixed(2), taxInclusive,
       transactionType: company?.vatRegistered ? "FiscalInvoice" : "Invoice",
       isPos: true,
@@ -1181,7 +1256,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
     // ── OPTIMISTIC UI: clear state and show success immediately ─────────────
     setLastInvoice(optimisticInvoice);
     setCart([]); setOrderDiscount(0); setOrderDiscountInput("");
-    setShowCheckout(false); setShowCart(false); setPaidAmount(""); setSaleDate(formatLocalDateInput());
+    setShowCheckout(false); setPaidAmount(""); setSaleDate(formatLocalDateInput());
     resetToDefaultCustomer();
     setIsSubmitting(false);
     if (printerConfig.autoShowModal) setShowSuccess(true);
@@ -1303,25 +1378,6 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
 
             <TouchableOpacity
               activeOpacity={0.82}
-              onPress={() => setShowCustomerPicker(true)}
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: 14,
-                backgroundColor: POS_SURFACE_RAISED,
-                alignItems: "center",
-                justifyContent: "center",
-                shadowColor: "#000",
-                shadowOpacity: 0.1,
-                shadowRadius: 6,
-                shadowOffset: { width: 0, height: 3 },
-                elevation: 3,
-              }}>
-              <User size={20} color={isDefaultCustomerSelected ? C.amber.primary : C.text.secondary} strokeWidth={2.2} />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              activeOpacity={0.82}
               onPress={() => setViewMode(prev => prev === "list" ? "grid" : "list")}
               style={{
                 width: 44,
@@ -1405,7 +1461,8 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
         </View>
 
         {/* Product list */}
-        <View style={{ flex: 1, paddingHorizontal: 14 }}>
+        <View style={{ flex: 1, flexDirection: isWide ? "row" : "column" }}>
+          <View style={{ flex: 1, paddingHorizontal: 14 }}>
           {loadingProducts ? (
             <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
               <ActivityIndicator color={C.amber.primary} />
@@ -1429,12 +1486,12 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
             </View>
           ) : (
             <FlatList
-              key={`pos-product-list-premium-${viewMode}`}
+              key={`pos-product-list-premium-${viewMode}-${isWide ? "wide" : "narrow"}`}
               data={filteredProducts}
-              numColumns={viewMode === "grid" ? 2 : 1}
+              numColumns={viewMode === "grid" ? (isWide ? 3 : 2) : 1}
               showsVerticalScrollIndicator={false}
               keyExtractor={(item: any) => item.id.toString()}
-              contentContainerStyle={{ paddingBottom: 118, paddingTop: 14 }}
+              contentContainerStyle={{ paddingBottom: isWide ? 18 : 118, paddingTop: 14 }}
               columnWrapperStyle={viewMode === "grid" ? { justifyContent: "space-between", marginBottom: 11 } : undefined}
               renderItem={({ item, index }: { item: any; index: number }) => {
                 const inCartItem = cart.find((c: CartItem) => c.productId === item.id);
@@ -1454,46 +1511,52 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                     activeOpacity={0.9}
                     onPress={(e) => !outOfStock && addToCart(item, e)}
                     style={{
-                      minHeight: 96,
-                      marginBottom: isGrid ? 0 : 11,
-                      paddingVertical: 12,
-                      paddingHorizontal: 14,
-                      borderRadius: 24,
+                      minHeight: isGrid ? 150 : 68,
+                      marginBottom: isGrid ? 0 : 12,
+                      paddingVertical: isGrid ? 12 : 12,
+                      paddingHorizontal: isGrid ? 14 : 12,
+                      borderRadius: isGrid ? 24 : 18,
                       flexDirection: isGrid ? "column" : "row",
-                      alignItems: isGrid ? "center" : "center",
-                      justifyContent: isGrid ? "center" : "flex-start",
-                      backgroundColor: C.bg.panel,
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      backgroundColor: isGrid ? C.bg.panel : C.bg.card,
                       opacity: outOfStock ? 0.42 : 1,
-                      flex: isGrid ? 0.48 : 0,
+                      flex: isGrid ? (isWide ? 0.31 : 0.48) : 1,
                       aspectRatio: isGrid ? 1 : undefined,
+                      gap: isGrid ? 0 : 12,
+                      shadowColor: "#000",
+                      shadowOpacity: isGrid ? 0 : 0.12,
+                      shadowRadius: isGrid ? 0 : 10,
+                      shadowOffset: { width: 0, height: 4 },
+                      elevation: isGrid ? 0 : 5,
                     }}>
                     <View style={{
-                      width: isGrid ? 72 : 62,
-                      height: isGrid ? 72 : 62,
-                      borderRadius: 18,
+                      width: isGrid ? 72 : 44,
+                      height: isGrid ? 72 : 44,
+                      borderRadius: isGrid ? 18 : 14,
                       overflow: "hidden",
                       alignItems: "center",
                       justifyContent: "center",
-                      backgroundColor: C.bg.base,
-                      marginRight: isGrid ? 0 : 14,
+                      backgroundColor: C.bg.hover,
+                      marginRight: isGrid ? 0 : 0,
                       marginBottom: isGrid ? 10 : 0,
                     }}>
                       {imageUrl ? (
-                        <ProductImage url={imageUrl} fallbackColor={C.amber.primary} color={C.amber.primary} />
+                        <ProductImage url={imageUrl} fallbackColor={C.text.secondary} color={C.text.secondary} />
                       ) : (
-                        <Package size={32} color={C.amber.primary} strokeWidth={1.7} opacity={0.92} />
+                        <Package size={isGrid ? 32 : 22} color={C.text.secondary} strokeWidth={1.8} opacity={0.6} />
                       )}
                     </View>
 
-                    <View style={{ flex: isGrid ? 0 : 1, minWidth: 0, alignItems: isGrid ? "center" : "flex-start" }}>
+                    <View style={{ flex: isGrid ? 0 : 1, minWidth: 0, alignItems: isGrid ? "center" : "flex-start", justifyContent: "center" }}>
                       <Text
                         style={{
                           color: C.text.primary,
-                          fontSize: isGrid ? 14 : 17,
-                          lineHeight: 20,
-                          fontWeight: "900",
-                          letterSpacing: -0.35,
-                          marginBottom: 5,
+                          fontSize: isGrid ? 14 : 15,
+                          lineHeight: isGrid ? 19 : 19,
+                          fontWeight: "800",
+                          letterSpacing: -0.3,
+                          marginBottom: isGrid ? 5 : 3,
                           textAlign: isGrid ? "center" : "left",
                         }}
                         numberOfLines={isGrid ? 2 : 1}
@@ -1501,112 +1564,250 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                         {toTitleCase(item.name)}
                       </Text>
 
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                      <Text
+                        style={{
+                          color: C.text.secondary,
+                          fontSize: isGrid ? 13 : 12,
+                          fontWeight: "500",
+                          textAlign: isGrid ? "center" : "left",
+                        }}
+                        numberOfLines={1}
+                      >
+                        {item.category || item.unitOfMeasure || item.sku || "—"}
+                      </Text>
+                    </View>
+
+                    <View style={{ alignItems: isGrid ? "center" : "flex-end", justifyContent: "center", gap: 6 }}>
+                      <View style={{ flexDirection: isGrid ? "column" : "row", alignItems: "center", gap: 6 }}>
                         <Text style={{
-                          color: C.amber.primary,
-                          fontSize: 16,
+                          color: C.text.primary,
+                          fontSize: isGrid ? 15 : 15,
                           fontWeight: "900",
                           letterSpacing: -0.2,
                         }}>
                           {fmt(Number(item.price))}
                         </Text>
-                        {item.isTracked && !isGrid && (
-                          <Text style={{
-                            color: outOfStock ? C.status.error : stockLow ? C.amber.primary : C.text.secondary,
-                            fontSize: 13,
-                            fontWeight: "800",
+                        {item.isTracked && (
+                          <View style={{
+                            paddingHorizontal: 8,
+                            paddingVertical: 3,
+                            borderRadius: 6,
+                            backgroundColor: outOfStock ? hexAlpha(C.status.error, 0.15) : stockLow ? hexAlpha(C.amber.primary, 0.15) : hexAlpha(C.text.primary, 0.08),
                           }}>
-                            {visibleStock}
-                          </Text>
+                            <Text style={{
+                              color: outOfStock ? C.status.error : stockLow ? C.amber.primary : C.text.secondary,
+                              fontSize: 9,
+                              fontWeight: "900",
+                              letterSpacing: 0.5,
+                            }}>
+                              {outOfStock ? "OUT" : visibleStock}
+                            </Text>
+                          </View>
                         )}
                       </View>
-                    </View>
 
-                    {inCart ? (
-                      <View style={{
-                        position: isGrid ? "absolute" : "relative",
-                        top: isGrid ? 8 : undefined,
-                        right: isGrid ? 8 : undefined,
-                        flexDirection: "row",
-                        alignItems: "center",
-                        gap: 7,
-                        paddingLeft: isGrid ? 0 : 10,
-                        backgroundColor: isGrid ? C.amber.primary : "transparent",
-                        padding: isGrid ? 6 : 0,
-                        borderRadius: isGrid ? 16 : 0,
-                        minWidth: isGrid ? 32 : undefined,
-                        justifyContent: isGrid ? "center" : "flex-start",
-                      }}>
-                        {!isGrid && (
+                      {inCart ? (
+                        <View style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 5,
+                          marginTop: 2,
+                        }}>
                           <TouchableOpacity
                             activeOpacity={0.78}
-                            onPress={(e) => { e.stopPropagation?.(); inCartItem!.quantity > 1 ? updateQuantity(item.id, -1) : removeFromCart(item.id); }}
+                            onPress={(e) => { e.stopPropagation?.(); inCartItem!.isWeighed ? updateQuantity(item.id, -1) : (inCartItem!.quantity > 1 ? updateQuantity(item.id, -1) : removeFromCart(item.id)); }}
                             style={{
-                              width: 34,
-                              height: 34,
-                              borderRadius: 12,
-                              backgroundColor: hexAlpha(C.text.primary, 0.08),
+                              width: 30,
+                              height: 30,
+                              borderRadius: 10,
+                              backgroundColor: C.bg.hover,
                               alignItems: "center",
                               justifyContent: "center",
                             }}>
-                            <Minus size={17} color={C.text.primary} strokeWidth={2.6} />
+                            <Minus size={15} color={C.text.secondary} strokeWidth={2.4} />
                           </TouchableOpacity>
-                        )}
 
-                        <Text style={{ color: isGrid ? "#1A1100" : C.text.primary, fontSize: 15, fontWeight: "900", minWidth: isGrid ? 16 : 22, textAlign: "center" }}>
-                          {inCartItem!.quantity}
-                        </Text>
+                          <Text style={{ color: C.text.primary, fontSize: 14, fontWeight: "900", minWidth: 26, textAlign: "center" }}>
+                            {fmtQty(inCartItem!)}
+                          </Text>
 
-                        {!isGrid && (
                           <TouchableOpacity
                             activeOpacity={0.78}
                             onPress={(e) => { e.stopPropagation?.(); updateQuantity(item.id, 1, e); }}
                             style={{
-                              width: 34,
-                              height: 34,
-                              borderRadius: 12,
-                              backgroundColor: C.amber.primary,
+                              width: 30,
+                              height: 30,
+                              borderRadius: 10,
+                              backgroundColor: C.bg.hover,
                               alignItems: "center",
                               justifyContent: "center",
                             }}>
-                            <Plus size={20} color="#1A1100" strokeWidth={3} />
+                            <Plus size={17} color={C.text.primary} strokeWidth={2.4} />
                           </TouchableOpacity>
-                        )}
-                      </View>
-                    ) : (
-                      !isGrid && (
+                        </View>
+                      ) : (
                         <TouchableOpacity
                           activeOpacity={0.78}
                           onPress={(e) => { e.stopPropagation?.(); addToCart(item, e); }}
                           style={{
-                            width: 44,
-                            height: 44,
-                            borderRadius: 14,
-                            backgroundColor: hexAlpha(C.amber.primary, 0.1),
+                            width: 34,
+                            height: 34,
+                            borderRadius: 11,
+                            backgroundColor: C.bg.hover,
                             alignItems: "center",
                             justifyContent: "center",
+                            marginTop: 2,
                           }}>
-                          <Plus size={22} color={C.amber.primary} strokeWidth={2.6} />
+                          <Plus size={19} color={C.text.primary} strokeWidth={2.4} />
                         </TouchableOpacity>
-                      )
-                    )}
+                      )}
+                    </View>
                   </TouchableOpacity>
                 );
               }}
             />
           )}
-        </View>
+          </View>
 
-        {/*  */}
-        {!isEditingItemPrice && (
+          {isWide && (
+            <View style={{
+              width: 380,
+              borderLeftWidth: 1,
+              borderLeftColor: POS_BORDER,
+              backgroundColor: POS_OVERLAY,
+              paddingTop: 10,
+            }}>
+              <View style={{ paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: POS_BORDER, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 9 }}>
+                  <View
+                    ref={cartIconRef}
+                    onLayout={measureCart}
+                    style={{ width: 34, height: 34, borderRadius: 11, backgroundColor: hexAlpha(C.amber.primary, 0.14), alignItems: "center", justifyContent: "center" }}>
+                    <ShoppingCart size={17} color={C.amber.primary} strokeWidth={2.3} />
+                  </View>
+                  <View>
+                    <Text style={{ color: C.text.primary, fontSize: 15, fontWeight: "900", letterSpacing: -0.3 }}>Current Order</Text>
+                    <Text style={{ color: C.text.secondary, fontSize: 11, marginTop: 1 }}>{cartItemCount} item{cartItemCount !== 1 ? "s" : ""} · {selectedCustomer?.name || "No customer"}</Text>
+                  </View>
+                </View>
+                {cart.length > 0 && (
+                  <TouchableOpacity onPress={() => setCart([])} style={{ width: 34, height: 34, borderRadius: 11, backgroundColor: "rgba(255,71,87,0.12)", alignItems: "center", justifyContent: "center" }}>
+                    <Trash2 size={15} color={C.status.error} />
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={{ padding: 14, paddingBottom: 12 }}
+                style={{ flex: 1 }}
+              >
+                {cart.length === 0 ? (
+                  <View style={{ alignItems: "center", justifyContent: "center", paddingVertical: 60 }}>
+                    <View style={{ width: 56, height: 56, borderRadius: 18, backgroundColor: POS_SURFACE_RAISED, alignItems: "center", justifyContent: "center", marginBottom: 12 }}>
+                      <ShoppingCart size={24} color={C.text.secondary} strokeWidth={2} />
+                    </View>
+                    <Text style={{ color: C.text.secondary, fontSize: 13, fontWeight: "700" }}>Cart is empty</Text>
+                    <Text style={{ color: C.text.secondary, fontSize: 11, marginTop: 3, opacity: 0.7 }}>Tap products to add them</Text>
+                  </View>
+                ) : (
+                  cart.map((item: CartItem, idx: number) => {
+                    const lineTotal = item.price * item.quantity - item.discountAmount;
+                    const isLast = idx === cart.length - 1;
+                    return (
+                      <View key={item.productId} style={{
+                        backgroundColor: C.bg.card, borderRadius: 16, borderWidth: 1, borderColor: C.border.default,
+                        padding: 12, marginBottom: isLast ? 0 : 10,
+                      }}>
+                        <View style={{ flexDirection: "row", alignItems: "center" }}>
+                          <View style={{ flex: 1, minWidth: 0, paddingRight: 8 }}>
+                            <Text style={{ color: C.text.primary, fontSize: 13, fontWeight: "700" }} numberOfLines={1}>{item.name}</Text>
+                            <Text style={{ color: C.text.secondary, fontSize: 10, marginTop: 2 }}>
+                              {fmt(item.price)} {item.isWeighed ? `/ ${item.unitOfMeasure ?? "unit"}` : "each"}
+                            </Text>
+                          </View>
+                          <TouchableOpacity onPress={() => removeFromCart(item.productId)} style={{ width: 30, height: 30, borderRadius: 9, backgroundColor: "rgba(255,71,87,0.12)", alignItems: "center", justifyContent: "center", marginRight: 8 }}>
+                            <Trash2 size={13} color={C.status.error} />
+                          </TouchableOpacity>
+                          <Text style={{ color: C.amber.primary, fontSize: 14, fontWeight: "800" }}>{fmt(lineTotal)}</Text>
+                        </View>
+                        <View style={{ marginTop: 10, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                          <View style={{ flexDirection: "row", alignItems: "center", backgroundColor: C.bg.hover, borderRadius: 10, borderWidth: 1, borderColor: C.border.default }}>
+                            <TouchableOpacity
+                              onPress={() => item.isWeighed ? updateQuantity(item.productId, -1) : (item.quantity > 1 ? updateQuantity(item.productId, -1) : removeFromCart(item.productId))}
+                              style={{ width: 30, height: 30, alignItems: "center", justifyContent: "center" }}>
+                              <Minus size={14} color={C.text.secondary} />
+                            </TouchableOpacity>
+                            <Text style={{ color: C.text.primary, fontSize: 12, fontWeight: "800", minWidth: 34, textAlign: "center" }}>{fmtQty(item)}</Text>
+                            <TouchableOpacity
+                              onPress={() => updateQuantity(item.productId, 1)}
+                              style={{ width: 30, height: 30, alignItems: "center", justifyContent: "center" }}>
+                              <Plus size={14} color={C.amber.primary} />
+                            </TouchableOpacity>
+                          </View>
+                          <Text style={{ color: C.text.secondary, fontSize: 11, fontWeight: "700" }}>
+                            {item.isWeighed ? `${fmtQty(item)} ${item.unitOfMeasure ?? ""}` : `${fmtQty(item)} ×`}
+                          </Text>
+                        </View>
+                      </View>
+                    );
+                  })
+                )}
+              </ScrollView>
+
+              <View style={{
+                padding: 16, borderTopWidth: 1, borderTopColor: POS_BORDER,
+                paddingBottom: Math.max(insets.bottom, 12),
+              }}>
+                <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 6 }}>
+                  <Text style={{ color: C.text.secondary, fontSize: 12 }}>Subtotal</Text>
+                  <Text style={{ color: C.text.primary, fontSize: 13, fontWeight: "800" }}>{fmt(subtotal)}</Text>
+                </View>
+                {taxAmount > 0 && (
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 6 }}>
+                    <Text style={{ color: C.text.secondary, fontSize: 12 }}>Tax</Text>
+                    <Text style={{ color: C.text.primary, fontSize: 13, fontWeight: "800" }}>{fmt(taxAmount)}</Text>
+                  </View>
+                )}
+                {orderDiscount > 0 && (
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 6 }}>
+                    <Text style={{ color: C.text.secondary, fontSize: 12 }}>Discount</Text>
+                    <Text style={{ color: C.text.primary, fontSize: 13, fontWeight: "800" }}>−{fmt(orderDiscount)}</Text>
+                  </View>
+                )}
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 4, paddingTop: 10, borderTopWidth: 1, borderTopColor: POS_BORDER }}>
+                  <Text style={{ color: C.text.primary, fontSize: 16, fontWeight: "900" }}>Total</Text>
+                  <Text style={{ color: C.amber.primary, fontSize: 20, fontWeight: "900", letterSpacing: -0.4 }}>{fmt(total)}</Text>
+                </View>
+                <TouchableOpacity activeOpacity={0.88} disabled={cart.length === 0} onPress={() => handleCheckout()}
+                  style={{
+                    marginTop: 14, height: 56, borderRadius: 16,
+                    backgroundColor: cart.length === 0 ? C.bg.hover : C.amber.primary,
+                    alignItems: "center", justifyContent: "center",
+                    shadowColor: C.amber.primary, shadowOpacity: cart.length === 0 ? 0 : 0.3, shadowRadius: 12,
+                    shadowOffset: { width: 0, height: 6 }, elevation: cart.length === 0 ? 0 : 7,
+                  }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <Text style={{ color: cart.length === 0 ? C.text.secondary : "#1A1100", fontSize: 16, fontWeight: "900" }}>
+                      {cart.length === 0 ? "Cart is empty" : `Checkout · ${fmt(total)}`}
+                    </Text>
+                    {cart.length > 0 && <ArrowRight size={18} color="#1A1100" strokeWidth={2.6} />}
+                  </View>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+        </View>
+        {!isWide && !isEditingItemPrice && (
         <View style={{
           position: "absolute",
           left: 16,
           right: 16,
-          bottom: Math.max(insets.bottom, 10) + 6,
+          bottom: 8,
         }}>
           <Animated.View style={{ transform: [{ scale: cartBounceAnim }] }}>
-            <TouchableOpacity activeOpacity={0.9} disabled={cart.length === 0} onPress={() => setShowCart(true)}>
+            <TouchableOpacity activeOpacity={0.9} disabled={cart.length === 0} onPress={() => handleCheckout()}>
               <View
                 style={{
                   minHeight: 70,
@@ -1689,287 +1890,74 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
         />
       ))}
 
-      {/* ── CART MODAL ─────────────────────────────────────────────────────── */}
-      <Modal visible={showCart} transparent animationType="slide" onRequestClose={() => setShowCart(false)}>
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"}
-          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.86)", justifyContent: "flex-end" }}>
-          <View style={{
-            backgroundColor: C.bg.card, borderTopLeftRadius: 32, borderTopRightRadius: 32,
-            borderTopWidth: 1, borderColor: C.border.default, padding: 16, paddingBottom: Math.max(insets.bottom, 16), maxHeight: "88%", flex: 1
-          }}>
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-              <View>
-                <Text style={{ color: C.text.primary, fontSize: 22, fontWeight: "800" }}>Cart</Text>
-                <Text style={{ color: C.text.secondary, fontSize: 12, marginTop: 3 }}>
-                  {cart.length === 0 ? "No items added yet" : `${cartItemCount} item${cartItemCount !== 1 ? "s" : ""} ready to sell`}
-                </Text>
-              </View>
-              <TouchableOpacity onPress={() => setShowCart(false)}
-                style={{
-                  width: 38, height: 38, borderRadius: 12, backgroundColor: C.bg.hover,
-                  borderWidth: 1, borderColor: C.border.default, alignItems: "center", justifyContent: "center"
-                }}>
-                <X size={16} color={C.text.primary} />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView
-              showsVerticalScrollIndicator={false}
-              style={{ flex: 1 }}
-              keyboardShouldPersistTaps="handled"
-              contentContainerStyle={{ paddingBottom: isEditingItemPrice ? Math.max(insets.bottom, 120) : 0 }}
-            >
-              {cart.length === 0 ? (
-                <View style={{ alignItems: "center", paddingVertical: 48 }}>
-                  <View style={{
-                    width: 56, height: 56, borderRadius: 18, backgroundColor: C.bg.hover,
-                    borderWidth: 1, borderColor: C.border.default, alignItems: "center", justifyContent: "center", marginBottom: 12
-                  }}>
-                    <ShoppingCart size={24} color={C.text.secondary} />
-                  </View>
-                  <Text style={{ color: C.text.secondary, fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: 2 }}>
-                    Start adding products
+      {/* ── WEIGHT INPUT MODAL (weighed products: kg/g/l/ml) ─────────────── */}
+      <Modal visible={!!weightProduct} transparent animationType="fade" onRequestClose={() => setWeightProduct(null)}>
+        <TouchableWithoutFeedback onPress={() => setWeightProduct(null)}>
+          <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.72)", justifyContent: "center", padding: 24 }}>
+            <TouchableWithoutFeedback onPress={() => {}}>
+              <View style={{
+                backgroundColor: C.bg.card, borderRadius: 24, padding: 20,
+                borderWidth: 1, borderColor: C.border.default, elevation: 16,
+              }}>
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <Text style={{ color: C.amber.primary, fontSize: 12, fontWeight: "800", textTransform: "uppercase", letterSpacing: 1.5 }}>
+                    Weighed Item
                   </Text>
-                </View>
-              ) : cart.map((item: CartItem, idx: number) => {
-                const { color } = getProductMeta(item, idx);
-
-                const renderRightActions = () => (
-                  <TouchableOpacity
-                    onPress={() => removeFromCart(item.productId)}
-                    style={{
-                      backgroundColor: C.status.error,
-                      justifyContent: "center",
-                      alignItems: "center",
-                      width: 80,
-                      marginBottom: 8,
-                      borderRadius: 14,
-                      marginLeft: 8,
-                    }}>
-                    <Trash2 size={20} color="#fff" />
-                    <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700", marginTop: 4 }}>Remove</Text>
+                  <TouchableOpacity onPress={() => setWeightProduct(null)} style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: C.bg.hover, alignItems: "center", justifyContent: "center" }}>
+                    <X size={15} color={C.text.primary} />
                   </TouchableOpacity>
-                );
+                </View>
+                <Text style={{ color: C.text.primary, fontSize: 20, fontWeight: "900", marginBottom: 4 }}>
+                  {weightProduct?.name}
+                </Text>
+                <Text style={{ color: C.text.secondary, fontSize: 13, marginBottom: 16 }}>
+                  {fmt(Number(weightProduct?.price ?? 0))} per {weightProduct?.unitOfMeasure ?? weightProduct?.unit ?? "unit"}
+                </Text>
 
-                return (
-                  <Swipeable key={item.productId} renderRightActions={renderRightActions}>
-                    <View style={{
-                      marginBottom: 8, backgroundColor: C.bg.hover,
-                      padding: 10, borderRadius: 14,
-                      shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 5, shadowOffset: { width: 0, height: 2 }, elevation: 2
-                    }}>
-                      <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" }}>
-                        <View style={{ flex: 1, marginRight: 12 }}>
-                          <Text style={{ color: C.text.primary, fontSize: 13, fontWeight: "600" }} numberOfLines={2}>
-                            {item.name}
-                          </Text>
-                          <Text style={{ color: C.text.secondary, fontSize: 11, marginTop: 4 }}>
-                            {fmt(item.price)} each
-                          </Text>
-                          <View style={{
-                            marginTop: 8,
-                            flexDirection: "row",
-                            alignItems: "center",
-                            alignSelf: "flex-start",
-                            minWidth: 130,
-                            backgroundColor: C.bg.card,
-                            borderWidth: 1,
-                            borderColor: C.border.default,
-                            borderRadius: 10,
-                            paddingHorizontal: 9,
-                          }}>
-                            <Text style={{ color: C.text.secondary, fontSize: 11, fontWeight: "800", marginRight: 6 }}>Unit</Text>
-                            <Text style={{ color: C.text.secondary, fontSize: 13, marginRight: 3 }}>{currencyInfo.symbol}</Text>
-                            <TextInput
-                              value={priceInputs[item.productId] ?? (item.price * currencyInfo.rate).toFixed(2)}
-                              onFocus={() => handleItemPriceFocus(item)}
-                              onChangeText={(value) => handleItemPriceInput(item.productId, value)}
-                              onBlur={() => handleItemPriceBlur(item)}
-                              keyboardType="decimal-pad"
-                              returnKeyType="done"
-                              onSubmitEditing={() => finishItemPriceEdit(item)}
-                              selectTextOnFocus
-                              style={{ flex: 1, color: C.text.primary, fontSize: 14, fontWeight: "800", paddingVertical: 7, minWidth: 66 }}
-                            />
-                            {focusedPriceProductId === item.productId && (
-                              <TouchableOpacity onPress={() => finishItemPriceEdit(item)}
-                                style={{ marginLeft: 8, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: C.amber.primary }}>
-                                <Text style={{ color: "#000", fontSize: 11, fontWeight: "900" }}>Done</Text>
-                              </TouchableOpacity>
-                            )}
-                          </View>
-                        </View>
-                        <TouchableOpacity onPress={() => removeFromCart(item.productId)} style={{
-                          width: 32, height: 32, borderRadius: 10, backgroundColor: "rgba(255,71,87,0.12)",
-                          alignItems: "center", justifyContent: "center"
-                        }}>
-                          <Trash2 size={14} color={C.status.error} />
-                        </TouchableOpacity>
-                      </View>
-                      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
-                        <View style={{
-                          flexDirection: "row", alignItems: "center",
-                          backgroundColor: hexAlpha(color, 0.1), borderRadius: 10, overflow: "hidden"
-                        }}>
-                          <TouchableOpacity
-                            onPress={() => item.quantity > 1 ? updateQuantity(item.productId, -1) : removeFromCart(item.productId)}
-                            style={{ width: 30, height: 30, alignItems: "center", justifyContent: "center" }}>
-                            <Minus size={12} color={color} />
-                          </TouchableOpacity>
-                          <Text style={{ color: C.text.primary, fontSize: 15, fontWeight: "800", marginHorizontal: 12, minWidth: 20, textAlign: "center" }}>
-                            {item.quantity}
-                          </Text>
-                          <TouchableOpacity
-                            onPress={() => updateQuantity(item.productId, 1)}
-                            style={{ width: 30, height: 30, alignItems: "center", justifyContent: "center" }}>
-                            <Plus size={12} color={color} />
-                          </TouchableOpacity>
-                        </View>
-                        <Text style={{ color, fontSize: 16, fontWeight: "800" }}>
-                          {fmt(item.price * item.quantity)}
-                        </Text>
-                      </View>
-                    </View>
-                  </Swipeable>
-                );
-              })}
-            </ScrollView>
-
-            {!isEditingItemPrice && (
-            <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderColor: C.border.default }}>
-              {/* Discount row */}
-              <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 10, gap: 8 }}>
-                <View style={{
-                  flex: 1, backgroundColor: C.bg.hover,
-                  borderRadius: 12, paddingHorizontal: 14, paddingVertical: 2,
-                  flexDirection: "row", alignItems: "center", gap: 8,
-                  shadowColor: "#000", shadowOpacity: 0.04, shadowRadius: 3, elevation: 1
-                }}>
-                  <Tag size={13} color={C.text.secondary} />
+                <View style={{ flexDirection: "row", alignItems: "center", backgroundColor: C.bg.hover, borderRadius: 16, borderWidth: 1, borderColor: C.border.default, paddingHorizontal: 16 }}>
+                  <Text style={{ color: C.text.secondary, fontSize: 20, marginRight: 6, fontWeight: "300" }}>{currencyInfo.symbol}</Text>
                   <TextInput
-                    style={{ flex: 1, color: C.text.primary, fontSize: 14, paddingVertical: 10 }}
-                    placeholder="Order discount…"
-                    placeholderTextColor={C.text.secondary}
+                    autoFocus
                     keyboardType="decimal-pad"
+                    placeholder="0.00"
+                    placeholderTextColor={C.text.secondary}
+                    value={weightInput}
+                    onChangeText={setWeightInput}
+                    onSubmitEditing={confirmWeightAdd}
                     returnKeyType="done"
-                    onSubmitEditing={() => { Keyboard.dismiss(); handleDiscountSubmit(); }}
-                    onBlur={handleDiscountSubmit}
-                    value={orderDiscountInput}
-                    onChangeText={handleOrderDiscountChange}
+                    selectTextOnFocus
+                    style={{ flex: 1, color: C.text.primary, fontSize: 28, fontWeight: "900", paddingVertical: 16, letterSpacing: 0.5 }}
                   />
                 </View>
-                <TouchableOpacity onPress={handleClearCart} disabled={cart.length === 0}
-                  style={{
-                    width: 46, height: 46, borderRadius: 12, alignItems: "center", justifyContent: "center",
-                    backgroundColor: C.bg.hover, shadowColor: "#000", shadowOpacity: 0.04, shadowRadius: 3, elevation: 1
-                  }}>
-                  <Trash2 size={17} color={cart.length === 0 ? C.text.secondary : C.status.error} />
-                </TouchableOpacity>
-              </View>
 
-              {/* Totals */}
-              <View style={{
-                backgroundColor: C.bg.hover, borderRadius: 16, padding: 14,
-                marginBottom: 14, shadowColor: "#000", shadowOpacity: 0.06, shadowRadius: 8, elevation: 2
-              }}>
-                {[
-                  { label: "Subtotal", value: fmt(subtotal), color: C.text.primary },
-                  { label: "Tax", value: fmt(taxAmount), color: C.text.primary },
-                  ...(orderDiscount > 0 ? [{ label: "Discount", value: `-${fmt(orderDiscount)}`, color: C.status.success }] : []),
-                ].map(row => (
-                  <View key={row.label} style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 8 }}>
-                    <Text style={{ color: C.text.secondary, fontSize: 13 }}>{row.label}</Text>
-                    <Text style={{ color: row.color, fontSize: 13, fontWeight: "600" }}>{row.value}</Text>
-                  </View>
-                ))}
-                <View style={{ height: 1, backgroundColor: C.border.default, marginVertical: 8 }} />
-                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                  <Text style={{ color: C.text.secondary, fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 }}>
-                    Total Due
-                  </Text>
-                  <Text style={{ color: C.amber.primary, fontSize: 24, fontWeight: "900" }}>
-                    {fmt(total)}
+                <View style={{ marginTop: 10, flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 4 }}>
+                  <Text style={{ color: C.text.secondary, fontSize: 12 }}>Amount to charge</Text>
+                  <Text style={{ color: C.amber.primary, fontSize: 14, fontWeight: "800" }}>
+                    {(() => {
+                      const amt = Number.parseFloat(weightInput.replace(",", "."));
+                      const unit = Number(weightProduct?.price ?? 0);
+                      if (!Number.isFinite(amt) || amt <= 0 || !Number.isFinite(unit) || unit <= 0) return `= 0 ${weightProduct?.unitOfMeasure ?? weightProduct?.unit ?? ""}`;
+                      return `= ${(amt / unit).toFixed(3)} ${weightProduct?.unitOfMeasure ?? weightProduct?.unit ?? ""}`;
+                    })()}
                   </Text>
                 </View>
-              </View>
 
-              {/* Park / Holds */}
-              <View style={{ flexDirection: "row", gap: 8, marginBottom: 10 }}>
-                <TouchableOpacity activeOpacity={0.85} disabled={cart.length === 0 || isParking} onPress={handleParkSale}
-                  style={{
-                    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
-                    paddingVertical: 10, borderRadius: 14,
-                    backgroundColor: cart.length === 0 || isParking ? C.bg.card : hexAlpha(C.amber.primary, 0.07),
-                    shadowColor: "#000", shadowOpacity: cart.length === 0 || isParking ? 0.1 : 0.2,
-                    shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: cart.length === 0 || isParking ? 5 : 0
-                  }}>
-                  {isParking ? (
-                    <ActivityIndicator size="small" color={C.amber.primary} />
-                  ) : (
-                    <>
-                      <Download size={14} color={cart.length === 0 ? C.text.secondary : C.amber.primary} />
-                      <Text style={{ marginLeft: 6, fontSize: 10, fontWeight: "800", color: cart.length === 0 ? C.text.secondary : C.amber.primary }}>
-                        Park Sale
-                      </Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-                <TouchableOpacity activeOpacity={0.85} disabled={heldSales.length === 0}
-                  onPress={() => setShowHoldsModal(true)}
-                  style={{
-                    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
-                    paddingVertical: 10, borderRadius: 14,
-                    backgroundColor: C.bg.card,
-                    shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 10,
-                    shadowOffset: { width: 0, height: 4 }, elevation: 5
-                  }}>
-                  <History size={14} color={heldSales.length === 0 ? C.text.secondary : C.text.primary} />
-                  <Text style={{ marginLeft: 6, fontSize: 10, fontWeight: "800", color: heldSales.length === 0 ? C.text.secondary : C.text.primary }}>
-                    Holds ({heldSales.length})
-                  </Text>
-                </TouchableOpacity>
+                <View style={{ flexDirection: "row", gap: 10, marginTop: 18 }}>
+                  <TouchableOpacity
+                    onPress={() => setWeightProduct(null)}
+                    style={{ flex: 1, height: 50, borderRadius: 14, backgroundColor: C.bg.hover, alignItems: "center", justifyContent: "center" }}>
+                    <Text style={{ color: C.text.primary, fontSize: 15, fontWeight: "800" }}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={confirmWeightAdd}
+                    style={{ flex: 2, height: 50, borderRadius: 14, backgroundColor: C.amber.primary, alignItems: "center", justifyContent: "center", shadowColor: C.amber.primary, shadowOpacity: 0.4, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 6 }}>
+                    <Text style={{ color: "#1A1100", fontSize: 15, fontWeight: "900" }}>Add to Cart</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
-
-              {/* Checkout CTA */}
-              <TouchableOpacity activeOpacity={0.88} disabled={cart.length === 0 || isSubmitting}
-                onPress={() => { setShowCart(false); handleCheckout(); }}>
-                <LinearGradient
-                  colors={cart.length === 0 ? [C.bg.hover, C.bg.card] : [C.amber.primary, C.amber.light]}
-                  start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-                  style={{
-                    borderRadius: 20, height: 58, paddingHorizontal: 18,
-                    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-                    shadowColor: cart.length === 0 ? "#000" : C.amber.primary,
-                    shadowOpacity: cart.length === 0 ? 0.15 : 0.35, shadowRadius: 14,
-                    shadowOffset: { width: 0, height: 6 }, elevation: cart.length === 0 ? 5 : 8
-                  }}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
-                    <View style={{
-                      width: 36, height: 36, borderRadius: 10,
-                      backgroundColor: "rgba(0,0,0,0.2)", alignItems: "center", justifyContent: "center"
-                    }}>
-                      <ShoppingCart size={16} color={cart.length === 0 ? C.text.secondary : "#000"} />
-                    </View>
-                    <View>
-                      <Text style={{ color: cart.length === 0 ? C.text.secondary : "#000", fontSize: 13, fontWeight: "800", textTransform: "uppercase", letterSpacing: 1.2 }}>
-                        Checkout
-                      </Text>
-                      <Text style={{ color: cart.length === 0 ? C.text.secondary : "rgba(0,0,0,0.55)", fontSize: 10, marginTop: 2 }}>
-                        {cart.length === 0 ? "Add items first" : `${cartItemCount} item${cartItemCount !== 1 ? "s" : ""} · ready to pay`}
-                      </Text>
-                    </View>
-                  </View>
-                  {isSubmitting
-                    ? <ActivityIndicator color="#000" size="small" />
-                    : <Text style={{ color: cart.length === 0 ? C.text.secondary : "#000", fontSize: 18, fontWeight: "900" }}>
-                      {fmt(total)}
-                    </Text>}
-                </LinearGradient>
-              </TouchableOpacity>
-            </View>
-            )}
+            </TouchableWithoutFeedback>
           </View>
-        </KeyboardAvoidingView>
+        </TouchableWithoutFeedback>
       </Modal>
 
       {/* ── HOLDS MODAL ────────────────────────────────────────────────────── */}
@@ -2081,6 +2069,32 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
               <Text style={{ color: C.text.secondary, fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10, marginTop: 6 }}>
                 Order Summary
               </Text>
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={() => setShowCustomerPicker(true)}
+                style={{
+                  backgroundColor: C.bg.card, borderRadius: 16, borderWidth: 1, borderColor: C.border.default,
+                  padding: 14, marginBottom: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+                }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flex: 1 }}>
+                  <View style={{
+                    width: 40, height: 40, borderRadius: 13,
+                    backgroundColor: selectedCustomerId ? hexAlpha(C.amber.primary, 0.14) : C.bg.hover,
+                    alignItems: "center", justifyContent: "center",
+                  }}>
+                    <User size={19} color={selectedCustomerId ? C.amber.primary : C.text.secondary} strokeWidth={2.2} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: C.text.primary, fontSize: 14, fontWeight: "800" }}>
+                      {selectedCustomer?.name || "Select customer"}
+                    </Text>
+                    <Text style={{ color: C.text.secondary, fontSize: 11, marginTop: 2 }}>
+                      {selectedCustomerId ? (selectedCustomer?.phone || "Walk-in customer") : "Tap to choose a customer"}
+                    </Text>
+                  </View>
+                </View>
+                <ChevronRight size={18} color={C.text.secondary} />
+              </TouchableOpacity>
               <View style={{
                 backgroundColor: C.bg.card, borderRadius: 20, borderWidth: 1,
                 borderColor: C.border.default, overflow: "hidden", marginBottom: 18,
@@ -2100,15 +2114,21 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                           backgroundColor: C.bg.hover, borderWidth: 1, borderColor: C.border.default,
                           alignItems: "center", justifyContent: "center", marginRight: 12
                         }}>
-                          <Text style={{ color: C.amber.primary, fontSize: 11, fontWeight: "900" }}>{item.quantity}</Text>
+                          <Text style={{ color: C.amber.primary, fontSize: 11, fontWeight: "900" }}>{fmtQty(item)}</Text>
                         </View>
                       <View style={{ flex: 1, paddingRight: 10 }}>
                         <Text style={{ color: C.text.primary, fontSize: 13, fontWeight: "600" }} numberOfLines={1}>{item.name}</Text>
                         <Text style={{ color: C.text.secondary, fontSize: 10, marginTop: 1 }}>
-                          {fmt(item.price)} each
+                          {fmt(item.price)} {item.isWeighed ? `/ ${item.unitOfMeasure ?? "unit"}` : "each"}
                           {item.discountAmount > 0 ? `  ·  −${fmt(item.discountAmount)} disc` : ""}
                         </Text>
                       </View>
+                        <TouchableOpacity onPress={() => removeFromCart(item.productId)} style={{
+                          width: 32, height: 32, borderRadius: 10, backgroundColor: "rgba(255,71,87,0.12)",
+                          alignItems: "center", justifyContent: "center", marginRight: 6
+                        }}>
+                          <Trash2 size={14} color={C.status.error} />
+                        </TouchableOpacity>
                         <Text style={{ color: C.amber.primary, fontSize: 14, fontWeight: "800", letterSpacing: -0.3 }}>
                           {fmt(lineTotal)}
                         </Text>
@@ -2144,9 +2164,21 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                             <Text style={{ color: "#000", fontSize: 11, fontWeight: "900" }}>Done</Text>
                           </TouchableOpacity>
                         )}
-                        <Text style={{ color: C.text.secondary, fontSize: 11, fontWeight: "700" }}>
-                          x {item.quantity}
-                        </Text>
+                        <View style={{ flexDirection: "row", alignItems: "center", marginLeft: 8 }}>
+                          <TouchableOpacity
+                            onPress={() => item.isWeighed ? updateQuantity(item.productId, -1) : (item.quantity > 1 ? updateQuantity(item.productId, -1) : removeFromCart(item.productId))}
+                            style={{ width: 28, height: 28, alignItems: "center", justifyContent: "center" }}>
+                            <Minus size={13} color={C.text.secondary} />
+                          </TouchableOpacity>
+                          <Text style={{ color: C.text.secondary, fontSize: 11, fontWeight: "700", marginHorizontal: 2 }}>
+                            {fmtQty(item)}
+                          </Text>
+                          <TouchableOpacity
+                            onPress={() => updateQuantity(item.productId, 1)}
+                            style={{ width: 28, height: 28, alignItems: "center", justifyContent: "center" }}>
+                            <Plus size={13} color={C.amber.primary} />
+                          </TouchableOpacity>
+                        </View>
                       </View>
                     </View>
                   );
@@ -2175,6 +2207,78 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                 </View>
               </View>
 
+              {!isEditingItemPrice && (
+              <>
+              <Text style={{ color: C.text.secondary, fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>
+                Order Options
+              </Text>
+              <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 10, gap: 8 }}>
+                <View style={{
+                  flex: 1, backgroundColor: C.bg.hover,
+                  borderRadius: 12, paddingHorizontal: 14, paddingVertical: 2,
+                  flexDirection: "row", alignItems: "center", gap: 8,
+                  shadowColor: "#000", shadowOpacity: 0.04, shadowRadius: 3, elevation: 1
+                }}>
+                  <Tag size={13} color={C.text.secondary} />
+                  <TextInput
+                    style={{ flex: 1, color: C.text.primary, fontSize: 14, paddingVertical: 10 }}
+                    placeholder="Order discount…"
+                    placeholderTextColor={C.text.secondary}
+                    keyboardType="decimal-pad"
+                    returnKeyType="done"
+                    onSubmitEditing={() => { Keyboard.dismiss(); handleDiscountSubmit(); }}
+                    onBlur={handleDiscountSubmit}
+                    value={orderDiscountInput}
+                    onChangeText={handleOrderDiscountChange}
+                  />
+                </View>
+                <TouchableOpacity onPress={handleClearCart} disabled={cart.length === 0}
+                  style={{
+                    width: 46, height: 46, borderRadius: 12, alignItems: "center", justifyContent: "center",
+                    backgroundColor: C.bg.hover, shadowColor: "#000", shadowOpacity: 0.04, shadowRadius: 3, elevation: 1
+                  }}>
+                  <Trash2 size={17} color={cart.length === 0 ? C.text.secondary : C.status.error} />
+                </TouchableOpacity>
+              </View>
+              <View style={{ flexDirection: "row", gap: 8, marginBottom: 18 }}>
+                <TouchableOpacity activeOpacity={0.85} disabled={cart.length === 0 || isParking} onPress={handleParkSale}
+                  style={{
+                    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
+                    paddingVertical: 10, borderRadius: 14,
+                    backgroundColor: cart.length === 0 || isParking ? C.bg.card : hexAlpha(C.amber.primary, 0.07),
+                    shadowColor: "#000", shadowOpacity: cart.length === 0 || isParking ? 0.1 : 0.2,
+                    shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: cart.length === 0 || isParking ? 5 : 0
+                  }}>
+                  {isParking ? (
+                    <ActivityIndicator size="small" color={C.amber.primary} />
+                  ) : (
+                    <>
+                      <Download size={14} color={cart.length === 0 ? C.text.secondary : C.amber.primary} />
+                      <Text style={{ marginLeft: 6, fontSize: 10, fontWeight: "800", color: cart.length === 0 ? C.text.secondary : C.amber.primary }}>
+                        Park Sale
+                      </Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity activeOpacity={0.85} disabled={heldSales.length === 0}
+                  onPress={() => setShowHoldsModal(true)}
+                  style={{
+                    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
+                    paddingVertical: 10, borderRadius: 14,
+                    backgroundColor: C.bg.card,
+                    shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 10,
+                    shadowOffset: { width: 0, height: 4 }, elevation: 5
+                  }}>
+                  <History size={14} color={heldSales.length === 0 ? C.text.secondary : C.text.primary} />
+                  <Text style={{ marginLeft: 6, fontSize: 10, fontWeight: "800", color: heldSales.length === 0 ? C.text.secondary : C.text.primary }}>
+                    Holds ({heldSales.length})
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              </>
+              )}
+
+              {/*
               <Text style={{ color: C.text.secondary, fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>
                 Sale Date
               </Text>
@@ -2334,66 +2438,34 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                       );
                     })}
                   </View>
-                </View>
-              )}
+</View>
+            )}
+            */}
 
+              {/*
               <Text style={{ color: C.text.secondary, fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>
                 Payment Method
               </Text>
-              <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
-                {[
-                  { key: "CASH", label: "Cash", sub: "Cash drawer payment", Icon: Banknote },
-                  { key: "CARD", label: "Card", sub: "Swipe, POS or mobile", Icon: CreditCard },
-                ].map(({ key, label, sub, Icon }) => {
-                  const isActive = paymentMethod === key;
-                  return (
-                    <TouchableOpacity
-                      key={key}
-                      activeOpacity={0.86}
-                      onPress={() => {
-                        setPaymentMethod(key);
-                        if (key === "CARD") {
-                          setPaidAmount((total * currencyInfo.rate).toFixed(2));
-                        }
-                      }}
-                      style={{
-                        flex: 1,
-                        minWidth: 90,
-                        minHeight: 66,
-                        borderRadius: 18,
-                        flexDirection: "row",
-                        alignItems: "center",
-                        paddingHorizontal: 14,
-                        gap: 12,
-                        backgroundColor: isActive ? hexAlpha(C.amber.primary, 0.10) : C.bg.hover,
-                        borderWidth: 1,
-                        borderColor: isActive ? C.amber.primary : C.border.default,
-                        shadowColor: isActive ? C.amber.primary : "#000",
-                        shadowOpacity: isActive ? 0.22 : 0.12,
-                        shadowRadius: isActive ? 12 : 8,
-                        shadowOffset: { width: 0, height: 5 },
-                        elevation: isActive ? 7 : 3,
-                      }}>
-                      <View style={{
-                        width: 38,
-                        height: 38,
-                        borderRadius: 12,
-                        alignItems: "center",
-                        justifyContent: "center",
-                        backgroundColor: isActive ? hexAlpha(C.amber.primary, 0.16) : C.bg.card,
-                        borderWidth: 1,
-                        borderColor: isActive ? hexAlpha(C.amber.primary, 0.45) : C.border.default,
-                      }}>
-                        <Icon size={19} color={isActive ? C.amber.primary : C.text.secondary} />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ color: isActive ? C.amber.primary : C.text.primary, fontSize: 14, fontWeight: "800" }}>{label}</Text>
-                        <Text style={{ color: C.text.secondary, fontSize: 10, marginTop: 2 }}>{sub}</Text>
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })}
+              <View style={{
+                flexDirection: "row", alignItems: "center",
+                borderRadius: 18, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 14,
+                backgroundColor: hexAlpha(C.amber.primary, 0.10),
+                borderWidth: 1, borderColor: hexAlpha(C.amber.primary, 0.30),
+              }}>
+                <View style={{
+                  width: 38, height: 38, borderRadius: 12,
+                  backgroundColor: hexAlpha(C.amber.primary, 0.16),
+                  borderWidth: 1, borderColor: hexAlpha(C.amber.primary, 0.45),
+                  alignItems: "center", justifyContent: "center",
+                }}>
+                  <Banknote size={19} color={C.amber.primary} />
+                </View>
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <Text style={{ color: C.amber.primary, fontSize: 14, fontWeight: "800" }}>Cash</Text>
+                  <Text style={{ color: C.text.secondary, fontSize: 10, marginTop: 2 }}>Cash drawer payment</Text>
+                </View>
               </View>
+              */}
 
               {/* Currency Selector */}
               <Text style={{ color: C.text.secondary, fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>
@@ -2457,42 +2529,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                 );
               })()}
 
-              {paymentMethod === "CARD" && (
-                <View style={{
-                  marginBottom: 12,
-                  borderRadius: 18,
-                  padding: 14,
-                  backgroundColor: hexAlpha(C.amber.primary, 0.08),
-                  borderWidth: 1,
-                  borderColor: hexAlpha(C.amber.primary, 0.30),
-                  flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                }}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                    <View style={{
-                      width: 38,
-                      height: 38,
-                      borderRadius: 12,
-                      backgroundColor: hexAlpha(C.amber.primary, 0.14),
-                      borderWidth: 1,
-                      borderColor: hexAlpha(C.amber.primary, 0.35),
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}>
-                      <CreditCard size={18} color={C.amber.primary} />
-                    </View>
-                    <View>
-                      <Text style={{ color: C.text.primary, fontSize: 13, fontWeight: "800" }}>Card amount locked</Text>
-                      <Text style={{ color: C.text.secondary, fontSize: 10, marginTop: 2 }}>No cash change needed</Text>
-                    </View>
-                  </View>
-                  <Text style={{ color: C.amber.primary, fontSize: 18, fontWeight: "900" }}>{fmt(total)}</Text>
-                </View>
-              )}
-
-              {paymentMethod === "CASH" && (
-                <View style={{ marginBottom: 12 }}>
+              <View style={{ marginBottom: 12 }}>
                   <Text style={{ color: C.text.secondary, fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>
                     Amount Received
                   </Text>
@@ -2531,7 +2568,6 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                     )}
                   </View>
                 </View>
-              )}
             </ScrollView>
 
             {!isEditingItemPrice && (
@@ -2565,7 +2601,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                         {isSubmitting ? "Processing…" : "Confirm Payment"}
                       </Text>
                       <Text style={{ color: "rgba(0,0,0,0.55)", fontSize: 10, marginTop: 2 }}>
-                        {paymentMethod === "CARD" ? "Card" : "Cash"} · {selectedCustomer?.name || "Guest"}
+                        Cash · {selectedCustomer?.name || "Guest"}
                       </Text>
                     </View>
                   </View>

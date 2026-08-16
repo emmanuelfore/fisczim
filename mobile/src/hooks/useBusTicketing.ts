@@ -320,6 +320,8 @@ export function useBusTicketing(companyId?: number | null) {
   const [routes, setRoutes] = useState<BusRoute[]>([]);
   const [tickets, setTickets] = useState<IssuedTicket[]>([]);
   const [conductors, setConductors] = useState<Conductor[]>([]);
+  const conductorsRef = useRef<Conductor[]>([]);
+  conductorsRef.current = conductors;
   const [activeConductorId, setActiveConductorId] = useState<string | null>(null);
   const [shifts, setShifts] = useState<ShiftRecord[]>([]);
   const [reconciliations, setReconciliations] = useState<ReconciliationRecord[]>([]);
@@ -1029,7 +1031,7 @@ export function useBusTicketing(companyId?: number | null) {
 
   // ── Conductor helpers ─────────────────────────────────────────
   const saveConductor = useCallback(async (conductor: Conductor) => {
-    const latestConductors = await readJSON<Conductor[]>(KEYS.conductors, conductors);
+    const latestConductors = await readJSON<Conductor[]>(KEYS.conductors, conductorsRef.current);
     const exists = latestConductors.some((c) => c.id === conductor.id);
     const updated = exists
       ? latestConductors.map((c) => (c.id === conductor.id ? conductor : c))
@@ -1037,7 +1039,8 @@ export function useBusTicketing(companyId?: number | null) {
     setConductors(updated);
     await writeJSON(KEYS.conductors, updated);
     DeviceEventEmitter.emit(BUS_STATE_CHANGED);
-  }, [conductors]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const setActiveConductor = useCallback(async (id: string) => {
     setActiveConductorId(id);
@@ -1139,17 +1142,79 @@ export function useBusTicketing(companyId?: number | null) {
   const closeShift = useCallback(async (record: ShiftRecord) => {
     let updatedTrips = trips;
     if (activeTrip) {
-      let closedTrip: BusTrip = { ...activeTrip, status: 'completed' as const };
-      let tripIdForCloud: string | null = isNumericId(activeTrip.id)
-        ? activeTrip.id
-        : isNumericId(activeTrip.localId)
-          ? (activeTrip.localId ?? null)
+      // ── Guard: never close a trip while it still has offline/unsynced sales. ──
+      // Sync pending tickets for this trip first; if any fail to reach the cloud
+      // (offline or rejected), refuse to close so no revenue is left behind.
+      let tripToClose: BusTrip = activeTrip;
+      const latestTickets = await readJSON<IssuedTicket[]>(KEYS.tickets, tickets);
+      const pendingForTrip = latestTickets.filter(
+        (ticket) =>
+          !ticket.isSynced &&
+          (ticket.tripId === activeTrip.id || ticket.tripId === activeTrip.localId),
+      );
+      if (pendingForTrip.length > 0) {
+        if (!isOnline) {
+          throw new Error(
+            `Cannot close trip: ${pendingForTrip.length} offline ticket(s) have not been synced. Connect to the internet and sync before closing.`,
+          );
+        }
+        const latestTrips = await readJSON<BusTrip[]>(KEYS.trips, trips);
+        const latestRoutes = await readJSON<BusRoute[]>(KEYS.routes, routes);
+        const latestVehicles = await readJSON<BusVehicle[]>(KEYS.vehicles, vehicles);
+        const latestShifts = await readJSON<ShiftRecord[]>(KEYS.shifts, shifts);
+        const latestReconciliations = await readJSON<ReconciliationRecord[]>(KEYS.reconciliations, reconciliations);
+        const syncResult = await syncTickets(
+          latestTickets,
+          latestTrips,
+          latestRoutes,
+          latestVehicles,
+          latestShifts,
+          latestReconciliations,
+        );
+        setTickets(syncResult.updatedTickets);
+        setTrips(syncResult.updatedTrips);
+        if (syncResult.updatedShifts) {
+          setShifts(syncResult.updatedShifts);
+          await writeJSON(KEYS.shifts, syncResult.updatedShifts);
+        }
+        if (syncResult.updatedReconciliations) {
+          setReconciliations(syncResult.updatedReconciliations);
+          await writeJSON(KEYS.reconciliations, syncResult.updatedReconciliations);
+        }
+        await writeJSON(KEYS.trips, syncResult.updatedTrips);
+        await writeJSON(KEYS.tickets, syncResult.updatedTickets);
+        DeviceEventEmitter.emit(BUS_STATE_CHANGED);
+
+        const stillPending = syncResult.updatedTickets.filter(
+          (ticket) =>
+            !ticket.isSynced &&
+            (ticket.tripId === activeTrip.id || ticket.tripId === activeTrip.localId),
+        );
+        if (stillPending.length > 0) {
+          throw new Error(
+            `Cannot close trip: ${stillPending.length} ticket(s) could not be synced (${syncResult.error || 'sync failed'}). Review the error and try again.`,
+          );
+        }
+        // The sync may have replaced the local trip with a real cloud trip.
+        const syncedCloudTrip = syncResult.updatedTrips.find(
+          (trip) =>
+            isNumericId(trip.id) &&
+            (trip.localId === activeTrip.id || trip.localId === activeTrip.localId),
+        );
+        if (syncedCloudTrip) tripToClose = syncedCloudTrip;
+      }
+
+      let closedTrip: BusTrip = { ...tripToClose, status: 'completed' as const };
+      let tripIdForCloud: string | null = isNumericId(tripToClose.id)
+        ? tripToClose.id
+        : isNumericId(tripToClose.localId)
+          ? (tripToClose.localId ?? null)
           : null;
       // If we're online but the trip hasn't reached the cloud yet, sync it first
       // so the shift can be recorded with a real cloud trip id.
       if (companyId && isOnline && !tripIdForCloud) {
         try {
-          const syncedTrip = await createCloudTrip(activeTrip);
+          const syncedTrip = await createCloudTrip(tripToClose);
           tripIdForCloud = isNumericId(syncedTrip.id) ? syncedTrip.id : tripIdForCloud;
           closedTrip = { ...syncedTrip, status: 'completed' as const };
         } catch (e: any) {
@@ -1193,7 +1258,8 @@ export function useBusTicketing(companyId?: number | null) {
         }
       }
       updatedTrips = trips.map(t => (
-        t.id === activeTrip.id || (activeTrip.localId && t.id === activeTrip.localId)
+        (t.id === activeTrip.id || t.id === activeTrip.localId) ||
+        (tripToClose.id !== activeTrip.id && (t.id === tripToClose.id || t.id === tripToClose.localId))
           ? { ...t, ...closedTrip, status: 'completed' as const }
           : t
       ));
@@ -1205,7 +1271,7 @@ export function useBusTicketing(companyId?: number | null) {
     await writeJSON(KEYS.shifts, updatedShifts);
     await writeJSON(KEYS.trips, updatedTrips);
     DeviceEventEmitter.emit(BUS_STATE_CHANGED);
-  }, [activeTrip, companyId, createCloudTrip, isOnline, shifts, trips]);
+  }, [activeTrip, companyId, createCloudTrip, isOnline, reconciliations, routes, shifts, syncTickets, tickets, trips, vehicles]);
 
   const getShifts = useCallback(async (): Promise<ShiftRecord[]> => {
     return readJSON<ShiftRecord[]>(KEYS.shifts, []);

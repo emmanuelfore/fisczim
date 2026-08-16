@@ -393,8 +393,8 @@ export function BusRouteAdminScreen({ onClose, companyId }: Props) {
                     />
                   </View>
 
-                  {/* Drop-off sub-section */}
-                  {key === 'dropOffPoint' && form.config.dropOffPoint && (
+                  {/* Drop-off sub-section: stops + pricing are always manageable */}
+                  {key === 'dropOffPoint' && (
                     <View style={styles.subSection}>
                       {form.config.dropOffPoints.map((stop: any) => (
                         <View key={stop.name} style={styles.stopChip}>

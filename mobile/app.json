@@ -3,7 +3,7 @@
     "name": "FieldPOS",
     "slug": "fieldpos",
     "version": "0.1.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "userInterfaceStyle": "dark",
     "scheme": "fieldpos",
     "icon": "./assets/icon.png",

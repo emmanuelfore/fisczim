@@ -248,6 +248,8 @@ export function BusFleetAdminScreen({ onClose, companyId }: Props) {
                 value={regNo}
                 onChangeText={setRegNo}
                 autoCapitalize="characters"
+                returnKeyType="done"
+                onSubmitEditing={handleSave}
               />
 
               <Text style={styles.label}>Model</Text>
@@ -257,6 +259,8 @@ export function BusFleetAdminScreen({ onClose, companyId }: Props) {
                 placeholderTextColor={C.muted}
                 value={model}
                 onChangeText={setModel}
+                returnKeyType="done"
+                onSubmitEditing={handleSave}
               />
 
               <Text style={styles.label}>Fleet Number</Text>
@@ -266,6 +270,8 @@ export function BusFleetAdminScreen({ onClose, companyId }: Props) {
                 placeholderTextColor={C.muted}
                 value={fleetNumber}
                 onChangeText={setFleetNumber}
+                returnKeyType="done"
+                onSubmitEditing={handleSave}
               />
 
               <Text style={styles.label}>Seating Capacity</Text>
@@ -276,6 +282,8 @@ export function BusFleetAdminScreen({ onClose, companyId }: Props) {
                 keyboardType="number-pad"
                 value={capacity}
                 onChangeText={setCapacity}
+                onSubmitEditing={handleSave}
+                onAccessoryDone={handleSave}
               />
               
               <View style={styles.toggleRow}>

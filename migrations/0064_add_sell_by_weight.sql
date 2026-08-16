@@ -1,0 +1,1 @@
+ALTER TABLE "products" ADD COLUMN "sell_by_weight" boolean DEFAULT false;--> statement-breakpoint

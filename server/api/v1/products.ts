@@ -22,6 +22,7 @@ export const productSchema = z.object({
   isActive: z.boolean().optional(),
   barcode: z.string().optional().or(z.literal("")),
   unitOfMeasure: z.string().optional().or(z.literal("")),
+  sellByWeight: z.boolean().optional(),
   costPrice: z.number().min(0).optional().or(z.string().regex(/^\d+(\.\d{1,2})?$/).transform(Number)),
 });
 

@@ -506,6 +506,7 @@ export const products = pgTable("products", {
   isTracked: boolean("is_tracked").default(false),
   stockLevel: decimal("stock_level", { precision: 10, scale: 2 }).default("0"),
   lowStockThreshold: decimal("low_stock_threshold", { precision: 10, scale: 2 }).default("10"),
+  sellByWeight: boolean("sell_by_weight").default(false),
 
   isActive: boolean("is_active").default(true),
   productType: text("product_type").default("good").notNull(), // "good" or "service"

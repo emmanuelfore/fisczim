@@ -92,6 +92,7 @@ export function EditProductDialog({ product, trigger, children }: Props) {
       taxCategoryId: product.taxCategoryId,
       isActive: product.isActive,
       isTracked: product.isTracked,
+      sellByWeight: product.sellByWeight ?? false,
       stockLevel: product.stockLevel?.toString() || "0",
       lowStockThreshold: product.lowStockThreshold?.toString() || "10",
       productType: product.productType,
@@ -1087,6 +1088,29 @@ export function EditProductDialog({ product, trigger, children }: Props) {
                         </FormLabel>
                         <FormDescription>
                           Enable stock tracking for this item
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value || false}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name={"sellByWeight" as any}
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-center justify-between rounded-xl border border-slate-200 p-4 shadow-sm bg-white">
+                      <div className="space-y-0.5">
+                        <FormLabel className="text-base font-semibold text-slate-700">
+                          Sold by Weight
+                        </FormLabel>
+                        <FormDescription>
+                          Enter weight at the POS to calculate price (e.g. meat)
                         </FormDescription>
                       </div>
                       <FormControl>

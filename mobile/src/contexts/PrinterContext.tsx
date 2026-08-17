@@ -190,19 +190,20 @@ export function PrinterProvider({ children }: { children: ReactNode }) {
     // Implement dependency logic here as a safeguard even if UI also does it
     const updated = {
         ...newConfig,
-        enabled: newConfig.isZ100 ? true : newConfig.enabled,
-        autoPrint: newConfig.isZ100 ? true : (newConfig.enabled ? newConfig.autoPrint : false),
-        autoShowModal: newConfig.isZ100 ? false : newConfig.autoShowModal,
-        silentPrint: newConfig.isZ100 ? true : (newConfig.enabled ? newConfig.silentPrint : false),
-        isInternal: false,
-        paperWidth: newConfig.isZ100 ? 58 : newConfig.paperWidth,
-        printerWidth: newConfig.isZ100 ? 32 : (newConfig.printerWidth || (newConfig.paperWidth === 80 ? 42 : 32)),
+        enabled: (newConfig.isZ100 || newConfig.isSunmi) ? true : newConfig.enabled,
+        autoPrint: (newConfig.isZ100 || newConfig.isSunmi) ? true : (newConfig.enabled ? newConfig.autoPrint : false),
+        autoShowModal: (newConfig.isZ100 || newConfig.isSunmi) ? false : newConfig.autoShowModal,
+        silentPrint: (newConfig.isZ100 || newConfig.isSunmi) ? true : (newConfig.enabled ? newConfig.silentPrint : false),
+        isInternal: !!newConfig.isSunmi,
+        paperWidth: newConfig.isZ100 || newConfig.isSunmi ? 58 : newConfig.paperWidth,
+        printerWidth: newConfig.isZ100 || newConfig.isSunmi ? 48 : (newConfig.printerWidth || (newConfig.paperWidth === 80 ? 42 : 32)),
         autoCut: newConfig.autoCut !== false,
         feedLines: Number.isFinite(Number(newConfig.feedLines)) ? Math.max(0, Number(newConfig.feedLines)) : 1,
         openDrawerOnPrint: !!newConfig.openDrawerOnPrint,
         doubleHeightHeader: newConfig.doubleHeightHeader !== false,
         receiptShowLogo: newConfig.receiptShowLogo !== false,
         z100DefaultsApplied: newConfig.z100DefaultsApplied || newConfig.isZ100 || false,
+        sunmiDefaultsApplied: newConfig.sunmiDefaultsApplied || newConfig.isSunmi || false,
     };
 
     setConfig(updated);
@@ -264,6 +265,9 @@ export function PrinterProvider({ children }: { children: ReactNode }) {
       if (activeConfig.isZ100) {
         const { printToZ100 } = await import("../lib/printing");
         await printToZ100(ticketData);
+      } else if (activeConfig.isSunmi) {
+        const { printToSunmi } = await import("../lib/printing");
+        await printToSunmi(ticketData, activeConfig);
       } else if (effectiveMac) {
         await printToBluetooth(ticketData, effectiveMac, activeConfig);
       } else {
@@ -348,7 +352,8 @@ export function PrinterProvider({ children }: { children: ReactNode }) {
       lines.push("-- Saved printer settings --");
       lines.push(`enabled=${config.enabled}`);
       lines.push(`isZ100=${!!config.isZ100}`);
-      lines.push(`isInternal=false`);
+      lines.push(`isSunmi=${!!config.isSunmi}`);
+      lines.push(`isInternal=${!!config.isInternal}`);
       lines.push(`macAddress=${config.macAddress || "(empty)"}`);
       lines.push(`targetPrinter=${config.targetPrinter || "(empty)"}`);
       lines.push(`paperWidth=${config.paperWidth}`);

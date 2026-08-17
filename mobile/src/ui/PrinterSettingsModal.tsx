@@ -286,6 +286,29 @@ export function PrinterSettingsModal({ visible, onClose }: Props) {
                 Enable this if you are running on an Android POS terminal with a built-in thermal printer.
               </Text>
               <ToggleRow
+                label="Use Sunmi Built-in Printer"
+                value={draft.isSunmi}
+                disabled={false}
+                onToggle={() => setDraft(p => {
+                  const next = !p.isSunmi;
+                  return {
+                    ...p,
+                    enabled: next ? true : p.enabled,
+                    isSunmi: next,
+                    isZ100: next ? false : p.isZ100,
+                    isInternal: next ? true : false,
+                    autoPrint: next ? true : p.autoPrint,
+                    silentPrint: next ? true : p.silentPrint,
+                    autoShowModal: next ? false : p.autoShowModal,
+                    paperWidth: next ? 58 : p.paperWidth,
+                    printerWidth: next ? 48 : p.printerWidth,
+                    sunmiDefaultsApplied: next ? true : p.sunmiDefaultsApplied,
+                  };
+                })}
+                C={C}
+                highlight
+              />
+              <ToggleRow
                 label="Use Z100 Native SDK Printer"
                 value={draft.isZ100}
                 disabled={false}
@@ -295,6 +318,7 @@ export function PrinterSettingsModal({ visible, onClose }: Props) {
                     ...p,
                     enabled: next ? true : p.enabled,
                     isZ100: next,
+                    isSunmi: next ? false : p.isSunmi,
                     isInternal: false,
                     autoPrint: next ? true : p.autoPrint,
                     silentPrint: next ? true : p.silentPrint,

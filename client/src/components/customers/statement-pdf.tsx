@@ -8,6 +8,7 @@ import {
   Font,
 } from "@react-pdf/renderer";
 import { format } from "date-fns";
+import { pdfFontFamily } from "@/lib/pdf-fonts";
 
 // Register fonts — use Google Fonts direct TTF (more reliable than CDN)
 try {
@@ -180,9 +181,10 @@ export const StatementPDF = ({
   currency = "USD",
 }: StatementPDFProps) => {
   const cur = currency;
+  const pageFont = pdfFontFamily("Roboto");
   return (
     <Document>
-      <Page size="A4" style={styles.page}>
+      <Page size="A4" style={[styles.page, { fontFamily: pageFont }]}>
         {/* Header */}
         <View style={styles.headerFunc}>
           <View style={styles.titleBlock}>

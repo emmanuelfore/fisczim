@@ -98,7 +98,10 @@ import BusFleetPage from "@/pages/bus-fleet";
 import BusTripsPage from "@/pages/bus-trips";
 import BusTrackingPage from "@/pages/bus-tracking";
 import BusConductorsPage from "@/pages/bus-conductors";
-import BusReportsPage from "@/pages/bus-reports";
+import DailyReportPage from "@/pages/bus-reports/daily";
+import RangeReportPage from "@/pages/bus-reports/range";
+import ConductorReportPage from "@/pages/bus-reports/conductor";
+import CashupReportPage from "@/pages/bus-reports/cashup";
 import BusTripPerformancePage from "@/pages/bus-trip-performance";
 import BusTicketDetailsPage from "@/pages/bus-ticket-details";
 import BusDashboardPage from "@/pages/bus-dashboard";
@@ -655,11 +658,20 @@ function Router() {
       <Route path="/bus/conductors">
         {() => <ProtectedRoute component={BusConductorsPage} />}
       </Route>
-      <Route path="/bus/reports/:reportMode">
-        {() => <ProtectedRoute component={BusReportsPage} />}
+      <Route path="/bus/reports/daily">
+        {() => <ProtectedRoute component={DailyReportPage} />}
+      </Route>
+      <Route path="/bus/reports/range">
+        {() => <ProtectedRoute component={RangeReportPage} />}
+      </Route>
+      <Route path="/bus/reports/conductor">
+        {() => <ProtectedRoute component={ConductorReportPage} />}
+      </Route>
+      <Route path="/bus/reports/cashup">
+        {() => <ProtectedRoute component={CashupReportPage} />}
       </Route>
       <Route path="/bus/reports">
-        {() => <ProtectedRoute component={BusReportsPage} />}
+        {() => <Redirect to="/bus/reports/daily" />}
       </Route>
       <Route path="/bus/trip-performance">
         {() => <ProtectedRoute component={BusTripPerformancePage} />}
@@ -853,19 +865,22 @@ function BrandingMeta() {
 }
 
 import { BranchProvider } from "./lib/branch-context";
+import { LanguageProvider } from "@/lib/i18n";
 
 function App() {
   useSwAuthBridge();
   return (
     <QueryClientProvider client={queryClient}>
-      <ThemeManager />
-      <TooltipProvider>
-        <BranchProvider>
-          <BrandingMeta />
-          <Toaster />
-          <Router />
-        </BranchProvider>
-      </TooltipProvider>
+      <LanguageProvider>
+        <ThemeManager />
+        <TooltipProvider>
+          <BranchProvider>
+            <BrandingMeta />
+            <Toaster />
+            <Router />
+          </BranchProvider>
+        </TooltipProvider>
+      </LanguageProvider>
     </QueryClientProvider>
   );
 }

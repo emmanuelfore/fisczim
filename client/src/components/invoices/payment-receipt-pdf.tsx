@@ -8,6 +8,7 @@ import {
   Font,
 } from "@react-pdf/renderer";
 import { format, isValid } from "date-fns";
+import { pdfFontFamily } from "@/lib/pdf-fonts";
 
 // Use built-in Helvetica — removing font registration to eliminate fetch issues
 
@@ -250,6 +251,8 @@ export const PaymentReceiptPDF = ({
 }: PaymentReceiptPDFProps) => {
   const currency = payment.currency || invoice?.currency || "USD";
 
+  const pageFont = pdfFontFamily("Helvetica");
+
   const getSafeDate = (d: any) => {
     if (!d) return new Date();
     const dateObj = new Date(d);
@@ -310,7 +313,7 @@ export const PaymentReceiptPDF = ({
 
   return (
     <Document>
-      <Page size="A4" style={s.page}>
+      <Page size="A4" style={[s.page, { fontFamily: pageFont }]}>
         <View style={s.headerBanner}>
           <View style={s.logoBox}>
             {company?.logoUrl &&

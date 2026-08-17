@@ -7,6 +7,7 @@ import {
   Image,
 } from "@react-pdf/renderer";
 import { format } from "date-fns";
+import { pdfFontFamily } from "@/lib/pdf-fonts";
 
 const s = StyleSheet.create({
   page: {
@@ -153,12 +154,13 @@ export const FiscalReportPDF = ({
   company,
 }: FiscalReportPDFProps) => {
   const dateStr = format(new Date(data.summary.date), "dd MMM yyyy, HH:mm");
+  const pageFont = pdfFontFamily("Helvetica");
 
   return (
     <Document
       title={`Fiscal ${type} Report - ${format(new Date(), "yyyy-MM-dd")}`}
     >
-      <Page size="A4" style={s.page}>
+      <Page size="A4" style={[s.page, { fontFamily: pageFont }]}>
         <View style={s.headerBanner}>
           <View style={s.logoBox}>
             {company?.logoUrl ? (

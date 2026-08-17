@@ -3,6 +3,7 @@ import { Document, Page, Text, View, StyleSheet, Image, Font } from "@react-pdf/
 import { format } from "date-fns";
 import { getInvoiceTemplate, getStoredInvoiceTemplateSettings, type InvoiceTemplateDesignerSettings } from "@/lib/invoice-templates";
 import { normalizePartnershipSettings, type PartnerSnapshot } from "@shared/partnership";
+import { pdfFontFamily } from "@/lib/pdf-fonts";
 
 const styles = StyleSheet.create({
     page: {
@@ -212,6 +213,7 @@ interface InvoicePDFProps {
 
 export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, templateSettings }: InvoicePDFProps) => {
 
+    const pageFont = pdfFontFamily('Helvetica');
     const designerSettings = templateSettings || getStoredInvoiceTemplateSettings(company?.id || invoice?.companyId);
     const template = getInvoiceTemplate(designerSettings.defaultTemplateId || company?.invoiceTemplate || invoice.invoiceTemplate);
     const accentColor = designerSettings.accentColor || company?.primaryColor || template.accent || '#2563eb';
@@ -254,7 +256,7 @@ export const InvoicePDF = ({ invoice, company, customer, qrCodeUrl, taxTypes, te
 
     return (
         <Document>
-            <Page size="A4" style={[styles.page, { backgroundColor: template.page, color: template.text, padding: compact ? 18 : 24 }]}>
+            <Page size="A4" style={[styles.page, { fontFamily: pageFont, backgroundColor: template.page, color: template.text, padding: compact ? 18 : 24 }]}>
                 {/* 0. Header: Logo (Left) - Verification (Center) - QR (Right) */}
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: compact ? 7 : 10, padding: template.headerMode === 'band' ? 10 : 0, paddingBottom: template.headerMode === 'band' ? 10 : 10, borderBottomWidth: 1, borderBottomColor: borderColor, backgroundColor: template.headerMode === 'band' ? template.secondary : 'transparent' }}>
                     {/* Left: Logo(s) */}

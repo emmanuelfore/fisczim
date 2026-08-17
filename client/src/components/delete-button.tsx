@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Trash2, Loader2 } from "lucide-react";
 import { useState } from "react";
+import { useI18n } from "@/lib/i18n";
 
 interface DeleteButtonProps {
   onConfirm: () => Promise<void>;
@@ -30,6 +31,7 @@ export function DeleteButton({
   children,
   isDeleting = false,
 }: DeleteButtonProps) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
 
   const handleConfirm = async () => {
@@ -60,7 +62,7 @@ export function DeleteButton({
           <AlertDialogDescription>{description}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+          <AlertDialogCancel disabled={isDeleting}>{t("Cancel")}</AlertDialogCancel>
           <AlertDialogAction
             onClick={(e) => {
               e.preventDefault();
@@ -70,7 +72,7 @@ export function DeleteButton({
             className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
           >
             {isDeleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Delete
+            {t("Delete")}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n";
 
 export function StatusBadge({
   status,
@@ -9,6 +10,7 @@ export function StatusBadge({
   className?: string;
   children?: React.ReactNode;
 }) {
+  const { t } = useI18n();
   const styles: Record<string, string> = {
     draft: "bg-slate-100 text-slate-700 border-slate-200",
     issued: "bg-blue-50 text-blue-700 border-blue-100",
@@ -35,7 +37,7 @@ export function StatusBadge({
         className,
       )}
     >
-      {children || status}
+      {children || t(status)}
     </span>
   );
 }

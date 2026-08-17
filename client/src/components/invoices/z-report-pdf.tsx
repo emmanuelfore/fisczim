@@ -7,6 +7,7 @@ import {
   Font,
 } from "@react-pdf/renderer";
 import { format } from "date-fns";
+import { pdfFontFamily } from "@/lib/pdf-fonts";
 
 // Register custom font
 try {
@@ -101,6 +102,8 @@ interface ZReportPDFProps {
 export const ZReportPDF = ({ data, isZReport }: ZReportPDFProps) => {
   const { company, fiscalDayNo, openedAt, closedAt, counters, docStats } = data;
 
+  const pageFont = pdfFontFamily("Courier");
+
   // Helper to filter and sort counters
   const getCountersByType = (curr: string, type: string) => {
     return (counters || [])
@@ -118,7 +121,7 @@ export const ZReportPDF = ({ data, isZReport }: ZReportPDFProps) => {
     <Document
       title={`${isZReport ? "Z" : "X"} Report - Day ${fiscalDayNo || "Current"}`}
     >
-      <Page size="A4" style={styles.page}>
+      <Page size="A4" style={[styles.page, { fontFamily: pageFont }]}>
         {/* Header Section */}
         <View style={styles.header}>
           <Text style={styles.companyName}>{company.name}</Text>

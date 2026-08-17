@@ -3698,6 +3698,95 @@ export const employeeSalaryChanges = pgTable("employee_salary_changes", {
   salaryChangesEmployeeIdx: index("salary_changes_employee_idx").on(table.employeeId),
 }));
 
+// 25b2. Effective-dated salary history (immutable record of every salary revision).
+// Payroll runs resolve the salary applicable to a period from this table; historical
+// records are never overwritten — a change closes the current record (effective_to)
+// and opens a new one (effective_from).
+export const employeeSalaryHistory = pgTable("employee_salary_history", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  employeeId: integer("employee_id").references(() => employees.id).notNull(),
+  salaryChangeId: integer("salary_change_id").references(() => employeeSalaryChanges.id),
+  salaryAmount: decimal("salary_amount", { precision: 15, scale: 2 }).notNull(),
+  currency: text("currency").default("USD").notNull(),
+  payFrequency: text("pay_frequency").default("MONTHLY").notNull(),
+  usdPercentage: decimal("usd_percentage", { precision: 5, scale: 2 }).default("100.00").notNull(),
+  zigPercentage: decimal("zig_percentage", { precision: 5, scale: 2 }).default("0.00").notNull(),
+  effectiveFrom: date("effective_from").notNull(),
+  effectiveTo: date("effective_to"),
+  reason: text("reason"),
+  approvedBy: uuid("approved_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  salaryHistoryCompanyIdx: index("employee_salary_history_company_idx").on(table.companyId),
+  salaryHistoryEmployeePeriodIdx: index("employee_salary_history_employee_period_idx").on(table.employeeId, table.effectiveFrom),
+}));
+
+// 25b3. Effective-dated employment history (joined, transfer, promotion, position
+// change, contract change, termination, rehire).
+export const employeeEmploymentHistory = pgTable("employee_employment_history", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  employeeId: integer("employee_id").references(() => employees.id).notNull(),
+  eventType: text("event_type").notNull(), // JOINED, TRANSFER, PROMOTION, POSITION_CHANGE, CONTRACT_CHANGE, TERMINATION, REHIRE
+  effectiveFrom: date("effective_from").notNull(),
+  effectiveTo: date("effective_to"),
+  departmentId: integer("department_id").references(() => departments.id),
+  positionId: integer("position_id").references(() => positions.id),
+  branchId: integer("branch_id").references(() => branches.id),
+  employmentType: text("employment_type"), // PERMANENT, FIXED_TERM, CASUAL
+  contractType: text("contract_type"),
+  reason: text("reason"),
+  createdBy: uuid("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  employmentHistoryCompanyIdx: index("employee_employment_history_company_idx").on(table.companyId),
+  employmentHistoryEmployeePeriodIdx: index("employee_employment_history_employee_period_idx").on(table.employeeId, table.effectiveFrom),
+}));
+
+// 25b4. Effective-dated income/allowance history. Never overwrite an allowance
+// amount; a change closes the current effective record and opens a new one.
+export const employeeIncomeHistory = pgTable("employee_income_history", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  employeeId: integer("employee_id").references(() => employees.id).notNull(),
+  recurringItemId: integer("recurring_item_id").references(() => payrollRecurringItems.id),
+  incomeTypeId: integer("income_type_id").references(() => payrollEarningTypes.id),
+  name: text("name").notNull(),
+  amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
+  calculationType: text("calculation_type").default("FIXED").notNull(), // FIXED, PERCENTAGE, FORMULA
+  isTaxable: boolean("is_taxable").default(true).notNull(),
+  effectiveFrom: date("effective_from").notNull(),
+  effectiveTo: date("effective_to"),
+  reason: text("reason"),
+  createdBy: uuid("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  incomeHistoryCompanyIdx: index("employee_income_history_company_idx").on(table.companyId),
+  incomeHistoryEmployeePeriodIdx: index("employee_income_history_employee_period_idx").on(table.employeeId, table.effectiveFrom),
+}));
+
+// 25b5. Effective-dated deduction history (mirror of employee_income_history).
+export const employeeDeductionHistory = pgTable("employee_deduction_history", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  employeeId: integer("employee_id").references(() => employees.id).notNull(),
+  recurringItemId: integer("recurring_item_id").references(() => payrollRecurringItems.id),
+  deductionTypeId: integer("deduction_type_id").references(() => payrollDeductionTypes.id),
+  name: text("name").notNull(),
+  amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
+  calculationType: text("calculation_type").default("FIXED").notNull(), // FIXED, PERCENTAGE, FORMULA
+  isTaxDeductible: boolean("is_tax_deductible").default(false).notNull(),
+  effectiveFrom: date("effective_from").notNull(),
+  effectiveTo: date("effective_to"),
+  reason: text("reason"),
+  createdBy: uuid("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  deductionHistoryCompanyIdx: index("employee_deduction_history_company_idx").on(table.companyId),
+  deductionHistoryEmployeePeriodIdx: index("employee_deduction_history_employee_period_idx").on(table.employeeId, table.effectiveFrom),
+}));
+
 // 25c. Statutory remittance tracker - generated from locked payroll runs
 // One row per obligation per period (e.g. ZIMRA P2 for 2026-06) with due date,
 // computed amount and filing/remittance status.
@@ -3772,6 +3861,10 @@ export const employeesRelations = relations(employees, ({ one, many }) => ({
   payrollProfiles: many(employeePayrollProfiles),
   salaryChanges: many(employeeSalaryChanges),
   payslipDocuments: many(payslipDocuments),
+  salaryHistory: many(employeeSalaryHistory),
+  employmentHistory: many(employeeEmploymentHistory),
+  incomeHistory: many(employeeIncomeHistory),
+  deductionHistory: many(employeeDeductionHistory),
 }));
 
 export const employeeContractsRelations = relations(employeeContracts, ({ one }) => ({
@@ -3923,9 +4016,38 @@ export const payrollImportRowsRelations = relations(payrollImportRows, ({ one })
   batch: one(payrollImportBatches, { fields: [payrollImportRows.batchId], references: [payrollImportBatches.id] }),
 }));
 
-export const employeeSalaryChangesRelations = relations(employeeSalaryChanges, ({ one }) => ({
+export const employeeSalaryChangesRelations = relations(employeeSalaryChanges, ({ one, many }) => ({
   employee: one(employees, { fields: [employeeSalaryChanges.employeeId], references: [employees.id] }),
   company: one(companies, { fields: [employeeSalaryChanges.companyId], references: [companies.id] }),
+  salaryHistory: many(employeeSalaryHistory),
+}));
+
+export const employeeSalaryHistoryRelations = relations(employeeSalaryHistory, ({ one }) => ({
+  employee: one(employees, { fields: [employeeSalaryHistory.employeeId], references: [employees.id] }),
+  company: one(companies, { fields: [employeeSalaryHistory.companyId], references: [companies.id] }),
+  salaryChange: one(employeeSalaryChanges, { fields: [employeeSalaryHistory.salaryChangeId], references: [employeeSalaryChanges.id] }),
+}));
+
+export const employeeEmploymentHistoryRelations = relations(employeeEmploymentHistory, ({ one }) => ({
+  employee: one(employees, { fields: [employeeEmploymentHistory.employeeId], references: [employees.id] }),
+  company: one(companies, { fields: [employeeEmploymentHistory.companyId], references: [companies.id] }),
+  department: one(departments, { fields: [employeeEmploymentHistory.departmentId], references: [departments.id] }),
+  position: one(positions, { fields: [employeeEmploymentHistory.positionId], references: [positions.id] }),
+  branch: one(branches, { fields: [employeeEmploymentHistory.branchId], references: [branches.id] }),
+}));
+
+export const employeeIncomeHistoryRelations = relations(employeeIncomeHistory, ({ one }) => ({
+  employee: one(employees, { fields: [employeeIncomeHistory.employeeId], references: [employees.id] }),
+  company: one(companies, { fields: [employeeIncomeHistory.companyId], references: [companies.id] }),
+  incomeType: one(payrollEarningTypes, { fields: [employeeIncomeHistory.incomeTypeId], references: [payrollEarningTypes.id] }),
+  recurringItem: one(payrollRecurringItems, { fields: [employeeIncomeHistory.recurringItemId], references: [payrollRecurringItems.id] }),
+}));
+
+export const employeeDeductionHistoryRelations = relations(employeeDeductionHistory, ({ one }) => ({
+  employee: one(employees, { fields: [employeeDeductionHistory.employeeId], references: [employees.id] }),
+  company: one(companies, { fields: [employeeDeductionHistory.companyId], references: [companies.id] }),
+  deductionType: one(payrollDeductionTypes, { fields: [employeeDeductionHistory.deductionTypeId], references: [payrollDeductionTypes.id] }),
+  recurringItem: one(payrollRecurringItems, { fields: [employeeDeductionHistory.recurringItemId], references: [payrollRecurringItems.id] }),
 }));
 
 export const payrollRecurringItemsRelations = relations(payrollRecurringItems, ({ one }) => ({
@@ -4039,6 +4161,22 @@ export type InsertEmployeePayrollProfile = z.infer<typeof insertEmployeePayrollP
 export const insertPayrollRecurringItemSchema = createInsertSchema(payrollRecurringItems).omit({ id: true });
 export type PayrollRecurringItem = typeof payrollRecurringItems.$inferSelect;
 export type InsertPayrollRecurringItem = z.infer<typeof insertPayrollRecurringItemSchema>;
+
+export const insertEmployeeSalaryHistorySchema = createInsertSchema(employeeSalaryHistory).omit({ id: true, createdAt: true });
+export type EmployeeSalaryHistory = typeof employeeSalaryHistory.$inferSelect;
+export type InsertEmployeeSalaryHistory = z.infer<typeof insertEmployeeSalaryHistorySchema>;
+
+export const insertEmployeeEmploymentHistorySchema = createInsertSchema(employeeEmploymentHistory).omit({ id: true, createdAt: true });
+export type EmployeeEmploymentHistory = typeof employeeEmploymentHistory.$inferSelect;
+export type InsertEmployeeEmploymentHistory = z.infer<typeof insertEmployeeEmploymentHistorySchema>;
+
+export const insertEmployeeIncomeHistorySchema = createInsertSchema(employeeIncomeHistory).omit({ id: true, createdAt: true });
+export type EmployeeIncomeHistory = typeof employeeIncomeHistory.$inferSelect;
+export type InsertEmployeeIncomeHistory = z.infer<typeof insertEmployeeIncomeHistorySchema>;
+
+export const insertEmployeeDeductionHistorySchema = createInsertSchema(employeeDeductionHistory).omit({ id: true, createdAt: true });
+export type EmployeeDeductionHistory = typeof employeeDeductionHistory.$inferSelect;
+export type InsertEmployeeDeductionHistory = z.infer<typeof insertEmployeeDeductionHistorySchema>;
 
 export const insertPayrollRunSchema = createInsertSchema(payrollRuns).omit({ id: true, createdAt: true, updatedAt: true });
 export type PayrollRun = typeof payrollRuns.$inferSelect;

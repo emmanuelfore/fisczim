@@ -18,6 +18,13 @@ try {
   console.warn("[Printing] Z100 printer module not available", e);
 }
 
+let SunmiPrinter: any = null;
+try {
+  SunmiPrinter = require('@hendrysetiadi/react-native-sunmi-printer');
+} catch (e) {
+  console.warn("[Printing] Sunmi printer module not available", e);
+}
+
 export interface TicketData {
   invoice: any;
   company: any;
@@ -673,6 +680,255 @@ export const printToZ100 = async (data: TicketData) => {
     // CRITICAL: Always close to release hardware locks and prevent crashes on next print
     await zlog("printClose requested");
     await Z100Printer.printClose().catch(() => {});
+  }
+};
+
+/** True when running on a Sunmi device with a built-in InnerPrinter service */
+export const isSunmiDevice = async (): Promise<boolean> => {
+  if (!SunmiPrinter) return false;
+  try {
+    const serial = await SunmiPrinter.getPrinterSerialNo();
+    return typeof serial === "string" && serial.length > 0;
+  } catch (e) {
+    console.warn("[Printing] Sunmi device detection failed:", e);
+    return false;
+  }
+};
+
+/**
+ * Print a fiscal receipt on a SUNMI device's built-in printer.
+ * Uses the Sunmi InnerPrinter AIDL service via @hendrysetiadi/react-native-sunmi-printer.
+ * The receipt layout mirrors the Z100 text template (48 columns).
+ */
+export const printToSunmi = async (data: TicketData, config?: PrinterConfig) => {
+  if (!SunmiPrinter) {
+    throw new Error("Sunmi printer module is not included in this build.");
+  }
+
+  const { invoice, company, customer, items, cashierName, paidAmount, suppressTaxDetails } = data;
+
+  const initOk = await SunmiPrinter.initPrinter().catch((e: unknown) => {
+    console.warn("[Printing] Sunmi initPrinter failed:", e);
+    return null;
+  });
+  if (initOk === null) {
+    throw new Error("Sunmi inner printer could not be initialized. Check that you are running on a Sunmi device.");
+  }
+
+  const width = config?.printerWidth || 48;
+  const branch = (data as any).branch;
+  const activeCompany = branch || company;
+  const isVatPayer = !suppressTaxDetails && !!company?.vatNumber;
+  const separator = "-".repeat(width);
+  const clean = (value: unknown) => String(value ?? "").replace(/\s+/g, " ").trim();
+  const money = (value: unknown) => Number(value || 0).toFixed(2);
+  const centerText = (value: unknown) => {
+    const text = clean(value);
+    if (!text) return "";
+    if (text.length >= width) return text.slice(0, width);
+    return `${" ".repeat(Math.floor((width - text.length) / 2))}${text}`;
+  };
+  const wrap = (value: unknown, max = width) => {
+    const text = clean(value);
+    if (!text) return [""];
+    const lines: string[] = [];
+    let rest = text;
+    while (rest.length > max) {
+      const slice = rest.slice(0, max);
+      const breakAt = slice.lastIndexOf(" ");
+      const cut = breakAt > 8 ? breakAt : max;
+      lines.push(rest.slice(0, cut).trimEnd());
+      rest = rest.slice(cut).trimStart();
+    }
+    lines.push(rest);
+    return lines;
+  };
+  const tableRow = (label: string, value: unknown) => {
+    const left = clean(label);
+    const right = clean(value);
+    if (!right) return left.slice(0, width);
+    const maxLeft = width - right.length - 1;
+    if (maxLeft < 8) return `${left}\n${right}`;
+    const safeLeft = left.slice(0, maxLeft);
+    return `${safeLeft}${" ".repeat(Math.max(1, width - safeLeft.length - right.length))}${right}`;
+  };
+  const formatDateTime = (dateValue: unknown) => {
+    const date = new Date((dateValue as any) || Date.now());
+    const pad = (n: number) => n.toString().padStart(2, "0");
+    return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+  };
+  const formatVerificationCode = (code: string) => {
+    if (!code) return "";
+    return code.replace(/-/g, "").match(/.{1,4}/g)?.join("-") || code;
+  };
+
+  // Build the plain-text receipt first (mirrors printToZ100), then emit via Sunmi AIDL in buffer mode.
+  const textLines: string[] = [];
+  const pushLine = (text: string) => textLines.push(text);
+  const pushCenter = (value: unknown) => wrap(value).forEach((l) => pushLine(centerText(l)));
+  const pushWrapped = (value: unknown) => wrap(value).forEach((l) => pushLine(l));
+  const pushRow = (label: string, value: unknown) => tableRow(label, value).split("\n").forEach((l) => pushLine(l));
+
+  const receiptItems = Array.isArray(items) && items.length > 0
+    ? items
+    : Array.isArray(invoice.items) && invoice.items.length > 0
+      ? invoice.items
+      : Array.isArray(invoice.lineItems)
+        ? invoice.lineItems
+        : [];
+  const totalQty = receiptItems.reduce((sum: number, item: any) => sum + Number(item.quantity || 0), 0);
+  const taxGroups = receiptItems.reduce((acc: any, item: any) => {
+    const taxRate = parseFloat(item.taxRate || 0);
+    const unitPrice = Number(item.unitPrice ?? item.price ?? item.sellingPrice ?? 0);
+    const qty = Number(item.quantity || 0);
+    const total = parseFloat(item.lineTotal || (unitPrice * qty));
+    const rate = taxRate / 100;
+    const taxAmount = rate > 0 ? (total * rate) / (1 + rate) : 0;
+    const netAmount = total - taxAmount;
+    const key = taxRate.toFixed(2);
+    if (!acc[key]) {
+      acc[key] = { rate: taxRate, net: 0, tax: 0, gross: 0, name: item.taxCode || (taxRate === 0 ? "Exempt" : `${taxRate}%`) };
+    }
+    acc[key].net += netAmount;
+    acc[key].tax += taxAmount;
+    acc[key].gross += total;
+    return acc;
+  }, {});
+
+  let documentTitle = "INVOICE";
+  if (invoice.transactionType === "CreditNote" || invoice.type === "credit_note" || data.noteType === "credit") documentTitle = "CREDIT NOTE";
+  else if (invoice.transactionType === "DebitNote" || invoice.type === "debit_note" || data.noteType === "debit") documentTitle = "DEBIT NOTE";
+  if (invoice._offline || invoice._simulation || invoice.fiscalCode) {
+    documentTitle = isVatPayer ? `FISCAL ${documentTitle === "INVOICE" ? "TAX INVOICE" : documentTitle}` : `FISCAL ${documentTitle}`;
+  }
+  if (suppressTaxDetails) {
+    documentTitle = invoice.receiptTitle || "BUS TICKET";
+  }
+
+  pushCenter(clean(company?.name || "FieldPOS").toUpperCase());
+  if (branch && branch.name !== company.name) pushCenter(branch.name);
+
+  const addressParts = [activeCompany?.address, activeCompany?.city, activeCompany?.province].filter(Boolean);
+  for (const part of addressParts) pushCenter(part);
+  if (activeCompany?.phone) pushCenter(`TEL: ${activeCompany.phone}`);
+  if (activeCompany?.email) pushCenter(`EMAIL: ${activeCompany.email}`);
+
+  pushLine(separator);
+  if (!suppressTaxDetails && company?.tin) pushCenter(`TIN: ${company.tin}`);
+  if (isVatPayer) pushCenter(`VAT No: ${company.vatNumber}`);
+  pushLine(separator);
+  pushCenter(documentTitle);
+  pushLine(separator);
+
+  const counterStr = invoice.receiptCounter ? invoice.receiptCounter.toString() : "---";
+  const globalStr = invoice.receiptGlobalNo ? invoice.receiptGlobalNo.toString() : "---";
+  if (suppressTaxDetails) {
+    pushRow("TICKET NO:", invoice.invoiceNumber || invoice.id || "---");
+  } else {
+    pushRow("INVOICE NO:", `${counterStr}/${globalStr}`);
+    if (invoice.receiptGlobalNo || invoice._offline || invoice._simulation || invoice.fiscalCode) {
+      pushRow("FISCAL DAY NO:", (invoice.fiscalDayNo || "---").toString());
+      pushRow("DEVICE SERIAL NO:", activeCompany?.fdmsDeviceSerialNo || activeCompany?.deviceSerialNo || "stack1");
+      pushRow("DEVICE ID:", activeCompany?.fdmsDeviceId || activeCompany?.deviceId || "33697");
+    }
+  }
+  if (!suppressTaxDetails) {
+    pushRow("CUST REF NO:", invoice.invoiceNo || invoice.invoiceNumber || `INV-${invoice.id || "---"}`);
+  }
+  pushRow("DATE & TIME:", formatDateTime(invoice.issueDate || invoice.createdAt));
+  if (cashierName) pushRow("CASHIER:", cashierName);
+
+  const customerName = customer?.name;
+  const isWalkIn = !customer || ["walk-in", "walk in", "guest"].some((s) => customerName?.toLowerCase().includes(s));
+  if (!isWalkIn) {
+    pushLine(separator);
+    pushLine("BUYER:");
+    pushWrapped(customer.name);
+    if (customer.tin) pushLine(`TIN: ${customer.tin}`);
+    if (customer.vatNumber) pushLine(`VAT No: ${customer.vatNumber}`);
+  }
+
+  pushLine(separator);
+  pushLine("ITEMS");
+  pushLine(suppressTaxDetails ? "QTY                  TOTAL" : "QTY        VAT       TOTAL");
+  pushLine(separator);
+
+  if (receiptItems.length === 0) {
+    pushLine("NO ITEMS");
+  }
+
+  for (const item of receiptItems) {
+    const qty = Number(item.quantity || 0);
+    const price = Number(item.unitPrice ?? item.price ?? item.sellingPrice ?? 0);
+    const computedTotal = price * qty;
+    const total = Number.isFinite(Number(item.lineTotal)) ? Number(item.lineTotal) : computedTotal;
+    const taxRate = parseFloat(item.taxRate || 0);
+    const vatAmount = taxRate > 0 ? (total * (taxRate / 100)) / (1 + (taxRate / 100)) : 0;
+    const desc = item.description || item.product?.name || item.name || "Item";
+    pushWrapped(desc);
+    pushLine((
+      suppressTaxDetails
+        ? `${qty.toFixed(2).padEnd(20)}${total.toFixed(2)}`
+        : `${qty.toFixed(2).padEnd(10)}${vatAmount.toFixed(2).padEnd(10)}${total.toFixed(2)}`
+    ).slice(0, width));
+    pushLine(".".repeat(width));
+  }
+
+  pushLine(separator);
+  pushRow(suppressTaxDetails ? "GRAND TOTAL:" : "GRAND TOTAL (Incl. VAT):", `${invoice.currency || "USD"} ${money(invoice.total || invoice.receiptTotal)}`);
+  pushRow("AMT TENDERED:", `${invoice.currency || "USD"} ${money(invoice.paymentAmount || paidAmount || invoice.total)}`);
+  pushRow("CHANGE:", `${invoice.currency || "USD"} ${money(invoice.change || 0)}`);
+  pushLine(separator);
+  pushRow("NUMBER OF ITEMS:", totalQty.toFixed(3));
+  pushLine(separator);
+
+  if (isVatPayer) {
+    pushCenter("TAX SUMMARY");
+    for (const group of Object.values(taxGroups) as any[]) {
+      pushLine(`TAX CODE ${group.name} (${group.rate}%)`);
+      pushRow("  NET AMT:", group.net.toFixed(2));
+      pushRow("  VAT AMT:", group.tax.toFixed(2));
+      pushRow("  TOTAL AMT:", group.gross.toFixed(2));
+      pushLine(".".repeat(width));
+    }
+  }
+
+  let verificationCode = invoice.verificationCode || "";
+  if (!verificationCode && (invoice._simulation || invoice._offline || invoice.status === "draft")) {
+    verificationCode = "9A2B-C48D-80FE-12A5-99BF";
+  }
+  if (verificationCode) {
+    pushCenter("VERIFICATION CODE:");
+    pushCenter(formatVerificationCode(verificationCode));
+  }
+
+  const qrData = invoice.qrCodeData || invoice.receiptQRData || invoice.verificationUrl || (invoice._simulation ? "https://fdms.zimra.co.zw/verify/SIMULATION-ONLY" : "");
+
+  pushLine("");
+  pushCenter(invoice.notes || invoice.receiptNotes || "Thank you for your business!");
+  pushCenter("Powered by FiscalStack");
+
+  try {
+    await SunmiPrinter.enterPrintBuffer(true);
+    for (const textLine of textLines) {
+      await SunmiPrinter.printText(textLine);
+    }
+    if (qrData) {
+      await SunmiPrinter.printLineWrap(1);
+      await SunmiPrinter.printQrCode(qrData, 8, 2);
+    }
+    await SunmiPrinter.printLineWrap((config?.feedLines ?? 1) + 2);
+    await SunmiPrinter.exitPrinterBuffer(true);
+  } catch (e: any) {
+    console.warn("[Printing] Sunmi buffer print failed, falling back to direct print:", e);
+    await SunmiPrinter.printText("\n".repeat(2));
+    for (const textLine of textLines) {
+      await SunmiPrinter.printText(textLine);
+    }
+    if (qrData) {
+      await SunmiPrinter.printQrCode(qrData, 8, 2);
+    }
+    await SunmiPrinter.printLineWrap((config?.feedLines ?? 1) + 2);
   }
 };
 

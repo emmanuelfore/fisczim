@@ -23,6 +23,7 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { Link } from "wouter";
+import { useI18n } from "@/lib/i18n";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -107,6 +108,7 @@ function formatStatus(
 
 export default function Dashboard() {
   const { activeCompany } = useActiveCompany();
+  const { t } = useI18n();
   const { selectedBranchId } = useBranchContext();
   const companyId = activeCompany?.id || 0;
 
@@ -247,8 +249,11 @@ export default function Dashboard() {
     if (outOfStockCount > 0 || lowStockCount > 0) {
       alertShownRef.current = true;
       toast({
-        title: "Inventory Alert",
-        description: `You have ${outOfStockCount} out of stock and ${lowStockCount} low stock items.`,
+        title: t("Inventory Alert"),
+        description: t("You have {out} out of stock and {low} low stock items.", {
+          out: outOfStockCount,
+          low: lowStockCount,
+        }),
         variant: "destructive",
       });
     }
@@ -259,14 +264,14 @@ export default function Dashboard() {
       <Layout>
         <div className="min-h-[420px] rounded-2xl border border-[#E5E7EB] bg-white p-10 flex flex-col items-center justify-center text-center">
           <h2 className="text-xl font-bold text-[#071437]">
-            No company selected
+            {t("No company selected")}
           </h2>
           <p className=" text-[#64748B] mt-2">
-            Select or create a business to load dashboard metrics.
+            {t("Select or create a business to load dashboard metrics.")}
           </p>
           <Link href="/onboarding">
             <Button className="mt-6 h-11 rounded-[10px] bg-[#155EEF] hover:bg-[#1D4ED8]">
-              Setup Business
+              {t("Setup Business")}
             </Button>
           </Link>
         </div>
@@ -282,7 +287,7 @@ export default function Dashboard() {
             <div className="flex flex-wrap justify-end gap-2">
               <Link href="/invoices/new">
                 <Button className="h-10 w-[148px] rounded-[10px] bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-semibold ">
-                  Create Invoice
+                  {t("Create Invoice")}
                 </Button>
               </Link>
             </div>
@@ -291,7 +296,7 @@ export default function Dashboard() {
           <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
             <div className="rounded-[14px] border border-[#E5E7EB] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-shadow hover:shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
               <div className="flex items-start justify-between">
-                <p className=" font-semibold text-[#64748B]">Total Sales</p>
+                <p className=" font-semibold text-[#64748B]">{t("Total Sales")}</p>
                 <div className="flex items-center gap-2">
                   <svg
                     width="56"
@@ -314,16 +319,16 @@ export default function Dashboard() {
                 </div>
               </div>
               <p className="mt-3 text-[23px] leading-tight font-bold tracking-[-0.015em] text-[#0F172A]">
-                {amountLines(totalSalesByCurrency, "No sales yet", visibleCurrencyCodes)}
+                {amountLines(totalSalesByCurrency, t("No sales yet"), visibleCurrencyCodes)}
               </p>
               <p className="mt-3  text-[#16A34A] font-semibold inline-flex items-center gap-1">
-                <ArrowUp className="w-3 h-3" /> 18.7% vs last week
+                <ArrowUp className="w-3 h-3" /> {t("{pct} vs last week", { pct: "18.7%" })}
               </p>
             </div>
 
             <div className="rounded-[14px] border border-[#E5E7EB] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-shadow hover:shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
               <div className="flex items-start justify-between">
-                <p className=" font-semibold text-[#64748B]">Invoices Issued</p>
+                <p className=" font-semibold text-[#64748B]">{t("Invoices Issued")}</p>
                 <div className="flex items-center gap-2">
                   <svg
                     width="56"
@@ -349,39 +354,39 @@ export default function Dashboard() {
                 {invoicesTotal.toLocaleString()}
               </p>
               <p className="mt-3  text-[#16A34A] font-semibold inline-flex items-center gap-1">
-                <ArrowUp className="w-3 h-3" /> 15.3% vs last week
+                <ArrowUp className="w-3 h-3" /> {t("{pct} vs last week", { pct: "15.3%" })}
               </p>
             </div>
 
             <div className="rounded-[14px] border border-[#E5E7EB] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-shadow hover:shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
               <div className="flex items-start justify-between">
-                <p className=" font-semibold text-[#64748B]">VAT Collected</p>
+                <p className=" font-semibold text-[#64748B]">{t("VAT Collected")}</p>
                 <div className="h-9 w-9 rounded-[10px] bg-[#EFF6FF] border border-[#DBEAFE] flex items-center justify-center text-[#1D4ED8]  font-extrabold">
                   %
                 </div>
               </div>
               <p className="mt-3 text-[23px] leading-tight font-bold tracking-[-0.015em] text-[#0F172A]">
-                {amountLines(vatCollectedByCurrency, "No VAT yet", visibleCurrencyCodes)}
+                {amountLines(vatCollectedByCurrency, t("No VAT yet"), visibleCurrencyCodes)}
               </p>
               <p className="mt-3  text-[#16A34A] font-semibold inline-flex items-center gap-1">
-                <ArrowUp className="w-3 h-3" /> 12.5% vs last week
+                <ArrowUp className="w-3 h-3" /> {t("{pct} vs last week", { pct: "12.5%" })}
               </p>
             </div>
 
             <div className="rounded-[14px] border border-[#E5E7EB] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-shadow hover:shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
               <div className="flex items-start justify-between">
-                <p className=" font-semibold text-[#64748B]">FDMS Status</p>
+                <p className=" font-semibold text-[#64748B]">{t("FDMS Status")}</p>
                 <Cloud className="w-5 h-5 text-[#2563EB]" />
               </div>
               <p className="mt-3 text-[26px] leading-none font-bold tracking-[-0.015em] text-[#0F172A]">
-                {connected ? "Connected" : "Offline"}
+                {connected ? t("Connected") : t("Offline")}
               </p>
               <p
                 className={`mt-3  font-semibold inline-flex items-center gap-1 ${connected ? "text-[#16A34A]" : "text-[#DC2626]"}`}
               >
                 <CheckCircle2 className="w-3 h-3" />
-                Last sync:{" "}
-                {deviceStatus?.lastSync ? "2 mins ago" : "Not available"}
+                {t("Last sync:")}{" "}
+                {deviceStatus?.lastSync ? t("2 mins ago") : t("Not available")}
               </p>
             </div>
           </section>
@@ -391,13 +396,13 @@ export default function Dashboard() {
           <div className="xl:col-span-2 rounded-[14px] border border-[#E5E7EB] bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
             <div className="flex items-center justify-between mb-5">
               <h3 className="text-[16px] font-bold text-[#0F172A]">
-                Sales Overview
+                {t("Sales Overview")}
               </h3>
               <Button
                 variant="outline"
                 className="h-9 rounded-[10px] border-[#E5E7EB] text-[#334155]"
               >
-                This Week
+                {t("This Week")}
               </Button>
             </div>
             <div className="h-[280px]">
@@ -486,7 +491,7 @@ export default function Dashboard() {
 
           <div className="rounded-[14px] border border-[#E5E7EB] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
             <h3 className="mb-3  font-bold text-[#0F172A]">
-              Sales by Payment Method
+              {t("Sales by Payment Method")}
             </h3>
             <div className="grid grid-cols-[minmax(128px,0.9fr)_minmax(0,1.1fr)] items-center gap-3">
               <div className="h-[190px] min-w-0">
@@ -531,7 +536,7 @@ export default function Dashboard() {
                       </p>
                       <p className="text-[10px] text-[#64748B]">
                         {paymentTotal > 0
-                          ? `${((p.value / paymentTotal) * 100).toFixed(1)}% of receipts`
+                          ? t("{pct} of receipts", { pct: `${((p.value / paymentTotal) * 100).toFixed(1)}%` })
                           : "0.0%"}
                       </p>
                     </div>
@@ -539,10 +544,10 @@ export default function Dashboard() {
                 ))}
                 <div className="mt-2 flex items-center justify-between border-t border-[#E5E7EB] pt-2">
                   <span className="text-xs font-semibold text-[#111827]">
-                    Total
+                    {t("Total")}
                   </span>
                   <span className=" font-semibold text-[#111827]">
-                    {paymentTotal.toLocaleString()} receipts
+                    {paymentTotal.toLocaleString()} {t("receipts")}
                   </span>
                 </div>
               </div>
@@ -554,10 +559,10 @@ export default function Dashboard() {
           <div className="rounded-[14px] border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] overflow-hidden">
             <div className="px-5 py-4 border-b border-[#E5E7EB] flex items-center justify-between">
               <h3 className="text-[16px] font-bold text-[#0F172A]">
-                Recent Invoices
+                {t("Recent Invoices")}
               </h3>
               <Link href="/invoices" className=" font-semibold text-[#2563EB]">
-                View all
+                {t("View all")}
               </Link>
             </div>
             <div>
@@ -571,19 +576,18 @@ export default function Dashboard() {
                 </colgroup>
                 <thead>
                   <tr className="bg-[#F8FAFC] text-left text-[11px] font-semibold uppercase tracking-wide text-[#64748B]">
-                    <th className="px-3 py-2.5">Invoice #</th>
-                    <th className="px-3 py-2.5">Customer</th>
-                    <th className="px-2 py-2.5">Date</th>
-                    <th className="px-3 py-2.5 text-right">Amount</th>
-                    <th className="px-3 py-2.5 pr-5">Status</th>
+                    <th className="px-3 py-2.5">{t("Invoice #")}</th>
+                    <th className="px-3 py-2.5">{t("Customer")}</th>
+                    <th className="px-2 py-2.5">{t("Date")}</th>
+                    <th className="px-3 py-2.5 text-right">{t("Amount")}</th>
+                    <th className="px-3 py-2.5 pr-5">{t("Status")}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {invoices.length === 0 ? (
                     <tr>
                       <td colSpan={5} className="px-3 py-8  text-[#64748B]">
-                        No invoices yet. Create your first invoice to
-                        get started.
+                        {t("No invoices yet. Create your first invoice to get started.")}
                       </td>
                     </tr>
                   ) : (
@@ -603,7 +607,7 @@ export default function Dashboard() {
                             </Link>
                           </td>
                           <td className="truncate px-3 py-2.5 font-medium text-[#334155]">
-                            {inv.customer?.name || "Walk In Customer"}
+                            {inv.customer?.name || t("Walk In Customer")}
                           </td>
                           <td className="whitespace-nowrap px-2 py-2.5 text-[#64748B]">
                             {inv.issueDate
@@ -620,7 +624,7 @@ export default function Dashboard() {
                             <span
                               className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold ${status === "FISCALIZED" ? "bg-[#DCFCE7] text-[#166534] border-emerald-100" : status === "PENDING" ? "bg-[#FEF3C7] text-[#92400E] border-amber-100" : status === "FAILED" ? "bg-[#FEE2E2] text-[#991B1B] border-red-100" : "bg-[#EFF6FF] text-[#1D4ED8] border-blue-100"}`}
                             >
-                              {status}
+                              {t(status)}
                             </span>
                           </td>
                         </tr>
@@ -635,19 +639,19 @@ export default function Dashboard() {
           <div className="rounded-[14px] border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] overflow-hidden">
             <div className="px-5 py-4 border-b border-[#E5E7EB] flex items-center justify-between">
               <h3 className="text-[16px] font-bold text-[#0F172A]">
-                Top Selling Products
+                {t("Top Selling Products")}
               </h3>
               <Link href="/products" className=" font-semibold text-[#2563EB]">
-                View all
+                {t("View all")}
               </Link>
             </div>
             <div>
               <table className="w-full table-fixed">
                 <thead>
                   <tr className="text-left text-[12px] font-semibold uppercase tracking-wide text-[#64748B] bg-[#F8FAFC]">
-                    <th className="px-5 py-3">Product</th>
-                    <th className="px-5 py-3">Sold</th>
-                    <th className="px-5 py-3">Revenue</th>
+                    <th className="px-5 py-3">{t("Product")}</th>
+                    <th className="px-5 py-3">{t("Sold")}</th>
+                    <th className="px-5 py-3">{t("Revenue")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -684,17 +688,17 @@ export default function Dashboard() {
               <Package className="w-4 h-4" />
             </div>
             <p className="mt-4  text-[#64748B] font-semibold">
-              Inventory Summary
+              {t("Inventory Summary")}
             </p>
             <p className="mt-1 text-[30px] leading-none font-bold tracking-[-0.015em] text-[#0F172A]">
               {products.length.toLocaleString()}
             </p>
-            <p className="mt-2  text-[#64748B]">Total items</p>
+            <p className="mt-2  text-[#64748B]">{t("Total items")}</p>
             <Link
               href="/products"
               className="mt-4 inline-flex items-center gap-1  font-semibold text-[#2563EB]"
             >
-              View inventory <ArrowRight className="w-4 h-4" />
+              {t("View inventory")} <ArrowRight className="w-4 h-4" />
             </Link>
           </div>
 
@@ -703,17 +707,17 @@ export default function Dashboard() {
               <AlertTriangle className="w-4 h-4" />
             </div>
             <p className="mt-4  text-[#64748B] font-semibold">
-              Low Stock Items
+              {t("Low Stock Items")}
             </p>
             <p className="mt-1 text-[30px] leading-none font-bold tracking-[-0.015em] text-[#0F172A]">
               {lowStockCount}
             </p>
-            <p className="mt-2  text-[#64748B]">Items running low</p>
+            <p className="mt-2  text-[#64748B]">{t("Items running low")}</p>
             <Link
               href="/reports/inventory"
               className="mt-4 inline-flex items-center gap-1  font-semibold text-[#2563EB]"
             >
-              View low stock <ArrowRight className="w-4 h-4" />
+              {t("View low stock")} <ArrowRight className="w-4 h-4" />
             </Link>
           </div>
 
@@ -722,17 +726,17 @@ export default function Dashboard() {
               <TriangleAlert className="w-4 h-4" />
             </div>
             <p className="mt-4  text-[#64748B] font-semibold">
-              Out of Stock Items
+              {t("Out of Stock Items")}
             </p>
             <p className="mt-1 text-[30px] leading-none font-bold tracking-[-0.015em] text-[#0F172A]">
               {outOfStockCount}
             </p>
-            <p className="mt-2  text-[#64748B]">Items out of stock</p>
+            <p className="mt-2  text-[#64748B]">{t("Items out of stock")}</p>
             <Link
               href="/reports/inventory"
               className="mt-4 inline-flex items-center gap-1  font-semibold text-[#2563EB]"
             >
-              View out of stock <ArrowRight className="w-4 h-4" />
+              {t("View out of stock")} <ArrowRight className="w-4 h-4" />
             </Link>
           </div>
 
@@ -741,17 +745,17 @@ export default function Dashboard() {
               <Users className="w-4 h-4" />
             </div>
             <p className="mt-4  text-[#64748B] font-semibold">
-              Active Customers
+              {t("Active Customers")}
             </p>
             <p className="mt-1 text-[30px] leading-none font-bold tracking-[-0.015em] text-[#0F172A]">
               {customers.length.toLocaleString()}
             </p>
-            <p className="mt-2  text-[#64748B]">Total customers</p>
+            <p className="mt-2  text-[#64748B]">{t("Total customers")}</p>
             <Link
               href="/customers"
               className="mt-4 inline-flex items-center gap-1  font-semibold text-[#2563EB]"
             >
-              View customers <ArrowRight className="w-4 h-4" />
+              {t("View customers")} <ArrowRight className="w-4 h-4" />
             </Link>
           </div>
         </section>

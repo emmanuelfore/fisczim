@@ -1,6 +1,7 @@
 import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
 import { format } from "date-fns";
 import type { GrvDetail } from "@/hooks/use-grvs";
+import { pdfFontFamily } from "@/lib/pdf-fonts";
 
 const styles = StyleSheet.create({
   page: {
@@ -84,9 +85,10 @@ export function GrvPdfDocument({
   grv: GrvDetail;
   company: any;
 }) {
+  const pageFont = pdfFontFamily("Helvetica");
   return (
     <Document>
-      <Page size="A4" style={styles.page}>
+      <Page size="A4" style={[styles.page, { fontFamily: pageFont }]}>
         <Text style={styles.title}>Goods Received Voucher</Text>
 
         <View style={styles.row}>

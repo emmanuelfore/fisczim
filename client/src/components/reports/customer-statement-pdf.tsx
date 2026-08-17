@@ -7,6 +7,7 @@ import {
   Image,
 } from "@react-pdf/renderer";
 import { format, isValid } from "date-fns";
+import { pdfFontFamily } from "@/lib/pdf-fonts";
 
 const s = StyleSheet.create({
   page: {
@@ -165,9 +166,11 @@ export const CustomerStatementPDF = ({
 
   const formatDate = (d: any) => format(getSafeDate(d), "dd MMM yyyy");
 
+  const pageFont = pdfFontFamily("Helvetica");
+
   return (
     <Document title={`Statement - ${data.customer.name}`}>
-      <Page size="A4" style={s.page}>
+      <Page size="A4" style={[s.page, { fontFamily: pageFont }]}>
         <View style={s.headerBanner}>
           <View style={s.logoBox}>
             {company?.logoUrl ? (

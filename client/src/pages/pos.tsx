@@ -3375,6 +3375,69 @@ export default function POSPage() {
           </Badge>
         </div>
 
+        {/* Customer Selector - changeable from the order summary */}
+        <div className="px-3 py-2 shrink-0 border-b border-slate-100">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+              <User className="h-4 w-4" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+                Customer
+              </p>
+              <p className="text-xs font-black text-slate-800 truncate">
+                {resolvedCustomers?.find(
+                  (c: any) => c.id.toString() === selectedCustomerId,
+                )?.name || "Guest"}
+              </p>
+            </div>
+            <Select
+              value={selectedCustomerId}
+              onValueChange={setSelectedCustomerId}
+            >
+              <SelectTrigger
+                className="h-8 w-auto gap-1 border-none bg-slate-100 hover:bg-slate-200 rounded-lg px-2 font-black text-[11px]"
+                title="Change customer"
+              >
+                <span className="max-w-[70px] truncate">Change</span>
+                <ChevronDown className="h-3 w-3" />
+              </SelectTrigger>
+              <SelectContent className="rounded-xl border-slate-200 shadow-2xl">
+                {resolvedCustomers?.map((c: any) => (
+                  <SelectItem
+                    key={c.id}
+                    value={c.id.toString()}
+                    className="focus:bg-primary/5 rounded-lg py-2.5"
+                  >
+                    <div className="font-bold text-slate-700">{c.name}</div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 rounded-lg bg-slate-100 text-slate-600 hover:text-emerald-600"
+              title="Select Walk-in"
+              onClick={() => {
+                const walkIn = resolvedCustomers?.find(
+                  (c: any) =>
+                    c.name.toLowerCase().includes("walk-in") ||
+                    c.name.toLowerCase().includes("cash"),
+                );
+                if (walkIn) setSelectedCustomerId(walkIn.id.toString());
+                else
+                  toast({
+                    title: "No Walk-in Customer",
+                    description: "Create 'Walk-in' first.",
+                  });
+              }}
+            >
+              <UserPlus className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+
         <ScrollArea className="flex-1 px-3 py-3 overflow-y-auto">
           {cart.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-[300px] text-slate-300">

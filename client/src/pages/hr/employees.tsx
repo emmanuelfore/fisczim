@@ -16,7 +16,8 @@ import {
   ShieldAlert,
   Wallet,
   X,
-  BadgeDollarSign
+  BadgeDollarSign,
+  History
 } from "lucide-react";
 import Papa from "papaparse";
 import { format } from "date-fns";
@@ -232,6 +233,12 @@ export default function HREmployees() {
 
   const [salaryModal, setSalaryModal] = useState<{ employee: any; open: boolean }>({ employee: null, open: false });
   const [salaryForm, setSalaryForm] = useState({ newBaseSalary: "", reason: "", effectiveDate: new Date().toISOString().slice(0, 10) });
+  const [timelineModal, setTimelineModal] = useState<{ employee: any; open: boolean }>({ employee: null, open: false });
+
+  const { data: timelineData } = useQuery<any>({
+    queryKey: [`/api/companies/${companyId}/payroll/employees/${timelineModal.employee?.id}/timeline`],
+    enabled: !!companyId && !!timelineModal.employee?.id && timelineModal.open,
+  });
 
   const { data: salaryHistory = [] as any[] } = useQuery<any[]>({
     queryKey: [`/api/companies/${companyId}/payroll/employees/${salaryModal.employee?.id}/salary-changes`],
@@ -961,6 +968,9 @@ export default function HREmployees() {
                               <DropdownMenuItem className="cursor-pointer text-emerald-600 dark:text-emerald-400" onSelect={() => openRecurringModal(employee)}>
                                 <Wallet className="mr-2 h-4 w-4" /> Incomes & Deductions
                               </DropdownMenuItem>
+                              <DropdownMenuItem className="cursor-pointer text-indigo-600 dark:text-indigo-400" onSelect={() => setTimelineModal({ employee, open: true })}>
+                                <History className="mr-2 h-4 w-4" /> View Timeline
+                              </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>
@@ -1046,7 +1056,54 @@ export default function HREmployees() {
           </DialogContent>
         </Dialog>
 
-        {/* STATUTORY MODAL */}
+        {/* EMPLOYEE TIMELINE MODAL */}
+        <Dialog open={timelineModal.open} onOpenChange={(open) => setTimelineModal((s) => ({ ...s, open }))}>
+          <DialogContent className="sm:max-w-[640px] max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <History className="h-5 w-5 text-indigo-500" />
+                {timelineModal.employee?.firstName} {timelineModal.employee?.lastName} — Timeline
+              </DialogTitle>
+              <DialogDescription>
+                What we knew about this employee at any point in time. History is never overwritten.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 pt-2">
+              {!timelineData ? (
+                <div className="h-32 flex items-center justify-center">
+                  <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+                </div>
+              ) : timelineData.events?.length === 0 ? (
+                <p className="text-sm text-slate-400 text-center py-8">No recorded history events yet.</p>
+              ) : (
+                <div className="relative pl-6">
+                  <div className="absolute left-2 top-1 bottom-1 w-px bg-slate-200 dark:bg-slate-700" />
+                  {timelineData.events?.map((ev: any, i: number) => (
+                    <div key={i} className="relative pb-5 pl-2">
+                      <span className="absolute -left-4 top-1 h-3 w-3 rounded-full border-2 border-white dark:border-slate-900 bg-indigo-500" />
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-mono text-slate-400">
+                          {new Date(ev.date + "T00:00:00").toLocaleDateString()}
+                        </span>
+                        {ev.effectiveTo && (
+                          <span className="text-[10px] text-slate-400">
+                            until {new Date(ev.effectiveTo + "T00:00:00").toLocaleDateString()}
+                          </span>
+                        )}
+                        <Badge variant="outline" className="text-[10px]">
+                          {ev.type}
+                        </Badge>
+                      </div>
+                      <div className="mt-1 text-sm font-medium text-slate-800 dark:text-slate-100">{ev.title}</div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400">{ev.description}</div>
+                      {ev.reason && <div className="text-xs text-slate-400 mt-0.5">Reason: {ev.reason}</div>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
         <Dialog open={isStatutoryModalOpen} onOpenChange={setIsStatutoryModalOpen}>
           <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>

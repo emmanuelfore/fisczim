@@ -1,6 +1,7 @@
 import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
 import { format } from "date-fns";
 import type { Product } from "@shared/schema";
+import { pdfFontFamily } from "@/lib/pdf-fonts";
 
 const styles = StyleSheet.create({
   page: {
@@ -131,10 +132,11 @@ export function StockCountSheetPDF({
   branchName,
 }: StockCountSheetPDFProps) {
   const dateStr = format(new Date(), "dd/MM/yyyy HH:mm");
+  const pageFont = pdfFontFamily("Helvetica");
 
   return (
     <Document>
-      <Page size="A4" style={styles.page}>
+      <Page size="A4" style={[styles.page, { fontFamily: pageFont }]}>
         {/* Header Section */}
         <View style={styles.header}>
           <Text style={styles.title}>Physical Stock Count Sheet</Text>

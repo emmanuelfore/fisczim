@@ -13,7 +13,9 @@ import {
   payrollEarningTypes, payrollDeductionTypes, payrollStatutoryRules,
   payrollStatutoryReports, payrollReportExports, payrollReportValidationIssues,
   payrollStatutoryDeadlines, payrollImportBatches, payrollImportRows, companies,
-  employeeSalaryChanges, payrollRemittances
+  employeeSalaryChanges, payrollRemittances,
+  employeeSalaryHistory, employeeEmploymentHistory,
+  employeeIncomeHistory, employeeDeductionHistory
 } from "../../../shared/schema.js";
 import { eq, and, desc, asc, ne, sql, gte, lte, inArray, ilike } from "drizzle-orm";
 import { ZimbabwePayrollEngine, type TaxBracket, type PayrollElementInput } from "../../../shared/payroll-engine.js";
@@ -614,6 +616,166 @@ function statutoryRate(rule: any, side: "employeeRate" | "employerRate", fallbac
   return Number.isFinite(value) ? value : fallback;
 }
 
+// ── Effective-period validation (never overwrite; never overlap) ───────────
+// A record's [effectiveFrom, effectiveTo) period must be internally valid.
+function assertValidPeriod(effectiveFrom: string | Date, effectiveTo?: string | Date | null): string | null {
+  if (!effectiveFrom) return "effectiveFrom is required";
+  const from = new Date(String(effectiveFrom));
+  if (Number.isNaN(from.getTime())) return "effectiveFrom must be a valid date";
+  if (effectiveTo) {
+    const to = new Date(String(effectiveTo));
+    if (Number.isNaN(to.getTime())) return "effectiveTo must be a valid date";
+    if (to < from) return "effectiveTo must be on or after effectiveFrom";
+  }
+  return null;
+}
+
+// Day-before helper: effective periods are closed on the last day they apply
+// (inclusive), so the next version starts on the following day.
+function addDays(dateStr: string, days: number): string {
+  const d = new Date(`${dateStr}T00:00:00`);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+// For a tax type/jurisdiction/currency there can only be one applicable table
+// per period. Returns an error string when the new period overlaps an existing
+// record (excluding excludeId).
+async function assertTaxConfigNoOverlap(tx: any, currency: string, effectiveFrom: string, effectiveTo: string | null | undefined, excludeId?: number): Promise<string | null> {
+  const existing = await tx.select({ id: taxTablesConfig.id, effectiveFrom: taxTablesConfig.effectiveFrom, effectiveTo: taxTablesConfig.effectiveTo })
+    .from(taxTablesConfig)
+    .where(and(
+      eq(taxTablesConfig.currency, currency),
+      excludeId ? ne(taxTablesConfig.id, excludeId) : undefined
+    ));
+
+  const newFrom = new Date(`${effectiveFrom}T00:00:00`).getTime();
+  const newTo = effectiveTo ? new Date(`${effectiveTo}T00:00:00`).getTime() : Infinity;
+
+  for (const row of existing) {
+    const rowFrom = new Date(`${row.effectiveFrom}T00:00:00`).getTime();
+    const rowTo = row.effectiveTo ? new Date(`${row.effectiveTo}T00:00:00`).getTime() : Infinity;
+    // Overlap if the two closed periods share at least one day.
+    const overlaps = newFrom <= rowTo && rowFrom <= newTo;
+    if (overlaps) {
+      const newLabel = `${effectiveFrom}${effectiveTo ? ` → ${effectiveTo}` : " → open"}`;
+      const oldLabel = `${row.effectiveFrom}${row.effectiveTo ? ` → ${row.effectiveTo}` : " → open"}`;
+      return `Overlapping tax configuration: the period ${newLabel} overlaps an existing ${currency} configuration (${oldLabel}). Close the previous period or adjust the dates.`;
+    }
+  }
+  return null;
+}
+
+// When a new table starts on a later date, close the current open-ended table
+// for the same currency so at most one table is applicable at any time.
+async function closeOpenTaxConfig(tx: any, currency: string, effectiveFrom: string) {
+  await tx.update(taxTablesConfig)
+    .set({ effectiveTo: addDays(effectiveFrom, -1), isActive: false })
+    .where(and(
+      eq(taxTablesConfig.currency, currency),
+      sql`${taxTablesConfig.effectiveTo} IS NULL`,
+      sql`${taxTablesConfig.effectiveFrom} < ${effectiveFrom}`
+    ));
+}
+
+// Once a table has been used to process payroll it is immutable: the payroll
+// lines snapshot taxConfigId and must remain reproducible.
+async function isTaxConfigReferenced(tx: any, id: number): Promise<boolean> {
+  const [hit] = await tx.select({ id: sql`1` })
+    .from(payrollRunEmployees)
+    .where(sql`(${payrollRunEmployees.snapshotData}->>'taxConfigId')::int = ${id}`)
+    .limit(1);
+  return !!hit;
+}
+
+// A statutory rule that a payroll run already used must not be mutated in place.
+async function isStatutoryRuleReferenced(tx: any, rule: any): Promise<boolean> {
+  const from = String(rule.effectiveFrom);
+  const to = rule.effectiveTo || "9999-12-31";
+  const [hit] = await tx.select({ id: payrollRuns.id })
+    .from(payrollRuns)
+    .where(and(
+      ne(payrollRuns.status, "DRAFT"),
+      sql`${payrollRuns.periodStart} <= ${to}`,
+      sql`${payrollRuns.periodEnd} >= ${from}`
+    ))
+    .limit(1);
+  return !!hit;
+}
+
+// Resolve the salary applicable to an employee for a period from the immutable
+// effective-dated history, falling back to the active contract.
+async function loadEffectiveSalary(tx: any, employeeId: number, periodStart: string, periodEnd: string, fallback: any) {
+  const [record] = await tx.select()
+    .from(employeeSalaryHistory)
+    .where(and(
+      eq(employeeSalaryHistory.employeeId, employeeId),
+      sql`${employeeSalaryHistory.effectiveFrom} <= ${periodEnd}`,
+      sql`(${employeeSalaryHistory.effectiveTo} IS NULL OR ${employeeSalaryHistory.effectiveTo} >= ${periodStart})`
+    ))
+    .orderBy(desc(employeeSalaryHistory.effectiveFrom))
+    .limit(1);
+
+  if (record) {
+    return {
+      baseSalary: record.salaryAmount,
+      currency: record.currency,
+      payFrequency: record.payFrequency,
+      usdPercentage: record.usdPercentage,
+      zigPercentage: record.zigPercentage,
+      source: "salary_history",
+      historyId: record.id,
+    };
+  }
+  return {
+    baseSalary: fallback?.baseSalary ?? "0",
+    currency: fallback?.currency ?? "USD",
+    payFrequency: fallback?.payFrequency ?? "MONTHLY",
+    usdPercentage: fallback?.usdPercentage ?? "100.00",
+    zigPercentage: fallback?.zigPercentage ?? "0.00",
+    source: "contract",
+    historyId: null,
+  };
+}
+
+// Open an effective-dated salary record for a change effective on a given date,
+// closing the previously open record so no period is ever overwritten.
+async function applySalaryHistoryChange(tx: any, companyId: number, employeeId: number, opts: {
+  salaryAmount: string | number;
+  currency: string;
+  payFrequency: string;
+  usdPercentage?: string | number;
+  zigPercentage?: string | number;
+  effectiveFrom: string;
+  reason?: string | null;
+  salaryChangeId?: number | null;
+  approvedBy?: string | null;
+}) {
+  await tx.update(employeeSalaryHistory)
+    .set({ effectiveTo: addDays(String(opts.effectiveFrom), -1) })
+    .where(and(
+      eq(employeeSalaryHistory.employeeId, employeeId),
+      sql`${employeeSalaryHistory.effectiveTo} IS NULL`
+    ));
+
+  const [record] = await tx.insert(employeeSalaryHistory)
+    .values({
+      companyId,
+      employeeId,
+      salaryChangeId: opts.salaryChangeId ?? null,
+      salaryAmount: String(opts.salaryAmount),
+      currency: opts.currency,
+      payFrequency: opts.payFrequency,
+      usdPercentage: String(opts.usdPercentage ?? "100.00"),
+      zigPercentage: String(opts.zigPercentage ?? "0.00"),
+      effectiveFrom: opts.effectiveFrom,
+      reason: opts.reason ?? null,
+      approvedBy: opts.approvedBy ?? null,
+    })
+    .returning();
+  return record;
+}
+
 async function loadReportRuns(companyId: number, periodStart: string, periodEnd: string, currency?: string) {
   const conditions = [
     eq(payrollRuns.companyId, companyId),
@@ -1123,7 +1285,33 @@ router.post("/employees", requirePayrollWrite, async (req, res) => {
             isActive: true,
           })
           .returning();
+
+        // Effective-dated history on hire: the very first salary record.
+        await applySalaryHistoryChange(tx, companyId, emp.id, {
+          salaryAmount: contract.baseSalary,
+          currency: contract.currency,
+          payFrequency: contract.payFrequency,
+          usdPercentage: contract.usdPercentage,
+          zigPercentage: contract.zigPercentage,
+          effectiveFrom: empData.joiningDate || new Date().toISOString().slice(0, 10),
+          reason: "Initial contract",
+        });
       }
+
+      // 2b. Employment history on hire.
+      await tx.insert(employeeEmploymentHistory).values({
+        companyId,
+        employeeId: emp.id,
+        eventType: "JOINED",
+        effectiveFrom: empData.joiningDate || new Date().toISOString().slice(0, 10),
+        departmentId: empData.departmentId || null,
+        positionId: empData.positionId || null,
+        branchId: empData.branchId || null,
+        employmentType: contract?.contractType || null,
+        contractType: contract?.contractType || null,
+        reason: "Employee joined the company",
+        createdBy: req.user?.id || null,
+      });
 
       // 3. Initialize default Leave balance
       await tx.insert(leaveBalances).values({
@@ -1465,6 +1653,33 @@ router.put("/employees/:id", requirePayrollWrite, async (req, res) => {
       .returning();
     if (!updated) return res.status(404).json({ message: "Employee not found" });
 
+    // Effective-dated employment history: transfers, promotions, position/status
+    // and termination changes are recorded as immutable events on the timeline.
+    const trackingKeys = ["departmentId", "positionId", "status", "terminationDate", "joiningDate"];
+    const tracked = trackingKeys.filter((k) => updates[k] !== undefined);
+    if (tracked.length > 0) {
+      let eventType = "POSITION_CHANGE";
+      if (updates.status === "TERMINATED" || updates.terminationDate) {
+        eventType = "TERMINATION";
+      } else if (updates.status === "REHIRED") {
+        eventType = "REHIRE";
+      } else if (updates.departmentId !== undefined || updates.positionId !== undefined) {
+        eventType = "TRANSFER";
+      }
+      const effFrom = String(updates.terminationDate || updates.joiningDate || new Date().toISOString().slice(0, 10));
+      await db.insert(employeeEmploymentHistory).values({
+        companyId,
+        employeeId: id,
+        eventType,
+        effectiveFrom: effFrom,
+        departmentId: (updated.departmentId as number | null) || emp.departmentId || null,
+        positionId: (updated.positionId as number | null) || emp.positionId || null,
+        branchId: (updated.branchId as number | null) ?? emp.branchId ?? null,
+        reason: `Employee profile updated: ${tracked.join(", ")}`,
+        createdBy: req.user?.id || null,
+      });
+    }
+
     await auditPayroll(req, "PAYROLL_EMPLOYEE_UPDATED", "employees", emp.id, {
       changedFields: Object.keys(updates),
     });
@@ -1543,6 +1758,126 @@ router.get("/employees/:id/salary-changes", async (req, res) => {
   }
 });
 
+// GET /employees/:id/timeline - merged employee history timeline. Answers
+// "what did we know about this employee at any point in time?" by combining the
+// effective-dated employment, salary, income and deduction history records.
+router.get("/employees/:id/timeline", async (req, res) => {
+  const employeeId = parseInt(req.params.id, 10);
+  try {
+    const companyId = getTargetCompanyId(req);
+    const [emp] = await db.select().from(employees)
+      .where(and(eq(employees.id, employeeId), eq(employees.companyId, companyId)))
+      .limit(1);
+    if (!emp) return res.status(404).json({ message: "Employee not found" });
+
+    const [employment, salary, income, deduction, salaryChanges] = await Promise.all([
+      db.query.employeeEmploymentHistory.findMany({
+        where: and(eq(employeeEmploymentHistory.companyId, companyId), eq(employeeEmploymentHistory.employeeId, employeeId)),
+        with: { department: true, position: true, branch: true },
+        orderBy: [asc(employeeEmploymentHistory.effectiveFrom)],
+      }),
+      db.select().from(employeeSalaryHistory)
+        .where(and(eq(employeeSalaryHistory.companyId, companyId), eq(employeeSalaryHistory.employeeId, employeeId)))
+        .orderBy(asc(employeeSalaryHistory.effectiveFrom)),
+      db.select().from(employeeIncomeHistory)
+        .where(and(eq(employeeIncomeHistory.companyId, companyId), eq(employeeIncomeHistory.employeeId, employeeId)))
+        .orderBy(asc(employeeIncomeHistory.effectiveFrom)),
+      db.select().from(employeeDeductionHistory)
+        .where(and(eq(employeeDeductionHistory.companyId, companyId), eq(employeeDeductionHistory.employeeId, employeeId)))
+        .orderBy(asc(employeeDeductionHistory.effectiveFrom)),
+      db.select().from(employeeSalaryChanges)
+        .where(and(eq(employeeSalaryChanges.companyId, companyId), eq(employeeSalaryChanges.employeeId, employeeId)))
+        .orderBy(asc(employeeSalaryChanges.effectiveDate)),
+    ]);
+
+    const events: any[] = [];
+
+    for (const s of salary) {
+      events.push({
+        type: "SALARY",
+        date: s.effectiveFrom,
+        effectiveFrom: s.effectiveFrom,
+        effectiveTo: s.effectiveTo,
+        title: "Salary set",
+        description: `${Number(s.salaryAmount).toLocaleString()} ${s.currency}`,
+        amount: s.salaryAmount,
+        currency: s.currency,
+        reason: s.reason,
+        approvedBy: s.approvedBy,
+      });
+    }
+    for (const e of employment) {
+      const evtLabels: Record<string, string> = {
+        JOINED: "Joined company",
+        TRANSFER: "Transferred",
+        PROMOTION: "Promoted",
+        POSITION_CHANGE: "Position changed",
+        CONTRACT_CHANGE: "Contract changed",
+        TERMINATION: "Employment terminated",
+        REHIRE: "Rehired",
+      };
+      events.push({
+        type: "EMPLOYMENT",
+        date: e.effectiveFrom,
+        effectiveFrom: e.effectiveFrom,
+        effectiveTo: e.effectiveTo,
+        title: evtLabels[e.eventType] || e.eventType,
+        description: [
+          e.department?.name ? `Department: ${e.department.name}` : null,
+          e.position?.title ? `Position: ${e.position.title}` : null,
+          e.employmentType ? `Type: ${e.employmentType}` : null,
+          e.reason || null,
+        ].filter(Boolean).join(", "),
+        eventType: e.eventType,
+        reason: e.reason,
+      });
+    }
+    for (const i of income) {
+      events.push({
+        type: "INCOME",
+        date: i.effectiveFrom,
+        effectiveFrom: i.effectiveFrom,
+        effectiveTo: i.effectiveTo,
+        title: i.name,
+        description: `${Number(i.amount).toLocaleString()} ${i.isTaxable ? "(taxable)" : "(non-taxable)"}`,
+        amount: i.amount,
+        reason: i.reason,
+      });
+    }
+    for (const d of deduction) {
+      events.push({
+        type: "DEDUCTION",
+        date: d.effectiveFrom,
+        effectiveFrom: d.effectiveFrom,
+        effectiveTo: d.effectiveTo,
+        title: d.name,
+        description: `${Number(d.amount).toLocaleString()} ${d.isTaxDeductible ? "(tax-deductible)" : ""}`,
+        amount: d.amount,
+        reason: d.reason,
+      });
+    }
+    for (const c of salaryChanges) {
+      events.push({
+        type: "SALARY_CHANGE",
+        date: c.effectiveDate,
+        title: "Salary change requested",
+        description: `${Number(c.previousBaseSalary).toLocaleString()} → ${Number(c.newBaseSalary).toLocaleString()} (${c.status})`,
+        previousAmount: c.previousBaseSalary,
+        newAmount: c.newBaseSalary,
+        reason: c.reason,
+        status: c.status,
+        effectiveDate: c.effectiveDate,
+      });
+    }
+
+    events.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+
+    res.json({ employee: emp, events });
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
 // GET /salary-changes/pending - approval queue
 router.get("/salary-changes/pending", async (req, res) => {
   try {
@@ -1583,6 +1918,20 @@ router.post("/salary-changes/:id/approve", requirePayrollApproval, async (req, r
           .set({ baseSalary: change.newBaseSalary, currency: change.currency, payFrequency: change.payFrequency })
           .where(eq(employeeContracts.id, activeContract.id));
       }
+
+      // Effective-dated salary history: never overwrite a previous salary. Close
+      // the open record and open a new one effective on the change date.
+      await applySalaryHistoryChange(tx, companyId, change.employeeId, {
+        salaryAmount: change.newBaseSalary,
+        currency: change.currency,
+        payFrequency: change.payFrequency,
+        usdPercentage: activeContract?.usdPercentage ?? "100.00",
+        zigPercentage: activeContract?.zigPercentage ?? "0.00",
+        effectiveFrom: change.effectiveDate,
+        reason: change.reason,
+        salaryChangeId: change.id,
+        approvedBy: req.user?.id || null,
+      });
     });
 
     await auditPayroll(req, "PAYROLL_SALARY_CHANGE_APPROVED", "employee_salary_changes", change.id, {
@@ -1663,6 +2012,33 @@ router.post("/employees/:id/contract", requirePayrollWrite, async (req, res) => 
           isActive: true
         })
         .returning();
+
+      // Effective-dated history: the contract change is a salary + employment
+      // event. Never overwrite the previous salary record.
+      await applySalaryHistoryChange(tx, companyId, id, {
+        salaryAmount: parsed.data.baseSalary,
+        currency: parsed.data.currency,
+        payFrequency: "MONTHLY",
+        usdPercentage: parsed.data.usdPercentage,
+        zigPercentage: parsed.data.zigPercentage,
+        effectiveFrom: parsed.data.startDate,
+        reason: "Contract created",
+      });
+
+      await tx.insert(employeeEmploymentHistory).values({
+        companyId,
+        employeeId: id,
+        eventType: "CONTRACT_CHANGE",
+        effectiveFrom: parsed.data.startDate,
+        departmentId: emp.departmentId || null,
+        positionId: emp.positionId || null,
+        branchId: emp.branchId || null,
+        employmentType: parsed.data.contractType,
+        contractType: parsed.data.contractType,
+        reason: "Contract created or renewed",
+        createdBy: req.user?.id || null,
+      });
+
       return newContract;
     });
 
@@ -1724,6 +2100,37 @@ router.post("/employees/:id/recurring-items", requirePayrollWrite, async (req, r
       .values({ employeeId, ...parsed.data, isActive: true })
       .returning();
 
+    // Effective-dated income/deduction history record.
+    if (item.type === "ALLOWANCE") {
+      await db.insert(employeeIncomeHistory).values({
+        companyId,
+        employeeId,
+        recurringItemId: item.id,
+        name: item.name,
+        amount: item.amount,
+        calculationType: "FIXED",
+        isTaxable: item.isTaxable,
+        effectiveFrom: item.startDate,
+        effectiveTo: item.endDate,
+        reason: "Recurring allowance added",
+        createdBy: req.user?.id || null,
+      });
+    } else {
+      await db.insert(employeeDeductionHistory).values({
+        companyId,
+        employeeId,
+        recurringItemId: item.id,
+        name: item.name,
+        amount: item.amount,
+        calculationType: "FIXED",
+        isTaxDeductible: item.isTaxDeductible,
+        effectiveFrom: item.startDate,
+        effectiveTo: item.endDate,
+        reason: "Recurring deduction added",
+        createdBy: req.user?.id || null,
+      });
+    }
+
     await auditPayroll(req, "PAYROLL_RECURRING_ITEM_CREATED", "payroll_recurring_items", item.id, {
       employeeId,
       type: item.type,
@@ -1751,20 +2158,83 @@ router.put("/recurring-items/:id", requirePayrollWrite, async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
 
   try {
-    const [existing] = await db.select({ itemId: payrollRecurringItems.id, employeeId: payrollRecurringItems.employeeId })
+    const [existing] = await db.select({
+        itemId: payrollRecurringItems.id,
+        employeeId: payrollRecurringItems.employeeId,
+        type: payrollRecurringItems.type,
+        name: payrollRecurringItems.name,
+        amount: payrollRecurringItems.amount,
+        isTaxable: payrollRecurringItems.isTaxable,
+        isTaxDeductible: payrollRecurringItems.isTaxDeductible,
+        startDate: payrollRecurringItems.startDate,
+        endDate: payrollRecurringItems.endDate,
+        isActive: payrollRecurringItems.isActive,
+      })
       .from(payrollRecurringItems)
       .innerJoin(employees, eq(payrollRecurringItems.employeeId, employees.id))
       .where(and(eq(payrollRecurringItems.id, id), eq(employees.companyId, companyId)))
       .limit(1);
     if (!existing) return res.status(404).json({ message: "Recurring payroll item not found" });
 
+    const merged = { ...existing, ...parsed.data };
     const [item] = await db.update(payrollRecurringItems)
       .set(parsed.data)
       .where(eq(payrollRecurringItems.id, id))
       .returning();
 
+    // Never overwrite history: record the change as a new effective-dated
+    // version, closing the previous one.
+    const today = new Date().toISOString().slice(0, 10);
+    const effectiveFrom = parsed.data.startDate || today;
+    const isClosing = parsed.data.isActive === false;
+    const contentChanged = parsed.data.amount != null || parsed.data.name != null || parsed.data.startDate != null ||
+      parsed.data.endDate != null || parsed.data.isTaxable != null || parsed.data.isTaxDeductible != null;
+
+    if (isClosing || contentChanged) {
+      if (item.type === "ALLOWANCE") {
+        await db.update(employeeIncomeHistory)
+          .set({ effectiveTo: isClosing ? addDays(today, -1) : addDays(effectiveFrom, -1) })
+          .where(sql`${employeeIncomeHistory.recurringItemId} = ${id} AND ${employeeIncomeHistory.effectiveTo} IS NULL`);
+      } else {
+        await db.update(employeeDeductionHistory)
+          .set({ effectiveTo: isClosing ? addDays(today, -1) : addDays(effectiveFrom, -1) })
+          .where(sql`${employeeDeductionHistory.recurringItemId} = ${id} AND ${employeeDeductionHistory.effectiveTo} IS NULL`);
+      }
+    }
+    if (contentChanged && merged.isActive !== false) {
+      if (item.type === "ALLOWANCE") {
+        await db.insert(employeeIncomeHistory).values({
+          companyId,
+          employeeId: merged.employeeId,
+          recurringItemId: item.id,
+          name: merged.name,
+          amount: merged.amount,
+          calculationType: "FIXED",
+          isTaxable: merged.isTaxable,
+          effectiveFrom,
+          effectiveTo: merged.endDate || null,
+          reason: "Recurring allowance changed",
+          createdBy: req.user?.id || null,
+        });
+      } else {
+        await db.insert(employeeDeductionHistory).values({
+          companyId,
+          employeeId: merged.employeeId,
+          recurringItemId: item.id,
+          name: merged.name,
+          amount: merged.amount,
+          calculationType: "FIXED",
+          isTaxDeductible: merged.isTaxDeductible,
+          effectiveFrom,
+          effectiveTo: merged.endDate || null,
+          reason: "Recurring deduction changed",
+          createdBy: req.user?.id || null,
+        });
+      }
+    }
+
     await auditPayroll(req, "PAYROLL_RECURRING_ITEM_UPDATED", "payroll_recurring_items", item.id, {
-      employeeId: existing.employeeId,
+      employeeId: merged.employeeId,
       changedFields: Object.keys(parsed.data),
     });
     res.json(item);
@@ -1986,11 +2456,16 @@ router.post("/tax-config", requirePayrollApproval, async (req, res) => {
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
 
+  const periodError = assertValidPeriod(parsed.data.effectiveFrom, parsed.data.effectiveTo);
+  if (periodError) return res.status(400).json({ error: "VALIDATION_ERROR", message: periodError });
+
   try {
-    // Deactivate previous active configurations for currency
-    await db.update(taxTablesConfig)
-      .set({ isActive: false })
-      .where(eq(taxTablesConfig.currency, parsed.data.currency));
+    const overlapError = await assertTaxConfigNoOverlap(db, parsed.data.currency, parsed.data.effectiveFrom, parsed.data.effectiveTo);
+    if (overlapError) return res.status(409).json({ error: "OVERLAPPING_PERIOD", message: overlapError });
+
+    // Close the currently open-ended table for this currency (if any) so only
+    // one table is applicable at any point in time.
+    await closeOpenTaxConfig(db, parsed.data.currency, parsed.data.effectiveFrom);
 
     const [config] = await db.insert(taxTablesConfig)
       .values({ ...parsed.data, isActive: true })
@@ -2086,6 +2561,15 @@ router.patch("/statutory-rules/:id", requirePayrollApproval, async (req, res) =>
       return res.status(403).json({ error: "FORBIDDEN", message: "Cannot change the ruleCode of a system-locked statutory rule." });
     }
 
+    // Immutability: rules already used by a finalized payroll run must not be
+    // mutated in place. Government rate changes become a new version.
+    if (await isStatutoryRuleReferenced(db, existing)) {
+      return res.status(409).json({
+        error: "IMMUTABLE",
+        message: "This statutory rule has already been used by a finalized payroll run and cannot be edited. Create a new rule version covering the new period instead.",
+      });
+    }
+
     const [updated] = await db.update(payrollStatutoryRules)
       .set({
         ...req.body,
@@ -2115,6 +2599,12 @@ router.delete("/statutory-rules/:id", requirePayrollApproval, async (req, res) =
     if (existing.isSystemLocked) {
       return res.status(403).json({ error: "FORBIDDEN", message: "Cannot delete a system-locked statutory rule." });
     }
+    if (await isStatutoryRuleReferenced(db, existing)) {
+      return res.status(409).json({
+        error: "IMMUTABLE",
+        message: "This statutory rule has already been used by a finalized payroll run and cannot be deleted.",
+      });
+    }
 
     await db.delete(payrollStatutoryRules).where(eq(payrollStatutoryRules.id, id));
     await auditPayroll(req, "PAYROLL_STATUTORY_RULE_DELETED", "payroll_statutory_rules", id, { ruleCode: existing.ruleCode });
@@ -2143,9 +2633,24 @@ router.patch("/tax-config/:id", requirePayrollApproval, async (req, res) => {
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
 
+  const periodError = assertValidPeriod(parsed.data.effectiveFrom, parsed.data.effectiveTo);
+  if (periodError) return res.status(400).json({ error: "VALIDATION_ERROR", message: periodError });
+
   try {
     const [existing] = await db.select().from(taxTablesConfig).where(eq(taxTablesConfig.id, id)).limit(1);
     if (!existing) return res.status(404).json({ error: "NOT_FOUND", message: "Tax configuration not found" });
+
+    // Immutability: once a table has been used to process payroll, it cannot be
+    // edited in place. Government rate changes must be a new version.
+    if (await isTaxConfigReferenced(db, id)) {
+      return res.status(409).json({
+        error: "IMMUTABLE",
+        message: "This tax configuration has already been used to process payroll and cannot be edited. Create a new configuration with the new rates instead.",
+      });
+    }
+
+    const overlapError = await assertTaxConfigNoOverlap(db, parsed.data.currency, parsed.data.effectiveFrom, parsed.data.effectiveTo, id);
+    if (overlapError) return res.status(409).json({ error: "OVERLAPPING_PERIOD", message: overlapError });
 
     const [updated] = await db.update(taxTablesConfig)
       .set(parsed.data)
@@ -2162,16 +2667,17 @@ router.patch("/tax-config/:id", requirePayrollApproval, async (req, res) => {
   }
 });
 
-// Activate a configuration - deactivates every other config in the same currency
+// Activate a configuration. Applicability is determined by effective dates, so
+// activating one table must NOT deactivate others — but two active tables must
+// not cover the same period.
 router.post("/tax-config/:id/activate", requirePayrollApproval, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   try {
     const [config] = await db.select().from(taxTablesConfig).where(eq(taxTablesConfig.id, id)).limit(1);
     if (!config) return res.status(404).json({ error: "NOT_FOUND", message: "Tax configuration not found" });
 
-    await db.update(taxTablesConfig)
-      .set({ isActive: false })
-      .where(eq(taxTablesConfig.currency, config.currency));
+    const overlapError = await assertTaxConfigNoOverlap(db, config.currency, config.effectiveFrom, config.effectiveTo, id);
+    if (overlapError) return res.status(409).json({ error: "OVERLAPPING_PERIOD", message: overlapError });
 
     const [updated] = await db.update(taxTablesConfig)
       .set({ isActive: true })
@@ -2557,9 +3063,13 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
         const prorated = parsed.data.prorate && !isBonusRun && daysWorked < totalDays;
         const prorationFactor = totalDays > 0 ? daysWorked / totalDays : 1;
 
+        // Resolve the salary applicable to this period from the immutable
+        // effective-dated salary history (falling back to the active contract).
+        const effectiveSalary = await loadEffectiveSalary(tx, emp.id, parsed.data.periodStart, parsed.data.periodEnd, contract);
+
         let effectiveBaseSalary = prorated
-          ? Math.round(parseFloat(contract.baseSalary) * prorationFactor * 100) / 100
-          : parseFloat(contract.baseSalary);
+          ? Math.round(parseFloat(effectiveSalary.baseSalary) * prorationFactor * 100) / 100
+          : parseFloat(effectiveSalary.baseSalary);
 
         const bonusAmount = isBonusRun ? (bonusMap.get(emp.id) ?? 0) : 0;
         const isTerminal = !!emp.terminationDate && emp.terminationDate >= parsed.data.periodStart && emp.terminationDate <= parsed.data.periodEnd;
@@ -2677,8 +3187,8 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
           necRate: parseFloat(necRate),
           necEmployerRate: parseFloat(necEmployerRate),
           necFixedAmount: parseFloat(necFixedAmount),
-          usdPercentage: parseFloat(contract.usdPercentage),
-          zigPercentage: parseFloat(contract.zigPercentage),
+          usdPercentage: parseFloat(effectiveSalary.usdPercentage),
+          zigPercentage: parseFloat(effectiveSalary.zigPercentage),
           exchangeRate: parseFloat(parsed.data.exchangeRate),
           elements,
           taxConfig: {
@@ -2750,6 +3260,8 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
               ...calcs,
               taxConfigId: taxConfig.id,
               contractId: contract.id,
+              salaryHistoryId: effectiveSalary.historyId,
+              salarySource: effectiveSalary.source,
               calculationBasis: isBonusRun ? "BONUS_RUN" : (prorated ? "PRORATED" : "INITIAL_RUN"),
               proration: prorated ? { daysWorked, totalDays, factor: prorationFactor } : null,
               isTerminal: isTerminal || false,

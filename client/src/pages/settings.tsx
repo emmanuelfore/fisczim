@@ -22,10 +22,13 @@ import {
   Utensils,
   Bus,
   Mail,
-  Wrench
+  Wrench,
+  Languages
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useI18n } from "@/lib/i18n";
+import { LanguageSwitcher } from "@/components/language-switcher";
 
 // Import Sub-components
 import { OrganizationProfile } from "@/components/settings/organization-profile";
@@ -52,6 +55,7 @@ import { SalesOrdersSettings } from "@/components/settings/sales-orders-settings
 
 export default function SettingsPage() {
   const { toast } = useToast();
+  const { t } = useI18n();
   const { activeCompany, isLoading: isLoadingActive } = useActiveCompany();
   const updateCompany = useUpdateCompany(activeCompany?.id || 0);
 
@@ -135,14 +139,14 @@ export default function SettingsPage() {
     try {
       await updateCompany.mutateAsync(formData);
       toast({
-        title: "Configuration Saved",
-        description: "Your organization settings have been updated successfully.",
+        title: t("Configuration Saved"),
+        description: t("Your organization settings have been updated successfully."),
         className: "bg-slate-900 text-white border-none rounded-2xl"
       });
     } catch (err: any) {
       toast({
-        title: "Save Failed",
-        description: err.message || "An unexpected error occurred",
+        title: t("Save Failed"),
+        description: err.message || t("An unexpected error occurred"),
         variant: "destructive"
       });
     }
@@ -157,57 +161,58 @@ export default function SettingsPage() {
 
   const standardMenuGroups = [
     {
-      title: "Organization",
+      title: t("Organization"),
       items: [
-        { id: "profile", label: "Profile" },
-        { id: "branches", label: "Branches" },
-        { id: "approval-policies", label: "Approvals" },
-        { id: "partnerships", label: "Partnerships" },
-        { id: "security", label: "Security" },
+        { id: "profile", label: t("Profile") },
+        { id: "branches", label: t("Branches") },
+        { id: "approval-policies", label: t("Approvals") },
+        { id: "partnerships", label: t("Partnerships") },
+        { id: "security", label: t("Security") },
       ]
     },
     {
-      title: "Financial",
+      title: t("Financial"),
       items: [
-        { id: "banking", label: "Banking" },
-        { id: "accounting", label: "Accounting" },
-        { id: "sales-orders", label: "Sales Orders" },
-        { id: "cost-centers", label: "Cost Centers" },
-        { id: "inventory", label: "Inventory" },
-        { id: "currencies", label: "Currencies" },
+        { id: "banking", label: t("Banking") },
+        { id: "accounting", label: t("Accounting") },
+        { id: "sales-orders", label: t("Sales Orders") },
+        { id: "cost-centers", label: t("Cost Centers") },
+        { id: "inventory", label: t("Inventory") },
+        { id: "currencies", label: t("Currencies") },
       ]
     },
     {
-      title: "Fiscal (Tax)",
+      title: t("Fiscal (Tax)"),
       items: [
-        { id: "zimra", label: "ZIMRA Device" },
-        { id: "tax", label: "Tax Config" },
+        { id: "zimra", label: t("ZIMRA Device") },
+        { id: "tax", label: t("Tax Config") },
       ]
     },
     {
-      title: "Point of Sale",
+      title: t("Point of Sale"),
       items: [
-        { id: "app-mode", label: "App Mode" },
-        { id: "pos", label: "POS Terminal" },
-        { id: "restaurant", label: "Restaurant" },
-        { id: "bus-ticketing", label: "Bus Ticketing" },
+        { id: "app-mode", label: t("App Mode") },
+        { id: "pos", label: t("POS Terminal") },
+        { id: "restaurant", label: t("Restaurant") },
+        { id: "bus-ticketing", label: t("Bus Ticketing") },
       ]
     },
     {
-      title: "System",
+      title: t("System"),
       items: [
-        { id: "communication", label: "Communication" },
-        ...(activeCompany?.role === 'owner' ? [{ id: "maintenance", label: "Maintenance" }] : [])
+        { id: "language", label: t("Language") },
+        { id: "communication", label: t("Communication") },
+        ...(activeCompany?.role === 'owner' ? [{ id: "maintenance", label: t("Maintenance") }] : [])
       ]
     }
   ];
 
   const busOnlyMenuGroups = [
     {
-      title: "Bus Ticketing",
+      title: t("Bus Ticketing"),
       items: [
-        { id: "app-mode", label: "App Mode" },
-        { id: "bus-ticketing", label: "Bus Ticketing" },
+        { id: "app-mode", label: t("App Mode") },
+        { id: "bus-ticketing", label: t("Bus Ticketing") },
       ]
     }
   ];
@@ -235,8 +240,8 @@ export default function SettingsPage() {
       case 'app-mode': return <AppModeSettings formData={formData} setFormData={setFormData} onSave={async (data: any) => {
         await updateCompany.mutateAsync(data);
         toast({
-          title: "App mode saved",
-          description: "Mobile and admin menus will update after refresh.",
+          title: t("App mode saved"),
+          description: t("Mobile and admin menus will update after refresh."),
           className: "bg-slate-900 text-white border-none rounded-2xl"
         });
       }} />;
@@ -244,6 +249,17 @@ export default function SettingsPage() {
       case 'restaurant': return <RestaurantSettings company={activeCompany} onUpdate={async (data) => { await updateCompany.mutateAsync(data); }} />;
       case 'bus-ticketing': return <BusTicketingSettings formData={formData} setFormData={setFormData} />;
       case 'communication': return <CommunicationSettings formData={formData} setFormData={setFormData} />;
+      case 'language': return (
+        <div className="space-y-4">
+          <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-5">
+            <h3 className="text-base font-bold text-slate-900">{t("Interface Language")}</h3>
+            <p className="text-sm text-slate-500 mt-1">{t("Choose the language used across the system.")}</p>
+            <div className="mt-4">
+              <LanguageSwitcher />
+            </div>
+          </div>
+        </div>
+      );
       case 'maintenance': return <MaintenanceSettings company={activeCompany} />;
       default: return <OrganizationProfile company={activeCompany} formData={formData} setFormData={setFormData} />;
     }
@@ -269,32 +285,34 @@ export default function SettingsPage() {
       case "restaurant": return Utensils;
       case "bus-ticketing": return Bus;
       case "communication": return Mail;
+      case "language": return Languages;
       case "maintenance": return Wrench;
       default: return Building2;
     }
   };
 
-  const getTabMeta = (id: string) => {
+const getTabMeta = (id: string) => {
     switch (id) {
-      case "profile": return { title: "Organization Profile", subtitle: "Manage your organization details, contact information, and branding." };
-      case "branches": return { title: "Branches & Cost Centers", subtitle: "Set up and manage branches used for cost center reporting." };
-      case "approval-policies": return { title: "Approval Policies", subtitle: "Configure approval request policies and required roles." };
-      case "partnerships": return { title: "Partnership Settings", subtitle: "Manage co-branded partners, logos, and revenue split settings." };
-      case "security": return { title: "Security & Access Control", subtitle: "Configure access rules, password policies, and security settings." };
-      case "banking": return { title: "Banking Details", subtitle: "Manage company banking details and default deposit accounts." };
-      case "accounting": return { title: "Posting Setup", subtitle: "Configure automated transaction postings and defaults." };
-      case "sales-orders": return { title: "Sales Orders Configuration", subtitle: "Configure deposit percentages, preorder rules, and lay-by default durations." };
-      case "inventory": return { title: "Inventory Controls", subtitle: "Configure inventory valuation methods and default controls." };
-      case "currencies": return { title: "Currencies", subtitle: "Set default currencies and manage exchange rates." };
-      case "zimra": return { title: "ZIMRA Device Settings", subtitle: "Configure fiscal device connectivity and ZIMRA settings." };
-      case "tax": return { title: "Tax Configuration", subtitle: "Manage tax categories and VAT configuration." };
-      case "app-mode": return { title: "App Mode Configuration", subtitle: "Switch between standard retail, restaurant, or bus modes." };
-      case "pos": return { title: "POS Terminal Settings", subtitle: "Configure registers, printing, receipts, and tills." };
-      case "restaurant": return { title: "Restaurant Settings", subtitle: "Set up restaurant layout, tables, and KDS settings." };
-      case "bus-ticketing": return { title: "Bus Ticketing Settings", subtitle: "Manage ticketing routes, fleet settings, and conductor configs." };
-      case "communication": return { title: "Communication Settings", subtitle: "Configure email notifications and templates." };
-      case "maintenance": return { title: "System Maintenance", subtitle: "Perform system diagnostic tasks and database resets." };
-      default: return { title: "Settings", subtitle: "Manage your system settings and preferences." };
+      case "profile": return { title: t("Organization Profile"), subtitle: t("Manage your organization details, contact information, and branding.") };
+      case "branches": return { title: t("Branches & Cost Centers"), subtitle: t("Set up and manage branches used for cost center reporting.") };
+      case "approval-policies": return { title: t("Approval Policies"), subtitle: t("Configure approval request policies and required roles.") };
+      case "partnerships": return { title: t("Partnership Settings"), subtitle: t("Manage co-branded partners, logos, and revenue split settings.") };
+      case "security": return { title: t("Security & Access Control"), subtitle: t("Configure access rules, password policies, and security settings.") };
+      case "banking": return { title: t("Banking Details"), subtitle: t("Manage company banking details and default deposit accounts.") };
+      case "accounting": return { title: t("Posting Setup"), subtitle: t("Configure automated transaction postings and defaults.") };
+      case "sales-orders": return { title: t("Sales Orders Configuration"), subtitle: t("Configure deposit percentages, preorder rules, and lay-by default durations.") };
+      case "inventory": return { title: t("Inventory Controls"), subtitle: t("Configure inventory valuation methods and default controls.") };
+      case "currencies": return { title: t("Currencies"), subtitle: t("Set default currencies and manage exchange rates.") };
+      case "zimra": return { title: t("ZIMRA Device Settings"), subtitle: t("Configure fiscal device connectivity and ZIMRA settings.") };
+      case "tax": return { title: t("Tax Configuration"), subtitle: t("Manage tax categories and VAT configuration.") };
+      case "app-mode": return { title: t("App Mode Configuration"), subtitle: t("Switch between standard retail, restaurant, or bus modes.") };
+      case "pos": return { title: t("POS Terminal Settings"), subtitle: t("Configure registers, printing, receipts, and tills.") };
+      case "restaurant": return { title: t("Restaurant Settings"), subtitle: t("Set up restaurant layout, tables, and KDS settings.") };
+      case "bus-ticketing": return { title: t("Bus Ticketing Settings"), subtitle: t("Manage ticketing routes, fleet settings, and conductor configs.") };
+      case "communication": return { title: t("Communication Settings"), subtitle: t("Configure email notifications and templates.") };
+      case "language": return { title: t("Interface Language"), subtitle: t("Choose the language used across the system.") };
+      case "maintenance": return { title: t("System Maintenance"), subtitle: t("Perform system diagnostic tasks and database resets.") };
+      default: return { title: t("Settings"), subtitle: t("Manage your system settings and preferences.") };
     }
   };
 
@@ -307,7 +325,7 @@ export default function SettingsPage() {
         <aside className="w-full lg:w-[260px] shrink-0 bg-white border border-slate-200/80 rounded-2xl p-4 shadow-sm">
           {/* Mobile Select Navigation */}
           <div className="lg:hidden">
-            <h4 className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-1 py-1 mb-2">Settings Menu</h4>
+            <h4 className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-1 py-1 mb-2">{t("Settings Menu")}</h4>
             <select 
               value={activeTab} 
               onChange={(e) => setActiveTab(e.target.value)}
@@ -373,7 +391,7 @@ export default function SettingsPage() {
                   className="h-9 rounded-xl bg-blue-600 hover:bg-blue-700 px-4 text-sm font-semibold text-white transition-colors self-start sm:self-auto"
                 >
                   {updateCompany.isPending ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                  Save Changes
+                  {t("Save Changes")}
                 </Button>
               )}
             </div>

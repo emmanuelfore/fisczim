@@ -1282,6 +1282,7 @@ router.post("/sync", async (req, res) => {
           id: busTrips.id,
           status: busTrips.status,
           capacity: busVehicles.capacity,
+          actualArrival: busTrips.actualArrival,
         })
           .from(busTrips)
           .leftJoin(busVehicles, eq(busTrips.vehicleId, busVehicles.id))
@@ -1320,9 +1321,17 @@ router.post("/sync", async (req, res) => {
             rejectedTickets.push({ ticketNumber, localTicketId: ticket.localTicketId, reason: "Trip does not belong to this company or no longer exists." });
             continue;
           }
-          if (["completed", "cancelled"].includes(trip.status)) {
-            rejectedTickets.push({ ticketNumber, localTicketId: ticket.localTicketId, reason: "Trip is closed and cannot accept more tickets." });
+          if (trip.status === "cancelled") {
+            rejectedTickets.push({ ticketNumber, localTicketId: ticket.localTicketId, reason: "Trip is cancelled and cannot accept more tickets." });
             continue;
+          }
+          if (trip.status === "completed" && trip.actualArrival) {
+            const soldAt = new Date(ticket.timestamp);
+            const closedAt = new Date(trip.actualArrival);
+            if (!isNaN(soldAt.getTime()) && soldAt.getTime() > closedAt.getTime()) {
+              rejectedTickets.push({ ticketNumber, localTicketId: ticket.localTicketId, reason: "Ticket was sold after the trip was closed and cannot be synced." });
+              continue;
+            }
           }
           if (!ticketNumber) {
             rejectedTickets.push({ ticketNumber, localTicketId: ticket.localTicketId, reason: "Ticket number is required." });

@@ -60,6 +60,7 @@ import {
   UserRound,
   CheckSquare,
   Navigation,
+  Wallet,
 } from "lucide-react";
 import { useBranding } from "@/hooks/use-branding";
 import {
@@ -77,7 +78,9 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n";
 import { BranchSwitcher } from "./branch-switcher";
+import { LanguageSwitcher } from "./language-switcher";
 import { DeviceStatusWidget } from "./device-status-widget";
 import { usePendingGdns } from "@/hooks/use-grvs";
 import { useToast } from "@/hooks/use-toast";
@@ -144,6 +147,7 @@ export function Layout({
   );
   const { brand, currentBrand } = useBranding();
   const { toast } = useToast();
+  const { t } = useI18n();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [companySearchQuery, setCompanySearchQuery] = useState("");
@@ -210,17 +214,22 @@ export function Layout({
           {
             icon: BarChart2,
             label: "Daily Report",
-            href: "/bus/reports?mode=daily",
+            href: "/bus/reports/daily",
           },
           {
             icon: TrendingUp,
             label: "Range Report",
-            href: "/bus/reports?mode=range",
+            href: "/bus/reports/range",
           },
           {
             icon: UserRoundCheck,
             label: "Conductor Report",
-            href: "/bus/reports?mode=conductor",
+            href: "/bus/reports/conductor",
+          },
+          {
+            icon: Wallet,
+            label: "Cash-up & Reconciliation",
+            href: "/bus/reports/cashup",
           },
           {
             icon: TrendingUp,
@@ -673,8 +682,8 @@ export function Layout({
     }
     if (pendingGdnCount > seenPendingGdnCountRef.current) {
       toast({
-        title: "Pending GDN requires verification",
-        description: `${pendingGdnCount} GDN${pendingGdnCount === 1 ? "" : "s"} waiting for admin confirmation.`,
+        title: t("Pending GDN requires verification"),
+        description: `${pendingGdnCount} ${t("GDN")} ${t("waiting for admin confirmation.")}`,
       });
     }
     seenPendingGdnCountRef.current = pendingGdnCount;
@@ -1268,9 +1277,9 @@ export function Layout({
       subtitle: "Review business performance, alerts, and daily activity.",
     };
   }, [location, pendingApprovalCount]);
-  const pageTitle = headerTitle || pageMeta.title;
+  const pageTitle = headerTitle ? t(headerTitle) : t(pageMeta.title);
   const pageSubtitle =
-    headerSubtitle !== undefined ? headerSubtitle : pageMeta.subtitle;
+    headerSubtitle !== undefined ? t(headerSubtitle) : t(pageMeta.subtitle);
 
   const currentPathWithSearch =
     typeof window !== "undefined"
@@ -1519,12 +1528,14 @@ export function Layout({
                 isSidebarCollapsed && "right-1/2 translate-x-1/2",
               )}
               onClick={() => setIsSidebarCollapsed((value) => !value)}
-              aria-label={
+              aria-label={t(
                 isSidebarCollapsed
                   ? "Expand admin drawer"
-                  : "Minimise admin drawer"
-              }
-              title={isSidebarCollapsed ? "Expand drawer" : "Minimise drawer"}
+                  : "Minimise admin drawer",
+              )}
+              title={t(
+                isSidebarCollapsed ? "Expand drawer" : "Minimise drawer",
+              )}
             >
               {isSidebarCollapsed ? (
                 <PanelLeftOpen className="h-4 w-4" />
@@ -1537,8 +1548,8 @@ export function Layout({
               size="icon"
               className="absolute right-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 rounded-[10px] border border-slate-700 bg-slate-800 text-slate-400 shadow-[0_1px_2px_rgba(0,0,0,0.1)] hover:bg-slate-700 hover:text-white lg:hidden"
               onClick={() => setIsMobileMenuOpen(false)}
-              aria-label="Close admin drawer"
-              title="Close drawer"
+              aria-label={t("Close admin drawer")}
+              title={t("Close drawer")}
             >
               <X className="h-4 w-4" />
             </Button>
@@ -1576,7 +1587,7 @@ export function Layout({
                           >
                             <item.icon className="w-[18px] h-[18px]" />
                             <span className="nav-item-tooltip shadow-2xl">
-                              {item.label}
+                              {t(item.label)}
                             </span>
                           </div>
                         </DropdownMenuTrigger>
@@ -1586,7 +1597,7 @@ export function Layout({
                           className="w-56 bg-slate-900 border-slate-800 rounded-xl shadow-2xl p-1 ml-4 animate-in fade-in slide-in-from-left-2 duration-200"
                         >
                           <p className="text-[12px] font-black text-slate-400 uppercase tracking-widest px-3 py-2 border-b border-slate-50 mb-1">
-                            {item.label}
+                            {t(item.label)}
                           </p>
                           {item.children.map((child) => {
                             if (child.children?.length) {
@@ -1594,7 +1605,7 @@ export function Layout({
                                 <div key={child.label} className="mb-2">
                                   <p className="flex items-center gap-2 px-3 py-1.5 text-[12px] font-black uppercase tracking-widest text-slate-400">
                                     <child.icon className="w-3.5 h-3.5" />
-                                    <span>{child.label}</span>
+                                    <span>{t(child.label)}</span>
                                   </p>
                                   <div className="space-y-1">
                                     {child.children.map((grandchild) => {
@@ -1622,7 +1633,7 @@ export function Layout({
                                                   : "text-[#94A3B8]",
                                               )}
                                             />
-                                            <span>{grandchild.label}</span>
+                                            <span>{t(grandchild.label)}</span>
                                           </div>
                                         </Link>
                                       );
@@ -1651,7 +1662,7 @@ export function Layout({
                                         : "text-[#94A3B8]",
                                     )}
                                   />
-                                  <span>{child.label}</span>
+                                  <span>{t(child.label)}</span>
                                 </div>
                               </Link>
                             ) : null;
@@ -1687,7 +1698,7 @@ export function Layout({
                                 )}
                               />
                               <span className="font-display tracking-tight text-[16px]">
-                                {item.label}
+                                {t(item.label)}
                               </span>
                             </div>
                             <span className="ml-auto pl-3">
@@ -1754,7 +1765,7 @@ export function Layout({
                                               )}
                                             />
                                             <span className="truncate">
-                                              {child.label}
+                                              {t(child.label)}
                                             </span>
                                           </div>
                                           <span className="ml-auto pl-3">
@@ -1804,7 +1815,7 @@ export function Layout({
                                                     )}
                                                   />
                                                   <span className="truncate">
-                                                    {grandchild.label}
+                                                    {t(grandchild.label)}
                                                   </span>
                                                 </div>
                                               </Link>
@@ -1837,7 +1848,7 @@ export function Layout({
                                       )}
                                     />
                                     <span className="truncate">
-                                      {child.label}
+                                      {t(child.label)}
                                     </span>
                                   </div>
                                 </Link>
@@ -1865,7 +1876,7 @@ export function Layout({
                       >
                         <item.icon className="w-[18px] h-[18px]" />
                         <span className="nav-item-tooltip shadow-2xl">
-                          {item.label}
+                          {t(item.label)}
                         </span>
                       </div>
                     </Link>
@@ -1892,7 +1903,7 @@ export function Layout({
                           )}
                         />
                         <span className="font-display tracking-tight">
-                          {item.label}
+                          {t(item.label)}
                         </span>
                       </div>
                     </Link>
@@ -1971,8 +1982,8 @@ export function Layout({
                               )}
                             >
                               {selectedCompany.zimraEnvironment === "production"
-                                ? "Production"
-                                : "Test Environment"}
+                                ? t("Production")
+                                : t("Test Environment")}
                             </span>
                           </div>
                         )}
@@ -1991,7 +2002,7 @@ export function Layout({
                     <Search className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" />
                     <input
                       type="text"
-                      placeholder="Search companies..."
+                      placeholder={t("Search companies...")}
                       value={companySearchQuery}
                       onChange={(e) => setCompanySearchQuery(e.target.value)}
                       className="w-full pl-7 pr-3 py-1.5 text-xs bg-slate-50 border-none rounded-lg focus:outline-none focus:ring-1 focus:ring-[#2563EB] text-slate-700 placeholder:text-slate-400"
@@ -2040,7 +2051,7 @@ export function Layout({
                     className="flex items-center justify-center gap-2 p-2.5 text-white bg-[#2563EB] font-bold cursor-pointer hover:bg-[#1D4ED8] rounded-[10px] shadow-sm active:scale-95 transition-all text-xs"
                   >
                     <Plus className="w-3.5 h-3.5" />
-                    <span>Register Enterprise</span>
+                    <span>{t("Register Enterprise")}</span>
                   </DropdownMenuItem>
                 </div>
               </DropdownMenuContent>
@@ -2090,8 +2101,8 @@ export function Layout({
               <div className="hidden xl:flex items-center h-10 px-3 rounded-[10px] border border-[#E5E7EB] bg-white min-w-[280px] shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
                 <Search className="w-4 h-4 text-[#64748B]" />
                 <input
-                  aria-label="Search"
-                  placeholder="Search anything..."
+                  aria-label={t("Search")}
+                  placeholder={t("Search anything...")}
                   className="ml-2 flex-1  text-[#0f172a] placeholder:text-[#94a3b8] bg-transparent outline-none"
                 />
                 <span className="text-[11px] font-semibold text-[#64748B] bg-[#F8FAFC] border border-[#E5E7EB] rounded px-2 py-0.5">
@@ -2119,9 +2130,11 @@ export function Layout({
                   className="w-80 bg-white rounded-2xl shadow-2xl border-slate-200 p-2 mt-2"
                 >
                   <div className="px-3 py-2 border-b border-slate-100 mb-1">
-                    <p className=" font-black text-slate-900">System Alerts</p>
+                    <p className=" font-black text-slate-900">
+                      {t("System Alerts")}
+                    </p>
                     <p className="text-[11px] font-semibold text-slate-500">
-                      Operational items that need attention.
+                      {t("Operational items that need attention.")}
                     </p>
                   </div>
                   {!isCashier && pendingGdnCount > 0 ? (
@@ -2135,11 +2148,15 @@ export function Layout({
                         </div>
                         <div>
                           <p className=" font-black text-slate-900">
-                            {pendingGdnCount} pending GDN
-                            {pendingGdnCount === 1 ? "" : "s"}
+                            {pendingGdnCount}{" "}
+                            {t(
+                              pendingGdnCount === 1
+                                ? "pending GDN"
+                                : "pending GDNs",
+                            )}
                           </p>
                           <p className="text-[11px] font-semibold text-slate-500">
-                            Review cashier delivery notes and post stock.
+                            {t("Review cashier delivery notes and post stock.")}
                           </p>
                         </div>
                       </div>
@@ -2156,11 +2173,15 @@ export function Layout({
                         </div>
                         <div>
                           <p className=" font-black text-slate-900">
-                            {lowStockCount} low stock item
-                            {lowStockCount === 1 ? "" : "s"}
+                            {lowStockCount}{" "}
+                            {t(
+                              lowStockCount === 1
+                                ? "low stock item"
+                                : "low stock items",
+                            )}
                           </p>
                           <p className="text-[11px] font-semibold text-slate-500">
-                            Review items running low on stock.
+                            {t("Review items running low on stock.")}
                           </p>
                         </div>
                       </div>
@@ -2168,10 +2189,12 @@ export function Layout({
                   ) : (
                     <div className="p-5 text-center">
                       <p className=" font-black text-slate-700">
-                        No active alerts
+                        {t("No active alerts")}
                       </p>
                       <p className="text-[11px] font-semibold text-slate-500 mt-1">
-                        Pending GDNs and other system alerts will appear here.
+                        {t(
+                          "Pending GDNs and other system alerts will appear here.",
+                        )}
                       </p>
                     </div>
                   )}
@@ -2184,6 +2207,7 @@ export function Layout({
                 )}
               </div>
               <BranchSwitcher />
+              <LanguageSwitcher compact />
 
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -2220,28 +2244,28 @@ export function Layout({
                     className="p-3 rounded-xl font-bold text-slate-600 cursor-pointer hover:bg-slate-50 hover:text-slate-900 transition-all"
                   >
                     <LayoutDashboard className="mr-3 h-4 w-4" />
-                    <span>Dashboard Overview</span>
+                    <span>{t("Dashboard Overview")}</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={() => setLocation("/profile")}
                     className="p-3 rounded-xl font-bold text-slate-600 cursor-pointer hover:bg-slate-50 hover:text-slate-900 transition-all"
                   >
                     <UserCog className="mr-3 h-4 w-4" />
-                    <span>My Profile</span>
+                    <span>{t("My Profile")}</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={() => setLocation("/settings")}
                     className="p-3 rounded-xl font-bold text-slate-600 cursor-pointer hover:bg-slate-50 hover:text-slate-900 transition-all"
                   >
                     <Settings className="mr-3 h-4 w-4" />
-                    <span>Security & Config</span>
+                    <span>{t("Security & Config")}</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     className="p-3 rounded-xl font-bold text-red-600 focus:text-red-700 focus:bg-red-50 hover:bg-red-50 cursor-pointer active:scale-95 transition-all"
                     onClick={() => logout()}
                   >
                     <LogOut className="mr-3 h-4 w-4" />
-                    <span>Sign Out Session</span>
+                    <span>{t("Sign Out Session")}</span>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -2256,8 +2280,10 @@ export function Layout({
                   <ShieldCheck className="w-5 h-5" />
                 </div>
                 <span>
-                  <strong>Security Alert:</strong> You are using a temporary
-                  password. Please update it immediately.
+                  <strong>{t("Security Alert:")}</strong>{" "}
+                  {t(
+                    "You are using a temporary password. Please update it immediately.",
+                  )}
                 </span>
               </div>
               <Button
@@ -2265,7 +2291,7 @@ export function Layout({
                 className="h-9 px-4 text-xs font-bold bg-white text-amber-700 border border-amber-200 shadow-sm hover:bg-amber-100 hover:border-amber-300 rounded-lg"
                 onClick={() => setLocation("/profile")}
               >
-                Update Password
+                {t("Update Password")}
               </Button>
             </div>
           )}
@@ -2279,9 +2305,13 @@ export function Layout({
                     <Clock className="w-5 h-5" />
                   </div>
                   <span>
-                    <strong>GDN Alert:</strong> {pendingGdnCount} delivery note
-                    {pendingGdnCount === 1 ? "" : "s"} waiting for admin
-                    verification.
+                    <strong>{t("GDN Alert:")}</strong> {pendingGdnCount}{" "}
+                    {t(
+                      pendingGdnCount === 1
+                        ? "delivery note"
+                        : "delivery notes",
+                    )}{" "}
+                    {t("waiting for admin verification.")}
                   </span>
                 </div>
                 <Button
@@ -2289,7 +2319,7 @@ export function Layout({
                   className="h-9 px-4 text-xs font-bold bg-white text-amber-700 border border-amber-200 shadow-sm hover:bg-amber-100 hover:border-amber-300 rounded-lg"
                   onClick={() => setLocation("/inventory/account")}
                 >
-                  Review GDNs
+                  {t("Review GDNs")}
                 </Button>
               </div>
             )}

@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 
 const BLANK_FORM = {
   effectiveFrom: new Date().toISOString().slice(0, 10),
+  effectiveTo: "" as string,
   brackets: `[\n  { "min": 0, "max": null, "rate": 0, "deduction": 0 }\n]`
 };
 
@@ -26,6 +27,7 @@ function prefillFromActive(configs: any[]): typeof BLANK_FORM {
   if (!active) return BLANK_FORM;
   return {
     effectiveFrom: new Date().toISOString().slice(0, 10),
+    effectiveTo: "",
     brackets: JSON.stringify(active.brackets || [], null, 2),
   };
 }
@@ -33,6 +35,7 @@ function prefillFromActive(configs: any[]): typeof BLANK_FORM {
 function fromConfig(config: any): typeof BLANK_FORM {
   return {
     effectiveFrom: (config.effectiveFrom || new Date().toISOString().slice(0, 10)).slice(0, 10),
+    effectiveTo: (config.effectiveTo || "").slice(0, 10),
     brackets: JSON.stringify(config.brackets || [], null, 2),
   };
 }
@@ -63,6 +66,7 @@ export function TaxTablesTab() {
 
       const payload = {
         ...data,
+        effectiveTo: data.effectiveTo ? data.effectiveTo : null,
         brackets: parsedBrackets,
       };
 
@@ -141,6 +145,14 @@ export function TaxTablesTab() {
                       onChange={e => setForm(f => ({ ...f, effectiveFrom: e.target.value }))} 
                     />
                   </div>
+                  <div className="space-y-2">
+                    <Label>Effective To Date <span className="text-muted-foreground">(blank = open-ended)</span></Label>
+                    <Input 
+                      type="date" 
+                      value={form.effectiveTo} 
+                      onChange={e => setForm(f => ({ ...f, effectiveTo: e.target.value }))} 
+                    />
+                  </div>
                 </div>
 
                 <div className="space-y-2">
@@ -188,7 +200,7 @@ export function TaxTablesTab() {
               <Table>
                 <TableHeader className="bg-slate-50 dark:bg-slate-900/50">
                   <TableRow className="hover:bg-transparent">
-                    <TableHead>Effective Date</TableHead>
+                    <TableHead>Effective Period</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Brackets</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
@@ -199,6 +211,9 @@ export function TaxTablesTab() {
                     <TableRow key={config.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                       <TableCell className="font-medium">
                         {new Date(config.effectiveFrom).toLocaleDateString()}
+                        {config.effectiveTo
+                          ? ` → ${new Date(config.effectiveTo).toLocaleDateString()}`
+                          : " → open"}
                       </TableCell>
                       <TableCell>
                         {config.isActive ? (

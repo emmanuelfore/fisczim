@@ -19,11 +19,14 @@ import { useLocation, Link } from "wouter";
 import { useBranding } from "@/hooks/use-branding";
 import { isElectron } from "@/lib/utils";
 import { isStorageBroken } from "@/lib/offline-db";
+import { useI18n } from "@/lib/i18n";
+import { LanguageSwitcher } from "@/components/language-switcher";
 
 export default function AuthPage() {
   const { user, isLoading, loginWithPassword, registerWithPassword } =
     useAuth();
   const { toast } = useToast();
+  const { t } = useI18n();
   const { brand } = useBranding();
   // Gate on !!user so this never fires when unauthenticated
   const {
@@ -58,7 +61,7 @@ export default function AuthPage() {
     if (isStorageBroken()) {
       setIsBrokenStorage(true);
       setError(
-        "Local storage is corrupted. Some offline features and login caching may not work.",
+        t("Local storage is corrupted. Some offline features and login caching may not work."),
       );
     }
   }, []);
@@ -68,14 +71,14 @@ export default function AuthPage() {
     try {
       if (
         confirm(
-          "This will clear your local terminal data to fix corruption. You will need to sign in again. Continue?",
+          t("This will clear your local terminal data to fix corruption. You will need to sign in again. Continue?"),
         )
       ) {
         await window.electronAPI.clearStorage();
         window.location.reload();
       }
     } catch (err: any) {
-      setError("Failed to reset storage: " + err.message);
+      setError(t("Failed to reset storage: ") + err.message);
     }
   };
 
@@ -91,7 +94,7 @@ export default function AuthPage() {
       setIsLoggingIn(false);
     } catch (error: any) {
       console.error("Login failed:", error);
-      setError(error.message || "Invalid email or password");
+      setError(error.message || t("Invalid email or password"));
       setIsLoggingIn(false);
     }
   };
@@ -100,7 +103,7 @@ export default function AuthPage() {
     e.preventDefault();
 
     if (signupData.password !== signupData.confirmPassword) {
-      setError("Passwords do not match");
+      setError(t("Passwords do not match"));
       return;
     }
 
@@ -112,11 +115,11 @@ export default function AuthPage() {
         password: signupData.password,
         name: signupData.name,
       });
-      setSuccessMsg("Account created! Logging you in...");
+      setSuccessMsg(t("Account created! Logging you in..."));
       setIsLoggingIn(false);
     } catch (error: any) {
       console.error("Signup failed:", error);
-      setError(error.message || "Registration failed");
+      setError(error.message || t("Registration failed"));
       setIsLoggingIn(false);
     }
   };
@@ -136,8 +139,8 @@ export default function AuthPage() {
 
       if (isCompaniesError) {
         toast({
-          title: "Connection Issue",
-          description: "Failed to load your organizations. Going to POS mode.",
+          title: t("Connection Issue"),
+          description: t("Failed to load your organizations. Going to POS mode."),
           variant: "destructive",
         });
         setLocation("/pos");
@@ -176,7 +179,7 @@ export default function AuthPage() {
       <div className="flex items-center justify-center min-h-screen bg-slate-50 flex-col gap-4">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
         <p className="text-slate-400  animate-pulse">
-          Syncing organization profile...
+          {t("Syncing organization profile...")}
         </p>
       </div>
     );
@@ -189,6 +192,9 @@ export default function AuthPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 relative p-4 lg:p-8">
       <div className="absolute top-0 left-0 w-full h-full bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.03] pointer-events-none" />
+      <div className="absolute top-4 right-4 z-20">
+        <LanguageSwitcher />
+      </div>
       
       <div className="w-full max-w-[440px] relative z-10 flex flex-col items-center">
         <div className="mb-8">
@@ -202,12 +208,12 @@ export default function AuthPage() {
         <Card className="w-full card-depth border border-slate-200/70 shadow-[0_24px_60px_-24px_rgba(2,6,23,0.15)] bg-white">
           <CardHeader className="text-center pb-4 pt-8">
             <CardTitle className="font-display text-[22px] font-bold text-slate-900 tracking-tight">
-              {mode === "login" ? "Access your workspace" : "Sign Up"}
+              {mode === "login" ? t("Access your workspace") : t("Sign Up")}
             </CardTitle>
             <CardDescription className="text-slate-500 text-[15px] mt-2">
               {mode === "login"
-                ? "Sign in to continue managing invoices and compliance."
-                : "Create an account to get started."}
+                ? t("Sign in to continue managing invoices and compliance.")
+                : t("Create an account to get started.")}
             </CardDescription>
           </CardHeader>
           <CardContent className="px-8 pb-8">
@@ -226,15 +232,14 @@ export default function AuthPage() {
             {isElectron() && isBrokenStorage && (
               <div className="mb-6 p-4 rounded-lg bg-amber-50 border border-amber-200">
                 <p className="text-amber-800 text-xs font-medium mb-3">
-                  Local database access failed. This is often caused by
-                  unexpected app closure.
+                  {t("Local database access failed. This is often caused by unexpected app closure.")}
                 </p>
                 <Button
                   onClick={handleFixStorage}
                   variant="outline"
                   className="w-full border-amber-400 text-amber-700 hover:bg-amber-100 h-9 text-xs"
                 >
-                  ⚠ Fix Terminal Data (Storage Reset)
+                  {t("Fix Terminal Data (Storage Reset)")}
                 </Button>
               </div>
             )}
@@ -242,7 +247,7 @@ export default function AuthPage() {
             {mode === "login" ? (
               <form onSubmit={handleLogin} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="email">Work Email</Label>
+                  <Label htmlFor="email">{t("Work Email")}</Label>
                   <Input
                     id="email"
                     type="email"
@@ -257,14 +262,14 @@ export default function AuthPage() {
                 </div>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <Label htmlFor="password">Password</Label>
+                    <Label htmlFor="password">{t("Password")}</Label>
                     <Link href="/forgot-password">
                       <Button
                         variant="link"
                         className="p-0 h-auto text-xs text-primary font-medium"
                         type="button"
                       >
-                        Forgot password?
+                        {t("Forgot password?")}
                       </Button>
                     </Link>
                   </div>
@@ -287,11 +292,11 @@ export default function AuthPage() {
                   {isLoggingIn ? (
                     <Loader2 className="w-4 h-4 animate-spin mr-2" />
                   ) : null}
-                  Sign In
+                  {t("Sign In")}
                 </Button>
 
                 <div className="text-center text-slate-500 text-sm mt-6">
-                  Don't have an account?{" "}
+                  {t("Don't have an account?")}{" "}
                   <button
                     type="button"
                     onClick={() => {
@@ -300,14 +305,14 @@ export default function AuthPage() {
                     }}
                     className="text-primary font-semibold hover:underline"
                   >
-                    Sign Up
+                    {t("Sign Up")}
                   </button>
                 </div>
               </form>
             ) : (
               <form onSubmit={handleSignup} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="name">Full Name</Label>
+                  <Label htmlFor="name">{t("Full Name")}</Label>
                   <Input
                     id="name"
                     placeholder="John Doe"
@@ -320,7 +325,7 @@ export default function AuthPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="signup-email">Work Email</Label>
+                  <Label htmlFor="signup-email">{t("Work Email")}</Label>
                   <Input
                     id="signup-email"
                     type="email"
@@ -334,7 +339,7 @@ export default function AuthPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="signup-password">Password</Label>
+                  <Label htmlFor="signup-password">{t("Password")}</Label>
                   <Input
                     id="signup-password"
                     type="password"
@@ -348,7 +353,7 @@ export default function AuthPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="confirm-password">Confirm Password</Label>
+                  <Label htmlFor="confirm-password">{t("Confirm Password")}</Label>
                   <Input
                     id="confirm-password"
                     type="password"
@@ -372,11 +377,11 @@ export default function AuthPage() {
                   {isLoggingIn ? (
                     <Loader2 className="w-4 h-4 animate-spin mr-2" />
                   ) : null}
-                  Create Account
+                  {t("Create Account")}
                 </Button>
 
                 <div className="text-center text-slate-500 text-sm mt-6">
-                  Already have access?{" "}
+                  {t("Already have access?")}{" "}
                   <button
                     type="button"
                     onClick={() => {

@@ -15,6 +15,18 @@ import { apiRequest } from "@/lib/queryClient";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { RotateCcw, ShieldCheck } from "lucide-react";
+import { useState } from "react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 type AuditEntry = {
   id: number;
@@ -35,7 +47,8 @@ type AuditEntry = {
 export default function AccountingAuditTrailPage() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { data: entries = [], isLoading } = useQuery<AuditEntry[]>({
+  const [pendingReverseId, setPendingReverseId] = useState<number | null>(null);
+  const { data: entries = [], isLoading, isError, refetch } = useQuery<AuditEntry[]>({
     queryKey: ["/api/accounting/audit-trail"],
   });
 
@@ -119,6 +132,19 @@ export default function AccountingAuditTrailPage() {
                       Loading audit trail...
                     </TableCell>
                   </TableRow>
+                ) : isError ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="h-24 text-center">
+                      <div className="flex flex-col items-center justify-center gap-3">
+                        <span className="text-rose-600 font-semibold">
+                          Could not load the audit trail.
+                        </span>
+                        <Button variant="outline" size="sm" className="rounded-lg" onClick={() => refetch()}>
+                          Retry
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
                 ) : entries.length === 0 ? (
                   <TableRow>
                     <TableCell
@@ -167,17 +193,48 @@ export default function AccountingAuditTrailPage() {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={
-                            entry.reversalStatus !== "ACTIVE" ||
-                            reverseMutation.isPending
+                        <AlertDialog
+                          open={pendingReverseId === entry.id}
+                          onOpenChange={(open) =>
+                            !open && setPendingReverseId(null)
                           }
-                          onClick={() => reverseMutation.mutate(entry.id)}
                         >
-                          <RotateCcw className="mr-2 h-4 w-4" /> Reverse
-                        </Button>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={
+                                entry.reversalStatus !== "ACTIVE" ||
+                                reverseMutation.isPending
+                              }
+                              onClick={() => setPendingReverseId(entry.id)}
+                            >
+                              <RotateCcw className="mr-2 h-4 w-4" /> Reverse
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>
+                                Reverse journal #{entry.id}?
+                              </AlertDialogTitle>
+                              <AlertDialogDescription>
+                                A reversing journal entry will be posted on{" "}
+                                {format(new Date(), "dd MMM yyyy")}. This cannot
+                                be undone.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction
+                                onClick={() =>
+                                  reverseMutation.mutate(entry.id)
+                                }
+                              >
+                                Reverse Entry
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
                       </TableCell>
                     </TableRow>
                   ))

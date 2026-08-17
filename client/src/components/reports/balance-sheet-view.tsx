@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
 
 interface BalanceSheetViewProps {
   companyId: number;
@@ -20,7 +21,7 @@ export function BalanceSheetView({
 }: BalanceSheetViewProps) {
   const asOfDate = format(dateRange.to, "yyyy-MM-dd");
   const branchParam = branchId ? `&branchId=${branchId}` : "";
-  const { data, isLoading } = useQuery<any>({
+  const { data, isLoading, isError, refetch } = useQuery<any>({
     queryKey: [`/api/accounting/reports/balance-sheet`, { date: asOfDate, branchId }],
     queryFn: async () => {
       const res = await fetch(`/api/accounting/reports/balance-sheet?date=${asOfDate}${branchParam}`, { credentials: "include" });
@@ -35,6 +36,21 @@ export function BalanceSheetView({
       <div className="text-center p-12 text-slate-400">
         Loading Balance Sheet...
       </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <Card className="rounded-3xl border-slate-200 overflow-hidden shadow-sm">
+        <CardContent className="p-12 text-center">
+          <p className="font-semibold text-slate-700 mb-4">
+            Could not load the balance sheet.
+          </p>
+          <Button variant="outline" onClick={() => refetch()} className="rounded-xl">
+            Retry
+          </Button>
+        </CardContent>
+      </Card>
     );
   }
 

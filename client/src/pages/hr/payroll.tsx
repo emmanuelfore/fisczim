@@ -79,6 +79,7 @@ export default function HRPayrollRuns() {
     currency: "USD",
     runType: "REGULAR" as "REGULAR" | "BONUS",
     prorate: true,
+    prorationBasis: "CALENDAR_DAYS" as "CALENDAR_DAYS" | "WORKING_DAYS" | "PAYABLE_DAYS" | "HOURS_WORKED",
     bonuses: {} as Record<number, number>,
   });
 
@@ -299,6 +300,19 @@ export default function HRPayrollRuns() {
                         />
                         <span className="text-sm text-slate-600 dark:text-slate-300">Prorate mid-period joins / leavers</span>
                       </label>
+                      {formData.prorate && (
+                        <Select value={formData.prorationBasis} onValueChange={(v) => setFormData({ ...formData, prorationBasis: v as any })}>
+                          <SelectTrigger className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="CALENDAR_DAYS">Calendar days</SelectItem>
+                            <SelectItem value="WORKING_DAYS">Working days (Mon–Fri)</SelectItem>
+                            <SelectItem value="PAYABLE_DAYS">Payable days</SelectItem>
+                            <SelectItem value="HOURS_WORKED">Hours worked</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
                     </div>
                   )}
                 </div>

@@ -16,7 +16,7 @@ import {
 import { Link } from "wouter";
 
 export default function AccountingDashboardPage() {
-  const { data, isLoading } = useQuery<any>({
+  const { data, isLoading, isError, refetch } = useQuery<any>({
     queryKey: ["/api/accounting/dashboard"],
   });
 
@@ -40,6 +40,17 @@ export default function AccountingDashboardPage() {
   return (
     <Layout hideHeaderTitle>
       <div className="space-y-6">
+        {isError && (
+          <div className="flex items-center justify-between gap-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
+            <p className="text-sm font-semibold text-rose-700">
+              Could not load accounting dashboard. Showing cached or zero values.
+            </p>
+            <Button variant="outline" size="sm" className="shrink-0 rounded-lg" onClick={() => refetch()}>
+              Retry
+            </Button>
+          </div>
+        )}
+
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h2 className="text-2xl font-bold text-slate-800 font-display">
@@ -126,6 +137,8 @@ export default function AccountingDashboardPage() {
             <CardContent className="space-y-2">
               {isLoading ? (
                 <p className=" text-slate-500">Loading alerts...</p>
+              ) : isError ? (
+                <p className=" text-amber-700">Could not load alerts.</p>
               ) : data?.alerts?.length ? (
                 data.alerts.map((alert: any, index: number) => (
                   <div

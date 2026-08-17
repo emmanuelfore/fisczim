@@ -43,7 +43,7 @@ export default function GeneralLedgerPage() {
     queryKey: ["/api/accounting/accounts"],
   });
 
-  const { data: ledgerEntries, isLoading } = useQuery<FullLedgerEntry[]>({
+  const { data: ledgerEntries, isLoading, isError, refetch } = useQuery<FullLedgerEntry[]>({
     queryKey: ["/api/accounting/ledger", { accountId: selectedAccountId }],
     enabled: !!selectedAccountId,
   });
@@ -160,6 +160,16 @@ export default function GeneralLedgerPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0 overflow-x-auto min-w-0">
+            {isError && (
+              <div className="flex items-center justify-between gap-4 px-6 py-3 border-b border-rose-100 bg-rose-50">
+                <p className="text-sm font-semibold text-rose-700">
+                  Could not load ledger movements.
+                </p>
+                <Button variant="outline" size="sm" className="shrink-0 rounded-lg" onClick={() => refetch()}>
+                  Retry
+                </Button>
+              </div>
+            )}
             <Table>
               <TableHeader className="bg-slate-50/50">
                 <TableRow className="hover:bg-transparent border-slate-100">

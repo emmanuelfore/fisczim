@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/table";
 import { ArrowDownLeft, ArrowUpRight, Activity, TrendingUp, TrendingDown, Landmark } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
 interface CashFlowViewProps {
   companyId: number;
@@ -57,7 +58,7 @@ export function CashFlowView({
   const toQuery = format(dateRange.to, "yyyy-MM-dd");
   const branchParam = branchId ? `&branchId=${branchId}` : "";
 
-  const { data, isLoading } = useQuery<CashFlowReport>({
+  const { data, isLoading, isError, refetch } = useQuery<CashFlowReport>({
     queryKey: [
       `/api/accounting/reports/cash-flow`,
       { from: fromQuery, to: toQuery, branchId },
@@ -81,6 +82,21 @@ export function CashFlowView({
           Preparing cash flow statement...
         </p>
       </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <Card className="rounded-3xl border-slate-200 overflow-hidden shadow-sm">
+        <CardContent className="p-12 text-center">
+          <p className="font-semibold text-slate-700 mb-4">
+            Could not load the cash flow statement.
+          </p>
+          <Button variant="outline" onClick={() => refetch()} className="rounded-xl">
+            Retry
+          </Button>
+        </CardContent>
+      </Card>
     );
   }
 

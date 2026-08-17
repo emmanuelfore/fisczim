@@ -5,6 +5,7 @@ import {
   type InsertExpense,
   type Expense,
 } from "@shared/schema";
+import { EXPENSE_CATEGORIES } from "@shared/expense-categories";
 import { useCreateExpense, useUpdateExpense } from "@/hooks/use-expenses";
 import { useSuppliers } from "@/hooks/use-suppliers";
 import { Button } from "@/components/ui/button";
@@ -38,19 +39,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 
-const expenseCategories = [
-  "Rent",
-  "Utilities",
-  "Salary",
-  "Marketing",
-  "Equipment",
-  "Inventory Purchase",
-  "Software",
-  "Taxes",
-  "Legal & Professional",
-  "Travel",
-  "Other",
-];
+const expenseCategories = EXPENSE_CATEGORIES;
 
 const paymentMethods = [
   "Cash",
@@ -76,7 +65,7 @@ export function ExpenseDialog({ companyId, expense, trigger }: Props) {
     queryKey: ["/api/accounting/segments", companyId],
     enabled: !!companyId,
     queryFn: async () => {
-      const res = await apiFetch(`/api/companies/${companyId}/accounting/segments`);
+      const res = await apiFetch(`/api/accounting/segments`);
       if (!res.ok) return [];
       return res.json();
     },

@@ -117,7 +117,7 @@ export default function AccountingJournalPage() {
     queryKey: ["/api/accounting/segments", companyId],
     enabled: !!companyId,
     queryFn: async () => {
-      const res = await apiFetch(`/api/companies/${companyId}/accounting/segments`);
+      const res = await apiFetch(`/api/accounting/segments`);
       if (!res.ok) return [];
       return res.json();
     },
@@ -142,16 +142,19 @@ export default function AccountingJournalPage() {
     );
   }
 
-  const { data: entries, isLoading } = useQuery<any[]>({
-    queryKey: ["/api/accounting/journal"],
+  const { data: entries, isLoading, isError, refetch } = useQuery<any[]>({
+    queryKey: ["/api/accounting/journal", companyId],
+    enabled: !!companyId,
   });
 
   const { data: accounts } = useQuery<Account[]>({
-    queryKey: ["/api/accounting/accounts"],
+    queryKey: ["/api/accounting/accounts", companyId],
+    enabled: !!companyId,
   });
 
   const { data: drafts } = useQuery<JournalDraft[]>({
-    queryKey: ["/api/accounting/journal-drafts"],
+    queryKey: ["/api/accounting/journal-drafts", companyId],
+    enabled: !!companyId,
   });
 
   const totals = voucher.lines.reduce(
@@ -168,7 +171,7 @@ export default function AccountingJournalPage() {
   const isBalanced =
     Math.abs(totals.debit - totals.credit) < 0.005 && totals.debit > 0;
 
-  const buildPayload = () => {
+  const buildPayload = (allowUnbalanced = false) => {
     if (!voucher.description.trim()) throw new Error("Description is required");
     const lines = voucher.lines.flatMap((line) => {
       const debit = Number(line.debit || 0);
@@ -190,7 +193,7 @@ export default function AccountingJournalPage() {
       ];
     });
     if (lines.length < 2) throw new Error("Add at least two journal lines");
-    if (!isBalanced)
+    if (!allowUnbalanced && !isBalanced)
       throw new Error(
         `Journal is out of balance. Debits: ${totals.debit.toFixed(2)}, Credits: ${totals.credit.toFixed(2)}`,
       );
@@ -217,7 +220,7 @@ export default function AccountingJournalPage() {
       const res = await apiRequest(
         "POST",
         "/api/accounting/journal-drafts",
-        buildPayload(),
+        buildPayload(true),
       );
       return res.json();
     },
@@ -313,7 +316,7 @@ export default function AccountingJournalPage() {
                 <span>New Journal Voucher</span>
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+            <DialogContent className="max-w-none w-[96vw] sm:w-[90vw] max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>New Journal Voucher</DialogTitle>
               </DialogHeader>
@@ -351,7 +354,7 @@ export default function AccountingJournalPage() {
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-slate-200 overflow-x-auto min-w-0">
+                <div className="rounded-xl border border-slate-200">
                   <Table>
                     <TableHeader className="bg-slate-50">
                       <TableRow>
@@ -715,6 +718,16 @@ export default function AccountingJournalPage() {
         )}
 
         <div className="space-y-4">
+          {isError && (
+            <div className="flex items-center justify-between gap-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
+              <p className="text-sm font-semibold text-rose-700">
+                Could not load journal entries.
+              </p>
+              <Button variant="outline" size="sm" className="shrink-0 rounded-lg" onClick={() => refetch()}>
+                Retry
+              </Button>
+            </div>
+          )}
           {isLoading ? (
             Array.from({ length: 3 }).map((_, i) => (
               <Card

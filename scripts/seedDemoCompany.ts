@@ -1,12 +1,15 @@
+import 'dotenv/config';
 import { db } from '../server/db.js';
 import { 
   companies, employees, payrollRuns, payrollRunEmployees, 
   payrollEarningTypes, payrollDeductionTypes, payrollPayGrades, taxTablesConfig, employeeContracts,
-  branches, departments, positions, payrollStatutoryRules
+  branches, departments, positions, payrollStatutoryRules,
+  employeeSalaryHistory, employeeEmploymentHistory, employeeIncomeHistory, employeeDeductionHistory,
+  payrollRecurringItems
 } from '../shared/schema.js';
 import { reportService } from '../server/services/reportService.js';
 import { eq } from 'drizzle-orm';
-import { addMonths, format, startOfMonth, subMonths } from 'date-fns';
+import { addMonths, addDays, format, startOfMonth, subMonths } from 'date-fns';
 
 async function seedDemoCompany() {
   console.log('Starting Demo Company seeding...');
@@ -127,6 +130,16 @@ async function seedDemoCompany() {
     const gradeIndex = i <= 2 ? 0 : i <= 5 ? 1 : i <= 10 ? 2 : 3;
     const grade = payGrades[gradeIndex];
     
+    // Proration scenarios:
+    //  - EMP1001 joined on the 17th of this month (mid-period join)
+    //  - EMP1002 terminated on the 12th of this month (mid-period leaver)
+    //  - EMP1003 got a mid-month salary increase on the 15th of this month
+    const now = new Date();
+    const thisMonth = startOfMonth(now);
+    let joiningDate = '2023-01-01';
+    if (i === 1) joiningDate = format(addDays(thisMonth, 16), 'yyyy-MM-dd'); // joins 17th
+    if (i === 2) joiningDate = '2023-06-01'; // leaves on the 12th this month
+
     const [emp] = await db.insert(employees).values({
       companyId: demoCompany.id,
       branchId: demoBranch.id,
@@ -136,30 +149,126 @@ async function seedDemoCompany() {
       lastName: `DemoUser`,
       employeeNumber: `EMP${1000 + i}`,
       nationalId: `12-345678${String(i).padStart(2, '0')}X01`,
-      joiningDate: '2023-01-01',
-      status: 'ACTIVE'
+      joiningDate,
+      status: i === 2 ? 'TERMINATED' : 'ACTIVE',
+      terminationDate: i === 2 ? format(addDays(thisMonth, 11), 'yyyy-MM-dd') : null
     }).returning();
     
     const basePay = Number(grade.minSalary) + Math.random() * (Number(grade.midpointSalary) - Number(grade.minSalary));
     await db.insert(employeeContracts).values({
       employeeId: emp.id,
       payGradeId: grade.id,
-      startDate: '2023-01-01',
+      startDate: joiningDate,
       payFrequency: 'MONTHLY',
       baseSalary: basePay.toFixed(2),
       currency: 'USD',
       usdPercentage: '100.00',
       zigPercentage: '0.00',
-      isActive: true
+      isActive: i !== 2
     });
-    
+
+    // Effective-dated salary history: initial record from join, and for EMP1003
+    // a mid-month raise effective the 15th so the run blends old + new rates.
+    await db.insert(employeeSalaryHistory).values({
+      companyId: demoCompany.id,
+      employeeId: emp.id,
+      salaryAmount: basePay.toFixed(2),
+      currency: 'USD',
+      payFrequency: 'MONTHLY',
+      usdPercentage: '100.00',
+      zigPercentage: '0.00',
+      effectiveFrom: joiningDate,
+      effectiveTo: null,
+      reason: 'Initial salary'
+    });
+    if (i === 3) {
+      const raised = Math.round(basePay * 1.1 * 100) / 100;
+      await db.update(employeeSalaryHistory)
+        .set({ effectiveTo: format(addDays(thisMonth, 14), 'yyyy-MM-dd') })
+        .where(eq(employeeSalaryHistory.employeeId, emp.id));
+      await db.insert(employeeSalaryHistory).values({
+        companyId: demoCompany.id,
+        employeeId: emp.id,
+        salaryAmount: raised.toFixed(2),
+        currency: 'USD',
+        payFrequency: 'MONTHLY',
+        usdPercentage: '100.00',
+        zigPercentage: '0.00',
+        effectiveFrom: format(addDays(thisMonth, 15), 'yyyy-MM-dd'),
+        effectiveTo: null,
+        reason: 'Mid-month salary increase'
+      });
+    }
+
+    // Effective-dated employment history (JOINED, TERMINATION for the leaver).
+    await db.insert(employeeEmploymentHistory).values({
+      companyId: demoCompany.id,
+      employeeId: emp.id,
+      eventType: 'JOINED',
+      effectiveFrom: joiningDate,
+      departmentId: demoDept.id,
+      positionId: demoPosition.id,
+      branchId: demoBranch.id,
+      employmentType: 'PERMANENT',
+      contractType: 'PERMANENT',
+      reason: 'Initial hire'
+    });
+    if (i === 2) {
+      await db.insert(employeeEmploymentHistory).values({
+        companyId: demoCompany.id,
+        employeeId: emp.id,
+        eventType: 'TERMINATION',
+        effectiveFrom: format(addDays(thisMonth, 11), 'yyyy-MM-dd'),
+        departmentId: demoDept.id,
+        positionId: demoPosition.id,
+        branchId: demoBranch.id,
+        employmentType: 'PERMANENT',
+        contractType: 'PERMANENT',
+        reason: 'Resignation'
+      });
+    }
+
+    // Recurring allowances/deductions (income history). EMP1006 gets a transport
+    // allowance that only starts on the 20th of this month so it is prorated.
+    await db.insert(payrollRecurringItems).values({
+      employeeId: emp.id,
+      type: 'ALLOWANCE',
+      name: 'Transport Allowance',
+      amount: '100.00',
+      isTaxable: false,
+      startDate: i === 6 ? format(addDays(thisMonth, 19), 'yyyy-MM-dd') : '2023-01-01',
+      isActive: i !== 2
+    });
+    await db.insert(employeeIncomeHistory).values({
+      companyId: demoCompany.id,
+      employeeId: emp.id,
+      name: 'Transport Allowance',
+      amount: '100.00',
+      calculationType: 'FIXED',
+      isTaxable: false,
+      effectiveFrom: i === 6 ? format(addDays(thisMonth, 19), 'yyyy-MM-dd') : '2023-01-01',
+      effectiveTo: null,
+      reason: 'Transport allowance'
+    });
+    await db.insert(employeeDeductionHistory).values({
+      companyId: demoCompany.id,
+      employeeId: emp.id,
+      name: 'Medical Aid',
+      amount: '50.00',
+      calculationType: 'FIXED',
+      isTaxDeductible: true,
+      effectiveFrom: '2023-01-01',
+      effectiveTo: null,
+      reason: 'Medical aid'
+    });
+
     insertedEmployees.push({ emp, basePay });
   }
-  console.log(`Created 20 employees and their contracts`);
+  console.log(`Created 20 employees, their contracts, salary/employment/income/deduction history`);
 
-  // 6. Run 3 months of payroll
+  // 6. Run 3 months of payroll (plus the current month to surface proration)
   const currentDate = new Date();
-  for (let m = 3; m >= 1; m--) {
+  for (let m = 3; m >= 0; m--) {
     const runDate = startOfMonth(subMonths(currentDate, m));
     const periodStart = format(runDate, 'yyyy-MM-dd');
     const periodEnd = format(addMonths(runDate, 1), 'yyyy-MM-dd'); 
@@ -168,7 +277,9 @@ async function seedDemoCompany() {
       companyId: demoCompany.id,
       periodStart,
       periodEnd,
-      status: 'LOCKED',
+      status: m === 0 ? 'DRAFT' : 'LOCKED',
+      runType: 'REGULAR',
+      prorationBasis: 'CALENDAR_DAYS',
       totalGross: '0',
       totalNet: '0',
       totalDeductions: '0'
@@ -180,6 +291,8 @@ async function seedDemoCompany() {
     let runTotalDeductions = 0;
 
     for (const { emp, basePay } of insertedEmployees) {
+      // Skip the terminated employee entirely for historical runs.
+      if (emp.status === 'TERMINATED') continue;
       const gross = basePay + (Math.random() > 0.5 ? 100 : 0);
       
       let payeTax = 0;

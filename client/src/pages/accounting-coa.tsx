@@ -120,7 +120,7 @@ export default function AccountingCOAPage() {
     useActiveCompany();
   const [, setLocation] = useLocation();
 
-  const { data: accounts, isLoading } = useQuery<Account[]>({
+  const { data: accounts, isLoading, isError, refetch } = useQuery<Account[]>({
     queryKey: ["/api/accounting/accounts", companyId],
     enabled: !!companyId,
     queryFn: async () => {
@@ -139,7 +139,7 @@ export default function AccountingCOAPage() {
     queryKey: ["/api/accounting/segments", companyId],
     enabled: !!companyId,
     queryFn: async () => {
-      const res = await apiFetch(`/api/companies/${companyId}/accounting/segments`);
+      const res = await apiFetch(`/api/accounting/segments`);
       if (!res.ok) return [];
       return res.json();
     },
@@ -518,6 +518,19 @@ export default function AccountingCOAPage() {
                       <TableCell colSpan={8} className="h-16 bg-slate-50/20" />
                     </TableRow>
                   ))
+                ) : isError ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="h-32 text-center">
+                      <div className="flex flex-col items-center justify-center gap-3">
+                        <span className="text-rose-600 font-semibold">
+                          Could not load the chart of accounts.
+                        </span>
+                        <Button variant="outline" size="sm" className="rounded-lg" onClick={() => refetch()}>
+                          Retry
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
                 ) : filteredAccounts?.length === 0 ? (
                   <TableRow>
                     <TableCell

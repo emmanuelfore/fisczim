@@ -90,7 +90,7 @@ export default function AccountingSegmentsPage() {
     description: "",
   });
 
-  const { data: segments, isLoading } = useQuery<AccountingSegment[]>({
+  const { data: segments, isLoading, isError, refetch } = useQuery<AccountingSegment[]>({
     queryKey: ["/api/accounting/segments"],
   });
 
@@ -321,6 +321,19 @@ export default function AccountingSegmentsPage() {
                       <div className="flex items-center justify-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-primary animate-ping" />
                         <span>Loading segments...</span>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : isError ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="h-32 text-center">
+                      <div className="flex flex-col items-center justify-center gap-3">
+                        <span className="text-rose-600 font-semibold">
+                          Could not load accounting segments.
+                        </span>
+                        <Button variant="outline" size="sm" className="rounded-lg" onClick={() => refetch()}>
+                          Retry
+                        </Button>
                       </div>
                     </TableCell>
                   </TableRow>

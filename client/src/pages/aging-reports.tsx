@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { Layout } from "@/components/layout";
 import { useQuery } from "@tanstack/react-query";
-import { useAuth } from "@/hooks/use-auth";
 import { format } from "date-fns";
 import { Clock, TrendingDown, TrendingUp } from "lucide-react";
 import {
@@ -39,11 +38,11 @@ export default function AgingReportsPage() {
     setSelectedTab(getSelectedTab());
   }, [location]);
 
-  const { data: arData, isLoading: isLoadingAR } = useQuery<any[]>({
+  const { data: arData, isLoading: isLoadingAR, isError: isErrorAR, refetch: refetchAR } = useQuery<any[]>({
     queryKey: ["/api/accounting/reports/ar-aging", { date: asOfDate }],
   });
 
-  const { data: apData, isLoading: isLoadingAP } = useQuery<any[]>({
+  const { data: apData, isLoading: isLoadingAP, isError: isErrorAP, refetch: refetchAP } = useQuery<any[]>({
     queryKey: ["/api/accounting/reports/ap-aging", { date: asOfDate }],
   });
 
@@ -166,6 +165,12 @@ export default function AgingReportsPage() {
                             className="h-32 text-center text-slate-400"
                           >
                             Loading...
+                          </TableCell>
+                        </TableRow>
+                      ) : isErrorAR ? (
+                        <TableRow>
+                          <TableCell colSpan={7} className="h-32 text-center text-rose-600 font-semibold">
+                            Could not load receivables aging.
                           </TableCell>
                         </TableRow>
                       ) : arData?.length === 0 ? (
@@ -298,6 +303,12 @@ export default function AgingReportsPage() {
                             className="h-32 text-center text-slate-400"
                           >
                             Loading...
+                          </TableCell>
+                        </TableRow>
+                      ) : isErrorAP ? (
+                        <TableRow>
+                          <TableCell colSpan={7} className="h-32 text-center text-rose-600 font-semibold">
+                            Could not load payables aging.
                           </TableCell>
                         </TableRow>
                       ) : apData?.length === 0 ? (

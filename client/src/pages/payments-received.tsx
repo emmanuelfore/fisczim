@@ -44,6 +44,7 @@ import { Link, useRoute, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { pdf, PDFDownloadLink } from "@react-pdf/renderer";
 import { api } from "@shared/routes";
+import { generateCsv, downloadCsv, generateCsvFilename } from "@/lib/report-utils";
 import {
   Dialog,
   DialogContent,
@@ -402,6 +403,22 @@ export default function PaymentsReceivedPage() {
     });
   };
 
+  const exportPayments = () => {
+    const csv = generateCsv(filtered, [
+      "paymentDate",
+      "invoiceNumber",
+      "customerName",
+      "paymentMethod",
+      "reference",
+      "currency",
+      "amount",
+    ]);
+    downloadCsv(
+      generateCsvFilename("payments-received", dateRange.from, dateRange.to),
+      csv,
+    );
+  };
+
   if (selectedId) {
     return (
       <Layout>
@@ -434,6 +451,7 @@ export default function PaymentsReceivedPage() {
           <Button
             variant="outline"
             className="h-10 rounded-[10px] border-[#E5E7EB] bg-white px-4  font-semibold text-[#0F172A] shadow-none hover:bg-[#F8FAFC]"
+            onClick={exportPayments}
           >
             <Download className="mr-2 h-4 w-4 text-[#64748B]" /> Export
           </Button>

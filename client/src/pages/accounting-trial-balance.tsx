@@ -39,7 +39,7 @@ export default function TrialBalancePage() {
   const [, setLocation] = useLocation();
   const [collapsedTypes, setCollapsedTypes] = useState<string[]>([]);
 
-  const { data: report, isLoading } = useQuery<TrialBalanceReport>({
+  const { data: report, isLoading, isError, refetch } = useQuery<TrialBalanceReport>({
     queryKey: ["/api/accounting/trial-balance"],
   });
 
@@ -47,6 +47,8 @@ export default function TrialBalancePage() {
     report?.lines.reduce((sum, line) => sum + Number(line.debit), 0) || 0;
   const totalCredit =
     report?.lines.reduce((sum, line) => sum + Number(line.credit), 0) || 0;
+
+  const hasLoaded = !isLoading && !isError;
 
   const toggleCollapse = (type: string) => {
     setCollapsedTypes((prev) =>
@@ -92,6 +94,17 @@ export default function TrialBalancePage() {
   return (
     <Layout hideHeaderTitle>
       <div className="space-y-6">
+        {isError && (
+          <div className="flex items-center justify-between gap-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
+            <p className="text-sm font-semibold text-rose-700">
+              Could not load the trial balance. Please try again.
+            </p>
+            <Button variant="outline" size="sm" className="shrink-0 rounded-lg" onClick={() => refetch()}>
+              Retry
+            </Button>
+          </div>
+        )}
+
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <div className="h-12 w-12 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shadow-sm">
@@ -106,20 +119,27 @@ export default function TrialBalancePage() {
                   variant="outline"
                   className="bg-white text-slate-500 font-bold border-slate-200"
                 >
-                  As of{" "}
-                  {report ? format(new Date(report.asOfDate), "PPP") : "Today"}
+                  {isError
+                    ? "Unavailable"
+                    : report
+                      ? `As of ${format(new Date(report.asOfDate), "PPP")}`
+                      : "Loading"}
                 </Badge>
                 <div
                   className={cn(
                     "flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border",
-                    Math.abs(totalDebit - totalCredit) < 0.01
-                      ? "bg-emerald-50 text-emerald-600 border-emerald-100"
-                      : "bg-rose-50 text-rose-600 border-rose-100",
+                    !hasLoaded
+                      ? "bg-slate-50 text-slate-400 border-slate-100"
+                      : Math.abs(totalDebit - totalCredit) < 0.01
+                        ? "bg-emerald-50 text-emerald-600 border-emerald-100"
+                        : "bg-rose-50 text-rose-600 border-rose-100",
                   )}
                 >
-                  {Math.abs(totalDebit - totalCredit) < 0.01
-                    ? "Balanced"
-                    : "Out of Balance"}
+                  {!hasLoaded
+                    ? "—"
+                    : Math.abs(totalDebit - totalCredit) < 0.01
+                      ? "Balanced"
+                      : "Out of Balance"}
                 </div>
               </div>
             </div>
@@ -171,6 +191,18 @@ export default function TrialBalancePage() {
                       <TableCell colSpan={4} className="h-12 bg-slate-50/40" />
                     </TableRow>
                   ))
+                ) : isError ? (
+                  <TableRow>
+                    <TableCell colSpan={4} className="h-32 text-center text-slate-400 font-medium">
+                      Unable to load trial balance.
+                    </TableCell>
+                  </TableRow>
+                ) : !report?.lines?.length ? (
+                  <TableRow>
+                    <TableCell colSpan={4} className="h-32 text-center text-slate-400 font-medium">
+                      No accounts found. Post journal entries or configure opening balances.
+                    </TableCell>
+                  </TableRow>
                 ) : (
                   <>
                     {Object.entries(groupedLines).map(([type, lines]) => (
@@ -264,7 +296,7 @@ export default function TrialBalancePage() {
           </CardContent>
         </Card>
 
-        {Math.abs(totalDebit - totalCredit) >= 0.01 && (
+        {hasLoaded && Math.abs(totalDebit - totalCredit) >= 0.01 && (
           <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-center gap-3 text-rose-800 animate-in fade-in slide-in-from-bottom-2">
             <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center text-rose-600 shrink-0">
               <Scale className="h-5 w-5" />

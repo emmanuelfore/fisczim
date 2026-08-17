@@ -82,14 +82,14 @@ export default function BankReconciliationPage() {
     enabled: !!selectedAccountId,
   });
 
-  const { data: bankLines } = useQuery<any[]>({
+  const { data: bankLines, isLoading: bankLinesLoading } = useQuery<any[]>({
     queryKey: [
       `/api/accounting/reconciliation/statements/${selectedStatementId}/lines`,
     ],
     enabled: !!selectedStatementId,
   });
 
-  const { data: ledgerLines } = useQuery<any[]>({
+  const { data: ledgerLines, isLoading: ledgerLinesLoading } = useQuery<any[]>({
     queryKey: [
       "/api/accounting/reconciliation/ledger",
       { accountId: selectedAccountId },
@@ -99,20 +99,23 @@ export default function BankReconciliationPage() {
 
   const uploadMutation = useMutation({
     mutationFn: async () => {
-      // Parse CSV: Date, Description, Amount
+      // Parse CSV: Date, Description, Amount (skip header, tolerate quotes)
       const parsedLines = csvText
         .trim()
         .split("\n")
-        .map((l) => {
+        .map((l, index) => {
           const parts = l.split(",");
-          if (parts.length >= 3) {
-            return {
-              date: new Date(parts[0].trim()).toISOString(),
-              description: parts[1].trim(),
-              amount: parts[2].trim(),
-            };
+          if (parts.length >= 3 && index > 0 && isNaN(Number(parts[0]))) {
+            // Header row — skip
+            return null;
           }
-          return null;
+          const date = new Date(parts[0].trim());
+          if (isNaN(date.getTime())) return null;
+          return {
+            date: date.toISOString(),
+            description: parts[1]?.trim() || "",
+            amount: parts[2]?.trim() || "0",
+          };
         })
         .filter(Boolean);
 
@@ -164,6 +167,8 @@ export default function BankReconciliationPage() {
         queryKey: ["/api/accounting/reconciliation/ledger"],
       });
     },
+    onError: (e: any) =>
+      toast({ title: "Auto-Match Failed", description: e.message, variant: "destructive" }),
   });
 
   const manualMatchMutation = useMutation({
@@ -192,6 +197,8 @@ export default function BankReconciliationPage() {
         queryKey: ["/api/accounting/reconciliation/ledger"],
       });
     },
+    onError: (e: any) =>
+      toast({ title: "Match Failed", description: e.message, variant: "destructive" }),
   });
 
   const createMatchMutation = useMutation({
@@ -403,7 +410,13 @@ export default function BankReconciliationPage() {
                         </TableCell>
                       </TableRow>
                     ))}
-                    {!bankLines?.length && (
+                    {bankLinesLoading ? (
+                      <TableRow>
+                        <TableCell colSpan={3} className="text-center h-20 text-slate-400">
+                          Loading bank lines...
+                        </TableCell>
+                      </TableRow>
+                    ) : !bankLines?.length ? (
                       <TableRow>
                         <TableCell
                           colSpan={3}
@@ -412,7 +425,7 @@ export default function BankReconciliationPage() {
                           No bank lines found.
                         </TableCell>
                       </TableRow>
-                    )}
+                    ) : null}
                   </TableBody>
                 </Table>
               </div>
@@ -529,7 +542,13 @@ export default function BankReconciliationPage() {
                         </TableRow>
                       );
                     })}
-                    {!ledgerLines?.length && (
+                    {ledgerLinesLoading ? (
+                      <TableRow>
+                        <TableCell colSpan={3} className="text-center h-20 text-slate-400">
+                          Loading ledger lines...
+                        </TableCell>
+                      </TableRow>
+                    ) : !ledgerLines?.length && (
                       <TableRow>
                         <TableCell
                           colSpan={3}

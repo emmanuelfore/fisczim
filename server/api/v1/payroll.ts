@@ -19,6 +19,7 @@ import {
 } from "../../../shared/schema.js";
 import { eq, and, desc, asc, ne, sql, gte, lte, inArray, ilike } from "drizzle-orm";
 import { ZimbabwePayrollEngine, type TaxBracket, type PayrollElementInput } from "../../../shared/payroll-engine.js";
+import { computeProration, blendSalary, prorateAmount } from "../../../shared/proration.js";
 import { reportService } from "../../services/reportService.js";
 import { logAction } from "../../audit.js";
 import { sendPayslipEmail } from "../../email.js";
@@ -551,8 +552,8 @@ function classifyRecurringAllowance(name: string): string {
   return "OTHER";
 }
 
-async function loadActiveRecurringItems(tx: any, employeeId: number, periodStart: string, periodEnd: string) {
-  return tx.select()
+async function loadActiveRecurringItems(tx: any, employeeId: number, periodStart: string, periodEnd: string, options?: { basis?: "CALENDAR_DAYS" | "WORKING_DAYS" | "PAYABLE_DAYS" | "HOURS_WORKED"; prorate?: boolean; joinDate?: string | null; terminationDate?: string | null }) {
+  const rows = await tx.select()
     .from(payrollRecurringItems)
     .where(and(
       eq(payrollRecurringItems.employeeId, employeeId),
@@ -560,6 +561,20 @@ async function loadActiveRecurringItems(tx: any, employeeId: number, periodStart
       sql`${payrollRecurringItems.startDate} <= ${periodEnd}`,
       sql`(${payrollRecurringItems.endDate} IS NULL OR ${payrollRecurringItems.endDate} >= ${periodStart})`
     ));
+
+  // An allowance/deduction that starts or ends inside the period (e.g. an
+  // allowance effective from the 20th) is paid pro-rata for the days it ran,
+  // on the same proration basis as the rest of the run. The employee's own
+  // employment window is also honored so mid-period joiners/leavers only get
+  // the item for the days they were actually employed.
+  if (!options?.prorate) return rows;
+  return rows.map((item: any) => {
+    const fullAmount = parseFloat(item.amount);
+    const prorated = prorateAmount(fullAmount, item.startDate, item.endDate, periodStart, periodEnd, {
+      basis: options.basis,
+    }, { joinDate: options.joinDate, terminationDate: options.terminationDate });
+    return { ...item, amount: prorated.toFixed(2), fullAmount, prorated: prorated !== fullAmount };
+  });
 }
 
 async function loadEffectiveTaxConfig(tx: any, currency: string, payFrequency: string, periodStart: string, periodEnd: string) {
@@ -703,39 +718,45 @@ async function isStatutoryRuleReferenced(tx: any, rule: any): Promise<boolean> {
   return !!hit;
 }
 
-// Resolve the salary applicable to an employee for a period from the immutable
-// effective-dated history, falling back to the active contract.
-async function loadEffectiveSalary(tx: any, employeeId: number, periodStart: string, periodEnd: string, fallback: any) {
-  const [record] = await tx.select()
+// Load every effective-dated salary slice overlapping a period, newest last.
+// The engine blends them so a mid-period raise is reflected only for the days
+// it applied (falling back to the active contract when no history exists).
+async function loadEffectiveSalarySlices(tx: any, employeeId: number, periodStart: string, periodEnd: string, fallback: any) {
+  const rows = await tx.select()
     .from(employeeSalaryHistory)
     .where(and(
       eq(employeeSalaryHistory.employeeId, employeeId),
       sql`${employeeSalaryHistory.effectiveFrom} <= ${periodEnd}`,
       sql`(${employeeSalaryHistory.effectiveTo} IS NULL OR ${employeeSalaryHistory.effectiveTo} >= ${periodStart})`
     ))
-    .orderBy(desc(employeeSalaryHistory.effectiveFrom))
-    .limit(1);
+    .orderBy(asc(employeeSalaryHistory.effectiveFrom));
 
-  if (record) {
-    return {
-      baseSalary: record.salaryAmount,
-      currency: record.currency,
-      payFrequency: record.payFrequency,
-      usdPercentage: record.usdPercentage,
-      zigPercentage: record.zigPercentage,
-      source: "salary_history",
-      historyId: record.id,
-    };
+  if (rows.length === 0) {
+    return [{
+      id: null,
+      amount: parseFloat(fallback?.baseSalary ?? "0"),
+      salaryAmount: fallback?.baseSalary ?? "0",
+      currency: fallback?.currency ?? "USD",
+      payFrequency: fallback?.payFrequency ?? "MONTHLY",
+      usdPercentage: fallback?.usdPercentage ?? "100.00",
+      zigPercentage: fallback?.zigPercentage ?? "0.00",
+      effectiveFrom: periodStart,
+      effectiveTo: null,
+      source: "contract",
+    }];
   }
-  return {
-    baseSalary: fallback?.baseSalary ?? "0",
-    currency: fallback?.currency ?? "USD",
-    payFrequency: fallback?.payFrequency ?? "MONTHLY",
-    usdPercentage: fallback?.usdPercentage ?? "100.00",
-    zigPercentage: fallback?.zigPercentage ?? "0.00",
-    source: "contract",
-    historyId: null,
-  };
+  return rows.map((r: any) => ({
+    id: r.id,
+    amount: parseFloat(r.salaryAmount),
+    salaryAmount: r.salaryAmount,
+    currency: r.currency,
+    payFrequency: r.payFrequency,
+    usdPercentage: r.usdPercentage,
+    zigPercentage: r.zigPercentage,
+    effectiveFrom: r.effectiveFrom,
+    effectiveTo: r.effectiveTo,
+    source: "salary_history",
+  }));
 }
 
 // Open an effective-dated salary record for a change effective on a given date,
@@ -2954,6 +2975,7 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
     branchId: z.coerce.number().int().optional().nullable(),
     runType: z.enum(["REGULAR", "BONUS"]).default("REGULAR"),
     prorate: z.boolean().default(true),
+    prorationBasis: z.enum(["CALENDAR_DAYS", "WORKING_DAYS", "PAYABLE_DAYS", "HOURS_WORKED"]).default("CALENDAR_DAYS"),
     bonuses: z.array(z.object({ employeeId: z.number().int(), amount: z.number() })).optional(),
   });
   const parsed = schema.safeParse(req.body);
@@ -3019,6 +3041,7 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
           currency: parsed.data.currency,
           exchangeRate: parsed.data.exchangeRate,
           runType: parsed.data.runType,
+          prorationBasis: parsed.data.prorationBasis,
           status: "DRAFT"
         })
         .returning();
@@ -3060,15 +3083,36 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
         if (effectiveStart > effectiveEnd) continue; // joined after period end / left before period start
 
         const daysWorked = Math.floor((effectiveEnd.getTime() - effectiveStart.getTime()) / 86400000) + 1;
-        const prorated = parsed.data.prorate && !isBonusRun && daysWorked < totalDays;
-        const prorationFactor = totalDays > 0 ? daysWorked / totalDays : 1;
 
         // Resolve the salary applicable to this period from the immutable
         // effective-dated salary history (falling back to the active contract).
-        const effectiveSalary = await loadEffectiveSalary(tx, emp.id, parsed.data.periodStart, parsed.data.periodEnd, contract);
+        // A mid-period salary increase blends the old + new rates across the
+        // days each applied (never overwrites history).
+        const salarySlices = await loadEffectiveSalarySlices(tx, emp.id, parsed.data.periodStart, parsed.data.periodEnd, contract);
+        const blendedSalary = blendSalary(salarySlices, parsed.data.periodStart, parsed.data.periodEnd);
+        const effectiveSalary = {
+          baseSalary: blendedSalary > 0 ? String(blendedSalary) : String(contract?.baseSalary ?? "0"),
+          currency: salarySlices[0]?.currency ?? contract?.currency ?? "USD",
+          payFrequency: salarySlices[0]?.payFrequency ?? contract?.payFrequency ?? "MONTHLY",
+          usdPercentage: salarySlices[0]?.usdPercentage ?? contract?.usdPercentage ?? "100.00",
+          zigPercentage: salarySlices[0]?.zigPercentage ?? contract?.zigPercentage ?? "0.00",
+          source: salarySlices.length > 0 ? "salary_history" : "contract",
+          historyId: salarySlices[0]?.id ?? null,
+        };
+
+        // Configurable proration: joins / leaves / hours worked are measured on
+        // the run's chosen basis (calendar, working, payable days or hours).
+        const proration = computeProration({
+          periodStart: parsed.data.periodStart,
+          periodEnd: parsed.data.periodEnd,
+          joinDate: emp.joiningDate,
+          terminationDate: emp.terminationDate,
+          options: { basis: parsed.data.prorationBasis },
+        });
+        const prorated = parsed.data.prorate && !isBonusRun && proration.isProrated;
 
         let effectiveBaseSalary = prorated
-          ? Math.round(parseFloat(effectiveSalary.baseSalary) * prorationFactor * 100) / 100
+          ? Math.round(parseFloat(effectiveSalary.baseSalary) * proration.factor * 100) / 100
           : parseFloat(effectiveSalary.baseSalary);
 
         const bonusAmount = isBonusRun ? (bonusMap.get(emp.id) ?? 0) : 0;
@@ -3119,7 +3163,13 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
         }
 
         // Fetch recurring allowances/deductions active in the run period.
-        const recurringItems = await loadActiveRecurringItems(tx, emp.id, parsed.data.periodStart, parsed.data.periodEnd);
+        // Items that start/end mid-period are paid pro-rata for the days they ran.
+        const recurringItems = await loadActiveRecurringItems(tx, emp.id, parsed.data.periodStart, parsed.data.periodEnd, {
+          basis: parsed.data.prorationBasis,
+          prorate: parsed.data.prorate && !isBonusRun,
+          joinDate: emp.joiningDate,
+          terminationDate: emp.terminationDate,
+        });
 
         // Fetch outstanding loan repayment defaults
         const [activeLoan] = await tx.select()
@@ -3263,7 +3313,13 @@ router.post("/runs", requirePayrollWrite, async (req, res) => {
               salaryHistoryId: effectiveSalary.historyId,
               salarySource: effectiveSalary.source,
               calculationBasis: isBonusRun ? "BONUS_RUN" : (prorated ? "PRORATED" : "INITIAL_RUN"),
-              proration: prorated ? { daysWorked, totalDays, factor: prorationFactor } : null,
+              proration: prorated ? {
+                basis: proration.basis,
+                daysWorked,
+                totalDays,
+                factor: proration.factor,
+                breakdown: proration.breakdown,
+              } : null,
               isTerminal: isTerminal || false,
               bonusAmount: isBonusRun ? bonusAmount : null,
               ytdBonusAmount: isBonusRun ? ytdBonusAmount : null,

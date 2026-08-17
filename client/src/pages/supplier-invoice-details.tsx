@@ -104,10 +104,10 @@ export default function SupplierInvoiceDetailsPage() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="rounded-xl">
-                <DropdownMenuItem onClick={() => setLocation(`/supplier-invoices?new=true&type=DebitNote&referenceId=${invoice.id}`)}>
+                <DropdownMenuItem onClick={() => setLocation(`/supplier-invoices/new?type=DebitNote&referenceId=${invoice.id}`)}>
                   Create Debit Note
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setLocation(`/supplier-invoices?new=true&type=CreditNote&referenceId=${invoice.id}`)}>
+                <DropdownMenuItem onClick={() => setLocation(`/supplier-invoices/new?type=CreditNote&referenceId=${invoice.id}`)}>
                   Create Credit Note
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -274,6 +274,7 @@ export default function SupplierInvoiceDetailsPage() {
               <Button 
                 variant="outline"
                 className="w-full rounded-xl font-bold h-11"
+                onClick={() => window.print()}
               >
                 <Printer className="w-4 h-4 mr-2" /> Print PDF
               </Button>

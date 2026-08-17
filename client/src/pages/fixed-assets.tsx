@@ -66,7 +66,7 @@ export default function FixedAssetsPage() {
     accumulatedDepreciationAccountId: "",
   });
 
-  const { data: assets, isLoading } = useQuery<any[]>({
+  const { data: assets, isLoading, isError, refetch } = useQuery<any[]>({
     queryKey: ["/api/accounting/fixed-assets"],
   });
 
@@ -423,7 +423,7 @@ export default function FixedAssetsPage() {
 
         <div className="grid grid-cols-1 gap-6">
           <Card className="rounded-2xl border-slate-200">
-            <CardContent className="p-0">
+            <CardContent className="p-0 overflow-x-auto">
               <Table>
                 <TableHeader className="bg-slate-50/50">
                   <TableRow>
@@ -449,6 +449,19 @@ export default function FixedAssetsPage() {
                         className="h-32 text-center text-slate-400"
                       >
                         Loading assets...
+                      </TableCell>
+                    </TableRow>
+                  ) : isError ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="h-32 text-center">
+                        <div className="flex flex-col items-center justify-center gap-3">
+                          <span className="text-rose-600 font-semibold">
+                            Could not load fixed assets.
+                          </span>
+                          <Button variant="outline" size="sm" className="rounded-lg" onClick={() => refetch()}>
+                            Retry
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ) : assets?.length === 0 ? (

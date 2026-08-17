@@ -3279,6 +3279,7 @@ export const payrollRuns = pgTable("payroll_runs", {
   version: integer("version").default(1).notNull(),
   reversalOfRunId: integer("reversal_of_run_id"), // Points to run being reversed
   runType: text("run_type").default("REGULAR").notNull(), // REGULAR, BONUS (13th cheque / annual bonus)
+  prorationBasis: text("proration_basis").default("CALENDAR_DAYS").notNull(), // CALENDAR_DAYS, WORKING_DAYS, PAYABLE_DAYS, HOURS_WORKED
   
   // Aggregate calculation metrics
   totalBasic: decimal("total_basic", { precision: 15, scale: 2 }).default("0.00").notNull(),

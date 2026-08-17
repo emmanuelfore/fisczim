@@ -10,6 +10,7 @@ import { StatusBar } from "expo-status-bar";
 import { apiJson, apiFetch } from "../lib/api";
 import { useTheme, hexAlpha } from "../ui/PremiumColors";
 import { DoneTextInput as TextInput } from "../ui/DoneTextInput";
+import { EXPENSE_CATEGORIES } from "../../../shared/expense-categories";
 
 interface Props { onOpenDrawer: () => void; companyId: number; }
 
@@ -34,7 +35,7 @@ function useExpenses(companyId: number) {
   return { data, isLoading, error, refresh: fetchExpenses };
 }
 
-const CATEGORIES = ["Rent", "Utilities", "Salary", "Supplies", "Marketing", "Transport", "Office", "Taxes", "Maintenance", "Other"];
+const CATEGORIES: readonly string[] = EXPENSE_CATEGORIES;
 const emptyExpense = { description: "", amount: "", category: "Other", supplierId: null, expenseDate: new Date().toISOString() };
 
 export function ExpensesScreen({ onOpenDrawer, companyId }: Props) {

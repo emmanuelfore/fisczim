@@ -43,7 +43,7 @@ export default function DebtorAnalysisPage() {
   const { id } = useParams();
   const [, setLocation] = useLocation();
 
-  const { data: analysis, isLoading } = useQuery<AnalysisData>({
+  const { data: analysis, isLoading, isError, refetch } = useQuery<AnalysisData>({
     queryKey: [`/api/accounting/reports/debtors/${id}`],
     enabled: !!id,
   });
@@ -52,7 +52,21 @@ export default function DebtorAnalysisPage() {
     return (
       <Layout>
         <div className="flex items-center justify-center h-64">
+          <span className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin mr-3" />
           Loading Analysis...
+        </div>
+      </Layout>
+    );
+  if (isError)
+    return (
+      <Layout>
+        <div className="flex flex-col items-center justify-center h-64 gap-3">
+          <span className="text-rose-600 font-semibold">
+            Could not load debtor analysis.
+          </span>
+          <Button variant="outline" size="sm" className="rounded-lg" onClick={() => refetch()}>
+            Retry
+          </Button>
         </div>
       </Layout>
     );
@@ -77,7 +91,7 @@ export default function DebtorAnalysisPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => window.history.back()}
+            onClick={() => setLocation("/accounting/reports/aging?tab=ar")}
             className="rounded-xl"
           >
             <ArrowLeft className="h-4 w-4 mr-2" /> Back
@@ -173,7 +187,7 @@ export default function DebtorAnalysisPage() {
                 Outstanding Invoice Details
               </CardTitle>
             </CardHeader>
-            <CardContent className="p-0">
+            <CardContent className="p-0 overflow-x-auto min-w-0">
               <Table>
                 <TableHeader className="bg-slate-50/50">
                   <TableRow className="border-slate-50">
@@ -205,11 +219,12 @@ export default function DebtorAnalysisPage() {
                     invoices.map((inv) => (
                       <TableRow
                         key={inv.id}
-                        className="group hover:bg-slate-50/50 transition-colors border-slate-50"
+                        className="group hover:bg-slate-50/50 transition-colors border-slate-50 cursor-pointer"
+                        onClick={() => setLocation(`/invoices/${inv.id}`)}
                       >
                         <TableCell className="pl-6">
                           <div className="flex flex-col">
-                            <span className="font-bold text-slate-900 ">
+                            <span className="font-bold text-slate-900 group-hover:text-primary transition-colors">
                               {inv.invoiceNumber}
                             </span>
                             <span className="text-[10px] text-slate-400 font-medium">

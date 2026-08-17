@@ -94,7 +94,7 @@ export default function PurchaseOrderFormPage({
     queryKey: ["/api/accounting/segments", companyId],
     enabled: !!companyId,
     queryFn: async () => {
-      const res = await apiFetch(`/api/companies/${companyId}/accounting/segments`);
+      const res = await apiFetch(`/api/accounting/segments`);
       if (!res.ok) return [];
       return res.json();
     },

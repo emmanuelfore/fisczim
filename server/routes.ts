@@ -11338,6 +11338,17 @@ export async function registerRoutes(
 
 
 
+  app.get("/api/invoices/:id", requireAuth, async (req, res) => {
+    try {
+      const invoice = await storage.getInvoice(Number(req.params.id));
+      if (!invoice) return res.status(404).json({ message: "Invoice not found" });
+      res.json(invoice);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Failed to fetch invoice" });
+    }
+  });
+
   app.delete("/api/invoices/:id", requireAuth, async (req, res) => {
     try {
       const invoice = await storage.getInvoice(Number(req.params.id));

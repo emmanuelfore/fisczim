@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Layout } from "@/components/layout";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
+import { useActiveCompany } from "@/hooks/use-active-company";
 import { format } from "date-fns";
 import {
   ArrowDownLeft,
@@ -64,9 +65,12 @@ export default function CashbookPage() {
 
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { activeCompanyId } = useActiveCompany();
+  const companyId = activeCompanyId || 0;
 
   const { data: accounts } = useQuery<any[]>({
-    queryKey: ["/api/accounting/accounts"],
+    queryKey: ["/api/accounting/accounts", companyId],
+    enabled: !!companyId,
   });
 
   // Filter for Cash and Bank equivalents
@@ -79,8 +83,9 @@ export default function CashbookPage() {
         acc.name.toLowerCase().includes("cash"))
   ) || [];
 
-  const { data: ledgerEntries, isLoading } = useQuery<any[]>({
-    queryKey: ["/api/accounting/ledger", { accountId: selectedAccountId }],
+  const { data: ledgerEntries, isLoading, isError, refetch } = useQuery<any[]>({
+    queryKey: ["/api/accounting/ledger", { accountId: selectedAccountId }, companyId],
+    enabled: !!companyId && !!selectedAccountId,
   });
 
   const transferMutation = useMutation({
@@ -339,6 +344,16 @@ export default function CashbookPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="p-0 overflow-x-auto">
+            {isError && (
+              <div className="flex items-center justify-between gap-4 px-6 py-3 border-b border-rose-100 bg-rose-50">
+                <p className="text-sm font-semibold text-rose-700">
+                  Could not load transactions.
+                </p>
+                <Button variant="outline" size="sm" className="shrink-0 rounded-lg" onClick={() => refetch()}>
+                  Retry
+                </Button>
+              </div>
+            )}
             <Table>
               <TableHeader className="bg-slate-50/50">
                 <TableRow>

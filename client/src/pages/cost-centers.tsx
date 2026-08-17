@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/table";
 import { formatCurrency } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 
 export default function CostCentersPage() {
   const [fromDate, setFromDate] = useState(
@@ -30,7 +31,7 @@ export default function CostCentersPage() {
   );
   const [toDate, setToDate] = useState(format(new Date(), "yyyy-MM-dd"));
 
-  const { data: costCenters, isLoading } = useQuery<any[]>({
+  const { data: costCenters, isLoading, isError, refetch } = useQuery<any[]>({
     queryKey: [
       "/api/accounting/reports/cost-centers",
       { from: fromDate, to: toDate },
@@ -157,7 +158,17 @@ export default function CostCentersPage() {
               Income statements broken down for each center
             </CardDescription>
           </CardHeader>
-          <CardContent className="p-0">
+          <CardContent className="p-0 overflow-x-auto">
+            {isError && (
+              <div className="flex items-center justify-between gap-4 px-6 py-3 border-b border-rose-100 bg-rose-50">
+                <p className="text-sm font-semibold text-rose-700">
+                  Could not load cost center data.
+                </p>
+                <Button variant="outline" size="sm" className="shrink-0 rounded-lg" onClick={() => refetch()}>
+                  Retry
+                </Button>
+              </div>
+            )}
             <Table>
               <TableHeader className="bg-slate-50/50">
                 <TableRow>

@@ -670,6 +670,27 @@ export async function registerRoutes(
 
   setupAuth(app);
 
+  // Force route to be kept in bundle
+  app.get("/api/user", (req: any, res: express.Response) => {
+    if (!req.isAuthenticated()) return res.json({ user: null });
+    res.json({ user: req.user });
+  });
+
+  app.patch("/api/user", (req: any, res: express.Response, next: express.NextFunction) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
+    next();
+  }, async (req: any, res: express.Response) => {
+    try {
+      const { name } = req.body;
+      if (!name) return res.status(400).json({ message: "Name cannot be empty" });
+      const updatedUser = await storage.updateUser(req.user!.id, { name });
+      res.json(updatedUser);
+    } catch (err: any) {
+      console.error("Update User Error:", err);
+      res.status(500).json({ message: "Failed to update profile", error: err.message });
+    }
+  });
+
   const requireAuth = async (req: any, res: any, next: any) => {
     if (!req.isAuthenticated()) {
       console.log(`[AUTH] 401 Unauthorized at ${req.method} ${req.path} - No user in session`);
@@ -1061,6 +1082,14 @@ export async function registerRoutes(
         timestamp: new Date().toISOString(),
       });
     }
+  });
+
+  // Mobile App Version Check (Public – no auth required)
+  app.get("/api/mobile/version", (_req, res) => {
+    const latestVersion = (process.env.MOBILE_LATEST_VERSION ?? "0.1.0").trim();
+    const downloadUrl   = (process.env.MOBILE_APK_URL ?? "").trim();
+    const releaseNotes  = (process.env.MOBILE_RELEASE_NOTES ?? "").trim();
+    res.json({ latestVersion, downloadUrl, releaseNotes });
   });
 
   // Logo Upload Configuration (Supabase Storage)
@@ -15825,7 +15854,7 @@ export async function registerRoutes(
   app.use('/api/v1', v1Router);
   app.use("/api", createRolesPermissionsRouter(requireAuth));
   app.use("/api", createPartnershipsRouter(requireAuth));
-  app.use("/api", createCustomerFlowRouter(requireAuth));
+  app.use("/api/customer-flow", createCustomerFlowRouter(requireAuth));
   app.use("/api", createFreightRouter(requireAuth));
 
   return httpServer;

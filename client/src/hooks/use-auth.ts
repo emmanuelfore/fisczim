@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, invalidateSessionCache } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
@@ -140,8 +140,11 @@ export function useAuth() {
       }
     },
     enabled: !isSupabaseLoading,
-    staleTime: 1000 * 60 * 5,
+    // Cache user for 30 min (token lifetime ~1hr). Only refetch on token refresh or manual invalidate.
+    staleTime: 1000 * 60 * 30,
+    gcTime: 1000 * 60 * 60,
     refetchOnMount: false,
+    refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     retry: false,
   });
@@ -314,6 +317,10 @@ export function useAuth() {
     await clearCachedUser();
     queryClient.clear();
     localStorage.removeItem("selectedCompanyId");
+    localStorage.removeItem("selectedBranchId");
+
+    // Invalidate session cache so next apiFetch calls fresh getSession
+    invalidateSessionCache();
 
     // Mark supabase as done so the login page never shows a spinner.
     // Do NOT reset supabaseInitStarted — resetting it causes a second subscription

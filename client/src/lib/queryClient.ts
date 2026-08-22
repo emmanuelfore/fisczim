@@ -1,5 +1,5 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
-import { supabase } from "./supabase";
+import { getCachedSession } from "./api";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
@@ -13,8 +13,7 @@ export async function apiRequest(
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
-  const { data: sessionData } = await supabase.auth.getSession();
-  const session = sessionData?.session ?? null;
+  const session = await getCachedSession();
   const branchId = localStorage.getItem("selectedBranchId");
   const companyId = localStorage.getItem("selectedCompanyId");
   const headers: Record<string, string> = data ? { "Content-Type": "application/json" } : {};
@@ -45,8 +44,7 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const { data: sessionData } = await supabase.auth.getSession();
-    const session = sessionData?.session ?? null;
+    const session = await getCachedSession();
     const branchId = localStorage.getItem("selectedBranchId");
     const companyId = localStorage.getItem("selectedCompanyId");
     const headers: Record<string, string> = {};

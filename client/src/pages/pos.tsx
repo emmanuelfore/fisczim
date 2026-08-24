@@ -6194,6 +6194,9 @@ export default function POSPage() {
                       (resolvedCompany?.posSettings as any)?.receiptPaperSize ||
                       "80mm"
                     }
+                    branch={resolvedCompany?.branches?.find(
+                      (b: any) => b.id === (lastSuccessfulInvoice?.branchId || selectedBranchId)
+                    )}
                   />
                 </div>
                 <div className="flex flex-col gap-3 w-full print:hidden">
@@ -6252,6 +6255,9 @@ export default function POSPage() {
                   (resolvedCompany?.posSettings as any)?.receiptPaperSize ||
                   "80mm"
                 }
+                branch={resolvedCompany?.branches?.find(
+                  (b: any) => b.id === (lastSuccessfulInvoice?.branchId || selectedBranchId)
+                )}
               />
             )}
           </div>
@@ -6286,6 +6292,9 @@ export default function POSPage() {
                   (resolvedCompany?.posSettings as any)?.receiptPaperSize ||
                   "80mm"
                 }
+                branch={resolvedCompany?.branches?.find(
+                  (b: any) => b.id === (reprintInvoice?.branchId || selectedBranchId)
+                )}
               />
             )}
           </div>

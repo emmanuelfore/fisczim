@@ -5,14 +5,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { useBusReconciliations, useBusReport, useSignOffReconciliation } from "@/hooks/use-bus-ticketing";
 import { format } from "date-fns";
 import { Bus, CheckCircle2, Route, XCircle } from "lucide-react";
@@ -284,6 +276,37 @@ export function useReportData(
       ),
     [tickets],
   );
+  const byStop = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        id: string;
+        label: string;
+        direction: string;
+        tickets: number;
+        passengers: number;
+        revenue: number;
+      }
+    >();
+    tickets.forEach((ticket: any) => {
+      const stop = ticket.dropOffPoint || "Full route (destination)";
+      const direction = ticket.direction || "Unknown direction";
+      const id = `${direction}|${stop}`;
+      const row = map.get(id) || {
+        id,
+        label: stop,
+        direction,
+        tickets: 0,
+        passengers: 0,
+        revenue: 0,
+      };
+      row.tickets += 1;
+      row.passengers += Number(ticket.quantity || 1);
+      row.revenue += Number(ticket.amount || 0);
+      map.set(id, row);
+    });
+    return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue);
+  }, [tickets]);
 
   const routePerformance = data?.routePerformance || [];
   const conductorVariance = data?.conductorVariance || [];
@@ -322,6 +345,7 @@ export function useReportData(
     byConductor,
     byVehicle,
     byPayment,
+    byStop,
     byHour,
     byDay,
     routePerformance,
@@ -384,40 +408,74 @@ export function BreakdownTable({
       <CardHeader className="pb-3">
         <CardTitle className="text-base">{title}</CardTitle>
       </CardHeader>
-      <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead className="text-right">Tickets</TableHead>
-              <TableHead className="text-right">Passengers</TableHead>
-              <TableHead className="text-right">Revenue</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={4}
-                  className="h-20 text-center text-slate-500"
-                >
-                  {empty}
-                </TableCell>
-              </TableRow>
-            ) : (
-              rows.map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell className="font-semibold">{row.label}</TableCell>
-                  <TableCell className="text-right">{row.tickets}</TableCell>
-                  <TableCell className="text-right">{row.passengers}</TableCell>
-                  <TableCell className="text-right font-bold">
-                    {money(row.revenue)}
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+      <CardContent className="space-y-2">
+        {rows.length === 0 ? (
+          <p className="py-8 text-center text-slate-500">{empty}</p>
+        ) : (
+          rows.map((row) => (
+            <div
+              key={row.id}
+              className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 bg-white px-3 py-2.5"
+            >
+              <p className="min-w-0 flex-1 truncate font-semibold text-slate-900">
+                {row.label}
+              </p>
+              <div className="shrink-0 text-right">
+                <p className="text-sm font-bold text-slate-900">
+                  {money(row.revenue)}
+                </p>
+                <p className="text-xs text-slate-500">
+                  {row.tickets} tkts · {row.passengers} pax
+                </p>
+              </div>
+            </div>
+          ))
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function StopSalesTable({
+  rows,
+  empty = "No stop data",
+}: {
+  rows: any[];
+  empty?: string;
+}) {
+  return (
+    <Card className="border-none shadow-sm">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">Stop / Segment Sales</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {rows.length === 0 ? (
+          <p className="py-8 text-center text-slate-500">{empty}</p>
+        ) : (
+          rows.map((row) => (
+            <div
+              key={row.id}
+              className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 bg-white px-3 py-2.5"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-semibold text-slate-900">
+                  {row.label}
+                </p>
+                <p className="mt-0.5 truncate text-xs text-slate-500">
+                  {row.direction}
+                </p>
+              </div>
+              <div className="shrink-0 text-right">
+                <p className="text-sm font-bold text-slate-900">
+                  {money(row.revenue)}
+                </p>
+                <p className="text-xs text-slate-500">
+                  {row.tickets} tkts · {row.passengers} pax
+                </p>
+              </div>
+            </div>
+          ))
+        )}
       </CardContent>
     </Card>
   );
@@ -432,87 +490,46 @@ export function TripPerformanceTable({ trips }: { trips: any[] }) {
           Trip Performance
         </CardTitle>
       </CardHeader>
-      <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Trip</TableHead>
-              <TableHead>Scheduled</TableHead>
-              <TableHead>Started</TableHead>
-              <TableHead>Arrived</TableHead>
-              <TableHead>Vehicle</TableHead>
-              <TableHead>Conductor</TableHead>
-              <TableHead className="text-right">Passengers</TableHead>
-              <TableHead className="text-right">Load</TableHead>
-              <TableHead className="text-right">Avg Fare</TableHead>
-              <TableHead className="text-right">Revenue</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {trips.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={10}
-                  className="h-24 text-center text-slate-500"
-                >
-                  No trips in this period.
-                </TableCell>
-              </TableRow>
-            ) : (
-              trips.slice(0, 100).map((trip) => (
-                <TableRow key={trip.id}>
-                  <TableCell>
-                    <div className="font-semibold text-slate-900">
-                      {trip.direction || trip.routeName || `Trip #${trip.id}`}
-                    </div>
-                    <div className="text-xs text-slate-500">
-                      #{trip.id} - {trip.status || "unknown"} - {trip.tickets}{" "}
-                      tickets
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    {trip.scheduledDeparture
-                      ? format(
-                          new Date(trip.scheduledDeparture),
-                          "MMM d, HH:mm",
-                        )
-                      : "-"}
-                  </TableCell>
-                  <TableCell>
-                    {trip.actualDeparture
-                      ? format(
-                          new Date(trip.actualDeparture),
-                          "MMM d, HH:mm",
-                        )
-                      : "-"}
-                  </TableCell>
-                  <TableCell>
-                    {trip.actualArrival
-                      ? format(
-                          new Date(trip.actualArrival),
-                          "MMM d, HH:mm",
-                        )
-                      : "-"}
-                  </TableCell>
-                  <TableCell>{trip.vehicleRegNumber || "-"}</TableCell>
-                  <TableCell>{trip.conductorName || "-"}</TableCell>
-                  <TableCell className="text-right">
-                    {trip.passengers}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {percent(trip.occupancyRate)}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {money(trip.averageFare)}
-                  </TableCell>
-                  <TableCell className="text-right font-bold">
-                    {money(trip.revenue)}
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+      <CardContent className="space-y-2">
+        {trips.length === 0 ? (
+          <p className="py-8 text-center text-slate-500">
+            No trips in this period.
+          </p>
+        ) : (
+          trips.slice(0, 100).map((trip) => (
+            <div
+              key={trip.id}
+              className="flex items-start justify-between gap-3 rounded-lg border border-slate-100 bg-white px-3 py-2.5"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-semibold text-slate-900">
+                  {trip.direction || trip.routeName || `Trip #${trip.id}`}
+                </p>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  #{trip.id} · {trip.status || "unknown"} · {trip.tickets} tickets
+                </p>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  {trip.scheduledDeparture
+                    ? format(new Date(trip.scheduledDeparture), "MMM d, HH:mm")
+                    : "-"}
+                  {trip.vehicleRegNumber ? ` · ${trip.vehicleRegNumber}` : ""}
+                  {trip.conductorName ? ` · ${trip.conductorName}` : ""}
+                </p>
+              </div>
+              <div className="shrink-0 text-right">
+                <p className="text-sm font-bold text-slate-900">
+                  {money(trip.revenue)}
+                </p>
+                <p className="text-xs text-slate-500">
+                  {trip.passengers} pax · {percent(trip.occupancyRate)}
+                </p>
+                <p className="text-xs text-slate-500">
+                  avg {money(trip.averageFare)}
+                </p>
+              </div>
+            </div>
+          ))
+        )}
       </CardContent>
     </Card>
   );
@@ -524,46 +541,30 @@ export function TripCashTable({ trips }: { trips: any[] }) {
       <CardHeader className="pb-3">
         <CardTitle className="text-base">Trip Cash Split</CardTitle>
       </CardHeader>
-      <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Trip</TableHead>
-              <TableHead className="text-right">Cash</TableHead>
-              <TableHead className="text-right">Non-Cash</TableHead>
-              <TableHead className="text-right">Total</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {trips.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={4}
-                  className="h-20 text-center text-slate-500"
-                >
-                  No trip cash data.
-                </TableCell>
-              </TableRow>
-            ) : (
-              trips.slice(0, 10).map((trip) => (
-                <TableRow key={trip.id}>
-                  <TableCell className="font-semibold">
-                    {trip.direction || `Trip #${trip.id}`}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {money(trip.cashRevenue)}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {money(trip.nonCashRevenue)}
-                  </TableCell>
-                  <TableCell className="text-right font-bold">
-                    {money(trip.revenue)}
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+      <CardContent className="space-y-2">
+        {trips.length === 0 ? (
+          <p className="py-8 text-center text-slate-500">No trip cash data.</p>
+        ) : (
+          trips.slice(0, 10).map((trip) => (
+            <div
+              key={trip.id}
+              className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 bg-white px-3 py-2.5"
+            >
+              <p className="min-w-0 flex-1 truncate font-semibold text-slate-900">
+                {trip.direction || `Trip #${trip.id}`}
+              </p>
+              <div className="shrink-0 text-right">
+                <p className="text-sm font-bold text-slate-900">
+                  {money(trip.revenue)}
+                </p>
+                <p className="text-xs text-slate-500">
+                  cash {money(trip.cashRevenue)} · non-cash{" "}
+                  {money(trip.nonCashRevenue)}
+                </p>
+              </div>
+            </div>
+          ))
+        )}
       </CardContent>
     </Card>
   );
@@ -577,57 +578,47 @@ export function RouteKpiTable({ rows }: { rows: any[] }) {
           Route Profitability Indicators
         </CardTitle>
       </CardHeader>
-      <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Route</TableHead>
-              <TableHead className="text-right">Revenue / Km</TableHead>
-              <TableHead className="text-right">Passengers / Trip</TableHead>
-              <TableHead className="text-right">Occupancy</TableHead>
-              <TableHead className="text-right">Cancelled</TableHead>
-              <TableHead className="text-right">Revenue</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={6}
-                  className="h-20 text-center text-slate-500"
-                >
-                  No route KPIs in this period.
-                </TableCell>
-              </TableRow>
-            ) : (
-              rows.slice(0, 20).map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell>
-                    <div className="font-semibold">{row.label}</div>
-                    <div className="text-xs text-slate-500">
-                      {row.trips} trips - {row.distanceKm || 0} km
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {row.revenuePerKm === null ? "-" : money(row.revenuePerKm)}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {Number(row.passengersPerTrip || 0).toFixed(1)}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {percent(row.occupancyRate)}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {row.cancelledTrips || 0}
-                  </TableCell>
-                  <TableCell className="text-right font-bold">
-                    {money(row.revenue)}
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+      <CardContent className="space-y-2">
+        {rows.length === 0 ? (
+          <p className="py-8 text-center text-slate-500">
+            No route KPIs in this period.
+          </p>
+        ) : (
+          rows.slice(0, 20).map((row) => (
+            <div
+              key={row.id}
+              className="flex items-start justify-between gap-3 rounded-lg border border-slate-100 bg-white px-3 py-2.5"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-semibold text-slate-900">
+                  {row.label}
+                </p>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  {row.trips} trips · {row.distanceKm || 0} km
+                </p>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  {row.passengersPerTrip != null
+                    ? `${Number(row.passengersPerTrip).toFixed(1)} pax / trip`
+                    : "-"}{" "}
+                  · {percent(row.occupancyRate)} load
+                </p>
+              </div>
+              <div className="shrink-0 text-right">
+                <p className="text-sm font-bold text-slate-900">
+                  {money(row.revenue)}
+                </p>
+                <p className="text-xs text-slate-500">
+                  {row.revenuePerKm === null
+                    ? "-"
+                    : `${money(row.revenuePerKm)} / km`}
+                </p>
+                <p className="text-xs text-slate-500">
+                  {row.cancelledTrips || 0} cancelled
+                </p>
+              </div>
+            </div>
+          ))
+        )}
       </CardContent>
     </Card>
   );
@@ -640,48 +631,34 @@ export function AuditTable({ data }: { data: any }) {
       <CardHeader className="pb-3">
         <CardTitle className="text-base">Unsynced Ticket Audit</CardTitle>
       </CardHeader>
-      <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Ticket</TableHead>
-              <TableHead>Trip</TableHead>
-              <TableHead>Time</TableHead>
-              <TableHead className="text-right">Amount</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={4}
-                  className="h-20 text-center text-slate-500"
-                >
-                  No unsynced cloud tickets in this period.
-                </TableCell>
-              </TableRow>
-            ) : (
-              rows.slice(0, 50).map((ticket: any) => (
-                <TableRow key={ticket.id}>
-                  <TableCell className="font-mono text-xs">
-                    {ticket.ticketNumber}
-                  </TableCell>
-                  <TableCell>
-                    {ticket.tripId ? `#${ticket.tripId}` : "-"}
-                  </TableCell>
-                  <TableCell>
-                    {ticket.timestamp
-                      ? format(new Date(ticket.timestamp), "MMM d, HH:mm")
-                      : "-"}
-                  </TableCell>
-                  <TableCell className="text-right font-bold">
-                    {money(ticket.amount)}
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+      <CardContent className="space-y-2">
+        {rows.length === 0 ? (
+          <p className="py-8 text-center text-slate-500">
+            No unsynced cloud tickets in this period.
+          </p>
+        ) : (
+          rows.slice(0, 50).map((ticket: any) => (
+            <div
+              key={ticket.id}
+              className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 bg-white px-3 py-2.5"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-mono text-xs font-semibold text-slate-900">
+                  {ticket.ticketNumber}
+                </p>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  trip #{ticket.tripId ?? "-"} ·{" "}
+                  {ticket.timestamp
+                    ? format(new Date(ticket.timestamp), "MMM d, HH:mm")
+                    : "-"}
+                </p>
+              </div>
+              <p className="shrink-0 text-right text-sm font-bold text-slate-900">
+                {money(ticket.amount)}
+              </p>
+            </div>
+          ))
+        )}
       </CardContent>
     </Card>
   );
@@ -702,7 +679,7 @@ export function CashupReportTable({
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="mb-4 grid gap-3 md:grid-cols-4">
+        <div className="mb-4 grid gap-3 sm:grid-cols-2">
           <div className="rounded-lg bg-slate-50 p-3">
             <p className="text-xs font-bold text-slate-500">Expected</p>
             <p className="text-lg font-black">
@@ -724,45 +701,40 @@ export function CashupReportTable({
             <p className="text-lg font-black">{cashup?.unreconciled || 0}</p>
           </div>
         </div>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Conductor</TableHead>
-              <TableHead className="text-right">Expected</TableHead>
-              <TableHead className="text-right">Received</TableHead>
-              <TableHead className="text-right">Variance</TableHead>
-              <TableHead className="text-right">Exceptions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {variance.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={5}
-                  className="h-20 text-center text-slate-500"
-                >
-                  No reconciliations in this period.
-                </TableCell>
-              </TableRow>
-            ) : (
-              variance.map((row: any) => (
-                <TableRow key={row.id}>
-                  <TableCell className="font-semibold">{row.label}</TableCell>
-                  <TableCell className="text-right">
-                    {money(row.expectedCash)}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {money(row.cashReceived)}
-                  </TableCell>
-                  <TableCell className="text-right font-bold">
+        <div className="space-y-2">
+          {variance.length === 0 ? (
+            <p className="py-8 text-center text-slate-500">
+              No reconciliations in this period.
+            </p>
+          ) : (
+            variance.map((row: any) => (
+              <div
+                key={row.id}
+                className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 bg-white px-3 py-2.5"
+              >
+                <p className="min-w-0 flex-1 truncate font-semibold text-slate-900">
+                  {row.label}
+                </p>
+                <div className="shrink-0 text-right">
+                  <p
+                    className={`text-sm font-bold ${
+                      Number(row.variance) < -0.005
+                        ? "text-red-600"
+                        : Number(row.variance) > 0.005
+                          ? "text-emerald-600"
+                          : "text-slate-900"
+                    }`}
+                  >
                     {money(row.variance)}
-                  </TableCell>
-                  <TableCell className="text-right">{row.exceptions}</TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    exp {money(row.expectedCash)} · recv {money(row.cashReceived)}
+                  </p>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
       </CardContent>
     </Card>
   );
@@ -814,37 +786,30 @@ export function ReconciliationApproval({ companyId }: { companyId: number }) {
             accounting entries.
           </p>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Conductor</TableHead>
-                <TableHead>Date</TableHead>
-                <TableHead className="text-right">Expected</TableHead>
-                <TableHead className="text-right">Received</TableHead>
-                <TableHead className="text-right">Gap</TableHead>
-                <TableHead>Notes</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {pending.map((row: any) => {
-                const gap = Number(row.gap || 0);
-                return (
-                  <TableRow key={row.id}>
-                    <TableCell className="font-semibold">
+          <div className="space-y-2">
+            {pending.map((row: any) => {
+              const gap = Number(row.gap || 0);
+              return (
+                <div
+                  key={row.id}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 bg-white px-3 py-2.5"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-semibold text-slate-900">
                       {row.conductorName || row.conductorEmail || "-"}
-                    </TableCell>
-                    <TableCell>
+                    </p>
+                    <p className="mt-0.5 text-xs text-slate-500">
                       {format(new Date(`${row.date}T12:00:00`), "MMM d, yyyy")}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {money(row.expectedCash)}
-                    </TableCell>
-                    <TableCell className="text-right">
+                      {row.notes ? ` · ${row.notes}` : ""}
+                    </p>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      exp {money(row.expectedCash)} · recv{" "}
                       {money(row.cashReceived)}
-                    </TableCell>
-                    <TableCell
-                      className={`text-right font-bold ${
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span
+                      className={`text-sm font-bold ${
                         gap < 0
                           ? "text-red-600"
                           : gap > 0
@@ -854,83 +819,74 @@ export function ReconciliationApproval({ companyId }: { companyId: number }) {
                     >
                       {gap < 0 ? "-" : gap > 0 ? "+" : ""}
                       {money(Math.abs(gap))}
-                    </TableCell>
-                    <TableCell className="max-w-[180px] truncate">
-                      {row.notes || "-"}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="rounded-xl border-red-200 text-red-600 hover:bg-red-50"
-                          disabled={signOff.isPending}
-                          onClick={() => handleSignOff(row, "rejected")}
-                        >
-                          <XCircle className="mr-1 h-4 w-4" />
-                          Reject
-                        </Button>
-                        <Button
-                          size="sm"
-                          className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white"
-                          disabled={signOff.isPending}
-                          onClick={() => handleSignOff(row, "approved")}
-                        >
-                          <CheckCircle2 className="mr-1 h-4 w-4" />
-                          Approve
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="rounded-xl border-red-200 text-red-600 hover:bg-red-50"
+                      disabled={signOff.isPending}
+                      onClick={() => handleSignOff(row, "rejected")}
+                    >
+                      <XCircle className="mr-1 h-4 w-4" />
+                      Reject
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white"
+                      disabled={signOff.isPending}
+                      onClick={() => handleSignOff(row, "approved")}
+                    >
+                      <CheckCircle2 className="mr-1 h-4 w-4" />
+                      Approve
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         )}
 
         {signed.length > 0 && (
-          <div className="mt-4 border-t border-slate-100 pt-3">
+          <div className="mt-4 space-y-2 border-t border-slate-100 pt-3">
             <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">
               Signed-off ({signed.length})
             </p>
-            <Table>
-              <TableBody>
-                {signed.slice(0, 10).map((row: any) => (
-                  <TableRow key={row.id}>
-                    <TableCell className="font-semibold">
-                      {row.conductorName || row.conductorEmail || "-"}
-                    </TableCell>
-                    <TableCell>
-                      {format(new Date(`${row.date}T12:00:00`), "MMM d, yyyy")}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {money(row.expectedCash)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {money(row.cashReceived)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <span
-                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
-                          String(row.status) === "approved"
-                            ? "bg-emerald-50 text-emerald-700"
-                            : "bg-red-50 text-red-600"
-                        }`}
-                      >
-                        {String(row.status)}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-right text-xs text-slate-500">
-                      {row.accountingStatus === "posted"
-                        ? "Posted"
-                        : row.accountingStatus === "failed"
-                          ? "Posting failed"
-                          : "Not posted"}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            {signed.slice(0, 10).map((row: any) => (
+              <div
+                key={row.id}
+                className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 bg-white px-3 py-2.5"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-semibold text-slate-900">
+                    {row.conductorName || row.conductorEmail || "-"}
+                  </p>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    {format(new Date(`${row.date}T12:00:00`), "MMM d, yyyy")}
+                  </p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <span
+                    className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
+                      String(row.status) === "approved"
+                        ? "bg-emerald-50 text-emerald-700"
+                        : "bg-red-50 text-red-600"
+                    }`}
+                  >
+                    {String(row.status)}
+                  </span>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {money(row.expectedCash)} · recv {money(row.cashReceived)}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    {row.accountingStatus === "posted"
+                      ? "Posted"
+                      : row.accountingStatus === "failed"
+                        ? "Posting failed"
+                        : "Not posted"}
+                  </p>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </CardContent>
@@ -986,58 +942,44 @@ export function TicketDetailsTable({ tickets }: { tickets: any[] }) {
           Ticket Details
         </CardTitle>
       </CardHeader>
-      <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Ticket</TableHead>
-              <TableHead>Trip</TableHead>
-              <TableHead>Direction</TableHead>
-              <TableHead>Conductor</TableHead>
-              <TableHead>Vehicle</TableHead>
-              <TableHead>Payment</TableHead>
-              <TableHead>Time</TableHead>
-              <TableHead className="text-right">Amount</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {tickets.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={8}
-                  className="h-24 text-center text-slate-500"
-                >
-                  No tickets in this period.
-                </TableCell>
-              </TableRow>
-            ) : (
-              tickets.slice(0, 200).map((ticket: any) => (
-                <TableRow key={ticket.id}>
-                  <TableCell className="font-mono text-xs">
-                    {ticket.ticketNumber}
-                  </TableCell>
-                  <TableCell>
-                    {ticket.tripId ? `#${ticket.tripId}` : "-"}
-                  </TableCell>
-                  <TableCell>
-                    {ticket.direction || ticket.routeName || "-"}
-                  </TableCell>
-                  <TableCell>{ticket.conductorName || "-"}</TableCell>
-                  <TableCell>{ticket.vehicleRegNumber || "-"}</TableCell>
-                  <TableCell>{ticket.paymentMethod || "-"}</TableCell>
-                  <TableCell>
-                    {ticket.timestamp
-                      ? format(new Date(ticket.timestamp), "MMM d, HH:mm")
-                      : "-"}
-                  </TableCell>
-                  <TableCell className="text-right font-bold">
-                    {money(ticket.amount)}
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+      <CardContent className="space-y-2">
+        {tickets.length === 0 ? (
+          <p className="py-8 text-center text-slate-500">
+            No tickets in this period.
+          </p>
+        ) : (
+          tickets.slice(0, 200).map((ticket: any) => (
+            <div
+              key={ticket.id}
+              className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 bg-white px-3 py-2.5"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-mono text-xs font-semibold text-slate-900">
+                  {ticket.ticketNumber}
+                </p>
+                <p className="mt-0.5 truncate text-xs text-slate-500">
+                  {ticket.direction || ticket.routeName || "-"}
+                  {ticket.tripId ? ` · trip #${ticket.tripId}` : ""}
+                </p>
+                <p className="mt-0.5 truncate text-xs text-slate-500">
+                  {ticket.conductorName || "-"}
+                  {ticket.vehicleRegNumber ? ` · ${ticket.vehicleRegNumber}` : ""}
+                  {ticket.timestamp
+                    ? ` · ${format(new Date(ticket.timestamp), "MMM d, HH:mm")}`
+                    : ""}
+                </p>
+              </div>
+              <div className="shrink-0 text-right">
+                <p className="text-sm font-bold text-slate-900">
+                  {money(ticket.amount)}
+                </p>
+                <p className="text-xs text-slate-500">
+                  {ticket.paymentMethod || "-"}
+                </p>
+              </div>
+            </div>
+          ))
+        )}
       </CardContent>
     </Card>
   );

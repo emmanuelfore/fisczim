@@ -1,0 +1,7 @@
+expo.modules.z100printer.z100-printer-pngs-0 /home/emmanuel/Documents/PROJECTS/fisczim/mobile/modules/z100-printer/android/build/generated/res/pngs/release
+expo.modules.z100printer.z100-printer-resValues-1 /home/emmanuel/Documents/PROJECTS/fisczim/mobile/modules/z100-printer/android/build/generated/res/resValues/release
+expo.modules.z100printer.z100-printer-mergeReleaseResources-2 /home/emmanuel/Documents/PROJECTS/fisczim/mobile/modules/z100-printer/android/build/intermediates/incremental/release/mergeReleaseResources/merged.dir
+expo.modules.z100printer.z100-printer-mergeReleaseResources-3 /home/emmanuel/Documents/PROJECTS/fisczim/mobile/modules/z100-printer/android/build/intermediates/incremental/release/mergeReleaseResources/stripped.dir
+expo.modules.z100printer.z100-printer-release-4 /home/emmanuel/Documents/PROJECTS/fisczim/mobile/modules/z100-printer/android/build/intermediates/merged_res/release/mergeReleaseResources
+expo.modules.z100printer.z100-printer-main-5 /home/emmanuel/Documents/PROJECTS/fisczim/mobile/modules/z100-printer/android/src/main/res
+expo.modules.z100printer.z100-printer-release-6 /home/emmanuel/Documents/PROJECTS/fisczim/mobile/modules/z100-printer/android/src/release/res

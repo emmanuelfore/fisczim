@@ -16,6 +16,7 @@ import { ReconciliationScreen } from './ReconciliationScreen';
 import { BusDailyReportScreen } from './BusDailyReportScreen';
 import { BusRangeReportScreen } from './BusRangeReportScreen';
 import { BusConductorReportScreen } from './BusConductorReportScreen';
+import { TripManifestScreen } from './TripManifestScreen';
 import { BusFleetAdminScreen } from './BusFleetAdminScreen';
 import { BusTripStartScreen } from './BusTripStartScreen';
 import { PrinterSettingsModal } from '../../ui/PrinterSettingsModal';
@@ -32,6 +33,7 @@ type SubScreen =
   | 'dailyReport'
   | 'rangeReport'
   | 'conductorReport'
+  | 'manifest'
   | 'fleet'
   | 'startTrip';
 
@@ -60,6 +62,7 @@ const MENU: MenuCard[] = [
   { id: 'dailyReport', feature: 'reports', icon: 'chart-bar', label: 'Daily Report', sub: 'Revenue & breakdown for a day', tone: 'amber', section: 'reports' },
   { id: 'rangeReport', feature: 'reports', icon: 'chart-line', label: 'Range Report', sub: 'Multi-day trend analysis', tone: 'amber', section: 'reports' },
   { id: 'conductorReport', feature: 'reports', icon: 'account-details-outline', label: 'Conductor Report', sub: 'Per-conductor performance', tone: 'amber', section: 'reports' },
+  { id: 'manifest', feature: 'reports', icon: 'clipboard-list-outline', label: 'Trip Manifest', sub: 'Passenger list per trip', tone: 'amber', section: 'reports' },
 ];
 
 interface Props {
@@ -102,7 +105,7 @@ export function BusTicketingHubScreen({ onClose, busSettings, companyId, company
   const isAdmin = role === 'owner' || role === 'admin' || role === 'superadmin' || userName === 'Super Admin';
 
   // Render sub-screens
-  if (activeScreen === 'startTrip') return <BusTripStartScreen companyId={companyId} userName={userName} userRole={userRole} userId={userId} onClose={() => setActiveScreen(null)} />;
+  if (activeScreen === 'startTrip') return <BusTripStartScreen companyId={companyId} userName={userName} userRole={userRole} userId={userId} onClose={() => setActiveScreen(null)} onTripStarted={() => setActiveScreen('issueTicket')} />;
   if (activeScreen === 'issueTicket') return <BusTicketIssueScreen companyId={companyId} company={company} onClose={() => setActiveScreen(null)} />;
   if (activeScreen === 'routes') return <BusRouteAdminScreen companyId={companyId} onClose={() => setActiveScreen(null)} />;
   if (activeScreen === 'fleet') return <BusFleetAdminScreen companyId={companyId} onClose={() => setActiveScreen(null)} />;
@@ -115,9 +118,10 @@ export function BusTicketingHubScreen({ onClose, busSettings, companyId, company
     />
   );
   if (activeScreen === 'reconciliation') return <ReconciliationScreen companyId={companyId} userRole={userRole} userName={userName} onClose={() => setActiveScreen(null)} />;
-  if (activeScreen === 'dailyReport') return <BusDailyReportScreen onClose={() => setActiveScreen(null)} />;
-  if (activeScreen === 'rangeReport') return <BusRangeReportScreen onClose={() => setActiveScreen(null)} />;
-  if (activeScreen === 'conductorReport') return <BusConductorReportScreen onClose={() => setActiveScreen(null)} />;
+  if (activeScreen === 'dailyReport') return <BusDailyReportScreen userRole={userRole} userName={userName} userId={userId} onClose={() => setActiveScreen(null)} />;
+  if (activeScreen === 'rangeReport') return <BusRangeReportScreen userRole={userRole} userName={userName} userId={userId} onClose={() => setActiveScreen(null)} />;
+  if (activeScreen === 'conductorReport') return <BusConductorReportScreen userRole={userRole} userName={userName} userId={userId} onClose={() => setActiveScreen(null)} />;
+  if (activeScreen === 'manifest') return <TripManifestScreen userRole={userRole} userName={userName} userId={userId} onClose={() => setActiveScreen(null)} />;
 
   const todayTickets = getTodaysTickets();
 

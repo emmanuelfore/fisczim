@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  Alert, Share, StatusBar,
+  Alert, Share, StatusBar, TextInput, Modal, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -33,49 +33,77 @@ export function ShiftSummaryScreen({ onClose, companyId, shiftStartTime }: Props
   const todayTickets = getTodaysTickets().filter((ticket) => !activeTrip?.id || ticket.tripId === activeTrip.id);
   const summary = useMemo(() => getDailySummary(todayTickets, today), [todayTickets]);
   const [closing, setClosing] = useState(false);
+  const [showCashModal, setShowCashModal] = useState(false);
+  const [cashReceived, setCashReceived] = useState<string>('');
 
   async function handleCloseShift() {
     if (!activeTrip) {
       Alert.alert('No Active Trip', 'There is no active trip to end.');
       return;
     }
-    Alert.alert('Close Shift', 'This will record the shift and cannot be undone. Continue?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Close Shift', style: 'destructive',
-        onPress: async () => {
-          setClosing(true);
-          try {
-            const now = new Date();
-            const startTime = shiftStartTime
-              ? fmtTime24(new Date(shiftStartTime))
-              : fmtTime24(activeTrip.actualDeparture ? new Date(activeTrip.actualDeparture) : today);
-            const record: ShiftRecord = {
-              id: uuid(),
-              conductorId: activeConductor?.id,
-              conductorName: activeConductor?.name,
-              date: today.toISOString().slice(0, 10),
-              shiftStart: startTime,
-              shiftEnd: fmtTime24(now),
-              vehicleId: activeTrip.vehicleId,
-              tripId: activeTrip.id,
-              routeId: activeTrip.routeId,
-              totalTickets: summary.totalTickets,
-              totalPassengers: summary.totalPassengers,
-              totalRevenue: summary.totalRevenue,
-              closedAt: now.toISOString(),
-            };
-            await closeShift(record);
-            Alert.alert('Shift Closed', 'Shift has been recorded successfully.');
-            onClose();
-          } catch (e: any) {
-            Alert.alert('Trip Not Closed', e?.message || 'The trip could not be closed. Please try again while online.');
-          } finally {
-            setClosing(false);
-          }
-        },
-      },
-    ]);
+    // Show cash reconciliation modal
+    setCashReceived(summary.totalRevenue.toFixed(2));
+    setShowCashModal(true);
+  }
+
+  async function confirmCloseShift() {
+    const cashReceivedNum = parseFloat(cashReceived) || 0;
+    const expectedCash = summary.totalRevenue;
+    const gap = cashReceivedNum - expectedCash;
+
+    if (Math.abs(gap) > 0.01) {
+      const confirm = await new Promise<boolean>((resolve) => {
+        Alert.alert(
+          'Cash Mismatch',
+          `Expected: ${fmtMoney(expectedCash)}\nReceived: ${fmtMoney(cashReceivedNum)}\nGap: ${fmtMoney(gap)}${gap > 0 ? ' (over)' : ' (short)'}\n\nProceed anyway?`,
+          [
+            { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+            { text: 'Proceed', style: 'destructive', onPress: () => resolve(true) },
+          ]
+        );
+      });
+      if (!confirm) return;
+    }
+
+    setShowCashModal(false);
+    setClosing(true);
+    try {
+      if (!activeTrip) {
+        Alert.alert('No Active Trip', 'There is no active trip to end.');
+        setClosing(false);
+        return;
+      }
+      const now = new Date();
+      const startTime = shiftStartTime
+        ? fmtTime24(new Date(shiftStartTime))
+        : fmtTime24(activeTrip!.actualDeparture ? new Date(activeTrip!.actualDeparture) : today);
+      const record: ShiftRecord = {
+        id: uuid(),
+        conductorId: activeConductor?.id,
+        conductorName: activeConductor?.name,
+        date: today.toISOString().slice(0, 10),
+        shiftStart: startTime,
+        shiftEnd: fmtTime24(now),
+        vehicleId: activeTrip!.vehicleId,
+        tripId: activeTrip!.id,
+        routeId: activeTrip!.routeId,
+        totalTickets: summary.totalTickets,
+        totalPassengers: summary.totalPassengers,
+        totalRevenue: summary.totalRevenue,
+        closedAt: now.toISOString(),
+        // Add cash reconciliation fields
+        expectedCash: expectedCash,
+        cashReceived: cashReceivedNum,
+        gap: gap,
+      };
+      await closeShift(record);
+      Alert.alert('Shift Closed', 'Shift has been recorded successfully.');
+      onClose();
+    } catch (e: any) {
+      Alert.alert('Trip Not Closed', e?.message || 'The trip could not be closed. Please try again while online.');
+    } finally {
+      setClosing(false);
+    }
   }
 
   async function handleShareCSV() {
@@ -188,6 +216,54 @@ export function ShiftSummaryScreen({ onClose, companyId, shiftStartTime }: Props
           <Text style={styles.closeShiftBtnText}>{closing ? 'Closing...' : 'Close Shift'}</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      {/* Cash Reconciliation Modal */}
+      <Modal visible={showCashModal} animationType="slide" transparent={false}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalContainer}
+        >
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Cash Reconciliation</Text>
+            </View>
+            <View style={styles.modalBody}>
+              <View style={styles.cashRow}>
+                <Text style={styles.cashLabel}>Expected Cash</Text>
+                <Text style={styles.cashValueExpected}>{fmtMoney(summary.totalRevenue)}</Text>
+              </View>
+              <View style={styles.cashRow}>
+                <Text style={styles.cashLabel}>Cash Received</Text>
+                <TextInput
+                  style={styles.cashInput}
+                  value={cashReceived}
+                  onChangeText={setCashReceived}
+                  keyboardType="decimal-pad"
+                  placeholder="0.00"
+                  autoFocus
+                />
+              </View>
+              <View style={styles.cashRow}>
+                <Text style={styles.cashLabel}>Gap</Text>
+                <Text style={[
+                  styles.cashValueGap,
+                  { color: (parseFloat(cashReceived) || 0) - summary.totalRevenue > 0 ? C.success : C.danger }
+                ]}>
+                  {fmtMoney((parseFloat(cashReceived) || 0) - summary.totalRevenue)}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.modalButtons}>
+              <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setShowCashModal(false)}>
+                <Text style={styles.modalBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.modalBtnConfirm} onPress={confirmCloseShift} disabled={closing}>
+                <Text style={styles.modalBtnTextConfirm}>{closing ? 'Closing...' : 'Confirm & Close Shift'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
@@ -244,4 +320,33 @@ const makeStyles = (C: BusColors) => StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
   },
   closeShiftBtnText: { color: C.white, fontWeight: '900', fontSize: 17 },
+  // Modal styles
+  modalContainer: { flex: 1, backgroundColor: C.bg, justifyContent: 'flex-end' },
+  modalContent: {
+    backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    padding: 20, paddingBottom: 30, maxHeight: '80%',
+  },
+  modalHeader: { borderBottomWidth: 1, borderBottomColor: C.border, paddingBottom: 16, marginBottom: 16 },
+  modalTitle: { color: C.white, fontSize: 18, fontWeight: '800' },
+  modalBody: { gap: 16, marginBottom: 24 },
+  cashRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  cashLabel: { color: C.muted, fontSize: 14, fontWeight: '600' },
+  cashValueExpected: { color: C.amber, fontSize: 18, fontWeight: '800' },
+  cashInput: {
+    backgroundColor: C.bg, color: C.white, borderWidth: 1, borderColor: C.border,
+    borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 18,
+    fontWeight: '700', textAlign: 'right', minWidth: 100,
+  },
+  cashValueGap: { fontSize: 18, fontWeight: '800' },
+  modalButtons: { flexDirection: 'row', gap: 12 },
+  modalBtnCancel: {
+    flex: 1, backgroundColor: C.surface, borderRadius: 12, paddingVertical: 14,
+    alignItems: 'center', borderWidth: 1, borderColor: C.border,
+  },
+  modalBtnConfirm: {
+    flex: 1, backgroundColor: C.fire, borderRadius: 12, paddingVertical: 14,
+    alignItems: 'center',
+  },
+  modalBtnText: { color: C.white, fontWeight: '700', fontSize: 15 },
+  modalBtnTextConfirm: { color: C.white, fontWeight: '800', fontSize: 15 },
 });

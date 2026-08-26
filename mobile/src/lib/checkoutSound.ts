@@ -1,24 +1,21 @@
 /**
  * checkoutSound.ts
- * Plays a short scanner-like beep at checkout using expo-av.
+ * Plays a short scanner-like beep at checkout using expo-audio.
  * Sound is loaded lazily once and reused.
  */
-import { Audio } from "expo-av";
+import { createAudioPlayer, AudioPlayer } from "expo-audio";
 
-let _sound: Audio.Sound | null = null;
-let _addSound: Audio.Sound | null = null;
+let _sound: AudioPlayer | null = null;
+let _addSound: AudioPlayer | null = null;
 
 export async function playCheckoutSound() {
   try {
     if (!_sound) {
-      const { sound } = await Audio.Sound.createAsync(
-        require("../../assets/sounds/checkout-beep.wav"),
-        { shouldPlay: false, volume: 0.55 }
-      );
-      _sound = sound;
+      _sound = createAudioPlayer(require("../../assets/sounds/checkout-beep.wav"));
+      _sound.volume = 0.55;
     }
-    await _sound.setPositionAsync(0);
-    await _sound.playAsync();
+    await _sound.seekTo(0);
+    _sound.play();
   } catch (e) {
     // Sound is a nice-to-have, never crash on failure
     console.warn("[Sound] Checkout sound failed:", e);
@@ -28,14 +25,11 @@ export async function playCheckoutSound() {
 export async function playAddToCartSound() {
   try {
     if (!_addSound) {
-      const { sound } = await Audio.Sound.createAsync(
-        require("../../assets/sounds/checkout-beep.wav"),
-        { shouldPlay: false, volume: 0.4 }
-      );
-      _addSound = sound;
+      _addSound = createAudioPlayer(require("../../assets/sounds/checkout-beep.wav"));
+      _addSound.volume = 0.4;
     }
-    await _addSound.setPositionAsync(0);
-    await _addSound.playAsync();
+    await _addSound.seekTo(0);
+    _addSound.play();
   } catch (e) {
     // Sound is a nice-to-have, never crash on failure
     console.warn("[Sound] Add-to-cart sound failed:", e);
@@ -44,11 +38,11 @@ export async function playAddToCartSound() {
 
 export async function unloadCheckoutSound() {
   if (_sound) {
-    await _sound.unloadAsync();
+    _sound.remove();
     _sound = null;
   }
   if (_addSound) {
-    await _addSound.unloadAsync();
+    _addSound.remove();
     _addSound = null;
   }
 }

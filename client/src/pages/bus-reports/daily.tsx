@@ -7,6 +7,7 @@ import {
   BreakdownTable,
   MiniBars,
   StatCard,
+  StopSalesTable,
   dateInput,
   dayBoundaryIso,
   exportTicketsCsv,
@@ -30,6 +31,7 @@ export default function DailyReportPage() {
     byDirection,
     byVehicle,
     byPayment,
+    byStop,
     completedTrips,
     averageOccupancy,
     topTrip,
@@ -66,7 +68,7 @@ export default function DailyReportPage() {
         }
       />
 
-      <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-5">
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
         <StatCard
           icon={Ticket}
           label="Tickets"
@@ -98,7 +100,7 @@ export default function DailyReportPage() {
         />
       </div>
 
-      <div className="mt-4 grid gap-4 md:grid-cols-3 xl:grid-cols-5">
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
         <StatCard
           icon={Bus}
           label="Completed"
@@ -144,10 +146,11 @@ export default function DailyReportPage() {
         <BreakdownTable title="Payment Methods" rows={byPayment} />
       </div>
 
-      <div className="mt-4 grid gap-4 xl:grid-cols-3">
+      <div className="mt-4 grid gap-4 md:grid-cols-2">
         <BreakdownTable title="By Route" rows={byRoute} />
         <BreakdownTable title="By Direction" rows={byDirection} />
         <BreakdownTable title="By Vehicle" rows={byVehicle} />
+        <StopSalesTable rows={byStop} />
       </div>
 
       <div className="mt-4 flex flex-wrap gap-3">
@@ -164,6 +167,13 @@ export default function DailyReportPage() {
         >
           <Route className="h-4 w-4" />
           View Ticket Details
+        </Link>
+        <Link
+          href="/bus/manifest"
+          className="inline-flex items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-700 hover:bg-orange-100"
+        >
+          <Users className="h-4 w-4" />
+          Trip Manifest
         </Link>
       </div>
     </Layout>

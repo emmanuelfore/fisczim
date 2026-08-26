@@ -7,7 +7,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BarChart } from 'react-native-gifted-charts';
 import { useBusTicketing } from '../../hooks/useBusTicketing';
-import { getDailySummary, getTicketsForDate, formatAsCSV, formatAsWhatsAppText } from '../../hooks/useBusReports';
+import { getDailySummary, getTicketsForDate, formatAsCSV, formatAsWhatsAppText, isCashierUser, filterTicketsForOwnership, resolveCashierConductorId } from '../../hooks/useBusReports';
 import { type BusColors, useBusColors } from './theme';
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -22,9 +22,9 @@ function addDays(d: Date, n: number): Date {
   return copy;
 }
 
-interface Props { onClose: () => void; }
+interface Props { onClose: () => void; userRole?: string; userName?: string; userId?: string | null; }
 
-export function BusDailyReportScreen({ onClose }: Props) {
+export function BusDailyReportScreen({ onClose, userRole, userName, userId }: Props) {
   const insets = useSafeAreaInsets();
   const C = useBusColors();
   const styles = makeStyles(C);
@@ -32,8 +32,15 @@ export function BusDailyReportScreen({ onClose }: Props) {
 
   const [selectedDate, setSelectedDate] = useState(new Date());
 
-  const dayTickets = useMemo(() => getTicketsForDate(allTickets, selectedDate), [allTickets, selectedDate]);
-  const summary = useMemo(() => getDailySummary(allTickets, selectedDate), [allTickets, selectedDate]);
+  const restrict = isCashierUser(userRole, userName);
+  const ownConductorId = activeConductor?.id ?? (restrict ? resolveCashierConductorId(userId, userName) : null);
+  const tickets = useMemo(() =>
+    filterTicketsForOwnership(allTickets, ownConductorId, restrict),
+    [allTickets, ownConductorId, restrict]
+  );
+
+  const dayTickets = useMemo(() => getTicketsForDate(tickets, selectedDate), [tickets, selectedDate]);
+  const summary = useMemo(() => getDailySummary(tickets, selectedDate), [tickets, selectedDate]);
 
   // Build BarChart data from hourly breakdown
   const barData = useMemo(() =>
@@ -140,6 +147,23 @@ export function BusDailyReportScreen({ onClose }: Props) {
                 </View>
                 <Text style={styles.tableTickets}>{rb.ticketCount} tkts</Text>
                 <Text style={styles.tableRevenue}>{fmtMoney(rb.revenue)}</Text>
+              </View>
+            ))}
+          </>
+        )}
+
+        {/* Stop / segment breakdown */}
+        {summary.byStop.length > 0 && (
+          <>
+            <Text style={styles.sectionTitle}>BY STOP / SEGMENT</Text>
+            {summary.byStop.slice(0, 20).map((sb) => (
+              <View key={sb.id} style={styles.tableRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.tableRouteName} numberOfLines={1}>{sb.stop}</Text>
+                  <Text style={styles.tableSub}>{sb.routeName}</Text>
+                </View>
+                <Text style={styles.tableTickets}>{sb.ticketCount} tkts</Text>
+                <Text style={styles.tableRevenue}>{fmtMoney(sb.revenue)}</Text>
               </View>
             ))}
           </>

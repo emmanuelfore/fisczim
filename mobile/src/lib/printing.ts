@@ -419,11 +419,30 @@ export const printToZ100 = async (data: TicketData) => {
   
   try {
     await zlog(`printToZ100 start invoice=${invoice?.invoiceNumber || "N/A"} company=${company?.name || "N/A"} items=${(items || invoice?.items || []).length}`);
+
     const initOk = await Z100Printer.printInit();
     await zlog(`printInit ok=${initOk}`);
-    if (!initOk) {
-      throw new Error("Z100 printer failed to initialize. libAndroid.so may not have loaded correctly.");
+    if (!initOk) throw new Error("printInit failed. Cannot open printer connection.");
+
+    try {
+      const status = await Z100Printer.checkStatus();
+      await zlog(`Hardware Status Code: ${status}`);
+    } catch (e) {
+      await zlog(`Hardware Diagnostics failed: ${e}`);
     }
+
+    try {
+      if (typeof Z100Printer.printSetVoltage === "function") {
+        await Z100Printer.printSetVoltage(60); // Severely reduced heat to prevent 3A current spikes
+        await Z100Printer.printSetGray(4); 
+        await zlog("Set voltage=60 gray=4 (Darker Print Mode)");
+      }
+    } catch (e) {
+      await zlog(`Set voltage/gray failed: ${e}`);
+    }
+
+
+
 
     const queueText = async (text: string, size?: number, align?: number, zoom?: number) => {
       const safeText = String(text ?? "");
@@ -443,7 +462,7 @@ export const printToZ100 = async (data: TicketData) => {
       }
     };
 
-    const width = 48;
+    const width = 32;
     const branch = (data as any).branch;
     const activeCompany = branch || company;
     const isVatPayer = !suppressTaxDetails && !!company?.vatNumber;
@@ -473,7 +492,7 @@ export const printToZ100 = async (data: TicketData) => {
     };
     const centerWrapped = async (value: unknown) => {
       for (const line of wrap(value)) {
-        await queueText(centerText(line), 16, 0, 0);
+        await queueText(centerText(line), 24, 0, 0);
       }
     };
     const tableRow = (label: string, value: unknown) => {
@@ -495,7 +514,7 @@ export const printToZ100 = async (data: TicketData) => {
       return code.replace(/-/g, "").match(/.{1,4}/g)?.join("-") || code;
     };
     const line = async (value: unknown) => {
-      await queueText(String(value ?? ""), 16, 0, 0);
+      await queueText(String(value ?? ""), 24, 0, 0);
     };
     const lines = async (value: unknown) => {
       for (const wrapped of wrap(value)) {
@@ -658,17 +677,13 @@ export const printToZ100 = async (data: TicketData) => {
     
     await zlog("queued trailing blank lines=12");
     for (let i = 0; i < 12; i++) {
-      await queueText("", 16, 0, 0);
+      await queueText("", 24, 0, 0);
     }
-    const beforeStartStatus = await Z100Printer.checkStatus().catch((error: unknown) => {
-      console.warn("[Printing] Z100 status check before start failed:", error);
-      return null;
-    });
-    console.log("[Printing] Z100 status before printStart:", beforeStartStatus);
-    await zlog(`status before printStart=${beforeStartStatus}`);
-    const status = await Z100Printer.printStart();
-    await zlog(`printStart ok=${status}`);
-    if(!status) throw new Error("Print failed on Z100 device.");
+    // Removed checkStatus() here because querying the UART right before a massive PrintStart UART burst
+    // can cause a half-duplex serial collision, freezing the printer MCU and causing PrintStart to hang.
+    const printOk = await Z100Printer.printStart();
+    await zlog(`printStart ok=${printOk}`);
+    if(!printOk) throw new Error("Print failed on Z100 device.");
     await new Promise((resolve) => setTimeout(resolve, 2500));
     const afterStartStatus = await Z100Printer.checkStatus().catch((error: unknown) => {
       console.warn("[Printing] Z100 status check after start failed:", error);

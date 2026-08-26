@@ -34,6 +34,8 @@ import { getSelectedCompanyId, setSelectedCompanyId } from "./lib/storage";
 import { PrinterProvider } from "./contexts/PrinterContext";
 import { normalizeBusSettings } from "./lib/busSettings";
 import { normalizeAppMode } from "./lib/appMode";
+import { checkForUpdate, type UpdateInfo } from "./lib/updateChecker";
+import { UpdateBanner } from "./components/UpdateBanner";
 
 type Stage = "boot" | "login" | "signup" | "forgot-password" | "onboarding" | "company" | "main";
 
@@ -88,6 +90,8 @@ export function AppRoot() {
   const [isOnline, setIsOnline] = useState<boolean | null>(true);
   const [diagResults, setDiagResults] = useState<string[] | null>(null);
   const [diagRunning, setDiagRunning] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const explicitLogoutRef = useRef(false);
 
   const runDiagnostics = async () => {
     setDiagRunning(true);
@@ -455,8 +459,12 @@ export function AppRoot() {
       try {
         const authed = !!session?.access_token;
         if (!authed) {
-          setStage("login");
-          setCompanyId(null);
+          if (explicitLogoutRef.current) {
+            setStage("login");
+            setCompanyId(null);
+          } else {
+            console.log("[Auth] Session lost (likely token expiry), staying on current screen");
+          }
         } else if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
           await fetchUser(false);
         }
@@ -478,13 +486,23 @@ export function AppRoot() {
     });
   }, [stage, companyId, isOnline, refreshSelectedCompany]);
 
+  // Check for mobile app updates once when main stage is reached and online
+  useEffect(() => {
+    if (stage !== "main" || isOnline === false) return;
+    checkForUpdate().then((info) => {
+      if (info) setUpdateInfo(info);
+    }).catch(() => {});
+  }, [stage, isOnline]);
+
   const handleLogout = async () => {
     setShowDrawer(false);
+    explicitLogoutRef.current = true;
     await supabase.auth.signOut();
     await setSelectedCompanyId(null);
     setCompanyId(null);
     setStage("login");
-    setBootError(null); 
+    setBootError(null);
+    explicitLogoutRef.current = false;
   };
 
   const content = useMemo(() => {
@@ -668,6 +686,9 @@ export function AppRoot() {
 
     return (
       <View style={{ flex: 1 }}>
+        {updateInfo && (
+          <UpdateBanner info={updateInfo} onDismiss={() => setUpdateInfo(null)} />
+        )}
         {currentScreen === "dashboard" && (
           <DashboardScreen
             companyId={companyId}
@@ -806,7 +827,7 @@ export function AppRoot() {
         />
       </View>
     );
-  }, [bootError, stage, companyId, currentScreen, openCashCollectionSignal, showDrawer, userName, userRole, isCashierRole, busSettings, effectiveBusSettings, appMode, effectiveAppMode, companies, diagResults, diagRunning]);
+  }, [bootError, stage, companyId, currentScreen, openCashCollectionSignal, showDrawer, userName, userRole, isCashierRole, busSettings, effectiveBusSettings, appMode, effectiveAppMode, companies, diagResults, diagRunning, updateInfo]);
 
   return (
     <PrinterProvider>

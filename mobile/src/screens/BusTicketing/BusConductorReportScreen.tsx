@@ -6,7 +6,7 @@ import {
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useBusTicketing } from '../../hooks/useBusTicketing';
-import { getConductorReport } from '../../hooks/useBusReports';
+import { getConductorReport, isCashierUser, resolveCashierConductorId } from '../../hooks/useBusReports';
 import { type BusColors, useBusColors } from './theme';
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -18,26 +18,36 @@ function addDays(d: Date, n: number): Date {
   const copy = new Date(d); copy.setDate(copy.getDate() + n); return copy;
 }
 
-interface Props { onClose: () => void; }
+interface Props { onClose: () => void; userRole?: string; userName?: string; userId?: string | null; }
 
-export function BusConductorReportScreen({ onClose }: Props) {
+export function BusConductorReportScreen({ onClose, userRole, userName, userId }: Props) {
   const insets = useSafeAreaInsets();
   const C = useBusColors();
   const styles = makeStyles(C);
-  const { tickets: allTickets, conductors } = useBusTicketing();
+  const { tickets: allTickets, conductors, activeConductor } = useBusTicketing();
 
   const today = new Date();
   const [selectedDate, setSelectedDate] = useState(today);
   const [conductorIndex, setConductorIndex] = useState(0);
 
-  const selectedConductor = conductors[conductorIndex] ?? null;
+  // Cashiers only see their own conductor in the report
+  const restrictToOwn = isCashierUser(userRole, userName);
+  const visibleConductors = useMemo(() => {
+    if (!restrictToOwn) return conductors;
+    if (activeConductor) return conductors.filter((c) => c.id === activeConductor.id);
+    const fallbackId = resolveCashierConductorId(userId, userName);
+    if (fallbackId) return conductors.filter((c) => c.id === fallbackId);
+    return [];
+  }, [restrictToOwn, conductors, activeConductor, userId, userName]);
+
+  const selectedConductor = visibleConductors[conductorIndex] ?? activeConductor ?? null;
 
   const report = useMemo(() => {
     if (!selectedConductor) return null;
     return getConductorReport(allTickets, selectedConductor.id, selectedDate);
   }, [allTickets, selectedConductor, selectedDate]);
 
-  if (conductors.length === 0) {
+  if (visibleConductors.length === 0) {
     return (
       <View style={[styles.root, { paddingTop: insets.top }]}>
         <StatusBar barStyle={C.statusBarStyle} backgroundColor={C.bg} />
@@ -72,7 +82,7 @@ export function BusConductorReportScreen({ onClose }: Props) {
         {/* Conductor picker */}
         <Text style={styles.sectionLabel}>CONDUCTOR</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
-          {conductors.map((c, i) => (
+          {visibleConductors.map((c, i) => (
             <TouchableOpacity
               key={c.id}
               style={[styles.conductorChip, conductorIndex === i && styles.conductorChipActive]}

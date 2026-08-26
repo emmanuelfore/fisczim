@@ -10,8 +10,8 @@ export function buildBusTicketPrintData(ticket: IssuedTicket, company?: any): Ti
   const amount = Number(ticket.totalAmount || ticket.price || 0);
   const routeParts = [
     ticket.routeName,
-    ticket.dropOffPoint ? `Drop: ${ticket.dropOffPoint}` : null,
-    ticket.seatNumber ? `Seat: ${ticket.seatNumber}` : null,
+    ticket.boardingPoint ? `From: ${ticket.boardingPoint}` : null,
+    ticket.dropOffPoint ? `To: ${ticket.dropOffPoint}` : null,
   ].filter(Boolean);
 
   return {
@@ -26,6 +26,10 @@ export function buildBusTicketPrintData(ticket: IssuedTicket, company?: any): Ti
       verificationCode: verificationCode(ticket.id),
       notes: "Bus passenger ticket",
       _offline: !ticket.isSynced,
+      customer: {
+        name: ticket.passengerName,
+        phone: ticket.phone,
+      },
       items: [
         {
           name: "Bus Ticket",

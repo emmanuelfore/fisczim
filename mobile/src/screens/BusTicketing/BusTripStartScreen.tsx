@@ -7,6 +7,7 @@ import {
   ScrollView,
   StatusBar,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -24,6 +25,7 @@ function uuid(): string {
 
 interface Props {
   onClose: () => void;
+  onTripStarted?: () => void;
   companyId?: number | null;
   userName?: string;
   userRole?: string;
@@ -34,7 +36,7 @@ function isUuid(value?: string | null): boolean {
   return !!value && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
-export function BusTripStartScreen({ onClose, companyId, userName = 'Conductor', userRole = 'cashier', userId }: Props) {
+export function BusTripStartScreen({ onClose, onTripStarted, companyId, userName = 'Conductor', userRole = 'cashier', userId }: Props) {
   const insets = useSafeAreaInsets();
   const C = useBusColors();
   const styles = makeStyles(C);
@@ -42,6 +44,7 @@ export function BusTripStartScreen({ onClose, companyId, userName = 'Conductor',
   
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
 
   const activeRoutes = routes.filter(r => r.isActive);
   const busyVehicleIds = useMemo(
@@ -85,6 +88,7 @@ export function BusTripStartScreen({ onClose, companyId, userName = 'Conductor',
   }
 
   async function handleStartTrip() {
+    if (starting) return;
     if (!selectedRouteId || !selectedVehicleId) {
       Alert.alert("Validation", "Please select both a Route and a Vehicle.");
       return;
@@ -113,40 +117,45 @@ export function BusTripStartScreen({ onClose, companyId, userName = 'Conductor',
       return;
     }
 
-    const conductor = await ensureActiveConductor();
-
-    // Get initial location
-    const initialLocation = await locationTrackingService.getCurrentLocation();
-
-    const trip: BusTrip = {
-      id: uuid(),
-      routeId: selectedRouteId,
-      vehicleId: selectedVehicleId,
-      conductorId: conductor.id,
-      status: 'in_progress',
-      scheduledDeparture: new Date().toISOString(),
-      actualDeparture: new Date().toISOString(),
-      currentLatitude: initialLocation?.latitude,
-      currentLongitude: initialLocation?.longitude,
-      lastLocationUpdate: initialLocation?.timestamp,
-      locationHistory: initialLocation ? [initialLocation] : undefined,
-    };
-
+    setStarting(true);
     try {
-      await startTrip(trip);
-      
-      // Start location tracking after trip is successfully created
-      locationTrackingService.startTracking((location) => {
-        updateTripLocation(trip.id, location.latitude, location.longitude, location.timestamp).catch((e: any) => {
-          console.warn('[BusTripStart] Trip location update failed:', e?.message || e);
-        });
-      });
-      
-      Alert.alert("Success", "Trip started successfully!", [
-        { text: "OK", onPress: onClose }
+      const conductor = await ensureActiveConductor();
+
+      // Get initial location (with a timeout so a slow GPS fix can't block starting)
+      const initialLocation = await Promise.race([
+        locationTrackingService.getCurrentLocation(),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000)),
       ]);
+
+      const trip: BusTrip = {
+        id: uuid(),
+        routeId: selectedRouteId,
+        vehicleId: selectedVehicleId,
+        conductorId: conductor.id,
+        status: 'in_progress',
+        scheduledDeparture: new Date().toISOString(),
+        actualDeparture: new Date().toISOString(),
+        currentLatitude: initialLocation?.latitude,
+        currentLongitude: initialLocation?.longitude,
+        lastLocationUpdate: initialLocation?.timestamp,
+        locationHistory: initialLocation ? [initialLocation] : undefined,
+      };
+
+await startTrip(trip);
+       
+       // Start location tracking after trip is successfully created
+       locationTrackingService.startTracking((location) => {
+         updateTripLocation(trip.id, location.latitude, location.longitude, location.timestamp).catch((e: any) => {
+           console.warn('[BusTripStart] Trip location update failed:', e?.message || e);
+         });
+       });
+       
+       // Navigate directly to Issue Ticket (or back to hub) — no modal
+       (onTripStarted ?? onClose)();
     } catch (e: any) {
       Alert.alert("Cannot Start Trip", e.message);
+    } finally {
+      setStarting(false);
     }
   }
 
@@ -216,12 +225,19 @@ export function BusTripStartScreen({ onClose, companyId, userName = 'Conductor',
       {/* Start Button Fixed at Bottom */}
       <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
         <TouchableOpacity
-          style={[styles.startBtn, (!selectedRouteId || !selectedVehicleId) && styles.startBtnDisabled]}
+          style={[styles.startBtn, (!selectedRouteId || !selectedVehicleId || starting) && styles.startBtnDisabled]}
           onPress={handleStartTrip}
-          disabled={!selectedRouteId || !selectedVehicleId}
+          disabled={!selectedRouteId || !selectedVehicleId || starting}
+          activeOpacity={starting ? 1 : 0.8}
         >
-          <MaterialCommunityIcons name="steering" size={22} color={(!selectedRouteId || !selectedVehicleId) ? C.muted : '#000'} />
-          <Text style={[styles.startBtnText, (!selectedRouteId || !selectedVehicleId) && { color: C.muted }]}>START TRIP</Text>
+          {starting ? (
+            <ActivityIndicator size="small" color="#000" />
+          ) : (
+            <MaterialCommunityIcons name="steering" size={22} color={(!selectedRouteId || !selectedVehicleId) ? C.muted : '#000'} />
+          )}
+          <Text style={[styles.startBtnText, (!selectedRouteId || !selectedVehicleId) && { color: C.muted }]}>
+            {starting ? 'STARTING TRIP...' : 'START TRIP'}
+          </Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -257,6 +273,6 @@ const makeStyles = (C: BusColors) => StyleSheet.create({
     backgroundColor: C.amber, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     gap: 8, paddingVertical: 16, borderRadius: 14,
   },
-  startBtnDisabled: { backgroundColor: C.surface, borderColor: C.border, borderWidth: 1 },
+  startBtnDisabled: { backgroundColor: C.amber, opacity: 0.55 },
   startBtnText: { color: '#000', fontSize: 16, fontWeight: '900', letterSpacing: 0.5 },
 });

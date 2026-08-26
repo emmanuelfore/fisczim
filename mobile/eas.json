@@ -18,8 +18,8 @@
       },
       "env": {
         "NPM_CONFIG_LEGACY_PEER_DEPS": "true",
-        "EXPO_PUBLIC_SUPABASE_URL": "https://tzczbbsdvrlonwjwcwss.supabase.co",
-        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR6Y3piYnNkdnJsb253andjd3NzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg1NTU1MjcsImV4cCI6MjA4NDEzMTUyN30.UK-iG3UXirfm1RyO2xWzOkzFYYYsotoHGgqFmK6FMks",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://nopztclveukecdabuist.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5vcHp0Y2x2ZXVrZWNkYWJ1aXN0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcyMTQ1MTUsImV4cCI6MjEwMjc5MDUxNX0.II6qyf8bJuxE3h-VOcM3Y1TG2TIkeOt0o1sZylfwthA",
         "EXPO_PUBLIC_API_BASE_URL": "https://fiscalstack.co.zw"
       }
     },
@@ -30,8 +30,8 @@
       },
       "env": {
         "NPM_CONFIG_LEGACY_PEER_DEPS": "true",
-        "EXPO_PUBLIC_SUPABASE_URL": "https://tzczbbsdvrlonwjwcwss.supabase.co",
-        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR6Y3piYnNkdnJsb253andjd3NzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg1NTU1MjcsImV4cCI6MjA4NDEzMTUyN30.UK-iG3UXirfm1RyO2xWzOkzFYYYsotoHGgqFmK6FMks",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://nopztclveukecdabuist.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5vcHp0Y2x2ZXVrZWNkYWJ1aXN0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcyMTQ1MTUsImV4cCI6MjEwMjc5MDUxNX0.II6qyf8bJuxE3h-VOcM3Y1TG2TIkeOt0o1sZylfwthA",
         "EXPO_PUBLIC_API_BASE_URL": "https://fiscalstack.co.zw"
       }
     }

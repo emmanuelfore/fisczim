@@ -2117,6 +2117,8 @@ export const busTickets = pgTable("bus_tickets", {
   deviceId: text("device_id"),
   localTicketId: text("local_ticket_id"),
   passengerName: text("passenger_name"),
+  idNumber: text("id_number"),
+  phone: text("phone"),
   boardingPoint: text("boarding_point"),
   dropOffPoint: text("drop_off_point"),
   seatNumber: text("seat_number"),

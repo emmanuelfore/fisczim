@@ -2,14 +2,6 @@ import { Layout } from "@/components/layout";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -34,6 +26,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { format } from "date-fns";
+import { Link } from "wouter";
 import { useBusReport, useBusRoutes, useBusConductors, useBusVehicles } from "@/hooks/use-bus-ticketing";
 
 const HARARE_OFFSET_MS = 2 * 60 * 60 * 1000;
@@ -253,7 +246,7 @@ export default function BusTripPerformancePage() {
         }
       />
 
-      <div className="mt-4 grid gap-4 md:grid-cols-3 xl:grid-cols-6">
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
         <StatCard icon={Bus} label="Trips" value={totals.trips} />
         <StatCard icon={CheckCircle2} label="Completed" value={totals.completed} tone="emerald" />
         <StatCard icon={Clock} label="In Progress" value={totals.inProgress} tone="blue" />
@@ -269,7 +262,7 @@ export default function BusTripPerformancePage() {
             Filters
           </CardTitle>
         </CardHeader>
-        <CardContent className="mt-3 grid gap-3 lg:grid-cols-6">
+        <CardContent className="mt-3 grid gap-3 sm:grid-cols-2">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <Input
@@ -357,57 +350,56 @@ export default function BusTripPerformancePage() {
               No trips match the selected filters.
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Trip</TableHead>
-                  <TableHead>Scheduled</TableHead>
-                  <TableHead>Started</TableHead>
-                  <TableHead>Arrived</TableHead>
-                  <TableHead>Vehicle</TableHead>
-                  <TableHead>Conductor</TableHead>
-                  <TableHead className="text-right">Passengers</TableHead>
-                  <TableHead className="text-right">Load</TableHead>
-                  <TableHead className="text-right">Avg Fare</TableHead>
-                  <TableHead className="text-right">Revenue</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {trips.map((trip: any) => (
-                  <TableRow key={trip.id}>
-                    <TableCell>
-                      <div className="font-semibold text-slate-900">
-                        {trip.direction || trip.routeName || `Trip #${trip.id}`}
-                      </div>
-                      <div className="text-xs text-slate-500">
-                        #{trip.id} - {trip.status || "unknown"} - {trip.tickets} tickets
-                      </div>
-                    </TableCell>
-                    <TableCell>
+            <div className="space-y-2">
+              {trips.map((trip: any) => (
+                <div
+                  key={trip.id}
+                  className="flex items-start justify-between gap-3 rounded-lg border border-slate-100 bg-white px-3 py-2.5"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-semibold text-slate-900">
+                      {trip.direction || trip.routeName || `Trip #${trip.id}`}
+                    </p>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      #{trip.id} · {trip.status || "unknown"} · {trip.tickets}{" "}
+                      tickets
+                    </p>
+                    <p className="mt-0.5 text-xs text-slate-500">
                       {trip.scheduledDeparture
-                        ? format(new Date(trip.scheduledDeparture), "MMM d, HH:mm")
-                        : "-"}
-                    </TableCell>
-                    <TableCell>
-                      {trip.actualDeparture
-                        ? format(new Date(trip.actualDeparture), "MMM d, HH:mm")
-                        : "-"}
-                    </TableCell>
-                    <TableCell>
-                      {trip.actualArrival
-                        ? format(new Date(trip.actualArrival), "MMM d, HH:mm")
-                        : "-"}
-                    </TableCell>
-                    <TableCell>{trip.vehicleRegNumber || "-"}</TableCell>
-                    <TableCell>{trip.conductorName || "-"}</TableCell>
-                    <TableCell className="text-right">{trip.passengers}</TableCell>
-                    <TableCell className="text-right">{percent(trip.occupancyRate)}</TableCell>
-                    <TableCell className="text-right">{money(trip.averageFare)}</TableCell>
-                    <TableCell className="text-right font-bold">{money(trip.revenue)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                        ? `Scheduled ${format(
+                            new Date(trip.scheduledDeparture),
+                            "MMM d, HH:mm",
+                          )}`
+                        : ""}
+                      {trip.vehicleRegNumber
+                        ? ` · ${trip.vehicleRegNumber}`
+                        : ""}
+                      {trip.conductorName ? ` · ${trip.conductorName}` : ""}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <div className="text-right">
+                      <p className="text-sm font-bold text-slate-900">
+                        {money(trip.revenue)}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        {trip.passengers} pax · {percent(trip.occupancyRate)}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        avg {money(trip.averageFare)}
+                      </p>
+                    </div>
+                    <Link
+                      href={`/bus/manifest?trip=${trip.id}`}
+                      className="inline-flex items-center gap-1 rounded-lg border border-orange-200 bg-orange-50 px-2.5 py-1.5 text-xs font-semibold text-orange-700 hover:bg-orange-100"
+                    >
+                      <Users className="h-3.5 w-3.5" />
+                      Manifest
+                    </Link>
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
         </CardContent>
       </Card>

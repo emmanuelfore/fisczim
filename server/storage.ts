@@ -5682,7 +5682,24 @@ export class DatabaseStorage implements IStorage {
         eq(suppliers.isActive, true)
       )
     )
-    .groupBy(suppliers.id)
+    .groupBy(
+      suppliers.id,
+      suppliers.companyId,
+      suppliers.name,
+      suppliers.contactPerson,
+      suppliers.email,
+      suppliers.phone,
+      suppliers.address,
+      suppliers.tin,
+      suppliers.vatNumber,
+      suppliers.withholdingTaxType,
+      suppliers.withholdingTaxRate,
+      suppliers.creditLimit,
+      suppliers.creditDays,
+      suppliers.isActive,
+      suppliers.openingBalance,
+      suppliers.createdAt
+    )
     .orderBy(suppliers.name);
 
     return results.map(r => ({

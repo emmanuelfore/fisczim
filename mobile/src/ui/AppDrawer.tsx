@@ -5,10 +5,9 @@ import {
   TouchableOpacity,
   Modal,
   StyleSheet,
-  SafeAreaView,
   ScrollView,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useSafeAreaInsets, SafeAreaView } from "react-native-safe-area-context";
 import {
   LayoutDashboard,
   PieChart,
@@ -305,7 +304,7 @@ const getStyles = (C: any) => StyleSheet.create({
     fontSize: 11,
     fontWeight: "800",
     letterSpacing: 0.4,
-    color: C.text.tertiary,
+    color: C.text.secondary,
     textTransform: "uppercase",
   },
   menuItem: {

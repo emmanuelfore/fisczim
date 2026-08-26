@@ -24,7 +24,6 @@ import {
 
 export function createCustomerFlowRouter(requireAuth: any) {
   const router = Router();
-  router.use(requireAuth);
 
   // 1. Convert Quotation -> Sales Order
   router.post("/sales-orders/from-quotation", async (req, res) => {

@@ -7,7 +7,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LineChart } from 'react-native-gifted-charts';
 import { useBusTicketing } from '../../hooks/useBusTicketing';
-import { getRangeReport, getTicketsForRange, formatAsCSV } from '../../hooks/useBusReports';
+import { getRangeReport, getTicketsForRange, formatAsCSV, isCashierUser, filterTicketsForOwnership, resolveCashierConductorId } from '../../hooks/useBusReports';
 import { type BusColors, useBusColors } from './theme';
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -19,21 +19,28 @@ function addDays(d: Date, n: number): Date {
   const copy = new Date(d); copy.setDate(copy.getDate() + n); return copy;
 }
 
-interface Props { onClose: () => void; }
+interface Props { onClose: () => void; userRole?: string; userName?: string; userId?: string | null; }
 
-export function BusRangeReportScreen({ onClose }: Props) {
+export function BusRangeReportScreen({ onClose, userRole, userName, userId }: Props) {
   const insets = useSafeAreaInsets();
   const C = useBusColors();
   const styles = makeStyles(C);
-  const { tickets: allTickets } = useBusTicketing();
+  const { tickets: allTickets, activeConductor } = useBusTicketing();
 
   const today = new Date();
   const [fromDate, setFromDate] = useState(addDays(today, -6)); // rolling 7 days
   const [toDate, setToDate] = useState(today);
   const [selectingFrom, setSelectingFrom] = useState(false);
 
-  const rangeTickets = useMemo(() => getTicketsForRange(allTickets, fromDate, toDate), [allTickets, fromDate, toDate]);
-  const report = useMemo(() => getRangeReport(allTickets, fromDate, toDate), [allTickets, fromDate, toDate]);
+  const restrict = isCashierUser(userRole, userName);
+  const ownConductorId = activeConductor?.id ?? (restrict ? resolveCashierConductorId(userId, userName) : null);
+  const tickets = useMemo(() =>
+    filterTicketsForOwnership(allTickets, ownConductorId, restrict),
+    [allTickets, ownConductorId, restrict]
+  );
+
+  const rangeTickets = useMemo(() => getTicketsForRange(tickets, fromDate, toDate), [tickets, fromDate, toDate]);
+  const report = useMemo(() => getRangeReport(tickets, fromDate, toDate), [tickets, fromDate, toDate]);
 
   const lineData = useMemo(() =>
     report.byDay.map((d) => ({
@@ -175,6 +182,23 @@ export function BusRangeReportScreen({ onClose }: Props) {
                 <Text style={styles.tableRouteName} numberOfLines={1}>{rb.routeName}</Text>
                 <Text style={styles.tableTickets}>{rb.ticketCount} tkts</Text>
                 <Text style={styles.tableRevenue}>{fmtMoney(rb.revenue)}</Text>
+              </View>
+            ))}
+          </>
+        )}
+
+        {/* Stop / segment breakdown */}
+        {report.byStop.length > 0 && (
+          <>
+            <Text style={styles.sectionTitle}>BY STOP / SEGMENT</Text>
+            {report.byStop.slice(0, 20).map((sb) => (
+              <View key={sb.id} style={styles.tableRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.tableRouteName} numberOfLines={1}>{sb.stop}</Text>
+                  <Text style={styles.tableTickets}>{sb.routeName}</Text>
+                </View>
+                <Text style={styles.tableTickets}>{sb.ticketCount} tkts</Text>
+                <Text style={styles.tableRevenue}>{fmtMoney(sb.revenue)}</Text>
               </View>
             ))}
           </>

@@ -103,6 +103,7 @@ import RangeReportPage from "@/pages/bus-reports/range";
 import ConductorReportPage from "@/pages/bus-reports/conductor";
 import CashupReportPage from "@/pages/bus-reports/cashup";
 import BusTripPerformancePage from "@/pages/bus-trip-performance";
+import BusManifestPage from "@/pages/bus-manifest";
 import BusTicketDetailsPage from "@/pages/bus-ticket-details";
 import BusDashboardPage from "@/pages/bus-dashboard";
 import AccountingCOAPage from "@/pages/accounting-coa";
@@ -675,6 +676,9 @@ function Router() {
       </Route>
       <Route path="/bus/trip-performance">
         {() => <ProtectedRoute component={BusTripPerformancePage} />}
+      </Route>
+      <Route path="/bus/manifest">
+        {() => <ProtectedRoute component={BusManifestPage} />}
       </Route>
       <Route path="/bus/tickets">
         {() => <ProtectedRoute component={BusTicketDetailsPage} />}

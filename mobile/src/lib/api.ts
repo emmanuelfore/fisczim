@@ -66,7 +66,11 @@ export async function apiFetch(path: string, init?: RequestInit & { timeout?: nu
       signal: init?.signal ?? (controller ? controller.signal : undefined)
     });
   } catch (e: any) {
-    console.error(`[API] Fetch error for ${path}:`, e.message || e);
+    if (e.name === 'AbortError' || e.message === 'Aborted') {
+      console.debug(`[API] Request aborted: ${path}`);
+    } else {
+      console.error(`[API] Fetch error for ${path}:`, e.message || e);
+    }
     throw e;
   } finally {
     if (timeoutId) clearTimeout(timeoutId);

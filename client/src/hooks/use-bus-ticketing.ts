@@ -16,6 +16,8 @@ function normalizeRoute(route: any) {
     destination: route.destination ?? route.toLocation,
     distanceKm: route.distanceKm ?? route.config?.distanceKm ?? null,
     basePrice: Number(route.basePrice ?? 0),
+    stops: Array.isArray(route.config?.stops) ? route.config.stops : null,
+    fares: route.config?.fares && typeof route.config.fares === "object" ? route.config.fares : null,
   };
 }
 
@@ -42,11 +44,13 @@ function toRoutePayload(data: any) {
       distanceKm: Number(data.distanceKm || 0),
       currency: data.currency || "USD",
       dropOffPoints: data.dropOffPoints || [],
-      passengerName: false,
+      stops: Array.isArray(data.stops) ? data.stops : [],
+      fares: data.fares && typeof data.fares === "object" ? data.fares : {},
+      passengerName: true,
       idNumber: false,
-      phone: false,
+      phone: true,
       seatNumber: true,
-      dropOffPoint: false,
+      dropOffPoint: true,
       requirePaymentMethod: true,
       allowMultiPassenger: true,
     },
@@ -174,6 +178,24 @@ export function useUpdateBusRoute() {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["bus-routes", variables.companyId] });
     }
+  });
+}
+
+export function useDeleteBusRoute() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ companyId, routeId }: { companyId: number; routeId: number }) => {
+      const response = await apiFetch(`/api/companies/${companyId}/bus-ticketing/routes/${routeId}`, {
+        method: "DELETE",
+      });
+      if (!response.ok && response.status !== 404) {
+        throw new Error(await readError(response, "Failed to delete route"));
+      }
+      return routeId;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["bus-routes", variables.companyId] });
+    },
   });
 }
 

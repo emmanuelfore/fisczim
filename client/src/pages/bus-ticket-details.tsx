@@ -2,14 +2,6 @@ import { Layout } from "@/components/layout";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -246,7 +238,7 @@ export default function BusTicketDetailsPage() {
         }
       />
 
-      <div className="mt-4 grid gap-4 md:grid-cols-3 xl:grid-cols-5">
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
         <StatCard icon={Ticket} label="Tickets" value={totals.tickets} />
         <StatCard icon={Users} label="Passengers" value={totals.passengers} tone="blue" />
         <StatCard icon={Banknote} label="Cash" value={money(totals.cash)} tone="emerald" />
@@ -261,7 +253,7 @@ export default function BusTicketDetailsPage() {
             Filters
           </CardTitle>
         </CardHeader>
-        <CardContent className="mt-3 grid gap-3 lg:grid-cols-4 xl:grid-cols-8">
+        <CardContent className="mt-3 grid gap-3 sm:grid-cols-2">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <Input
@@ -384,63 +376,57 @@ export default function BusTicketDetailsPage() {
               No tickets match the selected filters.
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Ticket</TableHead>
-                  <TableHead>Trip</TableHead>
-                  <TableHead>Direction</TableHead>
-                  <TableHead>Conductor</TableHead>
-                  <TableHead>Vehicle</TableHead>
-                  <TableHead>Payment</TableHead>
-                  <TableHead>Time</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {tickets.map((t: any) => (
-                  <TableRow key={t.id}>
-                    <TableCell>
-                      <div className="font-semibold text-slate-900">{t.ticketNumber}</div>
-                      <div className="text-xs text-slate-500">#{t.id}</div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="text-slate-900">#{t.tripId}</div>
-                      <div className="text-xs text-slate-500">Qty {t.quantity}</div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="font-medium text-slate-900">{t.direction || "-"}</div>
-                      {t.accountingStatus === "failed" && t.accountingError && (
-                        <div className="text-xs text-red-600">{t.accountingError}</div>
-                      )}
-                    </TableCell>
-                    <TableCell>{t.conductorName || "-"}</TableCell>
-                    <TableCell>{t.vehicleRegNumber || "-"}</TableCell>
-                    <TableCell>
-                      <span
-                        className={`inline-flex rounded px-2 py-0.5 text-xs font-semibold ${
-                          (t.paymentMethod || "").toLowerCase() === "cash"
-                            ? "bg-emerald-100 text-emerald-700"
-                            : (t.paymentMethod || "").toLowerCase() === "ecocash"
-                              ? "bg-amber-100 text-amber-700"
-                              : "bg-blue-100 text-blue-700"
-                        }`}
-                      >
-                        {t.paymentMethod || "-"}
+            <div className="space-y-2">
+              {tickets.map((t: any) => (
+                <div
+                  key={t.id}
+                  className="flex items-start justify-between gap-3 rounded-lg border border-slate-100 bg-white px-3 py-2.5"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-semibold text-slate-900">
+                      <span className="font-mono text-xs">{t.ticketNumber}</span>
+                      <span className="text-xs font-normal text-slate-500">
+                        {" "}
+                        · #{t.id}
                       </span>
-                    </TableCell>
-                    <TableCell>
+                    </p>
+                    <p className="mt-0.5 truncate text-xs text-slate-500">
+                      {t.direction || "-"}
+                      {t.tripId ? ` · trip #${t.tripId}` : ""}
+                    </p>
+                    <p className="mt-0.5 truncate text-xs text-slate-500">
+                      {t.conductorName || "-"}
+                      {t.vehicleRegNumber ? ` · ${t.vehicleRegNumber}` : ""}
                       {t.timestamp
-                        ? format(new Date(t.timestamp), "MMM d, HH:mm")
-                        : "-"}
-                    </TableCell>
-                    <TableCell className="text-right font-bold">
+                        ? ` · ${format(new Date(t.timestamp), "MMM d, HH:mm")}`
+                        : ""}
+                    </p>
+                    {t.accountingStatus === "failed" && t.accountingError && (
+                      <p className="mt-0.5 text-xs text-red-600">
+                        {t.accountingError}
+                      </p>
+                    )}
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className="text-sm font-bold text-slate-900">
                       {money(t.amount)}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                    </p>
+                    <p className="text-xs text-slate-500">Qty {t.quantity}</p>
+                    <span
+                      className={`mt-0.5 inline-flex rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                        (t.paymentMethod || "").toLowerCase() === "cash"
+                          ? "bg-emerald-100 text-emerald-700"
+                          : (t.paymentMethod || "").toLowerCase() === "ecocash"
+                            ? "bg-amber-100 text-amber-700"
+                            : "bg-blue-100 text-blue-700"
+                      }`}
+                    >
+                      {t.paymentMethod || "-"}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
         </CardContent>
       </Card>

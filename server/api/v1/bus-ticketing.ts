@@ -167,6 +167,16 @@ async function ensureBusTicketingSchema() {
       ALTER TABLE "bus_shifts" ADD COLUMN IF NOT EXISTS "route_id" integer REFERENCES "bus_routes"("id");
       ALTER TABLE "bus_shifts" ADD COLUMN IF NOT EXISTS "closed_at" timestamp;
 
+      -- Deduplicate start_time for any duplicate shifts to allow the unique index to be created
+      WITH duplicates AS (
+        SELECT id, ROW_NUMBER() OVER (PARTITION BY company_id, conductor_id, start_time ORDER BY id) as rn
+        FROM bus_shifts
+      )
+      UPDATE bus_shifts
+      SET start_time = start_time + (duplicates.rn || ' seconds')::interval
+      FROM duplicates
+      WHERE bus_shifts.id = duplicates.id AND duplicates.rn > 1;
+
       -- Unique index on business key to prevent duplicate shifts (race condition safe)
       CREATE UNIQUE INDEX IF NOT EXISTS "bus_shifts_company_conductor_start_unique"
         ON "bus_shifts" ("company_id", "conductor_id", "start_time");

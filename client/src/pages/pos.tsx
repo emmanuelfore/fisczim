@@ -650,7 +650,7 @@ export default function POSPage() {
       const savedPaymentMethod = localStorage.getItem(`${prefix}paymentMethod`);
 
       if (savedCart) setCart(JSON.parse(savedCart));
-      if (savedCustomerId) setSelectedCustomerId(savedCustomerId);
+      if (savedCustomerId && savedCustomerId !== "null" && savedCustomerId !== "undefined") setSelectedCustomerId(savedCustomerId);
       if (savedDiscount) setOrderDiscount(parseFloat(savedDiscount));
       if (savedCurrency) setSelectedCurrencyCode(savedCurrency);
       if (savedPaymentMethod) setPaymentMethod(savedPaymentMethod);
@@ -1671,15 +1671,25 @@ export default function POSPage() {
     if (isProcessingRef.current) return;
     isProcessingRef.current = true;
     let finalCustomerId = selectedCustomerId;
+    if (finalCustomerId === "null" || finalCustomerId === "undefined") {
+      finalCustomerId = "";
+    }
     const settings = company?.posSettings as any;
     if (!finalCustomerId && settings?.defaultCustomerId) {
-      finalCustomerId = settings.defaultCustomerId;
+      finalCustomerId = settings.defaultCustomerId.toString();
     }
 
-    if (!finalCustomerId) {
+    const parsedCustomerId = parseInt(finalCustomerId);
+    if (!parsedCustomerId || isNaN(parsedCustomerId)) {
+      toast({
+        title: "Customer Required",
+        description: "Please select a valid customer before checkout.",
+        variant: "destructive",
+      });
       isProcessingRef.current = false;
       return;
     }
+    finalCustomerId = parsedCustomerId.toString();
     setIsProcessing(true);
     let invoiceData: any = null;
     const checkoutAttemptId = `pos-${companyId}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;

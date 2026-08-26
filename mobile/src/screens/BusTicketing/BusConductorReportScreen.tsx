@@ -23,7 +23,7 @@ interface Props { onClose: () => void; userRole?: string; userName?: string; use
 export function BusConductorReportScreen({ onClose, userRole, userName, userId }: Props) {
   const insets = useSafeAreaInsets();
   const C = useBusColors();
-  const styles = makeStyles(C);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const { tickets: allTickets, conductors, activeConductor } = useBusTicketing();
 
   const today = new Date();

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useMemo,  useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -104,7 +104,7 @@ interface Props {
 export function BusRouteAdminScreen({ onClose, companyId }: Props) {
   const insets = useSafeAreaInsets();
   const C = useBusColors();
-  const styles = makeStyles(C);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const { routes, saveRoute, updateRoute, deleteRoute, tickets } = useBusTicketing(companyId);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingRoute, setEditingRoute] = useState<BusRoute | null>(null);

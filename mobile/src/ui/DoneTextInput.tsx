@@ -39,7 +39,7 @@ export const DoneTextInput = forwardRef<RNTextInput, Props>(function DoneTextInp
         keyboardType={keyboardType}
         inputAccessoryViewID={needsAccessory && Platform.OS === "ios" ? accessoryId : props.inputAccessoryViewID}
         returnKeyType={returnKeyType ?? (needsAccessory ? "done" : undefined)}
-        blurOnSubmit={blurOnSubmit ?? needsAccessory}
+        blurOnSubmit={blurOnSubmit ?? (needsAccessory ? true : undefined)}
         onSubmitEditing={(event) => {
           onSubmitEditing?.(event);
           if (needsAccessory) Keyboard.dismiss();

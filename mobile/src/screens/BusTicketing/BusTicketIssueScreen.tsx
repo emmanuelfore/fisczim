@@ -18,7 +18,7 @@ interface Props { onClose: () => void; companyId?: number | null; company?: any;
 export function BusTicketIssueScreen({ onClose, companyId, company }: Props) {
   const insets = useSafeAreaInsets();
   const C = useBusColors();
-  const styles = makeStyles(C);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const { routes, vehicles, activeConductor, activeTrip, tickets, issueTicket, isOnline, syncStatus, pendingTicketCount, isLoading } = useBusTicketing(companyId);
   const { config: printerConfig, print } = usePrinter();
 

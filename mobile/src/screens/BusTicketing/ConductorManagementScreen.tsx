@@ -25,7 +25,7 @@ type CashierConductor = Conductor & {
 export function ConductorManagementScreen({ onClose, companyId }: Props) {
   const insets = useSafeAreaInsets();
   const C = useBusColors();
-  const styles = makeStyles(C);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const { conductors, saveConductor, setActiveConductor, activeConductor } = useBusTicketing(companyId);
   const [cashiers, setCashiers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);

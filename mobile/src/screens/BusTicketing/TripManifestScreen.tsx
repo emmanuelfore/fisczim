@@ -36,7 +36,7 @@ interface Props { onClose: () => void; userRole?: string; userName?: string; use
 export function TripManifestScreen({ onClose, userRole, userName, userId }: Props) {
   const insets = useSafeAreaInsets();
   const C = useBusColors();
-  const styles = makeStyles(C);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const { tickets: allTickets, trips: allTrips, routes, vehicles, activeConductor } = useBusTicketing();
 
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null);

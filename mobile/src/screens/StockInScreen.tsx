@@ -329,7 +329,7 @@ export function StockInScreen({ onOpenDrawer, onClose, companyId, userRole = "me
     }));
     setMode("grv");
   };
-  const styles = makeStyles(C, isDark, insets);
+  const styles = useMemo(() => makeStyles(C, isDark, insets), [C, isDark, insets]);
 
   return (
     <View style={styles.container}>

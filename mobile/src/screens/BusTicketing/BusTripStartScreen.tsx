@@ -39,7 +39,7 @@ function isUuid(value?: string | null): boolean {
 export function BusTripStartScreen({ onClose, onTripStarted, companyId, userName = 'Conductor', userRole = 'cashier', userId }: Props) {
   const insets = useSafeAreaInsets();
   const C = useBusColors();
-  const styles = makeStyles(C);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const { routes, vehicles, trips, activeConductor, saveConductor, setActiveConductor, startTrip, refreshCloudSetup, updateTripLocation } = useBusTicketing(companyId);
   
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);

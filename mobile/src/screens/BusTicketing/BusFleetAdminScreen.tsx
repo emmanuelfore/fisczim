@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useMemo,  useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -34,7 +34,7 @@ interface Props {
 export function BusFleetAdminScreen({ onClose, companyId }: Props) {
   const insets = useSafeAreaInsets();
   const C = useBusColors();
-  const styles = makeStyles(C);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const { vehicles, trips, saveVehicle, updateVehicle, deleteVehicle } = useBusTicketing(companyId);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<BusVehicle | null>(null);

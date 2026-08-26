@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo,  useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, StatusBar,
 } from 'react-native';
@@ -79,7 +79,7 @@ interface Props {
 export function BusTicketingHubScreen({ onClose, busSettings, companyId, company, userRole = 'member', userName = '', userId, view = 'full' }: Props) {
   const insets = useSafeAreaInsets();
   const C = useBusColors();
-  const styles = makeStyles(C);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const {
     activeConductor,
     activeTrip,

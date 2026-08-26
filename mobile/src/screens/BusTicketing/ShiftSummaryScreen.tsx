@@ -26,7 +26,7 @@ interface Props { onClose: () => void; companyId?: number | null; shiftStartTime
 export function ShiftSummaryScreen({ onClose, companyId, shiftStartTime }: Props) {
   const insets = useSafeAreaInsets();
   const C = useBusColors();
-  const styles = makeStyles(C);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const { activeConductor, activeTrip, closeShift, getTodaysTickets } = useBusTicketing(companyId);
 
   const today = new Date();

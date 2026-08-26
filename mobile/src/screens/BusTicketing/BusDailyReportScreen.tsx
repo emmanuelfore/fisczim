@@ -27,7 +27,7 @@ interface Props { onClose: () => void; userRole?: string; userName?: string; use
 export function BusDailyReportScreen({ onClose, userRole, userName, userId }: Props) {
   const insets = useSafeAreaInsets();
   const C = useBusColors();
-  const styles = makeStyles(C);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const { tickets: allTickets, activeConductor } = useBusTicketing();
 
   const [selectedDate, setSelectedDate] = useState(new Date());

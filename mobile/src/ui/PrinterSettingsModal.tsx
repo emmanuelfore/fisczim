@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useMemo,  useState, useEffect } from "react";
 import { Modal, View, Text, TouchableOpacity, ScrollView, TextInput, ActivityIndicator, Alert, Platform, StyleSheet, Share } from "react-native";
 import { X, Bluetooth, Printer as PrinterIcon, Activity, RefreshCw, Trash2, Share2, Download } from "lucide-react-native";
 import * as FileSystem from "expo-file-system/legacy";
@@ -214,7 +214,7 @@ export function PrinterSettingsModal({ visible, onClose }: Props) {
 
   if (!visible) return null;
 
-  const styles = makeStyles(C, isDark, insets);
+  const styles = useMemo(() => makeStyles(C, isDark, insets), [C, isDark, insets]);
 
   return (
     <Modal visible={visible} animationType="slide" transparent>

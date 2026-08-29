@@ -594,7 +594,7 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
         // when the invoice is internally consistent.
         const roundMoney = (v: number) => Math.round((Number(v) + Number.EPSILON) * 100) / 100;
         for (const line of receiptLines) {
-            line.receiptLineTotal = roundMoney(Number(line.receiptLineQuantity) * Number(line.receiptLinePrice));
+            line.receiptLineTotal = Number((Number(line.receiptLineQuantity) * Number(line.receiptLinePrice)).toFixed(4));
         }
 
         const totalAmount = parseFloat(Number(invoice.total).toFixed(2));

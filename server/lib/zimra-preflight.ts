@@ -20,7 +20,7 @@ export class ZimraPreflightError extends Error {
 }
 
 const roundMoney = (value: number) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
-const approxEqual = (a: number, b: number, tolerance = 0.02) => Math.abs(roundMoney(a) - roundMoney(b)) <= tolerance;
+const approxEqual = (a: number, b: number, tolerance = 0.02) => Math.abs(Number(a) - Number(b)) <= tolerance;
 
 function addIssue(issues: ZimraPreflightIssue[], code: string, message: string) {
   issues.push({ code, message });
@@ -29,7 +29,7 @@ function addIssue(issues: ZimraPreflightIssue[], code: string, message: string) 
 function normalizedLineTotal(receipt: ReceiptData, line: any) {
   const quantity = Number(line.receiptLineQuantity);
   const price = Number(line.receiptLinePrice);
-  const calculated = roundMoney(quantity * price);
+  const calculated = Number((quantity * price).toFixed(4));
   return receipt.receiptType === "CreditNote" ? -Math.abs(calculated) : calculated;
 }
 
@@ -56,12 +56,12 @@ export function expectedReceiptTotal(receipt: ReceiptData): number {
   let expectedTotal = 0;
   for (const bucket of buckets.values()) {
     if (receipt.receiptLinesTaxInclusive) {
-      const gross = roundMoney(bucket.baseTotal);
+      const gross = Number(bucket.baseTotal.toFixed(4));
       expectedTotal += gross;
     } else {
-      const netTotal = roundMoney(bucket.baseTotal);
-      const tax = bucket.taxPercent ? roundMoney(netTotal * (bucket.taxPercent / 100)) : 0;
-      expectedTotal += roundMoney(netTotal + tax);
+      const netTotal = Number(bucket.baseTotal.toFixed(4));
+      const tax = bucket.taxPercent ? netTotal * (bucket.taxPercent / 100) : 0;
+      expectedTotal += netTotal + tax;
     }
   }
   expectedTotal = roundMoney(expectedTotal);

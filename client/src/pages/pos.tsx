@@ -789,27 +789,27 @@ export default function POSPage() {
     let tax = 0;
 
     cart.forEach((item) => {
-      const lineTotal = item.price * item.quantity - item.discountAmount;
+      const lineTotal = Number((item.price * item.quantity - item.discountAmount).toFixed(2));
       const rate = item.taxRate / 100;
 
       if (taxInclusive) {
         // Price includes tax: Tax = Total - (Total / (1 + Rate))
-        const taxPortion = lineTotal - lineTotal / (1 + rate);
-        const netPortion = lineTotal - taxPortion;
+        const taxPortion = Number((lineTotal - lineTotal / (1 + rate)).toFixed(2));
+        const netPortion = Number((lineTotal - taxPortion).toFixed(2));
         sub += netPortion;
         tax += taxPortion;
       } else {
         // Price excludes tax: Tax = Total * Rate
-        const taxPortion = lineTotal * rate;
+        const taxPortion = Number((lineTotal * rate).toFixed(2));
         sub += lineTotal;
         tax += taxPortion;
       }
     });
 
-    return { subtotal: sub, taxAmount: tax };
+    return { subtotal: Number(sub.toFixed(2)), taxAmount: Number(tax.toFixed(2)) };
   }, [cart, taxInclusive]);
 
-  const total = Math.max(0, subtotal + taxAmount - orderDiscount);
+  const total = Number(Math.max(0, subtotal + taxAmount - orderDiscount).toFixed(2));
   const playAddToCartSound = useCallback(() => {
     try {
       const AudioCtx =
@@ -1595,7 +1595,7 @@ export default function POSPage() {
           unitPrice: item.price.toString(),
           taxRate: item.taxRate !== undefined ? item.taxRate.toString() : "0",
           taxTypeId: item.taxTypeId || null,
-          lineTotal: ((item.price * item.quantity) - item.discountAmount).toString(),
+          lineTotal: ((item.price * item.quantity) - item.discountAmount).toFixed(2),
           discountAmount: item.discountAmount?.toString() || "0",
           modifiers: (item as any).modifiers || [],
           serialNumber: item.serialNumber,
@@ -1800,7 +1800,7 @@ export default function POSPage() {
           lineTotal: (
             item.price * item.quantity -
             item.discountAmount
-          ).toString(),
+          ).toFixed(2),
           taxTypeId: item.taxTypeId,
           serialNumber: item.serialNumber,
         })),
@@ -1840,7 +1840,7 @@ export default function POSPage() {
               lineTotal: (
                 item.price * item.quantity -
                 item.discountAmount
-              ).toString(),
+              ).toFixed(2),
               serialNumber: item.serialNumber,
             })),
           }),
@@ -1903,15 +1903,15 @@ export default function POSPage() {
                 const taxId = item.taxTypeId || 1;
                 const taxRate = Number(item.taxRate);
                 const lineTotal = Number(item.lineTotal);
-                const taxAmount = taxInclusive ? lineTotal - (lineTotal / (1 + (taxRate / 100))) : lineTotal * (taxRate / 100);
-                const salesWithTax = taxInclusive ? lineTotal : lineTotal + taxAmount;
+                const taxAmount = taxInclusive ? Number((lineTotal - (lineTotal / (1 + (taxRate / 100)))).toFixed(2)) : Number((lineTotal * (taxRate / 100)).toFixed(2));
+                const salesWithTax = taxInclusive ? lineTotal : Number((lineTotal + taxAmount).toFixed(2));
                 
                 if (!taxesMap.has(taxId)) {
                   taxesMap.set(taxId, { taxID: taxId, taxCode: resolveTaxCode(taxId), taxPercent: taxRate, taxAmount: 0, salesAmountWithTax: 0 });
                 }
                 const t = taxesMap.get(taxId);
-                t.taxAmount += taxAmount;
-                t.salesAmountWithTax += salesWithTax;
+                t.taxAmount = Number((t.taxAmount + taxAmount).toFixed(2));
+                t.salesAmountWithTax = Number((t.salesAmountWithTax + salesWithTax).toFixed(2));
               }
 
               const receiptDataParams = {
@@ -2104,7 +2104,7 @@ export default function POSPage() {
               lineTotal: (
                 item.price * item.quantity -
                 item.discountAmount
-              ).toString(),
+              ).toFixed(2),
               taxTypeId: item.taxTypeId,
               serialNumber: item.serialNumber,
             })),
@@ -2129,15 +2129,15 @@ export default function POSPage() {
                   const taxId = item.taxTypeId || 1;
                   const taxRate = Number(item.taxRate);
                   const lineTotal = Number(item.lineTotal);
-                  const taxAmount = taxInclusive ? lineTotal - (lineTotal / (1 + (taxRate / 100))) : lineTotal * (taxRate / 100);
-                  const salesWithTax = taxInclusive ? lineTotal : lineTotal + taxAmount;
+                  const taxAmount = taxInclusive ? Number((lineTotal - (lineTotal / (1 + (taxRate / 100)))).toFixed(2)) : Number((lineTotal * (taxRate / 100)).toFixed(2));
+                  const salesWithTax = taxInclusive ? lineTotal : Number((lineTotal + taxAmount).toFixed(2));
                   
                   if (!taxesMap.has(taxId)) {
                     taxesMap.set(taxId, { taxID: taxId, taxCode: resolveTaxCode(taxId), taxPercent: taxRate, taxAmount: 0, salesAmountWithTax: 0 });
                   }
                   const t = taxesMap.get(taxId);
-                  t.taxAmount += taxAmount;
-                  t.salesAmountWithTax += salesWithTax;
+                  t.taxAmount = Number((t.taxAmount + taxAmount).toFixed(2));
+                  t.salesAmountWithTax = Number((t.salesAmountWithTax + salesWithTax).toFixed(2));
                 }
 
                 const receiptDataParams = {

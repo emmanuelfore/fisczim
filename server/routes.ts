@@ -6675,6 +6675,13 @@ export async function registerRoutes(
   app.get("/api/companies/:companyId/purchase-orders", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
+      const branchId = getBranchId(req);
+      
+      const filters = [eq(purchaseOrders.companyId, companyId)];
+      if (branchId) {
+        filters.push(eq(purchaseOrders.branchId, branchId));
+      }
+
       const rows = await db
         .select({
           id: purchaseOrders.id,
@@ -6706,7 +6713,7 @@ export async function registerRoutes(
         .leftJoin(products, eq(products.id, purchaseOrderItems.productId))
         .leftJoin(suppliers, eq(suppliers.id, purchaseOrders.supplierId))
         .leftJoin(branches, eq(branches.id, purchaseOrders.branchId))
-        .where(eq(purchaseOrders.companyId, companyId))
+        .where(and(...filters))
         .orderBy(desc(purchaseOrders.createdAt), asc(purchaseOrderItems.id));
 
       // 1. Fetch confirmed GDN items for all company POs to compute received quantity
@@ -7746,7 +7753,8 @@ export async function registerRoutes(
   // Inventory Routes
   app.get("/api/companies/:companyId/inventory/transactions", requireAuthOrApiKey, async (req, res) => {
     const productId = req.query.productId ? Number(req.query.productId) : undefined;
-    const items = await storage.getInventoryTransactions(Number(req.params.companyId), productId);
+    const branchId = getBranchId(req);
+    const items = await storage.getInventoryTransactions(Number(req.params.companyId), productId, undefined, branchId);
     res.json(items);
   });
 
@@ -9165,6 +9173,12 @@ export async function registerRoutes(
 
   app.get("/api/companies/:companyId/grvs", requireAuthOrApiKey, async (req, res) => {
     const companyId = Number(req.params.companyId);
+    const branchId = getBranchId(req);
+    
+    const invoiceFilters = [eq(supplierInvoices.companyId, companyId)];
+    if (branchId) {
+      invoiceFilters.push(eq(supplierInvoices.branchId, branchId));
+    }
 
     const invoices = await db
       .select({
@@ -9174,7 +9188,7 @@ export async function registerRoutes(
         referenceGdnId: supplierInvoices.referenceGdnId,
       })
       .from(supplierInvoices)
-      .where(eq(supplierInvoices.companyId, companyId));
+      .where(and(...invoiceFilters));
 
     const invoiceByGrvRef = new Map<string, { id: number; invoiceNumber: string }>();
     const invoiceByGdnId = new Map<number, { id: number; invoiceNumber: string }>();
@@ -9187,7 +9201,7 @@ export async function registerRoutes(
       }
     }
 
-    const gdnRecords = await db
+    const gdnQuery = db
       .select({
         id: goodsDeliveryNotes.id,
         confirmedGrvNumber: goodsDeliveryNotes.confirmedGrvNumber,
@@ -9195,13 +9209,23 @@ export async function registerRoutes(
         status: goodsDeliveryNotes.status,
       })
       .from(goodsDeliveryNotes)
-      .where(eq(goodsDeliveryNotes.companyId, companyId));
+      .leftJoin(purchaseOrders, eq(goodsDeliveryNotes.purchaseOrderId, purchaseOrders.id))
+      .where(branchId 
+        ? and(eq(goodsDeliveryNotes.companyId, companyId), eq(purchaseOrders.branchId, branchId)) 
+        : eq(goodsDeliveryNotes.companyId, companyId));
+
+    const gdnRecords = await gdnQuery;
 
     const gdnByGrvNumber = new Map<string, { id: number, purchaseOrderId: number | null }>();
     for (const gdn of gdnRecords) {
       if (gdn.confirmedGrvNumber) {
         gdnByGrvNumber.set(gdn.confirmedGrvNumber, { id: gdn.id, purchaseOrderId: gdn.purchaseOrderId });
       }
+    }
+
+    const poFilters = [eq(purchaseOrders.companyId, companyId)];
+    if (branchId) {
+      poFilters.push(eq(purchaseOrders.branchId, branchId));
     }
 
     // 1. PO Items for 3-way match
@@ -9214,7 +9238,7 @@ export async function registerRoutes(
       })
       .from(purchaseOrderItems)
       .innerJoin(purchaseOrders, eq(purchaseOrderItems.purchaseOrderId, purchaseOrders.id))
-      .where(eq(purchaseOrders.companyId, companyId));
+      .where(and(...poFilters));
 
     const poItemsMap = new Map<number, any[]>();
     for (const item of poItems) {

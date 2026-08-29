@@ -430,7 +430,7 @@ export interface IStorage {
   getSupplierPayments(companyId: number): Promise<any[]>;
 
   // Inventory Transactions
-  getInventoryTransactions(companyId: number, productId?: number, ownerGroup?: string): Promise<InventoryTransaction[]>;
+  getInventoryTransactions(companyId: number, productId?: number, ownerGroup?: string, branchId?: number): Promise<InventoryTransaction[]>;
   createInventoryTransaction(data: InsertInventoryTransaction & { companyId: number }): Promise<InventoryTransaction>;
   createInventoryValuationSnapshot(companyId: number, asOfDate: Date, userId?: string, branchId?: number): Promise<any>;
 
@@ -5993,9 +5993,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Inventory Transactions
-  async getInventoryTransactions(companyId: number, productId?: number, ownerGroup?: string): Promise<any[]> {
+  async getInventoryTransactions(companyId: number, productId?: number, ownerGroup?: string, branchId?: number): Promise<any[]> {
     const filters = [eq(inventoryTransactions.companyId, companyId)];
     if (productId) filters.push(eq(inventoryTransactions.productId, productId));
+    if (branchId) filters.push(eq(inventoryTransactions.branchId, branchId));
     const ownerGroups = parseOwnerGroups(ownerGroup);
     if (ownerGroups.length === 1) {
       filters.push(eq(products.ownerGroup, ownerGroups[0]));

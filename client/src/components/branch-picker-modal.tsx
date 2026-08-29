@@ -34,6 +34,9 @@ export function BranchPickerModal({
     setContextBranchId(id);
     onSelect(id);
     setOpen(false);
+    
+    // Force a hard reload as requested by the user
+    window.location.reload();
   };
 
   const currentBranch = branches?.find((b) => b.id === selectedBranchId);

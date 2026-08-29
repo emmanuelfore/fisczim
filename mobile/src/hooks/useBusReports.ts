@@ -45,7 +45,7 @@ export function filterTicketsForOwnership(
 ): IssuedTicket[] {
   if (!restrict) return tickets;
   if (!conductorId) return [];
-  return tickets.filter((t) => t.conductorId === conductorId);
+  return tickets.filter((t) => String(t.conductorId) === String(conductorId));
 }
 
 // Derives the fallback conductor id a cashier's tickets carry even when the
@@ -226,7 +226,7 @@ export function getConductorReport(
   date: Date
 ): ConductorReport {
   const dayTickets = getTicketsForDate(tickets, date);
-  const cTickets = dayTickets.filter((t) => t.conductorId === conductorId);
+  const cTickets = dayTickets.filter((t) => String(t.conductorId) === String(conductorId));
   const conductorName = cTickets[0]?.conductorName ?? '';
   const expectedCash = parseFloat(cTickets.reduce((s, t) => s + t.totalAmount, 0).toFixed(2));
 

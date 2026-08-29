@@ -4,6 +4,7 @@ import {
   StatusBar,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useBusTicketing } from '../../hooks/useBusTicketing';
 import { getConductorReport, isCashierUser, resolveCashierConductorId } from '../../hooks/useBusReports';
@@ -28,17 +29,36 @@ export function BusConductorReportScreen({ onClose, userRole, userName, userId }
 
   const today = new Date();
   const [selectedDate, setSelectedDate] = useState(today);
+  const [showPicker, setShowPicker] = useState(false);
   const [conductorIndex, setConductorIndex] = useState(0);
 
   // Cashiers only see their own conductor in the report
   const restrictToOwn = isCashierUser(userRole, userName);
   const visibleConductors = useMemo(() => {
-    if (!restrictToOwn) return conductors;
-    if (activeConductor) return conductors.filter((c) => c.id === activeConductor.id);
+    if (!restrictToOwn) {
+      const existingIds = new Set(conductors.map(c => String(c.id)));
+      const fromTickets: typeof conductors = [];
+      for (const t of allTickets) {
+        if (t.conductorId && !existingIds.has(String(t.conductorId))) {
+          existingIds.add(String(t.conductorId));
+          fromTickets.push({
+            id: String(t.conductorId),
+            name: t.conductorName || 'Unknown',
+            isActive: false,
+          });
+        }
+      }
+      return [...conductors, ...fromTickets];
+    }
+    
+    if (activeConductor) return [activeConductor];
     const fallbackId = resolveCashierConductorId(userId, userName);
-    if (fallbackId) return conductors.filter((c) => c.id === fallbackId);
+    if (fallbackId) {
+      const found = conductors.find((c) => c.id === fallbackId);
+      return found ? [found] : [{ id: fallbackId, name: userName || 'Conductor', isActive: true }];
+    }
     return [];
-  }, [restrictToOwn, conductors, activeConductor, userId, userName]);
+  }, [restrictToOwn, conductors, activeConductor, userId, userName, allTickets]);
 
   const selectedConductor = visibleConductors[conductorIndex] ?? activeConductor ?? null;
 
@@ -84,7 +104,7 @@ export function BusConductorReportScreen({ onClose, userRole, userName, userId }
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
           {visibleConductors.map((c, i) => (
             <TouchableOpacity
-              key={c.id}
+              key={c.id || `cond-${i}`}
               style={[styles.conductorChip, conductorIndex === i && styles.conductorChipActive]}
               onPress={() => setConductorIndex(i)}
             >
@@ -100,7 +120,20 @@ export function BusConductorReportScreen({ onClose, userRole, userName, userId }
           <TouchableOpacity style={styles.dateNavBtn} onPress={() => setSelectedDate((d) => addDays(d, -1))}>
             <MaterialCommunityIcons name="chevron-left" size={24} color={C.white} />
           </TouchableOpacity>
-          <Text style={styles.dateLabel}>{fmtDate(selectedDate)}</Text>
+          <TouchableOpacity onPress={() => setShowPicker(true)}>
+            <Text style={styles.dateLabel}>{fmtDate(selectedDate)}</Text>
+          </TouchableOpacity>
+          {showPicker && (
+            <DateTimePicker
+              value={selectedDate}
+              mode="date"
+              display="default"
+              onChange={(event, date) => {
+                setShowPicker(false);
+                if (date) setSelectedDate(date);
+              }}
+            />
+          )}
           <TouchableOpacity
             style={styles.dateNavBtn}
             onPress={() => setSelectedDate((d) => addDays(d, 1))}
@@ -132,8 +165,8 @@ export function BusConductorReportScreen({ onClose, userRole, userName, userId }
             {report.byRoute.length > 0 && (
               <>
                 <Text style={styles.sectionTitle}>BY ROUTE</Text>
-                {report.byRoute.map((rb) => (
-                  <View key={rb.routeId} style={styles.tableRow}>
+                {report.byRoute.map((rb, index) => (
+              <View key={rb.routeId || `route-${index}`} style={styles.tableRow}>
                     <Text style={styles.tableRouteName} numberOfLines={1}>{rb.routeName}</Text>
                     <Text style={styles.tableTickets}>{rb.ticketCount} tkts</Text>
                     <Text style={styles.tableRevenue}>{fmtMoney(rb.revenue)}</Text>

@@ -1,4 +1,9 @@
-import { supabase } from "./supabase";
+import fs from 'fs';
+const file = './client/src/lib/api.ts';
+let content = fs.readFileSync(file, 'utf8');
+
+// Replace the entire file with the correct synchronous state logic and exports
+const newContent = `import { supabase } from "./supabase";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
 
@@ -42,7 +47,7 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
     const headers = new Headers(init?.headers);
 
     if (session?.access_token) {
-        headers.set("Authorization", `Bearer ${session.access_token}`);
+        headers.set("Authorization", \`Bearer \${session.access_token}\`);
     }
 
     if (!(init?.body instanceof FormData)) {
@@ -51,7 +56,7 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
 
     // Prepend API_BASE for relative paths (e.g. /api/...)
     const url = typeof input === "string" && input.startsWith("/")
-        ? `${API_BASE}${input}`
+        ? \`\${API_BASE}\${input}\`
         : input;
 
     // multi-branch support: inject current branch ID if available
@@ -66,7 +71,7 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
 
     const controller = (init?.signal || typeof AbortController === 'undefined') ? null : new AbortController();
     const timeoutId = (controller && typeof window !== 'undefined') ? window.setTimeout(() => {
-        console.warn(`[apiFetch] Request to ${url} timed out after 120s - aborting.`);
+        console.warn(\`[apiFetch] Request to \${url} timed out after 120s - aborting.\`);
         try {
             controller.abort("TIMEOUT");
         } catch (e) {
@@ -93,3 +98,6 @@ export function setSelectedBranchId(id: number | null) {
         localStorage.removeItem("selectedBranchId");
     }
 }
+`;
+
+fs.writeFileSync(file, newContent);

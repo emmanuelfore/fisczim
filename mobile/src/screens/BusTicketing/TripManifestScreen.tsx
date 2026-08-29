@@ -9,6 +9,7 @@ import { useBusTicketing } from '../../hooks/useBusTicketing';
 import { isCashierUser, resolveCashierConductorId } from '../../hooks/useBusReports';
 import { type BusTrip, type IssuedTicket } from '../../types/busTicketing';
 import { type BusColors, useBusColors } from './theme';
+import DateTimePicker from '@react-native-community/datetimepicker';
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
@@ -40,6 +41,8 @@ export function TripManifestScreen({ onClose, userRole, userName, userId }: Prop
   const { tickets: allTickets, trips: allTrips, routes, vehicles, activeConductor } = useBusTicketing();
 
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
+  const [filterDate, setFilterDate] = useState(new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
   // Cashiers only see their own trips
   const restrictToOwn = isCashierUser(userRole, userName);
@@ -55,11 +58,13 @@ export function TripManifestScreen({ onClose, userRole, userName, userId }: Prop
   }, [restrictToOwn, allTickets, trips]);
 
   const tripsWithTickets = useMemo(() => {
-    const tripIds = new Set(tickets.map((t) => t.tripId).filter(Boolean));
+    const tripIds = new Set(tickets.map((t) => t.tripId ? String(t.tripId) : null).filter(Boolean));
+    const filterDateStr = filterDate.toISOString().slice(0, 10);
     return trips
       .filter((t) => tripIds.has(t.id))
+      .filter((t) => t.scheduledDeparture.startsWith(filterDateStr))
       .sort((a, b) => new Date(b.scheduledDeparture).getTime() - new Date(a.scheduledDeparture).getTime());
-  }, [trips, tickets]);
+  }, [trips, tickets, filterDate]);
 
   const selectedTrip = useMemo<BusTrip | null>(
     () => trips.find((t) => t.id === selectedTripId) ?? null,
@@ -122,15 +127,42 @@ export function TripManifestScreen({ onClose, userRole, userName, userId }: Prop
 
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
         {/* Trip picker */}
-        <Text style={styles.sectionTitle}>SELECT TRIP</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, marginTop: 14 }}>
+          <Text style={[styles.sectionTitle, { marginTop: 0, marginBottom: 0 }]}>SELECT TRIP</Text>
+          <TouchableOpacity 
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.surface, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12, borderWidth: 1, borderColor: C.border }}
+            onPress={() => setShowDatePicker(true)}
+          >
+            <MaterialCommunityIcons name="calendar-filter" size={16} color={C.amber} />
+            <Text style={{ color: C.white, fontSize: 12, fontWeight: '700' }}>{fmtDate(filterDate)}</Text>
+          </TouchableOpacity>
+        </View>
+
+        {showDatePicker && (
+          <DateTimePicker
+            value={filterDate}
+            mode="date"
+            display="default"
+            onChange={(event, date) => {
+              setShowDatePicker(false);
+              if (date) {
+                setFilterDate(date);
+                setSelectedTripId(null); // Reset selection when date changes
+              }
+            }}
+          />
+        )}
+
         {tripsWithTickets.length === 0 ? (
           <View style={styles.empty}>
             <MaterialCommunityIcons name="bus-clock" size={48} color={C.border} />
-            <Text style={styles.emptyText}>No trips with tickets yet</Text>
+            <Text style={styles.emptyText}>No trips found for {fmtDate(filterDate)}</Text>
           </View>
         ) : (
           tripsWithTickets.slice(0, 30).map((trip) => {
             const active = trip.id === selectedTripId;
+            const route = routes.find(r => r.id === trip.routeId);
+            const vehicle = vehicles.find(v => v.id === trip.vehicleId);
             return (
               <TouchableOpacity
                 key={trip.id}
@@ -143,13 +175,13 @@ export function TripManifestScreen({ onClose, userRole, userName, userId }: Prop
                   color={active ? C.amber : C.muted}
                 />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.tripName} numberOfLines={1}>{trip.id}</Text>
+                  <Text style={styles.tripName} numberOfLines={1}>{route?.name || `Trip ${trip.id.substring(0,8)}`}</Text>
                   <Text style={styles.tripSub}>
-                    {fmtDate(new Date(trip.scheduledDeparture))} {fmtTime(trip.scheduledDeparture)} · {String(trip.status || '').replace('_', ' ')}
+                    {vehicle?.registrationNumber || 'Unknown Bus'} · {fmtTime(trip.scheduledDeparture)} · {String(trip.status || '').replace('_', ' ')}
                   </Text>
                 </View>
                 <Text style={styles.tripTickets}>
-                  {tickets.filter((t) => t.tripId === trip.id).length} tkts
+                  {tickets.filter((t) => String(t.tripId) === String(trip.id)).length} tkts
                 </Text>
               </TouchableOpacity>
             );

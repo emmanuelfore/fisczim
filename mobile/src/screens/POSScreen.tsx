@@ -2415,7 +2415,6 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
               </>
               )}
 
-              {/*
               <Text style={{ color: C.text.secondary, fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>
                 Sale Date
               </Text>
@@ -2577,7 +2576,6 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                   </View>
 </View>
             )}
-            */}
 
               {/*
               <Text style={{ color: C.text.secondary, fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>

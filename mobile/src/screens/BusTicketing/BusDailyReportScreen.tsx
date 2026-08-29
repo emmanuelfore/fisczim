@@ -6,6 +6,7 @@ import {
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BarChart } from 'react-native-gifted-charts';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useBusTicketing } from '../../hooks/useBusTicketing';
 import { getDailySummary, getTicketsForDate, formatAsCSV, formatAsWhatsAppText, isCashierUser, filterTicketsForOwnership, resolveCashierConductorId } from '../../hooks/useBusReports';
 import { type BusColors, useBusColors } from './theme';
@@ -31,6 +32,7 @@ export function BusDailyReportScreen({ onClose, userRole, userName, userId }: Pr
   const { tickets: allTickets, activeConductor } = useBusTicketing();
 
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [showPicker, setShowPicker] = useState(false);
 
   const restrict = isCashierUser(userRole, userName);
   const ownConductorId = activeConductor?.id ?? (restrict ? resolveCashierConductorId(userId, userName) : null);
@@ -84,7 +86,23 @@ export function BusDailyReportScreen({ onClose, userRole, userName, userId }: Pr
           <TouchableOpacity style={styles.dateNavBtn} onPress={() => setSelectedDate((d) => addDays(d, -1))}>
             <MaterialCommunityIcons name="chevron-left" size={24} color={C.white} />
           </TouchableOpacity>
-          <Text style={styles.dateLabel}>{fmtDate(selectedDate)}</Text>
+          <TouchableOpacity onPress={() => setShowPicker(true)} style={{flexDirection: 'row', alignItems: 'center', gap: 6}}>
+            <MaterialCommunityIcons name="calendar" size={18} color={C.amber} />
+            <TouchableOpacity onPress={() => setShowPicker(true)}>
+            <Text style={styles.dateLabel}>{fmtDate(selectedDate)}</Text>
+          </TouchableOpacity>
+          {showPicker && (
+            <DateTimePicker
+              value={selectedDate}
+              mode="date"
+              display="default"
+              onChange={(event, date) => {
+                setShowPicker(false);
+                if (date) setSelectedDate(date);
+              }}
+            />
+          )}
+          </TouchableOpacity>
           <TouchableOpacity
             style={styles.dateNavBtn}
             onPress={() => setSelectedDate((d) => addDays(d, 1))}
@@ -93,6 +111,19 @@ export function BusDailyReportScreen({ onClose, userRole, userName, userId }: Pr
             <MaterialCommunityIcons name="chevron-right" size={24} color={selectedDate >= new Date() ? C.border : C.white} />
           </TouchableOpacity>
         </View>
+
+        {showPicker && (
+          <DateTimePicker
+            value={selectedDate}
+            mode="date"
+            display="default"
+            maximumDate={new Date()}
+            onChange={(event, date) => {
+              setShowPicker(false);
+              if (date) setSelectedDate(date);
+            }}
+          />
+        )}
 
         {/* KPI cards */}
         <View style={styles.kpiRow}>
@@ -139,8 +170,8 @@ export function BusDailyReportScreen({ onClose, userRole, userName, userId }: Pr
         {summary.byRoute.length > 0 && (
           <>
             <Text style={styles.sectionTitle}>BY ROUTE</Text>
-            {summary.byRoute.map((rb) => (
-              <View key={rb.routeId} style={styles.tableRow}>
+            {summary.byRoute.map((rb, index) => (
+              <View key={rb.routeId || `route-${index}`}  style={styles.tableRow}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.tableRouteName} numberOfLines={1}>{rb.routeName}</Text>
                   <Text style={styles.tableSub}>{rb.passengerCount} passengers</Text>
@@ -156,8 +187,8 @@ export function BusDailyReportScreen({ onClose, userRole, userName, userId }: Pr
         {summary.byStop.length > 0 && (
           <>
             <Text style={styles.sectionTitle}>BY STOP / SEGMENT</Text>
-            {summary.byStop.slice(0, 20).map((sb) => (
-              <View key={sb.id} style={styles.tableRow}>
+            {summary.byStop.slice(0, 20).map((sb, index) => (
+              <View key={sb.id || `stop-${index}`} style={styles.tableRow}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.tableRouteName} numberOfLines={1}>{sb.stop}</Text>
                   <Text style={styles.tableSub}>{sb.routeName}</Text>
@@ -174,8 +205,8 @@ export function BusDailyReportScreen({ onClose, userRole, userName, userId }: Pr
           <>
             <Text style={styles.sectionTitle}>PAYMENT METHODS</Text>
             <View style={styles.payRow}>
-              {summary.byPaymentMethod.map((pb) => (
-                <View key={pb.method} style={styles.payCard}>
+              {summary.byPaymentMethod.map((pb, index) => (
+                <View key={pb.method || `pay-${index}`} style={styles.payCard}>
                   <Text style={styles.payMethod}>{pb.method}</Text>
                   <Text style={styles.payAmount}>{fmtMoney(pb.amount)}</Text>
                   <Text style={styles.payPct}>{pb.percentage}%</Text>

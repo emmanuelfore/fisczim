@@ -217,44 +217,48 @@ export function BusTicketingHubScreen({ onClose, busSettings, companyId, company
           </View>
         )}
 
-        {/* Status bar */}
-        <View style={[styles.syncBar, { borderColor: `${modeColor}66` }]}>
-          <View style={styles.statusItem}>
-            <MaterialCommunityIcons name={modeIcon as any} size={18} color={modeColor} />
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.syncTitle, { color: modeColor }]}>{modeLabel}</Text>
-              <Text style={styles.syncSub}>{lastSyncError ? `Sync issue: ${lastSyncError}` : syncDetail}</Text>
+        {/* Sync Status bar */}
+        {!isAdmin && (
+          <View style={[styles.syncBar, { borderColor: `${modeColor}66` }]}>
+            <View style={styles.statusItem}>
+              <MaterialCommunityIcons name={modeIcon as any} size={18} color={modeColor} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.syncTitle, { color: modeColor }]}>{modeLabel}</Text>
+                <Text style={styles.syncSub}>{lastSyncError ? `Sync issue: ${lastSyncError}` : syncDetail}</Text>
+              </View>
             </View>
+            <TouchableOpacity onPress={handleSync} disabled={showingSync || !isOnline} style={[styles.syncButton, (!isOnline || showingSync) && { opacity: 0.55 }]}>
+              <MaterialCommunityIcons name={showingSync ? "sync" : "cloud-sync-outline"} size={16} color="#000" />
+              <Text style={styles.syncButtonText}>{showingSync ? 'Syncing' : 'Sync'}</Text>
+            </TouchableOpacity>
           </View>
-          <TouchableOpacity onPress={handleSync} disabled={showingSync || !isOnline} style={[styles.syncButton, (!isOnline || showingSync) && { opacity: 0.55 }]}>
-            <MaterialCommunityIcons name={showingSync ? "sync" : "cloud-sync-outline"} size={16} color="#000" />
-            <Text style={styles.syncButtonText}>{showingSync ? 'Syncing' : 'Sync'}</Text>
-          </TouchableOpacity>
-        </View>
+        )}
 
         {/* Status bar */}
-        <View style={styles.statusBar}>
-          <View style={styles.statusItem}>
-            <MaterialCommunityIcons name="account-tie-outline" size={16} color={activeConductor ? C.amber : C.muted} />
-            <Text style={[styles.statusText, activeConductor && { color: C.amber }]}>
-              {activeConductor ? activeConductor.name : 'No conductor set'}
-            </Text>
-          </View>
-          <View style={styles.statusDivider} />
-          <View style={styles.statusItem}>
-            <MaterialCommunityIcons name="bus" size={16} color={activeTrip ? C.amber : C.muted} />
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.statusText, activeTrip && { color: C.amber }]}>
-                {activeVehicle ? activeVehicle.registrationNumber : 'No active trip'}
+        {!isAdmin && (
+          <View style={styles.statusBar}>
+            <View style={styles.statusItem}>
+              <MaterialCommunityIcons name="account-tie-outline" size={16} color={activeConductor ? C.amber : C.muted} />
+              <Text style={[styles.statusText, activeConductor && { color: C.amber }]}>
+                {activeConductor ? activeConductor.name : 'No conductor set'}
               </Text>
-              {activeRoute && (
-                <Text style={[styles.statusText, { fontSize: 10, marginTop: 2 }]} numberOfLines={1}>
-                  {activeRoute.name}
+            </View>
+            <View style={styles.statusDivider} />
+            <View style={styles.statusItem}>
+              <MaterialCommunityIcons name="bus" size={16} color={activeTrip ? C.amber : C.muted} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.statusText, activeTrip && { color: C.amber }]}>
+                  {activeVehicle ? activeVehicle.registrationNumber : 'No active trip'}
                 </Text>
-              )}
+                {activeRoute && (
+                  <Text style={[styles.statusText, { fontSize: 10, marginTop: 2 }]} numberOfLines={1}>
+                    {activeRoute.name}
+                  </Text>
+                )}
+              </View>
             </View>
           </View>
-        </View>
+        )}
 
         {/* Tickets and Revenue Summary */}
         <View style={styles.statusBar}>

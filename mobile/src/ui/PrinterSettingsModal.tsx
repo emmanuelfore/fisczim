@@ -212,9 +212,9 @@ export function PrinterSettingsModal({ visible, onClose }: Props) {
     }
   };
 
-  if (!visible) return null;
-
   const styles = useMemo(() => makeStyles(C, isDark, insets), [C, isDark, insets]);
+
+  if (!visible) return null;
 
   return (
     <Modal visible={visible} animationType="slide" transparent>

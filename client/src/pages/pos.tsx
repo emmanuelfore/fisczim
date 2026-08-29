@@ -1771,7 +1771,7 @@ export default function POSPage() {
       invoiceData = {
         companyId,
         branchId: selectedBranchId,
-        customerId: parseInt(finalCustomerId),
+        customerId: !isNaN(parsedCustomerId) && parsedCustomerId ? parsedCustomerId : (settings?.defaultCustomerId || undefined),
         issueDate: new Date(),
         dueDate: new Date(),
         notes: "POS Transaction",
@@ -1822,7 +1822,7 @@ export default function POSPage() {
         const laybyRes = await apiFetch(`/api/companies/${companyId}/laybys`, {
           method: "POST",
           body: JSON.stringify({
-            customerId: Number(finalCustomerId),
+            customerId: !isNaN(parsedCustomerId) && parsedCustomerId ? parsedCustomerId : (settings?.defaultCustomerId || undefined),
             branchId: selectedBranchId,
             subtotal: subtotal.toString(),
             taxAmount: taxAmount.toString(),
@@ -2075,7 +2075,7 @@ export default function POSPage() {
           const payload = invoiceData || {
             companyId,
             branchId: selectedBranchId,
-            customerId: parseInt(finalCustomerId),
+            customerId: !isNaN(parsedCustomerId) && parsedCustomerId ? parsedCustomerId : (settings?.defaultCustomerId || undefined),
             issueDate: new Date(),
             dueDate: new Date(),
             notes: "POS Transaction",

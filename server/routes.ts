@@ -4567,7 +4567,7 @@ export async function registerRoutes(
   app.get("/api/companies/:id/zimra/status", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
-      const branchId = req.query.branchId ? Number(req.query.branchId) : undefined;
+      const branchId = getBranchId(req);
       const company = await storage.getCompany(companyId);
       if (!company) {
         return res.status(404).json({ message: "Company not found" });
@@ -13508,12 +13508,8 @@ export async function registerRoutes(
   });
 
   // ── Report Module Routes ──────────────────────────────────────────────────
-  // All routes follow: GET /api/companies/:companyId/reports/:reportName
-  // Auth: requireAuth + company ownership check (403 if not authorized)
-  // Date range: startDate/endDate query params, defaults to current month
-
   const reportRouteHandler = (
-    storageMethod: (companyId: number, start: Date, end: Date) => Promise<any>
+    storageMethod: (companyId: number, start: Date, end: Date, branchId?: number) => Promise<any>
   ) => {
     return async (req: any, res: any) => {
       try {
@@ -13528,6 +13524,8 @@ export async function registerRoutes(
           return res.status(403).json({ message: "Forbidden" });
         }
 
+        const branchId = getBranchId(req);
+
         // Parse date range with current-month defaults
         const now = new Date();
         let startDate: Date;
@@ -13541,7 +13539,6 @@ export async function registerRoutes(
         } else {
           startDate = new Date(now.getFullYear(), now.getMonth(), 1);
         }
-
         if (req.query.endDate) {
           endDate = new Date(req.query.endDate as string);
           if (isNaN(endDate.getTime())) {
@@ -13551,7 +13548,7 @@ export async function registerRoutes(
           endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
         }
 
-        const data = await storageMethod(companyId, startDate, endDate);
+        const data = await storageMethod(companyId, startDate, endDate, branchId);
         res.json(data);
       } catch (err: any) {
         res.status(500).json({ message: err.message });
@@ -14247,7 +14244,8 @@ export async function registerRoutes(
       const dateFrom = from ? new Date(from as string) : undefined;
       const dateTo = to ? new Date(to as string) : undefined;
       
-      const entries = await storage.getJournalEntries(companyId, dateFrom, dateTo);
+      const branchId = getBranchId(req);
+      const entries = await storage.getJournalEntries(companyId, dateFrom, dateTo, branchId);
       res.json(entries);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -14388,7 +14386,8 @@ export async function registerRoutes(
       const { date } = req.query;
       const asOfDate = date ? new Date(date as string) : undefined;
       
-      const lines = await storage.getTrialBalance(companyId, asOfDate);
+      const branchId = getBranchId(req);
+      const lines = await storage.getTrialBalance(companyId, asOfDate, branchId);
       res.json({
         asOfDate: asOfDate || new Date(),
         lines,
@@ -14440,7 +14439,8 @@ export async function registerRoutes(
       const dateFrom = from ? new Date(from as string) : undefined;
       const dateTo = to ? new Date(to as string) : undefined;
       
-      const entries = await storage.getLedgerEntries(companyId, accId, dateFrom, dateTo);
+      const branchId = getBranchId(req);
+      const entries = await storage.getLedgerEntries(companyId, accId, dateFrom, dateTo, branchId);
       res.json(entries);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -14560,7 +14560,7 @@ export async function registerRoutes(
       const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const asOfDate = req.query.date ? new Date(req.query.date as string) : new Date();
-      const branchId = req.query.branchId ? Number(req.query.branchId) : undefined;
+      const branchId = getBranchId(req);
       
       // Use trial balance as the base data — if branchId is specified, filter ledger entries to that branch
       let tb: any[];
@@ -14658,7 +14658,8 @@ export async function registerRoutes(
 
       const company = await storage.getCompany(companyId);
       const settings = accountingSettingsOf(company);
-      const tb = await storage.getTrialBalance(companyId, new Date());
+      const branchId = getBranchId(req);
+      const tb = await storage.getTrialBalance(companyId, new Date(), branchId);
       const totalDebit = tb.reduce((sum: number, line: any) => sum + Number(line.debit || 0), 0);
       const totalCredit = tb.reduce((sum: number, line: any) => sum + Number(line.credit || 0), 0);
       const alerts: any[] = [];
@@ -14707,15 +14708,15 @@ export async function registerRoutes(
       const settings = accountingSettingsOf(company);
       const today = new Date();
       const [tb, ar, ap, vat, periods, statements, alertsPayload] = await Promise.all([
-        storage.getTrialBalance(companyId, today),
+        storage.getTrialBalance(companyId, today, getBranchId(req)),
         storage.getARAgingReport(companyId, today),
         storage.getAPAgingReport(companyId, today),
         storage.getVatReturn(companyId, new Date(today.getFullYear(), today.getMonth(), 1), today),
         storage.getFinancialPeriods(companyId),
         storage.getBankStatements(companyId),
         (async () => {
-          const totalDebit = (await storage.getTrialBalance(companyId, today)).reduce((sum: number, line: any) => sum + Number(line.debit || 0), 0);
-          const totalCredit = (await storage.getTrialBalance(companyId, today)).reduce((sum: number, line: any) => sum + Number(line.credit || 0), 0);
+          const totalDebit = (await storage.getTrialBalance(companyId, today, getBranchId(req))).reduce((sum: number, line: any) => sum + Number(line.debit || 0), 0);
+          const totalCredit = (await storage.getTrialBalance(companyId, today, getBranchId(req))).reduce((sum: number, line: any) => sum + Number(line.credit || 0), 0);
           return { totalDebit, totalCredit };
         })(),
       ]);
@@ -14981,7 +14982,8 @@ export async function registerRoutes(
     try {
       const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
-      const entries = await storage.getJournalEntries(companyId);
+      const branchId = getBranchId(req);
+      const entries = await storage.getJournalEntries(companyId, undefined, undefined, branchId);
       const reversalIds = new Set(entries.filter((entry: any) => entry.referenceType === "REVERSAL").map((entry: any) => String(entry.referenceId)));
       res.json(entries.map((entry: any) => ({
         ...entry,
@@ -15073,7 +15075,7 @@ export async function registerRoutes(
 
       const startDate = req.query.from ? new Date(req.query.from as string) : undefined;
       const endDate = req.query.to ? new Date(req.query.to as string) : undefined;
-      const branchId = req.query.branchId ? Number(req.query.branchId) : undefined;
+      const branchId = getBranchId(req);
 
       const filters: any[] = [
         eq(journalEntries.companyId, companyId),
@@ -15168,7 +15170,7 @@ export async function registerRoutes(
       
       const startDate = req.query.from ? new Date(req.query.from as string) : undefined;
       const endDate = req.query.to ? new Date(req.query.to as string) : undefined;
-      const branchId = req.query.branchId ? Number(req.query.branchId) : undefined;
+      const branchId = getBranchId(req);
 
       // Build filters for journal entries in the period
       const jeFilters: any[] = [eq(journalEntries.companyId, companyId)];

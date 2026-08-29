@@ -443,28 +443,28 @@ export interface IStorage {
   getStockValuationReport(companyId: number, ownerGroup?: string): Promise<any[]>;
 
   // Report Module Methods
-  getReportSalesSummary(companyId: number, start: Date, end: Date): Promise<{ date: string; invoiceCount: number; subtotal: string; taxAmount: string; total: string }[]>;
-  getReportSalesByCustomer(companyId: number, start: Date, end: Date): Promise<{ customerId: number; customerName: string; invoiceCount: number; total: string }[]>;
-  getReportSalesByItem(companyId: number, start: Date, end: Date): Promise<{ productId: number | null; description: string; quantitySold: string; revenue: string }[]>;
-  getReportSalesBySalesperson(companyId: number, start: Date, end: Date): Promise<{ userId: string; userName: string; invoiceCount: number; total: string }[]>;
-  getReportArAgingSummary(companyId: number, start: Date, end: Date): Promise<{ customerId: number; customerName: string; current: string; days31_60: string; days61_90: string; days90plus: string; total: string }[]>;
-  getReportArAgingDetails(companyId: number, start: Date, end: Date): Promise<{ invoiceId: number; invoiceNumber: string; customerName: string; dueDate: string; daysOverdue: number; balanceDue: string; bucket: "current" | "31-60" | "61-90" | "90+" }[]>;
-  getReportInvoiceDetails(companyId: number, start: Date, end: Date): Promise<{ invoiceId: number; invoiceNumber: string; customerName: string; issueDate: string; dueDate: string; status: string; total: string; paidAmount: string; balanceDue: string }[]>;
-  getReportQuoteDetails(companyId: number, start: Date, end: Date): Promise<{ quotationId: number; quotationNumber: string; customerName: string; issueDate: string; expiryDate: string | null; status: string; total: string }[]>;
-  getReportCustomerBalanceSummary(companyId: number, start: Date, end: Date): Promise<{ customerId: number; customerName: string; totalInvoiced: string; totalPaid: string; balance: string }[]>;
-  getReportReceivableSummary(companyId: number, start: Date, end: Date): Promise<{ totalInvoiced: string; totalCollected: string; totalOutstanding: string }>;
-  getReportReceivableDetails(companyId: number, start: Date, end: Date): Promise<{ invoiceId: number; invoiceNumber: string; customerName: string; issueDate: string; total: string; paidAmount: string; balanceDue: string; status: string }[]>;
-  getReportBadDebts(companyId: number, start: Date, end: Date): Promise<{ invoiceId: number; invoiceNumber: string; customerName: string; dueDate: string; daysOverdue: number; balanceDue: string }[]>;
-  getReportBankCharges(companyId: number, start: Date, end: Date): Promise<{ paymentId: number; invoiceNumber: string; customerName: string; paymentDate: string; reference: string; amount: string }[]>;
-  getReportTimeToGetPaid(companyId: number, start: Date, end: Date): Promise<{ invoiceId: number; invoiceNumber: string; customerName: string; issueDate: string; paymentDate: string; daysToPayment: number; amount: string }[]>;
-  getReportRefundHistory(companyId: number, start: Date, end: Date): Promise<{ invoiceId: number; invoiceNumber: string; customerName: string; issueDate: string; amount: string; relatedInvoiceNumber: string | null }[]>;
-  getReportWithholdingTax(companyId: number, start: Date, end: Date): Promise<{ invoiceId: number; invoiceNumber: string; customerName: string; issueDate: string; withheldAmount: string; total: string }[]>;
-  getReportExpenseDetails(companyId: number, start: Date, end: Date): Promise<{ expenseId: number; expenseDate: string; category: string; description: string; supplierName: string | null; paymentMethod: string | null; reference: string | null; amount: string; currency: string }[]>;
-  getReportExpensesByCategory(companyId: number, start: Date, end: Date): Promise<{ category: string; total: string; percentage: string; count: number }[]>;
-  getReportExpensesByCustomer(companyId: number, start: Date, end: Date): Promise<{ supplierId: number | null; supplierName: string; total: string; count: number }[]>;
-  getReportExpensesByProject(companyId: number, start: Date, end: Date): Promise<{ project: string; total: string; count: number }[]>;
-  getReportBillableExpenseDetails(companyId: number, start: Date, end: Date): Promise<{ expenseId: number; expenseDate: string; category: string; description: string; amount: string; status: string }[]>;
-  getReportTaxSummary(companyId: number, start: Date, end: Date): Promise<{ taxCode: string; taxName: string; taxRate: string; taxableAmount: string; outputTax: string; inputTax: string; netVat: string }[]>;
+  getReportSalesSummary(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ date: string; invoiceCount: number; subtotal: string; taxAmount: string; total: string }[]>;
+  getReportSalesByCustomer(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ customerId: number; customerName: string; invoiceCount: number; total: string }[]>;
+  getReportSalesByItem(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ productId: number | null; description: string; quantitySold: string; revenue: string }[]>;
+  getReportSalesBySalesperson(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ userId: string; userName: string; invoiceCount: number; total: string }[]>;
+  getReportArAgingSummary(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ customerId: number; customerName: string; current: string; days31_60: string; days61_90: string; days90plus: string; total: string }[]>;
+  getReportArAgingDetails(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ invoiceId: number; invoiceNumber: string; customerName: string; dueDate: string; daysOverdue: number; balanceDue: string; bucket: "current" | "31-60" | "61-90" | "90+" }[]>;
+  getReportInvoiceDetails(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ invoiceId: number; invoiceNumber: string; customerName: string; issueDate: string; dueDate: string; status: string; total: string; paidAmount: string; balanceDue: string }[]>;
+  getReportQuoteDetails(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ quotationId: number; quotationNumber: string; customerName: string; issueDate: string; expiryDate: string | null; status: string; total: string }[]>;
+  getReportCustomerBalanceSummary(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ customerId: number; customerName: string; totalInvoiced: string; totalPaid: string; balance: string }[]>;
+  getReportReceivableSummary(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ totalInvoiced: string; totalCollected: string; totalOutstanding: string }>;
+  getReportReceivableDetails(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ invoiceId: number; invoiceNumber: string; customerName: string; issueDate: string; total: string; paidAmount: string; balanceDue: string; status: string }[]>;
+  getReportBadDebts(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ invoiceId: number; invoiceNumber: string; customerName: string; dueDate: string; daysOverdue: number; balanceDue: string }[]>;
+  getReportBankCharges(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ paymentId: number; invoiceNumber: string; customerName: string; paymentDate: string; reference: string; amount: string }[]>;
+  getReportTimeToGetPaid(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ invoiceId: number; invoiceNumber: string; customerName: string; issueDate: string; paymentDate: string; daysToPayment: number; amount: string }[]>;
+  getReportRefundHistory(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ invoiceId: number; invoiceNumber: string; customerName: string; issueDate: string; amount: string; relatedInvoiceNumber: string | null }[]>;
+  getReportWithholdingTax(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ invoiceId: number; invoiceNumber: string; customerName: string; issueDate: string; withheldAmount: string; total: string }[]>;
+  getReportExpenseDetails(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ expenseId: number; expenseDate: string; category: string; description: string; supplierName: string | null; paymentMethod: string | null; reference: string | null; amount: string; currency: string }[]>;
+  getReportExpensesByCategory(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ category: string; total: string; percentage: string; count: number }[]>;
+  getReportExpensesByCustomer(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ supplierId: number | null; supplierName: string; total: string; count: number }[]>;
+  getReportExpensesByProject(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ project: string; total: string; count: number }[]>;
+  getReportBillableExpenseDetails(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ expenseId: number; expenseDate: string; category: string; description: string; amount: string; status: string }[]>;
+  getReportTaxSummary(companyId: number, start: Date, end: Date, branchId?: number): Promise<{ taxCode: string; taxName: string; taxRate: string; taxableAmount: string; outputTax: string; inputTax: string; netVat: string }[]>;
   getHourlySalesDistribution(companyId: number, startDate: Date, endDate: Date): Promise<{ hour: number; count: number; total: number }[]>;
   getOperationalMetrics(companyId: number, startDate: Date, endDate: Date): Promise<{ atv: number; profitMargin: number; itemsPerReceipt: number; totalRevenue: number; totalCogs: number; totalRevenueByCurrency?: Record<string, number> }>;
   getLowStockItems(companyId: number): Promise<(Product & { categoryName?: string })[]>;
@@ -472,17 +472,17 @@ export interface IStorage {
   getReportInventoryMovements(companyId: number, start: Date, end: Date, ownerGroup?: string): Promise<{ transactionId: number; date: string; productName: string; type: string; quantity: string; unitCost: string | null; reference: string | null; notes: string | null }[]>;
   getReportStockAdjustments(companyId: number, start: Date, end: Date, ownerGroup?: string): Promise<{ transactionId: number; date: string; productName: string; sku: string | null; type: string; quantity: string; unitCost: string | null; totalCost: string | null; referenceType: string | null; reference: string | null; notes: string | null; userName: string | null }[]>;
   getReportPurchaseHistory(companyId: number, start: Date, end: Date, ownerGroup?: string): Promise<{ transactionId: number; date: string; productName: string; supplierName: string | null; quantity: string; unitCost: string; totalCost: string; reference: string | null }[]>;
-  getReportAutoSparesDailySales(companyId: number, start: Date, end: Date): Promise<any[]>;
-  getReportTopSellingParts(companyId: number, start: Date, end: Date): Promise<any[]>;
-  getReportDeadStock(companyId: number, start: Date, end: Date): Promise<any[]>;
-  getReportProfitMargins(companyId: number, start: Date, end: Date): Promise<any[]>;
-  getReportSupplierPerformance(companyId: number, start: Date, end: Date): Promise<any[]>;
-  getReportCustomerCredit(companyId: number, start: Date, end: Date): Promise<any[]>;
-  getReportSalespersonPerformance(companyId: number, start: Date, end: Date): Promise<any[]>;
-  getReportCategoryBrandPerformance(companyId: number, start: Date, end: Date): Promise<any[]>;
-  getReportReturnWarranty(companyId: number, start: Date, end: Date): Promise<any[]>;
-  getReportReorderSuggestions(companyId: number, start: Date, end: Date): Promise<any[]>;
-  getReportPriceChanges(companyId: number, start: Date, end: Date): Promise<any[]>;
+  getReportAutoSparesDailySales(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]>;
+  getReportTopSellingParts(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]>;
+  getReportDeadStock(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]>;
+  getReportProfitMargins(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]>;
+  getReportSupplierPerformance(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]>;
+  getReportCustomerCredit(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]>;
+  getReportSalespersonPerformance(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]>;
+  getReportCategoryBrandPerformance(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]>;
+  getReportReturnWarranty(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]>;
+  getReportReorderSuggestions(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]>;
+  getReportPriceChanges(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]>;
   getOperationalDailyReport(companyId: number, start: Date, end: Date): Promise<any>;
   getOperationalWeeklyReport(companyId: number, start: Date, end: Date): Promise<any>;
   getOperationalMonthlyReport(companyId: number, start: Date, end: Date): Promise<any>;
@@ -551,12 +551,12 @@ export interface IStorage {
   getAccountByCode(companyId: number, code: string): Promise<Account | undefined>;
   createAccount(data: InsertAccount): Promise<Account>;
   initializeCompanyAccounts(companyId: number): Promise<void>;
-  getJournalEntries(companyId: number, dateFrom?: Date, dateTo?: Date): Promise<any[]>;
+  getJournalEntries(companyId: number, dateFrom?: Date, dateTo?: Date, branchId?: number): Promise<any[]>;
   getJournalEntryDrafts(companyId: number): Promise<any[]>;
   createJournalEntryDraft(companyId: number, data: InsertJournalEntryDraft & { lines: LedgerPostLine[] }): Promise<any>;
   postJournalEntryDraft(companyId: number, draftId: number, userId?: string): Promise<JournalEntry>;
-  getLedgerEntries(companyId: number, accountId?: number, dateFrom?: Date, dateTo?: Date): Promise<any[]>;
-  getTrialBalance(companyId: number, date?: Date): Promise<any[]>;
+  getLedgerEntries(companyId: number, accountId?: number, dateFrom?: Date, dateTo?: Date, branchId?: number): Promise<any[]>;
+  getTrialBalance(companyId: number, date?: Date, branchId?: number): Promise<any[]>;
   getVatReturn(companyId: number, fromDate?: Date, toDate?: Date): Promise<{ outputVat: number; inputVat: number; netVat: number; outputVatByCurrency: Record<string, number>; inputVatByCurrency: Record<string, number>; netVatByCurrency: Record<string, number>; dailyBreakdown: any[]; inputVatBreakdown?: any[]; outputVatBreakdown?: any[]; includedInvoiceCount: number; availableCurrencies: string[]; }>;
   postToLedger(companyId: number, entryData: LedgerPostData, tx?: any): Promise<JournalEntry>;
   
@@ -6550,13 +6550,14 @@ export class DatabaseStorage implements IStorage {
   }
   // ── Report Module Methods ──────────────────────────────────────────────────
 
-  async getReportSalesSummary(companyId: number, start: Date, end: Date) {
+  async getReportSalesSummary(companyId: number, start: Date, end: Date, branchId?: number) {
     const rows = await db
       .select()
       .from(invoices)
       .leftJoin(customers, eq(invoices.customerId, customers.id))
       .where(and(
         eq(invoices.companyId, companyId),
+        ...(branchId ? [eq(invoices.branchId, branchId)] : []),
         gte(invoices.issueDate, start),
         lte(invoices.issueDate, end),
         ne(invoices.transactionType, 'CreditNote')
@@ -6588,13 +6589,14 @@ export class DatabaseStorage implements IStorage {
       }));
   }
 
-  async getReportSalesByCustomer(companyId: number, start: Date, end: Date) {
+  async getReportSalesByCustomer(companyId: number, start: Date, end: Date, branchId?: number) {
     const rows = await db
       .select()
       .from(invoices)
       .leftJoin(customers, eq(invoices.customerId, customers.id))
       .where(and(
         eq(invoices.companyId, companyId),
+        ...(branchId ? [eq(invoices.branchId, branchId)] : []),
         gte(invoices.issueDate, start),
         lte(invoices.issueDate, end),
         ne(invoices.transactionType, 'CreditNote')
@@ -6621,13 +6623,14 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getReportSalesByItem(companyId: number, start: Date, end: Date) {
+  async getReportSalesByItem(companyId: number, start: Date, end: Date, branchId?: number) {
     const rows = await db
       .select()
       .from(invoiceItems)
       .innerJoin(invoices, eq(invoiceItems.invoiceId, invoices.id))
       .where(and(
         eq(invoices.companyId, companyId),
+        ...(branchId ? [eq(invoices.branchId, branchId)] : []),
         gte(invoices.issueDate, start),
         lte(invoices.issueDate, end),
         ne(invoices.transactionType, 'CreditNote')
@@ -6654,13 +6657,14 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getReportSalesBySalesperson(companyId: number, start: Date, end: Date) {
+  async getReportSalesBySalesperson(companyId: number, start: Date, end: Date, branchId?: number) {
     const rows = await db
       .select()
       .from(invoices)
       .leftJoin(users, eq(invoices.createdBy, users.id))
       .where(and(
         eq(invoices.companyId, companyId),
+        ...(branchId ? [eq(invoices.branchId, branchId)] : []),
         gte(invoices.issueDate, start),
         lte(invoices.issueDate, end),
         ne(invoices.transactionType, 'CreditNote')
@@ -6683,7 +6687,7 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getReportArAgingSummary(companyId: number, start: Date, end: Date) {
+  async getReportArAgingSummary(companyId: number, start: Date, end: Date, branchId?: number) {
     const rows = await db
       .select()
       .from(invoices)
@@ -6691,6 +6695,7 @@ export class DatabaseStorage implements IStorage {
       .leftJoin(payments, eq(payments.invoiceId, invoices.id))
       .where(and(
         eq(invoices.companyId, companyId),
+        ...(branchId ? [eq(invoices.branchId, branchId)] : []),
         gte(invoices.issueDate, start),
         lte(invoices.issueDate, end),
         ne(invoices.transactionType, 'CreditNote')
@@ -6739,7 +6744,7 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getReportArAgingDetails(companyId: number, start: Date, end: Date) {
+  async getReportArAgingDetails(companyId: number, start: Date, end: Date, branchId?: number) {
     const rows = await db
       .select()
       .from(invoices)
@@ -6747,6 +6752,7 @@ export class DatabaseStorage implements IStorage {
       .leftJoin(payments, eq(payments.invoiceId, invoices.id))
       .where(and(
         eq(invoices.companyId, companyId),
+        ...(branchId ? [eq(invoices.branchId, branchId)] : []),
         gte(invoices.issueDate, start),
         lte(invoices.issueDate, end),
         ne(invoices.transactionType, 'CreditNote')
@@ -6789,7 +6795,7 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
-  async getReportInvoiceDetails(companyId: number, start: Date, end: Date) {
+  async getReportInvoiceDetails(companyId: number, start: Date, end: Date, branchId?: number) {
     const rows = await db
       .select()
       .from(invoices)
@@ -6797,6 +6803,7 @@ export class DatabaseStorage implements IStorage {
       .leftJoin(payments, eq(payments.invoiceId, invoices.id))
       .where(and(
         eq(invoices.companyId, companyId),
+        ...(branchId ? [eq(invoices.branchId, branchId)] : []),
         gte(invoices.issueDate, start),
         lte(invoices.issueDate, end)
       ));
@@ -6828,7 +6835,7 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
-  async getReportQuoteDetails(companyId: number, start: Date, end: Date) {
+  async getReportQuoteDetails(companyId: number, start: Date, end: Date, branchId?: number) {
     const rows = await db
       .select()
       .from(quotations)
@@ -6850,7 +6857,7 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getReportCustomerBalanceSummary(companyId: number, start: Date, end: Date) {
+  async getReportCustomerBalanceSummary(companyId: number, start: Date, end: Date, branchId?: number) {
     const rows = await db
       .select()
       .from(invoices)
@@ -6858,6 +6865,7 @@ export class DatabaseStorage implements IStorage {
       .leftJoin(payments, eq(payments.invoiceId, invoices.id))
       .where(and(
         eq(invoices.companyId, companyId),
+        ...(branchId ? [eq(invoices.branchId, branchId)] : []),
         gte(invoices.issueDate, start),
         lte(invoices.issueDate, end),
         ne(invoices.transactionType, 'CreditNote')
@@ -6890,13 +6898,14 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getReportReceivableSummary(companyId: number, start: Date, end: Date) {
+  async getReportReceivableSummary(companyId: number, start: Date, end: Date, branchId?: number) {
     const rows = await db
       .select()
       .from(invoices)
       .leftJoin(payments, eq(payments.invoiceId, invoices.id))
       .where(and(
         eq(invoices.companyId, companyId),
+        ...(branchId ? [eq(invoices.branchId, branchId)] : []),
         gte(invoices.issueDate, start),
         lte(invoices.issueDate, end),
         ne(invoices.transactionType, 'CreditNote')
@@ -6924,7 +6933,7 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
-  async getReportReceivableDetails(companyId: number, start: Date, end: Date) {
+  async getReportReceivableDetails(companyId: number, start: Date, end: Date, branchId?: number) {
     const rows = await db
       .select()
       .from(invoices)
@@ -6932,6 +6941,7 @@ export class DatabaseStorage implements IStorage {
       .leftJoin(payments, eq(payments.invoiceId, invoices.id))
       .where(and(
         eq(invoices.companyId, companyId),
+        ...(branchId ? [eq(invoices.branchId, branchId)] : []),
         gte(invoices.issueDate, start),
         lte(invoices.issueDate, end),
         ne(invoices.transactionType, 'CreditNote')
@@ -6963,7 +6973,7 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
-  async getReportBadDebts(companyId: number, start: Date, end: Date) {
+  async getReportBadDebts(companyId: number, start: Date, end: Date, branchId?: number) {
     const rows = await db
       .select()
       .from(invoices)
@@ -6971,6 +6981,7 @@ export class DatabaseStorage implements IStorage {
       .leftJoin(payments, eq(payments.invoiceId, invoices.id))
       .where(and(
         eq(invoices.companyId, companyId),
+        ...(branchId ? [eq(invoices.branchId, branchId)] : []),
         gte(invoices.issueDate, start),
         lte(invoices.issueDate, end),
         ne(invoices.transactionType, 'CreditNote')
@@ -7005,7 +7016,7 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
-  async getReportBankCharges(companyId: number, start: Date, end: Date) {
+  async getReportBankCharges(companyId: number, start: Date, end: Date, branchId?: number) {
     const rows = await db
       .select()
       .from(payments)
@@ -7013,6 +7024,7 @@ export class DatabaseStorage implements IStorage {
       .leftJoin(customers, eq(invoices.customerId, customers.id))
       .where(and(
         eq(payments.companyId, companyId),
+        ...(branchId ? [eq(payments.branchId, branchId)] : []),
         gte(payments.paymentDate, start),
         lte(payments.paymentDate, end),
         eq(payments.paymentMethod, 'BANK_TRANSFER')
@@ -7028,7 +7040,7 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getReportTimeToGetPaid(companyId: number, start: Date, end: Date) {
+  async getReportTimeToGetPaid(companyId: number, start: Date, end: Date, branchId?: number) {
     const rows = await db
       .select()
       .from(payments)
@@ -7036,6 +7048,7 @@ export class DatabaseStorage implements IStorage {
       .leftJoin(customers, eq(invoices.customerId, customers.id))
       .where(and(
         eq(payments.companyId, companyId),
+        ...(branchId ? [eq(payments.branchId, branchId)] : []),
         gte(payments.paymentDate, start),
         lte(payments.paymentDate, end)
       ));
@@ -7056,13 +7069,14 @@ export class DatabaseStorage implements IStorage {
     });
   }
 
-  async getReportRefundHistory(companyId: number, start: Date, end: Date) {
+  async getReportRefundHistory(companyId: number, start: Date, end: Date, branchId?: number) {
     const creditNotes = await db
       .select()
       .from(invoices)
       .leftJoin(customers, eq(invoices.customerId, customers.id))
       .where(and(
         eq(invoices.companyId, companyId),
+        ...(branchId ? [eq(invoices.branchId, branchId)] : []),
         gte(invoices.issueDate, start),
         lte(invoices.issueDate, end),
         eq(invoices.transactionType, 'CreditNote')
@@ -7088,7 +7102,7 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getReportWithholdingTax(companyId: number, start: Date, end: Date) {
+  async getReportWithholdingTax(companyId: number, start: Date, end: Date, branchId?: number) {
     const rows = await db
       .select()
       .from(invoices)
@@ -7096,6 +7110,7 @@ export class DatabaseStorage implements IStorage {
       .innerJoin(invoiceItems, eq(invoiceItems.invoiceId, invoices.id))
       .where(and(
         eq(invoices.companyId, companyId),
+        ...(branchId ? [eq(invoices.branchId, branchId)] : []),
         gte(invoices.issueDate, start),
         lte(invoices.issueDate, end),
         ne(invoices.transactionType, 'CreditNote')
@@ -7128,13 +7143,14 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getReportExpenseDetails(companyId: number, start: Date, end: Date) {
+  async getReportExpenseDetails(companyId: number, start: Date, end: Date, branchId?: number) {
     const rows = await db
       .select()
       .from(expenses)
       .leftJoin(suppliers, eq(expenses.supplierId, suppliers.id))
       .where(and(
         eq(expenses.companyId, companyId),
+        ...(branchId ? [eq(expenses.branchId, branchId)] : []),
         gte(expenses.expenseDate, start),
         lte(expenses.expenseDate, end)
       ));
@@ -7152,12 +7168,13 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getReportExpensesByCategory(companyId: number, start: Date, end: Date) {
+  async getReportExpensesByCategory(companyId: number, start: Date, end: Date, branchId?: number) {
     const rows = await db
       .select()
       .from(expenses)
       .where(and(
         eq(expenses.companyId, companyId),
+        ...(branchId ? [eq(expenses.branchId, branchId)] : []),
         gte(expenses.expenseDate, start),
         lte(expenses.expenseDate, end)
       ));
@@ -7181,13 +7198,14 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getReportExpensesByCustomer(companyId: number, start: Date, end: Date) {
+  async getReportExpensesByCustomer(companyId: number, start: Date, end: Date, branchId?: number) {
     const rows = await db
       .select()
       .from(expenses)
       .leftJoin(suppliers, eq(expenses.supplierId, suppliers.id))
       .where(and(
         eq(expenses.companyId, companyId),
+        ...(branchId ? [eq(expenses.branchId, branchId)] : []),
         gte(expenses.expenseDate, start),
         lte(expenses.expenseDate, end)
       ));
@@ -7209,12 +7227,13 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getReportExpensesByProject(companyId: number, start: Date, end: Date) {
+  async getReportExpensesByProject(companyId: number, start: Date, end: Date, branchId?: number) {
     const rows = await db
       .select()
       .from(expenses)
       .where(and(
         eq(expenses.companyId, companyId),
+        ...(branchId ? [eq(expenses.branchId, branchId)] : []),
         gte(expenses.expenseDate, start),
         lte(expenses.expenseDate, end)
       ));
@@ -7235,12 +7254,13 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getReportBillableExpenseDetails(companyId: number, start: Date, end: Date) {
+  async getReportBillableExpenseDetails(companyId: number, start: Date, end: Date, branchId?: number) {
     const rows = await db
       .select()
       .from(expenses)
       .where(and(
         eq(expenses.companyId, companyId),
+        ...(branchId ? [eq(expenses.branchId, branchId)] : []),
         gte(expenses.expenseDate, start),
         lte(expenses.expenseDate, end),
         eq(expenses.status, 'pending')
@@ -7256,7 +7276,7 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getReportTaxSummary(companyId: number, start: Date, end: Date) {
+  async getReportTaxSummary(companyId: number, start: Date, end: Date, branchId?: number) {
     // Output tax from invoices grouped by tax type
     const invoiceRows = await db
       .select()
@@ -7265,6 +7285,7 @@ export class DatabaseStorage implements IStorage {
       .leftJoin(taxTypes, eq(invoiceItems.taxTypeId, taxTypes.id))
       .where(and(
         eq(invoices.companyId, companyId),
+        ...(branchId ? [eq(invoices.branchId, branchId)] : []),
         gte(invoices.issueDate, start),
         lte(invoices.issueDate, end),
         ne(invoices.transactionType, 'CreditNote')
@@ -7276,6 +7297,7 @@ export class DatabaseStorage implements IStorage {
       .from(expenses)
       .where(and(
         eq(expenses.companyId, companyId),
+        ...(branchId ? [eq(expenses.branchId, branchId)] : []),
         gte(expenses.expenseDate, start),
         lte(expenses.expenseDate, end)
       ));
@@ -7642,7 +7664,7 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async getReportAutoSparesDailySales(companyId: number, start: Date, end: Date): Promise<any[]> {
+  async getReportAutoSparesDailySales(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]> {
     const saleRows = await db.select()
       .from(invoices)
       .where(and(
@@ -7730,7 +7752,7 @@ export class DatabaseStorage implements IStorage {
       }));
   }
 
-  async getReportTopSellingParts(companyId: number, start: Date, end: Date): Promise<any[]> {
+  async getReportTopSellingParts(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]> {
     const rows = await db.select({
       item: invoiceItems,
       invoice: invoices,
@@ -7774,7 +7796,7 @@ export class DatabaseStorage implements IStorage {
       }));
   }
 
-  async getReportDeadStock(companyId: number, start: Date, end: Date): Promise<any[]> {
+  async getReportDeadStock(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]> {
     const productRows = await db.select().from(products).where(eq(products.companyId, companyId));
     const salesRows = await db.select({
       productId: invoiceItems.productId,
@@ -7831,7 +7853,7 @@ export class DatabaseStorage implements IStorage {
       .sort((a, b) => b.daysSinceLastSale - a.daysSinceLastSale);
   }
 
-  async getReportProfitMargins(companyId: number, start: Date, end: Date): Promise<any[]> {
+  async getReportProfitMargins(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]> {
     const rows = await db.select({
       item: invoiceItems,
       invoice: invoices,
@@ -7908,7 +7930,7 @@ export class DatabaseStorage implements IStorage {
       }));
   }
 
-  async getReportSupplierPerformance(companyId: number, start: Date, end: Date): Promise<any[]> {
+  async getReportSupplierPerformance(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]> {
     const poRows = await db.select({
       po: purchaseOrders,
       supplier: suppliers,
@@ -7993,7 +8015,7 @@ export class DatabaseStorage implements IStorage {
     })).sort((a, b) => Number(b.purchaseValue) - Number(a.purchaseValue));
   }
 
-  async getReportCustomerCredit(companyId: number, start: Date, end: Date): Promise<any[]> {
+  async getReportCustomerCredit(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]> {
     const rows = await db.select({
       invoice: invoices,
       customer: customers,
@@ -8065,7 +8087,7 @@ export class DatabaseStorage implements IStorage {
     })).sort((a, b) => Number(b.balance) - Number(a.balance));
   }
 
-  async getReportSalespersonPerformance(companyId: number, start: Date, end: Date): Promise<any[]> {
+  async getReportSalespersonPerformance(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]> {
     const rows = await db.select({
       invoice: invoices,
       item: invoiceItems,
@@ -8121,7 +8143,7 @@ export class DatabaseStorage implements IStorage {
     })).sort((a, b) => Number(b.revenue) - Number(a.revenue));
   }
 
-  async getReportCategoryBrandPerformance(companyId: number, start: Date, end: Date): Promise<any[]> {
+  async getReportCategoryBrandPerformance(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]> {
     const rows = await db.select({
       item: invoiceItems,
       invoice: invoices,
@@ -8161,7 +8183,7 @@ export class DatabaseStorage implements IStorage {
     })).sort((a, b) => Number(b.revenue) - Number(a.revenue));
   }
 
-  async getReportReturnWarranty(companyId: number, start: Date, end: Date): Promise<any[]> {
+  async getReportReturnWarranty(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]> {
     const creditNotes = await db.select({
       invoice: invoices,
       customer: customers,
@@ -8206,7 +8228,7 @@ export class DatabaseStorage implements IStorage {
     return rows.sort((a, b) => b.date.localeCompare(a.date));
   }
 
-  async getReportReorderSuggestions(companyId: number, start: Date, end: Date): Promise<any[]> {
+  async getReportReorderSuggestions(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]> {
     const productRows = await db.select().from(products).where(and(eq(products.companyId, companyId), eq(products.isTracked, true)));
     const salesRows = await db.select({
       productId: invoiceItems.productId,
@@ -8252,7 +8274,7 @@ export class DatabaseStorage implements IStorage {
     }).filter(row => row.suggestedQty > 0).sort((a, b) => b.suggestedQty - a.suggestedQty);
   }
 
-  async getReportPriceChanges(companyId: number, start: Date, end: Date): Promise<any[]> {
+  async getReportPriceChanges(companyId: number, start: Date, end: Date, branchId?: number): Promise<any[]> {
     const rows = await db.select({
       adjustment: priceAdjustments,
       product: products,
@@ -9033,8 +9055,9 @@ export class DatabaseStorage implements IStorage {
     });
   }
 
-  async getLedgerEntries(companyId: number, accountId?: number, dateFrom?: Date, dateTo?: Date): Promise<any[]> {
+  async getLedgerEntries(companyId: number, accountId?: number, dateFrom?: Date, dateTo?: Date, branchId?: number): Promise<any[]> {
     const filters: any[] = [eq(accounts.companyId, companyId)];
+    if (branchId) filters.push(eq(journalEntries.branchId, branchId));
     if (accountId) filters.push(eq(ledgerEntries.accountId, accountId));
     if (dateFrom) filters.push(gte(journalEntries.entryDate, dateFrom));
     if (dateTo) filters.push(lte(journalEntries.entryDate, dateTo));
@@ -9056,9 +9079,10 @@ export class DatabaseStorage implements IStorage {
     .orderBy(journalEntries.entryDate);
   }
 
-  async getTrialBalance(companyId: number, date?: Date): Promise<any[]> {
+  async getTrialBalance(companyId: number, date?: Date, branchId?: number): Promise<any[]> {
     const filters: any[] = [eq(accounts.companyId, companyId)];
     const entriesFilters: any[] = [];
+    if (branchId) entriesFilters.push(eq(journalEntries.branchId, branchId));
     if (date) entriesFilters.push(lte(journalEntries.entryDate, date));
 
     const allAccounts = await db.select().from(accounts).where(and(...filters));

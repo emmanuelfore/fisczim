@@ -191,7 +191,7 @@ export default function POSPage() {
   const { data: company } = useCompany(companyId);
   const isCashier = (company as any)?.role === "cashier";
   const { data: products, isLoading: isLoadingProducts } =
-    useProducts(companyId);
+    useProducts(companyId, selectedBranchId || undefined);
   const { data: serialNumbers = [] } = useProductSerials(companyId, undefined, "IN_STOCK");
 
   // Emergency fallback: if React Query returns nothing but we have a companyId,

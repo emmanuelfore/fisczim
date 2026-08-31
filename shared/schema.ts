@@ -119,6 +119,7 @@ export const companies = pgTable("companies", {
   busSettings: jsonb("bus_settings"), // Controls bus-ticketing feature visibility for web and APK.
   approvalSettings: jsonb("approval_settings"), // Company-level approval policy per action type
   partnershipSettings: jsonb("partnership_settings"), // Dual-logo and partnership display settings
+  featureSettings: jsonb("feature_settings"), // Optional feature toggles for UI (e.g. Manufacturing, Freight)
   appMode: text("app_mode").default("pos"), // pos, restaurant, bus_ticketing
   superadminVisible: boolean("superadmin_visible").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow(),

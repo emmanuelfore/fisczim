@@ -23,7 +23,8 @@ import {
   Bus,
   Mail,
   Wrench,
-  Languages
+  Languages,
+  Settings2
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -52,6 +53,7 @@ import { DEFAULT_BUS_SETTINGS, normalizeBusSettings } from "@shared/bus-settings
 import { AppModeSettings } from "@/components/settings/app-mode-settings";
 import { normalizeAppMode } from "@shared/app-mode";
 import { SalesOrdersSettings } from "@/components/settings/sales-orders-settings";
+import { FeatureSettings } from "@/components/settings/feature-settings";
 
 export default function SettingsPage() {
   const { toast } = useToast();
@@ -125,6 +127,7 @@ export default function SettingsPage() {
         busSettings: activeCompany.busSettings || DEFAULT_BUS_SETTINGS,
         appMode: normalizeAppMode((activeCompany as any).appMode),
         primaryColor: activeCompany.primaryColor || "#4f46e5",
+        featureSettings: activeCompany.featureSettings || {},
       });
     }
   }, [activeCompany]);
@@ -201,6 +204,7 @@ export default function SettingsPage() {
       title: t("System"),
       items: [
         { id: "language", label: t("Language") },
+        { id: "features", label: t("Modules & Features") },
         { id: "communication", label: t("Communication") },
         ...(activeCompany?.role === 'owner' ? [{ id: "maintenance", label: t("Maintenance") }] : [])
       ]
@@ -260,12 +264,13 @@ export default function SettingsPage() {
           </div>
         </div>
       );
+      case 'features': return <FeatureSettings formData={formData} setFormData={setFormData} />;
       case 'maintenance': return <MaintenanceSettings company={activeCompany} />;
       default: return <OrganizationProfile company={activeCompany} formData={formData} setFormData={setFormData} />;
     }
   };
 
-  const showGlobalSave = ['profile', 'banking', 'accounting', 'inventory', 'tax', 'app-mode', 'pos', 'communication', 'restaurant', 'bus-ticketing', 'maintenance'].includes(visibleActiveTab);
+  const showGlobalSave = ['profile', 'banking', 'accounting', 'inventory', 'tax', 'app-mode', 'pos', 'communication', 'restaurant', 'bus-ticketing', 'maintenance', 'features'].includes(visibleActiveTab);
 
   const getItemIcon = (id: string) => {
     switch (id) {
@@ -286,6 +291,7 @@ export default function SettingsPage() {
       case "bus-ticketing": return Bus;
       case "communication": return Mail;
       case "language": return Languages;
+      case "features": return Settings2;
       case "maintenance": return Wrench;
       default: return Building2;
     }
@@ -311,6 +317,7 @@ const getTabMeta = (id: string) => {
       case "bus-ticketing": return { title: t("Bus Ticketing Settings"), subtitle: t("Manage ticketing routes, fleet settings, and conductor configs.") };
       case "communication": return { title: t("Communication Settings"), subtitle: t("Configure email notifications and templates.") };
       case "language": return { title: t("Interface Language"), subtitle: t("Choose the language used across the system.") };
+      case "features": return { title: t("Modules & Features"), subtitle: t("Enable or disable specific system modules for your organization.") };
       case "maintenance": return { title: t("System Maintenance"), subtitle: t("Perform system diagnostic tasks and database resets.") };
       default: return { title: t("Settings"), subtitle: t("Manage your system settings and preferences.") };
     }

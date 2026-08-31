@@ -8903,7 +8903,7 @@ export class DatabaseStorage implements IStorage {
     });
   }
 
-  async getJournalEntries(companyId: number, dateFrom?: Date, dateTo?: Date): Promise<any[]> {
+  async getJournalEntries(companyId: number, dateFrom?: Date, dateTo?: Date, branchId?: number): Promise<any[]> {
     const filters = [eq(journalEntries.companyId, companyId)];
     if (dateFrom) filters.push(gte(journalEntries.entryDate, dateFrom));
     if (dateTo) filters.push(lte(journalEntries.entryDate, dateTo));

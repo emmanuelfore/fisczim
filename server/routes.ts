@@ -9175,10 +9175,7 @@ export async function registerRoutes(
     const companyId = Number(req.params.companyId);
     const branchId = getBranchId(req);
     
-    const invoiceFilters = [eq(supplierInvoices.companyId, companyId)];
-    if (branchId) {
-      invoiceFilters.push(eq(supplierInvoices.branchId, branchId));
-    }
+    const invoiceFilters: any[] = [eq(supplierInvoices.companyId, companyId)];
 
     const invoices = await db
       .select({

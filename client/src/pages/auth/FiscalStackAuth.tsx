@@ -110,12 +110,16 @@ export default function AuthPage() {
     try {
       setError(null);
       setIsLoggingIn(true);
-      await registerWithPassword({
+      const data = await registerWithPassword({
         email: signupData.email,
         password: signupData.password,
         name: signupData.name,
       });
-      setSuccessMsg(t("Account created! Logging you in..."));
+      if (data?.session) {
+        setSuccessMsg(t("Account created! Logging you in..."));
+      } else {
+        setSuccessMsg(t("Account created! Please check your email to verify your account before logging in."));
+      }
       setIsLoggingIn(false);
     } catch (error: any) {
       console.error("Signup failed:", error);

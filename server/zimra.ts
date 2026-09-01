@@ -748,7 +748,6 @@ export class ZimraDevice {
         response: any;
         signature: string;
         hash: string;
-        serverHash: string | null; // ZIMRA's server-returned hash — use this for chaining next receipt
         verificationCode: string;
         synced: boolean;
         validationResult?: ReceiptValidationResult;
@@ -832,21 +831,18 @@ export class ZimraDevice {
             const validationResult = this.parseValidationResponse(response);
             const verificationCode = this.calculateVerificationCode(signature);
 
-            const serverHash = response.receiptServerSignature?.hash || null;
-
             if (!validationResult.valid) {
                 return {
                     response,
                     signature,
                     hash,
-                    serverHash,
                     verificationCode,
                     synced: true,
                     validationResult
                 };
             }
 
-            return { response, signature, hash, serverHash, verificationCode, synced: true };
+            return { response, signature, hash, verificationCode, synced: true };
         } catch (error) {
             if (allowOffline && error instanceof ZimraOfflineError) {
                 console.info("Offline Fallback: Returning generated signatures for local record.");
@@ -854,7 +850,6 @@ export class ZimraDevice {
                     response: null,
                     signature,
                     hash,
-                    serverHash: null,
                     verificationCode: this.calculateVerificationCode(signature),
                     synced: false
                 };

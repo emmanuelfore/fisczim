@@ -1178,11 +1178,7 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
         // only exception (a call ZIMRA rejected as non-sequential).
         companyUpdateData.lastReceiptGlobalNo = receiptData.receiptGlobalNo;
         companyUpdateData.dailyReceiptCount = receiptData.receiptCounter;
-        // CRITICAL: ZIMRA chains receipts using the SERVER-returned hash (receiptServerSignature.hash),
-        // NOT the device-computed hash. Saving the wrong hash causes every subsequent receipt to fail
-        // with RCPT020 "Invoice signature is not valid" because the previousReceiptHash in the next
-        // signature won't match what ZIMRA stored.
-        companyUpdateData.lastFiscalHash = result.serverHash || result.hash;
+        companyUpdateData.lastFiscalHash = result.hash;
         await storage.updateCompany(company.id, companyUpdateData);
 
         return updatedInvoice;

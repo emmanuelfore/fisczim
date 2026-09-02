@@ -2355,12 +2355,12 @@ export class DatabaseStorage implements IStorage {
 
           if (invoiceIds.length > 0) {
             // Delete related records first due to foreign key constraints
-            await db.delete(invoiceItems).where(sql`${invoiceItems.invoiceId} IN ${invoiceIds}`);
-            await db.delete(validationErrors).where(sql`${validationErrors.invoiceId} IN ${invoiceIds}`);
-            await db.delete(payments).where(sql`${payments.invoiceId} IN ${invoiceIds}`);
+            await db.delete(invoiceItems).where(inArray(invoiceItems.invoiceId, invoiceIds));
+            await db.delete(validationErrors).where(inArray(validationErrors.invoiceId, invoiceIds));
+            await db.delete(payments).where(inArray(payments.invoiceId, invoiceIds));
 
             // Finally delete the invoices themselves
-            await db.delete(invoices).where(eq(invoices.companyId, id));
+            await db.delete(invoices).where(inArray(invoices.id, invoiceIds));
             console.log(`[ZIMRA] Successfully deleted ${invoiceIds.length} test invoices and related data for company ${id}.`);
           }
         } catch (cleanupErr) {

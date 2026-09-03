@@ -751,7 +751,7 @@ export class DatabaseStorage implements IStorage {
       await tx.insert(companyUsers).values({
         userId,
         companyId: newCompany.id,
-        role: "admin"
+        role: "owner"
       });
 
       // Initialize default Chart of Accounts

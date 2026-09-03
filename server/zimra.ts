@@ -3,6 +3,11 @@ import axios, { AxiosInstance } from 'axios';
 import https from 'https';
 import crypto from 'crypto';
 import forge from 'node-forge';
+import {
+    buildFiscalDayDeviceSignatureInput,
+    buildReceiptDeviceSignatureInput,
+    normalizeFiscalCountersForSignature,
+} from './lib/fiscal-signatures.js';
 
 export class ZimraApiError extends Error {
     public statusCode: number;
@@ -583,139 +588,14 @@ export class ZimraDevice {
     }
 
     public async closeDay(fiscalDayNo: number, fiscalDayDate: string, lastReceiptCounter: number, counters: any[]) {
-        // Signature logic for CloseDay
-        // string_to_sign = f'{device_id}{fiscal_day_no}{fiscal_day_date}{concatenated_counters}'
-
         const deviceId = parseInt(this.config.deviceId);
-
-        // Filter out zero-value counters immediately as they should not be in signature OR payload
-        const activeCounters = counters.filter(c => Math.abs(parseFloat(c.fiscalCounterValue)) > 0.001);
-
-        // Sort counters according to ZIMRA spec / Python reference:
-        // Priority: Type (1-7) → Currency (alphabetical) → TaxID → MoneyType
-        const sortedCounters = activeCounters.sort((a, b) => {
-            // 1. Sort by Fiscal Counter Type (Priority Map)
-            const typePriority = (type: string) => {
-                const map: Record<string, number> = {
-                    'SALEBYTAX': 1,
-                    'SALETAXBYTAX': 2,
-                    'CREDITNOTEBYTAX': 3,
-                    'CREDITNOTETAXBYTAX': 4,
-                    'DEBITNOTEBYTAX': 5,
-                    'DEBITNOTETAXBYTAX': 6,
-                    'BALANCEBYMONEYTYPE': 7
-                };
-                return map[type.toUpperCase()] || 99;
-            };
-
-            const pa = typePriority(a.fiscalCounterType);
-            const pb = typePriority(b.fiscalCounterType);
-            if (pa !== pb) return pa - pb;
-
-            // 2. Sort by Currency (ALPHABETICAL ASCENDING)
-            const ca = a.fiscalCounterCurrency || "";
-            const cb = b.fiscalCounterCurrency || "";
-            if (ca !== cb) return ca.localeCompare(cb);
-
-            // 3. Sort by TaxID (Numerical or alphabetical fallback)
-            const ta = a.fiscalCounterTaxID ?? "";
-            const tb = b.fiscalCounterTaxID ?? "";
-            if (ta !== tb) {
-                if (typeof ta === 'number' && typeof tb === 'number') return ta - tb;
-                return String(ta).localeCompare(String(tb));
-            }
-
-            // 4. Sort by MoneyType (Priority based on ZIMRA Enum)
-            const getMoneyTypePriority = (mType: any) => {
-                const type = String(mType).toUpperCase();
-                if (type === 'CASH' || type === '0') return 0;
-                if (type === 'CARD' || type === '1') return 1;
-                if (type === 'MOBILEWALLET' || type === '2') return 2;
-                if (type === 'COUPON' || type === '3') return 3;
-                if (type === 'CREDIT' || type === '4') return 4;
-                if (type === 'BANKTRANSFER' || type === '5') return 5;
-                return 6; // OTHER
-            };
-
-            const ma = a.fiscalCounterMoneyType;
-            const mb = b.fiscalCounterMoneyType;
-            if (ma !== undefined || mb !== undefined) {
-                return getMoneyTypePriority(ma) - getMoneyTypePriority(mb);
-            }
-            return 0;
+        const normalizedCounters = normalizeFiscalCountersForSignature(counters);
+        const stringToSign = buildFiscalDayDeviceSignatureInput({
+            deviceId,
+            fiscalDayNo,
+            fiscalDayDate,
+            counters: normalizedCounters,
         });
-
-        // Normalize counters to canonical ZIMRA enum values for the payload
-        // (spec: fiscalCounterType/fiscalCounterMoneyType are enums like
-        // "SaleByTax" and "Cash"). The signature concatenation below
-        // uppercases explicitly as required by spec 13.3.1.
-        const canonicalCounterType = (type: any) => {
-            const map: Record<string, string> = {
-                'SALEBYTAX': 'SaleByTax',
-                'SALETAXBYTAX': 'SaleTaxByTax',
-                'CREDITNOTEBYTAX': 'CreditNoteByTax',
-                'CREDITNOTETAXBYTAX': 'CreditNoteTaxByTax',
-                'DEBITNOTEBYTAX': 'DebitNoteByTax',
-                'DEBITNOTETAXBYTAX': 'DebitNoteTaxByTax',
-                'BALANCEBYMONEYTYPE': 'BalanceByMoneyType',
-                'PAYOUTBYTAX': 'PayoutByTax',
-                'PAYOUTTAXBYTAX': 'PayoutTaxByTax'
-            };
-            return map[String(type).toUpperCase()] || String(type);
-        };
-        const canonicalMoneyType = (mType: any) => {
-            const map: Record<string, string> = {
-                'CASH': 'Cash',
-                'CARD': 'Card',
-                'MOBILEWALLET': 'MobileWallet',
-                'COUPON': 'Coupon',
-                'CREDIT': 'Credit',
-                'BANKTRANSFER': 'BankTransfer',
-                'OTHER': 'Other'
-            };
-            return map[String(mType).toUpperCase()] || String(mType);
-        };
-        const normalizedCounters = sortedCounters.map(c => {
-            const normalized = { ...c };
-            if (typeof normalized.fiscalCounterType === 'string') {
-                normalized.fiscalCounterType = canonicalCounterType(normalized.fiscalCounterType);
-            }
-            if (typeof normalized.fiscalCounterMoneyType === 'string') {
-                normalized.fiscalCounterMoneyType = canonicalMoneyType(normalized.fiscalCounterMoneyType);
-            }
-            return normalized;
-        });
-
-        console.log("Step 1 - Convert fiscalDayCounters:");
-        const concatenatedCounters = normalizedCounters.map((c: any) => {
-            const type = String(c.fiscalCounterType).toUpperCase();
-            const currency = String(c.fiscalCounterCurrency).toUpperCase();
-            const valueInCents = Math.round(c.fiscalCounterValue * 100);
-
-            // Python Reference Logic: Concatenate TaxPercent (if exists) then MoneyType (if exists)
-            // Note: My updated calculateFiscalCounters removes taxPercent from Balance counters.
-            let taxPStr = "";
-            let moneyTypeStr = "";
-
-            if (c.fiscalCounterTaxPercent !== undefined && c.fiscalCounterTaxPercent !== null) {
-                taxPStr = c.fiscalCounterTaxPercent.toFixed(2);
-            }
-
-            if (c.fiscalCounterMoneyType !== undefined && c.fiscalCounterMoneyType !== null) {
-                // Handle cases where it might be numeric (0=CASH, 1=CARD)
-                const moneyTypeMapping: Record<string | number, string> = {
-                    0: "CASH",
-                    1: "CARD"
-                };
-                moneyTypeStr = moneyTypeMapping[c.fiscalCounterMoneyType] || String(c.fiscalCounterMoneyType).toUpperCase();
-            }
-
-            const line = `${type}${currency}${taxPStr}${moneyTypeStr}${valueInCents}`;
-            console.log(line);
-            return line;
-        }).join("");
-
-        const stringToSign = `${deviceId}${fiscalDayNo}${fiscalDayDate}${concatenatedCounters}`;
 
         console.log("Step 2 - Concatenate all fields:");
         console.log(stringToSign);
@@ -756,50 +636,16 @@ export class ZimraDevice {
         const prepared = this.prepareReceipt(receiptData);
 
         // 2. Generate Signature
-        // Sort taxes for string construction
-        // "Taxes are ordered by taxID in ascending order and taxCode in alphabetical order"
-        const sortedTaxes = [...prepared.receiptTaxes].sort((a, b) => {
-            if (a.taxID !== b.taxID) return a.taxID - b.taxID;
-            return (a.taxCode || '').localeCompare(b.taxCode || '');
+        const stringToSign = buildReceiptDeviceSignatureInput({
+            deviceId: this.config.deviceId,
+            receiptType: prepared.receiptType,
+            receiptCurrency: prepared.receiptCurrency,
+            receiptGlobalNo: prepared.receiptGlobalNo,
+            receiptDate: prepared.receiptDate,
+            receiptTotal: prepared.receiptTotal,
+            receiptTaxes: prepared.receiptTaxes,
+            previousReceiptHash,
         });
-
-        const concatenatedTaxes = sortedTaxes.map(t => {
-            // "In case of exempt which does not send tax percent value, empty value should be used in signature."
-            // In Zimbabwe, Tax ID 1 is typically used for Exempt supplies.
-            let percentStr = "";
-            if (t.taxID !== 1 && t.taxPercent !== undefined && t.taxPercent !== null) {
-                // "In case taxPercent is an integer there should be dot and two zeros. 
-                // "In case taxPercent is not an integer there should be dot between integer and fractional part."
-                percentStr = t.taxPercent.toFixed(2);
-            }
-
-            const amount = Math.round(t.taxAmount * 100);
-            const sales = Math.round(t.salesAmountWithTax * 100);
-
-            // ZIMRA spec 13.2.1: each tax line in the signature is concatenated as
-            // taxCode || taxPercent || taxAmount || salesAmountWithTax.
-            // prepareReceipt always assigns a taxCode to the payload taxes, so ZIMRA
-            // recomputes the canonical hash WITH the taxCode. Omitting it here makes
-            // the device signature mismatch the payload and ZIMRA rejects it with
-            // RCPT020 "Invoice signature is not valid" (Red, blocks fiscal day close).
-            // When the payload has no taxCode (''), empty value is used — same string.
-            return `${t.taxCode || ''}${percentStr}${amount}${sales}`;
-        }).join('');
-
-        const deviceIdStr = parseInt(this.config.deviceId).toString();
-        // "receiptType Receipt type value in upper case."
-        const rType = prepared.receiptType.toUpperCase();
-        // "receiptCurrency Currency code (ISO 4217 currency code). It must be in upper case."
-        const rCurr = prepared.receiptCurrency.toUpperCase();
-        const rGlobal = prepared.receiptGlobalNo;
-        const rDate = prepared.receiptDate;
-        // "receiptTotal Receipt total is included in signature in cents."
-        const rTotal = Math.round(prepared.receiptTotal * 100);
-
-        let stringToSign = `${deviceIdStr}${rType}${rCurr}${rGlobal}${rDate}${rTotal}${concatenatedTaxes}`;
-        if (previousReceiptHash) {
-            stringToSign += previousReceiptHash;
-        }
 
         console.log('Receipt String to Sign:', stringToSign);
 

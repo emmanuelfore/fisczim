@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { storage } from "../../storage.js";
+import { attachApiKeyContext } from "../../lib/company-auth.js";
 
 export async function resolveApiKey(
   req: Request,
@@ -28,6 +29,6 @@ export async function resolveApiKey(
     return;
   }
 
-  req.company = company;
+  attachApiKeyContext(req as any, company);
   next();
 }

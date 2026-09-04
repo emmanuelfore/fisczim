@@ -5,6 +5,7 @@ import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 import NotFound from "@/pages/not-found";
 import LandingPage from "@/pages/landing";
 import AuthPage from "@/pages/auth";
@@ -864,7 +865,7 @@ function BrandingMeta() {
     // Note: We use the same favicon path for simplicity in development,
     // but in production these would be different assets in the build folder.
     // However, the logo is definitely different.
-  }, [brand]);
+  }, [brand, authorityName]);
 
   return null;
 }

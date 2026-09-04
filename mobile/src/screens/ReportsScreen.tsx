@@ -13,6 +13,8 @@ import { StatusBar } from "expo-status-bar";
 import { Modal, ScrollView } from "react-native";
 import { usePosSales, useInvoiceItems, useCurrencies, useCompany, useProducts } from "../hooks/usePosData";
 import { apiFetch, apiJson } from "../lib/api";
+import { ensureInvoiceReadyForPrint } from "../lib/fiscal-print";
+import { mergeCompanyWithCachedZimraConfig } from "../lib/fiscalStorage";
 import { printReceipt, printToBluetooth } from "../lib/printing";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import NetInfo from "@react-native-community/netinfo";
@@ -590,17 +592,19 @@ export function ReportsScreen({ onOpenDrawer, companyId, userRole = "member", us
   const handleReprint = async (sale: any, items: any[]) => {
     if (!company) return;
     setIsPrinting(true);
-    const ticketData = {
-      invoice: sale,
-      company,
-      items,
-      currencySymbol: currencySymbols[sale.currency || "USD"] || "$",
-      cashierName: sale.cashierName,
-      paidAmount: Number(sale.total || 0),
-      paperWidth: printerConfig.paperWidth,
-      terminalId: printerConfig.terminalId,
-    };
     try {
+      const readyInvoice = await ensureInvoiceReadyForPrint(sale, { items });
+      const printCompany = await mergeCompanyWithCachedZimraConfig(company, companyId);
+      const ticketData = {
+        invoice: readyInvoice,
+        company: printCompany,
+        items: readyInvoice.items || items,
+        currencySymbol: currencySymbols[readyInvoice.currency || sale.currency || "USD"] || "$",
+        cashierName: readyInvoice.cashierName || sale.cashierName,
+        paidAmount: Number(readyInvoice.total || sale.total || 0),
+        paperWidth: printerConfig.paperWidth,
+        terminalId: printerConfig.terminalId,
+      };
       await print(ticketData as any);
     } catch (e: any) {
       if (e.message !== "Print preview was cancelled.") {

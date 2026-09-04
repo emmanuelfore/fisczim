@@ -296,6 +296,7 @@ export function PrinterSettingsModal({ visible, onClose }: Props) {
                     enabled: next ? true : p.enabled,
                     isSunmi: next,
                     isZ100: next ? false : p.isZ100,
+                    isIPos: next ? false : p.isIPos,
                     isInternal: next ? true : false,
                     autoPrint: next ? true : p.autoPrint,
                     silentPrint: next ? true : p.silentPrint,
@@ -303,6 +304,30 @@ export function PrinterSettingsModal({ visible, onClose }: Props) {
                     paperWidth: next ? 58 : p.paperWidth,
                     printerWidth: next ? 48 : p.printerWidth,
                     sunmiDefaultsApplied: next ? true : p.sunmiDefaultsApplied,
+                  };
+                })}
+                C={C}
+                highlight
+              />
+              <ToggleRow
+                label="Use iPOS Printer Service (com.iposprinter)"
+                value={draft.isIPos}
+                disabled={false}
+                onToggle={() => setDraft(p => {
+                  const next = !p.isIPos;
+                  return {
+                    ...p,
+                    enabled: next ? true : p.enabled,
+                    isIPos: next,
+                    isSunmi: next ? false : p.isSunmi,
+                    isZ100: next ? false : p.isZ100,
+                    isInternal: next ? true : false,
+                    autoPrint: next ? true : p.autoPrint,
+                    silentPrint: next ? true : p.silentPrint,
+                    autoShowModal: next ? false : p.autoShowModal,
+                    paperWidth: next ? 58 : p.paperWidth,
+                    printerWidth: next ? 32 : p.printerWidth,
+                    iposDefaultsApplied: next ? true : p.iposDefaultsApplied,
                   };
                 })}
                 C={C}
@@ -319,6 +344,7 @@ export function PrinterSettingsModal({ visible, onClose }: Props) {
                     enabled: next ? true : p.enabled,
                     isZ100: next,
                     isSunmi: next ? false : p.isSunmi,
+                    isIPos: next ? false : p.isIPos,
                     isInternal: false,
                     autoPrint: next ? true : p.autoPrint,
                     silentPrint: next ? true : p.silentPrint,

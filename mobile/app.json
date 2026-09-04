@@ -60,7 +60,8 @@
           "locationWhenInUsePermission": "FieldPOS uses your location to report live bus trip positions and improve fleet tracking."
         }
       ],
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "expo-audio"
     ]
   }
 }

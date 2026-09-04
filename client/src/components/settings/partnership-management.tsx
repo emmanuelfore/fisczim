@@ -243,7 +243,10 @@ export function PartnershipManagement({ companyId }: PartnershipManagementProps)
                     fd.append("image", file);
                     try {
                       const res = await apiFetch("/api/upload", { method: "POST", body: fd });
-                      if (!res.ok) throw new Error("Upload failed");
+                      if (!res.ok) {
+                        const errorData = await res.json().catch(() => ({}));
+                        throw new Error(errorData.error || errorData.message || "Upload failed");
+                      }
                       const data = await res.json();
                       setForm({ ...form, logoUrl: data.url });
                     } catch (err: any) {

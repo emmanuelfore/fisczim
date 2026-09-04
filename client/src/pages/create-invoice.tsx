@@ -102,6 +102,10 @@ type LineItem = {
   isDiscount?: boolean;
 };
 
+// Discounts are fiscal adjustment lines rather than inventory items. The flag
+// is UI-only, so retained invoice lines are also recognised by their price.
+const isDiscountLine = (item: LineItem) => item.isDiscount === true || Number(item.unitPrice) < 0;
+
 export default function CreateInvoicePage() {
   const [location, setLocation] = useLocation();
   const companyId = parseInt(localStorage.getItem("selectedCompanyId") || "0");
@@ -252,6 +256,7 @@ export default function CreateInvoicePage() {
             hsCode: (item as any).product?.hsCode || undefined,
             taxTypeId: item.taxTypeId,
             serialNumber: (item as any).serialNumber || undefined,
+            isDiscount: Number(item.unitPrice) < 0,
           })),
         );
       }
@@ -613,7 +618,7 @@ export default function CreateInvoicePage() {
       return;
     }
 
-    const hasInvalidItems = items.some((item) => !item.productId);
+    const hasInvalidItems = items.some((item) => !item.productId && !isDiscountLine(item));
     if (hasInvalidItems) {
       toast({
         title: "Validation Error",
@@ -710,7 +715,7 @@ export default function CreateInvoicePage() {
       return;
     }
 
-    const hasInvalidItems = items.some((item) => !item.productId);
+    const hasInvalidItems = items.some((item) => !item.productId && !isDiscountLine(item));
     if (hasInvalidItems) {
       toast({
         title: "Validation Error",
@@ -804,10 +809,10 @@ export default function CreateInvoicePage() {
       return;
     }
 
-    if (items.some((item) => !item.productId)) {
+    if (items.some((item) => !item.productId && !isDiscountLine(item))) {
       toast({
         title: "Validation Error",
-        description: "All lines must have a product selected.",
+        description: "All sale lines must have a product selected.",
         variant: "destructive",
       });
       setLoadingAction(null);
@@ -915,7 +920,7 @@ export default function CreateInvoicePage() {
 
   const validateInvoice = (action: InvoiceAction): string[] => {
     const warnings: string[] = [];
-    if (items.some((item) => !item.hsCode || item.hsCode.length < 4)) {
+    if (items.some((item) => !isDiscountLine(item) && (!item.hsCode || item.hsCode.length < 4))) {
       warnings.push(
         "⚠️ Some items are missing valid HS Codes. ZIMRA requires proper classification.",
       );

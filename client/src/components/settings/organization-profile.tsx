@@ -7,6 +7,7 @@ import {
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Building2,
   Upload,
@@ -50,7 +51,7 @@ export function OrganizationProfile({
       });
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.message || "Upload failed");
+        throw new Error(errorData.error || errorData.message || "Upload failed");
       }
       const data = await res.json();
       await updateCompany.mutateAsync({ logoUrl: data.url });
@@ -203,6 +204,13 @@ export function OrganizationProfile({
                   />
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium text-[#64748B]">Country</Label>
+                    <Select value={formData.country || "Zimbabwe"} onValueChange={(country) => setFormData({ ...formData, country, currency: country === "Lesotho" ? "LSL" : formData.currency, fiscalProvider: country === "Lesotho" ? "LEKAKU" : formData.fiscalProvider })}>
+                      <SelectTrigger className="h-10 rounded-[10px] border-[#E5E7EB]"><SelectValue /></SelectTrigger>
+                      <SelectContent><SelectItem value="Zimbabwe">Zimbabwe</SelectItem><SelectItem value="Lesotho">Lesotho</SelectItem></SelectContent>
+                    </Select>
+                  </div>
                   <div className="space-y-2">
                     <Label className="text-xs font-medium text-[#64748B]">
                       Base Currency

@@ -58,7 +58,10 @@ export function useCreateCustomer(companyId: number) {
         method: "POST",
         body: JSON.stringify(data),
       });
-      if (!res.ok) throw new Error("Failed to create customer");
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || err.message || "Failed to create customer");
+      }
       return api.customers.create.responses[201].parse(await res.json());
     },
     onSuccess: () => {

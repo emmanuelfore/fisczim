@@ -69,6 +69,8 @@ import { resolveMediaUrl } from "../lib/media";
 import { useFrequentItems } from "../hooks/useFrequentItems";
 import { useProducts, useCreateInvoice, useCustomers, useCompany, useCurrencies, useTaxTypes, useBranches } from "../hooks/usePosData";
 import { apiFetch } from "../lib/api";
+import { ensureInvoiceReadyForPrint } from "../lib/fiscal-print";
+import { refreshOfflineFiscalCache, mergeCompanyWithCachedZimraConfig } from "../lib/fiscalStorage";
 import { DoneTextInput as TextInput } from "../ui/DoneTextInput";
 import { getSelectedBranchId, setSelectedBranchId } from "../lib/storage";
 import { supabase } from "../lib/supabase";
@@ -347,6 +349,9 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
 
   useEffect(() => {
     fetchFiscalStatus();
+    if (isOnline) {
+      refreshOfflineFiscalCache(companyId).catch(() => {});
+    }
     const interval = setInterval(fetchFiscalStatus, 30000); // 30s
     return () => clearInterval(interval);
   }, [companyId, isOnline]);
@@ -427,7 +432,10 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
       const online = !!state.isConnected && !!state.isInternetReachable;
       isOnlineRef.current = online;
       setIsOnline(online);
-      if (online) syncQueuedRef.current(false);
+      if (online) {
+        syncQueuedRef.current(false);
+        refreshOfflineFiscalCache(companyId).catch(() => {});
+      }
     });
     return () => unsubscribe();
   }, [companyId]);
@@ -483,14 +491,21 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
 
   const defaultCustomerId = useMemo(() => {
     if (!resolvedCustomers.length) return null;
-    const flagged = resolvedCustomers.find((c: any) => c.isDefault === true);
+    // Exclude test customers from default selection
+    const nonTestCustomers = resolvedCustomers.filter((c: any) => 
+      !c.name.toLowerCase().includes("test")
+    );
+    const customersToUse = nonTestCustomers.length > 0 ? nonTestCustomers : resolvedCustomers;
+    
+    const flagged = customersToUse.find((c: any) => c.isDefault === true);
     if (flagged) return flagged.id;
-    const named = resolvedCustomers.find((c: any) =>
+    const named = customersToUse.find((c: any) =>
       c.name.toLowerCase().includes("walk-in") ||
       c.name.toLowerCase().includes("cash") ||
-      c.name.toLowerCase().includes("guest")
+      c.name.toLowerCase().includes("guest") ||
+      c.name.toLowerCase().includes("default")
     );
-    return named ? named.id : resolvedCustomers[0].id;
+    return named ? named.id : customersToUse[0].id;
   }, [resolvedCustomers]);
 
   useEffect(() => {
@@ -641,18 +656,19 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
       return;
     }
     const availableStock = Number(product.branchStock ?? product.stockLevel ?? 0);
-    if (product.isTracked) {
-      const inCart = cart.find((item: CartItem) => item.productId === product.id)?.quantity || 0;
-      const nextQty = inCart + (qty ?? 1);
-      if (nextQty > availableStock) {
-        if (availableStock === 0) {
-          Alert.alert("Out of Stock", `${product.name} is out of stock in this branch.`);
-        } else {
-          Alert.alert("Insufficient Stock", `Only ${availableStock} ${product.unitOfMeasure ?? "units"} available for ${product.name}.`);
-        }
-        return;
-      }
-    }
+    // Allow negative stock
+    // if (product.isTracked) {
+    //   const inCart = cart.find((item: CartItem) => item.productId === product.id)?.quantity || 0;
+    //   const nextQty = inCart + (qty ?? 1);
+    //   if (nextQty > availableStock) {
+    //     if (availableStock === 0) {
+    //       Alert.alert("Out of Stock", `${product.name} is out of stock in this branch.`);
+    //     } else {
+    //       Alert.alert("Insufficient Stock", `Only ${availableStock} ${product.unitOfMeasure ?? "units"} available for ${product.name}.`);
+    //     }
+    //     return;
+    //   }
+    // }
 
     // Spawn flying particle animation towards cart
     if (event?.nativeEvent && cartPos) {
@@ -705,9 +721,10 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
     if (delta < 0 && nextQty < step) {
       return;
     }
-    if (delta > 0 && item.isTracked && nextQty > (item.stockLevel || 0)) {
-      return;
-    }
+    // Allow negative stock
+    // if (delta > 0 && item.isTracked && nextQty > (item.stockLevel || 0)) {
+    //   return;
+    // }
 
     if (delta > 0 && event?.nativeEvent && cartPos) {
       const { pageX, pageY } = event.nativeEvent;
@@ -726,7 +743,8 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
         if (it.productId !== productId) return it;
         const newQty = +(it.quantity + delta * step).toFixed(3);
         if (newQty < step) return it;
-        if (it.isTracked && newQty > (it.stockLevel || 0)) return it;
+        // Allow negative stock
+        // if (it.isTracked && newQty > (it.stockLevel || 0)) return it;
         return { ...it, quantity: newQty };
       })
     );
@@ -1201,9 +1219,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
     }
     setSaleDate(formatLocalDateInput());
     setPaidAmount((total * currencyInfo.rate).toFixed(2));
-    setTimeout(() => {
-      setShowCheckout(true);
-    }, 250);
+    setShowCheckout(true);
   };
 
   const processOrder = async () => {
@@ -1285,43 +1301,83 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     playCheckoutSound().catch(() => { });
 
-    // Trigger auto-print with a short delay now that state is already cleared
-    if (printerConfig.autoPrint) {
-      setTimeout(() => {
-        print({
-          invoice: optimisticInvoice,
-          company,
-          customer: optimisticInvoice.customerId ? resolvedCustomers?.find((c: any) => c.id === optimisticInvoice.customerId) : null,
-          items: printItems,
-          terminalId: printerConfig.terminalId,
-          currencySymbol: currencyInfo.symbol,
-          cashierName: userName,
-          paidAmount: parseFloat(paidAmount || "0"),
-          paperWidth: printerConfig.paperWidth
-        });
-      }, 200);
-    }
-
     // ── BACKGROUND: post the invoice to the server ───────────────────────────
+    // NOTE: We intentionally do NOT auto-print here yet for online sales.
+    // We wait for the server response which includes fiscal data (qrCodeData,
+    // receiptGlobalNo, Device ID, Verification Code) before printing.
+    const printTicket = async (inv: any) => {
+      const itemsForPrint = inv.items || inv.lineItems || printItems;
+      const readyInvoice = await ensureInvoiceReadyForPrint(inv, { items: itemsForPrint });
+      const printCompany = await mergeCompanyWithCachedZimraConfig(company, companyId);
+      await print({
+        invoice: readyInvoice,
+        company: printCompany,
+        customer: readyInvoice.customerId ? resolvedCustomers?.find((c: any) => c.id === readyInvoice.customerId) : null,
+        items: readyInvoice.items || readyInvoice.lineItems || itemsForPrint,
+        terminalId: printerConfig.terminalId,
+        currencySymbol: currencyInfo.symbol,
+        cashierName: userName,
+        paidAmount: parseFloat(paidAmount || "0"),
+        paperWidth: printerConfig.paperWidth
+      });
+    };
+
     if (!isOnline) {
-      addPendingSale(companyId, invoiceData, selectedBranchId).then((offlineId) => {
-        setLastInvoice((prev: any) => ({ ...prev, id: offlineId, _offline: true, items: prev?.items || printItems }));
-        refreshProducts();
+      // Offline — generate offline signature if possible
+      const { processOfflineFiscalization } = require('../lib/offline-fiscal');
+      processOfflineFiscalization(companyId, invoiceData, currencyInfo?.code || "USD", taxInclusive, { tryRefresh: false }).then((fiscalData: any) => {
+        let finalInvoiceData = { ...invoiceData, _offline: true };
+        let invoiceToPrint: any = { ...optimisticInvoice, _offline: true };
+        if (fiscalData) {
+          finalInvoiceData = { ...invoiceData, ...fiscalData };
+          invoiceToPrint = {
+            ...optimisticInvoice,
+            ...fiscalData,
+            invoiceNumber: `${fiscalData.receiptGlobalNo}`,
+            _offline: true,
+          };
+        }
+        
+        if (printerConfig.autoPrint) {
+          setTimeout(() => { printTicket(invoiceToPrint).catch(console.error); }, 200);
+        }
+        addPendingSale(companyId, finalInvoiceData, selectedBranchId).then((offlineId) => {
+          setLastInvoice((prev: any) => ({ ...invoiceToPrint, id: offlineId, _offline: true, items: prev?.items || printItems }));
+        });
+        // Refresh products in background to update quantities
+        setTimeout(() => refreshProducts().catch(console.error), 500);
       });
     } else {
       createInvoice(invoiceData)
         .then((created: any) => {
-          setLastInvoice({ ...created, items: created?.items || created?.lineItems || printItems }); // update so receipt printing uses the real invoice
-          refreshProducts();
+          const fiscalInvoice = { ...created, items: created?.items || created?.lineItems || printItems };
+          setLastInvoice(fiscalInvoice); // update so receipt printing uses the real invoice
+          // Print AFTER we have the fiscal invoice with QR code, Device ID etc.
+          if (printerConfig.autoPrint) {
+            setTimeout(() => { printTicket(fiscalInvoice).catch(console.error); }, 200);
+          }
+          // Refresh products in background to update quantities
+          setTimeout(() => refreshProducts().catch(console.error), 500);
         })
         .catch(async (err: any) => {
           const isNetwork = err?.message?.toLowerCase().includes("network") || err?.message?.toLowerCase().includes("failed to fetch");
           if (!isNetwork) {
             Alert.alert("Sale Sync Failed", `Server error: ${err?.message}\n\nThis sale will be queued for later retry.`);
           }
-          // Network failed after optimistic update — queue it offline silently
-          const offlineId = await addPendingSale(companyId, invoiceData, selectedBranchId);
-          setLastInvoice((prev: any) => ({ ...prev, id: offlineId, _offline: true, items: prev?.items || printItems }));
+          // Network failed after optimistic update — queue it offline with signature if possible
+          const { processOfflineFiscalization } = require('../lib/offline-fiscal');
+          const fiscalData = await processOfflineFiscalization(companyId, invoiceData, currencyInfo?.code || "USD", taxInclusive);
+          const finalInvoiceData = fiscalData ? { ...invoiceData, ...fiscalData } : { ...invoiceData, _offline: true };
+          const invoiceToPrint = fiscalData
+            ? { ...optimisticInvoice, ...fiscalData, invoiceNumber: `${fiscalData.receiptGlobalNo}`, _offline: true }
+            : { ...optimisticInvoice, _offline: true };
+          
+          const offlineId = await addPendingSale(companyId, finalInvoiceData, selectedBranchId);
+          const offlineInvoice = { ...invoiceToPrint, id: offlineId, _offline: true, items: invoiceToPrint.items || printItems };
+          setLastInvoice(offlineInvoice);
+          if (printerConfig.autoPrint) {
+            setTimeout(() => { printTicket(offlineInvoice).catch(console.error); }, 200);
+          }
         });
     }
   };
@@ -1331,11 +1387,14 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
 
   const handlePrint = async () => {
     if (!lastInvoice || !company) return;
+    const itemsForPrint = lastInvoice.items || lastInvoice.lineItems || lastInvoice.invoiceItems || [];
+    const readyInvoice = await ensureInvoiceReadyForPrint(lastInvoice, { items: itemsForPrint });
+    const printCompany = await mergeCompanyWithCachedZimraConfig(company, companyId);
     await print({
-      invoice: lastInvoice,
-      company,
-      customer: lastInvoice.customerId ? resolvedCustomers?.find((c: any) => c.id === lastInvoice.customerId) : null,
-      items: lastInvoice.items || lastInvoice.lineItems || lastInvoice.invoiceItems || [],
+      invoice: readyInvoice,
+      company: printCompany,
+      customer: readyInvoice.customerId ? resolvedCustomers?.find((c: any) => c.id === readyInvoice.customerId) : null,
+      items: readyInvoice.items || readyInvoice.lineItems || itemsForPrint,
       terminalId: printerConfig.terminalId,
       currencySymbol: currencyInfo.symbol,
       cashierName: userName,
@@ -1519,7 +1578,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                 const inCart = !!inCartItem;
                 const visibleStock = Number(item.branchStock ?? item.stockLevel ?? 0);
                 const stockLow = item.isTracked && visibleStock <= 3;
-                const outOfStock = item.isTracked && visibleStock === 0;
+                const outOfStock = false; // item.isTracked && visibleStock === 0;
                 const imageRaw = item.imageUrl ?? item.image_url ?? item.image ?? item.photoUrl ?? null;
                 const imageUrl = resolveMediaUrl(imageRaw);
                 const toTitleCase = (str: string) =>

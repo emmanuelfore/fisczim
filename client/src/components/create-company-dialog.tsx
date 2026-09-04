@@ -50,7 +50,7 @@ export function CreateCompanyDialog({
             Register Company
           </DialogTitle>
           <DialogDescription>
-            Enter your company details to start issuing ZIMRA-compliant
+            Enter your company details to start issuing fiscally compliant
             invoices.
           </DialogDescription>
         </DialogHeader>

@@ -84,8 +84,10 @@ export class MobileTaggedEncoder {
     return this;
   }
 
-  qrcode(data: string, size: number = 6): this {
-    this.buffer += `[C]<qrcode size='${Math.max(4, size * 3)}'>${data}</qrcode>\n`;
+  qrcode(data: string, size: number = 20): this {
+    // Use the standard ESC/POS QR code command format that react-native-thermal-printer supports
+    // Size parameter controls module size - larger values = bigger QR code
+    this.buffer += `[C]<qrcode size='${size}'>${data}</qrcode>\n`;
     return this;
   }
 

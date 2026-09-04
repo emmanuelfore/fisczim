@@ -90,6 +90,12 @@ export default function SettingsPage() {
         accountNumber: activeCompany.accountNumber || "",
         branchCode: activeCompany.branchCode || "",
         currency: activeCompany.currency || "USD",
+        country: activeCompany.country || "Zimbabwe",
+        fiscalProvider: (activeCompany as any).fiscalProvider || "ZIMRA",
+        lekakuGatewayUrl: (activeCompany as any).lekakuGatewayUrl || "",
+        fdmsDeviceId: activeCompany.fdmsDeviceId || "",
+        zimraPrivateKey: activeCompany.zimraPrivateKey || "",
+        zimraCertificate: activeCompany.zimraCertificate || "",
         branchName: activeCompany.branchName || "",
         emailSettings: activeCompany.emailSettings || {
           provider: 'resend',

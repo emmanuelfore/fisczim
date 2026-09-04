@@ -28,6 +28,7 @@ import { api, buildUrl } from "@shared/routes";
 import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useActiveCompany } from "@/hooks/use-active-company";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 
 const schema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -58,6 +59,7 @@ export function ManageTaxTypeDialog({ taxType, trigger }: Props) {
   const isEditing = !!taxType;
   const { activeCompanyId } = useActiveCompany();
   const companyId = activeCompanyId;
+  const { authorityName, authorityShortName, taxIdLabel, taxCodeLabel } = useFiscalAuthority();
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -153,7 +155,7 @@ export function ManageTaxTypeDialog({ taxType, trigger }: Props) {
           <DialogDescription>
             {isEditing
               ? `Modify ${taxType.name} settings.`
-              : "Create a new ZIMRA tax type configuration."}
+              : `Create a new ${authorityShortName} tax type configuration.`}
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -178,7 +180,7 @@ export function ManageTaxTypeDialog({ taxType, trigger }: Props) {
                 name="zimraCode"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Tax Code *</FormLabel>
+                    <FormLabel>{taxCodeLabel} *</FormLabel>
                     <FormControl>
                       <Input placeholder="e.g. C" {...field} />
                     </FormControl>
@@ -191,7 +193,7 @@ export function ManageTaxTypeDialog({ taxType, trigger }: Props) {
                 name="zimraTaxId"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Tax ID (Optional)</FormLabel>
+                    <FormLabel>{taxIdLabel} (Optional)</FormLabel>
                     <FormControl>
                       <Input placeholder="e.g. 3" {...field} />
                     </FormControl>

@@ -292,8 +292,12 @@ export function Receipt48({ id = "receipt-48", invoice, company, customer, items
                         vCode = "9A2B-C48D-80FE-12A5-99BF"; // Realistic looking placeholder
                     }
 
+                    const verifyUrl = company.fiscalProvider === "LEKAKU" || company.country === "Lesotho" 
+                        ? "https://lekaku.rsl.co.ls/verify" 
+                        : "https://fdms.zimra.co.zw/verify";
+                    
                     // Field [29]: QR data
-                    const qrData = invoice.qrCodeData || invoice.receiptQRData || company.qrUrl || (isSimulated ? "https://fdms.zimra.co.zw/verify/SIMULATION-ONLY" : "");
+                    const qrData = invoice.qrCodeData || invoice.receiptQRData || company.qrUrl || (isSimulated ? `${verifyUrl}/SIMULATION-ONLY` : "");
                     
                     if (isOffline && !qrData && !vCode) {
                         return (
@@ -319,7 +323,7 @@ export function Receipt48({ id = "receipt-48", invoice, company, customer, items
                                 )}
                                 {(invoice.qrUrl || company.qrUrl || isSimulated) && (
                                     <p className="text-[7px] mt-1 break-all italic">
-                                        Verify at: {invoice.qrUrl || company.qrUrl || "https://fdms.zimra.co.zw/verify"}
+                                        Verify at: {invoice.qrUrl || company.qrUrl || verifyUrl}
                                     </p>
                                 )}
                             </div>

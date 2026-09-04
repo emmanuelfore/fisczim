@@ -76,6 +76,7 @@ import {
   customers,
   currencies,
   taxTypes,
+  productTaxLevies,
   products,
   branches,
   branchUsers,
@@ -761,7 +762,14 @@ export async function registerRoutes(
 
   app.use("/uploads", express.static(uploadsDir));
 
-  app.post("/api/upload", requireAuth, imageUpload.single("image"), (req, res) => {
+  app.post("/api/upload", requireAuth, (req, res, next) => {
+    imageUpload.single("image")(req, res, (err) => {
+      if (err) {
+        return res.status(400).json({ message: "Upload failed: " + err.message });
+      }
+      next();
+    });
+  }, (req, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ message: "No file uploaded or invalid format" });
@@ -1109,7 +1117,14 @@ export async function registerRoutes(
   // Serve uploaded files locally if needed
   app.use('/uploads', express.static(path.join(rootDir, 'uploads')));
 
-  app.post("/api/companies/:id/logo", requireAuthOrApiKey, logoUpload.single("logo"), async (req, res) => {
+  app.post("/api/companies/:id/logo", requireAuthOrApiKey, (req, res, next) => {
+    logoUpload.single("logo")(req, res, (err) => {
+      if (err) {
+        return res.status(400).json({ message: "Upload failed", error: err.message });
+      }
+      next();
+    });
+  }, async (req, res) => {
     try {
       const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       if (!req.file) {
@@ -6629,12 +6644,21 @@ export async function registerRoutes(
   });
 
   app.post(api.customers.create.path, requireAuth, async (req, res) => {
-    const input = api.customers.create.input.parse(req.body);
-    const customer = await storage.createCustomer({
-      ...input,
-      companyId: Number(req.params.companyId)
-    });
-    res.status(201).json(customer);
+    try {
+      const input = api.customers.create.input.parse(req.body);
+      const customer = await storage.createCustomer({
+        ...input,
+        companyId: Number(req.params.companyId)
+      });
+      res.status(201).json(customer);
+    } catch (err) {
+      let msg = err.message;
+      if (err.errors && err.errors.length > 0) {
+        msg = err.errors.map(e => e.message).join(", ");
+      }
+      console.error('Customer create validation error:', msg);
+      res.status(400).json({ error: msg });
+    }
   });
 
   app.patch(api.customers.update.path, requireAuth, async (req, res) => {
@@ -10256,6 +10280,45 @@ export async function registerRoutes(
     }
   });
 
+  // LEKAKU levies are configured once, then assigned per product. This keeps
+  // checkout simple and produces `additionalTaxes` for the affected sale line.
+  app.get("/api/companies/:companyId/lekaku/product-levies", requireAuth, async (req, res) => {
+    const companyId = Number(req.params.companyId);
+    const rows = await db.select({
+      productId: productTaxLevies.productId,
+      taxTypeId: productTaxLevies.taxTypeId,
+      appliedForQuantity: productTaxLevies.appliedForQuantity,
+    }).from(productTaxLevies)
+      .innerJoin(products, eq(productTaxLevies.productId, products.id))
+      .where(eq(products.companyId, companyId));
+    res.json(rows);
+  });
+
+  app.put("/api/companies/:companyId/products/:productId/lekaku-levies", requireAuth, async (req, res) => {
+    const companyId = Number(req.params.companyId);
+    const productId = Number(req.params.productId);
+    const levies = z.array(z.object({
+      taxTypeId: z.number().int().positive(),
+      appliedForQuantity: z.number().positive().optional().nullable(),
+    })).parse(req.body.levies || []);
+    const [product] = await db.select({ id: products.id }).from(products)
+      .where(and(eq(products.id, productId), eq(products.companyId, companyId)));
+    if (!product) return res.status(404).json({ message: "Product not found" });
+    const levyTaxTypes = await db.select({ id: taxTypes.id, type: taxTypes.lekakuTaxType }).from(taxTypes)
+      .where(and(eq(taxTypes.companyId, companyId), inArray(taxTypes.id, levies.map(levy => levy.taxTypeId))));
+    if (levyTaxTypes.length !== levies.length || levyTaxTypes.some(t => !["PercentageLevy", "FixedValueLevy", "WithholdingTax"].includes(t.type || ""))) {
+      return res.status(400).json({ message: "Only configured LEKAKU levy tax types can be assigned to products" });
+    }
+    await db.transaction(async (tx) => {
+      await tx.delete(productTaxLevies).where(eq(productTaxLevies.productId, productId));
+      if (levies.length) await tx.insert(productTaxLevies).values(levies.map(levy => ({
+        productId, taxTypeId: levy.taxTypeId,
+        appliedForQuantity: levy.appliedForQuantity?.toString(),
+      })));
+    });
+    res.json({ productId, levies });
+  });
+
   app.get(api.tax.categories.path, requireAuth, async (req, res) => {
     const companyId = req.query.companyId ? Number(req.query.companyId) : (req as any).user?.companyId;
     if (!companyId && !req.user?.isSuperAdmin) return res.status(403).json({ message: "No company associated with request" });
@@ -10458,6 +10521,27 @@ export async function registerRoutes(
       // 1. Parallelize initial validation and data fetching
       let activeShiftPromise: Promise<any> = Promise.resolve(null);
       let companyPromise = storage.getCompany(companyId);
+
+      // Fallback to default POS customer if not provided
+      if (!input.customerId) {
+        const companyData = await companyPromise;
+        const posSettings = companyData?.posSettings as any;
+        if (posSettings?.defaultCustomerId) {
+          input.customerId = Number(posSettings.defaultCustomerId);
+        } else {
+          // Find walk-in customer fallback
+          const allCustomers = await storage.getCustomers(companyId);
+          const walkIn = allCustomers.find(c => c.name.toLowerCase().includes("cash") || c.name.toLowerCase().includes("walk-in"));
+          if (walkIn) {
+            input.customerId = walkIn.id;
+          }
+        }
+      }
+
+      if (!input.customerId) {
+        return res.status(400).json({ message: "A customer is required for this transaction. Please select a customer or configure a default POS customer." });
+      }
+
       let customerPromise = input.customerId ? storage.getCustomer(input.customerId) : Promise.resolve(null);
 
       if (input.isPos) {
@@ -15895,4 +15979,3 @@ async function seedDatabase() {
     // Create seed logic here if needed
   }
 }
-

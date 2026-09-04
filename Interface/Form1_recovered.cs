@@ -328,7 +328,7 @@ namespace Revmax_Interface_Promun
             QRCoder.QRCodeData qRCodeData = qRCodeGenerator.CreateQrCode(rootinv.QRcode, QRCoder.QRCodeGenerator.ECCLevel.Q);
             QRCoder.QRCode qRCode = new QRCoder.QRCode(qRCodeData);
 
-            Bitmap bmp = qRCode.GetGraphic(7);
+            Bitmap bmp = qRCode.GetGraphic(12);
             using (MemoryStream ms = new MemoryStream())
             {
                 bmp.Save(ms, ImageFormat.Bmp);

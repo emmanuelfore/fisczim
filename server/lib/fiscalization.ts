@@ -1,13 +1,14 @@
 import { storage } from "../storage.js";
 import { ZimraDevice, ReceiptData, ZimraConfigResponse, ZimraApiError, ZimraLogger } from "../zimra.js";
-import { Invoice, products } from "../../shared/schema.js";
+import { LekakuDevice, LekakuConfig, LekakuReceipt, LekakuReceiptLine, LekakuTaxType, prepareLekakuReceipt, getLekakuReceiptSignatureInput } from "../lekaku.js";
+import { Invoice, products, productTaxLevies, taxTypes } from "../../shared/schema.js";
 import fs from "fs";
 import path from "path";
 import { logAction } from "../audit.js";
 import { assertReceiptPreflight, ZimraPreflightError, expectedReceiptTotal } from "./zimra-preflight.js";
 import { buildCompanyTaxMapping, resolveLineTaxID } from "./tax-mapping.js";
 import { db } from "../db.js";
-import { eq, and, isNotNull, ne } from "drizzle-orm";
+import { eq, and, isNotNull, ne, inArray } from "drizzle-orm";
 
 const POS_VERBOSE_LOGS = process.env.POS_VERBOSE_LOGS === "1";
 const vLog = (...args: any[]) => { if (POS_VERBOSE_LOGS) console.log(...args); };
@@ -103,6 +104,101 @@ export const getCompanyZimraConfig = async (companyId: number, company: any, act
     }
 };
 
+const LESOTHO_TIMEZONE = "Africa/Maseru";
+const LESOTHO_UTC_OFFSET = 2 * 60 * 60 * 1000; // UTC+2, no DST
+
+function formatLesothoDate(date: Date): string {
+    const local = new Date(date.getTime() + LESOTHO_UTC_OFFSET);
+    return local.toISOString().slice(0, 19); // "YYYY-MM-DDTHH:mm:ss"
+}
+
+async function fetchProductLevies(companyId: number, productIds: number[]): Promise<Map<number, Array<{ taxTypeId: number; lekakuTaxId: string; lekakuTaxType: string; rate: string; appliedForQuantity: string | null }>>> {
+    if (productIds.length === 0) return new Map();
+    const levies = await db
+        .select({
+            productId: productTaxLevies.productId,
+            taxTypeId: taxTypes.id,
+            lekakuTaxId: taxTypes.lekakuTaxId,
+            lekakuTaxType: taxTypes.lekakuTaxType,
+            rate: taxTypes.rate,
+            appliedForQuantity: productTaxLevies.appliedForQuantity,
+        })
+        .from(productTaxLevies)
+        .innerJoin(taxTypes, eq(productTaxLevies.taxTypeId, taxTypes.id))
+        .where(and(eq(taxTypes.companyId, companyId), inArray(productTaxLevies.productId, productIds)));
+    
+    const map = new Map<number, Array<{ taxTypeId: number; lekakuTaxId: string; lekakuTaxType: string; rate: string; appliedForQuantity: string | null }>>();
+    for (const levy of levies) {
+        if (!map.has(levy.productId)) map.set(levy.productId, []);
+        map.get(levy.productId)!.push(levy);
+    }
+    return map;
+}
+
+function buildLekakuReceiptLines(
+    items: any[],
+    leviesMap: Map<number, Array<{ taxTypeId: number; lekakuTaxId: string; lekakuTaxType: string; rate: string; appliedForQuantity: string | null }>>,
+    taxMapping: Map<number, { taxID: number; taxType: string }>
+): LekakuReceiptLine[] {
+    const receiptLines: LekakuReceiptLine[] = [];
+    
+    for (let index = 0; index < items.length; index++) {
+        const item = items[index];
+        const unitPrice = Number(item.unitPrice || item.price || 0);
+        const quantity = Number(item.quantity || 1);
+        const lineTotal = roundMoney(unitPrice * quantity);
+        const taxPercent = Number(item.taxRate || 0);
+        
+        // Find the main tax type for this line
+        const itemTaxTypeId = item.product?.taxTypeId || item.taxTypeId;
+        const taxMapEntry = taxMapping.get(itemTaxTypeId);
+        const mainTaxID = taxMapEntry?.taxID || 1; // Default to VAT
+        const mainTaxType = (taxMapEntry?.taxType as LekakuTaxType) || "VAT";
+        
+        // Get levies for this product
+        const productId = item.product?.id || item.productId;
+        const productLevies = productId ? leviesMap.get(productId) || [] : [];
+        
+        const additionalTaxes: LekakuReceiptLine["additionalTaxes"] = [];
+        for (const levy of productLevies) {
+            if (!levy.lekakuTaxId || !levy.lekakuTaxType) continue;
+            const levyType = levy.lekakuTaxType as LekakuTaxType;
+            if (!["PercentageLevy", "FixedValueLevy", "WithholdingTax"].includes(levyType)) continue;
+            
+            additionalTaxes.push({
+                taxID: parseInt(levy.lekakuTaxId),
+                receiptLineId: index + 1,
+                taxType: levyType,
+                taxRate: parseFloat(levy.rate),
+                appliedForQuantity: levy.appliedForQuantity ? parseFloat(levy.appliedForQuantity) : undefined,
+            });
+        }
+        
+        // HS code - optional for Lesotho, use default if not provided
+        const hsCode = item.product?.hsCode ? String(item.product.hsCode).replace(/\D/g, "").slice(0, 8) : "99999999";
+        
+        const receiptLine: LekakuReceiptLine = {
+            receiptLineType: lineTotal < 0 ? "Discount" : "Sale",
+            receiptLineNo: index + 1,
+            receiptLineName: (item.description || "").trim() || "Item",
+            receiptLineQuantity: roundMoney(quantity),
+            receiptLineTotal: roundMoney(Math.abs(lineTotal)),
+            receiptLinePrice: roundMoney(Math.abs(unitPrice)),
+            receiptLineHSCode: hsCode || undefined,
+            taxID: mainTaxID,
+            taxType: mainTaxType,
+            taxRate: mainTaxType !== "Exempt" ? taxPercent : undefined,
+            additionalTaxes: additionalTaxes.length > 0 ? additionalTaxes : undefined,
+        };
+        
+        receiptLines.push(receiptLine);
+    }
+    
+    return receiptLines;
+}
+
+const roundMoney = (v: number) => Math.round((Number(v) + Number.EPSILON) * 100) / 100;
+
 export const processInvoiceFiscalization = async (invoiceId: number, companyId: number, userId?: number | string, isSuperAdmin: boolean = false, zimraSync?: any, isPos: boolean = false) => {
     // Retrieve full invoice with line items
     const invoice = await storage.getInvoice(invoiceId);
@@ -124,6 +220,12 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
 
     let company: any = await storage.getCompany(companyId);
     if (!company) throw new Error("Company not found");
+
+    // Route to LEKAKU if company is configured for Lesotho
+    const isLekaku = company.fiscalProvider === "LEKAKU" || company.country === "Lesotho";
+    if (isLekaku) {
+        return processInvoiceFiscalizationLEKAKU(invoiceId, companyId, userId, isSuperAdmin, isPos);
+    }
 
     // Branch Support: Load branch config if specified on invoice
     let fiscalConfig = { ...company };
@@ -1178,6 +1280,9 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
         // only exception (a call ZIMRA rejected as non-sequential).
         companyUpdateData.lastReceiptGlobalNo = receiptData.receiptGlobalNo;
         companyUpdateData.dailyReceiptCount = receiptData.receiptCounter;
+        // The chain uses this receipt's device signature hash (FDMS spec 13.2.1).
+        // receiptServerSignature.hash is instead the server-signature hash from
+        // section 13.2.2, derived from receiptDeviceSignature + receiptID + date.
         companyUpdateData.lastFiscalHash = result.hash;
         await storage.updateCompany(company.id, companyUpdateData);
 
@@ -1191,3 +1296,185 @@ export const processInvoiceFiscalization = async (invoiceId: number, companyId: 
     }
 };
 
+// LEKAKU (Lesotho) Fiscalization
+export const processInvoiceFiscalizationLEKAKU = async (
+    invoiceId: number,
+    companyId: number,
+    userId?: number | string,
+    isSuperAdmin: boolean = false,
+    isPos: boolean = false
+) => {
+    const invoice = await storage.getInvoice(invoiceId);
+    if (!invoice) throw new Error("Invoice not found");
+    if (invoice.fiscalCode) {
+        throw new Error(`Invoice ${invoice.invoiceNumber} is already fiscalized and cannot be submitted to LEKAKU again.`);
+    }
+
+    if (userId) {
+        const users = await storage.getCompanyUsers(companyId);
+        const isMember = users.some(u => u.id === userId);
+        if (!isMember && !isSuperAdmin) throw new Error("You do not have permission to fiscalize for this company");
+    }
+
+    let company: any = await storage.getCompany(companyId);
+    if (!company) throw new Error("Company not found");
+
+    const isLekaku = company.fiscalProvider === "LEKAKU" || company.country === "Lesotho";
+    if (!isLekaku) {
+        throw new Error("Company is not configured for LEKAKU fiscalization");
+    }
+
+    if (!company.lekakuGatewayUrl || !company.fdmsDeviceId) {
+        throw new Error("Company has not configured LEKAKU gateway URL or device ID");
+    }
+
+    const device = new LekakuDevice({
+        baseUrl: company.lekakuGatewayUrl,
+        deviceId: company.fdmsDeviceId,
+        privateKey: company.zimraPrivateKey,
+        certificate: company.zimraCertificate,
+    });
+
+    const items = invoice.items || [];
+    const productIds = items
+        .map((item: any) => item.product?.id || item.productId)
+        .filter(Boolean);
+    const leviesMap = await fetchProductLevies(companyId, productIds);
+
+    const taxMapping = new Map<number, { taxID: number; taxType: string }>();
+    const companyTaxTypes = await db.select().from(taxTypes).where(eq(taxTypes.companyId, companyId));
+    for (const tt of companyTaxTypes) {
+        if (tt.lekakuTaxId && tt.lekakuTaxType) {
+            taxMapping.set(tt.id, { taxID: parseInt(tt.lekakuTaxId), taxType: tt.lekakuTaxType });
+        }
+    }
+
+    const receiptLines = buildLekakuReceiptLines(items, leviesMap, taxMapping);
+
+    const getPaymentMethodCode = (methodName: string): LekakuReceiptPayment["moneyTypeCode"] => {
+        const m = methodName.toUpperCase();
+        if (["CASH"].includes(m)) return "Cash";
+        if (["CARD", "SWIPE", "POS"].includes(m)) return "Card";
+        if (["MOBILE", "ECOCASH", "ONE_MONEY", "TELE_CASH", "MOBILEWALLET"].includes(m)) return "MobileWallet";
+        if (["EFT", "RTGS", "TRANSFER", "ZIPIT", "BANKTRANSFER"].includes(m)) return "BankTransfer";
+        return "Other";
+    };
+
+    const totalAmount = parseFloat(Number(invoice.total).toFixed(2));
+    let payments: LekakuReceiptPayment[] = [];
+
+    if (invoice.splitPayments && Array.isArray(invoice.splitPayments) && invoice.splitPayments.length > 0) {
+        payments = invoice.splitPayments.map((p: any) => ({
+            moneyTypeCode: getPaymentMethodCode(p.method),
+            paymentAmount: parseFloat(Number(p.amount).toFixed(2)),
+        }));
+    } else {
+        payments = [{
+            moneyTypeCode: getPaymentMethodCode(invoice.paymentMethod || "CASH"),
+            paymentAmount: totalAmount,
+        }];
+    }
+
+    const transactionType = invoice.transactionType || "FiscalInvoice";
+    let receiptType: LekakuReceipt["receiptType"] = "FiscalInvoice";
+    if (transactionType === "CreditNote") receiptType = "CreditNote";
+    if (transactionType === "DebitNote") receiptType = "DebitNote";
+
+    let creditDebitNote: LekakuReceipt["creditDebitNote"] = undefined;
+    if (receiptType !== "FiscalInvoice") {
+        if (!invoice.relatedInvoiceId) throw new Error(`${receiptType} requires a related original invoice.`);
+        const originalInvoice = await storage.getInvoice(invoice.relatedInvoiceId);
+        if (!originalInvoice) throw new Error(`Original invoice for this ${receiptType} not found.`);
+        if (!originalInvoice.fiscalCode) throw new Error(`Original invoice must be fiscalized before a ${receiptType} can be issued.`);
+        creditDebitNote = {
+            deviceID: parseInt(company.fdmsDeviceId || "0"),
+            receiptGlobalNo: originalInvoice.receiptGlobalNo || originalInvoice.id,
+            fiscalDayNo: originalInvoice.fiscalDayNo || 1,
+        };
+    }
+
+    let buyerData: any = undefined;
+    const customerTin = invoice.customer?.tin?.trim();
+    if (invoice.customer && customerTin) {
+        buyerData = {
+            buyerRegisterName: invoice.customer.name,
+            buyerTradeName: invoice.customer.name,
+            buyerTIN: customerTin,
+        };
+        if (invoice.customer.vatNumber?.trim()) buyerData.vatNumber = invoice.customer.vatNumber.trim();
+        if (invoice.customer.phone?.trim() || invoice.customer.email?.trim()) {
+            buyerData.buyerContacts = {};
+            if (invoice.customer.phone?.trim()) buyerData.buyerContacts.phoneNo = invoice.customer.phone.trim();
+            if (invoice.customer.email?.trim()) buyerData.buyerContacts.email = invoice.customer.email.trim();
+        }
+        if (invoice.customer.city?.trim() || invoice.customer.address?.trim()) {
+            buyerData.buyerAddress = {};
+            if (invoice.customer.city?.trim()) buyerData.buyerAddress.city = invoice.customer.city.trim();
+            if (invoice.customer.address?.trim()) buyerData.buyerAddress.street = invoice.customer.address.trim();
+        }
+    }
+
+    const nextReceiptCounter = (company.dailyReceiptCount || 0) + 1;
+    const nextGlobalNo = (company.lastReceiptGlobalNo || 0) + 1;
+    const activeFiscalDayNo = company.currentFiscalDayNo || 1;
+
+    let effectiveReceiptDate = invoice.offlineDate || formatLesothoDate(new Date());
+    if (invoice.offlineDate) {
+        const parseHarareLocal = (v: string) => {
+            const m = v.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/);
+            return m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4] - 2, +m[5], +m[6])) : null;
+        };
+        const signedAt = parseHarareLocal(invoice.offlineDate);
+        if (signedAt) {
+            effectiveReceiptDate = formatLesothoDate(signedAt);
+        }
+    }
+
+    const receipt: LekakuReceipt = {
+        receiptType,
+        receiptCurrency: "LSL",
+        receiptCounter: nextReceiptCounter,
+        receiptGlobalNo: nextGlobalNo,
+        invoiceNo: invoice.invoiceNumber,
+        receiptDate: effectiveReceiptDate,
+        receiptLinesTaxInclusive: invoice.taxInclusive || false,
+        receiptLines,
+        receiptPayments: payments,
+        buyerData,
+        creditDebitNote,
+        receiptNotes: invoice.notes
+            ? (creditDebitNote ? `${invoice.notes} (Ref: ${invoice.relatedInvoiceId})` : invoice.notes)
+            : (receiptType !== "FiscalInvoice" ? `Correction of data entry error` : undefined),
+    };
+
+    const prepared = prepareLekakuReceipt(receipt);
+    const prevHash = invoice.offlinePreviousHash || ((nextReceiptCounter === 1) ? null : (company.lastFiscalHash || null));
+    const signed = device.signReceipt(prepared, prevHash);
+    const result = await device.submitReceipt(signed, prevHash);
+
+    const qrCode = device.generateQrCode(result.hash, prepared.receiptGlobalNo, prepared.receiptDate);
+
+    const updatedInvoice = await storage.fiscalizeInvoice(invoiceId, {
+        fiscalCode: result.hash,
+        qrCodeData: qrCode,
+        verificationCode: result.verificationCode,
+        fiscalSignature: result.signature,
+        fiscalDayNo: prepared.fiscalDayNo || activeFiscalDayNo,
+        receiptCounter: prepared.receiptCounter,
+        receiptGlobalNo: prepared.receiptGlobalNo,
+        syncedWithFdms: true,
+        fdmsStatus: "Fiscalized",
+        submissionId: result.operationID,
+        validationStatus: "green",
+        lastValidationAttempt: new Date(),
+    });
+
+    await storage.updateCompany(company.id, {
+        lastReceiptAt: new Date(),
+        lastReceiptGlobalNo: prepared.receiptGlobalNo,
+        dailyReceiptCount: prepared.receiptCounter,
+        lastFiscalHash: result.hash,
+    });
+
+    return updatedInvoice;
+};

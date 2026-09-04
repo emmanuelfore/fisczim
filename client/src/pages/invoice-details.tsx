@@ -774,7 +774,7 @@ export default function InvoiceDetailsPage() {
                       </DropdownMenuContent>
                     </DropdownMenu>
                   )}
-                  {["issued", "paid", "fiscalized"].includes(
+                  {["issued", "paid", "fiscalized", "quote"].includes(
                     invoice.status || "",
                   ) &&
                     canPreview && (
@@ -790,7 +790,7 @@ export default function InvoiceDetailsPage() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuLabel>Share Invoice</DropdownMenuLabel>
+                            <DropdownMenuLabel>Share Document</DropdownMenuLabel>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem onClick={handleShareWhatsapp}>
                               <MessageCircle className="w-4 h-4 mr-2" />{" "}
@@ -813,7 +813,7 @@ export default function InvoiceDetailsPage() {
                               taxTypes={taxTypes.data}
                             />
                           }
-                          fileName={`${isCreditNote ? "CreditNote" : "Invoice"}-${invoice.invoiceNumber}.pdf`}
+                          fileName={`${isCreditNote ? "CreditNote" : invoice.status === 'quote' ? "Quotation" : "Invoice"}-${invoice.invoiceNumber}.pdf`}
                         >
                           {({ loading }) => (
                             <Button

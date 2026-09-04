@@ -1,0 +1,29 @@
+-- Merging decision tree log ---
+manifest
+ADDED from /home/emmanuel/Documents/PROJECTS/fisczim/mobile/modules/ipos-printer/android/src/main/AndroidManifest.xml:1:1-11:12
+INJECTED from /home/emmanuel/Documents/PROJECTS/fisczim/mobile/modules/ipos-printer/android/src/main/AndroidManifest.xml:1:1-11:12
+	package
+		ADDED from /home/emmanuel/Documents/PROJECTS/fisczim/mobile/modules/ipos-printer/android/src/main/AndroidManifest.xml:2:3-37
+		INJECTED from /home/emmanuel/Documents/PROJECTS/fisczim/mobile/modules/ipos-printer/android/src/main/AndroidManifest.xml
+	xmlns:android
+		ADDED from /home/emmanuel/Documents/PROJECTS/fisczim/mobile/modules/ipos-printer/android/src/main/AndroidManifest.xml:1:11-69
+queries
+ADDED from /home/emmanuel/Documents/PROJECTS/fisczim/mobile/modules/ipos-printer/android/src/main/AndroidManifest.xml:4:5-9:15
+package#com.iposprinter.iposprinterservice
+ADDED from /home/emmanuel/Documents/PROJECTS/fisczim/mobile/modules/ipos-printer/android/src/main/AndroidManifest.xml:5:9-70
+	android:name
+		ADDED from /home/emmanuel/Documents/PROJECTS/fisczim/mobile/modules/ipos-printer/android/src/main/AndroidManifest.xml:5:18-67
+intent#action:name:com.iposprinter.iposprinterservice.IPosPrinterService
+ADDED from /home/emmanuel/Documents/PROJECTS/fisczim/mobile/modules/ipos-printer/android/src/main/AndroidManifest.xml:6:9-8:18
+action#com.iposprinter.iposprinterservice.IPosPrinterService
+ADDED from /home/emmanuel/Documents/PROJECTS/fisczim/mobile/modules/ipos-printer/android/src/main/AndroidManifest.xml:7:13-92
+	android:name
+		ADDED from /home/emmanuel/Documents/PROJECTS/fisczim/mobile/modules/ipos-printer/android/src/main/AndroidManifest.xml:7:21-89
+uses-sdk
+INJECTED from /home/emmanuel/Documents/PROJECTS/fisczim/mobile/modules/ipos-printer/android/src/main/AndroidManifest.xml reason: use-sdk injection requested
+INJECTED from /home/emmanuel/Documents/PROJECTS/fisczim/mobile/modules/ipos-printer/android/src/main/AndroidManifest.xml
+INJECTED from /home/emmanuel/Documents/PROJECTS/fisczim/mobile/modules/ipos-printer/android/src/main/AndroidManifest.xml
+	android:targetSdkVersion
+		INJECTED from /home/emmanuel/Documents/PROJECTS/fisczim/mobile/modules/ipos-printer/android/src/main/AndroidManifest.xml
+	android:minSdkVersion
+		INJECTED from /home/emmanuel/Documents/PROJECTS/fisczim/mobile/modules/ipos-printer/android/src/main/AndroidManifest.xml

@@ -23,8 +23,10 @@ export interface PrinterConfig {
   isInternal?: boolean;
   isZ100?: boolean;
   isSunmi?: boolean;
+  isIPos?: boolean;
   z100DefaultsApplied?: boolean;
   sunmiDefaultsApplied?: boolean;
+  iposDefaultsApplied?: boolean;
 }
 
 const DEFAULT_CONFIG: PrinterConfig = {
@@ -67,6 +69,19 @@ const SUNMI_DEFAULT_CONFIG: PrinterConfig = {
   paperWidth: 58,
   printerWidth: 48,
   sunmiDefaultsApplied: true,
+};
+
+const IPOS_DEFAULT_CONFIG: PrinterConfig = {
+  ...DEFAULT_CONFIG,
+  enabled: true,
+  autoPrint: true,
+  autoShowModal: false,
+  silentPrint: true,
+  isInternal: true,
+  isIPos: true,
+  paperWidth: 58,
+  printerWidth: 32,
+  iposDefaultsApplied: true,
 };
 
 interface PrinterContextType {
@@ -156,19 +171,57 @@ export function PrinterProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const detectIPosDevice = useCallback(async () => {
+    if (Platform.OS !== "android") return false;
+    try {
+      const { isIPosDevice } = await import("../lib/printing");
+      if (typeof isIPosDevice === "function") {
+        return !!(await isIPosDevice());
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }, []);
+
   const loadState = useCallback(async () => {
-    const [isZ100Device, isSunmiDeviceFound] = await Promise.all([detectZ100Device(), detectSunmiDevice()]);
-    let nextConfig = isSunmiDeviceFound ? SUNMI_DEFAULT_CONFIG : (isZ100Device ? Z100_DEFAULT_CONFIG : DEFAULT_CONFIG);
+    const [isZ100Device, isSunmiDeviceFound, isIPosDeviceFound] = await Promise.all([
+      detectZ100Device(),
+      detectSunmiDevice(),
+      detectIPosDevice(),
+    ]);
+
+    console.log(`[PrinterContext] Device detection: Z100=${isZ100Device} Sunmi=${isSunmiDeviceFound} IPos=${isIPosDeviceFound}`);
+
+    let nextConfig = isSunmiDeviceFound
+      ? SUNMI_DEFAULT_CONFIG
+      : isZ100Device
+        ? Z100_DEFAULT_CONFIG
+        : isIPosDeviceFound
+          ? IPOS_DEFAULT_CONFIG
+          : DEFAULT_CONFIG;
 
     if (userId) {
       const val = await AsyncStorage.getItem(`printer_config_${userId}`);
       if (val) {
-        try { 
+        try {
           const parsed = JSON.parse(val);
-          // Ensure we merge with DEFAULT_CONFIG to handle new fields
-          nextConfig = applySunmiDefaultsOnce(applyZ100DefaultsOnce({ ...DEFAULT_CONFIG, ...parsed }, isZ100Device), isSunmiDeviceFound);
+          nextConfig = applySunmiDefaultsOnce(
+            applyZ100DefaultsOnce({ ...DEFAULT_CONFIG, ...parsed }, isZ100Device),
+            isSunmiDeviceFound
+          );
+          // Apply iPOS defaults if not already set and device is detected
+          if (isIPosDeviceFound && !nextConfig.iposDefaultsApplied && !nextConfig.isZ100 && !nextConfig.isSunmi) {
+            nextConfig = { ...IPOS_DEFAULT_CONFIG, ...nextConfig, isIPos: true, iposDefaultsApplied: true };
+          }
         } catch {
-          nextConfig = isSunmiDeviceFound ? SUNMI_DEFAULT_CONFIG : (isZ100Device ? Z100_DEFAULT_CONFIG : DEFAULT_CONFIG);
+          nextConfig = isSunmiDeviceFound
+            ? SUNMI_DEFAULT_CONFIG
+            : isZ100Device
+              ? Z100_DEFAULT_CONFIG
+              : isIPosDeviceFound
+                ? IPOS_DEFAULT_CONFIG
+                : DEFAULT_CONFIG;
         }
       }
       setConfig(nextConfig);
@@ -176,13 +229,15 @@ export function PrinterProvider({ children }: { children: ReactNode }) {
         await AsyncStorage.setItem(`printer_config_${userId}`, JSON.stringify(nextConfig));
       } else if (isZ100Device && nextConfig.z100DefaultsApplied) {
         await AsyncStorage.setItem(`printer_config_${userId}`, JSON.stringify(nextConfig));
+      } else if (isIPosDeviceFound && nextConfig.iposDefaultsApplied) {
+        await AsyncStorage.setItem(`printer_config_${userId}`, JSON.stringify(nextConfig));
       }
     } else {
       setConfig(nextConfig);
     }
     const queue = await getPrintQueue();
     setFailedPrints(queue);
-  }, [userId, detectZ100Device, detectSunmiDevice, applyZ100DefaultsOnce, applySunmiDefaultsOnce]);
+  }, [userId, detectZ100Device, detectSunmiDevice, detectIPosDevice, applyZ100DefaultsOnce, applySunmiDefaultsOnce]);
 
   useEffect(() => { loadState(); }, [loadState]);
 
@@ -262,7 +317,10 @@ export function PrinterProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      if (activeConfig.isZ100) {
+      if (activeConfig.isIPos) {
+        const { printToIPos } = await import("../lib/printing");
+        await printToIPos(ticketData, activeConfig);
+      } else if (activeConfig.isZ100) {
         const { printToZ100 } = await import("../lib/printing");
         await printToZ100(ticketData);
       } else if (activeConfig.isSunmi) {
@@ -353,6 +411,7 @@ export function PrinterProvider({ children }: { children: ReactNode }) {
       lines.push(`enabled=${config.enabled}`);
       lines.push(`isZ100=${!!config.isZ100}`);
       lines.push(`isSunmi=${!!config.isSunmi}`);
+      lines.push(`isIPos=${!!config.isIPos}`);
       lines.push(`isInternal=${!!config.isInternal}`);
       lines.push(`macAddress=${config.macAddress || "(empty)"}`);
       lines.push(`targetPrinter=${config.targetPrinter || "(empty)"}`);

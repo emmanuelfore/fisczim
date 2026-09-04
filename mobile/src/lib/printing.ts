@@ -25,6 +25,13 @@ try {
   console.warn("[Printing] Sunmi printer module not available", e);
 }
 
+let IPosPrinter: any = null;
+try {
+  IPosPrinter = require('../../modules/ipos-printer').default;
+} catch (e) {
+  console.warn("[Printing] iPOS printer module not available", e);
+}
+
 export interface TicketData {
   invoice: any;
   company: any;
@@ -62,6 +69,16 @@ function getNoteLabels(noteType: "credit" | "debit" | undefined, fiscal: boolean
   };
 }
 
+/** Resolves the ZIMRA taxCode from a taxID/taxTypeId to match the web client logic */
+export function resolveTaxCode(taxID: number | string | undefined): string {
+    const id = Number(taxID);
+    if (id === 3) return 'A'; // Standard
+    if (id === 2) return 'B'; // Zero Rated
+    if (id === 1) return 'C'; // Exempt
+    if (id === 4) return 'E'; // Other
+    return 'A'; // Fallback
+}
+
 export const generateReceiptHtml = (data: TicketData) => {
   const { invoice, company, items, customer, currencySymbol, cashierName, paidAmount, paperWidth, noteType, originalInvoiceNumber, suppressTaxDetails } = data;
   const symbol = currencySymbol || '$';
@@ -86,7 +103,7 @@ export const generateReceiptHtml = (data: TicketData) => {
     const netAmount = total - taxAmount;
     const key = taxRate.toFixed(2);
     if (!acc[key]) {
-      acc[key] = { rate: taxRate, net: 0, tax: 0, gross: 0, name: item.taxCode || (taxRate === 0 ? "Exempt" : `${taxRate}%`) };
+      acc[key] = { rate: taxRate, net: 0, tax: 0, gross: 0, name: item.taxCode || (item.taxTypeId ? resolveTaxCode(item.taxTypeId) : (taxRate === 0 ? "C" : "A")) };
     }
     acc[key].net += netAmount;
     acc[key].tax += taxAmount;
@@ -94,9 +111,16 @@ export const generateReceiptHtml = (data: TicketData) => {
     return acc;
   }, {});
 
-  const qrUrl = fiscal && invoice.qrCodeData
-    ? `https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(invoice.qrCodeData)}&size=100x100`
+  const qrUrl = invoice.qrCodeData || invoice.receiptQRData
+    ? `https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(invoice.qrCodeData || invoice.receiptQRData)}&size=200x200`
     : null;
+
+  const showFiscalInfo = fiscal && (
+    invoice.receiptGlobalNo ||
+    invoice.fiscalCode ||
+    invoice._offline ||
+    invoice._simulation
+  );
 
   const total = Number(invoice.total || 0);
   const paid = Number(paidAmount || total);
@@ -198,7 +222,7 @@ export const generateReceiptHtml = (data: TicketData) => {
 
         <div class="mb-2 pb-2 border-b-dashed">
           <p>${suppressTaxDetails ? 'Ticket' : 'Invoice'} No: ${invoice.invoiceNumber || invoice.id || 'N/A'}</p>
-          ${(invoice.fiscalCode && !suppressTaxDetails) ? `
+          ${showFiscalInfo ? `
             <p>Receipt No: ${invoice.receiptCounter || 'N/A'} / ${invoice.receiptGlobalNo || 'N/A'}</p>
             <p>Fiscal Day No: ${invoice.fiscalDayNo || 'N/A'}</p>
             <p>Device Serial: ${company.fdmsDeviceSerialNo || company.deviceSerialNo || 'N/A'}</p>
@@ -228,7 +252,7 @@ export const generateReceiptHtml = (data: TicketData) => {
               <div class="flex justify-between">
                 <span class="w-60 font-bold">${item.description || item.name || ""}</span>
                 <span class="w-30 text-right font-bold">${Number(item.lineTotal || (item.price * item.quantity)).toFixed(2)}</span>
-                ${suppressTaxDetails ? '' : `<span class="w-10 text-right">${item.taxCode || (item.taxRate > 0 ? "VT" : "ZE")}</span>`}
+                ${suppressTaxDetails ? '' : `<span class="w-10 text-right">${item.taxCode || (item.taxTypeId ? resolveTaxCode(item.taxTypeId) : (item.taxRate > 0 ? "A" : "C"))}</span>`}
               </div>
               <div class="text-9xs pl-2">${Number(item.quantity)} x ${Number(item.unitPrice || item.price).toFixed(2)}</div>
             </div>
@@ -271,7 +295,7 @@ export const generateReceiptHtml = (data: TicketData) => {
 
         ${qrUrl ? `
           <div class="flex flex-col items-center mb-2 mt-1">
-            <img src="${qrUrl}" width="100" height="100" />
+            <img src="${qrUrl}" width="200" height="200" />
             <p style="font-size: 7px; margin-top: 4px;">Scan to verify with ZIMRA</p>
             ${invoice.verificationCode ? `<div class="text-center mt-1"><p>Verification Code:</p><p class="font-bold">${invoice.verificationCode}</p></div>` : ''}
           </div>
@@ -545,7 +569,7 @@ export const printToZ100 = async (data: TicketData) => {
       const netAmount = total - taxAmount;
       const key = taxRate.toFixed(2);
       if (!acc[key]) {
-        acc[key] = { rate: taxRate, net: 0, tax: 0, gross: 0, name: item.taxCode || (taxRate === 0 ? "Exempt" : `${taxRate}%`) };
+        acc[key] = { rate: taxRate, net: 0, tax: 0, gross: 0, name: item.taxCode || (item.taxTypeId ? resolveTaxCode(item.taxTypeId) : (taxRate === 0 ? "C" : "A")) };
       }
       acc[key].net += netAmount;
       acc[key].tax += taxAmount;
@@ -578,6 +602,10 @@ export const printToZ100 = async (data: TicketData) => {
     if (isVatPayer) await centerWrapped(`VAT No: ${company.vatNumber}`);
     await line(separator);
     await centerWrapped(documentTitle);
+    if (invoice._offline) {
+      await centerWrapped("PENDING SYNC - NOT FISCALIZED");
+      await centerWrapped("KEEP FOR CASH HANDOVER");
+    }
     await line(separator);
 
     const counterStr = invoice.receiptCounter ? invoice.receiptCounter.toString() : "---";
@@ -802,7 +830,7 @@ export const printToSunmi = async (data: TicketData, config?: PrinterConfig) => 
     const netAmount = total - taxAmount;
     const key = taxRate.toFixed(2);
     if (!acc[key]) {
-      acc[key] = { rate: taxRate, net: 0, tax: 0, gross: 0, name: item.taxCode || (taxRate === 0 ? "Exempt" : `${taxRate}%`) };
+      acc[key] = { rate: taxRate, net: 0, tax: 0, gross: 0, name: item.taxCode || (item.taxTypeId ? resolveTaxCode(item.taxTypeId) : (taxRate === 0 ? "C" : "A")) };
     }
     acc[key].net += netAmount;
     acc[key].tax += taxAmount;
@@ -833,6 +861,10 @@ export const printToSunmi = async (data: TicketData, config?: PrinterConfig) => 
   if (isVatPayer) pushCenter(`VAT No: ${company.vatNumber}`);
   pushLine(separator);
   pushCenter(documentTitle);
+  if (invoice._offline) {
+    pushCenter("PENDING SYNC - NOT FISCALIZED");
+    pushCenter("KEEP FOR CASH HANDOVER");
+  }
   pushLine(separator);
 
   const counterStr = invoice.receiptCounter ? invoice.receiptCounter.toString() : "---";
@@ -1005,3 +1037,90 @@ export const getBluetoothDevices = async (): Promise<{ deviceName: string; macAd
     return [];
   }
 };
+
+/** True when running on an iPOS printer device with com.iposprinter.iposprinterservice package */
+export const isIPosDevice = async (): Promise<boolean> => {
+  if (!IPosPrinter) return false;
+  try {
+    return await IPosPrinter.isAvailable();
+  } catch (e) {
+    console.warn("[Printing] iPOS device detection failed:", e);
+    return false;
+  }
+};
+
+/**
+ * Print a fiscal receipt on an iPOS printer device.
+ * Uses com.iposprinter.iposprinterservice via ipos-printer native module.
+ */
+export const printToIPos = async (data: TicketData, config?: any) => {
+  if (!IPosPrinter) {
+    throw new Error("iPOS printer module is not included in this build.");
+  }
+
+  // Generate the tagged ESC/POS text using the shared ReceiptTemplate
+  const { ReceiptTemplate } = require("./printer/receipt-template");
+  const textPayload = ReceiptTemplate.formatFiscalReceipt({
+    ...data,
+    printerWidth: config?.printerWidth || 32, // iPOS is typically 58mm (32 chars)
+    feedLines: config?.feedLines || 4
+  });
+
+  try {
+    await IPosPrinter.printerInit();
+    
+    const lines = textPayload.split('\n');
+    let currentAlign = IPosPrinter.Alignment.LEFT;
+    
+    for (let line of lines) {
+      if (line.includes('<qrcode')) {
+        // Extract QR data
+        const match = line.match(/<qrcode[^>]*>(.*?)<\/qrcode>/);
+        if (match && match[1]) {
+          await IPosPrinter.setPrinterPrintAlignment(IPosPrinter.Alignment.CENTER);
+          // Module size 8 is too large for 58mm printers with long ZIMRA URLs and causes
+          // the native printer to silently skip the QR code. We use 5 instead.
+          await IPosPrinter.printQRCode(match[1], 7, 2);
+          await IPosPrinter.printText("\n");
+        }
+        continue;
+      }
+      if (line.includes('<img')) {
+        continue; // iPOS doesn't support easy base64 bitmap printing out of the box yet without precise sizing
+      }
+
+      // Parse Alignment
+      let align = IPosPrinter.Alignment.LEFT;
+      if (line.startsWith('[C]')) align = IPosPrinter.Alignment.CENTER;
+      else if (line.startsWith('[R]')) align = IPosPrinter.Alignment.RIGHT;
+      
+      if (align !== currentAlign) {
+        await IPosPrinter.setPrinterPrintAlignment(align);
+        currentAlign = align;
+      }
+
+      // Strip tags
+      let cleanLine = line.replace(/\[[LCR]\]/g, '');
+      const isBold = cleanLine.includes('<b>');
+      cleanLine = cleanLine.replace(/<\/?b>/g, '');
+
+      if (isBold) {
+        await IPosPrinter.setPrinterPrintFontSize(32); // Slightly larger/bolder
+        await IPosPrinter.printText(`${cleanLine}\n`);
+        await IPosPrinter.setPrinterPrintFontSize(24); // Reset to normal
+      } else {
+        await IPosPrinter.printText(`${cleanLine}\n`);
+      }
+    }
+
+    // Feed paper clear of cutter
+    await IPosPrinter.printText("\n\n\n\n\n\n");
+    await IPosPrinter.feedPaper(4);
+    return true;
+  } catch (err) {
+    console.error("Failed to print receipt via iPOS Printer service:", err);
+    return false;
+  }
+};
+
+

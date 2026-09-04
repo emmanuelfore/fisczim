@@ -8,9 +8,11 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Link } from "wouter";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 
 export function DeviceStatusWidget({ companyId }: { companyId: number }) {
   const { data: status, isLoading, isError } = useDeviceStatus(companyId);
+  const { settingsLabel, settingsRoute } = useFiscalAuthority();
 
   if (isLoading) {
     return (
@@ -25,7 +27,7 @@ export function DeviceStatusWidget({ companyId }: { companyId: number }) {
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Link href="/zimra-settings">
+            <Link href={settingsRoute}>
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-50 border border-red-100 cursor-pointer hover:bg-red-100 transition-colors">
                 <AlertCircle className="w-3.5 h-3.5 text-red-500" />
                 <span className="text-[10px] font-bold text-red-700 uppercase tracking-wide">
@@ -44,7 +46,7 @@ export function DeviceStatusWidget({ companyId }: { companyId: number }) {
 
   if (!status.isConfigured) {
     return (
-      <Link href="/zimra-settings">
+      <Link href={settingsRoute}>
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-100 border border-slate-200 cursor-pointer hover:bg-slate-200 transition-colors">
           <Server className="w-3.5 h-3.5 text-slate-400" />
           <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">
@@ -74,7 +76,7 @@ export function DeviceStatusWidget({ companyId }: { companyId: number }) {
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>
-          <Link href="/zimra-settings">
+          <Link href={settingsRoute}>
             <div
               className={`
                         flex items-center gap-2 px-3 py-1.5 rounded-full border cursor-pointer transition-all duration-200

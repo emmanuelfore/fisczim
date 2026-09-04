@@ -3,9 +3,11 @@ import { QRCodeCanvas } from "qrcode.react";
 
 interface EscPosVisualizerProps {
   data: Uint8Array;
+  authorityName?: string;
+  verifyLabel?: string;
 }
 
-export const EscPosVisualizer: React.FC<EscPosVisualizerProps> = ({ data }) => {
+export const EscPosVisualizer: React.FC<EscPosVisualizerProps> = ({ data, authorityName = "ZIMRA", verifyLabel }) => {
   const lines: any[] = [];
   let currentAlign = "left";
   let isDoubleHeight = false;
@@ -122,8 +124,8 @@ export const EscPosVisualizer: React.FC<EscPosVisualizerProps> = ({ data }) => {
                 <div className="p-2 bg-white border border-slate-100 shadow-md rounded-lg">
                   <QRCodeCanvas value={line.data} size={112} level="M" />
                   <p className="text-[6px] text-slate-400 mt-1 font-black text-center uppercase tracking-tighter">
-                    Scan for ZIMRA Verification
-                  </p>
+                      Scan for {verifyLabel || `${authorityName} Verification`}
+                    </p>
                 </div>
               </div>
             );

@@ -56,6 +56,8 @@ export const companies = pgTable("companies", {
   city: text("city").notNull(),
   country: text("country").default("Zimbabwe"),
   currency: text("currency").default("USD"),
+  fiscalProvider: text("fiscal_provider").default("ZIMRA"), // ZIMRA or LEKAKU
+  lekakuGatewayUrl: text("lekaku_gateway_url"),
   phone: text("phone").notNull(),
   email: text("email").notNull(),
   website: text("website"),
@@ -442,6 +444,10 @@ export const taxTypes = pgTable("tax_types", {
   effectiveTo: date("effective_to"),
   zimraCode: text("zimra_code"), // A, B, E, C
   zimraTaxId: text("zimra_tax_id"), // Optional ZIMRA ID e.g. "3"
+  // Revenue Services Lesotho / LEKAKU mapping.  Levy tax types are assigned
+  // to products through productTaxLevies rather than replacing the main tax.
+  lekakuTaxId: text("lekaku_tax_id"),
+  lekakuTaxType: text("lekaku_tax_type"), // VAT, NonVAT, Exempt, PercentageLevy, FixedValueLevy, WithholdingTax
   defaultHsCode: text("default_hs_code"), // Default HS code used for this tax type
   calculationMethod: text("calculation_method").default("INCLUSIVE"), // INCLUSIVE, EXCLUSIVE
 }, (table) => {
@@ -496,7 +502,7 @@ export const products = pgTable("products", {
   sku: text("sku"),
   barcode: text("barcode"),
   unitOfMeasure: text("unit_of_measure"),
-  hsCode: text("hs_code").default("0000.00.00"),
+  hsCode: text("hs_code"),
   category: text("category"),
   ownerGroup: text("owner_group"),
   price: decimal("price", { precision: 10, scale: 2 }).notNull(),
@@ -557,6 +563,16 @@ export const productsRelations = relations(products, ({ one, many }) => ({
   branchStocks: many(branchStocks),
   inventoryTransactions: many(inventoryTransactions),
   compoundItems: many(compoundProductItems, { relationName: "parentProduct" }),
+}));
+
+export const productTaxLevies = pgTable("product_tax_levies", {
+  id: serial("id").primaryKey(),
+  productId: integer("product_id").references(() => products.id, { onDelete: "cascade" }).notNull(),
+  taxTypeId: integer("tax_type_id").references(() => taxTypes.id, { onDelete: "cascade" }).notNull(),
+  // A fixed levy can be applied to a package quantity rather than the sale quantity.
+  appliedForQuantity: decimal("applied_for_quantity", { precision: 14, scale: 3 }),
+}, (table) => ({
+  productTaxUnique: unique("product_tax_levies_product_tax_unique").on(table.productId, table.taxTypeId),
 }));
 
 // Product Categories

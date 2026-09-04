@@ -96,13 +96,6 @@ android {
         versionName "0.1.0"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
-
-        // Include arm64 for current Android devices while keeping armeabi-v7a for
-        // legacy POS terminals. The bundled Z100 vendor SDK is still 32-bit only,
-        // so built-in Z100 printing needs a vendor arm64 SDK to work on 64-bit-only devices.
-        ndk {
-            abiFilters 'armeabi-v7a', 'arm64-v8a'
-        }
     }
     signingConfigs {
         debug {
@@ -133,20 +126,9 @@ android {
             def enableLegacyPackaging = findProperty('expo.useLegacyPackaging') ?: 'false'
             useLegacyPackaging enableLegacyPackaging.toBoolean()
         }
-        // Satisfy "Check 4" - Ensure bundled libs are picked first
-        pickFirst 'lib/*.so'
-        pickFirst 'lib/*/*.so'
-        pickFirst '**/*.so'
-    }
-    sourceSets {
-        main {
-            jniLibs.srcDirs = ['src/main/jniLibs']
-        }
     }
     androidResources {
         ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:!CVS:!thumbs.db:!picasa.ini:!*~'
-    }
-    lint {
     }
 }
 
@@ -197,8 +179,4 @@ dependencies {
     } else {
         implementation jscFlavor
     }
-}
-
-configurations.all {
-    exclude group: 'com.google.zxing', module: 'core'
 }

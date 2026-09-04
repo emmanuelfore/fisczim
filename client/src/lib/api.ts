@@ -21,11 +21,15 @@ supabase.auth.onAuthStateChange((event, session) => {
 });
 
 export async function getCachedSession(): Promise<{ access_token: string; expires_at?: number } | null> {
-    if (!sessionInitialized) {
+    if (!sessionInitialized || !cachedSession) {
         const sessionResult = await Promise.race([
             supabase.auth.getSession(),
             new Promise<{ data: { session: null } }>((resolve) => setTimeout(() => resolve({ data: { session: null } }), 2000))
         ]).catch(() => ({ data: { session: null } }));
+        if (sessionResult?.data?.session) {
+            cachedSession = sessionResult.data.session;
+            sessionInitialized = true;
+        }
         return sessionResult?.data?.session ?? null;
     }
     return cachedSession;

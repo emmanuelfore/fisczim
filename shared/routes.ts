@@ -292,6 +292,7 @@ export const api = {
         exchangeRate: z.string().optional(), // Explicitly allow if not picked up
         partnerId: z.number().nullable().optional(),
         revenueSharePercent: z.union([z.string(), z.number()]).nullable().optional(),
+        customerId: z.number().nullable().optional(),
       }),
       responses: {
         201: z.custom<typeof invoices.$inferSelect>(),

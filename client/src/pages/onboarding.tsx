@@ -69,6 +69,7 @@ const companySchema = insertCompanySchema
     city: true,
     vatNumber: true,
     currency: true,
+    country: true,
   })
   .extend({
     // Enforce requirements for onboarding specifically
@@ -77,6 +78,7 @@ const companySchema = insertCompanySchema
     city: z.string().min(1, "City is required"),
     phone: z.string().min(1, "Phone number is required"),
     email: z.string().email("Invalid email address"),
+    country: z.string().default("Zimbabwe"),
     tin: z
       .string()
       .regex(/^\d{10}$/, "TIN must be exactly 10 digits")
@@ -143,6 +145,7 @@ export default function OnboardingPage() {
       city: "Harare",
       logoUrl: "",
       currency: "USD",
+      country: "Zimbabwe",
     },
     mode: "onBlur", // Validate as user navigates
   });
@@ -170,7 +173,10 @@ export default function OnboardingPage() {
         body: formData,
       });
 
-      if (!res.ok) throw new Error("Upload failed");
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || errorData.message || "Upload failed");
+      }
 
       const data = await res.json();
       companyForm.setValue("logoUrl", data.url);
@@ -192,8 +198,10 @@ export default function OnboardingPage() {
   const onFinalSubmit = async (data: CompanyFormValues) => {
     setIsSubmitting(true);
     try {
+      const fiscalProvider = data.country === "Lesotho" ? "LEKAKU" : "ZIMRA";
       const payload = {
         ...data,
+        fiscalProvider,
         tin: data.vatRegistered ? data.tin || "" : "",
         vatNumber: data.vatRegistered ? data.vatNumber || "" : "",
         vatEnabled: data.vatRegistered,
@@ -385,41 +393,75 @@ export default function OnboardingPage() {
                   )}
                 />
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <FormField
                     control={companyForm.control}
                     name="city"
-                    render={({ field }) => (
-                      <FormItem className="space-y-2">
-                        <FormLabel className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                          City
-                        </FormLabel>
-                        <FormControl>
-                          <Input
-                            placeholder="Harare"
-                            {...field}
-                            className="h-12 bg-slate-50/50 border-slate-100 rounded-xl font-bold"
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
+                    render={({ field }) => {
+                      const country = companyForm.watch("country");
+                      const placeholder = country === "Lesotho" ? "Maseru" : "Harare";
+                      return (
+                        <FormItem className="space-y-2">
+                          <FormLabel className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                            City
+                          </FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder={placeholder}
+                              {...field}
+                              className="h-12 bg-slate-50/50 border-slate-100 rounded-xl font-bold"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      );
+                    }}
                   />
                   <FormField
                     control={companyForm.control}
                     name="phone"
+                    render={({ field }) => {
+                      const country = companyForm.watch("country");
+                      const placeholder = country === "Lesotho" ? "+266 ..." : "+263 ...";
+                      return (
+                        <FormItem className="space-y-2">
+                          <FormLabel className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                            Phone
+                          </FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder={placeholder}
+                              {...field}
+                              className="h-12 bg-slate-50/50 border-slate-100 rounded-xl font-bold"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      );
+                    }}
+                  />
+                  <FormField
+                    control={companyForm.control}
+                    name="country"
                     render={({ field }) => (
                       <FormItem className="space-y-2">
                         <FormLabel className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                          Phone
+                          Country
                         </FormLabel>
-                        <FormControl>
-                          <Input
-                            placeholder="+263 ..."
-                            {...field}
-                            className="h-12 bg-slate-50/50 border-slate-100 rounded-xl font-bold"
-                          />
-                        </FormControl>
+                        <Select
+                          onValueChange={field.onChange}
+                          defaultValue={field.value ?? "Zimbabwe"}
+                        >
+                          <FormControl>
+                            <SelectTrigger className="h-12 bg-slate-50/50 border-slate-100 rounded-xl font-bold">
+                              <SelectValue placeholder="Country" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="Zimbabwe">Zimbabwe</SelectItem>
+                            <SelectItem value="Lesotho">Lesotho</SelectItem>
+                          </SelectContent>
+                        </Select>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -575,30 +617,35 @@ export default function OnboardingPage() {
                   <FormField
                     control={companyForm.control}
                     name="currency"
-                    render={({ field }) => (
-                      <FormItem className="space-y-2 flex-1">
-                        <FormLabel className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                          Reporting Currency
-                        </FormLabel>
-                        <Select
-                          onValueChange={field.onChange}
-                          defaultValue={field.value ?? "USD"}
-                        >
-                          <FormControl>
-                            <SelectTrigger className="h-12 bg-slate-50/50 border-slate-100 rounded-xl font-bold">
-                              <SelectValue placeholder="Base Currency" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="USD">USD - US Dollar</SelectItem>
-                            <SelectItem value="ZWG">
-                              ZWG - Zimbabwe Gold
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
+                    render={({ field }) => {
+                      const country = companyForm.watch("country");
+                      const defaultCurrency = country === "Lesotho" ? "LSL" : "USD";
+                      return (
+                        <FormItem className="space-y-2 flex-1">
+                          <FormLabel className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                            Reporting Currency
+                          </FormLabel>
+                          <Select
+                            onValueChange={field.onChange}
+                            defaultValue={field.value ?? defaultCurrency}
+                          >
+                            <FormControl>
+                              <SelectTrigger className="h-12 bg-slate-50/50 border-slate-100 rounded-xl font-bold">
+                                <SelectValue placeholder="Base Currency" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="USD">USD - US Dollar</SelectItem>
+                              <SelectItem value="ZWG">
+                                ZWG - Zimbabwe Gold
+                              </SelectItem>
+                              <SelectItem value="LSL">LSL - Lesotho Loti</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      );
+                    }}
                   />
                 </div>
               </div>

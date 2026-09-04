@@ -11,9 +11,11 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { RefreshCw, ShieldCheck, Zap } from "lucide-react";
 import { TaxTypesManager } from "./tax-types-manager";
+import { LekakuConfiguration } from "./lekaku-configuration";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 
 interface TaxComplianceSettingsProps {
   companyId: number;
@@ -28,6 +30,14 @@ export function TaxComplianceSettings({
 }: TaxComplianceSettingsProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { authorityName, authorityShortName, settingsLabel, settingsRoute, isLesotho } = useFiscalAuthority();
+
+  if (isLesotho) {
+    return <div className="space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <div><h2 className="text-xl font-bold text-slate-900">Lesotho fiscal setup</h2><p className="text-muted-foreground">Configure LEKAKU, main taxes and product-level levies.</p></div>
+      <LekakuConfiguration companyId={companyId} formData={formData} setFormData={setFormData} />
+    </div>;
+  }
 
   const { mutate: syncZimra, isPending: isSyncing } = useMutation({
     mutationFn: async () => {
@@ -59,7 +69,7 @@ export function TaxComplianceSettings({
       <div>
         <h2 className="text-xl font-bold text-slate-900">Tax & Compliance</h2>
         <p className=" text-muted-foreground">
-          Official tax identity and ZIMRA configuration
+          Official tax identity and {settingsLabel}
         </p>
       </div>
 
@@ -154,7 +164,7 @@ export function TaxComplianceSettings({
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <div>
                 <CardTitle className="text-lg">Tax Rates Management</CardTitle>
-                <CardDescription>Configure ZIMRA tax mappings</CardDescription>
+                <CardDescription>Configure {authorityShortName} tax mappings</CardDescription>
               </div>
             </CardHeader>
             <CardContent>
@@ -171,15 +181,15 @@ export function TaxComplianceSettings({
                 <RefreshCw
                   className={`w-5 h-5 ${isSyncing ? "animate-spin" : ""}`}
                 />
-                ZIMRA Sync
+                {authorityShortName} Sync
               </CardTitle>
               <CardDescription className="text-indigo-100/80">
-                Force update tax levels from ZIMRA
+                Force update tax levels from {authorityName}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-xs text-indigo-100 italic">
-                This will retrieve the latest ZIMRA tax levels and configuration
+                This will retrieve the latest {authorityName} tax levels and configuration
                 for your device.
               </p>
               <Button

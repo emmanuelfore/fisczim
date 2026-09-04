@@ -849,9 +849,10 @@ function useSwAuthBridge() {
 
 function BrandingMeta() {
   const { brand } = useBranding();
+  const { authorityName } = useFiscalAuthority();
 
   useEffect(() => {
-    document.title = brand.name + " | ZIMRA Compliant Fiscalization";
+    document.title = brand.name + " | " + authorityName + " Compliant Fiscalization";
 
     // Update favicon dynamically
     let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;

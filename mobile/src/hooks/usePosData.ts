@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { apiFetch, apiJson } from "../lib/api";
+import { refreshOfflineFiscalCache } from "../lib/fiscalStorage";
 
 // ── Module-level in-memory cache (instant on re-mounts) ──────────────────────
 const memCache: Record<string, any> = {};
@@ -255,6 +256,7 @@ export function useCompany(companyId: number | null) {
           memCache[key] = res;
           setData(res);
           AsyncStorage.setItem(key, JSON.stringify(res)).catch(() => {});
+          refreshOfflineFiscalCache(companyId).catch(() => {});
         }
       })
       .catch((e: any) => !cancelled && setError(e?.message ?? "Failed to load company"));

@@ -69,7 +69,10 @@ export class ReceiptTemplate {
     if (invoice.transactionType === 'CreditNote' || invoice.type === 'credit_note') documentTitle = "CREDIT NOTE";
     else if (invoice.transactionType === 'DebitNote' || invoice.type === 'debit_note') documentTitle = "DEBIT NOTE";
     
-    if (invoice._offline || invoice._simulation) {
+    // For fiscal tax invoices (VAT registered or with fiscal data), use FISCAL TAX INVOICE
+    if (isVatPayer && !suppressTaxDetails) {
+      documentTitle = "FISCAL TAX INVOICE";
+    } else if (invoice._offline || invoice._simulation) {
       documentTitle = isVatPayer ? "FISCAL TAX INVOICE" : "FISCAL INVOICE";
     }
     if (suppressTaxDetails) {
@@ -88,7 +91,15 @@ export class ReceiptTemplate {
 
       const key = taxRate.toFixed(2);
       if (!acc[key]) {
-         acc[key] = { rate: taxRate, net: 0, tax: 0, gross: 0, name: item.taxCode || (taxRate === 0 ? "Exempt" : `${taxRate}%`) };
+         const resolveTaxCode = (id: number | string | undefined) => {
+            const num = Number(id);
+            if (num === 3) return 'A';
+            if (num === 2) return 'B';
+            if (num === 1) return 'C';
+            if (num === 4) return 'E';
+            return 'A';
+         };
+         acc[key] = { rate: taxRate, net: 0, tax: 0, gross: 0, name: item.taxCode || (item.taxTypeId ? resolveTaxCode(item.taxTypeId) : (taxRate === 0 ? "C" : "A")) };
       }
       acc[key].net += netAmount;
       acc[key].tax += taxAmount;
@@ -104,11 +115,8 @@ export class ReceiptTemplate {
       encoder.line(`<img>${company.logoUrl}</img>`);
       encoder.feed(1);
     }
-    encoder.bold(true);
-    if (doubleHeightHeader !== false) encoder.size(1);
+    // Removed bold to make company name smaller
     encoder.line(company.name.toUpperCase());
-    encoder.size(0);
-    encoder.bold(false);
 
     if (branch && branch.name !== company.name) encoder.line(branch.name);
     
@@ -134,14 +142,18 @@ export class ReceiptTemplate {
     if (suppressTaxDetails) {
       encoder.tableRow("TICKET NO:", invoice.invoiceNumber || invoice.id || "---", width);
     } else {
-      const counterStr = invoice.receiptCounter || "---";
-      const globalStr = invoice.receiptGlobalNo || "---";
+      const counterStr = invoice.receiptCounter ? invoice.receiptCounter.toString() : "---";
+      const globalStr = invoice.receiptGlobalNo ? invoice.receiptGlobalNo.toString() : "---";
       encoder.tableRow("INVOICE NO:", `${counterStr}/${globalStr}`, width);
-      
-      if (invoice.receiptGlobalNo || invoice._offline || invoice._simulation) {
+
+      // Always show fiscal info for fiscal tax invoices (VAT registered or offline/simulation)
+      if (isVatPayer || invoice._offline || invoice._simulation || invoice.fiscalCode) {
         encoder.tableRow("FISCAL DAY NO:", (invoice.fiscalDayNo || "---").toString(), width);
+        encoder.tableRow("DEVICE SERIAL NO:", (activeCompany.fdmsDeviceSerialNo || activeCompany.deviceSerialNo || "stack1"), width);
         encoder.tableRow("DEVICE ID:", (activeCompany.fdmsDeviceId || activeCompany.deviceId || "33697"), width);
       }
+
+      encoder.tableRow("CUST REF NO:", (invoice.invoiceNo || invoice.invoiceNumber || `INV-${invoice.id || "---"}`), width);
     }
     
     const pad = (n: number) => n.toString().padStart(2, '0');
@@ -153,7 +165,12 @@ export class ReceiptTemplate {
       encoder.tableRow("CASHIER:", data.user.name || "System", width);
     }
 
-    if (customer && !customer.name?.toLowerCase().includes("walk-in")) {
+    // Hide buyer details for default/walk-in/cash/guest customers
+    if (customer && 
+        !customer.name?.toLowerCase().includes("walk-in") && 
+        !customer.name?.toLowerCase().includes("default") &&
+        !customer.name?.toLowerCase().includes("cash") &&
+        !customer.name?.toLowerCase().includes("guest")) {
       encoder.separator(width);
       encoder.bold(true);
       encoder.line("BUYER:");
@@ -167,14 +184,13 @@ export class ReceiptTemplate {
 
     // 3. Items List
     if (!suppressTaxDetails) {
-      encoder.bold(true);
+      // Removed bold to reduce font size
       if (width <= 32) {
         encoder.line("DESCRIPTION");
         encoder.line("QTY x PRICE      VAT     TOTAL");
       } else {
-        encoder.line("QTY   DESCRIPTION             VAT    TOTAL");
+        encoder.line("QTY  DESC                 VAT   TOTAL");
       }
-      encoder.bold(false);
       encoder.separator(width);
     }
 
@@ -212,11 +228,11 @@ export class ReceiptTemplate {
 
     // 4. Totals
     encoder.bold(true);
-    encoder.tableRow(`GRAND TOTAL:`, `${invoice.currency || "USD"} ${Number(invoice.total).toFixed(2)}`, width);
+    encoder.tableRow(`TOT:`, `${invoice.currency || "USD"} ${Number(invoice.total).toFixed(2)}`, width);
     encoder.bold(false);
     
-    encoder.tableRow(`AMT TENDERED:`, `${invoice.currency || "USD"} ${Number(invoice.paymentAmount || invoice.total).toFixed(2)}`, width);
-    encoder.tableRow(`CHANGE:`, `${invoice.currency || "USD"} ${Number(invoice.change || 0).toFixed(2)}`, width);
+    encoder.tableRow(`PAID:`, `${invoice.currency || "USD"} ${Number(invoice.paymentAmount || invoice.total).toFixed(2)}`, width);
+    encoder.tableRow(`CHG:`, `${invoice.currency || "USD"} ${Number(invoice.change || 0).toFixed(2)}`, width);
 
     encoder.separator(width);
 
@@ -238,23 +254,32 @@ export class ReceiptTemplate {
     }
 
     // 6. Fiscal QR
-    const qrData = invoice.qrCodeData || invoice.receiptQRData || (invoice._simulation ? "https://fdms.zimra.co.zw/verify/simulation" : "");
+    encoder.align(TextAlignment.Center);
+    let verificationCode = invoice.verificationCode || "";
+    if (!verificationCode && (invoice._simulation || invoice._offline || invoice.status === "draft")) {
+      verificationCode = "9A2B-C48D-80FE-12A5-99BF";
+    }
+    if (verificationCode) {
+      encoder.line("VERIFICATION CODE:");
+      encoder.bold(true);
+      encoder.line(verificationCode);
+      encoder.bold(false);
+    }
+
+    const qrData = invoice.qrCodeData || invoice.receiptQRData || (invoice._simulation ? "https://fdms.zimra.co.zw/verify/SIMULATION-ONLY" : "");
     if (qrData) {
       encoder.feed(1);
       encoder.qrcode(qrData);
+      encoder.feed(1);
       encoder.align(TextAlignment.Center);
-      encoder.line("Verify with ZIMRA");
-      if (invoice.verificationCode) {
-        encoder.line("CODE:");
-        encoder.bold(true);
-        encoder.line(invoice.verificationCode);
-        encoder.bold(false);
-      }
+      encoder.line("Verify at:");
+      encoder.line("https://fdms.zimra.co.zw/verify");
     }
 
     // 7. Footer
     encoder.feed(1);
     encoder.line(invoice.notes || "Thank you for your business!");
+    
     //encoder.line("--- End of Receipt ---");
     encoder.feed(Math.max(0, Number(feedLines ?? 7)));
 

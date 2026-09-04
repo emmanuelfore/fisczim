@@ -15,6 +15,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { Link } from "wouter";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 
 interface SmartFixDialogProps {
   isOpen: boolean;
@@ -29,6 +30,8 @@ export function SmartFixDialog({
   error,
   onRetry,
 }: SmartFixDialogProps) {
+  const { authorityName, settingsLabel, settingsRoute } = useFiscalAuthority();
+  
   if (!error) return null;
 
   // Analyze error to determine type
@@ -51,12 +54,12 @@ export function SmartFixDialog({
   if (isDayClosed) {
     title = "Fiscal Day Closed";
     description =
-      "The current fiscal day is closed. Open or review the fiscal day in ZIMRA settings before fiscalising this invoice.";
+      `The current fiscal day is closed. Open or review the fiscal day in ${settingsLabel} before fiscalising this invoice.`;
     action = (
-      <Link href="/zimra-settings">
+      <Link href={settingsRoute}>
         <Button variant="default" className="w-full sm:w-auto">
           <Settings className="w-4 h-4 mr-2" />
-          Go to ZIMRA Settings
+          Go to {settingsLabel}
         </Button>
       </Link>
     );
@@ -72,9 +75,9 @@ export function SmartFixDialog({
   } else if (isCertError) {
     title = "Certificate Error";
     description =
-      "There seems to be an issue with your ZIMRA digital certificate. You may need to re-issue it.";
+      `There seems to be an issue with your ${authorityName} digital certificate. You may need to re-issue it.`;
     action = (
-      <Link href="/zimra-settings">
+      <Link href={settingsRoute}>
         <Button variant="destructive" className="w-full sm:w-auto">
           <ShieldCheck className="w-4 h-4 mr-2" />
           Manage Certificates

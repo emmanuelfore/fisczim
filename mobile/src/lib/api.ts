@@ -39,16 +39,44 @@ export async function apiFetch(path: string, init?: RequestInit & { timeout?: nu
   // Skip session check for health endpoint to speed up online detection
   if (path !== "/api/health") {
     try {
-      // If the cache isn't ready yet (e.g., app just launched), wait up to 2 seconds.
-      // After initialization, this is completely synchronous and cannot hang!
-      if (supabase && !sessionInitialized) {
-        const sessionResult = await Promise.race([
-          supabase.auth.getSession(),
-          new Promise<{ data: { session: null } }>((resolve) => setTimeout(() => resolve({ data: { session: null } }), 2000))
-        ]).catch(() => ({ data: { session: null } }));
-        session = sessionResult?.data?.session ?? null;
-      } else {
-        session = cachedSession;
+      // Always get a fresh session for write operations to ensure valid token
+      const isWriteOperation = init?.method && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(init.method);
+      
+      if (supabase) {
+        if (isWriteOperation || !sessionInitialized || !cachedSession) {
+          // For write ops or if cache not ready, force a fresh session with refresh
+          const sessionResult = await Promise.race([
+            supabase.auth.getSession(),
+            new Promise<{ data: { session: null } }>((resolve) => setTimeout(() => resolve({ data: { session: null } }), 5000))
+          ]).catch(() => ({ data: { session: null } }));
+          session = sessionResult?.data?.session ?? null;
+          
+          // If session is null or expired, try to refresh it
+          if (!session || !session.access_token) {
+            console.warn("[API] No valid session, attempting refresh...");
+            try {
+              const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+              if (refreshError) {
+                console.error("[API] Session refresh failed:", refreshError.message);
+                // Try to get current user to trigger implicit refresh
+                const { data: userData } = await supabase.auth.getUser();
+                session = userData?.user ? await supabase.auth.getSession().then(s => s.data.session) : null;
+              } else {
+                session = refreshData.session;
+                console.log("[API] Session refreshed successfully");
+              }
+            } catch (refreshErr) {
+              console.error("[API] Session refresh exception:", refreshErr);
+            }
+          }
+          
+          if (session) {
+            cachedSession = session;
+            sessionInitialized = true;
+          }
+        } else {
+          session = cachedSession;
+        }
       }
       
       // Get branch ID for scoping
@@ -82,11 +110,42 @@ export async function apiFetch(path: string, init?: RequestInit & { timeout?: nu
   try {
     const url = joinUrl(ENV.apiBaseUrl, path);
     // console.log(`[API] Fetching ${url}...`);
-    return await fetch(url, {
+    const response = await fetch(url, {
       ...init,
       headers,
       signal: init?.signal ?? (controller ? controller.signal : undefined)
     });
+    
+    // If we get a 401, try to refresh session and retry once
+    if (response.status === 401 && supabase) {
+      console.warn("[API] Got 401, attempting session refresh and retry...");
+      try {
+        const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+        if (refreshError) {
+          console.error("[API] Session refresh on 401 failed:", refreshError.message);
+        } else if (refreshData.session) {
+          cachedSession = refreshData.session;
+          sessionInitialized = true;
+          // Retry with fresh token
+          const retryHeaders = new Headers(init?.headers);
+          retryHeaders.set("Authorization", `Bearer ${refreshData.session.access_token}`);
+          if (branchId) retryHeaders.set("X-Branch-ID", branchId.toString());
+          if (init?.body && !(init.body instanceof FormData) && !retryHeaders.has("Content-Type")) {
+            retryHeaders.set("Content-Type", "application/json");
+          }
+          console.log("[API] Retrying request with refreshed token...");
+          return await fetch(url, {
+            ...init,
+            headers: retryHeaders,
+            signal: init?.signal ?? (controller ? controller.signal : undefined)
+          });
+        }
+      } catch (retryErr) {
+        console.error("[API] Retry after 401 failed:", retryErr);
+      }
+    }
+    
+    return response;
   } catch (e: any) {
     if (e.name === 'AbortError' || e.message === 'Aborted') {
       console.debug(`[API] Request aborted: ${path}`);
@@ -114,7 +173,11 @@ export async function apiJson<T = Json>(path: string, init?: RequestInit & { tim
       } catch(e) {}
       
       if (res.status === 401) {
-        throw new Error("Authentication failed or session temporarily unreachable due to network. If this persists, try restarting the app.");
+        // Check if session is completely invalid (refresh token also expired)
+        if (!cachedSession || !cachedSession.access_token) {
+          throw new Error("Your session has expired. Please log out and log back in to continue.");
+        }
+        throw new Error("Authentication failed. Please check your connection and try again.");
       }
       throw new Error(errorMsg);
     }

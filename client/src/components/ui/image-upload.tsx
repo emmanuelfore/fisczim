@@ -40,7 +40,10 @@ export function ImageUpload({ value, onChange, className }: Props) {
         body: formData, // apiFetch will handle empty content-type for FormData
       });
 
-      if (!res.ok) throw new Error("Upload failed");
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || errorData.message || "Upload failed");
+      }
 
       const data = await res.json();
       onChange(data.url);

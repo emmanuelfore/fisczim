@@ -205,7 +205,7 @@ export function POSReceipt({
         <div className="flex flex-col items-center gap-2 mb-4 break-inside-avoid">
           <QRCodeSVG value={invoice.qrCodeData} size={160} level="H" />
           <p className="text-[7px] text-center italic">
-            Scan to verify with ZIMRA
+            Scan to verify with {company.fiscalProvider === "LEKAKU" || company.country === "Lesotho" ? "RSL" : "ZIMRA"}
           </p>
         </div>
       )}

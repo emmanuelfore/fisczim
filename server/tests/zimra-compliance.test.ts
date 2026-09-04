@@ -1,6 +1,7 @@
 
 import crypto from 'crypto';
 import { describe, test, expect } from 'vitest';
+import { ZimraDevice, type ReceiptData } from '../zimra.js';
 
 // Utility to match the hashing logic in the main app
 function getHash(data: string): string {
@@ -13,6 +14,64 @@ function getHash(data: string): string {
  */
 
 describe("ZIMRA Compliance", () => {
+    test("a product-less discount is prepared as a valid FDMS discount line", () => {
+        const device = new ZimraDevice({
+            deviceId: "321",
+            deviceSerialNo: "TEST",
+            activationKey: "TEST",
+        });
+        const receipt: ReceiptData = {
+            receiptType: "FiscalInvoice",
+            receiptCurrency: "USD",
+            receiptCounter: 2,
+            receiptGlobalNo: 2,
+            invoiceNo: "INV-DISCOUNT",
+            receiptDate: "2026-09-04T12:00:00",
+            receiptLinesTaxInclusive: false,
+            receiptLines: [
+                {
+                    receiptLineType: "Sale",
+                    receiptLineNo: 1,
+                    receiptLineHSCode: "04021099",
+                    receiptLineName: "Sale",
+                    receiptLineQuantity: 1,
+                    receiptLinePrice: 100,
+                    receiptLineTotal: 100,
+                    taxID: 3,
+                    taxPercent: 15.5,
+                },
+                {
+                    receiptLineType: "Discount",
+                    receiptLineNo: 2,
+                    receiptLineHSCode: "99999999",
+                    receiptLineName: "Discount",
+                    receiptLineQuantity: 1,
+                    receiptLinePrice: -10,
+                    receiptLineTotal: -10,
+                    taxID: 3,
+                    taxPercent: 15.5,
+                },
+            ],
+            receiptTaxes: [],
+            receiptPayments: [{ moneyTypeCode: "Cash", paymentAmount: 90 }],
+            receiptTotal: 90,
+        };
+
+        const prepared = (device as any).prepareReceipt(receipt) as ReceiptData;
+        const discount = prepared.receiptLines[1];
+
+        expect(discount).toMatchObject({
+            receiptLineType: "Discount",
+            receiptLineHSCode: "99999999",
+            receiptLineQuantity: 1,
+            receiptLinePrice: -10,
+            receiptLineTotal: -10,
+            taxID: 3,
+            taxPercent: 15.5,
+        });
+        expect(prepared.receiptTotal).toBe(103.95);
+    });
+
     test("signature hash matches the ZIMRA FDMS Specification example (Device 321, Day 84)", () => {
         const deviceID = "321";
         const fiscalDayNo = "84";

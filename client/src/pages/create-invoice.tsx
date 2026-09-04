@@ -452,6 +452,12 @@ export default function CreateInvoicePage() {
   };
 
   const handleAddDiscount = () => {
+    // A stand-alone discount still needs an explicit tax bucket at FDMS. Use
+    // the company's active positive-rate tax type when VAT applies, rather
+    // than guessing a rate that may not exist on the registered device.
+    const defaultTaxType = company?.vatRegistered
+      ? taxTypes.data?.find((tax: any) => tax.isActive !== false && Number(tax.rate) > 0)
+      : undefined;
     setItems([
       ...items,
       {
@@ -460,7 +466,10 @@ export default function CreateInvoicePage() {
         description: 'Discount',
         quantity: 1,
         unitPrice: 0,
-        taxRate: 0,
+        // Apply the invoice's normal tax treatment to the adjustment. This
+        // lets FDMS aggregate the discount in the same tax bucket as a sale.
+        taxRate: defaultTaxType ? Number(defaultTaxType.rate) : getDefaultTaxRate(),
+        taxTypeId: defaultTaxType?.id,
         isDiscount: true,
       },
     ]);
@@ -819,6 +828,16 @@ export default function CreateInvoicePage() {
       return;
     }
 
+    if (items.some((item) => isDiscountLine(item) && Number(item.unitPrice) >= 0)) {
+      toast({
+        title: "Validation Error",
+        description: "A discount amount must be greater than zero; it will be sent to FDMS as a negative adjustment.",
+        variant: "destructive",
+      });
+      setLoadingAction(null);
+      return;
+    }
+
 
 
     const invoiceNumber =
@@ -919,6 +938,10 @@ export default function CreateInvoicePage() {
   );
 
   const validateInvoice = (action: InvoiceAction): string[] => {
+    // Drafts are intentionally incomplete working documents. FDMS validation
+    // happens when an invoice is issued/fiscalized, not when it is saved.
+    if (action === "draft") return [];
+
     const warnings: string[] = [];
     if (items.some((item) => !isDiscountLine(item) && (!item.hsCode || item.hsCode.length < 4))) {
       warnings.push(
@@ -1819,6 +1842,11 @@ export default function CreateInvoicePage() {
                                 <TableCell className="col-span-2 block md:table-cell align-top py-0 md:py-3 pl-0 md:pl-4 border-none md:border-b">
                                   <div className="md:hidden text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Item & Description</div>
                                   <div className="flex flex-col gap-2">
+                                    {isDiscountLine(item) ? (
+                                      <div className="flex h-9 items-center rounded-xl border border-dashed border-rose-200 bg-rose-50 px-3 text-[13px] font-medium text-rose-700">
+                                        Discount adjustment
+                                      </div>
+                                    ) : (
                                     <Popover
                                       open={openRowIndex === index}
                                       onOpenChange={(isOpen) =>
@@ -2036,6 +2064,7 @@ export default function CreateInvoicePage() {
                                         </Command>
                                       </PopoverContent>
                                     </Popover>
+                                    )}
                                     <Input
                                       placeholder="Description (optional)"
                                       value={item.description}
@@ -2090,25 +2119,29 @@ export default function CreateInvoicePage() {
                                   />
                                 </TableCell>
                                 <TableCell className="col-span-1 block md:table-cell align-top py-0 md:py-3 mt-4 md:mt-0 border-none md:border-b pl-2 md:pl-4">
-                                  <div className="md:hidden text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Price</div>
+                                  <div className="md:hidden text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">{isDiscountLine(item) ? "Discount Amount" : "Price"}</div>
                                   <Input
                                     type="number"
                                     step="0.01"
+                                    aria-label={isDiscountLine(item) ? "Discount amount" : "Price"}
                                     value={Number(item.unitPrice)}
-                                    onChange={(e) =>
+                                    onChange={(e) => {
+                                      const value = parseFloat(e.target.value) || 0;
                                       updateItem(
                                         item.localId,
                                         "unitPrice",
-                                        parseFloat(e.target.value) || 0,
-                                      )
-                                    }
+                                        isDiscountLine(item) ? -Math.abs(value) : value,
+                                      );
+                                    }}
                                     onBlur={(e) => {
                                       const val =
                                         parseFloat(e.target.value) || 0;
                                       updateItem(
                                         item.localId,
                                         "unitPrice",
-                                        parseFloat(val.toFixed(2)),
+                                        isDiscountLine(item)
+                                          ? -Math.abs(parseFloat(val.toFixed(2)))
+                                          : parseFloat(val.toFixed(2)),
                                       );
                                     }}
                                     className="h-9 w-full rounded-xl border-slate-100 bg-slate-50/50 px-2 text-right font-mono font-semibold transition-all hover:border-slate-200 focus:border-primary focus:bg-white"

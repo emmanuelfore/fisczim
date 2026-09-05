@@ -452,12 +452,12 @@ export default function CreateInvoicePage() {
   };
 
   const handleAddDiscount = () => {
-    // A stand-alone discount still needs an explicit tax bucket at FDMS. Use
-    // the company's active positive-rate tax type when VAT applies, rather
-    // than guessing a rate that may not exist on the registered device.
-    const defaultTaxType = company?.vatRegistered
+    // A stand-alone discount still needs an explicit FDMS tax bucket. Default
+    // to the company's active taxable rate; a discount reduces the taxable
+    // value of the sale it adjusts.
+    const discountTaxType = company?.vatRegistered
       ? taxTypes.data?.find((tax: any) => tax.isActive !== false && Number(tax.rate) > 0)
-      : undefined;
+      : taxTypes.data?.find((tax: any) => tax.isActive !== false && Number(tax.rate) === 0);
     setItems([
       ...items,
       {
@@ -466,10 +466,8 @@ export default function CreateInvoicePage() {
         description: 'Discount',
         quantity: 1,
         unitPrice: 0,
-        // Apply the invoice's normal tax treatment to the adjustment. This
-        // lets FDMS aggregate the discount in the same tax bucket as a sale.
-        taxRate: defaultTaxType ? Number(defaultTaxType.rate) : getDefaultTaxRate(),
-        taxTypeId: defaultTaxType?.id,
+        taxRate: discountTaxType ? Number(discountTaxType.rate) : getDefaultTaxRate(),
+        taxTypeId: discountTaxType?.id,
         isDiscount: true,
       },
     ]);

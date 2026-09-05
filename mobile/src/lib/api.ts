@@ -1,4 +1,4 @@
-import { supabase } from "./supabase";
+import { auth } from "./auth";
 import { ENV } from "./env";
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
@@ -13,70 +13,57 @@ function joinUrl(base: string, path: string) {
 import { getSelectedBranchId } from "./storage";
 
 // ── In-memory Session Cache for Offline-First Speed ──
-let cachedSession: any = null;
+let cachedToken: string | null = null;
 let sessionInitialized = false;
 
-if (supabase) {
-  // 1. Kick off an initial session fetch
-  supabase.auth.getSession().then(({ data }) => {
-    cachedSession = data?.session ?? null;
-    sessionInitialized = true;
-  }).catch(() => {
-    sessionInitialized = true;
-  });
+// 1. Kick off an initial token fetch
+auth.getAccessToken().then((token) => {
+  cachedToken = token;
+  sessionInitialized = true;
+}).catch(() => {
+  sessionInitialized = true;
+});
 
-  // 2. Keep the cache perfectly synced with auth events (login, logout, token refresh)
-  supabase.auth.onAuthStateChange((event, session) => {
-    cachedSession = session;
-    sessionInitialized = true;
-  });
-}
+// 2. Keep the cache perfectly synced with auth events (login, logout, token refresh)
+auth.onAuthStateChange((user) => {
+  cachedToken = auth.getAccessToken();
+  sessionInitialized = true;
+});
 
 export async function apiFetch(path: string, init?: RequestInit & { timeout?: number }) {
-  let session = null;
+  let token = null;
   let branchId = null;
   
   // Skip session check for health endpoint to speed up online detection
   if (path !== "/api/health") {
     try {
-      // Always get a fresh session for write operations to ensure valid token
+      // Always get a fresh token for write operations to ensure valid token
       const isWriteOperation = init?.method && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(init.method);
       
-      if (supabase) {
-        if (isWriteOperation || !sessionInitialized || !cachedSession) {
-          // For write ops or if cache not ready, force a fresh session with refresh
-          const sessionResult = await Promise.race([
-            supabase.auth.getSession(),
-            new Promise<{ data: { session: null } }>((resolve) => setTimeout(() => resolve({ data: { session: null } }), 5000))
-          ]).catch(() => ({ data: { session: null } }));
-          session = sessionResult?.data?.session ?? null;
-          
-          // If session is null or expired, try to refresh it
-          if (!session || !session.access_token) {
-            console.warn("[API] No valid session, attempting refresh...");
-            try {
-              const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
-              if (refreshError) {
-                console.error("[API] Session refresh failed:", refreshError.message);
-                // Try to get current user to trigger implicit refresh
-                const { data: userData } = await supabase.auth.getUser();
-                session = userData?.user ? await supabase.auth.getSession().then(s => s.data.session) : null;
-              } else {
-                session = refreshData.session;
-                console.log("[API] Session refreshed successfully");
-              }
-            } catch (refreshErr) {
-              console.error("[API] Session refresh exception:", refreshErr);
+      if (isWriteOperation || !sessionInitialized || !cachedToken) {
+        // For write ops or if cache not ready, force a fresh token
+        token = auth.getAccessToken();
+        
+        // If token is null or expired, try to refresh it
+        if (!token) {
+          console.warn("[API] No valid token, attempting refresh...");
+          try {
+            const refreshed = await auth.refreshTokens();
+            if (refreshed) {
+              token = refreshed.accessToken;
+              console.log("[API] Token refreshed successfully");
             }
+          } catch (refreshErr) {
+            console.error("[API] Token refresh exception:", refreshErr);
           }
-          
-          if (session) {
-            cachedSession = session;
-            sessionInitialized = true;
-          }
-        } else {
-          session = cachedSession;
         }
+        
+        if (token) {
+          cachedToken = token;
+          sessionInitialized = true;
+        }
+      } else {
+        token = cachedToken;
       }
       
       // Get branch ID for scoping
@@ -89,8 +76,8 @@ export async function apiFetch(path: string, init?: RequestInit & { timeout?: nu
 
   const headers = new Headers(init?.headers);
 
-  if (session?.access_token) {
-    headers.set("Authorization", `Bearer ${session.access_token}`);
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
   }
 
   if (branchId) {
@@ -116,19 +103,17 @@ export async function apiFetch(path: string, init?: RequestInit & { timeout?: nu
       signal: init?.signal ?? (controller ? controller.signal : undefined)
     });
     
-    // If we get a 401, try to refresh session and retry once
-    if (response.status === 401 && supabase) {
-      console.warn("[API] Got 401, attempting session refresh and retry...");
+    // If we get a 401, try to refresh token and retry once
+    if (response.status === 401) {
+      console.warn("[API] Got 401, attempting token refresh and retry...");
       try {
-        const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
-        if (refreshError) {
-          console.error("[API] Session refresh on 401 failed:", refreshError.message);
-        } else if (refreshData.session) {
-          cachedSession = refreshData.session;
+        const refreshed = await auth.refreshTokens();
+        if (refreshed) {
+          cachedToken = refreshed.accessToken;
           sessionInitialized = true;
           // Retry with fresh token
           const retryHeaders = new Headers(init?.headers);
-          retryHeaders.set("Authorization", `Bearer ${refreshData.session.access_token}`);
+          retryHeaders.set("Authorization", `Bearer ${refreshed.accessToken}`);
           if (branchId) retryHeaders.set("X-Branch-ID", branchId.toString());
           if (init?.body && !(init.body instanceof FormData) && !retryHeaders.has("Content-Type")) {
             retryHeaders.set("Content-Type", "application/json");
@@ -173,8 +158,8 @@ export async function apiJson<T = Json>(path: string, init?: RequestInit & { tim
       } catch(e) {}
       
       if (res.status === 401) {
-        // Check if session is completely invalid (refresh token also expired)
-        if (!cachedSession || !cachedSession.access_token) {
+        // Check if token is completely invalid (refresh token also expired)
+        if (!cachedToken) {
           throw new Error("Your session has expired. Please log out and log back in to continue.");
         }
         throw new Error("Authentication failed. Please check your connection and try again.");

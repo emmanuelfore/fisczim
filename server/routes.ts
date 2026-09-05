@@ -10,6 +10,7 @@ import { createServer, type Server } from "http";
 const rootDir = process.cwd();
 import { storage } from "./storage.js";
 import { setupAuth } from "./auth.js";
+import authRouter from "./routes/auth.js";
 import { api } from "../shared/routes.js";
 import { z } from "zod";
 import { ZimraDevice, type ReceiptData, ZimraApiError, getZimraBaseUrl, type ZimraConfigResponse, type ZimraTax } from "./zimra.js";
@@ -670,6 +671,9 @@ export async function registerRoutes(
   };
 
   setupAuth(app);
+
+  // Custom authentication routes
+  app.use("/api/auth", authRouter);
 
   // Force route to be kept in bundle
   app.get("/api/user", (req: any, res: express.Response) => {
@@ -6651,10 +6655,10 @@ export async function registerRoutes(
         companyId: Number(req.params.companyId)
       });
       res.status(201).json(customer);
-    } catch (err) {
+    } catch (err: any) {
       let msg = err.message;
       if (err.errors && err.errors.length > 0) {
-        msg = err.errors.map(e => e.message).join(", ");
+        msg = err.errors.map((e: any) => e.message).join(", ");
       }
       console.error('Customer create validation error:', msg);
       res.status(400).json({ error: msg });

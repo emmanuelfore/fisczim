@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, invalidateSessionCache } from "@/lib/api";
-import { supabase } from "@/lib/supabase";
+import { auth } from "@/lib/auth";
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { cacheUser, getCachedUser, clearCachedUser, getPendingSalesCount, saveOfflineCredentials, verifyOfflineCredentials, verifyOfflinePinCredentials, getOfflineUsers } from "@/lib/offline-db";
@@ -8,13 +8,13 @@ import { useToast } from "@/hooks/use-toast";
 import { isElectron } from "@/lib/utils";
 import { getIsOnline, setOnlineState } from "@/lib/online-state";
 
-let supabaseInitStarted = false;
-let supabaseInitDone = false;
-const supabaseInitListeners = new Set<(ready: boolean) => void>();
+let authInitStarted = false;
+let authInitDone = false;
+const authInitListeners = new Set<(ready: boolean) => void>();
 let lastUserInvalidateAt = 0;
 
-function notifySupabaseInitListeners() {
-  for (const listener of supabaseInitListeners) listener(supabaseInitDone);
+function notifyAuthInitListeners() {
+  for (const listener of authInitListeners) listener(authInitDone);
 }
 
 export function useAuth() {
@@ -24,78 +24,57 @@ export function useAuth() {
   // If offline, skip Supabase init entirely — we'll use cached user from IndexedDB.
   // In Electron we always let Supabase attempt init (it has a 1.5s failsafe timeout).
   const startOffline = !isElectron() && !navigator.onLine;
-  const [isSupabaseLoading, setIsSupabaseLoading] = useState(
-    startOffline ? false : !supabaseInitDone
+  const [isAuthLoading, setIsAuthLoading] = useState(
+    startOffline ? false : !authInitDone
   );
 
   useEffect(() => {
-    // Offline on mount — mark supabase as ready immediately so query runs against cache
+    // Offline on mount — mark auth as ready immediately so query runs against cache
     if (startOffline) {
-      if (!supabaseInitDone) {
-        supabaseInitDone = true;
-        notifySupabaseInitListeners();
+      if (!authInitDone) {
+        authInitDone = true;
+        notifyAuthInitListeners();
       }
       return;
     }
 
-    const listener = (ready: boolean) => setIsSupabaseLoading(!ready);
-    supabaseInitListeners.add(listener);
-    listener(supabaseInitDone);
+    const listener = (ready: boolean) => setIsAuthLoading(!ready);
+    authInitListeners.add(listener);
+    listener(authInitDone);
 
-    if (!supabaseInitStarted) {
-      supabaseInitStarted = true;
+    if (!authInitStarted) {
+      authInitStarted = true;
 
       const failSafe = window.setTimeout(() => {
-        if (supabaseInitDone) return;
-        console.warn("[Auth] Supabase session sync timed out; continuing without blocking UI");
-        supabaseInitDone = true;
-        notifySupabaseInitListeners();
+        if (authInitDone) return;
+        console.warn("[Auth] Auth init timed out; continuing without blocking UI");
+        authInitDone = true;
+        notifyAuthInitListeners();
       }, isElectron() ? 1500 : 4000);
 
-      const {
-        data: { subscription },
-      } = supabase.auth.onAuthStateChange((event, session) => {
-        if (event === "INITIAL_SESSION") {
-          window.clearTimeout(failSafe);
-          if (!supabaseInitDone) {
-            supabaseInitDone = true;
-            notifySupabaseInitListeners();
-          }
-          if (session) {
-            const now = Date.now();
-            if (now - lastUserInvalidateAt > 2000) {
-              lastUserInvalidateAt = now;
-              queryClient.invalidateQueries({ queryKey: ["/api/user"] });
-            }
-          }
-        } else if (event === "SIGNED_IN") {
-          if (!supabaseInitDone) {
-            supabaseInitDone = true;
-            notifySupabaseInitListeners();
-          }
+      // Listen to auth state changes from custom auth client
+      const unsubscribe = auth.onAuthStateChange((user) => {
+        window.clearTimeout(failSafe);
+        if (!authInitDone) {
+          authInitDone = true;
+          notifyAuthInitListeners();
+        }
+        if (user) {
           const now = Date.now();
           if (now - lastUserInvalidateAt > 2000) {
             lastUserInvalidateAt = now;
             queryClient.invalidateQueries({ queryKey: ["/api/user"] });
           }
-        } else if (event === "SIGNED_OUT") {
-          window.clearTimeout(failSafe);
-          if (!supabaseInitDone) {
-            supabaseInitDone = true;
-            notifySupabaseInitListeners();
-          }
-          // Don't clear queryClient here — logout() already handles cleanup
-          // to avoid double-clearing which can cause race conditions
         }
       });
 
       return () => {
-        subscription.unsubscribe();
+        unsubscribe();
       };
     }
 
     return () => {
-      supabaseInitListeners.delete(listener);
+      authInitListeners.delete(listener);
     };
   }, [queryClient]);
 
@@ -139,7 +118,7 @@ export function useAuth() {
         return cachedFromOffline ?? null;
       }
     },
-    enabled: !isSupabaseLoading,
+    enabled: !isAuthLoading,
     // Cache user for 30 min (token lifetime ~1hr). Only refetch on token refresh or manual invalidate.
     staleTime: 1000 * 60 * 30,
     gcTime: 1000 * 60 * 60,
@@ -150,23 +129,19 @@ export function useAuth() {
   });
 
   const loginWithGoogle = async () => {
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: `${window.location.origin}/auth` },
-    });
-    if (error) throw error;
+    // Google OAuth not implemented in custom auth yet
+    throw new Error("Google login not available with custom auth");
   };
 
   const loginWithPassword = async ({ email, password }: any) => {
     // Try online login first; fall back to offline credentials if network fails
     if (getIsOnline()) {
       try {
-        const signInPromise = supabase.auth.signInWithPassword({ email, password });
+        const loginPromise = auth.login(email, password);
         const timeoutPromise = new Promise<never>((_, reject) => {
           window.setTimeout(() => reject(new Error("Login request timed out")), 12000);
         });
-        const { data, error } = await Promise.race([signInPromise, timeoutPromise]) as Awaited<typeof signInPromise>;
-        if (error) throw error;
+        const data = await Promise.race([loginPromise, timeoutPromise]) as Awaited<ReturnType<typeof auth.login>>;
 
         if (data.user) {
           await saveOfflineCredentials(email, password, { ...data.user, sessionStatus: 'offline_cached' });
@@ -181,7 +156,7 @@ export function useAuth() {
         return;
       } catch (err: any) {
         // If it's an auth error (wrong password), throw immediately
-        if (err?.status === 400 || err?.message?.includes("Invalid")) throw err;
+        if (err?.status === 400 || err?.message?.includes("Invalid") || err?.message?.includes("credentials")) throw err;
         // Network error — fall through to offline path
         console.warn("[Auth] Online login failed, trying offline credentials:", err.message);
       }
@@ -213,9 +188,9 @@ export function useAuth() {
 
     queryClient.setQueryData(["/api/user"], user);
 
-    if (!supabaseInitDone) {
-      supabaseInitDone = true;
-      notifySupabaseInitListeners();
+    if (!authInitDone) {
+      authInitDone = true;
+      notifyAuthInitListeners();
     }
   };
 
@@ -246,9 +221,9 @@ export function useAuth() {
     }
 
     queryClient.setQueryData(["/api/user"], user);
-    if (!supabaseInitDone) {
-      supabaseInitDone = true;
-      notifySupabaseInitListeners();
+    if (!authInitDone) {
+      authInitDone = true;
+      notifyAuthInitListeners();
     }
   };
 
@@ -303,12 +278,11 @@ export function useAuth() {
   }
 
   const registerWithPassword = async ({ email, password, name }: any) => {
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { data: { name } },
-    });
-    if (error) throw error;
+    const data = await auth.register(email, password, name);
+    if (data.user) {
+      await cacheUser(data.user);
+      queryClient.setQueryData(["/api/user"], data.user);
+    }
     return data;
   };
 
@@ -322,14 +296,14 @@ export function useAuth() {
     // Invalidate session cache so next apiFetch calls fresh getSession
     invalidateSessionCache();
 
-    // Mark supabase as done so the login page never shows a spinner.
-    // Do NOT reset supabaseInitStarted — resetting it causes a second subscription
+    // Mark auth as done so the login page never shows a spinner.
+    // Do NOT reset authInitStarted — resetting it causes a second subscription
     // to race with the existing one, which can deadlock the login page offline.
-    supabaseInitDone = true;
-    notifySupabaseInitListeners();
+    authInitDone = true;
+    notifyAuthInitListeners();
 
     if (getIsOnline()) {
-      try { await supabase.auth.signOut(); } catch { /* ignore network errors */ }
+      try { await auth.logout(); } catch { /* ignore network errors */ }
     }
 
     setLocation(isElectron() ? "/pos-login" : "/auth");
@@ -342,12 +316,11 @@ export function useAuth() {
     }
   };
 
-  const updatePassword = async (password: string) => {
-    const { error } = await supabase.auth.updateUser({ password });
-    if (error) throw error;
+  const updatePassword = async (currentPassword: string, newPassword: string) => {
+    await auth.changePassword(currentPassword, newPassword);
     const res = await apiFetch("/api/user/password", {
       method: "POST",
-      body: JSON.stringify({ newPassword: password }),
+      body: JSON.stringify({ newPassword }),
     });
     if (!res.ok) console.warn("Failed to sync password change status with backend");
     queryClient.invalidateQueries({ queryKey: ["/api/user"] });
@@ -370,7 +343,7 @@ export function useAuth() {
 
   return {
     user: userQuery.data ?? null,
-    isLoading: isSupabaseLoading || (userQuery.isPending && userQuery.fetchStatus !== "idle"),
+    isLoading: isAuthLoading || (userQuery.isPending && userQuery.fetchStatus !== "idle"),
     loginWithGoogle,
     loginWithPassword,
     loginWithOfflinePin,

@@ -14,7 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { ArrowLeft, ArrowRight, Eye, EyeOff, Lock, Mail, User } from "lucide-react-native";
 import { StatusBar } from "expo-status-bar";
-import { supabase } from "../lib/supabase";
+import { auth } from "../lib/auth";
 import { PremiumColors as C } from "../ui/PremiumColors";
 
 type Props = {
@@ -42,24 +42,7 @@ export function SignUpScreen({ onBack, onSignedUp }: Props) {
     setError(null);
     setBusy(true);
     try {
-      const { error: signUpError } = await supabase.auth.signUp({
-        email: email.trim(),
-        password,
-        options: {
-          data: {
-            full_name: name.trim(),
-            name: name.trim(),
-          },
-        },
-      });
-      if (signUpError) throw signUpError;
-
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password,
-      });
-      if (signInError) throw signInError;
-
+      await auth.register(email.trim(), password, name.trim());
       onSignedUp();
     } catch (e: any) {
       setError(e?.message ?? "Could not create account");

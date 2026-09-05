@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Lock, Mail, ArrowRight, Eye, EyeOff, Moon, Sun } from "lucide-react-native";
-import { supabase } from "../lib/supabase";
+import { auth } from "../lib/auth";
 import { useTheme } from "../ui/PremiumColors";
 import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
@@ -43,11 +43,7 @@ export function LoginScreen({ onLoggedIn, onForgotPassword, onSignUp }: Props) {
     setError(null);
     setBusy(true);
     try {
-      const { error: e } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password,
-      });
-      if (e) throw e;
+      await auth.login(email.trim(), password);
       await onLoggedIn();
     } catch (e: any) {
       setError(e?.message ?? "Authentication failed");

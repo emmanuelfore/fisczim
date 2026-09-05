@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
+import { sql } from 'drizzle-orm';
+import { db } from '../db.js';
 import { storage } from '../storage.js';
 import { generateTokens, verifyAccessToken, verifyRefreshToken, TokenPayload } from '../lib/jwt.js';
 
@@ -40,28 +42,59 @@ function verifySupabasePassword(password: string, hash: string): boolean {
   }
 }
 
-// Hybrid password verification - supports both Supabase PBKDF2 and bcrypt
+// Hybrid password verification - supports bcrypt, Supabase PBKDF2, plaintext, MD5, SHA256
 async function verifyPassword(password: string, hash: string): Promise<boolean> {
-  // Try bcrypt first (new users)
-  if (hash.startsWith('$2b$') || hash.startsWith('$2a$')) {
-    return await bcrypt.compare(password, hash);
+  if (!hash || !password) return false;
+
+  // 1. Plaintext match (legacy seeded test accounts e.g. "password123")
+  if (hash === password) {
+    return true;
+  }
+
+  // 2. Standard Bcrypt ($2a$, $2b$, $2y$)
+  if (hash.startsWith('$2b$') || hash.startsWith('$2a$') || hash.startsWith('$2y$')) {
+    try {
+      return await bcrypt.compare(password, hash);
+    } catch {
+      return false;
+    }
   }
   
-  // Try Supabase PBKDF2 (migrated users)
+  // 3. Supabase PBKDF2 ($pbkdf2-sha256$)
   if (hash.startsWith('$pbkdf2-sha256$')) {
     return verifySupabasePassword(password, hash);
   }
-  
-  // Fallback to bcrypt for any other format
-  return await bcrypt.compare(password, hash);
+
+  // 4. MD5 (32-character hex hash)
+  if (hash.length === 32 && /^[0-9a-fA-F]{32}$/.test(hash)) {
+    const md5Hash = crypto.createHash('md5').update(password).digest('hex');
+    if (md5Hash.toLowerCase() === hash.toLowerCase()) {
+      return true;
+    }
+  }
+
+  // 5. SHA256 (64-character hex hash)
+  if (hash.length === 64 && /^[0-9a-fA-F]{64}$/.test(hash)) {
+    const sha256Hash = crypto.createHash('sha256').update(password).digest('hex');
+    if (sha256Hash.toLowerCase() === hash.toLowerCase()) {
+      return true;
+    }
+  }
+
+  // Fallback to bcrypt
+  try {
+    return await bcrypt.compare(password, hash);
+  } catch {
+    return false;
+  }
 }
 
-// Upgrade password from Supabase hash to bcrypt
+// Upgrade password to bcrypt
 async function upgradePassword(userId: string, password: string): Promise<void> {
   const bcryptHash = await bcrypt.hash(password, 10);
   await storage.updateUser(userId, {
     password: bcryptHash,
-    passwordChanged: false, // User should change their password after migration
+    passwordChanged: false,
   });
   console.log(`[Auth] Upgraded password hash for user ${userId} to bcrypt`);
 }
@@ -121,7 +154,7 @@ router.post('/register', async (req: Request, res: Response) => {
     // Create user
     const user = await storage.createUser({
       id: crypto.randomUUID(),
-      email,
+      email: email.trim(),
       password: hashedPassword,
       name,
       username,
@@ -162,31 +195,46 @@ router.post('/login', async (req: Request, res: Response) => {
       return res.status(400).json({ message: 'Email and password are required' });
     }
 
-    // Get user by email
-    const user = await storage.getUserByEmail(email);
-    if (!user || !user.password) {
+    // Get user by email (case-insensitive)
+    let user = await storage.getUserByEmail(email);
+    if (!user) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    // Verify password using hybrid verification (supports both Supabase PBKDF2 and bcrypt)
+    // If user's password in public.users is missing, attempt to sync from auth.users on-the-fly
+    if (!user.password) {
+      try {
+        const [authUser] = await storage.getUserByEmail(user.email) ? await db.execute(sql`SELECT encrypted_password FROM auth.users WHERE id = ${user.id}`) : [];
+        if (authUser && (authUser as any).encrypted_password) {
+          const syncedPassword = (authUser as any).encrypted_password as string;
+          await storage.updateUser(user.id, { password: syncedPassword });
+          user.password = syncedPassword;
+        }
+      } catch (syncErr) {
+        console.error('[Auth] On-the-fly password sync error:', syncErr);
+      }
+    }
+
+    if (!user.password) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    // Verify password using hybrid verification (bcrypt, PBKDF2, plaintext, MD5, SHA256)
     const isValidPassword = await verifyPassword(password, user.password);
     if (!isValidPassword) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    // If user has Supabase hash, upgrade to bcrypt
-    if (user.password.startsWith('$pbkdf2-sha256$')) {
+    // If user password is not bcrypt (e.g. PBKDF2, plaintext, MD5), upgrade to bcrypt
+    if (!user.password.startsWith('$2b$') && !user.password.startsWith('$2a$') && !user.password.startsWith('$2y$')) {
       try {
         await upgradePassword(user.id, password);
-        // Fetch updated user
         const updatedUser = await storage.getUser(user.id);
         if (updatedUser && updatedUser.password) {
           user.password = updatedUser.password;
-          user.passwordChanged = updatedUser.passwordChanged;
         }
       } catch (upgradeError) {
         console.error('[Auth] Failed to upgrade password hash:', upgradeError);
-        // Continue with login even if upgrade fails
       }
     }
 

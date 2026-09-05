@@ -17,7 +17,7 @@ echo ""
 # Configuration
 SUPABASE_URL="https://nopztclveukecdabuist.supabase.co"
 # Please provide the correct Supabase database connection string
-SUPABASE_DB_URL="postgresql://postgres.nopztclveukecdabuist:YOUR_PASSWORD@aws-1-eu-west-2.pooler.supabase.com:5432/postgres"
+SUPABASE_DB_URL="postgresql://postgres:YOUR_PASSWORD@aws-1-eu-west-2.pooler.supabase.com:5432/postgres"
 LOCAL_DB_NAME="fisczim"
 LOCAL_DB_USER="fisczim"
 LOCAL_DB_PASSWORD="ChangeThisPassword123"

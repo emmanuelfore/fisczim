@@ -423,36 +423,11 @@ Write-Output $result
           Buffer.from([0x02]), Buffer.from([rFinal.length]), rFinal,
           Buffer.from([0x02]), Buffer.from([sFinal.length]), sFinal,
         ]);
-        const pem = `-----BEGIN PUBLIC KEY-----\n${Buffer.concat([Buffer.from([0x30, 0x59, 0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, 0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, 0x03, 0x42, 0x00]), Buffer.concat([Buffer.from([0x04]), Buffer.from(jwk.x.replace(/-/g, '+').replace(/_/g, '/'), 'base64'), Buffer.from(jwk.y.replace(/-/g, '+').replace(/_/g, '/'), 'base64')])]).toString('base64').match(/.{1,64}/g)?.join('\n')}\n-----END PUBLIC KEY-----`;
-        const { createVerify } = require('crypto');
-        const verify = require('crypto').createVerify('SHA256');
-        verify.update(`${headerB64}.${payloadB64}`);
-        const rawSig = Buffer.from(signatureB64.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
-        const derSig = (() => {
-          if (rawSig.length !== 64) return Buffer.alloc(0);
-          const r = rawSig.subarray(0, 32);
-          const s = rawSig.subarray(32, 64);
-          const trim = (buf) => { let i = 0; while (i < buf.length - 1 && buf[i] === 0) i++; return buf.subarray(i); };
-          const rTrim = (() => { let i = 0; while (i < r.length - 1 && r[i] === 0) i++; return r.subarray(i); })();
-          const sTrim = (() => { let i = 0; while (i < s.length - 1 && s[i] === 0) i++; return s.subarray(i); })();
-          const rFinal = (rTrim[0] & 0x80) ? Buffer.concat([Buffer.from([0x00]), rTrim]) : rTrim;
-          const sFinal = (sTrim[0] & 0x80) ? Buffer.concat([Buffer.from([0x00]), sTrim]) : sTrim;
-          return Buffer.concat([
-            Buffer.from([0x30]),
-            Buffer.from([2 + rFinal.length + 2 + sFinal.length]),
-            Buffer.from([0x02]), Buffer.from([rFinal.length]), rFinal,
-            Buffer.from([0x02]), Buffer.from([sFinal.length]), sFinal,
-          ]);
-        })();
-        const { createVerify } = require('crypto');
-        const verify = require('crypto').createVerify('SHA256');
-        verify.update(`${headerB64}.${payloadB64}`);
         if (!verify.verify(pem, derSig)) return null;
         return { id: payload.sub, email: payload.email, user_metadata: payload.user_metadata };
       }
-    }
-    return null;
-  } catch (e) {
+      return null;
+    } catch (e) {
     log.error('[Main] verify-token-local error:', e.message);
     return null;
   }

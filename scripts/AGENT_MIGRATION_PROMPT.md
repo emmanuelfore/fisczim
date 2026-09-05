@@ -11,7 +11,7 @@ You are tasked with migrating a Supabase database to a self-hosted PostgreSQL in
 
 ## Supabase Connection Details
 - **Project Ref:** nopztclveukecdabuist
-- **Database URL:** `postgresql://postgres.nopztclveukecdabuist:%23Ndakapenga4710@aws-1-eu-west-3.pooler.supabase.com:6543/postgres`
+- **Database URL:** `postgresql://postgres:2512@161.97.115.59:6543/postgres`
 - **Important:** Use port 6543 for pg_dump (session mode required for pg_dump compatibility)
 
 ## Backup Directory
@@ -53,7 +53,7 @@ apt-get install -y postgresql-client-17
 mkdir -p /root/fisczim-backups
 
 # Set Supabase connection string
-SUPABASE_DB_URL="postgresql://postgres.nopztclveukecdabuist:%23Ndakapenga4710@aws-1-eu-west-3.pooler.supabase.com:6543/postgres"
+SUPABASE_DB_URL="postgresql://postgres:2512@161.97.115.59:6543/postgres"
 
 # Dump public schema
 /usr/lib/postgresql/17/bin/pg_dump "$SUPABASE_DB_URL" --format=custom --schema=public --file=/root/fisczim-backups/fisczim_public.dump
@@ -161,7 +161,7 @@ sed -n '/^INSERT INTO public\./p' /root/fisczim-backups/fisczim_complete.sql > /
 - **PostgreSQL User:** fisczim
 - **PostgreSQL Password:** ChangeThisPassword123
 - **PostgreSQL Database:** fisczim
-- **Supabase DB URL:** `postgresql://postgres.nopztclveukecdabuist:%23Ndakapenga4710@aws-1-eu-west-3.pooler.supabase.com:6543/postgres`
+- **Supabase DB URL:** `postgresql://postgres:2512@161.97.115.59:6543/postgres`
 
 ## Expected Outcome
 - All public schema tables imported with data

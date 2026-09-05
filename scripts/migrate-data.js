@@ -1,6 +1,6 @@
 const { Pool } = require('pg');
 
-const remotePool = new Pool({ connectionString: 'postgresql://postgres.nopztclveukecdabuist:%23Ndakapenga4710@aws-1-eu-west-3.pooler.supabase.com:5432/postgres' });
+const remotePool = new Pool({ connectionString: 'postgresql://postgres:2512@161.97.115.59:5432/postgres' });
 const localPool = new Pool({ connectionString: 'postgresql://postgres:2512@localhost:5432/fisczim' });
 
 async function migrate() {

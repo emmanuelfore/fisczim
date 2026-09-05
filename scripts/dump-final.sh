@@ -5,7 +5,7 @@ set -e
 echo "=== Supabase Database Dump Script ==="
 
 # Supabase credentials
-SUPABASE_DB_URL="postgresql://postgres.nopztclveukecdabuist:%23Ndakapenga4710@aws-1-eu-west-3.pooler.supabase.com:6543/postgres"
+SUPABASE_DB_URL="postgresql://postgres:2512@161.97.115.59:6543/postgres"
 
 # Output directory
 OUTPUT_DIR="/root/fisczim-backups"

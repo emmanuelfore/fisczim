@@ -5097,7 +5097,7 @@ export const salesOrderAuditLogs = pgTable("sales_order_audit_logs", {
   fieldChanged: text("field_changed").notNull(),
   oldValue: text("old_value"),
   newValue: text("new_value"),
-  changedBy: integer("changed_by").references(() => users.id),
+  changedBy: uuid("changed_by").references(() => users.id),
   changedAt: timestamp("changed_at").defaultNow().notNull()
 });
 export const insertSalesOrderAuditLogSchema = createInsertSchema(salesOrderAuditLogs).omit({ id: true, changedAt: true });

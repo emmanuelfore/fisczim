@@ -31,12 +31,10 @@ import {
   removeOfflineHold,
   setLastCacheTime,
   addPendingSale,
-  getCachedZimraConfig,
   getCachedFiscalSequence,
   cacheFiscalSequence,
   generateOfflineReport,
 } from "@/lib/offline-db";
-import { generateOfflineFiscalData, resolveTaxCode } from "@/lib/fiscalization-offline";
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import {
   Search,
@@ -1885,75 +1883,12 @@ export default function POSPage() {
 
       if (!isOnline) {
         const offlineRef = `OFFLINE-${Date.now().toString().slice(-6)}`;
-        let fiscalData: any = {};
         let posRef = offlineRef;
         if (isFiscalized) {
-          try {
-            const zimraConfig = await getCachedZimraConfig(companyId);
-            const fiscalSequence = await refreshCachedFiscalSequence(companyId);
-            if (zimraConfig?.zimraPrivateKey && fiscalSequence) {
-              const nextGlobalNo = fiscalSequence.lastReceiptGlobalNo + 1;
-              const nextDailyCount = fiscalSequence.dailyReceiptCount + 1;
-              const dateObj = new Date();
-              const dateLocal = new Date(dateObj.getTime() - (dateObj.getTimezoneOffset() * 60000));
-              const receiptDate = dateLocal.toISOString().slice(0, 19);
-
-              const taxesMap = new Map<number, any>();
-              for (const item of invoiceData.items) {
-                const taxId = item.taxTypeId || 1;
-                const taxRate = Number(item.taxRate);
-                const lineTotal = Number(item.lineTotal);
-                const taxAmount = taxInclusive ? Number((lineTotal - (lineTotal / (1 + (taxRate / 100)))).toFixed(2)) : Number((lineTotal * (taxRate / 100)).toFixed(2));
-                const salesWithTax = taxInclusive ? lineTotal : Number((lineTotal + taxAmount).toFixed(2));
-                
-                if (!taxesMap.has(taxId)) {
-                  taxesMap.set(taxId, { taxID: taxId, taxCode: resolveTaxCode(taxId), taxPercent: taxRate, taxAmount: 0, salesAmountWithTax: 0 });
-                }
-                const t = taxesMap.get(taxId);
-                t.taxAmount = Number((t.taxAmount + taxAmount).toFixed(2));
-                t.salesAmountWithTax = Number((t.salesAmountWithTax + salesWithTax).toFixed(2));
-              }
-
-              const receiptDataParams = {
-                receiptType: "FISCALINVOICE",
-                receiptCurrency: currency.code,
-                receiptGlobalNo: nextGlobalNo,
-                receiptDate: receiptDate,
-                receiptTotal: Number(total),
-                receiptTaxes: Array.from(taxesMap.values())
-              };
-
-              const offlineSig = generateOfflineFiscalData({
-                receiptData: receiptDataParams,
-                previousReceiptHash: fiscalSequence.lastFiscalHash,
-                deviceId: zimraConfig.fdmsDeviceId,
-                privateKeyPem: zimraConfig.zimraPrivateKey
-              });
-
-              fiscalData = {
-                receiptGlobalNo: nextGlobalNo,
-                receiptCounter: nextDailyCount,
-                fiscalSignature: offlineSig.signature,
-                receiptDeviceSignature: offlineSig.hash,
-                qrUrl: zimraConfig.qrUrl ? `${zimraConfig.qrUrl}?verify=${offlineSig.verificationCode}` : null
-              };
-
-              posRef = `${nextGlobalNo}`; // POS receipt number is global no.
-
-              // Update local sequence
-              await cacheFiscalSequence(companyId, {
-                ...fiscalSequence,
-                lastReceiptGlobalNo: nextGlobalNo,
-                dailyReceiptCount: nextDailyCount,
-                lastFiscalHash: offlineSig.hash
-              });
-            }
-          } catch (e) {
-            console.error("Failed to generate offline fiscal signature", e);
-          }
+          await refreshCachedFiscalSequence(companyId).catch(() => {});
         }
 
-        const payloadToQueue = { ...invoiceData, ...fiscalData };
+        const payloadToQueue = { ...invoiceData };
         const offlineId = await addPendingSale(
           companyId,
           payloadToQueue,
@@ -2110,75 +2045,13 @@ export default function POSPage() {
             })),
           };
           const offlineRef = `OFFLINE-${Date.now().toString().slice(-6)}`;
-          let fiscalData: any = {};
           let posRef = offlineRef;
           
           if (isFiscalized) {
-            try {
-              const zimraConfig = await getCachedZimraConfig(companyId);
-              const fiscalSequence = await refreshCachedFiscalSequence(companyId);
-              if (zimraConfig?.zimraPrivateKey && fiscalSequence) {
-                const nextGlobalNo = fiscalSequence.lastReceiptGlobalNo + 1;
-                const nextDailyCount = fiscalSequence.dailyReceiptCount + 1;
-                const dateObj = new Date();
-                const dateLocal = new Date(dateObj.getTime() - (dateObj.getTimezoneOffset() * 60000));
-                const receiptDate = dateLocal.toISOString().slice(0, 19);
-
-                const taxesMap = new Map<number, any>();
-                for (const item of payload.items) {
-                  const taxId = item.taxTypeId || 1;
-                  const taxRate = Number(item.taxRate);
-                  const lineTotal = Number(item.lineTotal);
-                  const taxAmount = taxInclusive ? Number((lineTotal - (lineTotal / (1 + (taxRate / 100)))).toFixed(2)) : Number((lineTotal * (taxRate / 100)).toFixed(2));
-                  const salesWithTax = taxInclusive ? lineTotal : Number((lineTotal + taxAmount).toFixed(2));
-                  
-                  if (!taxesMap.has(taxId)) {
-                    taxesMap.set(taxId, { taxID: taxId, taxCode: resolveTaxCode(taxId), taxPercent: taxRate, taxAmount: 0, salesAmountWithTax: 0 });
-                  }
-                  const t = taxesMap.get(taxId);
-                  t.taxAmount = Number((t.taxAmount + taxAmount).toFixed(2));
-                  t.salesAmountWithTax = Number((t.salesAmountWithTax + salesWithTax).toFixed(2));
-                }
-
-                const receiptDataParams = {
-                  receiptType: "FISCALINVOICE",
-                  receiptCurrency: selectedCurrencyCode,
-                  receiptGlobalNo: nextGlobalNo,
-                  receiptDate: receiptDate,
-                  receiptTotal: Number(total),
-                  receiptTaxes: Array.from(taxesMap.values())
-                };
-
-                const offlineSig = generateOfflineFiscalData({
-                  receiptData: receiptDataParams,
-                  previousReceiptHash: fiscalSequence.lastFiscalHash,
-                  deviceId: zimraConfig.fdmsDeviceId,
-                  privateKeyPem: zimraConfig.zimraPrivateKey
-                });
-
-                fiscalData = {
-                  receiptGlobalNo: nextGlobalNo,
-                  receiptCounter: nextDailyCount,
-                  fiscalSignature: offlineSig.signature,
-                  receiptDeviceSignature: offlineSig.hash,
-                  qrCodeData: zimraConfig.qrUrl ? `${zimraConfig.qrUrl}?verify=${offlineSig.verificationCode}` : null
-                };
-
-                posRef = `${nextGlobalNo}`;
-
-                await cacheFiscalSequence(companyId, {
-                  ...fiscalSequence,
-                  lastReceiptGlobalNo: nextGlobalNo,
-                  dailyReceiptCount: nextDailyCount,
-                  lastFiscalHash: offlineSig.hash
-                });
-              }
-            } catch (e) {
-              console.error("Failed to generate offline fiscal signature in catch block", e);
-            }
+            await refreshCachedFiscalSequence(companyId).catch(() => {});
           }
 
-          const payloadToQueue = { ...payload, ...fiscalData };
+          const payloadToQueue = { ...payload };
           const offlineId = await addPendingSale(
             companyId,
             payloadToQueue,

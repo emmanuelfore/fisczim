@@ -28,6 +28,15 @@ import { ZimraPreflightError } from "./lib/zimra-preflight.js";
 import { buildCompanyTaxMapping } from "./lib/tax-mapping.js";
 import sageWebhookRouter from "./lib/sage-webhook.js";
 import sageOAuthRouter from "./lib/sage-oauth.js";
+import {
+  checkCompanyAccess,
+  createRequireAuthOrApiKey,
+  createRequireOwner,
+} from "./lib/company-auth.js";
+import {
+  getFiscalStateCarrier,
+  hasDedicatedBranchFiscalDevice,
+} from "./lib/fiscal-state.js";
 import v1Router from "./api/v1/index.js";
 import busTicketingRouter from "./api/v1/bus-ticketing.js";
 import payrollRouter from "./api/v1/payroll.js";
@@ -789,81 +798,9 @@ export async function registerRoutes(
 
 
 
-  const checkCompanyAccess = async (user: any, companyId: number): Promise<boolean> => {
-    if (!user) return false;
-    if (user.isSuperAdmin) {
-      const isSystemAdmin = Buffer.from(String(user.email || "").toLowerCase()).toString("base64") === "YWRtaW5AemltcmEuY28uenc=";
-      if (isSystemAdmin) return true;
-      
-      const comp = await storage.getCompany(companyId);
-      if (!comp || comp.superadminVisible === false) return false;
-      
-      const systemAdminOnlyCompanies = new Set(['goosehill trading', 'glorious tire services', 'spares arena']);
-      const companyName = (comp.name || "").toLowerCase();
-      const tradingName = (comp.tradingName || "").toLowerCase();
-      if (systemAdminOnlyCompanies.has(companyName) || systemAdminOnlyCompanies.has(tradingName)) {
-        return false;
-      }
-      return true;
-    }
-    
-    const userCompanies = await storage.getCompanies(user.id);
-    return userCompanies.some(c => c.id === companyId);
-  };
+  const requireOwner = createRequireOwner(storage);
 
-  const requireOwner = async (req: any, res: any, next: any) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).json({ message: "Unauthorized: Authentication required" });
-    }
-
-    const companyId = req.params.companyId || req.body.companyId || req.query.companyId;
-    if (companyId) {
-      const hasAccess = await checkCompanyAccess(req.user, Number(companyId));
-      if (!hasAccess) {
-        return res.status(403).json({ message: "Forbidden: You do not have access to this company" });
-      }
-    }
-
-    // If it's a superadmin, they have owner permissions globally
-    if (req.user.isSuperAdmin) {
-      return next();
-    }
-
-    if (companyId) {
-      const companies = await storage.getCompanies(req.user.id);
-      const userCompany = companies.find(c => c.id === Number(companyId));
-      if (!userCompany || userCompany.role !== 'owner') {
-        return res.status(403).json({ message: "Forbidden: Owner access required for this company" });
-      }
-    }
-
-    next();
-  };
-
-  const requireAuthOrApiKey = async (req: any, res: any, next: any) => {
-    // API Key check logic
-    const apiKey = req.headers['x-api-key'];
-    if (apiKey) {
-      const company = await db.query.companies.findFirst({
-        where: eq(companies.apiKey, apiKey as string)
-      });
-      if (company) {
-        req.company = company;
-        req.apiKeyCompanyId = company.id; // Always set so handlers don't need query param
-        // Provide a minimal user-like object so handlers using req.user?.companyId work
-        if (!req.user) {
-          req.user = { companyId: company.id, id: null, isApiKey: true };
-        }
-        return next();
-      }
-      return res.status(401).json({ message: "Unauthorized: Invalid API key" });
-    }
-
-    if (!req.isAuthenticated()) {
-      return res.status(401).json({ message: "Unauthorized: Authentication required" });
-    }
-    next();
-  };
+  const requireAuthOrApiKey = createRequireAuthOrApiKey(storage);
 
   const apiLogger = async (req: any, res: any, next: any) => {
     const startTime = Date.now();
@@ -975,7 +912,7 @@ export async function registerRoutes(
   };
 
   // TEMPORARY DEBUG ENDPOINT
-  app.get("/api/debug/logs", async (_req, res) => {
+  app.get("/api/debug/logs", requireSystemAdmin, async (_req, res) => {
     try {
       const { db } = await import("./db.js");
       const { zimraLogs } = await import("../shared/schema.js");
@@ -1186,7 +1123,7 @@ export async function registerRoutes(
   app.get("/api/companies/:companyId/fiscal-context", requireAuthOrApiKey, async (req, res) => {
     const companyId = parseInt(req.params.companyId);
     try {
-      const hasAccess = await checkCompanyAccess(req.user, companyId);
+      const hasAccess = await checkCompanyAccess(storage, req.user, companyId);
       if (!hasAccess) {
         return res.status(403).json({ message: "Forbidden" });
       }
@@ -1197,14 +1134,11 @@ export async function registerRoutes(
       }
 
       const branchId = getBranchId(req);
-      let contextSource: any = company;
-
-      if (branchId) {
-        const branch = await storage.getBranch(branchId);
-        if (branch && branch.companyId === companyId && branch.fdmsDeviceId) {
-          contextSource = { ...company, ...branch };
-        }
-      }
+      const branch = branchId ? await storage.getBranch(branchId) : null;
+      const contextSource: any =
+        branch && branch.companyId === companyId && hasDedicatedBranchFiscalDevice(branch)
+          ? { ...company, ...branch }
+          : company;
 
       res.json({
         fdmsDeviceId: contextSource.fdmsDeviceId,
@@ -2977,13 +2911,19 @@ export async function registerRoutes(
       const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const company = await storage.getCompany(companyId);
       if (!company) return res.status(404).json({ message: "Company not found" });
+      const branchId = getBranchId(req);
+      const branch = branchId ? await storage.getBranch(branchId) : null;
+      const stateSource: any =
+        branch && branch.companyId === companyId && hasDedicatedBranchFiscalDevice(branch)
+          ? getFiscalStateCarrier(company as any, branch as any)
+          : company;
 
       res.json({
-        lastReceiptGlobalNo: company.lastReceiptGlobalNo || 0,
-        dailyReceiptCount: company.dailyReceiptCount || 0,
-        lastFiscalHash: company.lastFiscalHash || null,
-        currentFiscalDayNo: company.currentFiscalDayNo || 0,
-        fiscalDayOpen: company.fiscalDayOpen,
+        lastReceiptGlobalNo: stateSource.lastReceiptGlobalNo || 0,
+        dailyReceiptCount: stateSource.dailyReceiptCount || 0,
+        lastFiscalHash: stateSource.lastFiscalHash || null,
+        currentFiscalDayNo: stateSource.currentFiscalDayNo || 0,
+        fiscalDayOpen: stateSource.fiscalDayOpen,
       });
     } catch (err: any) {
       console.error("Fiscal Sequence Error:", err);
@@ -6603,19 +6543,32 @@ export async function registerRoutes(
   });
 
   // 12. POST /api/companies/:id/zimra/config/reset - Reset Device Counters
-  app.post("/api/companies/:id/zimra/config/reset", requireAuthOrApiKey, async (req, res) => {
+  app.post("/api/companies/:id/zimra/config/reset", requireSystemAdmin, async (req, res) => {
     try {
+      if (process.env.ALLOW_FDMS_COUNTER_RESET !== "1") {
+        return res.status(403).json({
+          message: "Manual FDMS counter edits are disabled. Use audited resync or repair tooling instead.",
+        });
+      }
+
       const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const { globalNumber, dailyCounter, previousHash } = req.body;
-
-      // Only allow if authenticated (requireAuth is already on)
+      const company = await storage.getCompany(companyId);
+      if (!company) return res.status(404).json({ message: "Company not found" });
+      const branchId = getBranchId(req);
+      const branch = branchId ? await storage.getBranch(branchId) : null;
+      const isBranchScoped = branch && branch.companyId === companyId && hasDedicatedBranchFiscalDevice(branch);
 
       const updateData: any = {};
       if (globalNumber !== undefined) updateData.lastReceiptGlobalNo = Number(globalNumber);
       if (dailyCounter !== undefined) updateData.dailyReceiptCount = Number(dailyCounter);
       if (previousHash !== undefined) updateData.lastFiscalHash = previousHash === "" ? null : previousHash;
 
-      await storage.updateCompany(companyId, updateData);
+      if (isBranchScoped) {
+        await storage.updateBranch(branch.id, updateData);
+      } else {
+        await storage.updateCompany(companyId, updateData);
+      }
 
       res.json({ message: "Counters reset successfully", updated: updateData });
     } catch (err: any) {
@@ -10203,7 +10156,7 @@ export async function registerRoutes(
       if (isNaN(companyId)) return res.status(400).json({ message: "Invalid company ID" });
       
       // Ownership check
-      const hasAccess = await checkCompanyAccess(req.user, companyId);
+      const hasAccess = await checkCompanyAccess(storage, req.user, companyId);
       if (!hasAccess) {
         return res.status(403).json({ message: "Forbidden" });
       }
@@ -13604,7 +13557,7 @@ export async function registerRoutes(
         }
 
         // Company ownership check
-        const hasAccess = await checkCompanyAccess(req.user, companyId);
+        const hasAccess = await checkCompanyAccess(storage, req.user, companyId);
         if (!hasAccess) {
           return res.status(403).json({ message: "Forbidden" });
         }
@@ -13646,7 +13599,7 @@ export async function registerRoutes(
       const companyId = Number(req.params.companyId);
       if (!companyId) return res.status(400).json({ message: "Invalid companyId" });
 
-      const hasAccess = await checkCompanyAccess(req.user, companyId);
+      const hasAccess = await checkCompanyAccess(storage, req.user, companyId);
       if (!hasAccess) {
         return res.status(403).json({ message: "Forbidden" });
       }
@@ -13978,7 +13931,7 @@ export async function registerRoutes(
     try {
       const companyId = parseInt(req.params.companyId);
       if (isNaN(companyId)) return res.status(400).json({ message: "Invalid companyId" });
-      const hasAccess = await checkCompanyAccess(req.user, companyId);
+      const hasAccess = await checkCompanyAccess(storage, req.user, companyId);
       if (!hasAccess) return res.status(403).json({ message: "Forbidden" });
 
       const now = new Date();
@@ -13999,7 +13952,7 @@ export async function registerRoutes(
     try {
       const companyId = parseInt(req.params.companyId);
       if (isNaN(companyId)) return res.status(400).json({ message: "Invalid companyId" });
-      const hasAccess = await checkCompanyAccess(req.user, companyId);
+      const hasAccess = await checkCompanyAccess(storage, req.user, companyId);
       if (!hasAccess) return res.status(403).json({ message: "Forbidden" });
 
       const now = new Date();
@@ -14020,7 +13973,7 @@ export async function registerRoutes(
     try {
       const companyId = parseInt(req.params.companyId);
       if (isNaN(companyId)) return res.status(400).json({ message: "Invalid companyId" });
-      const hasAccess = await checkCompanyAccess(req.user, companyId);
+      const hasAccess = await checkCompanyAccess(storage, req.user, companyId);
       if (!hasAccess) return res.status(403).json({ message: "Forbidden" });
 
       const now = new Date();
@@ -14041,7 +13994,7 @@ export async function registerRoutes(
     try {
       const companyId = parseInt(req.params.companyId);
       if (isNaN(companyId)) return res.status(400).json({ message: "Invalid companyId" });
-      const hasAccess = await checkCompanyAccess(req.user, companyId);
+      const hasAccess = await checkCompanyAccess(storage, req.user, companyId);
       if (!hasAccess) return res.status(403).json({ message: "Forbidden" });
 
       const now = new Date();

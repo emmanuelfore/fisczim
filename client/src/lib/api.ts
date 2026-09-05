@@ -1,4 +1,3 @@
-import { supabase } from "./supabase";
 import { auth } from "./auth";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
@@ -7,42 +6,27 @@ const API_BASE = import.meta.env.VITE_API_URL ?? "";
 let cachedSession: any = null;
 let sessionInitialized = false;
 
-// 1. Initial fetch
-supabase.auth.getSession().then(({ data }) => {
-    cachedSession = data?.session ?? null;
+// 1. Initial fetch from custom auth/localStorage
+const customToken = auth.getAccessToken() || localStorage.getItem('access_token');
+if (customToken) {
+    cachedSession = { access_token: customToken };
     sessionInitialized = true;
-}).catch(() => {
+} else {
     sessionInitialized = true;
-});
-
-// 2. Keep sync
-supabase.auth.onAuthStateChange((event, session) => {
-    cachedSession = session;
-    sessionInitialized = true;
-});
+}
 
 export async function getCachedSession(): Promise<{ access_token: string; expires_at?: number } | null> {
     const customToken = auth.getAccessToken() || localStorage.getItem('access_token');
     if (customToken) {
         return { access_token: customToken };
     }
-
-    if (!sessionInitialized || !cachedSession) {
-        const sessionResult = await Promise.race([
-            supabase.auth.getSession(),
-            new Promise<{ data: { session: null } }>((resolve) => setTimeout(() => resolve({ data: { session: null } }), 1000))
-        ]).catch(() => ({ data: { session: null } }));
-        if (sessionResult?.data?.session) {
-            cachedSession = sessionResult.data.session;
-            sessionInitialized = true;
-        }
-        return sessionResult?.data?.session ?? null;
-    }
+    
     return cachedSession;
 }
 
 export function invalidateSessionCache() {
     cachedSession = null;
+
     // Do NOT reset sessionInitialized to false here, as we don't want to re-trigger getSession races on logout
 }
 

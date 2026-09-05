@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { auth } from "./auth";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
 
@@ -21,10 +22,15 @@ supabase.auth.onAuthStateChange((event, session) => {
 });
 
 export async function getCachedSession(): Promise<{ access_token: string; expires_at?: number } | null> {
+    const customToken = auth.getAccessToken() || localStorage.getItem('access_token');
+    if (customToken) {
+        return { access_token: customToken };
+    }
+
     if (!sessionInitialized || !cachedSession) {
         const sessionResult = await Promise.race([
             supabase.auth.getSession(),
-            new Promise<{ data: { session: null } }>((resolve) => setTimeout(() => resolve({ data: { session: null } }), 2000))
+            new Promise<{ data: { session: null } }>((resolve) => setTimeout(() => resolve({ data: { session: null } }), 1000))
         ]).catch(() => ({ data: { session: null } }));
         if (sessionResult?.data?.session) {
             cachedSession = sessionResult.data.session;

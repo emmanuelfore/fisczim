@@ -11,9 +11,10 @@ interface Receipt48Props {
     originalInvoice?: any; // For Credit/Debit notes
     user?: any;
     paperSize?: '80mm' | '58mm' | 'A4';
+    branch?: any;
 }
 
-export function Receipt48({ id = "receipt-48", invoice, company, customer, items, originalInvoice, user, paperSize: paperSizeProp }: Receipt48Props) {
+export function Receipt48({ id = "receipt-48", invoice, company, customer, items, originalInvoice, user, paperSize: paperSizeProp, branch }: Receipt48Props) {
     if (!invoice || !company) return null;
 
     const receiptItems = items || invoice.items || [];
@@ -102,12 +103,23 @@ export function Receipt48({ id = "receipt-48", invoice, company, customer, items
 
             {/* [5] Branch & [6] Address */}
             <div className="text-center mb-1">
-                {company.tradingName && company.tradingName !== company.name && (
-                    <p className="font-bold">{company.tradingName}</p>
+                {branch ? (
+                    <>
+                        <p className="font-bold">{branch.name}</p>
+                        <p className="whitespace-pre-wrap">
+                            {[branch.address, branch.city, company.province].filter(Boolean).join(", ")}
+                        </p>
+                    </>
+                ) : (
+                    <>
+                        {company.tradingName && company.tradingName !== company.name && (
+                            <p className="font-bold">{company.tradingName}</p>
+                        )}
+                        <p className="whitespace-pre-wrap">
+                            {[company.address, company.city, company.province].filter(Boolean).join(", ")}
+                        </p>
+                    </>
                 )}
-                <p className="whitespace-pre-wrap">
-                    {[company.address, company.city, company.province].filter(Boolean).join(", ")}
-                </p>
             </div>
 
             {/* [7] Email, [8] Phone */}

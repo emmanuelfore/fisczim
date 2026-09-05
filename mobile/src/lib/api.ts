@@ -12,6 +12,26 @@ function joinUrl(base: string, path: string) {
 
 import { getSelectedBranchId } from "./storage";
 
+// ── In-memory Session Cache for Offline-First Speed ──
+let cachedSession: any = null;
+let sessionInitialized = false;
+
+if (supabase) {
+  // 1. Kick off an initial session fetch
+  supabase.auth.getSession().then(({ data }) => {
+    cachedSession = data?.session ?? null;
+    sessionInitialized = true;
+  }).catch(() => {
+    sessionInitialized = true;
+  });
+
+  // 2. Keep the cache perfectly synced with auth events (login, logout, token refresh)
+  supabase.auth.onAuthStateChange((event, session) => {
+    cachedSession = session;
+    sessionInitialized = true;
+  });
+}
+
 export async function apiFetch(path: string, init?: RequestInit & { timeout?: number }) {
   let session = null;
   let branchId = null;
@@ -19,14 +39,16 @@ export async function apiFetch(path: string, init?: RequestInit & { timeout?: nu
   // Skip session check for health endpoint to speed up online detection
   if (path !== "/api/health") {
     try {
-      if (supabase) {
+      // If the cache isn't ready yet (e.g., app just launched), wait up to 2 seconds.
+      // After initialization, this is completely synchronous and cannot hang!
+      if (supabase && !sessionInitialized) {
         const sessionResult = await Promise.race([
           supabase.auth.getSession(),
-          new Promise<{ data: { session: null } }>((resolve) =>
-            setTimeout(() => resolve({ data: { session: null } }), 10000)
-          )
-        ]);
+          new Promise<{ data: { session: null } }>((resolve) => setTimeout(() => resolve({ data: { session: null } }), 2000))
+        ]).catch(() => ({ data: { session: null } }));
         session = sessionResult?.data?.session ?? null;
+      } else {
+        session = cachedSession;
       }
       
       // Get branch ID for scoping
@@ -66,7 +88,11 @@ export async function apiFetch(path: string, init?: RequestInit & { timeout?: nu
       signal: init?.signal ?? (controller ? controller.signal : undefined)
     });
   } catch (e: any) {
-    console.error(`[API] Fetch error for ${path}:`, e.message || e);
+    if (e.name === 'AbortError' || e.message === 'Aborted') {
+      console.debug(`[API] Request aborted: ${path}`);
+    } else {
+      console.error(`[API] Fetch error for ${path}:`, e.message || e);
+    }
     throw e;
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
@@ -79,7 +105,18 @@ export async function apiJson<T = Json>(path: string, init?: RequestInit & { tim
     if (!res.ok) {
       const text = await res.text().catch(() => "");
       console.warn(`[API] Request to ${path} failed with ${res.status}:`, text);
-      throw new Error(text || `Request failed (${res.status})`);
+      
+      let errorMsg = text || `Request failed (${res.status})`;
+      try {
+        const json = JSON.parse(text);
+        if (json.message) errorMsg = json.message;
+        else if (json.error) errorMsg = typeof json.error === 'string' ? json.error : errorMsg;
+      } catch(e) {}
+      
+      if (res.status === 401) {
+        throw new Error("Authentication failed or session temporarily unreachable due to network. If this persists, try restarting the app.");
+      }
+      throw new Error(errorMsg);
     }
     return (await res.json()) as T;
   } catch (e: any) {

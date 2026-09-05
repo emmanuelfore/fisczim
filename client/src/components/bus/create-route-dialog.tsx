@@ -26,8 +26,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { MapPin, Loader2, Route, Plus, X, AlertCircle, Pencil } from "lucide-react";
-import { useState } from "react";
+import { MapPin, Loader2, Route, Plus, X, AlertCircle, Pencil, Flag } from "lucide-react";
+import { useState, useMemo } from "react";
 import { z } from "zod";
 import { ZIMBABWE_CITIES } from "@shared/zimbabwe-cities";
 
@@ -45,6 +45,8 @@ const routeFormSchema = z.object({
   basePrice: z.coerce.number().min(0, "Base price cannot be negative"),
   currency: z.enum(["USD", "ZWG"]).default("USD"),
   isActive: z.boolean().default(true),
+  stops: z.array(z.string()).default([]),
+  fares: z.record(z.coerce.number()).default({}),
   dropOffPoints: z.array(dropOffPointSchema).default([]),
 });
 
@@ -52,6 +54,7 @@ type RouteFormValues = z.infer<typeof routeFormSchema>;
 
 export function CreateRouteDialog({ companyId, existingRoutes }: { companyId: number; existingRoutes?: any[] }) {
   const [open, setOpen] = useState(false);
+  const [newStop, setNewStop] = useState("");
   const createRoute = useCreateBusRoute();
 
   const form = useForm<RouteFormValues>({
@@ -65,9 +68,79 @@ export function CreateRouteDialog({ companyId, existingRoutes }: { companyId: nu
       currency: "USD",
       companyId: companyId,
       isActive: true,
+      stops: [],
+      fares: {},
       dropOffPoints: [],
     },
   });
+
+  const stopsList = useMemo(() => {
+    const origin = form.watch("origin") || "";
+    const destination = form.watch("destination") || "";
+    const stops = form.watch("stops") || [];
+    const merged = [origin, ...stops, destination].filter((s: string) => s.trim());
+    const seen = new Set<string>();
+    return merged.filter((s: string) => (seen.has(s) ? false : (seen.add(s), true)));
+  }, [form.watch("origin"), form.watch("destination"), form.watch("stops")]);
+
+  const farePairs = useMemo(() => {
+    const pairs: Array<[string, string]> = [];
+    for (let i = 0; i < stopsList.length; i++) {
+      for (let j = i + 1; j < stopsList.length; j++) {
+        pairs.push([stopsList[i], stopsList[j]]);
+      }
+    }
+    return pairs;
+  }, [stopsList]);
+
+  const suggestFare = (from: string, to: string) => {
+    const stops = stopsList;
+    const basePrice = Number(form.watch("basePrice") || 0);
+    if (stops.length < 2 || !(basePrice > 0)) return basePrice || 0;
+    const i = stops.indexOf(from);
+    const j = stops.indexOf(to);
+    if (i < 0 || j < 0) return basePrice || 0;
+    return Math.round((basePrice * Math.abs(j - i) / (stops.length - 1)) * 100) / 100;
+  };
+
+  const addStop = () => {
+    const stop = newStop.trim();
+    if (!stop) return;
+    const stops = form.watch("stops") || [];
+    if (stops.includes(stop) || stopsList.includes(stop)) return;
+    form.setValue("stops", [...stops, stop]);
+    setNewStop("");
+  };
+
+  const removeStop = (stop: string) => {
+    const stops = (form.watch("stops") || []).filter((s: string) => s !== stop);
+    form.setValue("stops", stops);
+    const fares = { ...(form.watch("fares") || {}) };
+    for (const key of Object.keys(fares)) {
+      const [from, to] = key.split("|");
+      if (from === stop || to === stop) delete fares[key];
+    }
+    form.setValue("fares", fares);
+  };
+
+  const setFare = (key: string, reverseKey: string, value: number) => {
+    const fares = { ...(form.watch("fares") || {}) };
+    if (isNaN(value) || value < 0) {
+      delete fares[key];
+      delete fares[reverseKey];
+    } else {
+      fares[key] = value;
+    }
+    form.setValue("fares", fares);
+  };
+
+  const autoFillFares = () => {
+    const fares: Record<string, number> = {};
+    for (const [from, to] of farePairs) {
+      fares[`${from}|${to}`] = suggestFare(from, to);
+    }
+    form.setValue("fares", fares);
+  };
 
   const onSubmit = async (data: any) => {
     // Check for duplicate routes
@@ -154,20 +227,19 @@ export function CreateRouteDialog({ companyId, existingRoutes }: { companyId: nu
                     <FormLabel className="text-slate-700 font-semibold text-xs flex items-center gap-1">
                       <MapPin className="w-3 h-3 text-emerald-500" /> Origin
                     </FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
-                        <SelectTrigger className="rounded-xl bg-slate-50 border-slate-200">
-                          <SelectValue placeholder="Select origin city" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {ZIMBABWE_CITIES.map((city) => (
-                          <SelectItem key={city} value={city}>
-                            {city}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <FormControl>
+                      <Input
+                        list="route-origin-cities"
+                        placeholder="Type origin or pick from list"
+                        {...field}
+                        className="rounded-xl bg-slate-50 border-slate-200"
+                      />
+                    </FormControl>
+                    <datalist id="route-origin-cities">
+                      {ZIMBABWE_CITIES.map((city) => (
+                        <option key={city} value={city} />
+                      ))}
+                    </datalist>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -180,20 +252,19 @@ export function CreateRouteDialog({ companyId, existingRoutes }: { companyId: nu
                     <FormLabel className="text-slate-700 font-semibold text-xs flex items-center gap-1">
                       <MapPin className="w-3 h-3 text-red-500" /> Destination
                     </FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
-                        <SelectTrigger className="rounded-xl bg-slate-50 border-slate-200">
-                          <SelectValue placeholder="Select destination city" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {ZIMBABWE_CITIES.map((city) => (
-                          <SelectItem key={city} value={city}>
-                            {city}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <FormControl>
+                      <Input
+                        list="route-destination-cities"
+                        placeholder="Type destination or pick from list"
+                        {...field}
+                        className="rounded-xl bg-slate-50 border-slate-200"
+                      />
+                    </FormControl>
+                    <datalist id="route-destination-cities">
+                      {ZIMBABWE_CITIES.map((city) => (
+                        <option key={city} value={city} />
+                      ))}
+                    </datalist>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -250,63 +321,110 @@ export function CreateRouteDialog({ companyId, existingRoutes }: { companyId: nu
 
             <div className="space-y-3 pt-4 border-t border-slate-100">
               <div className="flex items-center justify-between">
-                <FormLabel className="text-slate-700 font-semibold">Drop-off Points</FormLabel>
+                <FormLabel className="text-slate-700 font-semibold">Stops & Fares</FormLabel>
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => {
-                    const current = form.getValues("dropOffPoints") || [];
-                    form.setValue("dropOffPoints", [...current, { name: "", price: 0 }]);
-                  }}
+                  onClick={autoFillFares}
                   className="rounded-lg border-slate-200"
                 >
-                  <Plus className="w-4 h-4 mr-1" /> Add Stop
+                  Auto-fill fares
                 </Button>
               </div>
-              
-              {form.watch("dropOffPoints")?.map((point: any, index: number) => (
-                <div key={index} className="flex gap-2 items-start">
-                  <div className="flex-1">
-                    <Input
-                      placeholder="Stop name (e.g. Kadoma)"
-                      value={point.name}
-                      onChange={(e) => {
-                        const updated = [...form.getValues("dropOffPoints")];
-                        updated[index].name = e.target.value;
-                        form.setValue("dropOffPoints", updated);
-                      }}
-                      className="rounded-lg bg-slate-50 border-slate-200"
-                    />
-                  </div>
-                  <div className="w-24">
-                    <Input
-                      type="number"
-                      step="0.01"
-                      placeholder="Price"
-                      value={point.price || ""}
-                      onChange={(e) => {
-                        const updated = [...form.getValues("dropOffPoints")];
-                        updated[index].price = parseFloat(e.target.value) || 0;
-                        form.setValue("dropOffPoints", updated);
-                      }}
-                      className="rounded-lg bg-slate-50 border-slate-200"
-                    />
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      const updated = form.getValues("dropOffPoints").filter((_: any, i: number) => i !== index);
-                      form.setValue("dropOffPoints", updated);
+              <p className="text-xs text-slate-500">
+                Origin and destination are the route endpoints. Add intermediate stops between them; the bus will
+                serve any boarding/drop-off point along the route.
+              </p>
+
+              {/* Ordered stops */}
+              <div className="flex gap-2 items-center">
+                <div className="flex-1">
+                  <Input
+                    placeholder="Add intermediate stop (e.g. Kadoma)"
+                    value={newStop}
+                    onChange={(e) => setNewStop(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") { e.preventDefault(); addStop(); }
                     }}
-                    className="text-red-500 hover:text-red-700 hover:bg-red-50"
-                  >
-                    <X className="w-4 h-4" />
-                  </Button>
+                    className="rounded-lg bg-slate-50 border-slate-200"
+                  />
                 </div>
-              ))}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={addStop}
+                  className="rounded-lg border-slate-200"
+                >
+                  <Plus className="w-4 h-4" /> Add Stop
+                </Button>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {stopsList.map((stop, index) => (
+                  <div
+                    key={stop}
+                    className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium border ${
+                      index === 0 || index === stopsList.length - 1
+                        ? "bg-orange-50 border-orange-200 text-orange-700"
+                        : "bg-slate-50 border-slate-200 text-slate-700"
+                    }`}
+                  >
+                    {index === 0 && <MapPin className="w-3.5 h-3.5" />}
+                    {index === stopsList.length - 1 && <Flag className="w-3.5 h-3.5" />}
+                    {stop}
+                    {index !== 0 && index !== stopsList.length - 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeStop(stop)}
+                        className="text-red-500 hover:text-red-700"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Fare matrix */}
+              {stopsList.length >= 2 && (
+                <div className="rounded-xl border border-slate-200 overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50">
+                      <tr>
+                        <th className="text-left px-3 py-2 font-semibold text-slate-600 text-xs">From</th>
+                        <th className="text-left px-3 py-2 font-semibold text-slate-600 text-xs">To</th>
+                        <th className="text-right px-3 py-2 font-semibold text-slate-600 text-xs">Fare ({form.watch("currency")})</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {farePairs.map(([from, to]) => {
+                        const key = `${from}|${to}`;
+                        const reverseKey = `${to}|${from}`;
+                        const value = (form.watch("fares")?.[key] ?? form.watch("fares")?.[reverseKey]);
+                        const displayValue = typeof value === "number" && !Number.isNaN(value) ? String(value) : "";
+                        return (
+                          <tr key={key} className="border-t border-slate-100">
+                            <td className="px-3 py-1.5 text-slate-700">{from}</td>
+                            <td className="px-3 py-1.5 text-slate-700">{to}</td>
+                            <td className="px-3 py-1.5 text-right">
+                              <Input
+                                type="number"
+                                step="0.01"
+                                placeholder={suggestFare(from, to).toFixed(2)}
+                                value={displayValue}
+                                onChange={(e) => setFare(key, reverseKey, parseFloat(e.target.value))}
+                                className="rounded-lg bg-slate-50 border-slate-200 text-right w-28 ml-auto"
+                              />
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
 
             <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
@@ -338,6 +456,7 @@ export function CreateRouteDialog({ companyId, existingRoutes }: { companyId: nu
 
 export function EditRouteDialog({ companyId, route }: { companyId: number; route: any }) {
   const [open, setOpen] = useState(false);
+  const [newStop, setNewStop] = useState("");
   const updateRoute = useUpdateBusRoute();
 
   const form = useForm<RouteFormValues>({
@@ -351,11 +470,85 @@ export function EditRouteDialog({ companyId, route }: { companyId: number; route
       basePrice: Number(route.basePrice || 0),
       currency: route.currency || "USD",
       isActive: route.isActive ?? true,
+      stops: Array.isArray(route.stops) && route.stops.length >= 2
+        ? route.stops
+        : (route.config?.stops && route.config.stops.length >= 2 ? route.config.stops : []),
+      fares: route.fares && typeof route.fares === "object"
+        ? route.fares
+        : (route.config?.fares && typeof route.config.fares === "object" ? route.config.fares : {}),
       dropOffPoints: Array.isArray(route.config?.dropOffPoints)
         ? route.config.dropOffPoints
         : (route.dropOffPoints || []),
     },
   });
+
+  const stopsList = useMemo(() => {
+    const origin = form.watch("origin") || "";
+    const destination = form.watch("destination") || "";
+    const stops = form.watch("stops") || [];
+    const merged = [origin, ...stops, destination].filter((s: string) => s.trim());
+    const seen = new Set<string>();
+    return merged.filter((s: string) => (seen.has(s) ? false : (seen.add(s), true)));
+  }, [form.watch("origin"), form.watch("destination"), form.watch("stops")]);
+
+  const farePairs = useMemo(() => {
+    const pairs: Array<[string, string]> = [];
+    for (let i = 0; i < stopsList.length; i++) {
+      for (let j = i + 1; j < stopsList.length; j++) {
+        pairs.push([stopsList[i], stopsList[j]]);
+      }
+    }
+    return pairs;
+  }, [stopsList]);
+
+  const suggestFare = (from: string, to: string) => {
+    const stops = stopsList;
+    const basePrice = Number(form.watch("basePrice") || 0);
+    if (stops.length < 2 || !(basePrice > 0)) return basePrice || 0;
+    const i = stops.indexOf(from);
+    const j = stops.indexOf(to);
+    if (i < 0 || j < 0) return basePrice || 0;
+    return Math.round((basePrice * Math.abs(j - i) / (stops.length - 1)) * 100) / 100;
+  };
+
+  const addStop = () => {
+    const stop = newStop.trim();
+    if (!stop) return;
+    const stops = form.watch("stops") || [];
+    if (stops.includes(stop) || stopsList.includes(stop)) return;
+    form.setValue("stops", [...stops, stop]);
+    setNewStop("");
+  };
+
+  const removeStop = (stop: string) => {
+    const stops = (form.watch("stops") || []).filter((s: string) => s !== stop);
+    form.setValue("stops", stops);
+    const fares = { ...(form.watch("fares") || {}) };
+    for (const key of Object.keys(fares)) {
+      const [from, to] = key.split("|");
+      if (from === stop || to === stop) delete fares[key];
+    }
+    form.setValue("fares", fares);
+  };
+
+  const setFare = (key: string, reverseKey: string, value: number) => {
+    const fares = { ...(form.watch("fares") || {}) };
+    if (isNaN(value) || value < 0) {
+      delete fares[key];
+      delete fares[reverseKey];
+    } else {
+      fares[key] = value;
+    }
+    form.setValue("fares", fares);
+  };
+
+  const autoFillFares = () => {
+    const fares: Record<string, number> = {};
+    for (const [from, to] of farePairs) {
+      fares[`${from}|${to}`] = suggestFare(from, to);
+    }
+    form.setValue("fares", fares);
+  };
 
   const onSubmit = async (data: any) => {
     try {
@@ -423,20 +616,19 @@ export function EditRouteDialog({ companyId, route }: { companyId: number; route
                     <FormLabel className="text-slate-700 font-semibold text-xs flex items-center gap-1">
                       <MapPin className="w-3 h-3 text-emerald-500" /> Origin
                     </FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
-                        <SelectTrigger className="rounded-xl bg-slate-50 border-slate-200">
-                          <SelectValue placeholder="Select origin city" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {ZIMBABWE_CITIES.map((city) => (
-                          <SelectItem key={city} value={city}>
-                            {city}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <FormControl>
+                      <Input
+                        list="route-origin-cities"
+                        placeholder="Type origin or pick from list"
+                        {...field}
+                        className="rounded-xl bg-slate-50 border-slate-200"
+                      />
+                    </FormControl>
+                    <datalist id="route-origin-cities">
+                      {ZIMBABWE_CITIES.map((city) => (
+                        <option key={city} value={city} />
+                      ))}
+                    </datalist>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -449,20 +641,19 @@ export function EditRouteDialog({ companyId, route }: { companyId: number; route
                     <FormLabel className="text-slate-700 font-semibold text-xs flex items-center gap-1">
                       <MapPin className="w-3 h-3 text-red-500" /> Destination
                     </FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
-                        <SelectTrigger className="rounded-xl bg-slate-50 border-slate-200">
-                          <SelectValue placeholder="Select destination city" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {ZIMBABWE_CITIES.map((city) => (
-                          <SelectItem key={city} value={city}>
-                            {city}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <FormControl>
+                      <Input
+                        list="route-destination-cities"
+                        placeholder="Type destination or pick from list"
+                        {...field}
+                        className="rounded-xl bg-slate-50 border-slate-200"
+                      />
+                    </FormControl>
+                    <datalist id="route-destination-cities">
+                      {ZIMBABWE_CITIES.map((city) => (
+                        <option key={city} value={city} />
+                      ))}
+                    </datalist>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -515,6 +706,112 @@ export function EditRouteDialog({ companyId, route }: { companyId: number; route
                   </FormItem>
                 )}
               />
+            </div>
+
+            <div className="space-y-3 pt-4 border-t border-slate-100">
+              <div className="flex items-center justify-between">
+                <FormLabel className="text-slate-700 font-semibold">Stops & Fares</FormLabel>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={autoFillFares}
+                  className="rounded-lg border-slate-200"
+                >
+                  Auto-fill fares
+                </Button>
+              </div>
+              <p className="text-xs text-slate-500">
+                Origin and destination are the route endpoints. Add intermediate stops; the bus will serve any
+                boarding/drop-off point along the route.
+              </p>
+
+              <div className="flex gap-2 items-center">
+                <div className="flex-1">
+                  <Input
+                    placeholder="Add intermediate stop (e.g. Kadoma)"
+                    value={newStop}
+                    onChange={(e) => setNewStop(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") { e.preventDefault(); addStop(); }
+                    }}
+                    className="rounded-lg bg-slate-50 border-slate-200"
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={addStop}
+                  className="rounded-lg border-slate-200"
+                >
+                  <Plus className="w-4 h-4" /> Add Stop
+                </Button>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {stopsList.map((stop, index) => (
+                  <div
+                    key={stop}
+                    className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium border ${
+                      index === 0 || index === stopsList.length - 1
+                        ? "bg-orange-50 border-orange-200 text-orange-700"
+                        : "bg-slate-50 border-slate-200 text-slate-700"
+                    }`}
+                  >
+                    {index === 0 && <MapPin className="w-3.5 h-3.5" />}
+                    {index === stopsList.length - 1 && <Flag className="w-3.5 h-3.5" />}
+                    {stop}
+                    {index !== 0 && index !== stopsList.length - 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeStop(stop)}
+                        className="text-red-500 hover:text-red-700"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {stopsList.length >= 2 && (
+                <div className="rounded-xl border border-slate-200 overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50">
+                      <tr>
+                        <th className="text-left px-3 py-2 font-semibold text-slate-600 text-xs">From</th>
+                        <th className="text-left px-3 py-2 font-semibold text-slate-600 text-xs">To</th>
+                        <th className="text-right px-3 py-2 font-semibold text-slate-600 text-xs">Fare ({form.watch("currency")})</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {farePairs.map(([from, to]) => {
+                        const key = `${from}|${to}`;
+                        const reverseKey = `${to}|${from}`;
+                        const value = (form.watch("fares")?.[key] ?? form.watch("fares")?.[reverseKey]);
+                        const displayValue = typeof value === "number" && !Number.isNaN(value) ? String(value) : "";
+                        return (
+                          <tr key={key} className="border-t border-slate-100">
+                            <td className="px-3 py-1.5 text-slate-700">{from}</td>
+                            <td className="px-3 py-1.5 text-slate-700">{to}</td>
+                            <td className="px-3 py-1.5 text-right">
+                              <Input
+                                type="number"
+                                step="0.01"
+                                placeholder={suggestFare(from, to).toFixed(2)}
+                                value={displayValue}
+                                onChange={(e) => setFare(key, reverseKey, parseFloat(e.target.value))}
+                                className="rounded-lg bg-slate-50 border-slate-200 text-right w-28 ml-auto"
+                              />
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
 
             <FormField

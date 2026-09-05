@@ -110,7 +110,7 @@ export function BeautifulAlertProvider({ children }: { children: React.ReactNode
     dismiss(cancelButton);
   };
 
-  const styles = makeStyles(C, isDark, toneColor);
+  const styles = useMemo(() => makeStyles(C, isDark, toneColor), [C, isDark, toneColor]);
 
   return (
     <BeautifulAlertContext.Provider value={{ showAlert }}>

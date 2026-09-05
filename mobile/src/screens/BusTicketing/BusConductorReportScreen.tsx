@@ -4,9 +4,10 @@ import {
   StatusBar,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useBusTicketing } from '../../hooks/useBusTicketing';
-import { getConductorReport } from '../../hooks/useBusReports';
+import { getConductorReport, isCashierUser, resolveCashierConductorId } from '../../hooks/useBusReports';
 import { type BusColors, useBusColors } from './theme';
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -18,26 +19,55 @@ function addDays(d: Date, n: number): Date {
   const copy = new Date(d); copy.setDate(copy.getDate() + n); return copy;
 }
 
-interface Props { onClose: () => void; }
+interface Props { onClose: () => void; userRole?: string; userName?: string; userId?: string | null; }
 
-export function BusConductorReportScreen({ onClose }: Props) {
+export function BusConductorReportScreen({ onClose, userRole, userName, userId }: Props) {
   const insets = useSafeAreaInsets();
   const C = useBusColors();
-  const styles = makeStyles(C);
-  const { tickets: allTickets, conductors } = useBusTicketing();
+  const styles = useMemo(() => makeStyles(C), [C]);
+  const { tickets: allTickets, conductors, activeConductor } = useBusTicketing();
 
   const today = new Date();
   const [selectedDate, setSelectedDate] = useState(today);
+  const [showPicker, setShowPicker] = useState(false);
   const [conductorIndex, setConductorIndex] = useState(0);
 
-  const selectedConductor = conductors[conductorIndex] ?? null;
+  // Cashiers only see their own conductor in the report
+  const restrictToOwn = isCashierUser(userRole, userName);
+  const visibleConductors = useMemo(() => {
+    if (!restrictToOwn) {
+      const existingIds = new Set(conductors.map(c => String(c.id)));
+      const fromTickets: typeof conductors = [];
+      for (const t of allTickets) {
+        if (t.conductorId && !existingIds.has(String(t.conductorId))) {
+          existingIds.add(String(t.conductorId));
+          fromTickets.push({
+            id: String(t.conductorId),
+            name: t.conductorName || 'Unknown',
+            isActive: false,
+          });
+        }
+      }
+      return [...conductors, ...fromTickets];
+    }
+    
+    if (activeConductor) return [activeConductor];
+    const fallbackId = resolveCashierConductorId(userId, userName);
+    if (fallbackId) {
+      const found = conductors.find((c) => c.id === fallbackId);
+      return found ? [found] : [{ id: fallbackId, name: userName || 'Conductor', isActive: true }];
+    }
+    return [];
+  }, [restrictToOwn, conductors, activeConductor, userId, userName, allTickets]);
+
+  const selectedConductor = visibleConductors[conductorIndex] ?? activeConductor ?? null;
 
   const report = useMemo(() => {
     if (!selectedConductor) return null;
     return getConductorReport(allTickets, selectedConductor.id, selectedDate);
   }, [allTickets, selectedConductor, selectedDate]);
 
-  if (conductors.length === 0) {
+  if (visibleConductors.length === 0) {
     return (
       <View style={[styles.root, { paddingTop: insets.top }]}>
         <StatusBar barStyle={C.statusBarStyle} backgroundColor={C.bg} />
@@ -72,9 +102,9 @@ export function BusConductorReportScreen({ onClose }: Props) {
         {/* Conductor picker */}
         <Text style={styles.sectionLabel}>CONDUCTOR</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
-          {conductors.map((c, i) => (
+          {visibleConductors.map((c, i) => (
             <TouchableOpacity
-              key={c.id}
+              key={c.id || `cond-${i}`}
               style={[styles.conductorChip, conductorIndex === i && styles.conductorChipActive]}
               onPress={() => setConductorIndex(i)}
             >
@@ -90,7 +120,20 @@ export function BusConductorReportScreen({ onClose }: Props) {
           <TouchableOpacity style={styles.dateNavBtn} onPress={() => setSelectedDate((d) => addDays(d, -1))}>
             <MaterialCommunityIcons name="chevron-left" size={24} color={C.white} />
           </TouchableOpacity>
-          <Text style={styles.dateLabel}>{fmtDate(selectedDate)}</Text>
+          <TouchableOpacity onPress={() => setShowPicker(true)}>
+            <Text style={styles.dateLabel}>{fmtDate(selectedDate)}</Text>
+          </TouchableOpacity>
+          {showPicker && (
+            <DateTimePicker
+              value={selectedDate}
+              mode="date"
+              display="default"
+              onChange={(event, date) => {
+                setShowPicker(false);
+                if (date) setSelectedDate(date);
+              }}
+            />
+          )}
           <TouchableOpacity
             style={styles.dateNavBtn}
             onPress={() => setSelectedDate((d) => addDays(d, 1))}
@@ -122,8 +165,8 @@ export function BusConductorReportScreen({ onClose }: Props) {
             {report.byRoute.length > 0 && (
               <>
                 <Text style={styles.sectionTitle}>BY ROUTE</Text>
-                {report.byRoute.map((rb) => (
-                  <View key={rb.routeId} style={styles.tableRow}>
+                {report.byRoute.map((rb, index) => (
+              <View key={rb.routeId || `route-${index}`} style={styles.tableRow}>
                     <Text style={styles.tableRouteName} numberOfLines={1}>{rb.routeName}</Text>
                     <Text style={styles.tableTickets}>{rb.ticketCount} tkts</Text>
                     <Text style={styles.tableRevenue}>{fmtMoney(rb.revenue)}</Text>

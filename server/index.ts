@@ -176,6 +176,11 @@ async function initializeApp() {
   await seedGlobalPayrollDefaults();
   await registerRoutes(httpServer, app);
 
+  app.route("/api/user").get((req: any, res: Response) => {
+    if (!req.isAuthenticated()) return res.json({ user: null });
+    res.json({ user: req.user });
+  });
+
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";

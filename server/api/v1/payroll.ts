@@ -29,12 +29,19 @@ import { userHasPermission } from "../../lib/permissions.js";
 const router = Router({ mergeParams: true });
 
 // --- CRYPTOGRAPHY SECURITY VAULT UTILITIES ---
-const ENCRYPTION_KEY = process.env.PAYROLL_SECRET_KEY || "fs-payroll-default-key-32-bytes!!";
 const CIPHER_ALGORITHM = "aes-256-gcm";
+
+function getEncryptionKey(): Buffer {
+  const rawKey = process.env.PAYROLL_SECRET_KEY || process.env.SUPABASE_JWT_SECRET;
+  if (!rawKey) {
+    throw new Error("PAYROLL_SECRET_KEY must be configured before storing payroll integration credentials");
+  }
+  return crypto.createHash("sha256").update(rawKey).digest();
+}
 
 function encrypt(text: string): string {
   const iv = crypto.randomBytes(16);
-  const key = crypto.createHash("sha256").update(ENCRYPTION_KEY).digest();
+  const key = getEncryptionKey();
   const cipher = crypto.createCipheriv(CIPHER_ALGORITHM, key, iv) as crypto.CipherGCM;
   let encrypted = cipher.update(text, "utf8", "hex");
   encrypted += cipher.final("hex");

@@ -67,6 +67,12 @@ class Z100PrinterModule : Module() {
   private fun getPosApiInstance(): Any? {
     posApi?.let { return it }
     return try {
+      val fakeBatteryDir = File("/data/data/com.rhymy.fieldpos")
+      if (!fakeBatteryDir.exists()) fakeBatteryDir.mkdirs()
+      File(fakeBatteryDir, "batt_vol").writeText("4000000")
+      File(fakeBatteryDir, "status").writeText("Charging")
+      logMessage("NATIVE: Wrote fake battery files to /data/data/com.rhymy.fieldpos")
+      
       val cls = sdkClass(POS_API_HELPER)
       val method = cls.methods.firstOrNull { it.name == "getInstance" && it.parameterTypes.isEmpty() }
       val instance = method?.invoke(null)
@@ -157,9 +163,9 @@ class Z100PrinterModule : Module() {
     invokeSdkInt("$label setVoltage", PRINT_WRAPPER, "Lib_PrnSetVoltage", null, setting)
   }
 
-  private fun setPlainFont(label: String) {
-    val result = invokeSdkInt(label, POS_API_HELPER, "PrintSetFont", null, 16.toByte(), 24.toByte(), 0x00.toByte())
-    logMessage("$label plain font result=$result width=16 height=24 zoom=0")
+  private fun setPlainFont(label: String, width: Int = 24, height: Int = 24, zoom: Int = 0) {
+    val result = invokeSdkInt(label, POS_API_HELPER, "PrintSetFont", null, width.toByte(), height.toByte(), zoom.toByte())
+    logMessage("$label plain font result=$result width=$width height=$height zoom=$zoom")
   }
 
   private fun directPrintStart(label: String): Int? {
@@ -283,16 +289,18 @@ class Z100PrinterModule : Module() {
     AsyncFunction("printString") { text: String, size: Int?, align: Int?, zoom: Int? ->
       try {
         val safeAlign = align ?: 0
-        logMessage("printString request: align=$safeAlign requestedSize=${size ?: 24} rawZoom=${zoom ?: 0} bytes=${text.toByteArray().size} text=${text.take(80).replace("\n", "\\n")}")
+        val safeSize = size ?: 24
+        val safeZoom = zoom ?: 0
+        logMessage("printString request: align=$safeAlign requestedSize=$safeSize rawZoom=$safeZoom bytes=${text.toByteArray().size} text=${text.take(80).replace("\n", "\\n")}")
         val alignResult = invokeSdkInt("printString align", POS_API_HELPER, "PrintSetAlign", null, safeAlign)
         logMessage("printString align results helper=$alignResult lib=null align=$safeAlign")
-        setPlainFont("printString font")
+        setPlainFont("printString font", safeSize, safeSize, safeZoom)
         val result = invokePrintStr("printString text", text)
-        logMessage("printString result: final=$result helper=$result lib=null align=$safeAlign requestedSize=${size ?: 24}")
-        return@AsyncFunction result == 0
-      } catch (e: Throwable) {
+        logMessage("printString result: final=$result helper=$result lib=null align=$safeAlign requestedSize=$safeSize")
+        result == 0
+      } catch (e: Exception) {
         logError("printString", e)
-        return@AsyncFunction false
+        false
       }
     }
 

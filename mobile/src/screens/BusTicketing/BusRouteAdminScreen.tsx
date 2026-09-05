@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useMemo,  useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -16,7 +16,7 @@ import {
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useBusTicketing } from '../../hooks/useBusTicketing';
-import { BusRoute, DropOffPoint, TicketFieldConfig } from '../../types/busTicketing';
+import { BusRoute, DropOffPoint, TicketFieldConfig, RouteFareMatrix } from '../../types/busTicketing';
 import { DoneTextInput as TextInput } from '../../ui/DoneTextInput';
 import { type BusColors, useBusColors } from './theme';
 import { ZIMBABWE_CITIES } from '../../../../shared/zimbabwe-cities';
@@ -29,15 +29,60 @@ function uuid(): string {
 }
 
 const DEFAULT_CONFIG: TicketFieldConfig = {
-  passengerName: false,
+  passengerName: true,
   idNumber: false,
-  phone: false,
+  phone: true,
   seatNumber: false,
-  dropOffPoint: false,
+  dropOffPoint: true,
   dropOffPoints: [],
-  requirePaymentMethod: false,
-  allowMultiPassenger: false,
+  stops: [],
+  fares: {},
+  requirePaymentMethod: true,
+  allowMultiPassenger: true,
 };
+
+function fareKey(from: string, to: string): string {
+  return `${from}|${to}`;
+}
+
+// Suggest an inter-stop price by splitting basePrice across segments equally.
+function suggestFare(stops: string[], basePrice: number, from: string, to: string): number {
+  const n = stops.length;
+  if (n < 2 || !(basePrice > 0)) return basePrice || 0;
+  const i = stops.indexOf(from);
+  const j = stops.indexOf(to);
+  if (i < 0 || j < 0) return basePrice || 0;
+  const segments = n - 1;
+  return Math.round((basePrice * Math.abs(j - i) / segments) * 100) / 100;
+}
+
+function stopPairs(stops: string[]): Array<[string, string]> {
+  const pairs: Array<[string, string]> = [];
+  for (let i = 0; i < stops.length; i++) {
+    for (let j = i + 1; j < stops.length; j++) {
+      pairs.push([stops[i], stops[j]]);
+    }
+  }
+  return pairs;
+}
+
+// Ensures the stops list is well-formed: endpoints match origin/destination,
+// no duplicates, at least two entries.
+function ensureStopsEndpoints(stops: string[] | undefined, origin: string, destination: string): string[] {
+  const src = stops && stops.length >= 2 ? stops.slice() : [origin, destination];
+  src[0] = origin;
+  src[src.length - 1] = destination;
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const stop of src) {
+    if (!stop.trim()) continue;
+    if (seen.has(stop)) continue;
+    seen.add(stop);
+    out.push(stop);
+  }
+  if (out.length < 2) return [origin, destination];
+  return out;
+}
 
 interface RouteFormState {
   origin: string;
@@ -59,10 +104,11 @@ interface Props {
 export function BusRouteAdminScreen({ onClose, companyId }: Props) {
   const insets = useSafeAreaInsets();
   const C = useBusColors();
-  const styles = makeStyles(C);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const { routes, saveRoute, updateRoute, deleteRoute, tickets } = useBusTicketing(companyId);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingRoute, setEditingRoute] = useState<BusRoute | null>(null);
+  const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<RouteFormState>({
     origin: '',
     destination: '',
@@ -88,7 +134,7 @@ export function BusRouteAdminScreen({ onClose, companyId }: Props) {
       destination: '',
       price: '',
       currency: 'USD',
-      config: { ...DEFAULT_CONFIG, dropOffPoints: [] },
+      config: { ...DEFAULT_CONFIG, stops: [], fares: {} },
       newStop: '',
       newStopPrice: '',
       showOriginPicker: false,
@@ -104,13 +150,19 @@ export function BusRouteAdminScreen({ onClose, companyId }: Props) {
       destination: route.destination,
       price: String(route.price),
       currency: route.currency,
-      config: { 
-        ...route.config, 
-        dropOffPoints: Array.isArray(route.config.dropOffPoints) 
-          ? route.config.dropOffPoints.map((stop: any) => 
+      config: {
+        ...route.config,
+        dropOffPoints: Array.isArray(route.config.dropOffPoints)
+          ? route.config.dropOffPoints.map((stop: any) =>
               typeof stop === 'string' ? { name: stop, price: route.price } : stop
             )
-          : [] 
+          : [],
+        stops: Array.isArray(route.config.stops) && route.config.stops.length >= 2
+          ? route.config.stops.map((s: any) => String(s))
+          : [route.origin, route.destination],
+        fares: route.config.fares && typeof route.config.fares === 'object'
+          ? route.config.fares as RouteFareMatrix
+          : {},
       },
       newStop: '',
       newStopPrice: '',
@@ -121,6 +173,7 @@ export function BusRouteAdminScreen({ onClose, companyId }: Props) {
   }
 
   async function handleSave() {
+    if (saving) return;
     if (!form.origin.trim() || !form.destination.trim()) {
       Alert.alert('Validation', 'Origin and destination are required.');
       return;
@@ -146,6 +199,27 @@ export function BusRouteAdminScreen({ onClose, companyId }: Props) {
       }
     }
     
+    const stops = ensureStopsEndpoints(form.config.stops, form.origin.trim(), form.destination.trim());
+    const fares: RouteFareMatrix = {};
+    for (const [from, to] of stopPairs(stops)) {
+      const value = form.config.fares?.[fareKey(from, to)] ?? form.config.fares?.[fareKey(to, from)];
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        fares[fareKey(from, to)] = value;
+      }
+    }
+    // Derive legacy dropOffPoints for backward compatibility with older screens.
+    const dropOffPoints = stops.slice(1).map((stop) => ({
+      name: stop,
+      price: fares[fareKey(stops[0], stop)] ?? price,
+    }));
+    const config: TicketFieldConfig = {
+      ...form.config,
+      stops,
+      fares,
+      dropOffPoints,
+    };
+    
+    setSaving(true);
     try {
       if (editingRoute) {
         await updateRoute(editingRoute.id, {
@@ -154,7 +228,7 @@ export function BusRouteAdminScreen({ onClose, companyId }: Props) {
           destination: form.destination.trim(),
           price,
           currency: form.currency,
-          config: form.config,
+          config,
         });
       } else {
         const route: BusRoute = {
@@ -165,7 +239,7 @@ export function BusRouteAdminScreen({ onClose, companyId }: Props) {
           price,
           currency: form.currency,
           isActive: true,
-          config: form.config,
+          config,
           createdAt: new Date().toISOString(),
         };
         await saveRoute(route);
@@ -173,6 +247,8 @@ export function BusRouteAdminScreen({ onClose, companyId }: Props) {
       setModalVisible(false);
     } catch (e: any) {
       Alert.alert('Route not saved', e?.message || 'Could not save route to the server.');
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -201,21 +277,60 @@ export function BusRouteAdminScreen({ onClose, companyId }: Props) {
     ]);
   }
 
-  function setConfigField(key: keyof TicketFieldConfig, value: boolean | string[] | DropOffPoint[]) {
+  function setConfigField(key: keyof TicketFieldConfig, value: boolean | string[] | DropOffPoint[] | RouteFareMatrix | undefined) {
     setForm((prev) => ({ ...prev, config: { ...prev.config, [key]: value } }));
   }
 
   function addStop() {
     const stop = form.newStop.trim();
-    const price = parseFloat(form.newStopPrice) || 0;
     if (!stop) return;
-    if (form.config.dropOffPoints.some((s: any) => s.name === stop)) return;
-    setConfigField('dropOffPoints', [...form.config.dropOffPoints, { name: stop, price }]);
-    setForm((prev) => ({ ...prev, newStop: '', newStopPrice: '' }));
+    const stops = ensureStopsEndpoints(form.config.stops, form.origin, form.destination);
+    if (stops.includes(stop)) return;
+    const updated = [...stops];
+    updated.splice(updated.length - 1, 0, stop);
+    setConfigField('stops', updated);
+    setForm((prev) => ({ ...prev, newStop: '' }));
   }
 
   function removeStop(stopName: string) {
-    setConfigField('dropOffPoints', form.config.dropOffPoints.filter((s: any) => s.name !== stopName));
+    const stops = ensureStopsEndpoints(form.config.stops, form.origin, form.destination);
+    const updated = stops.filter((s: string) => s !== stopName);
+    if (updated.length < 2) return;
+    setConfigField('stops', ensureStopsEndpoints(updated, form.origin, form.destination));
+    const fares: RouteFareMatrix = {};
+    for (const key of Object.keys(form.config.fares || {})) {
+      const [from, to] = key.split('|');
+      if (from !== stopName && to !== stopName) fares[key] = form.config.fares![key];
+    }
+    setConfigField('fares', fares);
+  }
+
+  function setFare(from: string, to: string, value: string) {
+    const parsed = parseFloat(value);
+    const fares: RouteFareMatrix = { ...(form.config.fares || {}) };
+    if (value === '' || isNaN(parsed)) {
+      delete fares[fareKey(from, to)];
+      delete fares[fareKey(to, from)];
+    } else {
+      fares[fareKey(from, to)] = parsed;
+    }
+    setConfigField('fares', fares);
+  }
+
+  function autoFillFares() {
+    const stops = ensureStopsEndpoints(form.config.stops, form.origin, form.destination);
+    const price = parseFloat(form.price) || 0;
+    const fares: RouteFareMatrix = {};
+    for (const [from, to] of stopPairs(stops)) {
+      fares[fareKey(from, to)] = suggestFare(stops, price, from, to);
+    }
+    setConfigField('stops', stops);
+    setConfigField('fares', fares);
+  }
+
+  function fareFor(from: string, to: string): number | undefined {
+    const value = form.config.fares?.[fareKey(from, to)] ?? form.config.fares?.[fareKey(to, from)];
+    return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
   }
 
   const routeName = form.origin && form.destination
@@ -393,37 +508,39 @@ export function BusRouteAdminScreen({ onClose, companyId }: Props) {
                     />
                   </View>
 
-                  {/* Drop-off sub-section: stops + pricing are always manageable */}
+                  {/* Drop-off sub-section: ordered stops + fare matrix */}
                   {key === 'dropOffPoint' && (
                     <View style={styles.subSection}>
-                      {form.config.dropOffPoints.map((stop: any) => (
-                        <View key={stop.name} style={styles.stopChip}>
-                          <View style={{ flex: 1 }}>
-                            <Text style={styles.stopChipText}>{stop.name}</Text>
-                            <Text style={styles.stopPriceText}>{form.currency} {stop.price.toFixed(2)}</Text>
+                      <Text style={styles.stopSectionLabel}>Stops in order</Text>
+                      {ensureStopsEndpoints(form.config.stops, form.origin, form.destination).map((stop: string, idx: number, list: string[]) => {
+                        const isEndpoint = idx === 0 || idx === list.length - 1;
+                        return (
+                          <View key={`${stop}-${idx}`} style={styles.stopChip}>
+                            <View style={{ flex: 1 }}>
+                              <Text style={styles.stopChipText}>
+                                {isEndpoint ? (idx === 0 ? '🚌 ' : '🏁 ') : '📍 '}{stop}
+                              </Text>
+                              {!isEndpoint && form.config.fares?.[fareKey(list[0], stop)] !== undefined && (
+                                <Text style={styles.stopPriceText}>
+                                  {form.currency} {form.config.fares![fareKey(list[0], stop)].toFixed(2)} from origin
+                                </Text>
+                              )}
+                            </View>
+                            {!isEndpoint && (
+                              <TouchableOpacity onPress={() => removeStop(stop)}>
+                                <MaterialCommunityIcons name="close" size={14} color={C.muted} />
+                              </TouchableOpacity>
+                            )}
                           </View>
-                          <TouchableOpacity onPress={() => removeStop(stop.name)}>
-                            <MaterialCommunityIcons name="close" size={14} color={C.muted} />
-                          </TouchableOpacity>
-                        </View>
-                      ))}
+                        );
+                      })}
                       <View style={styles.addStopRow}>
                         <TextInput
                           style={[styles.input, { flex: 1, marginBottom: 0, height: 40 }]}
-                          placeholder="Stop name"
+                          placeholder="Add intermediate stop"
                           placeholderTextColor={C.muted}
                           value={form.newStop}
                           onChangeText={(v) => setForm((p) => ({ ...p, newStop: v }))}
-                          onSubmitEditing={addStop}
-                          returnKeyType="next"
-                        />
-                        <TextInput
-                          style={[styles.input, { width: 80, marginBottom: 0, height: 40 }]}
-                          placeholder="Price"
-                          placeholderTextColor={C.muted}
-                          keyboardType="decimal-pad"
-                          value={form.newStopPrice}
-                          onChangeText={(v) => setForm((p) => ({ ...p, newStopPrice: v }))}
                           onSubmitEditing={addStop}
                           returnKeyType="done"
                         />
@@ -431,14 +548,34 @@ export function BusRouteAdminScreen({ onClose, companyId }: Props) {
                           <Text style={styles.addStopBtnText}>Add</Text>
                         </TouchableOpacity>
                       </View>
+
+                      <View style={styles.fareHeaderRow}>
+                        <Text style={styles.stopSectionLabel}>Fares between stops</Text>
+                        <TouchableOpacity onPress={autoFillFares}>
+                          <Text style={styles.autoFillText}>Auto-fill</Text>
+                        </TouchableOpacity>
+                      </View>
+                      {stopPairs(ensureStopsEndpoints(form.config.stops, form.origin, form.destination)).map(([from, to]) => (
+                        <View key={fareKey(from, to)} style={styles.fareRow}>
+                          <Text style={styles.fareLabel}>{from} → {to}</Text>
+                          <TextInput
+                            style={styles.fareInput}
+                            placeholder={suggestFare(ensureStopsEndpoints(form.config.stops, form.origin, form.destination), parseFloat(form.price) || 0, from, to).toFixed(2)}
+                            placeholderTextColor={C.muted}
+                            keyboardType="decimal-pad"
+                            value={fareFor(from, to) !== undefined ? String(fareFor(from, to)) : ''}
+                            onChangeText={(v) => setFare(from, to, v)}
+                          />
+                        </View>
+                      ))}
                     </View>
                   )}
                 </View>
               ))}
 
-              <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
+              <TouchableOpacity style={[styles.saveBtn, saving && { opacity: 0.7 }]} onPress={handleSave} disabled={saving}>
                 <Text style={styles.saveBtnText}>
-                  {editingRoute ? 'Save Changes' : 'Create Route'}
+                  {saving ? 'Saving...' : (editingRoute ? 'Save Changes' : 'Create Route')}
                 </Text>
               </TouchableOpacity>
 
@@ -462,6 +599,17 @@ export function BusRouteAdminScreen({ onClose, companyId }: Props) {
               </TouchableOpacity>
             </View>
             <ScrollView showsVerticalScrollIndicator={false}>
+              <TextInput
+                style={styles.customCityInput}
+                placeholder="Type a custom location"
+                placeholderTextColor={C.muted}
+                defaultValue={form.origin && !ZIMBABWE_CITIES.includes(form.origin) ? form.origin : ''}
+                onSubmitEditing={(e) => {
+                  const value = e.nativeEvent.text.trim();
+                  if (value) setForm((p) => ({ ...p, origin: value, showOriginPicker: false }));
+                }}
+                returnKeyType="done"
+              />
               {ZIMBABWE_CITIES.map((city) => (
                 <TouchableOpacity
                   key={city}
@@ -491,6 +639,17 @@ export function BusRouteAdminScreen({ onClose, companyId }: Props) {
               </TouchableOpacity>
             </View>
             <ScrollView showsVerticalScrollIndicator={false}>
+              <TextInput
+                style={styles.customCityInput}
+                placeholder="Type a custom location"
+                placeholderTextColor={C.muted}
+                defaultValue={form.destination && !ZIMBABWE_CITIES.includes(form.destination) ? form.destination : ''}
+                onSubmitEditing={(e) => {
+                  const value = e.nativeEvent.text.trim();
+                  if (value) setForm((p) => ({ ...p, destination: value, showDestinationPicker: false }));
+                }}
+                returnKeyType="done"
+              />
               {ZIMBABWE_CITIES.map((city) => (
                 <TouchableOpacity
                   key={city}
@@ -570,6 +729,11 @@ const makeStyles = (C: BusColors) => StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingVertical: 16, paddingHorizontal: 20, borderBottomWidth: 1, borderBottomColor: C.border,
   },
+  customCityInput: {
+    backgroundColor: C.bg, color: C.white, borderWidth: 1, borderColor: C.amber,
+    borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12,
+    fontSize: 15, marginHorizontal: 20, marginTop: 8, marginBottom: 8,
+  },
   cityItemActive: { backgroundColor: C.amberSoft },
   cityText: { fontSize: 16, fontWeight: '600', color: C.white },
   cityTextActive: { color: C.amber },
@@ -602,7 +766,20 @@ const makeStyles = (C: BusColors) => StyleSheet.create({
   },
   stopChipText: { color: C.white, fontSize: 13 },
   stopPriceText: { color: C.amber, fontSize: 11, marginTop: 2 },
-  addStopRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  stopSectionLabel: { color: C.white, fontSize: 12, fontWeight: '800', marginBottom: 4 },
+  addStopRow: { flexDirection: 'row', gap: 8, alignItems: 'center', marginBottom: 12 },
+  fareHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4, marginBottom: 4 },
+  autoFillText: { color: C.amber, fontSize: 12, fontWeight: '800' },
+  fareRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: C.surface, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6, marginBottom: 6,
+  },
+  fareLabel: { color: C.white, fontSize: 12, flex: 1 },
+  fareInput: {
+    backgroundColor: C.bg, color: C.white, borderWidth: 1, borderColor: C.border,
+    borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, fontSize: 14,
+    width: 90, textAlign: 'right',
+  },
   addStopBtn: {
     backgroundColor: C.amber, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 10,
   },

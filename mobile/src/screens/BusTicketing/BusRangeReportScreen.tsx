@@ -6,8 +6,9 @@ import {
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LineChart } from 'react-native-gifted-charts';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useBusTicketing } from '../../hooks/useBusTicketing';
-import { getRangeReport, getTicketsForRange, formatAsCSV } from '../../hooks/useBusReports';
+import { getRangeReport, getTicketsForRange, formatAsCSV, isCashierUser, filterTicketsForOwnership, resolveCashierConductorId } from '../../hooks/useBusReports';
 import { type BusColors, useBusColors } from './theme';
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -19,21 +20,29 @@ function addDays(d: Date, n: number): Date {
   const copy = new Date(d); copy.setDate(copy.getDate() + n); return copy;
 }
 
-interface Props { onClose: () => void; }
+interface Props { onClose: () => void; userRole?: string; userName?: string; userId?: string | null; }
 
-export function BusRangeReportScreen({ onClose }: Props) {
+export function BusRangeReportScreen({ onClose, userRole, userName, userId }: Props) {
   const insets = useSafeAreaInsets();
   const C = useBusColors();
-  const styles = makeStyles(C);
-  const { tickets: allTickets } = useBusTicketing();
+  const styles = useMemo(() => makeStyles(C), [C]);
+  const { tickets: allTickets, activeConductor } = useBusTicketing();
 
   const today = new Date();
   const [fromDate, setFromDate] = useState(addDays(today, -6)); // rolling 7 days
   const [toDate, setToDate] = useState(today);
-  const [selectingFrom, setSelectingFrom] = useState(false);
+  const [showFromPicker, setShowFromPicker] = useState(false);
+  const [showToPicker, setShowToPicker] = useState(false);
 
-  const rangeTickets = useMemo(() => getTicketsForRange(allTickets, fromDate, toDate), [allTickets, fromDate, toDate]);
-  const report = useMemo(() => getRangeReport(allTickets, fromDate, toDate), [allTickets, fromDate, toDate]);
+  const restrict = isCashierUser(userRole, userName);
+  const ownConductorId = activeConductor?.id ?? (restrict ? resolveCashierConductorId(userId, userName) : null);
+  const tickets = useMemo(() =>
+    filterTicketsForOwnership(allTickets, ownConductorId, restrict),
+    [allTickets, ownConductorId, restrict]
+  );
+
+  const rangeTickets = useMemo(() => getTicketsForRange(tickets, fromDate, toDate), [tickets, fromDate, toDate]);
+  const report = useMemo(() => getRangeReport(tickets, fromDate, toDate), [tickets, fromDate, toDate]);
 
   const lineData = useMemo(() =>
     report.byDay.map((d) => ({
@@ -72,7 +81,26 @@ export function BusRangeReportScreen({ onClose }: Props) {
               <TouchableOpacity style={styles.arrowBtn} onPress={() => setFromDate((d) => addDays(d, -1))}>
                 <MaterialCommunityIcons name="chevron-left" size={20} color={C.white} />
               </TouchableOpacity>
-              <Text style={styles.datePickerValue}>{fmtDate(fromDate)}</Text>
+              <TouchableOpacity onPress={() => setShowFromPicker(true)} style={{flex:1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4}}>
+                <MaterialCommunityIcons name="calendar" size={14} color={C.amber} />
+                <TouchableOpacity onPress={() => setShowFromPicker(true)}>
+                <Text style={styles.datePickerValue}>{fmtDate(fromDate)}</Text>
+              </TouchableOpacity>
+              {showFromPicker && (
+                <DateTimePicker
+                  value={fromDate}
+                  mode="date"
+                  display="default"
+                  onChange={(event, date) => {
+                    setShowFromPicker(false);
+                    if (date) {
+                      setFromDate(date);
+                      if (date > toDate) setToDate(date);
+                    }
+                  }}
+                />
+              )}
+              </TouchableOpacity>
               <TouchableOpacity style={styles.arrowBtn} onPress={() => setFromDate((d) => { const n = addDays(d,1); return n < toDate ? n : d; })}>
                 <MaterialCommunityIcons name="chevron-right" size={20} color={C.white} />
               </TouchableOpacity>
@@ -85,13 +113,58 @@ export function BusRangeReportScreen({ onClose }: Props) {
               <TouchableOpacity style={styles.arrowBtn} onPress={() => setToDate((d) => { const n = addDays(d,-1); return n > fromDate ? n : d; })}>
                 <MaterialCommunityIcons name="chevron-left" size={20} color={C.white} />
               </TouchableOpacity>
-              <Text style={styles.datePickerValue}>{fmtDate(toDate)}</Text>
+              <TouchableOpacity onPress={() => setShowToPicker(true)} style={{flex:1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4}}>
+                <MaterialCommunityIcons name="calendar" size={14} color={C.amber} />
+                <TouchableOpacity onPress={() => setShowToPicker(true)}>
+                <Text style={styles.datePickerValue}>{fmtDate(toDate)}</Text>
+              </TouchableOpacity>
+              {showToPicker && (
+                <DateTimePicker
+                  value={toDate}
+                  mode="date"
+                  display="default"
+                  onChange={(event, date) => {
+                    setShowToPicker(false);
+                    if (date) {
+                      setToDate(date);
+                      if (date < fromDate) setFromDate(date);
+                    }
+                  }}
+                />
+              )}
+              </TouchableOpacity>
               <TouchableOpacity style={styles.arrowBtn} onPress={() => setToDate((d) => addDays(d,1))} disabled={toDate >= today}>
                 <MaterialCommunityIcons name="chevron-right" size={20} color={toDate >= today ? C.border : C.white} />
               </TouchableOpacity>
             </View>
           </View>
         </View>
+
+        {showFromPicker && (
+          <DateTimePicker
+            value={fromDate}
+            mode="date"
+            display="default"
+            maximumDate={toDate}
+            onChange={(event, date) => {
+              setShowFromPicker(false);
+              if (date) setFromDate(date);
+            }}
+          />
+        )}
+        {showToPicker && (
+          <DateTimePicker
+            value={toDate}
+            mode="date"
+            display="default"
+            minimumDate={fromDate}
+            maximumDate={today}
+            onChange={(event, date) => {
+              setShowToPicker(false);
+              if (date) setToDate(date);
+            }}
+          />
+        )}
 
         {/* Quick range pills */}
         <View style={styles.quickRow}>
@@ -170,11 +243,28 @@ export function BusRangeReportScreen({ onClose }: Props) {
         {report.byRoute.length > 0 && (
           <>
             <Text style={styles.sectionTitle}>BY ROUTE</Text>
-            {report.byRoute.map((rb) => (
-              <View key={rb.routeId} style={styles.tableRow}>
+            {report.byRoute.map((rb, index) => (
+              <View key={rb.routeId || `route-${index}`} style={styles.tableRow}>
                 <Text style={styles.tableRouteName} numberOfLines={1}>{rb.routeName}</Text>
                 <Text style={styles.tableTickets}>{rb.ticketCount} tkts</Text>
                 <Text style={styles.tableRevenue}>{fmtMoney(rb.revenue)}</Text>
+              </View>
+            ))}
+          </>
+        )}
+
+        {/* Stop / segment breakdown */}
+        {report.byStop.length > 0 && (
+          <>
+            <Text style={styles.sectionTitle}>BY STOP / SEGMENT</Text>
+            {report.byStop.slice(0, 20).map((sb, index) => (
+              <View key={sb.id || `stop-${index}`} style={styles.tableRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.tableRouteName} numberOfLines={1}>{sb.stop}</Text>
+                  <Text style={styles.tableTickets}>{sb.routeName}</Text>
+                </View>
+                <Text style={styles.tableTickets}>{sb.ticketCount} tkts</Text>
+                <Text style={styles.tableRevenue}>{fmtMoney(sb.revenue)}</Text>
               </View>
             ))}
           </>

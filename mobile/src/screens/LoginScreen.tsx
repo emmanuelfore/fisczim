@@ -56,7 +56,7 @@ export function LoginScreen({ onLoggedIn, onForgotPassword, onSignUp }: Props) {
     }
   };
 
-  const styles = makeStyles(C);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
   return (

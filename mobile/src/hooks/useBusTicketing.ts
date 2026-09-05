@@ -13,6 +13,16 @@ import {
 } from '../types/busTicketing';
 import { apiFetch, apiJson } from '../lib/api';
 import { supabase } from '../lib/supabase';
+import {
+  enqueueAction,
+  getOfflineQueue,
+  removeFromQueue,
+  processOfflineQueue,
+  saveLocationHistory,
+  getLocationHistory,
+  mergeLocationHistory,
+  QueuedAction,
+} from '../lib/busOfflineQueue';
 
 // ── Storage keys ────────────────────────────────────────────────
 const KEYS = {
@@ -147,6 +157,14 @@ function normalizeCloudRoute(route: any): BusRoute {
             typeof stop === 'string' ? { name: stop, price: Number(route.basePrice || config.price || 0) } : stop
           )
         : [],
+      stops: Array.isArray(config.stops) ? config.stops.map((s: any) => String(s)) : undefined,
+      fares: config.fares && typeof config.fares === 'object'
+        ? Object.fromEntries(
+            Object.entries(config.fares as Record<string, unknown>)
+              .map(([k, v]) => [k, Number(v)])
+              .filter(([, v]) => Number.isFinite(v)),
+          )
+        : undefined,
       requirePaymentMethod: config.requirePaymentMethod !== false,
       allowMultiPassenger: config.allowMultiPassenger !== false,
     },
@@ -353,6 +371,16 @@ export function useBusTicketing(companyId?: number | null) {
       readJSON<BusVehicle[]>(KEYS.vehicles, []),
       readJSON<BusTrip[]>(KEYS.trips, []),
     ]);
+    
+    // Load location history for each trip from AsyncStorage
+    const tripsWithLocation = await Promise.all(tr.map(async (trip) => {
+      const history = await getLocationHistory(trip.id);
+      if (history.length > 0) {
+        return { ...trip, locationHistory: history };
+      }
+      return trip;
+    }));
+    
     setRoutes(r);
     setTickets(t);
     setConductors(c);
@@ -360,7 +388,7 @@ export function useBusTicketing(companyId?: number | null) {
     setShifts(s);
     setReconciliations(rec);
     setVehicles(v);
-    setTrips(tr);
+    setTrips(tripsWithLocation);
     setIsLoading(false);
   }, []);
 
@@ -399,13 +427,18 @@ export function useBusTicketing(companyId?: number | null) {
   }, []);
 
   // ── Route helpers ─────────────────────────────────────────────
-  const refreshCloudSetup = useCallback(async () => {
-    if (!companyId) return;
+  const refreshingRef = useRef(false);
 
-    const [cloudVehicles, cloudRoutes, cloudTrips] = await Promise.all([
+  const refreshCloudSetup = useCallback(async () => {
+    if (!companyId || refreshingRef.current) return;
+    refreshingRef.current = true;
+
+    try {
+      const [cloudVehicles, cloudRoutes, cloudTrips, cloudTickets] = await Promise.all([
       apiJson<any[]>(`/api/companies/${companyId}/bus-ticketing/vehicles`).catch(() => null),
       apiJson<any[]>(`/api/companies/${companyId}/bus-ticketing/routes`).catch(() => null),
       apiJson<any[]>(RECENT_TRIPS_PATH(companyId)).catch(() => null),
+      apiJson<any[]>(`/api/companies/${companyId}/bus-ticketing/tickets?limit=1000`).catch(() => null),
     ]);
 
     if (Array.isArray(cloudVehicles)) {
@@ -457,7 +490,61 @@ export function useBusTicketing(companyId?: number | null) {
       setTrips(merged);
       await writeJSON(KEYS.trips, merged);
     }
-  }, [companyId]);
+
+    if (Array.isArray(cloudTickets)) {
+      const localTickets = await readJSON<any[]>(KEYS.tickets, []);
+      const localTicketsByCloudId = new Map(
+        localTickets.filter(t => typeof t.id === 'number' || !isNaN(Number(t.id))).map(t => [Number(t.id), t])
+      );
+      const localTicketsByLocalId = new Map(
+        localTickets.filter(t => t.localId).map(t => [t.localId, t])
+      );
+      
+      const mappedCloudTickets = cloudTickets.map(t => ({
+        id: t.id,
+        localId: t.localTicketId,
+        tripId: t.tripId,
+        vehicleId: t.vehicleId,
+        routeId: t.routeId,
+        routeName: t.routeName || 'Unknown Route',
+        conductorId: t.conductorId,
+        conductorName: t.conductorName || 'Unknown Conductor',
+        ticketNumber: t.ticketNumber,
+        price: Number(t.amount) / Math.max(1, Number(t.quantity)),
+        quantity: Number(t.quantity),
+        totalAmount: Number(t.amount),
+        currency: t.currency || 'USD',
+        paymentMethod: t.paymentMethod,
+        passengerName: t.passengerName,
+        idNumber: t.idNumber,
+        phone: t.phone,
+        seatNumber: t.seatNumber,
+        boardingPoint: t.boardingPoint,
+        dropOffPoint: t.dropOffPoint,
+        issuedAt: t.timestamp,
+        isSynced: true,
+        syncedAt: t.createdAt
+      }));
+      
+      const mergedTickets = [
+        ...mappedCloudTickets.map(ct => {
+          const local = ct.localId ? localTicketsByLocalId.get(ct.localId) : localTicketsByCloudId.get(ct.id);
+          return local ? { ...ct, ...local, isSynced: true } : ct;
+        }),
+        ...localTickets.filter(t => {
+          const isNumeric = typeof t.id === 'number' || !isNaN(Number(t.id));
+          const inCloud = isNumeric ? mappedCloudTickets.some(ct => ct.id === Number(t.id)) : false;
+          const inCloudLocal = t.localId ? mappedCloudTickets.some(ct => ct.localId === t.localId) : false;
+          return !inCloud && !inCloudLocal;
+        })
+      ];
+      setTickets(mergedTickets);
+      await writeJSON(KEYS.tickets, mergedTickets);
+    }
+  } finally {
+    refreshingRef.current = false;
+  }
+}, [companyId]);
 
   useEffect(() => {
     if (!isOnline) return;
@@ -695,6 +782,8 @@ export function useBusTicketing(companyId?: number | null) {
         tripId: Number(ticket.tripId),
         ticketNumber: ticket.id,
         passengerName: ticket.passengerName ?? null,
+        idNumber: ticket.idNumber ?? null,
+        phone: ticket.phone ?? null,
         boardingPoint: ticket.boardingPoint ?? null,
         dropOffPoint: ticket.dropOffPoint ?? null,
         seatNumber: ticket.seatNumber ?? null,
@@ -918,10 +1007,19 @@ export function useBusTicketing(companyId?: number | null) {
     if (hasTickets) {
       throw new Error('Cannot delete a route that has issued tickets.');
     }
+    if (companyId && isOnline && isNumericId(id)) {
+      const res = await apiFetch(`/api/companies/${companyId}/bus-ticketing/routes/${id}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok && res.status !== 404) {
+        throw new Error(await readApiError(res, `Route delete failed (${res.status})`));
+      }
+    }
     const updated = routes.filter((r) => r.id !== id);
     setRoutes(updated);
     await writeJSON(KEYS.routes, updated);
-  }, [routes, tickets]);
+    DeviceEventEmitter.emit(BUS_STATE_CHANGED);
+  }, [companyId, isOnline, routes, tickets]);
 
   // ── Vehicle helpers ───────────────────────────────────────────
   const saveVehicle = useCallback(async (vehicle: BusVehicle) => {
@@ -1009,8 +1107,14 @@ export function useBusTicketing(companyId?: number | null) {
     setTickets(updated);
     await writeJSON(KEYS.tickets, updated);
     DeviceEventEmitter.emit(BUS_STATE_CHANGED);
+
+    // Queue for offline sync if needed
+    if (companyId && !isOnline) {
+      await enqueueAction({ type: 'ISSUE_TICKET', ticket: finalTicket } as const);
+    }
+
     return finalTicket;
-  }, [tickets, generateTicketId]);
+  }, [companyId, isOnline, tickets, generateTicketId]);
 
   const getTodaysTickets = useCallback((): IssuedTicket[] => {
     const now = new Date();
@@ -1056,37 +1160,106 @@ export function useBusTicketing(companyId?: number | null) {
   }, []);
 
   // ── Trip/Shift helpers ─────────────────────────────────────────
-  const startTrip = useCallback(async (trip: BusTrip) => {
-    let latestTrips = trips;
-    if (companyId) {
-      const cloudTrips = await apiJson<any[]>(ONGOING_TRIPS_PATH(companyId)).catch(() => null);
-      if (Array.isArray(cloudTrips)) {
-        latestTrips = [
-          ...trips,
-          ...cloudTrips.map(normalizeCloudTrip).filter((cloudTrip) => !trips.some((localTrip) => localTrip.id === cloudTrip.id)),
-        ];
+  const syncNewTripToCloud = useCallback(async (trip: BusTrip) => {
+    if (!companyId) return;
+
+    const cloudTrips = await apiJson<any[]>(ONGOING_TRIPS_PATH(companyId)).catch(() => null);
+    if (Array.isArray(cloudTrips)) {
+      const cloudActive = cloudTrips.map(normalizeCloudTrip).filter(isCloudOngoingTrip);
+      const vehicleTaken = cloudActive.find((t) => (
+        t.vehicleId === trip.vehicleId && t.id !== trip.id && t.id !== trip.localId
+      ));
+      if (vehicleTaken) {
+        throw new Error(`This vehicle is currently in use by another conductor's trip.`);
       }
     }
 
-    const vehicleTaken = latestTrips.find(t => t.vehicleId === trip.vehicleId && isOngoingTrip(t));
-    if (vehicleTaken) {
-      throw new Error(`This vehicle is currently in use by another conductor's trip.`);
-    }
-    let finalTrip = trip;
-    try {
-      finalTrip = await createCloudTrip(trip);
-    } catch (e: any) {
-      if (String(e?.message || e).toLowerCase().includes('ongoing trip') || String(e?.message || e).toLowerCase().includes('in use')) {
-        throw e;
-      }
-      console.warn('[useBusTicketing] Trip cloud create failed; continuing offline:', e?.message || e);
-    }
-    const updated = [...latestTrips.filter((existing) => existing.id !== finalTrip.id), finalTrip];
+    const finalTrip = await createCloudTrip(trip);
+    if (finalTrip.id === trip.id) return;
+
+    const current = await readJSON<BusTrip[]>(KEYS.trips, []);
+    const mapped = current.map((existing) => (
+      existing.id === trip.id || existing.localId === trip.id
+        ? { ...finalTrip, localId: existing.localId ?? trip.id, conductorId: existing.conductorId || finalTrip.conductorId }
+        : existing
+    ));
+    setTrips(mapped);
+    await writeJSON(KEYS.trips, mapped);
+    DeviceEventEmitter.emit(BUS_STATE_CHANGED);
+  }, [companyId, createCloudTrip]);
+
+  const startTrip = useCallback(async (trip: BusTrip) => {
+    // Save the trip locally first so starting is instant, even offline/slow.
+    const updated = [...trips.filter((existing) => existing.id !== trip.id), trip];
     setTrips(updated);
     await writeJSON(KEYS.trips, updated);
     DeviceEventEmitter.emit(BUS_STATE_CHANGED);
-    return finalTrip;
-  }, [companyId, trips, createCloudTrip]);
+
+    // Queue for offline sync if needed
+    if (companyId && !isOnline) {
+      await enqueueAction({ type: 'CREATE_TRIP', trip } as const);
+    }
+
+    // Best-effort cloud sync in the background (tickets sync will also
+    // attach the numeric trip id when they upload).
+    if (companyId) {
+      syncNewTripToCloud(trip).catch((e: any) => {
+        if (String(e?.message || e).toLowerCase().includes('in use')) {
+          console.warn('[useBusTicketing] Trip rejected by another device:', e?.message || e);
+        } else {
+          console.warn('[useBusTicketing] Trip cloud create failed; continuing offline:', e?.message || e);
+        }
+      });
+    }
+    return trip;
+  }, [companyId, isOnline, trips, syncNewTripToCloud]);
+
+  // Process offline queue when coming back online
+  useEffect(() => {
+    if (!isOnline || !companyId) return;
+    let cancelled = false;
+    (async () => {
+      await processOfflineQueue(companyId, async (action) => {
+        if (cancelled) return;
+        switch (action.type) {
+          case 'CREATE_TRIP': {
+            await syncNewTripToCloud(action.trip);
+            break;
+          }
+          case 'ISSUE_TICKET': {
+            // Tickets are synced via syncPendingTickets
+            await syncPendingTickets();
+            break;
+          }
+          case 'UPDATE_LOCATION': {
+            const cloudTripId = isNumericId(action.tripId) ? action.tripId : null;
+            if (!cloudTripId) return;
+            // Get the timestamp from the queued action (which has id and timestamp)
+            const queuedAction = action as QueuedAction & { timestamp: string };
+            await apiFetch(`/api/companies/${companyId}/bus-ticketing/trips/${cloudTripId}/location`, {
+              method: 'PATCH',
+              body: JSON.stringify({
+                currentLatitude: action.latitude,
+                currentLongitude: action.longitude,
+                lastLocationUpdate: queuedAction.timestamp,
+              }),
+            });
+            break;
+          }
+          case 'CLOSE_SHIFT': {
+            // Shift close is handled via syncPendingTickets
+            await syncPendingTickets();
+            break;
+          }
+        }
+      });
+      if (!cancelled) {
+        // Also run regular sync after processing queue
+        await syncPendingTickets();
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isOnline, companyId, syncNewTripToCloud, syncPendingTickets]);
 
   const updateTripLocation = useCallback(async (
     tripId: string,
@@ -1115,8 +1288,27 @@ export function useBusTicketing(companyId?: number | null) {
     setTrips(updated);
     await writeJSON(KEYS.trips, updated);
 
+    // Persist location history to AsyncStorage (survives app restart)
+    if (latitude != null && longitude != null) {
+      await saveLocationHistory(tripId, {
+        latitude,
+        longitude,
+        timestamp: timestamp ?? new Date().toISOString(),
+      });
+    }
+
+    // Queue for offline sync if needed
     const cloudTripId = isNumericId(tripId) ? tripId : null;
     if (!isOnline || !cloudTripId || latitude == null || longitude == null) {
+      if (latitude != null && longitude != null) {
+        await enqueueAction({
+          type: 'UPDATE_LOCATION',
+          tripId,
+          latitude,
+          longitude,
+          timestamp: timestamp ?? new Date().toISOString(),
+        } as const);
+      }
       DeviceEventEmitter.emit(BUS_STATE_CHANGED);
       return;
     }
@@ -1271,6 +1463,11 @@ export function useBusTicketing(companyId?: number | null) {
     await writeJSON(KEYS.shifts, updatedShifts);
     await writeJSON(KEYS.trips, updatedTrips);
     DeviceEventEmitter.emit(BUS_STATE_CHANGED);
+
+    // Queue for offline sync if needed
+    if (companyId && !isOnline) {
+      await enqueueAction({ type: 'CLOSE_SHIFT', record } as const);
+    }
   }, [activeTrip, companyId, createCloudTrip, isOnline, reconciliations, routes, shifts, syncTickets, tickets, trips, vehicles]);
 
   const getShifts = useCallback(async (): Promise<ShiftRecord[]> => {

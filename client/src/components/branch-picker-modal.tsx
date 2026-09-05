@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { useBranches } from "@/hooks/use-branches";
 import { Store, MapPin, CheckCircle2, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { setSelectedBranchId as setLocalBranchId } from "@/lib/api";
+import { useBranchContext } from "@/lib/branch-context";
 
 interface BranchPickerModalProps {
   companyId: number;
@@ -27,13 +27,15 @@ export function BranchPickerModal({
   trigger,
 }: BranchPickerModalProps) {
   const { data: branches, isLoading } = useBranches(companyId);
+  const { setSelectedBranchId: setContextBranchId } = useBranchContext();
   const [open, setOpen] = useState(false);
 
   const handleSelect = (id: number | null) => {
-    setLocalBranchId(id);
+    setContextBranchId(id);
     onSelect(id);
     setOpen(false);
-    // Reload components that depend on branch
+    
+    // Force a hard reload as requested by the user
     window.location.reload();
   };
 

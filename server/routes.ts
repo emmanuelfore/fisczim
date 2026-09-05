@@ -27,6 +27,15 @@ import { ZimraPreflightError } from "./lib/zimra-preflight.js";
 import { buildCompanyTaxMapping } from "./lib/tax-mapping.js";
 import sageWebhookRouter from "./lib/sage-webhook.js";
 import sageOAuthRouter from "./lib/sage-oauth.js";
+import {
+  checkCompanyAccess,
+  createRequireAuthOrApiKey,
+  createRequireOwner,
+} from "./lib/company-auth.js";
+import {
+  getFiscalStateCarrier,
+  hasDedicatedBranchFiscalDevice,
+} from "./lib/fiscal-state.js";
 import v1Router from "./api/v1/index.js";
 import busTicketingRouter from "./api/v1/bus-ticketing.js";
 import payrollRouter from "./api/v1/payroll.js";
@@ -777,81 +786,9 @@ export async function registerRoutes(
 
 
 
-  const checkCompanyAccess = async (user: any, companyId: number): Promise<boolean> => {
-    if (!user) return false;
-    if (user.isSuperAdmin) {
-      const isSystemAdmin = Buffer.from(String(user.email || "").toLowerCase()).toString("base64") === "YWRtaW5AemltcmEuY28uenc=";
-      if (isSystemAdmin) return true;
-      
-      const comp = await storage.getCompany(companyId);
-      if (!comp || comp.superadminVisible === false) return false;
-      
-      const systemAdminOnlyCompanies = new Set(['goosehill trading', 'glorious tire services', 'spares arena']);
-      const companyName = (comp.name || "").toLowerCase();
-      const tradingName = (comp.tradingName || "").toLowerCase();
-      if (systemAdminOnlyCompanies.has(companyName) || systemAdminOnlyCompanies.has(tradingName)) {
-        return false;
-      }
-      return true;
-    }
-    
-    const userCompanies = await storage.getCompanies(user.id);
-    return userCompanies.some(c => c.id === companyId);
-  };
+  const requireOwner = createRequireOwner(storage);
 
-  const requireOwner = async (req: any, res: any, next: any) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).json({ message: "Unauthorized: Authentication required" });
-    }
-
-    const companyId = req.params.companyId || req.body.companyId || req.query.companyId;
-    if (companyId) {
-      const hasAccess = await checkCompanyAccess(req.user, Number(companyId));
-      if (!hasAccess) {
-        return res.status(403).json({ message: "Forbidden: You do not have access to this company" });
-      }
-    }
-
-    // If it's a superadmin, they have owner permissions globally
-    if (req.user.isSuperAdmin) {
-      return next();
-    }
-
-    if (companyId) {
-      const companies = await storage.getCompanies(req.user.id);
-      const userCompany = companies.find(c => c.id === Number(companyId));
-      if (!userCompany || userCompany.role !== 'owner') {
-        return res.status(403).json({ message: "Forbidden: Owner access required for this company" });
-      }
-    }
-
-    next();
-  };
-
-  const requireAuthOrApiKey = async (req: any, res: any, next: any) => {
-    // API Key check logic
-    const apiKey = req.headers['x-api-key'];
-    if (apiKey) {
-      const company = await db.query.companies.findFirst({
-        where: eq(companies.apiKey, apiKey as string)
-      });
-      if (company) {
-        req.company = company;
-        req.apiKeyCompanyId = company.id; // Always set so handlers don't need query param
-        // Provide a minimal user-like object so handlers using req.user?.companyId work
-        if (!req.user) {
-          req.user = { companyId: company.id, id: null, isApiKey: true };
-        }
-        return next();
-      }
-      return res.status(401).json({ message: "Unauthorized: Invalid API key" });
-    }
-
-    if (!req.isAuthenticated()) {
-      return res.status(401).json({ message: "Unauthorized: Authentication required" });
-    }
-    next();
-  };
+  const requireAuthOrApiKey = createRequireAuthOrApiKey(storage);
 
   const apiLogger = async (req: any, res: any, next: any) => {
     const startTime = Date.now();
@@ -963,7 +900,7 @@ export async function registerRoutes(
   };
 
   // TEMPORARY DEBUG ENDPOINT
-  app.get("/api/debug/logs", async (_req, res) => {
+  app.get("/api/debug/logs", requireSystemAdmin, async (_req, res) => {
     try {
       const { db } = await import("./db.js");
       const { zimraLogs } = await import("../shared/schema.js");
@@ -1167,7 +1104,7 @@ export async function registerRoutes(
   app.get("/api/companies/:companyId/fiscal-context", requireAuthOrApiKey, async (req, res) => {
     const companyId = parseInt(req.params.companyId);
     try {
-      const hasAccess = await checkCompanyAccess(req.user, companyId);
+      const hasAccess = await checkCompanyAccess(storage, req.user, companyId);
       if (!hasAccess) {
         return res.status(403).json({ message: "Forbidden" });
       }
@@ -1178,14 +1115,11 @@ export async function registerRoutes(
       }
 
       const branchId = getBranchId(req);
-      let contextSource: any = company;
-
-      if (branchId) {
-        const branch = await storage.getBranch(branchId);
-        if (branch && branch.companyId === companyId && branch.fdmsDeviceId) {
-          contextSource = { ...company, ...branch };
-        }
-      }
+      const branch = branchId ? await storage.getBranch(branchId) : null;
+      const contextSource: any =
+        branch && branch.companyId === companyId && hasDedicatedBranchFiscalDevice(branch)
+          ? { ...company, ...branch }
+          : company;
 
       res.json({
         fdmsDeviceId: contextSource.fdmsDeviceId,
@@ -2958,13 +2892,19 @@ export async function registerRoutes(
       const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const company = await storage.getCompany(companyId);
       if (!company) return res.status(404).json({ message: "Company not found" });
+      const branchId = getBranchId(req);
+      const branch = branchId ? await storage.getBranch(branchId) : null;
+      const stateSource: any =
+        branch && branch.companyId === companyId && hasDedicatedBranchFiscalDevice(branch)
+          ? getFiscalStateCarrier(company as any, branch as any)
+          : company;
 
       res.json({
-        lastReceiptGlobalNo: company.lastReceiptGlobalNo || 0,
-        dailyReceiptCount: company.dailyReceiptCount || 0,
-        lastFiscalHash: company.lastFiscalHash || null,
-        currentFiscalDayNo: company.currentFiscalDayNo || 0,
-        fiscalDayOpen: company.fiscalDayOpen,
+        lastReceiptGlobalNo: stateSource.lastReceiptGlobalNo || 0,
+        dailyReceiptCount: stateSource.dailyReceiptCount || 0,
+        lastFiscalHash: stateSource.lastFiscalHash || null,
+        currentFiscalDayNo: stateSource.currentFiscalDayNo || 0,
+        fiscalDayOpen: stateSource.fiscalDayOpen,
       });
     } catch (err: any) {
       console.error("Fiscal Sequence Error:", err);
@@ -4567,7 +4507,7 @@ export async function registerRoutes(
   app.get("/api/companies/:id/zimra/status", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
-      const branchId = req.query.branchId ? Number(req.query.branchId) : undefined;
+      const branchId = getBranchId(req);
       const company = await storage.getCompany(companyId);
       if (!company) {
         return res.status(404).json({ message: "Company not found" });
@@ -6584,19 +6524,32 @@ export async function registerRoutes(
   });
 
   // 12. POST /api/companies/:id/zimra/config/reset - Reset Device Counters
-  app.post("/api/companies/:id/zimra/config/reset", requireAuthOrApiKey, async (req, res) => {
+  app.post("/api/companies/:id/zimra/config/reset", requireSystemAdmin, async (req, res) => {
     try {
+      if (process.env.ALLOW_FDMS_COUNTER_RESET !== "1") {
+        return res.status(403).json({
+          message: "Manual FDMS counter edits are disabled. Use audited resync or repair tooling instead.",
+        });
+      }
+
       const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const { globalNumber, dailyCounter, previousHash } = req.body;
-
-      // Only allow if authenticated (requireAuth is already on)
+      const company = await storage.getCompany(companyId);
+      if (!company) return res.status(404).json({ message: "Company not found" });
+      const branchId = getBranchId(req);
+      const branch = branchId ? await storage.getBranch(branchId) : null;
+      const isBranchScoped = branch && branch.companyId === companyId && hasDedicatedBranchFiscalDevice(branch);
 
       const updateData: any = {};
       if (globalNumber !== undefined) updateData.lastReceiptGlobalNo = Number(globalNumber);
       if (dailyCounter !== undefined) updateData.dailyReceiptCount = Number(dailyCounter);
       if (previousHash !== undefined) updateData.lastFiscalHash = previousHash === "" ? null : previousHash;
 
-      await storage.updateCompany(companyId, updateData);
+      if (isBranchScoped) {
+        await storage.updateBranch(branch.id, updateData);
+      } else {
+        await storage.updateCompany(companyId, updateData);
+      }
 
       res.json({ message: "Counters reset successfully", updated: updateData });
     } catch (err: any) {
@@ -6675,6 +6628,13 @@ export async function registerRoutes(
   app.get("/api/companies/:companyId/purchase-orders", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
+      const branchId = getBranchId(req);
+      
+      const filters = [eq(purchaseOrders.companyId, companyId)];
+      if (branchId) {
+        filters.push(eq(purchaseOrders.branchId, branchId));
+      }
+
       const rows = await db
         .select({
           id: purchaseOrders.id,
@@ -6706,7 +6666,7 @@ export async function registerRoutes(
         .leftJoin(products, eq(products.id, purchaseOrderItems.productId))
         .leftJoin(suppliers, eq(suppliers.id, purchaseOrders.supplierId))
         .leftJoin(branches, eq(branches.id, purchaseOrders.branchId))
-        .where(eq(purchaseOrders.companyId, companyId))
+        .where(and(...filters))
         .orderBy(desc(purchaseOrders.createdAt), asc(purchaseOrderItems.id));
 
       // 1. Fetch confirmed GDN items for all company POs to compute received quantity
@@ -7746,7 +7706,8 @@ export async function registerRoutes(
   // Inventory Routes
   app.get("/api/companies/:companyId/inventory/transactions", requireAuthOrApiKey, async (req, res) => {
     const productId = req.query.productId ? Number(req.query.productId) : undefined;
-    const items = await storage.getInventoryTransactions(Number(req.params.companyId), productId);
+    const branchId = getBranchId(req);
+    const items = await storage.getInventoryTransactions(Number(req.params.companyId), productId, undefined, branchId);
     res.json(items);
   });
 
@@ -9165,6 +9126,9 @@ export async function registerRoutes(
 
   app.get("/api/companies/:companyId/grvs", requireAuthOrApiKey, async (req, res) => {
     const companyId = Number(req.params.companyId);
+    const branchId = getBranchId(req);
+    
+    const invoiceFilters: any[] = [eq(supplierInvoices.companyId, companyId)];
 
     const invoices = await db
       .select({
@@ -9174,7 +9138,7 @@ export async function registerRoutes(
         referenceGdnId: supplierInvoices.referenceGdnId,
       })
       .from(supplierInvoices)
-      .where(eq(supplierInvoices.companyId, companyId));
+      .where(and(...invoiceFilters));
 
     const invoiceByGrvRef = new Map<string, { id: number; invoiceNumber: string }>();
     const invoiceByGdnId = new Map<number, { id: number; invoiceNumber: string }>();
@@ -9187,7 +9151,7 @@ export async function registerRoutes(
       }
     }
 
-    const gdnRecords = await db
+    const gdnQuery = db
       .select({
         id: goodsDeliveryNotes.id,
         confirmedGrvNumber: goodsDeliveryNotes.confirmedGrvNumber,
@@ -9195,13 +9159,23 @@ export async function registerRoutes(
         status: goodsDeliveryNotes.status,
       })
       .from(goodsDeliveryNotes)
-      .where(eq(goodsDeliveryNotes.companyId, companyId));
+      .leftJoin(purchaseOrders, eq(goodsDeliveryNotes.purchaseOrderId, purchaseOrders.id))
+      .where(branchId 
+        ? and(eq(goodsDeliveryNotes.companyId, companyId), eq(purchaseOrders.branchId, branchId)) 
+        : eq(goodsDeliveryNotes.companyId, companyId));
+
+    const gdnRecords = await gdnQuery;
 
     const gdnByGrvNumber = new Map<string, { id: number, purchaseOrderId: number | null }>();
     for (const gdn of gdnRecords) {
       if (gdn.confirmedGrvNumber) {
         gdnByGrvNumber.set(gdn.confirmedGrvNumber, { id: gdn.id, purchaseOrderId: gdn.purchaseOrderId });
       }
+    }
+
+    const poFilters = [eq(purchaseOrders.companyId, companyId)];
+    if (branchId) {
+      poFilters.push(eq(purchaseOrders.branchId, branchId));
     }
 
     // 1. PO Items for 3-way match
@@ -9214,7 +9188,7 @@ export async function registerRoutes(
       })
       .from(purchaseOrderItems)
       .innerJoin(purchaseOrders, eq(purchaseOrderItems.purchaseOrderId, purchaseOrders.id))
-      .where(eq(purchaseOrders.companyId, companyId));
+      .where(and(...poFilters));
 
     const poItemsMap = new Map<number, any[]>();
     for (const item of poItems) {
@@ -10154,7 +10128,7 @@ export async function registerRoutes(
       if (isNaN(companyId)) return res.status(400).json({ message: "Invalid company ID" });
       
       // Ownership check
-      const hasAccess = await checkCompanyAccess(req.user, companyId);
+      const hasAccess = await checkCompanyAccess(storage, req.user, companyId);
       if (!hasAccess) {
         return res.status(403).json({ message: "Forbidden" });
       }
@@ -13484,12 +13458,8 @@ export async function registerRoutes(
   });
 
   // ── Report Module Routes ──────────────────────────────────────────────────
-  // All routes follow: GET /api/companies/:companyId/reports/:reportName
-  // Auth: requireAuth + company ownership check (403 if not authorized)
-  // Date range: startDate/endDate query params, defaults to current month
-
   const reportRouteHandler = (
-    storageMethod: (companyId: number, start: Date, end: Date) => Promise<any>
+    storageMethod: (companyId: number, start: Date, end: Date, branchId?: number) => Promise<any>
   ) => {
     return async (req: any, res: any) => {
       try {
@@ -13499,10 +13469,12 @@ export async function registerRoutes(
         }
 
         // Company ownership check
-        const hasAccess = await checkCompanyAccess(req.user, companyId);
+        const hasAccess = await checkCompanyAccess(storage, req.user, companyId);
         if (!hasAccess) {
           return res.status(403).json({ message: "Forbidden" });
         }
+
+        const branchId = getBranchId(req);
 
         // Parse date range with current-month defaults
         const now = new Date();
@@ -13517,7 +13489,6 @@ export async function registerRoutes(
         } else {
           startDate = new Date(now.getFullYear(), now.getMonth(), 1);
         }
-
         if (req.query.endDate) {
           endDate = new Date(req.query.endDate as string);
           if (isNaN(endDate.getTime())) {
@@ -13527,7 +13498,7 @@ export async function registerRoutes(
           endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
         }
 
-        const data = await storageMethod(companyId, startDate, endDate);
+        const data = await storageMethod(companyId, startDate, endDate, branchId);
         res.json(data);
       } catch (err: any) {
         res.status(500).json({ message: err.message });
@@ -13540,7 +13511,7 @@ export async function registerRoutes(
       const companyId = Number(req.params.companyId);
       if (!companyId) return res.status(400).json({ message: "Invalid companyId" });
 
-      const hasAccess = await checkCompanyAccess(req.user, companyId);
+      const hasAccess = await checkCompanyAccess(storage, req.user, companyId);
       if (!hasAccess) {
         return res.status(403).json({ message: "Forbidden" });
       }
@@ -13872,7 +13843,7 @@ export async function registerRoutes(
     try {
       const companyId = parseInt(req.params.companyId);
       if (isNaN(companyId)) return res.status(400).json({ message: "Invalid companyId" });
-      const hasAccess = await checkCompanyAccess(req.user, companyId);
+      const hasAccess = await checkCompanyAccess(storage, req.user, companyId);
       if (!hasAccess) return res.status(403).json({ message: "Forbidden" });
 
       const now = new Date();
@@ -13893,7 +13864,7 @@ export async function registerRoutes(
     try {
       const companyId = parseInt(req.params.companyId);
       if (isNaN(companyId)) return res.status(400).json({ message: "Invalid companyId" });
-      const hasAccess = await checkCompanyAccess(req.user, companyId);
+      const hasAccess = await checkCompanyAccess(storage, req.user, companyId);
       if (!hasAccess) return res.status(403).json({ message: "Forbidden" });
 
       const now = new Date();
@@ -13914,7 +13885,7 @@ export async function registerRoutes(
     try {
       const companyId = parseInt(req.params.companyId);
       if (isNaN(companyId)) return res.status(400).json({ message: "Invalid companyId" });
-      const hasAccess = await checkCompanyAccess(req.user, companyId);
+      const hasAccess = await checkCompanyAccess(storage, req.user, companyId);
       if (!hasAccess) return res.status(403).json({ message: "Forbidden" });
 
       const now = new Date();
@@ -13935,7 +13906,7 @@ export async function registerRoutes(
     try {
       const companyId = parseInt(req.params.companyId);
       if (isNaN(companyId)) return res.status(400).json({ message: "Invalid companyId" });
-      const hasAccess = await checkCompanyAccess(req.user, companyId);
+      const hasAccess = await checkCompanyAccess(storage, req.user, companyId);
       if (!hasAccess) return res.status(403).json({ message: "Forbidden" });
 
       const now = new Date();
@@ -14223,7 +14194,8 @@ export async function registerRoutes(
       const dateFrom = from ? new Date(from as string) : undefined;
       const dateTo = to ? new Date(to as string) : undefined;
       
-      const entries = await storage.getJournalEntries(companyId, dateFrom, dateTo);
+      const branchId = getBranchId(req);
+      const entries = await storage.getJournalEntries(companyId, dateFrom, dateTo, branchId);
       res.json(entries);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -14364,7 +14336,8 @@ export async function registerRoutes(
       const { date } = req.query;
       const asOfDate = date ? new Date(date as string) : undefined;
       
-      const lines = await storage.getTrialBalance(companyId, asOfDate);
+      const branchId = getBranchId(req);
+      const lines = await storage.getTrialBalance(companyId, asOfDate, branchId);
       res.json({
         asOfDate: asOfDate || new Date(),
         lines,
@@ -14416,7 +14389,8 @@ export async function registerRoutes(
       const dateFrom = from ? new Date(from as string) : undefined;
       const dateTo = to ? new Date(to as string) : undefined;
       
-      const entries = await storage.getLedgerEntries(companyId, accId, dateFrom, dateTo);
+      const branchId = getBranchId(req);
+      const entries = await storage.getLedgerEntries(companyId, accId, dateFrom, dateTo, branchId);
       res.json(entries);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -14536,7 +14510,7 @@ export async function registerRoutes(
       const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
       const asOfDate = req.query.date ? new Date(req.query.date as string) : new Date();
-      const branchId = req.query.branchId ? Number(req.query.branchId) : undefined;
+      const branchId = getBranchId(req);
       
       // Use trial balance as the base data — if branchId is specified, filter ledger entries to that branch
       let tb: any[];
@@ -14634,7 +14608,8 @@ export async function registerRoutes(
 
       const company = await storage.getCompany(companyId);
       const settings = accountingSettingsOf(company);
-      const tb = await storage.getTrialBalance(companyId, new Date());
+      const branchId = getBranchId(req);
+      const tb = await storage.getTrialBalance(companyId, new Date(), branchId);
       const totalDebit = tb.reduce((sum: number, line: any) => sum + Number(line.debit || 0), 0);
       const totalCredit = tb.reduce((sum: number, line: any) => sum + Number(line.credit || 0), 0);
       const alerts: any[] = [];
@@ -14683,15 +14658,15 @@ export async function registerRoutes(
       const settings = accountingSettingsOf(company);
       const today = new Date();
       const [tb, ar, ap, vat, periods, statements, alertsPayload] = await Promise.all([
-        storage.getTrialBalance(companyId, today),
+        storage.getTrialBalance(companyId, today, getBranchId(req)),
         storage.getARAgingReport(companyId, today),
         storage.getAPAgingReport(companyId, today),
         storage.getVatReturn(companyId, new Date(today.getFullYear(), today.getMonth(), 1), today),
         storage.getFinancialPeriods(companyId),
         storage.getBankStatements(companyId),
         (async () => {
-          const totalDebit = (await storage.getTrialBalance(companyId, today)).reduce((sum: number, line: any) => sum + Number(line.debit || 0), 0);
-          const totalCredit = (await storage.getTrialBalance(companyId, today)).reduce((sum: number, line: any) => sum + Number(line.credit || 0), 0);
+          const totalDebit = (await storage.getTrialBalance(companyId, today, getBranchId(req))).reduce((sum: number, line: any) => sum + Number(line.debit || 0), 0);
+          const totalCredit = (await storage.getTrialBalance(companyId, today, getBranchId(req))).reduce((sum: number, line: any) => sum + Number(line.credit || 0), 0);
           return { totalDebit, totalCredit };
         })(),
       ]);
@@ -14957,7 +14932,8 @@ export async function registerRoutes(
     try {
       const companyId = resolveAccountingCompanyId(req);
       if (!companyId) return res.status(401).json({ message: "No company profile selected" });
-      const entries = await storage.getJournalEntries(companyId);
+      const branchId = getBranchId(req);
+      const entries = await storage.getJournalEntries(companyId, undefined, undefined, branchId);
       const reversalIds = new Set(entries.filter((entry: any) => entry.referenceType === "REVERSAL").map((entry: any) => String(entry.referenceId)));
       res.json(entries.map((entry: any) => ({
         ...entry,
@@ -15049,7 +15025,7 @@ export async function registerRoutes(
 
       const startDate = req.query.from ? new Date(req.query.from as string) : undefined;
       const endDate = req.query.to ? new Date(req.query.to as string) : undefined;
-      const branchId = req.query.branchId ? Number(req.query.branchId) : undefined;
+      const branchId = getBranchId(req);
 
       const filters: any[] = [
         eq(journalEntries.companyId, companyId),
@@ -15144,7 +15120,7 @@ export async function registerRoutes(
       
       const startDate = req.query.from ? new Date(req.query.from as string) : undefined;
       const endDate = req.query.to ? new Date(req.query.to as string) : undefined;
-      const branchId = req.query.branchId ? Number(req.query.branchId) : undefined;
+      const branchId = getBranchId(req);
 
       // Build filters for journal entries in the period
       const jeFilters: any[] = [eq(journalEntries.companyId, companyId)];
@@ -15872,4 +15848,3 @@ async function seedDatabase() {
     // Create seed logic here if needed
   }
 }
-

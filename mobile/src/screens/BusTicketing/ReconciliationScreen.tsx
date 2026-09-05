@@ -27,7 +27,7 @@ interface Props {
 export function ReconciliationScreen({ onClose, companyId, userRole = 'member', userName = 'Admin' }: Props) {
   const insets = useSafeAreaInsets();
   const C = useBusColors();
-  const styles = makeStyles(C);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const cashInputAccessoryId = 'reconciliation-cash-actions';
   const {
     tickets: allTickets,

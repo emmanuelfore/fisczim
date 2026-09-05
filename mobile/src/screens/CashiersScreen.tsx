@@ -26,7 +26,7 @@ const ROLES = ["cashier", "member", "admin"] as const;
 export function CashiersScreen({ onOpenDrawer, companyId }: Props) {
   const insets = useSafeAreaInsets();
   const { theme: C } = useTheme();
-  const styles = makeStyles(C, insets);
+  const styles = useMemo(() => makeStyles(C, insets), [C, insets]);
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);

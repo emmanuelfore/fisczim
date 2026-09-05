@@ -29,6 +29,6 @@ android {
 }
 
 dependencies {
-  implementation files('libs/PosApiSdk.aar')
+  implementation files('libs/PosApiSdk.jar')
   implementation 'com.google.zxing:core:3.5.3'
 }

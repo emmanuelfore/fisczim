@@ -51,7 +51,10 @@ export function BranchSwitcher() {
         </div>
 
         <DropdownMenuItem
-          onClick={() => setSelectedBranchId(null)}
+          onClick={() => {
+            setSelectedBranchId(null);
+            setTimeout(() => window.location.reload(), 100);
+          }}
           className={cn(
             "flex items-center gap-3 p-2.5 rounded-xl cursor-pointer transition-all font-medium mb-1",
             !selectedBranch
@@ -78,7 +81,10 @@ export function BranchSwitcher() {
         {branches.map((branch) => (
           <DropdownMenuItem
             key={branch.id}
-            onClick={() => setSelectedBranchId(branch.id)}
+            onClick={() => {
+              setSelectedBranchId(branch.id);
+              setTimeout(() => window.location.reload(), 100);
+            }}
             className={cn(
               "flex items-center gap-3 p-2.5 rounded-xl cursor-pointer transition-all font-medium",
               selectedBranch?.id === branch.id

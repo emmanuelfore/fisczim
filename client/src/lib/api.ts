@@ -2,46 +2,42 @@ import { supabase } from "./supabase";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
 
-// Cache session to avoid calling supabase.auth.getSession() on every request
-let cachedSession: { access_token: string; expires_at: number } | null = null;
-let sessionPromise: Promise<{ access_token: string; expires_at: number } | null> | null = null;
+// ── Synchronous Session Cache ──
+let cachedSession: any = null;
+let sessionInitialized = false;
 
-export async function getCachedSession(): Promise<{ access_token: string; expires_at: number } | null> {
-    // Return cached session if still valid (with 5 min buffer)
-    if (cachedSession && cachedSession.expires_at > Date.now() + 300000) {
-        return cachedSession;
+// 1. Initial fetch
+supabase.auth.getSession().then(({ data }) => {
+    cachedSession = data?.session ?? null;
+    sessionInitialized = true;
+}).catch(() => {
+    sessionInitialized = true;
+});
+
+// 2. Keep sync
+supabase.auth.onAuthStateChange((event, session) => {
+    cachedSession = session;
+    sessionInitialized = true;
+});
+
+export async function getCachedSession(): Promise<{ access_token: string; expires_at?: number } | null> {
+    if (!sessionInitialized) {
+        const sessionResult = await Promise.race([
+            supabase.auth.getSession(),
+            new Promise<{ data: { session: null } }>((resolve) => setTimeout(() => resolve({ data: { session: null } }), 2000))
+        ]).catch(() => ({ data: { session: null } }));
+        return sessionResult?.data?.session ?? null;
     }
+    return cachedSession;
+}
 
-    // Deduplicate concurrent getSession calls
-    if (sessionPromise) {
-        return sessionPromise;
-    }
-
-    sessionPromise = (async () => {
-        try {
-            const { data: sessionData } = await supabase.auth.getSession();
-            const session = sessionData?.session ?? null;
-            if (session?.access_token) {
-                cachedSession = {
-                    access_token: session.access_token,
-                    expires_at: session.expires_at ? session.expires_at * 1000 : Date.now() + 3600000
-                };
-                return cachedSession;
-            }
-            return null;
-        } catch (e) {
-            console.warn("[apiFetch] getSession failed:", e);
-            return null;
-        } finally {
-            sessionPromise = null;
-        }
-    })();
-
-    return sessionPromise;
+export function invalidateSessionCache() {
+    cachedSession = null;
+    // Do NOT reset sessionInitialized to false here, as we don't want to re-trigger getSession races on logout
 }
 
 export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-    const session = await getCachedSession();
+    let session = await getCachedSession();
 
     const headers = new Headers(init?.headers);
 
@@ -97,16 +93,3 @@ export function setSelectedBranchId(id: number | null) {
         localStorage.removeItem("selectedBranchId");
     }
 }
-
-/** Invalidate cached session (call on token refresh or logout) */
-export function invalidateSessionCache() {
-    cachedSession = null;
-    sessionPromise = null;
-}
-
-// Invalidate session cache when Supabase token is refreshed
-supabase.auth.onAuthStateChange((event) => {
-    if (event === "TOKEN_REFRESHED") {
-        invalidateSessionCache();
-    }
-});

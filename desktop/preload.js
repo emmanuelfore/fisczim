@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('electronAPI', {
   // Identity
   isElectron: true,
+  verifyTokenLocal: (token) => ipcRenderer.invoke('verify-token-local', token),
 
   // Printing
   printReceipt: (html, printerName) => ipcRenderer.invoke('print-receipt', html, printerName),

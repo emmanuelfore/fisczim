@@ -115,7 +115,7 @@ export function ExpensesScreen({ onOpenDrawer, companyId }: Props) {
     } finally { setSaving(false); }
   }, [form, companyId, editingId, refresh]);
 
-  const styles = makeStyles(C, isDark, insets);
+  const styles = useMemo(() => makeStyles(C, isDark, insets), [C, isDark, insets]);
 
   const renderItem = ({ item }: { item: any }) => {
     const dateStr = item.expenseDate ? new Date(item.expenseDate).toLocaleDateString() : "";

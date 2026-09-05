@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useMemo,  useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -34,7 +34,7 @@ interface Props {
 export function BusFleetAdminScreen({ onClose, companyId }: Props) {
   const insets = useSafeAreaInsets();
   const C = useBusColors();
-  const styles = makeStyles(C);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const { vehicles, trips, saveVehicle, updateVehicle, deleteVehicle } = useBusTicketing(companyId);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<BusVehicle | null>(null);
@@ -44,6 +44,7 @@ export function BusFleetAdminScreen({ onClose, companyId }: Props) {
   const [fleetNumber, setFleetNumber] = useState('');
   const [capacity, setCapacity] = useState('');
   const [isActive, setIsActive] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   const swipeX = useRef<Map<string, Animated.Value>>(new Map()).current;
 
@@ -73,6 +74,7 @@ export function BusFleetAdminScreen({ onClose, companyId }: Props) {
   }
 
   async function handleSave() {
+    if (saving) return;
     const reg = regNo.trim().toUpperCase();
     if (!reg) {
       Alert.alert('Validation', 'Registration number is required.');
@@ -85,6 +87,7 @@ export function BusFleetAdminScreen({ onClose, companyId }: Props) {
       return;
     }
 
+    setSaving(true);
     try {
       if (editingVehicle) {
         await updateVehicle(editingVehicle.id, {
@@ -109,6 +112,8 @@ export function BusFleetAdminScreen({ onClose, companyId }: Props) {
       setModalVisible(false);
     } catch (e: any) {
       Alert.alert('Vehicle not saved', e?.message || 'Could not save vehicle to the server.');
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -299,9 +304,9 @@ export function BusFleetAdminScreen({ onClose, companyId }: Props) {
                 />
               </View>
 
-              <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
+              <TouchableOpacity style={[styles.saveBtn, saving && { opacity: 0.7 }]} onPress={handleSave} disabled={saving}>
                 <Text style={styles.saveBtnText}>
-                  {editingVehicle ? 'Save Changes' : 'Add Vehicle'}
+                  {saving ? 'Saving...' : (editingVehicle ? 'Save Changes' : 'Add Vehicle')}
                 </Text>
               </TouchableOpacity>
             </ScrollView>

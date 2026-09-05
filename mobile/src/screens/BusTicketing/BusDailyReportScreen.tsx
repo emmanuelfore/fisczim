@@ -6,8 +6,9 @@ import {
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BarChart } from 'react-native-gifted-charts';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useBusTicketing } from '../../hooks/useBusTicketing';
-import { getDailySummary, getTicketsForDate, formatAsCSV, formatAsWhatsAppText } from '../../hooks/useBusReports';
+import { getDailySummary, getTicketsForDate, formatAsCSV, formatAsWhatsAppText, isCashierUser, filterTicketsForOwnership, resolveCashierConductorId } from '../../hooks/useBusReports';
 import { type BusColors, useBusColors } from './theme';
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -22,18 +23,26 @@ function addDays(d: Date, n: number): Date {
   return copy;
 }
 
-interface Props { onClose: () => void; }
+interface Props { onClose: () => void; userRole?: string; userName?: string; userId?: string | null; }
 
-export function BusDailyReportScreen({ onClose }: Props) {
+export function BusDailyReportScreen({ onClose, userRole, userName, userId }: Props) {
   const insets = useSafeAreaInsets();
   const C = useBusColors();
-  const styles = makeStyles(C);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const { tickets: allTickets, activeConductor } = useBusTicketing();
 
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [showPicker, setShowPicker] = useState(false);
 
-  const dayTickets = useMemo(() => getTicketsForDate(allTickets, selectedDate), [allTickets, selectedDate]);
-  const summary = useMemo(() => getDailySummary(allTickets, selectedDate), [allTickets, selectedDate]);
+  const restrict = isCashierUser(userRole, userName);
+  const ownConductorId = activeConductor?.id ?? (restrict ? resolveCashierConductorId(userId, userName) : null);
+  const tickets = useMemo(() =>
+    filterTicketsForOwnership(allTickets, ownConductorId, restrict),
+    [allTickets, ownConductorId, restrict]
+  );
+
+  const dayTickets = useMemo(() => getTicketsForDate(tickets, selectedDate), [tickets, selectedDate]);
+  const summary = useMemo(() => getDailySummary(tickets, selectedDate), [tickets, selectedDate]);
 
   // Build BarChart data from hourly breakdown
   const barData = useMemo(() =>
@@ -77,7 +86,23 @@ export function BusDailyReportScreen({ onClose }: Props) {
           <TouchableOpacity style={styles.dateNavBtn} onPress={() => setSelectedDate((d) => addDays(d, -1))}>
             <MaterialCommunityIcons name="chevron-left" size={24} color={C.white} />
           </TouchableOpacity>
-          <Text style={styles.dateLabel}>{fmtDate(selectedDate)}</Text>
+          <TouchableOpacity onPress={() => setShowPicker(true)} style={{flexDirection: 'row', alignItems: 'center', gap: 6}}>
+            <MaterialCommunityIcons name="calendar" size={18} color={C.amber} />
+            <TouchableOpacity onPress={() => setShowPicker(true)}>
+            <Text style={styles.dateLabel}>{fmtDate(selectedDate)}</Text>
+          </TouchableOpacity>
+          {showPicker && (
+            <DateTimePicker
+              value={selectedDate}
+              mode="date"
+              display="default"
+              onChange={(event, date) => {
+                setShowPicker(false);
+                if (date) setSelectedDate(date);
+              }}
+            />
+          )}
+          </TouchableOpacity>
           <TouchableOpacity
             style={styles.dateNavBtn}
             onPress={() => setSelectedDate((d) => addDays(d, 1))}
@@ -86,6 +111,19 @@ export function BusDailyReportScreen({ onClose }: Props) {
             <MaterialCommunityIcons name="chevron-right" size={24} color={selectedDate >= new Date() ? C.border : C.white} />
           </TouchableOpacity>
         </View>
+
+        {showPicker && (
+          <DateTimePicker
+            value={selectedDate}
+            mode="date"
+            display="default"
+            maximumDate={new Date()}
+            onChange={(event, date) => {
+              setShowPicker(false);
+              if (date) setSelectedDate(date);
+            }}
+          />
+        )}
 
         {/* KPI cards */}
         <View style={styles.kpiRow}>
@@ -132,8 +170,8 @@ export function BusDailyReportScreen({ onClose }: Props) {
         {summary.byRoute.length > 0 && (
           <>
             <Text style={styles.sectionTitle}>BY ROUTE</Text>
-            {summary.byRoute.map((rb) => (
-              <View key={rb.routeId} style={styles.tableRow}>
+            {summary.byRoute.map((rb, index) => (
+              <View key={rb.routeId || `route-${index}`}  style={styles.tableRow}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.tableRouteName} numberOfLines={1}>{rb.routeName}</Text>
                   <Text style={styles.tableSub}>{rb.passengerCount} passengers</Text>
@@ -145,13 +183,30 @@ export function BusDailyReportScreen({ onClose }: Props) {
           </>
         )}
 
+        {/* Stop / segment breakdown */}
+        {summary.byStop.length > 0 && (
+          <>
+            <Text style={styles.sectionTitle}>BY STOP / SEGMENT</Text>
+            {summary.byStop.slice(0, 20).map((sb, index) => (
+              <View key={sb.id || `stop-${index}`} style={styles.tableRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.tableRouteName} numberOfLines={1}>{sb.stop}</Text>
+                  <Text style={styles.tableSub}>{sb.routeName}</Text>
+                </View>
+                <Text style={styles.tableTickets}>{sb.ticketCount} tkts</Text>
+                <Text style={styles.tableRevenue}>{fmtMoney(sb.revenue)}</Text>
+              </View>
+            ))}
+          </>
+        )}
+
         {/* Payment breakdown */}
         {summary.byPaymentMethod.length > 0 && (
           <>
             <Text style={styles.sectionTitle}>PAYMENT METHODS</Text>
             <View style={styles.payRow}>
-              {summary.byPaymentMethod.map((pb) => (
-                <View key={pb.method} style={styles.payCard}>
+              {summary.byPaymentMethod.map((pb, index) => (
+                <View key={pb.method || `pay-${index}`} style={styles.payCard}>
                   <Text style={styles.payMethod}>{pb.method}</Text>
                   <Text style={styles.payAmount}>{fmtMoney(pb.amount)}</Text>
                   <Text style={styles.payPct}>{pb.percentage}%</Text>

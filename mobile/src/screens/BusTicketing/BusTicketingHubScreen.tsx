@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo,  useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, StatusBar,
 } from 'react-native';
@@ -16,6 +16,7 @@ import { ReconciliationScreen } from './ReconciliationScreen';
 import { BusDailyReportScreen } from './BusDailyReportScreen';
 import { BusRangeReportScreen } from './BusRangeReportScreen';
 import { BusConductorReportScreen } from './BusConductorReportScreen';
+import { TripManifestScreen } from './TripManifestScreen';
 import { BusFleetAdminScreen } from './BusFleetAdminScreen';
 import { BusTripStartScreen } from './BusTripStartScreen';
 import { PrinterSettingsModal } from '../../ui/PrinterSettingsModal';
@@ -32,6 +33,7 @@ type SubScreen =
   | 'dailyReport'
   | 'rangeReport'
   | 'conductorReport'
+  | 'manifest'
   | 'fleet'
   | 'startTrip';
 
@@ -60,6 +62,7 @@ const MENU: MenuCard[] = [
   { id: 'dailyReport', feature: 'reports', icon: 'chart-bar', label: 'Daily Report', sub: 'Revenue & breakdown for a day', tone: 'amber', section: 'reports' },
   { id: 'rangeReport', feature: 'reports', icon: 'chart-line', label: 'Range Report', sub: 'Multi-day trend analysis', tone: 'amber', section: 'reports' },
   { id: 'conductorReport', feature: 'reports', icon: 'account-details-outline', label: 'Conductor Report', sub: 'Per-conductor performance', tone: 'amber', section: 'reports' },
+  { id: 'manifest', feature: 'reports', icon: 'clipboard-list-outline', label: 'Trip Manifest', sub: 'Passenger list per trip', tone: 'amber', section: 'reports' },
 ];
 
 interface Props {
@@ -76,7 +79,7 @@ interface Props {
 export function BusTicketingHubScreen({ onClose, busSettings, companyId, company, userRole = 'member', userName = '', userId, view = 'full' }: Props) {
   const insets = useSafeAreaInsets();
   const C = useBusColors();
-  const styles = makeStyles(C);
+  const styles = useMemo(() => makeStyles(C), [C]);
   const {
     activeConductor,
     activeTrip,
@@ -102,7 +105,7 @@ export function BusTicketingHubScreen({ onClose, busSettings, companyId, company
   const isAdmin = role === 'owner' || role === 'admin' || role === 'superadmin' || userName === 'Super Admin';
 
   // Render sub-screens
-  if (activeScreen === 'startTrip') return <BusTripStartScreen companyId={companyId} userName={userName} userRole={userRole} userId={userId} onClose={() => setActiveScreen(null)} />;
+  if (activeScreen === 'startTrip') return <BusTripStartScreen companyId={companyId} userName={userName} userRole={userRole} userId={userId} onClose={() => setActiveScreen(null)} onTripStarted={() => setActiveScreen('issueTicket')} />;
   if (activeScreen === 'issueTicket') return <BusTicketIssueScreen companyId={companyId} company={company} onClose={() => setActiveScreen(null)} />;
   if (activeScreen === 'routes') return <BusRouteAdminScreen companyId={companyId} onClose={() => setActiveScreen(null)} />;
   if (activeScreen === 'fleet') return <BusFleetAdminScreen companyId={companyId} onClose={() => setActiveScreen(null)} />;
@@ -115,9 +118,10 @@ export function BusTicketingHubScreen({ onClose, busSettings, companyId, company
     />
   );
   if (activeScreen === 'reconciliation') return <ReconciliationScreen companyId={companyId} userRole={userRole} userName={userName} onClose={() => setActiveScreen(null)} />;
-  if (activeScreen === 'dailyReport') return <BusDailyReportScreen onClose={() => setActiveScreen(null)} />;
-  if (activeScreen === 'rangeReport') return <BusRangeReportScreen onClose={() => setActiveScreen(null)} />;
-  if (activeScreen === 'conductorReport') return <BusConductorReportScreen onClose={() => setActiveScreen(null)} />;
+  if (activeScreen === 'dailyReport') return <BusDailyReportScreen userRole={userRole} userName={userName} userId={userId} onClose={() => setActiveScreen(null)} />;
+  if (activeScreen === 'rangeReport') return <BusRangeReportScreen userRole={userRole} userName={userName} userId={userId} onClose={() => setActiveScreen(null)} />;
+  if (activeScreen === 'conductorReport') return <BusConductorReportScreen userRole={userRole} userName={userName} userId={userId} onClose={() => setActiveScreen(null)} />;
+  if (activeScreen === 'manifest') return <TripManifestScreen userRole={userRole} userName={userName} userId={userId} onClose={() => setActiveScreen(null)} />;
 
   const todayTickets = getTodaysTickets();
 
@@ -213,44 +217,48 @@ export function BusTicketingHubScreen({ onClose, busSettings, companyId, company
           </View>
         )}
 
-        {/* Status bar */}
-        <View style={[styles.syncBar, { borderColor: `${modeColor}66` }]}>
-          <View style={styles.statusItem}>
-            <MaterialCommunityIcons name={modeIcon as any} size={18} color={modeColor} />
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.syncTitle, { color: modeColor }]}>{modeLabel}</Text>
-              <Text style={styles.syncSub}>{lastSyncError ? `Sync issue: ${lastSyncError}` : syncDetail}</Text>
+        {/* Sync Status bar */}
+        {!isAdmin && (
+          <View style={[styles.syncBar, { borderColor: `${modeColor}66` }]}>
+            <View style={styles.statusItem}>
+              <MaterialCommunityIcons name={modeIcon as any} size={18} color={modeColor} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.syncTitle, { color: modeColor }]}>{modeLabel}</Text>
+                <Text style={styles.syncSub}>{lastSyncError ? `Sync issue: ${lastSyncError}` : syncDetail}</Text>
+              </View>
             </View>
+            <TouchableOpacity onPress={handleSync} disabled={showingSync || !isOnline} style={[styles.syncButton, (!isOnline || showingSync) && { opacity: 0.55 }]}>
+              <MaterialCommunityIcons name={showingSync ? "sync" : "cloud-sync-outline"} size={16} color="#000" />
+              <Text style={styles.syncButtonText}>{showingSync ? 'Syncing' : 'Sync'}</Text>
+            </TouchableOpacity>
           </View>
-          <TouchableOpacity onPress={handleSync} disabled={showingSync || !isOnline} style={[styles.syncButton, (!isOnline || showingSync) && { opacity: 0.55 }]}>
-            <MaterialCommunityIcons name={showingSync ? "sync" : "cloud-sync-outline"} size={16} color="#000" />
-            <Text style={styles.syncButtonText}>{showingSync ? 'Syncing' : 'Sync'}</Text>
-          </TouchableOpacity>
-        </View>
+        )}
 
         {/* Status bar */}
-        <View style={styles.statusBar}>
-          <View style={styles.statusItem}>
-            <MaterialCommunityIcons name="account-tie-outline" size={16} color={activeConductor ? C.amber : C.muted} />
-            <Text style={[styles.statusText, activeConductor && { color: C.amber }]}>
-              {activeConductor ? activeConductor.name : 'No conductor set'}
-            </Text>
-          </View>
-          <View style={styles.statusDivider} />
-          <View style={styles.statusItem}>
-            <MaterialCommunityIcons name="bus" size={16} color={activeTrip ? C.amber : C.muted} />
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.statusText, activeTrip && { color: C.amber }]}>
-                {activeVehicle ? activeVehicle.registrationNumber : 'No active trip'}
+        {!isAdmin && (
+          <View style={styles.statusBar}>
+            <View style={styles.statusItem}>
+              <MaterialCommunityIcons name="account-tie-outline" size={16} color={activeConductor ? C.amber : C.muted} />
+              <Text style={[styles.statusText, activeConductor && { color: C.amber }]}>
+                {activeConductor ? activeConductor.name : 'No conductor set'}
               </Text>
-              {activeRoute && (
-                <Text style={[styles.statusText, { fontSize: 10, marginTop: 2 }]} numberOfLines={1}>
-                  {activeRoute.name}
+            </View>
+            <View style={styles.statusDivider} />
+            <View style={styles.statusItem}>
+              <MaterialCommunityIcons name="bus" size={16} color={activeTrip ? C.amber : C.muted} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.statusText, activeTrip && { color: C.amber }]}>
+                  {activeVehicle ? activeVehicle.registrationNumber : 'No active trip'}
                 </Text>
-              )}
+                {activeRoute && (
+                  <Text style={[styles.statusText, { fontSize: 10, marginTop: 2 }]} numberOfLines={1}>
+                    {activeRoute.name}
+                  </Text>
+                )}
+              </View>
             </View>
           </View>
-        </View>
+        )}
 
         {/* Tickets and Revenue Summary */}
         <View style={styles.statusBar}>

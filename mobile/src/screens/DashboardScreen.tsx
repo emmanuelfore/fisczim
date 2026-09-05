@@ -18,7 +18,7 @@ type Props = {
 export function DashboardScreen({ companyId, userName, userRole, appMode, onOpenDrawer, onNavigate }: Props) {
   const insets = useSafeAreaInsets();
   const { theme: C } = useTheme();
-  const styles = makeStyles(C, insets);
+  const styles = useMemo(() => makeStyles(C, insets), [C, insets]);
   const [financial, setFinancial] = useState<any>(null);
   const [stock, setStock] = useState<any[]>([]);
   const [abc, setAbc] = useState<any>(null);

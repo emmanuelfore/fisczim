@@ -1,80 +1,97 @@
-import React, { useCallback, useEffect, useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useState, useMemo, useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  Alert, StatusBar, BackHandler,
+  Alert, StatusBar, BackHandler, ActivityIndicator,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useBusTicketing } from '../../hooks/useBusTicketing';
-import { BusRoute, IssuedTicket } from '../../types/busTicketing';
+import { BusRoute, IssuedTicket, getRouteFare } from '../../types/busTicketing';
 import { usePrinter } from '../../hooks/usePrinter';
 import { buildBusTicketPrintData } from '../../lib/busTicketReceipt';
 import { DoneTextInput as TextInput } from '../../ui/DoneTextInput';
 import { type BusColors, useBusColors } from './theme';
-
-type PaymentMethod = 'Cash' | 'EcoCash' | 'InnBucks' | 'Swipe';
-const PAYMENT_METHODS: PaymentMethod[] = ['Cash', 'EcoCash', 'InnBucks', 'Swipe'];
+import * as Haptics from 'expo-haptics';
 
 interface Props { onClose: () => void; companyId?: number | null; company?: any; }
 
 export function BusTicketIssueScreen({ onClose, companyId, company }: Props) {
   const insets = useSafeAreaInsets();
   const C = useBusColors();
-  const styles = makeStyles(C);
-  const { routes, activeConductor, activeTrip, issueTicket, isOnline, syncStatus, pendingTicketCount } = useBusTicketing(companyId);
+  const styles = useMemo(() => makeStyles(C), [C]);
+  const { routes, vehicles, activeConductor, activeTrip, tickets, issueTicket, isOnline, syncStatus, pendingTicketCount, isLoading } = useBusTicketing(companyId);
   const { config: printerConfig, print } = usePrinter();
 
-  const activeRoutes = useMemo(() => routes.filter((r) => r.isActive), [routes]);
+  // Route is fixed by the active trip (chosen when the trip was started).
   const activeTripRoute = useMemo(
-    () => activeTrip ? activeRoutes.find((route) => route.id === activeTrip.routeId) ?? null : null,
-    [activeRoutes, activeTrip]
+    () => activeTrip ? routes.find((route) => route.id === activeTrip.routeId) ?? null : null,
+    [routes, activeTrip]
+  );
+  const activeTripVehicle = useMemo(
+    () => activeTrip ? vehicles.find((vehicle) => vehicle.id === activeTrip.vehicleId) ?? null : null,
+    [vehicles, activeTrip]
   );
 
-  const [selectedRoute, setSelectedRoute] = useState<BusRoute | null>(null);
   const [quantity, setQuantity] = useState(1);
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('Cash');
   const [passengerName, setPassengerName] = useState('');
   const [idNumber, setIdNumber] = useState('');
   const [phone, setPhone] = useState('');
-  const [seatNumber, setSeatNumber] = useState('');
+  const [boardingPoint, setBoardingPoint] = useState('');
   const [dropOffPoint, setDropOffPoint] = useState('');
   const [lastTicket, setLastTicket] = useState<IssuedTicket | null>(null);
   const [issuing, setIssuing] = useState(false);
+  // Cooldown to prevent accidental double-taps on Issue Ticket
+  const lastIssueRef = useRef<number>(0);
+  const COOLDOWN_MS = 1500;
 
-  const cfg = selectedRoute?.config;
+  const cfg = activeTripRoute?.config;
+  // Full ordered stop list: modern routes use config.stops, legacy routes only have dropOffPoints.
+  const stops = useMemo(() => {
+    const modern = cfg?.stops?.filter(Boolean);
+    if (modern && modern.length >= 2) return modern as string[];
+    const legacy = (cfg?.dropOffPoints || [])
+      .map((point: any) => typeof point === 'string' ? point : point?.name)
+      .filter(Boolean);
+    const all = [activeTripRoute?.origin, ...legacy, activeTripRoute?.destination]
+      .filter((value): value is string => !!value)
+      .filter((value, index, list) => list.indexOf(value) === index);
+    return all.length >= 2 ? all : [activeTripRoute?.origin || '', activeTripRoute?.destination || ''];
+  }, [cfg, activeTripRoute]);
+
+  const soldCount = useMemo(() => {
+    if (!activeTrip) return 0;
+    return tickets
+      .filter((t) => t.tripId === activeTrip.id || t.tripId === activeTrip.localId)
+      .reduce((sum, t) => sum + (t.quantity || 1), 0);
+  }, [tickets, activeTrip]);
+
   const showingSync = syncStatus === 'syncing';
   const modeColor = showingSync ? C.amber : isOnline ? C.success : C.danger;
   const modeIcon = showingSync ? 'sync' : isOnline ? 'wifi' : 'wifi-off';
   const modeLabel = showingSync ? 'System syncing' : isOnline ? 'Online mode' : 'Offline mode';
 
-  const totalAmount = selectedRoute ? parseFloat((getPriceForDropOff(selectedRoute, dropOffPoint) * quantity).toFixed(2)) : 0;
+  const ticketPrice = activeTripRoute
+    ? getRouteFare(activeTripRoute.config, boardingPoint || activeTripRoute.origin, dropOffPoint || activeTripRoute.destination, activeTripRoute.price)
+    : 0;
+  const totalAmount = activeTripRoute ? parseFloat((ticketPrice * quantity).toFixed(2)) : 0;
 
   function getPriceForDropOff(route: BusRoute, dropOff: string): number {
-    if (!dropOff) return route.price;
-    const stop = route.config.dropOffPoints?.find((s: any) => s.name === dropOff);
-    return stop?.price || route.price;
+    return getRouteFare(route.config, boardingPoint || route.origin, dropOff || route.destination, route.price);
   }
 
   const resetForm = useCallback(() => {
     setQuantity(1);
-    setPaymentMethod('Cash');
     setPassengerName('');
     setIdNumber('');
     setPhone('');
-    setSeatNumber('');
+    setBoardingPoint('');
     setDropOffPoint('');
   }, []);
 
-  const selectRoute = useCallback((route: BusRoute) => {
-    setSelectedRoute(route);
-    resetForm();
-  }, [resetForm]);
-
   useEffect(() => {
-    if (!selectedRoute && activeTripRoute) {
-      selectRoute(activeTripRoute);
-    }
-  }, [activeTripRoute, selectedRoute, selectRoute]);
+    resetForm();
+    setLastTicket(null);
+  }, [activeTrip?.id, resetForm]);
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -84,33 +101,50 @@ export function BusTicketIssueScreen({ onClose, companyId, company }: Props) {
     return () => subscription.remove();
   }, [onClose]);
 
+  function selectBoarding(stopName: string) {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setBoardingPoint((prev) => {
+      const next = prev === stopName ? '' : stopName;
+      if (next && dropOffPoint === next) setDropOffPoint('');
+      return next;
+    });
+  }
+
   async function handleIssue() {
+    if (isLoading) return;
     if (!activeTrip) {
       Alert.alert('No Active Trip', 'Start a trip before issuing tickets.');
+      onClose();
       return;
     }
-    if (!selectedRoute) { Alert.alert('Error', 'Please select a route.'); return; }
-    if (cfg?.requirePaymentMethod && !paymentMethod) {
-      Alert.alert('Error', 'Please select a payment method.');
+    if (!activeTripRoute) { Alert.alert('Error', 'The active trip has no route assigned.'); return; }
+
+    // Cooldown check to prevent accidental double-taps
+    const now = Date.now();
+    if (now - lastIssueRef.current < COOLDOWN_MS) {
       return;
     }
+    lastIssueRef.current = now;
+
+    // Haptic feedback on successful issue
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     setIssuing(true);
     try {
       const ticket: IssuedTicket = {
         id: 'auto',
-        routeId: selectedRoute.id,
-        routeName: selectedRoute.name,
-        price: getPriceForDropOff(selectedRoute, dropOffPoint),
+        routeId: activeTripRoute.id,
+        routeName: activeTripRoute.name,
+        price: getPriceForDropOff(activeTripRoute, dropOffPoint),
         quantity,
         totalAmount,
-        currency: selectedRoute.currency,
-        paymentMethod: paymentMethod ?? undefined,
+        currency: activeTripRoute.currency,
+        paymentMethod: 'Cash',
         passengerName: passengerName.trim() || undefined,
         idNumber: idNumber.trim() || undefined,
         phone: phone.trim() || undefined,
-        seatNumber: seatNumber.trim() || undefined,
-        dropOffPoint: dropOffPoint || undefined,
+        boardingPoint: (boardingPoint || activeTripRoute.origin) || undefined,
+        dropOffPoint: (dropOffPoint || activeTripRoute.destination) || undefined,
         issuedAt: new Date().toISOString(),
         conductorId: activeConductor?.id,
         conductorName: activeConductor?.name,
@@ -121,7 +155,6 @@ export function BusTicketIssueScreen({ onClose, companyId, company }: Props) {
       const issuedTicket = await issueTicket(ticket);
       setLastTicket(issuedTicket);
       resetForm();
-      setSelectedRoute(activeTripRoute || null);
       if (printerConfig.enabled) {
         print(buildBusTicketPrintData(issuedTicket, company)).catch((e) => {
           console.warn('[BusTicketIssue] Ticket print failed:', e?.message || e);
@@ -131,7 +164,7 @@ export function BusTicketIssueScreen({ onClose, companyId, company }: Props) {
 
       Alert.alert(
         '✓ Ticket Issued',
-        `${selectedRoute.name}\n${quantity} passenger(s) — ${selectedRoute.currency} ${totalAmount.toFixed(2)}`,
+        `${issuedTicket.id}\n${activeTripRoute.name}\n${quantity} passenger(s) — ${activeTripRoute.currency} ${totalAmount.toFixed(2)}`,
         [{ text: 'OK' }]
       );
     } catch (e: any) {
@@ -154,8 +187,14 @@ export function BusTicketIssueScreen({ onClose, companyId, company }: Props) {
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
-        {/* Last ticket banner */}
+      {isLoading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={C.amber} style={styles.loadingSpinner} />
+          <Text style={styles.loadingText}>Loading trip…</Text>
+        </View>
+      ) : (
+        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+        {/* Sync banner */}
         <View style={[styles.syncBanner, { borderColor: `${modeColor}66` }]}>
           <MaterialCommunityIcons name={modeIcon as any} size={16} color={modeColor} />
           <View style={{ flex: 1 }}>
@@ -178,12 +217,18 @@ export function BusTicketIssueScreen({ onClose, companyId, company }: Props) {
           </View>
         )}
 
+        {/* Active trip card with capacity */}
         {activeTrip && (
           <View style={styles.tripCard}>
             <View style={{ flex: 1 }}>
               <Text style={styles.tripLabel}>ACTIVE TRIP</Text>
               <Text style={styles.tripTitle}>{activeTripRoute?.name || `Trip #${activeTrip.id}`}</Text>
               <Text style={styles.tripSub}>Status: {activeTrip.status.replace('_', ' ')}</Text>
+              {activeTripVehicle?.capacity ? (
+                <Text style={[styles.tripSub, { color: soldCount >= activeTripVehicle.capacity ? C.danger : C.success, fontWeight: '800', marginTop: 4 }]}>
+                  {soldCount} / {activeTripVehicle.capacity} sold
+                </Text>
+              ) : null}
             </View>
             <MaterialCommunityIcons name="bus-clock" size={26} color={C.amber} />
           </View>
@@ -202,66 +247,114 @@ export function BusTicketIssueScreen({ onClose, companyId, company }: Props) {
           </View>
         )}
 
-        {/* Route selection */}
-        <Text style={styles.sectionLabel}>SELECT ROUTE</Text>
-        {activeRoutes.length === 0 ? (
+        {!activeTrip || !activeTripRoute ? (
           <View style={styles.noRoutes}>
-            <Text style={styles.noRoutesText}>No active routes. Add routes in the admin panel.</Text>
+            <MaterialCommunityIcons name="map-marker-off-outline" size={28} color={C.muted} />
+            <Text style={styles.noRoutesText}>
+              {!activeTrip
+                ? 'Start a trip first — the route is locked to the active trip.'
+                : 'The active trip has no route assigned. Edit the trip in the admin panel.'}
+            </Text>
           </View>
         ) : (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 20 }}>
-            {activeRoutes.map((route) => (
-              <TouchableOpacity
-                key={route.id}
-                style={[styles.routeChip, selectedRoute?.id === route.id && styles.routeChipActive]}
-                onPress={() => selectRoute(route)}
-              >
-                <MaterialCommunityIcons
-                  name="bus" size={16}
-                  color={selectedRoute?.id === route.id ? '#000' : C.muted}
-                />
-                <Text style={[styles.routeChipText, selectedRoute?.id === route.id && styles.routeChipTextActive]}>
-                  {route.name}
-                </Text>
-                <Text style={[styles.routeChipPrice, selectedRoute?.id === route.id && { color: '#000' }]}>
-                  {route.currency} {route.price.toFixed(2)}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        )}
-
-        {selectedRoute && (
           <>
-            <Text style={styles.label}>Quick Destination</Text>
-            <View style={styles.quickGrid}>
-              {[selectedRoute.destination, ...(cfg?.dropOffPoints || [])]
-                .filter((value, index, list) => {
-                  const stopName = typeof value === 'string' ? value : value?.name;
-                  return stopName && list.findIndex((v: any) => (typeof v === 'string' ? v : v?.name) === stopName) === index;
-                })
-                .map((stop: any) => {
-                  const stopName = typeof stop === 'string' ? stop : stop?.name;
-                  const stopPrice = typeof stop === 'string' ? selectedRoute.price : stop?.price;
+            {/* Boarding point */}
+            <Text style={styles.label}>Starting Point</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
+              {stops.map((stopName: string) => {
+                const active = boardingPoint === stopName;
+                return (
+                  <TouchableOpacity
+                    key={`b-${stopName}`}
+                    style={[styles.stopChip, active && styles.stopChipActive]}
+                    onPress={() => selectBoarding(stopName)}
+                  >
+                    <MaterialCommunityIcons name="sign-direction" size={14} color={active ? '#fff' : C.muted} />
+                    <Text style={[styles.stopChipText, active && styles.stopChipTextActive]}>
+                      {stopName}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+
+            {/* Drop-off point */}
+            <Text style={styles.label}>Destination / Stop</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
+              {stops
+                .filter((stopName: string) => stopName !== (boardingPoint || activeTripRoute.origin))
+                .map((stopName: string) => {
+                  const active = dropOffPoint === stopName;
+                  const price = getRouteFare(
+                    activeTripRoute.config,
+                    boardingPoint || activeTripRoute.origin,
+                    stopName,
+                    activeTripRoute.price,
+                  );
                   return (
                     <TouchableOpacity
-                      key={stopName}
-                      style={[styles.quickChip, dropOffPoint === stopName && styles.quickChipActive]}
-                      onPress={() => setDropOffPoint(dropOffPoint === stopName ? '' : stopName)}
+                      key={`d-${stopName}`}
+                      style={[styles.stopChip, active && styles.stopChipActive]}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        setDropOffPoint(dropOffPoint === stopName ? '' : stopName);
+                      }}
                     >
-                      <Text style={[styles.quickChipText, dropOffPoint === stopName && styles.quickChipTextActive]}>{stopName}</Text>
-                      <Text style={[styles.quickChipPrice, dropOffPoint === stopName && styles.quickChipPriceActive]}>{selectedRoute.currency} {stopPrice.toFixed(2)}</Text>
+                      <Text style={[styles.stopChipText, active && styles.stopChipTextActive]}>
+                        {stopName}
+                      </Text>
+                      <Text style={[styles.stopChipPrice, active && styles.stopChipPriceActive]}>
+                        {activeTripRoute.currency} {price.toFixed(2)}
+                      </Text>
                     </TouchableOpacity>
                   );
                 })}
+            </ScrollView>
+
+            {/* Quantity */}
+            <Text style={styles.label}>Number of Passengers</Text>
+            <View style={styles.quickQtyRow}>
+              {[1, 2, 3, 4].map((count) => (
+                <TouchableOpacity
+                  key={count}
+                  style={[styles.quickQty, quantity === count && styles.quickQtyActive]}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    setQuantity(count);
+                  }}
+                >
+                  <Text style={[styles.quickQtyText, quantity === count && styles.quickQtyTextActive]}>{count}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <View style={styles.quantityRow}>
+              <TouchableOpacity
+                style={styles.qtyBtn}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setQuantity((q) => Math.max(1, q - 1));
+                }}
+              >
+                <MaterialCommunityIcons name="minus" size={20} color={C.white} />
+              </TouchableOpacity>
+              <Text style={styles.qtyValue}>{quantity}</Text>
+              <TouchableOpacity
+                style={styles.qtyBtn}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setQuantity((q) => Math.min(99, q + 1));
+                }}
+              >
+                <MaterialCommunityIcons name="plus" size={20} color={C.white} />
+              </TouchableOpacity>
             </View>
 
-            {/* Optional fields */}
+            {/* Optional customer fields */}
             {cfg?.passengerName && (
               <>
                 <Text style={styles.label}>Passenger Name</Text>
                 <TextInput
-                  style={styles.input} placeholder="Full name"
+                  style={styles.input} placeholder="Full name (optional)"
                   placeholderTextColor={C.muted} value={passengerName}
                   onChangeText={setPassengerName}
                 />
@@ -271,7 +364,7 @@ export function BusTicketIssueScreen({ onClose, companyId, company }: Props) {
               <>
                 <Text style={styles.label}>ID Number</Text>
                 <TextInput
-                  style={styles.input} placeholder="National ID / Passport"
+                  style={styles.input} placeholder="National ID / Passport (optional)"
                   placeholderTextColor={C.muted} value={idNumber}
                   onChangeText={setIdNumber}
                 />
@@ -281,98 +374,10 @@ export function BusTicketIssueScreen({ onClose, companyId, company }: Props) {
               <>
                 <Text style={styles.label}>Phone Number</Text>
                 <TextInput
-                  style={styles.input} placeholder="+263 77 ..."
+                  style={styles.input} placeholder="+263 77 ... (optional)"
                   placeholderTextColor={C.muted} value={phone}
                   onChangeText={setPhone} keyboardType="phone-pad"
                 />
-              </>
-            )}
-            {cfg?.seatNumber && (
-              <>
-                <Text style={styles.label}>Seat Number</Text>
-                <TextInput
-                  style={styles.input} placeholder="e.g. 14A"
-                  placeholderTextColor={C.muted} value={seatNumber}
-                  onChangeText={setSeatNumber}
-                />
-              </>
-            )}
-
-            {/* Drop-off point */}
-            {cfg?.dropOffPoint && cfg.dropOffPoints.length > 0 && (
-              <>
-                <Text style={styles.label}>Drop-off Point</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
-                  {cfg.dropOffPoints.map((stop: any) => {
-                    const stopName = typeof stop === 'string' ? stop : stop?.name;
-                    const stopPrice = typeof stop === 'string' ? selectedRoute.price : stop?.price;
-                    return (
-                      <TouchableOpacity
-                        key={stopName}
-                        style={[styles.stopChip, dropOffPoint === stopName && styles.stopChipActive]}
-                        onPress={() => setDropOffPoint(dropOffPoint === stopName ? '' : stopName)}
-                      >
-                        <Text style={[styles.stopChipText, dropOffPoint === stopName && styles.stopChipTextActive]}>
-                          {stopName}
-                        </Text>
-                        <Text style={[styles.stopChipPrice, dropOffPoint === stopName && styles.stopChipPriceActive]}>
-                          {selectedRoute.currency} {stopPrice.toFixed(2)}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              </>
-            )}
-
-            {/* Payment method */}
-            {cfg?.requirePaymentMethod && (
-              <>
-                <Text style={styles.label}>Payment Method</Text>
-                <View style={styles.payRow}>
-                  {PAYMENT_METHODS.map((m) => (
-                    <TouchableOpacity
-                      key={m}
-                      style={[styles.payChip, paymentMethod === m && styles.payChipActive]}
-                      onPress={() => setPaymentMethod(m)}
-                    >
-                      <Text style={[styles.payChipText, paymentMethod === m && styles.payChipTextActive]}>{m}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </>
-            )}
-
-            {/* Quantity */}
-            {cfg?.allowMultiPassenger && (
-              <>
-                <Text style={styles.label}>Number of Passengers</Text>
-                <View style={styles.quickQtyRow}>
-                  {[1, 2, 3, 4].map((count) => (
-                    <TouchableOpacity
-                      key={count}
-                      style={[styles.quickQty, quantity === count && styles.quickQtyActive]}
-                      onPress={() => setQuantity(count)}
-                    >
-                      <Text style={[styles.quickQtyText, quantity === count && styles.quickQtyTextActive]}>{count}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-                <View style={styles.quantityRow}>
-                  <TouchableOpacity
-                    style={styles.qtyBtn}
-                    onPress={() => setQuantity((q) => Math.max(1, q - 1))}
-                  >
-                    <MaterialCommunityIcons name="minus" size={20} color={C.white} />
-                  </TouchableOpacity>
-                  <Text style={styles.qtyValue}>{quantity}</Text>
-                  <TouchableOpacity
-                    style={styles.qtyBtn}
-                    onPress={() => setQuantity((q) => Math.min(99, q + 1))}
-                  >
-                    <MaterialCommunityIcons name="plus" size={20} color={C.white} />
-                  </TouchableOpacity>
-                </View>
               </>
             )}
 
@@ -380,14 +385,15 @@ export function BusTicketIssueScreen({ onClose, companyId, company }: Props) {
             <View style={styles.totalCard}>
               <Text style={styles.totalLabel}>TOTAL</Text>
               <Text style={styles.totalAmount}>
-                {selectedRoute.currency} {totalAmount.toFixed(2)}
+                {activeTripRoute.currency} {totalAmount.toFixed(2)}
               </Text>
               {quantity > 1 && (
                 <Text style={styles.totalBreakdown}>
-                  {getPriceForDropOff(selectedRoute, dropOffPoint).toFixed(2)} ×{' '}
+                  {getPriceForDropOff(activeTripRoute, dropOffPoint).toFixed(2)} ×{' '}
                   {quantity} passengers
                 </Text>
               )}
+              <Text style={styles.totalBreakdown}>Cash payment</Text>
             </View>
 
             {/* Issue button */}
@@ -402,6 +408,7 @@ export function BusTicketIssueScreen({ onClose, companyId, company }: Props) {
           </>
         )}
       </ScrollView>
+      )}
     </View>
   );
 }
@@ -441,48 +448,25 @@ const makeStyles = (C: BusColors) => StyleSheet.create({
   tripTitle: { color: C.white, fontSize: 15, fontWeight: '900', marginTop: 2 },
   tripSub: { color: C.muted, fontSize: 11, fontWeight: '600', marginTop: 2 },
   sectionLabel: { color: C.muted, fontSize: 11, fontWeight: '800', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 10 },
-  noRoutes: { backgroundColor: C.surface, borderRadius: 10, padding: 20, alignItems: 'center', marginBottom: 20 },
+  noRoutes: { backgroundColor: C.surface, borderRadius: 10, padding: 20, alignItems: 'center', marginBottom: 20, gap: 10 },
   noRoutesText: { color: C.muted, fontSize: 13, textAlign: 'center' },
-  routeChip: {
-    backgroundColor: C.surface, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12,
-    marginRight: 10, gap: 6, alignItems: 'center', borderWidth: 1, borderColor: C.border,
-  },
-  routeChipActive: { backgroundColor: C.amber, borderColor: C.amber },
-  routeChipText: { color: C.white, fontSize: 13, fontWeight: '700' },
-  routeChipTextActive: { color: '#000' },
-  routeChipPrice: { color: C.muted, fontSize: 11 },
+  loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, paddingTop: 60 },
+  loadingSpinner: { width: 40, height: 40 },
+  loadingText: { color: C.muted, fontSize: 14 },
   label: { color: C.muted, fontSize: 12, fontWeight: '700', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
   input: {
     backgroundColor: C.surface, color: C.white, borderWidth: 1, borderColor: C.border,
     borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, marginBottom: 16,
   },
-  quickGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
-  quickChip: {
-    backgroundColor: C.surface, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 11,
-    borderWidth: 1, borderColor: C.border, alignItems: 'center',
-  },
-  quickChipActive: { backgroundColor: C.fire, borderColor: C.fire },
-  quickChipText: { color: C.white, fontSize: 13, fontWeight: '800' },
-  quickChipTextActive: { color: C.white },
-  quickChipPrice: { color: C.amber, fontSize: 11, fontWeight: '600', marginTop: 2 },
-  quickChipPriceActive: { color: C.white },
   stopChip: {
     backgroundColor: C.surface, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10,
-    marginRight: 8, borderWidth: 1, borderColor: C.border, alignItems: 'center',
+    marginRight: 8, borderWidth: 1, borderColor: C.border, alignItems: 'center', flexDirection: 'row', gap: 6,
   },
   stopChipActive: { backgroundColor: C.fire, borderColor: C.fire },
   stopChipText: { color: C.white, fontSize: 13, fontWeight: '600' },
   stopChipTextActive: { color: C.white },
   stopChipPrice: { color: C.amber, fontSize: 11, fontWeight: '600', marginTop: 2 },
   stopChipPriceActive: { color: C.white },
-  payRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
-  payChip: {
-    borderRadius: 10, paddingHorizontal: 16, paddingVertical: 10,
-    borderWidth: 1, borderColor: C.border, backgroundColor: C.surface,
-  },
-  payChipActive: { backgroundColor: C.amber, borderColor: C.amber },
-  payChipText: { color: C.white, fontWeight: '700', fontSize: 13 },
-  payChipTextActive: { color: '#000' },
   quickQtyRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
   quickQty: {
     minWidth: 48, height: 40, borderRadius: 12, backgroundColor: C.surface,

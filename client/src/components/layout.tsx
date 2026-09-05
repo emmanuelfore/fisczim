@@ -190,6 +190,7 @@ export function Layout({
   const activeRole = (activeCompany as any)?.role;
   const appMode = normalizeAppMode((activeCompany as any)?.appMode);
   const busSettings = normalizeBusSettings((activeCompany as any)?.busSettings);
+  const featureSettings = (activeCompany as any)?.featureSettings || {};
   const isBusOnlyMode = busSettings.enabled || appMode === "bus_ticketing";
   const busOperationsChildren = [
     ...(isBusFeatureEnabled(busSettings, "tripManagement")
@@ -309,7 +310,7 @@ export function Layout({
         },
       ],
     },
-    {
+    ...(featureSettings.procurement !== false ? [{
       icon: ClipboardList,
       label: "Procurement",
       children: [
@@ -337,8 +338,8 @@ export function Layout({
           ]
         },
       ],
-    },
-    {
+    }] : []),
+    ...(featureSettings.freight !== false ? [{
       icon: Truck,
       label: "Freight & Logistics",
       children: [
@@ -348,8 +349,8 @@ export function Layout({
         { icon: CheckSquare, label: "Receiving", href: "/freight/receiving" },
         { icon: BarChart3, label: "Reports", href: "/freight/reports" },
       ],
-    },
-    {
+    }] : []),
+    ...(featureSettings.inventory !== false ? [{
       icon: Package,
       label: "Inventory",
       children: [
@@ -399,8 +400,8 @@ export function Layout({
           ]
         },
       ],
-    },
-    {
+    }] : []),
+    ...(featureSettings.manufacturing !== false ? [{
       icon: Factory,
       label: "Manufacturing",
       children: [
@@ -419,8 +420,8 @@ export function Layout({
           ],
         },
       ],
-    },
-    {
+    }] : []),
+    ...(featureSettings.finance !== false ? [{
       icon: Calculator,
       label: "Finance",
       children: [
@@ -459,16 +460,16 @@ export function Layout({
           ]
         },
       ],
-    },
-    {
+    }] : []),
+    ...(featureSettings.fixedAssets !== false ? [{
       icon: Briefcase,
       label: "Fixed Assets",
       children: [
         { icon: ClipboardList, label: "Asset Registry", href: "/accounting/fixed-assets" },
         { icon: History, label: "Depreciation Records", href: "/accounting/fixed-assets/depreciation" },
       ],
-    },
-    {
+    }] : []),
+    ...(featureSettings.hr !== false ? [{
       icon: Briefcase,
       label: "HR & Payroll",
       children: [
@@ -487,8 +488,8 @@ export function Layout({
           href: "/hr/self-service",
         },
       ],
-    },
-    {
+    }] : []),
+    ...(featureSettings.tax !== false ? [{
       icon: ShieldCheck,
       label: "Tax & Compliance",
       children: [
@@ -508,7 +509,7 @@ export function Layout({
           ]
         },
       ],
-    },
+    }] : []),
     {
       icon: Utensils,
       label: "Restaurant",

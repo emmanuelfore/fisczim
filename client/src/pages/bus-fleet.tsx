@@ -1,6 +1,6 @@
 import { Layout } from "@/components/layout";
 import { useState } from "react";
-import { useBusVehicles, useBusRoutes } from "@/hooks/use-bus-ticketing";
+import { useBusVehicles, useBusRoutes, useDeleteBusRoute } from "@/hooks/use-bus-ticketing";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Bus,
@@ -10,6 +10,7 @@ import {
   ChevronRight,
   MapPin,
   Users,
+  Trash2,
 } from "lucide-react";
 import { CreateVehicleDialog, EditVehicleDialog } from "@/components/bus/create-vehicle-dialog";
 import { CreateRouteDialog, EditRouteDialog } from "@/components/bus/create-route-dialog";
@@ -32,9 +33,19 @@ export default function BusFleetPage() {
   const { data: vehicles, isLoading: loadingVehicles, isError: vehiclesError } =
     useBusVehicles(companyId);
   const { data: routes, isLoading: loadingRoutes, isError: routesError } = useBusRoutes(companyId);
+  const deleteRoute = useDeleteBusRoute();
 
   const [vehicleSearch, setVehicleSearch] = useState("");
   const [routeSearch, setRouteSearch] = useState("");
+
+  const handleDeleteRoute = async (routeId: number, routeName: string) => {
+    if (!window.confirm(`Delete route "${routeName}"?\nRoutes with trips or tickets cannot be deleted.`)) return;
+    try {
+      await deleteRoute.mutateAsync({ companyId, routeId });
+    } catch (e: any) {
+      window.alert(e.message || "Failed to delete route");
+    }
+  };
 
   const filteredVehicles = vehicles?.filter(
     (v: any) =>
@@ -305,7 +316,18 @@ export default function BusFleetPage() {
                             </td>
                             <td className="px-6 py-4 text-right">
                               {canManageFares && (
-                                <EditRouteDialog companyId={companyId} route={r} />
+                                <div className="flex items-center justify-end gap-2">
+                                  <EditRouteDialog companyId={companyId} route={r} />
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleDeleteRoute(Number(r.id), r.name)}
+                                    className="rounded-xl text-slate-400 hover:text-red-600 hover:bg-red-50"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                    Delete
+                                  </Button>
+                                </div>
                               )}
                             </td>
                           </tr>

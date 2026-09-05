@@ -258,6 +258,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
   const cartBounceAnim = useRef(new Animated.Value(1)).current;
   const [weightProduct, setWeightProduct] = useState<any | null>(null);
   const [weightInput, setWeightInput] = useState("");
+  const [amountInput, setAmountInput] = useState("");
 
   const triggerCartBounce = () => {
     Animated.sequence([
@@ -636,6 +637,7 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
     if (isWeighed(product) && qty === undefined) {
       setWeightProduct(product);
       setWeightInput("");
+      setAmountInput("");
       return;
     }
     const availableStock = Number(product.branchStock ?? product.stockLevel ?? 0);
@@ -737,20 +739,39 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
 
   const confirmWeightAdd = () => {
     if (!weightProduct) return;
-    const amount = Number.parseFloat(weightInput.replace(",", "."));
     const unitPrice = Number(weightProduct?.price ?? 0);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      Alert.alert("Invalid Amount", "Enter an amount greater than zero.");
-      return;
-    }
     if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
       Alert.alert("Invalid Price", "This item has no unit price set.");
       return;
     }
-    const weight = amount / unitPrice;
-    addToCart(weightProduct, undefined, +weight.toFixed(3));
+
+    let finalWeight = 0;
+    
+    if (amountInput.trim() !== "") {
+      // Reverse pricing: Amount entered
+      const amount = Number.parseFloat(amountInput.replace(",", "."));
+      if (!Number.isFinite(amount) || amount <= 0) {
+        Alert.alert("Invalid Amount", "Enter an amount greater than zero.");
+        return;
+      }
+      finalWeight = amount / unitPrice;
+    } else if (weightInput.trim() !== "") {
+      // Normal pricing: Weight entered
+      const weight = Number.parseFloat(weightInput.replace(",", "."));
+      if (!Number.isFinite(weight) || weight <= 0) {
+        Alert.alert("Invalid Weight", "Enter a weight greater than zero.");
+        return;
+      }
+      finalWeight = weight;
+    } else {
+      Alert.alert("Invalid Input", "Please enter a weight or an amount.");
+      return;
+    }
+
+    addToCart(weightProduct, undefined, +finalWeight.toFixed(3));
     setWeightProduct(null);
     setWeightInput("");
+    setAmountInput("");
   };
 
   const updateItemPrice = (productId: number, value: string) => {
@@ -1506,60 +1527,140 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
 
                 const isGrid = viewMode === "grid";
 
+                if (isGrid) {
+                  return (
+                    <TouchableOpacity
+                      activeOpacity={0.9}
+                      onPress={(e) => !outOfStock && addToCart(item, e)}
+                      style={{
+                        minHeight: 96,
+                        marginBottom: 0,
+                        paddingVertical: 12,
+                        paddingHorizontal: 14,
+                        borderRadius: 24,
+                        flexDirection: "column",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        backgroundColor: C.bg.panel,
+                        opacity: outOfStock ? 0.42 : 1,
+                        flex: isWide ? 0.31 : 0.48,
+                        aspectRatio: 1,
+                      }}>
+                      <View style={{
+                        width: 72,
+                        height: 72,
+                        borderRadius: 18,
+                        overflow: "hidden",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        backgroundColor: C.bg.base,
+                        marginBottom: 10,
+                      }}>
+                        {imageUrl ? (
+                          <ProductImage url={imageUrl} fallbackColor={C.amber.primary} color={C.amber.primary} />
+                        ) : (
+                          <Package size={32} color={C.amber.primary} strokeWidth={1.7} opacity={0.92} />
+                        )}
+                      </View>
+
+                      <View style={{ alignItems: "center" }}>
+                        <Text
+                          style={{
+                            color: C.text.primary,
+                            fontSize: 14,
+                            lineHeight: 20,
+                            fontWeight: "900",
+                            letterSpacing: -0.35,
+                            marginBottom: 5,
+                            textAlign: "center",
+                          }}
+                          numberOfLines={2}
+                        >
+                          {toTitleCase(item.name)}
+                        </Text>
+
+                        <Text style={{
+                          color: C.amber.primary,
+                          fontSize: 16,
+                          fontWeight: "900",
+                          letterSpacing: -0.2,
+                        }}>
+                          {fmt(Number(item.price))}
+                        </Text>
+                      </View>
+
+                      {inCart && (
+                        <View style={{
+                          position: "absolute",
+                          top: 8,
+                          right: 8,
+                          backgroundColor: C.amber.primary,
+                          padding: 6,
+                          borderRadius: 16,
+                          minWidth: 32,
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}>
+                          <Text style={{ color: "#1A1100", fontSize: 15, fontWeight: "900", minWidth: 16, textAlign: "center" }}>
+                            {fmtQty(inCartItem!)}
+                          </Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  );
+                }
+
                 return (
                   <TouchableOpacity
                     activeOpacity={0.9}
                     onPress={(e) => !outOfStock && addToCart(item, e)}
                     style={{
-                      minHeight: isGrid ? 150 : 68,
-                      marginBottom: isGrid ? 0 : 12,
-                      paddingVertical: isGrid ? 12 : 12,
-                      paddingHorizontal: isGrid ? 14 : 12,
-                      borderRadius: isGrid ? 24 : 18,
-                      flexDirection: isGrid ? "column" : "row",
+                      minHeight: 68,
+                      marginBottom: 12,
+                      paddingVertical: 12,
+                      paddingHorizontal: 12,
+                      borderRadius: 18,
+                      flexDirection: "row",
                       alignItems: "center",
                       justifyContent: "space-between",
-                      backgroundColor: isGrid ? C.bg.panel : C.bg.card,
+                      backgroundColor: C.bg.card,
                       opacity: outOfStock ? 0.42 : 1,
-                      flex: isGrid ? (isWide ? 0.31 : 0.48) : 1,
-                      aspectRatio: isGrid ? 1 : undefined,
-                      gap: isGrid ? 0 : 12,
+                      flex: 1,
+                      gap: 12,
                       shadowColor: "#000",
-                      shadowOpacity: isGrid ? 0 : 0.12,
-                      shadowRadius: isGrid ? 0 : 10,
+                      shadowOpacity: 0.12,
+                      shadowRadius: 10,
                       shadowOffset: { width: 0, height: 4 },
-                      elevation: isGrid ? 0 : 5,
+                      elevation: 5,
                     }}>
                     <View style={{
-                      width: isGrid ? 72 : 44,
-                      height: isGrid ? 72 : 44,
-                      borderRadius: isGrid ? 18 : 14,
+                      width: 44,
+                      height: 44,
+                      borderRadius: 14,
                       overflow: "hidden",
                       alignItems: "center",
                       justifyContent: "center",
                       backgroundColor: C.bg.hover,
-                      marginRight: isGrid ? 0 : 0,
-                      marginBottom: isGrid ? 10 : 0,
                     }}>
                       {imageUrl ? (
                         <ProductImage url={imageUrl} fallbackColor={C.text.secondary} color={C.text.secondary} />
                       ) : (
-                        <Package size={isGrid ? 32 : 22} color={C.text.secondary} strokeWidth={1.8} opacity={0.6} />
+                        <Package size={22} color={C.text.secondary} strokeWidth={1.8} opacity={0.6} />
                       )}
                     </View>
 
-                    <View style={{ flex: isGrid ? 0 : 1, minWidth: 0, alignItems: isGrid ? "center" : "flex-start", justifyContent: "center" }}>
+                    <View style={{ flex: 1, minWidth: 0, alignItems: "flex-start", justifyContent: "center" }}>
                       <Text
                         style={{
                           color: C.text.primary,
-                          fontSize: isGrid ? 14 : 15,
-                          lineHeight: isGrid ? 19 : 19,
+                          fontSize: 15,
+                          lineHeight: 19,
                           fontWeight: "800",
                           letterSpacing: -0.3,
-                          marginBottom: isGrid ? 5 : 3,
-                          textAlign: isGrid ? "center" : "left",
+                          marginBottom: 3,
+                          textAlign: "left",
                         }}
-                        numberOfLines={isGrid ? 2 : 1}
+                        numberOfLines={1}
                       >
                         {toTitleCase(item.name)}
                       </Text>
@@ -1567,9 +1668,9 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                       <Text
                         style={{
                           color: C.text.secondary,
-                          fontSize: isGrid ? 13 : 12,
+                          fontSize: 12,
                           fontWeight: "500",
-                          textAlign: isGrid ? "center" : "left",
+                          textAlign: "left",
                         }}
                         numberOfLines={1}
                       >
@@ -1577,11 +1678,11 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                       </Text>
                     </View>
 
-                    <View style={{ alignItems: isGrid ? "center" : "flex-end", justifyContent: "center", gap: 6 }}>
-                      <View style={{ flexDirection: isGrid ? "column" : "row", alignItems: "center", gap: 6 }}>
+                    <View style={{ alignItems: "flex-end", justifyContent: "center", gap: 6 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                         <Text style={{
                           color: C.text.primary,
-                          fontSize: isGrid ? 15 : 15,
+                          fontSize: 15,
                           fontWeight: "900",
                           letterSpacing: -0.2,
                         }}>
@@ -1914,35 +2015,71 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                   {fmt(Number(weightProduct?.price ?? 0))} per {weightProduct?.unitOfMeasure ?? weightProduct?.unit ?? "unit"}
                 </Text>
 
-                <View style={{ flexDirection: "row", alignItems: "center", backgroundColor: C.bg.hover, borderRadius: 16, borderWidth: 1, borderColor: C.border.default, paddingHorizontal: 16 }}>
-                  <Text style={{ color: C.text.secondary, fontSize: 20, marginRight: 6, fontWeight: "300" }}>{currencyInfo.symbol}</Text>
-                  <TextInput
-                    autoFocus
-                    keyboardType="decimal-pad"
-                    placeholder="0.00"
-                    placeholderTextColor={C.text.secondary}
-                    value={weightInput}
-                    onChangeText={setWeightInput}
-                    onSubmitEditing={confirmWeightAdd}
-                    returnKeyType="done"
-                    selectTextOnFocus
-                    style={{ flex: 1, color: C.text.primary, fontSize: 28, fontWeight: "900", paddingVertical: 16, letterSpacing: 0.5 }}
-                  />
+                <View style={{ flexDirection: "column", gap: 12 }}>
+                  {/* Weight Input */}
+                  <View>
+                    <Text style={{ color: C.text.secondary, fontSize: 12, marginBottom: 4, marginLeft: 4 }}>
+                      Quantity / Weight ({weightProduct?.unitOfMeasure ?? weightProduct?.unit ?? "unit"})
+                    </Text>
+                    <View style={{ flexDirection: "row", alignItems: "center", backgroundColor: C.bg.hover, borderRadius: 16, borderWidth: 1, borderColor: weightInput ? C.amber.primary : C.border.default, paddingHorizontal: 16 }}>
+                      <TextInput
+                        autoFocus
+                        keyboardType="decimal-pad"
+                        placeholder="0.000"
+                        placeholderTextColor={C.text.secondary}
+                        value={weightInput}
+                        onChangeText={(t) => { setWeightInput(t); setAmountInput(""); }}
+                        onSubmitEditing={confirmWeightAdd}
+                        returnKeyType="done"
+                        selectTextOnFocus
+                        style={{ flex: 1, color: C.text.primary, fontSize: 28, fontWeight: "900", paddingVertical: 12, letterSpacing: 0.5 }}
+                      />
+                      {weightInput.trim() !== "" && (
+                        <Text style={{ color: C.amber.primary, fontSize: 14, fontWeight: "800" }}>
+                          {(() => {
+                            const w = Number.parseFloat(weightInput.replace(",", "."));
+                            const u = Number(weightProduct?.price ?? 0);
+                            if (Number.isFinite(w) && w > 0 && Number.isFinite(u)) return `= ${currencyInfo.symbol}${(w * u).toFixed(2)}`;
+                            return "";
+                          })()}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+
+                  {/* Reverse Pricing: Amount Input */}
+                  <View>
+                    <Text style={{ color: C.text.secondary, fontSize: 12, marginBottom: 4, marginLeft: 4 }}>
+                      Or Reverse Pricing: Total Amount ({currencyInfo.symbol})
+                    </Text>
+                    <View style={{ flexDirection: "row", alignItems: "center", backgroundColor: C.bg.hover, borderRadius: 16, borderWidth: 1, borderColor: amountInput ? C.amber.primary : C.border.default, paddingHorizontal: 16 }}>
+                      <Text style={{ color: C.text.secondary, fontSize: 20, marginRight: 6, fontWeight: "300" }}>{currencyInfo.symbol}</Text>
+                      <TextInput
+                        keyboardType="decimal-pad"
+                        placeholder="0.00"
+                        placeholderTextColor={C.text.secondary}
+                        value={amountInput}
+                        onChangeText={(t) => { setAmountInput(t); setWeightInput(""); }}
+                        onSubmitEditing={confirmWeightAdd}
+                        returnKeyType="done"
+                        selectTextOnFocus
+                        style={{ flex: 1, color: C.text.primary, fontSize: 28, fontWeight: "900", paddingVertical: 12, letterSpacing: 0.5 }}
+                      />
+                      {amountInput.trim() !== "" && (
+                        <Text style={{ color: C.amber.primary, fontSize: 14, fontWeight: "800" }}>
+                          {(() => {
+                            const a = Number.parseFloat(amountInput.replace(",", "."));
+                            const u = Number(weightProduct?.price ?? 0);
+                            if (Number.isFinite(a) && a > 0 && Number.isFinite(u) && u > 0) return `= ${(a / u).toFixed(3)} ${weightProduct?.unitOfMeasure ?? weightProduct?.unit ?? ""}`;
+                            return "";
+                          })()}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
                 </View>
 
-                <View style={{ marginTop: 10, flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 4 }}>
-                  <Text style={{ color: C.text.secondary, fontSize: 12 }}>Amount to charge</Text>
-                  <Text style={{ color: C.amber.primary, fontSize: 14, fontWeight: "800" }}>
-                    {(() => {
-                      const amt = Number.parseFloat(weightInput.replace(",", "."));
-                      const unit = Number(weightProduct?.price ?? 0);
-                      if (!Number.isFinite(amt) || amt <= 0 || !Number.isFinite(unit) || unit <= 0) return `= 0 ${weightProduct?.unitOfMeasure ?? weightProduct?.unit ?? ""}`;
-                      return `= ${(amt / unit).toFixed(3)} ${weightProduct?.unitOfMeasure ?? weightProduct?.unit ?? ""}`;
-                    })()}
-                  </Text>
-                </View>
-
-                <View style={{ flexDirection: "row", gap: 10, marginTop: 18 }}>
+                <View style={{ flexDirection: "row", gap: 10, marginTop: 20 }}>
                   <TouchableOpacity
                     onPress={() => setWeightProduct(null)}
                     style={{ flex: 1, height: 50, borderRadius: 14, backgroundColor: C.bg.hover, alignItems: "center", justifyContent: "center" }}>
@@ -2278,7 +2415,6 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
               </>
               )}
 
-              {/*
               <Text style={{ color: C.text.secondary, fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>
                 Sale Date
               </Text>
@@ -2440,7 +2576,6 @@ export function POSScreen({ companyId, userName, onOpenDrawer, openCashCollectio
                   </View>
 </View>
             )}
-            */}
 
               {/*
               <Text style={{ color: C.text.secondary, fontSize: 10, fontWeight: "700", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>

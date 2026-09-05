@@ -142,6 +142,8 @@ async function ensureBusTicketingSchema() {
       ALTER TABLE "bus_tickets" ADD COLUMN IF NOT EXISTS "shift_id" integer;
       ALTER TABLE "bus_tickets" ADD COLUMN IF NOT EXISTS "device_id" text;
       ALTER TABLE "bus_tickets" ADD COLUMN IF NOT EXISTS "local_ticket_id" text;
+      ALTER TABLE "bus_tickets" ADD COLUMN IF NOT EXISTS "id_number" text;
+      ALTER TABLE "bus_tickets" ADD COLUMN IF NOT EXISTS "phone" text;
       ALTER TABLE "bus_tickets" ADD COLUMN IF NOT EXISTS "currency" text DEFAULT 'USD';
       ALTER TABLE "bus_tickets" ADD COLUMN IF NOT EXISTS "status" text DEFAULT 'active';
       ALTER TABLE "bus_tickets" ADD COLUMN IF NOT EXISTS "accounting_status" text DEFAULT 'unposted';
@@ -164,6 +166,20 @@ async function ensureBusTicketingSchema() {
       ALTER TABLE "bus_shifts" ADD COLUMN IF NOT EXISTS "trip_id" integer REFERENCES "bus_trips"("id");
       ALTER TABLE "bus_shifts" ADD COLUMN IF NOT EXISTS "route_id" integer REFERENCES "bus_routes"("id");
       ALTER TABLE "bus_shifts" ADD COLUMN IF NOT EXISTS "closed_at" timestamp;
+
+      -- Deduplicate start_time for any duplicate shifts to allow the unique index to be created
+      WITH duplicates AS (
+        SELECT id, ROW_NUMBER() OVER (PARTITION BY company_id, conductor_id, start_time ORDER BY id) as rn
+        FROM bus_shifts
+      )
+      UPDATE bus_shifts
+      SET start_time = start_time + (duplicates.rn || ' seconds')::interval
+      FROM duplicates
+      WHERE bus_shifts.id = duplicates.id AND duplicates.rn > 1;
+
+      -- Unique index on business key to prevent duplicate shifts (race condition safe)
+      CREATE UNIQUE INDEX IF NOT EXISTS "bus_shifts_company_conductor_start_unique"
+        ON "bus_shifts" ("company_id", "conductor_id", "start_time");
 
       UPDATE "bus_tickets" SET "currency" = 'USD' WHERE "currency" IS NULL;
       UPDATE "bus_tickets" SET "status" = 'active' WHERE "status" IS NULL;
@@ -268,6 +284,26 @@ function routeDistanceKm(config: unknown) {
   if (!config || typeof config !== "object") return 0;
   const distance = Number((config as any).distanceKm || (config as any).distance || 0);
   return Number.isFinite(distance) ? distance : 0;
+}
+
+// Reverse a route's stops and fare matrix for the auto-created return route.
+// Fares are symmetric, so only the ordered stop list flips direction.
+function reverseRouteConfig(config: unknown): Record<string, any> {
+  if (!config || typeof config !== "object") return {};
+  const source = config as Record<string, any>;
+  const reversed: Record<string, any> = { ...source };
+  if (Array.isArray(source.stops)) {
+    reversed.stops = [...source.stops].reverse();
+  }
+  if (source.fares && typeof source.fares === "object") {
+    const fares: Record<string, any> = {};
+    for (const [key, value] of Object.entries(source.fares)) {
+      const [from, to] = key.split("|");
+      if (from && to) fares[`${to}|${from}`] = value;
+    }
+    reversed.fares = fares;
+  }
+  return reversed;
 }
 
 // --- VEHICLES ---
@@ -380,6 +416,7 @@ router.post("/routes", requireBusPermission("bus.setup"), async (req, res) => {
               toLocation: routeData.fromLocation,
               config: {
                 ...(routeData.config || {}),
+                ...reverseRouteConfig(routeData.config),
                 direction: "return",
                 pairedRouteId: route.id,
                 autoCreatedFromRouteId: route.id,
@@ -418,6 +455,52 @@ router.patch("/routes/:routeId", requireBusPermission("bus.setup"), async (req, 
       .returning();
     if (!route) return res.status(404).json({ error: "NOT_FOUND", message: "Route not found" });
     res.json(route);
+  } catch (err: any) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
+  }
+});
+
+// DELETE /routes/:routeId - Delete a route (only if it has no trips/tickets)
+router.delete("/routes/:routeId", requireBusPermission("bus.setup"), async (req, res) => {
+  const routeId = Number(req.params.routeId);
+  if (!Number.isFinite(routeId) || routeId <= 0) {
+    return res.status(400).json({ error: "VALIDATION_ERROR", message: "Invalid route id" });
+  }
+
+  try {
+    const companyId = getTargetCompanyId(req);
+    const existing = await db.select({ id: busRoutes.id })
+      .from(busRoutes)
+      .where(and(eq(busRoutes.id, routeId), eq(busRoutes.companyId, companyId)));
+    if (existing.length === 0) {
+      return res.status(404).json({ error: "NOT_FOUND", message: "Route not found" });
+    }
+
+    const trips = await db.select({ id: busTrips.id })
+      .from(busTrips)
+      .where(and(eq(busTrips.routeId, routeId), eq(busTrips.companyId, companyId)))
+      .limit(1);
+    if (trips.length > 0) {
+      return res.status(409).json({
+        error: "IN_USE",
+        message: "Route has trips and cannot be deleted. Deactivate it instead.",
+      });
+    }
+
+    const tickets = await db.select({ id: busTickets.id })
+      .from(busTickets)
+      .innerJoin(busTrips, eq(busTickets.tripId, busTrips.id))
+      .where(and(eq(busTrips.routeId, routeId), eq(busTickets.companyId, companyId)))
+      .limit(1);
+    if (tickets.length > 0) {
+      return res.status(409).json({
+        error: "IN_USE",
+        message: "Route has issued tickets and cannot be deleted. Deactivate it instead.",
+      });
+    }
+
+    await db.delete(busRoutes).where(and(eq(busRoutes.id, routeId), eq(busRoutes.companyId, companyId)));
+    res.status(204).end();
   } catch (err: any) {
     res.status(500).json({ error: "INTERNAL_ERROR", message: err.message });
   }
@@ -633,14 +716,49 @@ router.get("/tickets", async (req, res) => {
     const status = req.query.status ? String(req.query.status) : undefined;
     const limit = Math.min(Math.max(Number(req.query.limit) || 200, 1), 1000);
 
+    const conductorId = req.query.conductorId ? String(req.query.conductorId) : undefined;
     const conditions = [eq(busTickets.companyId, companyId)];
     if (tripId && Number.isFinite(tripId)) conditions.push(eq(busTickets.tripId, tripId));
     if (status) conditions.push(eq(busTickets.status, status));
+    if (conductorId) conditions.push(eq(busTrips.conductorId, conductorId));
 
-    const tickets = await db.select().from(busTickets)
+    // Join trips, routes, and users to get full ticket info
+    const query = db.select({
+      id: busTickets.id,
+      ticketNumber: busTickets.ticketNumber,
+      tripId: busTickets.tripId,
+      shiftId: busTickets.shiftId,
+      deviceId: busTickets.deviceId,
+      localTicketId: busTickets.localTicketId,
+      passengerName: busTickets.passengerName,
+      idNumber: busTickets.idNumber,
+      phone: busTickets.phone,
+      boardingPoint: busTickets.boardingPoint,
+      dropOffPoint: busTickets.dropOffPoint,
+      seatNumber: busTickets.seatNumber,
+      quantity: busTickets.quantity,
+      amount: busTickets.amount,
+      currency: busTickets.currency,
+      paymentMethod: busTickets.paymentMethod,
+      status: busTickets.status,
+      timestamp: busTickets.timestamp,
+      createdAt: busTickets.createdAt,
+      // Joined fields
+      routeId: busTrips.routeId,
+      routeName: busRoutes.name,
+      conductorId: busTrips.conductorId,
+      conductorName: users.name,
+      vehicleId: busTrips.vehicleId,
+    })
+      .from(busTickets)
+      .leftJoin(busTrips, eq(busTickets.tripId, busTrips.id))
+      .leftJoin(busRoutes, eq(busTrips.routeId, busRoutes.id))
+      .leftJoin(users, eq(busTrips.conductorId, users.id))
       .where(and(...conditions))
       .orderBy(desc(busTickets.timestamp))
       .limit(limit);
+
+    const tickets = await query;
 
     res.json(tickets);
   } catch (err: any) {
@@ -810,6 +928,10 @@ router.get("/reports/summary", async (req, res) => {
       accountingStatus: busTickets.accountingStatus,
       accountingError: busTickets.accountingError,
       timestamp: busTickets.timestamp,
+      dropOffPoint: busTickets.dropOffPoint,
+      boardingPoint: busTickets.boardingPoint,
+      passengerName: busTickets.passengerName,
+      seatNumber: busTickets.seatNumber,
       tripStatus: busTrips.status,
       scheduledDeparture: busTrips.scheduledDeparture,
       actualDeparture: busTrips.actualDeparture,
@@ -1238,6 +1360,10 @@ router.get("/reports/summary", async (req, res) => {
         accountingStatus: row.accountingStatus,
         accountingError: row.accountingError,
         timestamp: row.timestamp,
+        dropOffPoint: row.dropOffPoint,
+        boardingPoint: row.boardingPoint,
+        passengerName: row.passengerName,
+        seatNumber: row.seatNumber,
         conductorId: row.conductorId,
         routeId: row.routeId,
         vehicleId: row.vehicleId,
@@ -1414,10 +1540,15 @@ router.post("/sync", async (req, res) => {
           }
           const [inserted] = await tx.insert(busShifts)
             .values({ ...shift, companyId })
+            .onConflictDoNothing({
+              target: [busShifts.companyId, busShifts.conductorId, busShifts.startTime],
+            })
             .returning();
           if (inserted) {
             insertedShifts += 1;
             existingShiftMap.add(key);
+          } else {
+            skippedShifts += 1;
           }
         }
       }

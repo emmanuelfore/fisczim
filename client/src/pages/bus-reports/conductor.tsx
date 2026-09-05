@@ -17,6 +17,7 @@ import {
   CashupReportTable,
   MiniBars,
   StatCard,
+  StopSalesTable,
   dateInput,
   dayBoundaryIso,
   exportTicketsCsv,
@@ -38,6 +39,7 @@ export default function ConductorReportPage() {
     totals,
     byConductor,
     byPayment,
+    byStop,
     byHour,
     conductorVariance,
   } = useReportData(
@@ -84,7 +86,7 @@ export default function ConductorReportPage() {
         }
       />
 
-      <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-5">
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
         <StatCard
           icon={Ticket}
           label="Tickets"
@@ -128,6 +130,10 @@ export default function ConductorReportPage() {
       <div className="mt-4 grid gap-4 xl:grid-cols-2">
         <CashupReportTable cashup={data?.cashup} variance={conductorVariance} />
         <MiniBars title="Revenue By Hour" rows={byHour} />
+      </div>
+
+      <div className="mt-4 grid gap-4 md:grid-cols-2">
+        <StopSalesTable rows={byStop} />
       </div>
 
       <div className="mt-4 flex flex-wrap gap-3">

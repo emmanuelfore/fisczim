@@ -77,7 +77,7 @@ export function SuppliersScreen({ onOpenDrawer, companyId }: Props) {
     } finally { setSaving(false); }
   }, [form, companyId, editingId, refreshSuppliers]);
 
-  const styles = makeStyles(C, isDark, insets);
+  const styles = useMemo(() => makeStyles(C, isDark, insets), [C, isDark, insets]);
 
   const renderItem = ({ item }: { item: any }) => (
     <TouchableOpacity style={[styles.card, !item.isActive && { opacity: 0.5 }]} onPress={() => openEdit(item)} activeOpacity={0.7}>

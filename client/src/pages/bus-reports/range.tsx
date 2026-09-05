@@ -9,6 +9,7 @@ import {
   MiniBars,
   RouteKpiTable,
   StatCard,
+  StopSalesTable,
   addDays,
   dateInput,
   dayBoundaryIso,
@@ -34,6 +35,7 @@ export default function RangeReportPage() {
     byConductor,
     byVehicle,
     byPayment,
+    byStop,
     routePerformance,
     avgDailyRevenue,
     bestDay,
@@ -76,7 +78,7 @@ export default function RangeReportPage() {
         }
       />
 
-      <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-5">
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
         <StatCard
           icon={Ticket}
           label="Tickets"
@@ -110,7 +112,7 @@ export default function RangeReportPage() {
         />
       </div>
 
-      <div className="mt-4 grid gap-4 md:grid-cols-3 xl:grid-cols-5">
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
         <StatCard
           icon={Bus}
           label="Trips"
@@ -152,11 +154,12 @@ export default function RangeReportPage() {
         <BreakdownTable title="Payment Methods" rows={byPayment} />
       </div>
 
-      <div className="mt-4 grid gap-4 xl:grid-cols-4">
+      <div className="mt-4 grid gap-4 md:grid-cols-2">
         <BreakdownTable title="By Route" rows={byRoute} />
         <BreakdownTable title="By Direction" rows={byDirection} />
         <BreakdownTable title="By Conductor" rows={byConductor} />
         <BreakdownTable title="By Vehicle" rows={byVehicle} />
+        <StopSalesTable rows={byStop} />
       </div>
 
       <div className="mt-4 grid gap-4">
@@ -177,6 +180,13 @@ export default function RangeReportPage() {
         >
           <Route className="h-4 w-4" />
           View Ticket Details
+        </Link>
+        <Link
+          href="/bus/manifest"
+          className="inline-flex items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-700 hover:bg-orange-100"
+        >
+          <Users className="h-4 w-4" />
+          Trip Manifest
         </Link>
       </div>
     </Layout>

@@ -504,6 +504,7 @@ export function MySalesModal({
                                   company?.posSettings?.receiptPaperSize ||
                                   "80mm"
                                 }
+                                branch={company?.branches?.find((b: any) => b.id === tx.branchId)}
                               />
                             </div>
                           </TableCell>

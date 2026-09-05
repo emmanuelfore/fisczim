@@ -120,7 +120,7 @@ const ThemeContext = createContext<ThemeContextValue>({
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const systemScheme = useColorScheme();
-  const [mode, setModeState] = useState<ThemeMode>("dark"); // Default to dark as requested
+  const [mode, setModeState] = useState<ThemeMode>("light"); // Default to light as requested
 
   useEffect(() => {
     AsyncStorage.getItem(THEME_PREF_KEY).then((val) => {

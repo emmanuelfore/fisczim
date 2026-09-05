@@ -31,12 +31,10 @@ import {
   removeOfflineHold,
   setLastCacheTime,
   addPendingSale,
-  getCachedZimraConfig,
   getCachedFiscalSequence,
   cacheFiscalSequence,
   generateOfflineReport,
 } from "@/lib/offline-db";
-import { generateOfflineFiscalData, resolveTaxCode } from "@/lib/fiscalization-offline";
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import {
   Search,
@@ -191,7 +189,7 @@ export default function POSPage() {
   const { data: company } = useCompany(companyId);
   const isCashier = (company as any)?.role === "cashier";
   const { data: products, isLoading: isLoadingProducts } =
-    useProducts(companyId);
+    useProducts(companyId, selectedBranchId || undefined);
   const { data: serialNumbers = [] } = useProductSerials(companyId, undefined, "IN_STOCK");
 
   // Emergency fallback: if React Query returns nothing but we have a companyId,
@@ -650,7 +648,7 @@ export default function POSPage() {
       const savedPaymentMethod = localStorage.getItem(`${prefix}paymentMethod`);
 
       if (savedCart) setCart(JSON.parse(savedCart));
-      if (savedCustomerId) setSelectedCustomerId(savedCustomerId);
+      if (savedCustomerId && savedCustomerId !== "null" && savedCustomerId !== "undefined") setSelectedCustomerId(savedCustomerId);
       if (savedDiscount) setOrderDiscount(parseFloat(savedDiscount));
       if (savedCurrency) setSelectedCurrencyCode(savedCurrency);
       if (savedPaymentMethod) setPaymentMethod(savedPaymentMethod);
@@ -789,27 +787,27 @@ export default function POSPage() {
     let tax = 0;
 
     cart.forEach((item) => {
-      const lineTotal = item.price * item.quantity - item.discountAmount;
+      const lineTotal = Number((item.price * item.quantity - item.discountAmount).toFixed(2));
       const rate = item.taxRate / 100;
 
       if (taxInclusive) {
         // Price includes tax: Tax = Total - (Total / (1 + Rate))
-        const taxPortion = lineTotal - lineTotal / (1 + rate);
-        const netPortion = lineTotal - taxPortion;
+        const taxPortion = Number((lineTotal - lineTotal / (1 + rate)).toFixed(2));
+        const netPortion = Number((lineTotal - taxPortion).toFixed(2));
         sub += netPortion;
         tax += taxPortion;
       } else {
         // Price excludes tax: Tax = Total * Rate
-        const taxPortion = lineTotal * rate;
+        const taxPortion = Number((lineTotal * rate).toFixed(2));
         sub += lineTotal;
         tax += taxPortion;
       }
     });
 
-    return { subtotal: sub, taxAmount: tax };
+    return { subtotal: Number(sub.toFixed(2)), taxAmount: Number(tax.toFixed(2)) };
   }, [cart, taxInclusive]);
 
-  const total = Math.max(0, subtotal + taxAmount - orderDiscount);
+  const total = Number(Math.max(0, subtotal + taxAmount - orderDiscount).toFixed(2));
   const playAddToCartSound = useCallback(() => {
     try {
       const AudioCtx =
@@ -1595,7 +1593,7 @@ export default function POSPage() {
           unitPrice: item.price.toString(),
           taxRate: item.taxRate !== undefined ? item.taxRate.toString() : "0",
           taxTypeId: item.taxTypeId || null,
-          lineTotal: ((item.price * item.quantity) - item.discountAmount).toString(),
+          lineTotal: ((item.price * item.quantity) - item.discountAmount).toFixed(2),
           discountAmount: item.discountAmount?.toString() || "0",
           modifiers: (item as any).modifiers || [],
           serialNumber: item.serialNumber,
@@ -1671,15 +1669,25 @@ export default function POSPage() {
     if (isProcessingRef.current) return;
     isProcessingRef.current = true;
     let finalCustomerId = selectedCustomerId;
+    if (finalCustomerId === "null" || finalCustomerId === "undefined") {
+      finalCustomerId = "";
+    }
     const settings = company?.posSettings as any;
     if (!finalCustomerId && settings?.defaultCustomerId) {
-      finalCustomerId = settings.defaultCustomerId;
+      finalCustomerId = settings.defaultCustomerId.toString();
     }
 
-    if (!finalCustomerId) {
+    const parsedCustomerId = parseInt(finalCustomerId);
+    if (!parsedCustomerId || isNaN(parsedCustomerId)) {
+      toast({
+        title: "Customer Required",
+        description: "Please select a valid customer before checkout.",
+        variant: "destructive",
+      });
       isProcessingRef.current = false;
       return;
     }
+    finalCustomerId = parsedCustomerId.toString();
     setIsProcessing(true);
     let invoiceData: any = null;
     const checkoutAttemptId = `pos-${companyId}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -1761,7 +1769,7 @@ export default function POSPage() {
       invoiceData = {
         companyId,
         branchId: selectedBranchId,
-        customerId: parseInt(finalCustomerId),
+        customerId: !isNaN(parsedCustomerId) && parsedCustomerId ? parsedCustomerId : (settings?.defaultCustomerId || undefined),
         issueDate: new Date(),
         dueDate: new Date(),
         notes: "POS Transaction",
@@ -1790,7 +1798,7 @@ export default function POSPage() {
           lineTotal: (
             item.price * item.quantity -
             item.discountAmount
-          ).toString(),
+          ).toFixed(2),
           taxTypeId: item.taxTypeId,
           serialNumber: item.serialNumber,
         })),
@@ -1812,7 +1820,7 @@ export default function POSPage() {
         const laybyRes = await apiFetch(`/api/companies/${companyId}/laybys`, {
           method: "POST",
           body: JSON.stringify({
-            customerId: Number(finalCustomerId),
+            customerId: !isNaN(parsedCustomerId) && parsedCustomerId ? parsedCustomerId : (settings?.defaultCustomerId || undefined),
             branchId: selectedBranchId,
             subtotal: subtotal.toString(),
             taxAmount: taxAmount.toString(),
@@ -1830,7 +1838,7 @@ export default function POSPage() {
               lineTotal: (
                 item.price * item.quantity -
                 item.discountAmount
-              ).toString(),
+              ).toFixed(2),
               serialNumber: item.serialNumber,
             })),
           }),
@@ -1875,75 +1883,12 @@ export default function POSPage() {
 
       if (!isOnline) {
         const offlineRef = `OFFLINE-${Date.now().toString().slice(-6)}`;
-        let fiscalData: any = {};
         let posRef = offlineRef;
         if (isFiscalized) {
-          try {
-            const zimraConfig = await getCachedZimraConfig(companyId);
-            const fiscalSequence = await refreshCachedFiscalSequence(companyId);
-            if (zimraConfig?.zimraPrivateKey && fiscalSequence) {
-              const nextGlobalNo = fiscalSequence.lastReceiptGlobalNo + 1;
-              const nextDailyCount = fiscalSequence.dailyReceiptCount + 1;
-              const dateObj = new Date();
-              const dateLocal = new Date(dateObj.getTime() - (dateObj.getTimezoneOffset() * 60000));
-              const receiptDate = dateLocal.toISOString().slice(0, 19);
-
-              const taxesMap = new Map<number, any>();
-              for (const item of invoiceData.items) {
-                const taxId = item.taxTypeId || 1;
-                const taxRate = Number(item.taxRate);
-                const lineTotal = Number(item.lineTotal);
-                const taxAmount = taxInclusive ? lineTotal - (lineTotal / (1 + (taxRate / 100))) : lineTotal * (taxRate / 100);
-                const salesWithTax = taxInclusive ? lineTotal : lineTotal + taxAmount;
-                
-                if (!taxesMap.has(taxId)) {
-                  taxesMap.set(taxId, { taxID: taxId, taxCode: resolveTaxCode(taxId), taxPercent: taxRate, taxAmount: 0, salesAmountWithTax: 0 });
-                }
-                const t = taxesMap.get(taxId);
-                t.taxAmount += taxAmount;
-                t.salesAmountWithTax += salesWithTax;
-              }
-
-              const receiptDataParams = {
-                receiptType: "FISCALINVOICE",
-                receiptCurrency: currency.code,
-                receiptGlobalNo: nextGlobalNo,
-                receiptDate: receiptDate,
-                receiptTotal: Number(total),
-                receiptTaxes: Array.from(taxesMap.values())
-              };
-
-              const offlineSig = generateOfflineFiscalData({
-                receiptData: receiptDataParams,
-                previousReceiptHash: fiscalSequence.lastFiscalHash,
-                deviceId: zimraConfig.fdmsDeviceId,
-                privateKeyPem: zimraConfig.zimraPrivateKey
-              });
-
-              fiscalData = {
-                receiptGlobalNo: nextGlobalNo,
-                receiptCounter: nextDailyCount,
-                fiscalSignature: offlineSig.signature,
-                receiptDeviceSignature: offlineSig.hash,
-                qrUrl: zimraConfig.qrUrl ? `${zimraConfig.qrUrl}?verify=${offlineSig.verificationCode}` : null
-              };
-
-              posRef = `${nextGlobalNo}`; // POS receipt number is global no.
-
-              // Update local sequence
-              await cacheFiscalSequence(companyId, {
-                ...fiscalSequence,
-                lastReceiptGlobalNo: nextGlobalNo,
-                dailyReceiptCount: nextDailyCount,
-                lastFiscalHash: offlineSig.hash
-              });
-            }
-          } catch (e) {
-            console.error("Failed to generate offline fiscal signature", e);
-          }
+          await refreshCachedFiscalSequence(companyId).catch(() => {});
         }
 
-        const payloadToQueue = { ...invoiceData, ...fiscalData };
+        const payloadToQueue = { ...invoiceData };
         const offlineId = await addPendingSale(
           companyId,
           payloadToQueue,
@@ -2065,7 +2010,7 @@ export default function POSPage() {
           const payload = invoiceData || {
             companyId,
             branchId: selectedBranchId,
-            customerId: parseInt(finalCustomerId),
+            customerId: !isNaN(parsedCustomerId) && parsedCustomerId ? parsedCustomerId : (settings?.defaultCustomerId || undefined),
             issueDate: new Date(),
             dueDate: new Date(),
             notes: "POS Transaction",
@@ -2094,81 +2039,19 @@ export default function POSPage() {
               lineTotal: (
                 item.price * item.quantity -
                 item.discountAmount
-              ).toString(),
+              ).toFixed(2),
               taxTypeId: item.taxTypeId,
               serialNumber: item.serialNumber,
             })),
           };
           const offlineRef = `OFFLINE-${Date.now().toString().slice(-6)}`;
-          let fiscalData: any = {};
           let posRef = offlineRef;
           
           if (isFiscalized) {
-            try {
-              const zimraConfig = await getCachedZimraConfig(companyId);
-              const fiscalSequence = await refreshCachedFiscalSequence(companyId);
-              if (zimraConfig?.zimraPrivateKey && fiscalSequence) {
-                const nextGlobalNo = fiscalSequence.lastReceiptGlobalNo + 1;
-                const nextDailyCount = fiscalSequence.dailyReceiptCount + 1;
-                const dateObj = new Date();
-                const dateLocal = new Date(dateObj.getTime() - (dateObj.getTimezoneOffset() * 60000));
-                const receiptDate = dateLocal.toISOString().slice(0, 19);
-
-                const taxesMap = new Map<number, any>();
-                for (const item of payload.items) {
-                  const taxId = item.taxTypeId || 1;
-                  const taxRate = Number(item.taxRate);
-                  const lineTotal = Number(item.lineTotal);
-                  const taxAmount = taxInclusive ? lineTotal - (lineTotal / (1 + (taxRate / 100))) : lineTotal * (taxRate / 100);
-                  const salesWithTax = taxInclusive ? lineTotal : lineTotal + taxAmount;
-                  
-                  if (!taxesMap.has(taxId)) {
-                    taxesMap.set(taxId, { taxID: taxId, taxCode: resolveTaxCode(taxId), taxPercent: taxRate, taxAmount: 0, salesAmountWithTax: 0 });
-                  }
-                  const t = taxesMap.get(taxId);
-                  t.taxAmount += taxAmount;
-                  t.salesAmountWithTax += salesWithTax;
-                }
-
-                const receiptDataParams = {
-                  receiptType: "FISCALINVOICE",
-                  receiptCurrency: selectedCurrencyCode,
-                  receiptGlobalNo: nextGlobalNo,
-                  receiptDate: receiptDate,
-                  receiptTotal: Number(total),
-                  receiptTaxes: Array.from(taxesMap.values())
-                };
-
-                const offlineSig = generateOfflineFiscalData({
-                  receiptData: receiptDataParams,
-                  previousReceiptHash: fiscalSequence.lastFiscalHash,
-                  deviceId: zimraConfig.fdmsDeviceId,
-                  privateKeyPem: zimraConfig.zimraPrivateKey
-                });
-
-                fiscalData = {
-                  receiptGlobalNo: nextGlobalNo,
-                  receiptCounter: nextDailyCount,
-                  fiscalSignature: offlineSig.signature,
-                  receiptDeviceSignature: offlineSig.hash,
-                  qrCodeData: zimraConfig.qrUrl ? `${zimraConfig.qrUrl}?verify=${offlineSig.verificationCode}` : null
-                };
-
-                posRef = `${nextGlobalNo}`;
-
-                await cacheFiscalSequence(companyId, {
-                  ...fiscalSequence,
-                  lastReceiptGlobalNo: nextGlobalNo,
-                  dailyReceiptCount: nextDailyCount,
-                  lastFiscalHash: offlineSig.hash
-                });
-              }
-            } catch (e) {
-              console.error("Failed to generate offline fiscal signature in catch block", e);
-            }
+            await refreshCachedFiscalSequence(companyId).catch(() => {});
           }
 
-          const payloadToQueue = { ...payload, ...fiscalData };
+          const payloadToQueue = { ...payload };
           const offlineId = await addPendingSale(
             companyId,
             payloadToQueue,
@@ -6194,6 +6077,9 @@ export default function POSPage() {
                       (resolvedCompany?.posSettings as any)?.receiptPaperSize ||
                       "80mm"
                     }
+                    branch={resolvedCompany?.branches?.find(
+                      (b: any) => b.id === (lastSuccessfulInvoice?.branchId || selectedBranchId)
+                    )}
                   />
                 </div>
                 <div className="flex flex-col gap-3 w-full print:hidden">
@@ -6252,6 +6138,9 @@ export default function POSPage() {
                   (resolvedCompany?.posSettings as any)?.receiptPaperSize ||
                   "80mm"
                 }
+                branch={resolvedCompany?.branches?.find(
+                  (b: any) => b.id === (lastSuccessfulInvoice?.branchId || selectedBranchId)
+                )}
               />
             )}
           </div>
@@ -6286,6 +6175,9 @@ export default function POSPage() {
                   (resolvedCompany?.posSettings as any)?.receiptPaperSize ||
                   "80mm"
                 }
+                branch={resolvedCompany?.branches?.find(
+                  (b: any) => b.id === (reprintInvoice?.branchId || selectedBranchId)
+                )}
               />
             )}
           </div>

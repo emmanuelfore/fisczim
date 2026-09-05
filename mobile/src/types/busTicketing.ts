@@ -7,16 +7,35 @@ export type DropOffPoint = {
   price: number;
 };
 
+export type RouteFareMatrix = Record<string, number>; // keyed "From|To" (e.g. "Harare|Kadoma"), symmetric
+
 export type TicketFieldConfig = {
   passengerName: boolean;
   idNumber: boolean;
   phone: boolean;
   seatNumber: boolean;
   dropOffPoint: boolean;
-  dropOffPoints: DropOffPoint[]; // e.g. [{name: "Kadoma", price: 15}, {name: "Kwekwe", price: 20}]
+  dropOffPoints: DropOffPoint[]; // legacy: e.g. [{name: "Kadoma", price: 15}, {name: "Kwekwe", price: 20}]
+  stops?: string[]; // ordered route stops incl. origin & destination: ["Harare", "Chinhoyi", ..., "Gweru"]
+  fares?: RouteFareMatrix; // inter-stop prices, keyed "From|To"
   requirePaymentMethod: boolean;
   allowMultiPassenger: boolean;
 };
+
+export function getRouteFare(
+  config: TicketFieldConfig | undefined,
+  boardAt: string | undefined,
+  dropAt: string | undefined,
+  fallbackPrice: number,
+): number {
+  if (boardAt && dropAt && config?.fares) {
+    const key = `${boardAt}|${dropAt}`;
+    const reverseKey = `${dropAt}|${boardAt}`;
+    const fare = config.fares[key] ?? config.fares[reverseKey];
+    if (typeof fare === 'number' && Number.isFinite(fare)) return fare;
+  }
+  return fallbackPrice;
+}
 
 export type BusVehicle = {
   id: string; // uuid
@@ -109,6 +128,10 @@ export type ShiftRecord = {
   closedAt: string;
   isSynced?: boolean;
   syncedAt?: string;
+  // Cash reconciliation fields
+  expectedCash?: number;
+  cashReceived?: number;
+  gap?: number;
 };
 
 export type ReconciliationRecord = {
@@ -153,6 +176,16 @@ export type HourBreakdown = {
   revenue: number;
 };
 
+export type StopBreakdown = {
+  id: string;
+  routeId: string;
+  routeName: string;
+  stop: string;
+  ticketCount: number;
+  passengerCount: number;
+  revenue: number;
+};
+
 export type DailySummary = {
   date: string;
   totalTickets: number;
@@ -161,6 +194,7 @@ export type DailySummary = {
   byRoute: RouteBreakdown[];
   byPaymentMethod: PaymentBreakdown[];
   byHour: HourBreakdown[];
+  byStop: StopBreakdown[];
 };
 
 export type RangeReport = {
@@ -174,6 +208,7 @@ export type RangeReport = {
   worstDay: { date: string; revenue: number };
   byRoute: RouteBreakdown[];
   byDay: DailySummary[];
+  byStop: StopBreakdown[];
 };
 
 export type ConductorReport = {

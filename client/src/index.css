@@ -38,7 +38,29 @@
   --input: 214 32% 91%;
   --ring: 256 90% 60%;
 
+  /* Sidebar colors - Light mode */
+  --sidebar: 210 40% 96%;
+  --sidebar-foreground: 222 47% 11%;
+  --sidebar-border: 214 32% 91%;
+  --sidebar-ring: 256 90% 60%;
+  --sidebar-primary: 256 90% 60%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 256 90% 96%;
+  --sidebar-accent-foreground: 256 90% 60%;
+
   --radius: 0.75rem;
+}
+
+.dark {
+  /* Dark mode sidebar colors - high contrast on dark brown background */
+  --sidebar: 20 25% 15%;
+  --sidebar-foreground: 0 0% 95%;
+  --sidebar-border: 20 20% 25%;
+  --sidebar-ring: 256 90% 60%;
+  --sidebar-primary: 256 90% 60%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 20 20% 25%;
+  --sidebar-accent-foreground: 0 0% 95%;
 }
 
 @layer base {

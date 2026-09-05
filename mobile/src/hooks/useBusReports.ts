@@ -6,6 +6,7 @@ import {
   RouteBreakdown,
   PaymentBreakdown,
   HourBreakdown,
+  StopBreakdown,
 } from '../types/busTicketing';
 
 // ── Date helpers ─────────────────────────────────────────────────
@@ -31,6 +32,31 @@ function formatTime(d: Date): string {
 }
 
 // ── Filters ──────────────────────────────────────────────────────
+export function isCashierUser(userRole?: string, userName?: string): boolean {
+  if (userName === 'Super Admin') return false;
+  const role = (userRole || '').toLowerCase();
+  return role === 'cashier' || role === 'member';
+}
+
+export function filterTicketsForOwnership(
+  tickets: IssuedTicket[],
+  conductorId: string | null | undefined,
+  restrict: boolean
+): IssuedTicket[] {
+  if (!restrict) return tickets;
+  if (!conductorId) return [];
+  return tickets.filter((t) => String(t.conductorId) === String(conductorId));
+}
+
+// Derives the fallback conductor id a cashier's tickets carry even when the
+// active conductor hasn't been persisted on this device yet. Mirrors the
+// fallback id used in BusTripStartScreen.ensureActiveConductor.
+export function resolveCashierConductorId(userId?: string | null, userName?: string): string | null {
+  if (userId) return userId;
+  if (!userName) return null;
+  return `cashier-${String(userName).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'conductor'}`;
+}
+
 export function getTicketsForDate(tickets: IssuedTicket[], date: Date): IssuedTicket[] {
   return tickets.filter((t) => isSameDay(new Date(t.issuedAt), date));
 }
@@ -109,6 +135,33 @@ function buildHourBreakdown(tickets: IssuedTicket[]): HourBreakdown[] {
   return Array.from(map.values()).sort((a, b) => a.hour - b.hour);
 }
 
+// ── Stop / segment breakdown ──────────────────────────────────────
+function buildStopBreakdown(tickets: IssuedTicket[]): StopBreakdown[] {
+  const map = new Map<string, StopBreakdown>();
+  for (const t of tickets) {
+    const stop = t.dropOffPoint || 'Full route (destination)';
+    const key = `${t.routeId}|${stop}`;
+    if (!map.has(key)) {
+      map.set(key, {
+        id: key,
+        routeId: t.routeId,
+        routeName: t.routeName,
+        stop,
+        ticketCount: 0,
+        passengerCount: 0,
+        revenue: 0,
+      });
+    }
+    const sb = map.get(key)!;
+    sb.ticketCount += 1;
+    sb.passengerCount += t.quantity;
+    sb.revenue += t.totalAmount;
+  }
+  return Array.from(map.values())
+    .map((sb) => ({ ...sb, revenue: parseFloat(sb.revenue.toFixed(2)) }))
+    .sort((a, b) => b.revenue - a.revenue);
+}
+
 // ── getDailySummary ───────────────────────────────────────────────
 export function getDailySummary(tickets: IssuedTicket[], date: Date): DailySummary {
   const dayTickets = getTicketsForDate(tickets, date);
@@ -120,6 +173,7 @@ export function getDailySummary(tickets: IssuedTicket[], date: Date): DailySumma
     byRoute: buildRouteBreakdown(dayTickets),
     byPaymentMethod: buildPaymentBreakdown(dayTickets),
     byHour: buildHourBreakdown(dayTickets),
+    byStop: buildStopBreakdown(dayTickets),
   };
 }
 
@@ -161,6 +215,7 @@ export function getRangeReport(tickets: IssuedTicket[], from: Date, to: Date): R
     worstDay,
     byRoute: buildRouteBreakdown(rangeTickets),
     byDay: days,
+    byStop: buildStopBreakdown(rangeTickets),
   };
 }
 
@@ -171,7 +226,7 @@ export function getConductorReport(
   date: Date
 ): ConductorReport {
   const dayTickets = getTicketsForDate(tickets, date);
-  const cTickets = dayTickets.filter((t) => t.conductorId === conductorId);
+  const cTickets = dayTickets.filter((t) => String(t.conductorId) === String(conductorId));
   const conductorName = cTickets[0]?.conductorName ?? '';
   const expectedCash = parseFloat(cTickets.reduce((s, t) => s + t.totalAmount, 0).toFixed(2));
 

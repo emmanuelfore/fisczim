@@ -129,15 +129,12 @@ async function upgradePassword(userId: string, password: string): Promise<void> 
   console.log(`[Auth] Upgraded password hash for user ${userId} to bcrypt`);
 }
 
-// Clean up expired refresh tokens periodically
+// Clean up expired refresh tokens periodically (DB-backed — also done lazily on storeRefreshToken)
 setInterval(() => {
-  const now = Date.now();
-  for (const [token, data] of refreshTokens.entries()) {
-    if (data.expiresAt < now) {
-      refreshTokens.delete(token);
-    }
-  }
-}, 60 * 60 * 1000); // Clean up every hour
+  db.delete(refreshTokensTable)
+    .where(lt(refreshTokensTable.expiresAt, new Date()))
+    .catch(() => {});
+}, 60 * 60 * 1000); // hourly
 
 // POST /api/auth/register
 router.post('/register', async (req: Request, res: Response) => {
@@ -201,8 +198,7 @@ router.post('/register', async (req: Request, res: Response) => {
     const tokens = generateTokens(payload);
 
     // Store refresh token
-    const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000; // 7 days
-    refreshTokens.set(tokens.refreshToken, { userId: user.id, expiresAt });
+    await storeRefreshToken(tokens.refreshToken, user.id);
 
     // Return user data and tokens (exclude password)
     const { password: _, ...userWithoutPassword } = user;
@@ -278,8 +274,7 @@ router.post('/login', async (req: Request, res: Response) => {
     const tokens = generateTokens(payload);
 
     // Store refresh token
-    const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000; // 7 days
-    refreshTokens.set(tokens.refreshToken, { userId: user.id, expiresAt });
+    await storeRefreshToken(tokens.refreshToken, user.id);
 
     // Return user data and tokens (exclude password)
     const { password: _, ...userWithoutPassword } = user;
@@ -309,7 +304,7 @@ router.post('/refresh', async (req: Request, res: Response) => {
     }
 
     // Check if refresh token exists in storage
-    const storedToken = refreshTokens.get(refreshToken);
+    const storedToken = await lookupRefreshToken(refreshToken);
     if (!storedToken || storedToken.userId !== payload.userId) {
       return res.status(401).json({ message: 'Invalid refresh token' });
     }
@@ -317,7 +312,7 @@ router.post('/refresh', async (req: Request, res: Response) => {
     // Get user
     const user = await storage.getUser(payload.userId);
     if (!user) {
-      refreshTokens.delete(refreshToken);
+      await deleteRefreshToken(refreshToken);
       return res.status(401).json({ message: 'User not found' });
     }
 
@@ -331,9 +326,8 @@ router.post('/refresh', async (req: Request, res: Response) => {
     const tokens = generateTokens(newPayload);
 
     // Remove old refresh token and store new one
-    refreshTokens.delete(refreshToken);
-    const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000; // 7 days
-    refreshTokens.set(tokens.refreshToken, { userId: user.id, expiresAt });
+    await deleteRefreshToken(refreshToken);
+    await storeRefreshToken(tokens.refreshToken, user.id);
 
     // Return user data and tokens (exclude password)
     const { password: _, ...userWithoutPassword } = user;
@@ -353,7 +347,7 @@ router.post('/logout', async (req: Request, res: Response) => {
     const { refreshToken } = req.body;
 
     if (refreshToken) {
-      refreshTokens.delete(refreshToken);
+      await deleteRefreshToken(refreshToken);
     }
 
     res.json({ message: 'Logged out successfully' });

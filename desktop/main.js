@@ -106,6 +106,8 @@ function validateIpcInput({ html, printerName, pin, companyId } = {}) {
  * 4. Dev default: http://localhost:5001/pos-login
  */
 function resolveStartUrl() {
+  let url = null;
+
   // Priority 1: config.json in userData directory
   try {
     const configPath = path.join(app.getPath('userData'), 'config.json');
@@ -113,7 +115,7 @@ function resolveStartUrl() {
       const raw = fs.readFileSync(configPath, 'utf8');
       const config = JSON.parse(raw);
       if (config.startUrl) {
-        return config.startUrl;
+        url = config.startUrl;
       }
     }
   } catch (err) {
@@ -121,17 +123,41 @@ function resolveStartUrl() {
   }
 
   // Priority 2: ELECTRON_START_URL environment variable
-  if (process.env.ELECTRON_START_URL) {
-    return process.env.ELECTRON_START_URL;
+  if (!url && process.env.ELECTRON_START_URL) {
+    url = process.env.ELECTRON_START_URL;
   }
 
   // Priority 3: packaged production URL
-  if (app.isPackaged) {
-    return PROD_URL;
+  if (!url && app.isPackaged) {
+    url = PROD_URL;
   }
 
   // Priority 4: dev default
-  return DEV_URL;
+  if (!url) {
+    url = DEV_URL;
+  }
+
+  // Defensive: desktop must always land on /pos-login — rewrite stale /auth configs
+  // (config.json may contain old https://fiscalstack.co.zw/auth from pre-fix builds)
+  try {
+    const u = new URL(url);
+    if (u.pathname === '/auth' || u.pathname.startsWith('/auth/')) {
+      log.warn(`[resolveStartUrl] Rewriting stale ${u.pathname} → /pos-login`);
+      u.pathname = '/pos-login';
+      u.search = '';
+      url = u.toString();
+      // Persist the fix so next launch is correct
+      try {
+        const configPath = path.join(app.getPath('userData'), 'config.json');
+        const cfg = fs.existsSync(configPath) ? JSON.parse(fs.readFileSync(configPath, 'utf8')) : {};
+        cfg.startUrl = url;
+        fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2), 'utf8');
+      } catch {}
+    }
+  } catch {}
+
+  log.info(`[resolveStartUrl] Resolved: ${url} (isPackaged=${app.isPackaged})`);
+  return url;
 }
 
 /**
@@ -686,18 +712,39 @@ function createWindow() {
 
   // Requirement 3.4: intercept will-navigate and block external URLs (same-origin check).
   // Same-origin navigation (e.g., /pos → /reports/pos) is allowed; only cross-origin is blocked.
+  // Defensive: never allow /auth in desktop — rewrite to /pos-login (api.ts 401 handler fallback)
   mainWindow.webContents.on('will-navigate', (event, url) => {
     try {
       const target = new URL(url);
       const origin = new URL(posUrl);
       if (target.origin !== origin.origin) {
         event.preventDefault();
+        return;
+      }
+      if (target.pathname === '/auth' || target.pathname.startsWith('/auth/')) {
+        event.preventDefault();
+        log.warn(`[will-navigate] Blocking /auth → redirecting to /pos-login`);
+        mainWindow.loadURL(new URL('/pos-login', origin).toString());
+        return;
       }
     } catch (_err) {
       // Malformed URL — block it
       event.preventDefault();
     }
   });
+
+  // SPA fallback: wouter uses history.pushState which doesn't fire will-navigate — catch in-page navigations too
+  const redirectAuthToPosLogin = (_event, url) => {
+    try {
+      const target = new URL(url);
+      if (target.pathname === '/auth' || target.pathname.startsWith('/auth/')) {
+        log.warn(`[did-navigate] Blocking /auth → redirecting to /pos-login`);
+        mainWindow.loadURL(new URL('/pos-login', new URL(posUrl).origin).toString());
+      }
+    } catch {}
+  };
+  mainWindow.webContents.on('did-navigate', redirectAuthToPosLogin);
+  mainWindow.webContents.on('did-navigate-in-page', redirectAuthToPosLogin);
 
   // Requirement 3.3: block all new window creation
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));

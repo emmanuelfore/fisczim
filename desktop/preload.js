@@ -3,6 +3,9 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('electronAPI', {
   // Identity
   isElectron: true,
+  // Signal the renderer to clear its auth session tokens on this launch.
+  // This ensures the POS login page is always shown on app start.
+  clearSessionOnLaunch: true,
   verifyTokenLocal: (token) => ipcRenderer.invoke('verify-token-local', token),
 
   // Printing

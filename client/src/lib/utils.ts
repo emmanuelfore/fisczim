@@ -14,8 +14,15 @@ export function formatCurrency(amount: number, currencyCode: string = 'USD'): st
 }
 
 export function isElectron(): boolean {
-  return typeof window !== 'undefined' && 
-    window.navigator.userAgent.toLowerCase().indexOf(' electron/') > -1;
+  if (typeof window === 'undefined') return false;
+  // Primary: preload bridge (most reliable, works in all Electron versions)
+  if ((window as any).electronAPI?.isElectron) return true;
+  // Fallback: UA sniff (covers cases where preload hasn't injected yet)
+  try {
+    return window.navigator.userAgent.toLowerCase().includes('electron/');
+  } catch {
+    return false;
+  }
 }
 export function hexToHSL(hex: string) {
   // Remove the hash if it exists

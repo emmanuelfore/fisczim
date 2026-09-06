@@ -7,6 +7,7 @@ interface UpdateInfo {
 
 interface ElectronAPI {
   isElectron: true;
+  clearSessionOnLaunch?: true;
   printReceipt: (html: string, printerName?: string) => Promise<boolean>;
   getPrinters: () => Promise<Array<{ name: string; isDefault: boolean }>>;
   testPrint: (printerName: string) => Promise<boolean>;

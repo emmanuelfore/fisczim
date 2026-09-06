@@ -98,6 +98,14 @@ export function useAuth() {
     queryFn: async () => {
       // Offline: skip the network entirely and go straight to cache
       if (!getIsOnline()) {
+        // Electron forced logout (every launch must show POS login) — never auto-use stale user_cache
+        try {
+          if (sessionStorage.getItem('__electron_forced_logout')) {
+            await clearCachedUser();
+            console.log("[Auth] Electron forced logout — skipping cached user");
+            return null;
+          }
+        } catch {}
         const cached = await getCachedUser();
         if (cached) {
           console.log("[Auth] Offline — using cached user:", cached.email);
@@ -127,6 +135,7 @@ export function useAuth() {
         return user;
       } catch (err) {
         console.warn("[Auth] User fetch failed, trying offline cache...", err);
+        try { if (sessionStorage.getItem('__electron_forced_logout')) return null; } catch {}
         const cachedFromQuery = queryClient.getQueryData(["/api/user"]);
         if (cachedFromQuery) return cachedFromQuery;
         const cachedFromOffline = await getCachedUser();
@@ -161,6 +170,7 @@ export function useAuth() {
         if (data.user) {
           await saveOfflineCredentials(email, password, { ...data.user, sessionStatus: 'offline_cached' });
           await cacheUser(data.user);
+          try { sessionStorage.removeItem('__electron_forced_logout'); } catch {}
           queryClient.setQueryData(["/api/user"], data.user);
 
           // Eagerly cache everything needed for offline use (non-blocking)
@@ -185,6 +195,7 @@ export function useAuth() {
 
     console.log("[Auth] Offline verification successful");
     await cacheUser(user);
+    try { sessionStorage.removeItem('__electron_forced_logout'); } catch {}
 
     // Restore selectedCompanyId BEFORE setting user in query cache
     const storedId = localStorage.getItem("selectedCompanyId");
@@ -220,6 +231,7 @@ export function useAuth() {
 
     console.log("[Auth] Offline PIN verification successful");
     await cacheUser(user);
+    try { sessionStorage.removeItem('__electron_forced_logout'); } catch {}
 
     // Restore selectedCompanyId
     const storedId = localStorage.getItem("selectedCompanyId");

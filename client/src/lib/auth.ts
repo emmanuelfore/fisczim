@@ -1,5 +1,38 @@
 const API_URL = import.meta.env.VITE_API_URL || '';
 
+// Helper: must check both the bridge and UA fallback (preload may not have injected yet)
+function shouldClearElectronSession(): boolean {
+  if (typeof window === 'undefined') return false;
+  if ((window as any).electronAPI?.clearSessionOnLaunch) return true;
+  // Fallback UA check for the narrow window before preload bridges
+  try {
+    return window.navigator.userAgent.toLowerCase().includes('electron/');
+  } catch {
+    return false;
+  }
+}
+
+// In Electron, always start unauthenticated so the POS login page is shown on every launch.
+// The offline IndexedDB cache (PIN credentials, products, customers) is preserved — ONLY user_cache is cleared.
+function clearElectronSessionSync() {
+  try {
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
+    localStorage.removeItem('auth_user');
+    // Marker checked by use-auth.ts to skip the IndexedDB user_cache on first query
+    sessionStorage.setItem('__electron_forced_logout', '1');
+  } catch (_e) {
+    // Ignore — storage may be unavailable in some edge cases
+  }
+  // Async: clear IndexedDB user_cache (preserves offline_credentials, companies_list, products, etc.)
+  // Fire-and-forget — use-auth.ts will also await the marker before returning cached user
+  import('./offline-db').then(({ clearCachedUser }) => clearCachedUser().catch(() => {})).catch(() => {});
+}
+
+if (shouldClearElectronSession()) {
+  clearElectronSessionSync();
+}
+
 export interface AuthUser {
   id: string;
   email: string;
@@ -27,6 +60,11 @@ class AuthClient {
   private listeners: Set<(user: AuthUser | null) => void> = new Set();
 
   constructor() {
+    // If we detected a forced Electron logout but the bridge wasn't ready at module eval,
+    // re-run the sync clear now that the constructor runs after preload
+    if (shouldClearElectronSession()) {
+      clearElectronSessionSync();
+    }
     this.loadFromStorage();
     // Notify listeners asynchronously so subscribers registered after construction still get the event
     if (this.user) {
@@ -36,6 +74,16 @@ class AuthClient {
 
   private loadFromStorage() {
     try {
+      // Re-clear if this is an Electron launch — prevents stale tokens loaded after a race
+      if (shouldClearElectronSession()) {
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('refresh_token');
+        localStorage.removeItem('auth_user');
+        this.accessToken = null;
+        this.refreshToken = null;
+        this.user = null;
+        return;
+      }
       const accessToken = localStorage.getItem('access_token');
       const refreshToken = localStorage.getItem('refresh_token');
       const userStr = localStorage.getItem('auth_user');
@@ -110,6 +158,7 @@ class AuthClient {
     this.refreshToken = data.refreshToken;
     this.user = data.user;
     this.saveToStorage();
+    try { sessionStorage.removeItem('__electron_forced_logout'); } catch {}
     this.notifyListeners();
 
     return data;
@@ -132,6 +181,7 @@ class AuthClient {
     this.refreshToken = data.refreshToken;
     this.user = data.user;
     this.saveToStorage();
+    try { sessionStorage.removeItem('__electron_forced_logout'); } catch {}
     this.notifyListeners();
 
     return data;

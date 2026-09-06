@@ -102,10 +102,23 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
             // Clear offline IndexedDB cache (stale companies) so next login re-fetches
             try { const { clearCachedUser } = await import('./offline-db'); await clearCachedUser(); } catch {}
             invalidateSessionCache();
-            // Auto-redirect to /auth once per session (prevents redirect loop)
-            if (typeof window !== 'undefined' && !window.location.pathname.includes('/auth') && !(window as any).__authRedirecting) {
-                (window as any).__authRedirecting = true;
-                window.location.href = '/auth';
+            // Auto-redirect once per session (prevents redirect loop)
+            // In Electron (desktop POS) redirect to /pos-login, not /auth
+            if (typeof window !== 'undefined' && !(window as any).__authRedirecting) {
+                const isElectron = !!(window as any).electronAPI?.isElectron || window.navigator.userAgent.toLowerCase().includes('electron/');
+                const path = window.location.pathname;
+                const isAuthRoute = path.includes('/auth');
+                const isPosLoginRoute = path === '/pos-login' || path.startsWith('/pos-login');
+                if (isElectron) {
+                    if (!isPosLoginRoute) {
+                        (window as any).__authRedirecting = true;
+                        window.location.href = '/pos-login';
+                    }
+                    // already on /pos-login — stay, no loop
+                } else if (!isAuthRoute) {
+                    (window as any).__authRedirecting = true;
+                    window.location.href = '/auth';
+                }
             }
         }
 

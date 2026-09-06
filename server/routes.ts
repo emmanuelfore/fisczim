@@ -1042,7 +1042,7 @@ export async function registerRoutes(
     res.json({ latestVersion, downloadUrl, releaseNotes });
   });
 
-  // Logo Upload Configuration (Supabase Storage)
+  // Logo Upload Configuration (local disk storage)
   const logoUpload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
@@ -12191,49 +12191,6 @@ export async function registerRoutes(
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
-  });
-
-  // Multer config for generic uploads (Supabase)
-  const mainUpload = multer({ storage: multer.memoryStorage() });
-
-  // Upload Route
-  app.post("/api/upload", (req, res, next) => {
-    // Wrapper to handle multer errors
-    mainUpload.single("file")(req, res, async (err) => {
-      if (err instanceof multer.MulterError) {
-        console.error("Multer Error:", err);
-        return res.status(400).json({ message: "File upload error: " + err.message });
-      } else if (err) {
-        console.error("Unknown Upload Error:", err);
-        return res.status(500).json({ message: "Internal upload error: " + err.message });
-      }
-
-      // Success
-      if (!req.file) {
-        return res.status(400).json({ message: "No file uploaded. key 'file' missing?" });
-      }
-
-      try {
-        const file = req.file;
-        const fileExt = path.extname(file.originalname);
-        const fileName = `${Date.now()}-${Math.round(Math.random() * 1e9)}${fileExt}`;
-
-        const uploadDir = path.join(rootDir, 'uploads', 'logos');
-        if (!fs.existsSync(uploadDir)) {
-          fs.mkdirSync(uploadDir, { recursive: true });
-        }
-
-        const localPath = path.join(uploadDir, fileName);
-        await fs.promises.writeFile(localPath, file.buffer);
-
-        const publicUrl = `${req.protocol}://${req.get('host')}/uploads/logos/${fileName}`;
-        console.log("File uploaded successfully:", publicUrl);
-        res.json({ url: publicUrl });
-      } catch (uploadErr: any) {
-        console.error("Upload Error:", uploadErr);
-        res.status(500).json({ message: "Failed to upload file" });
-      }
-    });
   });
 
   // --- Subscription Routes ---

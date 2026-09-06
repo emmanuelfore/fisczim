@@ -2,6 +2,25 @@ import { auth } from "./auth";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
 
+// Force-clear stale Supabase→self-host migration cache once
+const MIGRATION_VERSION = "20260906-supabase-restore-v2";
+try {
+  if (typeof window !== 'undefined' && localStorage.getItem("migration_version") !== MIGRATION_VERSION) {
+    console.log("[Migration] Clearing stale cache", MIGRATION_VERSION);
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
+    localStorage.removeItem('auth_user');
+    localStorage.removeItem('selectedCompanyId');
+    localStorage.removeItem('selectedBranchId');
+    // offline IndexedDB will be cleared lazily on next 401, but also bump version
+    localStorage.setItem("migration_version", MIGRATION_VERSION);
+    // force service worker update if present
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => r.update()));
+    }
+  }
+} catch {}
+
 // ── Synchronous Session Cache ──
 let cachedSession: any = null;
 let sessionInitialized = false;
@@ -79,7 +98,15 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
             console.warn('[apiFetch] 401 Unauthorized - clearing token');
             localStorage.removeItem('access_token');
             localStorage.removeItem('refresh_token');
+            localStorage.removeItem('auth_user');
+            // Clear offline IndexedDB cache (stale companies) so next login re-fetches
+            try { const { clearCachedUser } = await import('./offline-db'); await clearCachedUser(); } catch {}
             invalidateSessionCache();
+            // Auto-redirect to /auth once per session (prevents redirect loop)
+            if (typeof window !== 'undefined' && !window.location.pathname.includes('/auth') && !(window as any).__authRedirecting) {
+                (window as any).__authRedirecting = true;
+                window.location.href = '/auth';
+            }
         }
 
         return response;

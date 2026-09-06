@@ -34,6 +34,15 @@ export const resetTokens = pgTable("reset_tokens", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// Persisted refresh tokens — survives server restarts (replaces in-memory Map)
+export const refreshTokens = pgTable("refresh_tokens", {
+  id: serial("id").primaryKey(),
+  token: text("token").unique().notNull(),
+  userId: uuid("user_id").references(() => users.id).notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const idempotencyKeys = pgTable("idempotency_keys", {
   key: text("key").primaryKey(),
   userId: uuid("user_id").references(() => users.id),

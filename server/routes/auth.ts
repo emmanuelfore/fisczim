@@ -1,15 +1,45 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
-import { sql } from 'drizzle-orm';
+import { sql, eq, lt } from 'drizzle-orm';
 import { db } from '../db.js';
 import { storage } from '../storage.js';
 import { generateTokens, verifyAccessToken, verifyRefreshToken, TokenPayload } from '../lib/jwt.js';
+import { refreshTokens as refreshTokensTable } from '../../shared/schema.js';
 
 const router = Router();
 
-// Store refresh tokens (in production, use Redis or database)
-const refreshTokens = new Map<string, { userId: string; expiresAt: number }>();
+// ── DB-backed refresh token helpers ──────────────────────────────────────────
+async function storeRefreshToken(token: string, userId: string): Promise<void> {
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+  await db.insert(refreshTokensTable).values({ token, userId, expiresAt });
+  // Opportunistically purge expired tokens (non-blocking, best-effort)
+  db.delete(refreshTokensTable)
+    .where(lt(refreshTokensTable.expiresAt, new Date()))
+    .catch(() => {});
+}
+
+async function lookupRefreshToken(token: string): Promise<{ userId: string } | null> {
+  const [row] = await db
+    .select({ userId: refreshTokensTable.userId, expiresAt: refreshTokensTable.expiresAt })
+    .from(refreshTokensTable)
+    .where(eq(refreshTokensTable.token, token))
+    .limit(1);
+  if (!row) return null;
+  if (row.expiresAt < new Date()) {
+    await db.delete(refreshTokensTable).where(eq(refreshTokensTable.token, token)).catch(() => {});
+    return null;
+  }
+  return { userId: row.userId };
+}
+
+async function deleteRefreshToken(token: string): Promise<void> {
+  await db.delete(refreshTokensTable).where(eq(refreshTokensTable.token, token)).catch(() => {});
+}
+
+async function deleteAllUserRefreshTokens(userId: string): Promise<void> {
+  await db.delete(refreshTokensTable).where(eq(refreshTokensTable.userId, userId)).catch(() => {});
+}
 
 // Supabase uses PBKDF2-SHA256 for password hashing
 // Format: $pbkdf2-sha256$i=4096$<salt>$<hash>

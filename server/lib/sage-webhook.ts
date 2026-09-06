@@ -1,10 +1,9 @@
 import { Router, type Request, type Response, type RequestHandler } from "express";
 import crypto from "crypto";
-import { supabaseAdmin } from "../supabase.js";
 import { processInvoiceFiscalization } from "./fiscalization.js";
 import { storage } from "../storage.js";
 import { db } from "../db.js";
-import { invoices } from "../../shared/schema.js";
+import { invoices, sageConnections, sageFiscalEvents } from "../../shared/schema.js";
 import { eq, and } from "drizzle-orm";
 
 const router = Router();
@@ -61,15 +60,16 @@ async function refreshSageToken(connection: any): Promise<string> {
 
   const data: any = await resp.json();
 
-  // Persist refreshed tokens
-  await supabaseAdmin!
-    .from("sage_connections")
-    .update({
-      access_token: data.access_token,
-      refresh_token: data.refresh_token ?? connection.refresh_token,
-      token_expires_at: new Date(Date.now() + data.expires_in * 1000).toISOString(),
+  // Persist refreshed tokens using drizzle
+  await db
+    .update(sageConnections)
+    .set({
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token ?? connection.refresh_token,
+      tokenExpiresAt: new Date(Date.now() + data.expires_in * 1000),
+      updatedAt: new Date(),
     })
-    .eq("id", connection.id);
+    .where(eq(sageConnections.id, connection.id));
 
   return data.access_token;
 }
@@ -160,13 +160,11 @@ async function logSageFiscalEvent(
   status: "success" | "failed" | "skipped",
   details?: Record<string, any>
 ): Promise<void> {
-  if (!supabaseAdmin) return;
-  await supabaseAdmin.from("sage_fiscal_events").insert({
-    origin_id: originId,
-    company_id: companyId,
+  await db.insert(sageFiscalEvents).values({
+    originId,
+    companyId,
     status,
     details: details ?? null,
-    created_at: new Date().toISOString(),
   });
 }
 
@@ -179,15 +177,18 @@ async function logSageFiscalEvent(
  * @returns true if a successful event already exists (duplicate)
  */
 async function isDuplicate(originId: string, companyId: number): Promise<boolean> {
-  if (!supabaseAdmin) return false;
-  const { data } = await supabaseAdmin
-    .from("sage_fiscal_events")
-    .select("id")
-    .eq("origin_id", originId)
-    .eq("company_id", companyId)
-    .eq("status", "success")
-    .maybeSingle();
-  return !!data;
+  const [existing] = await db
+    .select({ id: sageFiscalEvents.id })
+    .from(sageFiscalEvents)
+    .where(
+      and(
+        eq(sageFiscalEvents.originId, originId),
+        eq(sageFiscalEvents.companyId, companyId),
+        eq(sageFiscalEvents.status, "success")
+      )
+    )
+    .limit(1);
+  return !!existing;
 }
 
 /**
@@ -282,23 +283,18 @@ router.post("/", (async (req: Request & { rawBody?: Buffer }, res: Response) => 
   // Resolve company from Sage business ID
   const businessId: string = event?.entity?.business?.id ?? event?.business_id ?? "";
 
-  if (!supabaseAdmin) {
-    console.error("[SageWebhook] Supabase admin client not available");
+  const [connection] = await db
+    .select()
+    .from(sageConnections)
+    .where(eq(sageConnections.sageBusinessId, businessId))
+    .limit(1);
+
+  if (!connection) {
+    console.error(`[SageWebhook] No sage_connection found for business ${businessId}`);
     return;
   }
 
-  const { data: connection, error: connErr } = await supabaseAdmin
-    .from("sage_connections")
-    .select("*")
-    .eq("sage_business_id", businessId)
-    .maybeSingle();
-
-  if (connErr || !connection) {
-    console.error(`[SageWebhook] No sage_connection found for business ${businessId}:`, connErr?.message);
-    return;
-  }
-
-  const companyId: number = connection.company_id;
+  const companyId: number = connection.companyId;
 
   // Deduplication check
   if (await isDuplicate(originId, companyId)) {

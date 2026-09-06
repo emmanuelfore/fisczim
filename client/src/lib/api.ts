@@ -69,11 +69,20 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
     }, 120000) : null;
 
     try {
-        return await fetch(url, {
+        const response = await fetch(url, {
             ...init,
             headers,
             signal: init?.signal ?? controller?.signal,
         });
+
+        if (response.status === 401 && !url.toString().includes('/api/auth/login')) {
+            console.warn('[apiFetch] 401 Unauthorized - clearing token');
+            localStorage.removeItem('access_token');
+            localStorage.removeItem('refresh_token');
+            invalidateSessionCache();
+        }
+
+        return response;
     } finally {
         if (timeoutId) window.clearTimeout(timeoutId);
     }

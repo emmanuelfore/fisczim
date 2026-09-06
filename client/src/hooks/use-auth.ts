@@ -13,6 +13,13 @@ let authInitDone = false;
 const authInitListeners = new Set<(ready: boolean) => void>();
 let lastUserInvalidateAt = 0;
 
+// If auth client already has a valid session from localStorage (cold reload while logged in),
+// skip the async init wait entirely.
+if (auth.isAuthenticated()) {
+  authInitDone = true;
+  authInitStarted = true;
+}
+
 function notifyAuthInitListeners() {
   for (const listener of authInitListeners) listener(authInitDone);
 }
@@ -67,6 +74,14 @@ export function useAuth() {
           }
         }
       });
+
+      // If auth client already has a user from localStorage (restored before this effect ran),
+      // the listener above won't fire retroactively — resolve init immediately.
+      if (!authInitDone && auth.isAuthenticated()) {
+        window.clearTimeout(failSafe);
+        authInitDone = true;
+        notifyAuthInitListeners();
+      }
 
       return () => {
         unsubscribe();

@@ -28,6 +28,10 @@ class AuthClient {
 
   constructor() {
     this.loadFromStorage();
+    // Notify listeners asynchronously so subscribers registered after construction still get the event
+    if (this.user) {
+      Promise.resolve().then(() => this.notifyListeners());
+    }
   }
 
   private loadFromStorage() {

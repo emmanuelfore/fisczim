@@ -157,7 +157,7 @@ import ProductionReportPage from "@/pages/inventory/reports/production";
 import { useAuth } from "@/hooks/use-auth";
 import { usePermissions } from "@/hooks/use-permissions";
 import { NAV_PERMISSION_MAP } from "@shared/permissions";
-import { supabase } from "@/lib/supabase";
+import { auth } from "@/lib/auth";
 import { useCompanies } from "@/hooks/use-companies";
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { Loader2 } from "lucide-react";
@@ -834,8 +834,7 @@ function useSwAuthBridge() {
     const handler = async (event: MessageEvent) => {
       if (event.data?.type !== "GET_AUTH_TOKEN") return;
       try {
-        const { data } = await supabase.auth.getSession();
-        const token = data.session?.access_token ?? null;
+        const token = auth.getAccessToken() || localStorage.getItem('access_token');
         event.ports[0]?.postMessage({ token });
       } catch {
         event.ports[0]?.postMessage({ token: null });

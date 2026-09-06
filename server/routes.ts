@@ -15,7 +15,8 @@ import { api } from "../shared/routes.js";
 import { z } from "zod";
 import { ZimraDevice, type ReceiptData, ZimraApiError, getZimraBaseUrl, type ZimraConfigResponse, type ZimraTax } from "./zimra.js";
 import { sendInvoiceEmail } from './email.js';
-import { supabaseAdmin } from "./supabase.js";
+import bcrypt from "bcrypt";
+import { generateTokens } from "./lib/jwt.js";
 import { parse } from "csv-parse/sync";
 import { parseStringPromise } from "xml2js";
 import crypto from "crypto";
@@ -1077,37 +1078,17 @@ export async function registerRoutes(
       const fileName = `company-${companyId}-logo-${Date.now()}${fileExt}`;
       let publicUrl = "";
 
-      if (supabaseAdmin) {
-        // Upload to Supabase Storage
-        const filePath = `logos/${fileName}`;
-        const { error } = await supabaseAdmin.storage
-          .from('logos')
-          .upload(filePath, file.buffer, {
-            contentType: file.mimetype,
-            upsert: true
-          });
-
-        if (error) throw error;
-
-        const { data } = supabaseAdmin.storage
-          .from('logos')
-          .getPublicUrl(filePath);
-
-        publicUrl = data.publicUrl;
-      } else {
-        // Local File Storage Fallback
-        const uploadDir = path.join(rootDir, 'uploads', 'logos');
-        if (!fs.existsSync(uploadDir)) {
-          fs.mkdirSync(uploadDir, { recursive: true });
-        }
-
-        const localPath = path.join(uploadDir, fileName);
-        await fs.promises.writeFile(localPath, file.buffer);
-
-        // Construct local URL
-        const protocol = req.protocol;
-        publicUrl = `${protocol}://${req.get('host')}/uploads/logos/${fileName}`;
+      // Local File Storage
+      const uploadDir = path.join(rootDir, 'uploads', 'logos');
+      if (!fs.existsSync(uploadDir)) {
+        fs.mkdirSync(uploadDir, { recursive: true });
       }
+
+      const localPath = path.join(uploadDir, fileName);
+      await fs.promises.writeFile(localPath, file.buffer);
+
+      const protocol = req.protocol;
+      publicUrl = `${protocol}://${req.get('host')}/uploads/logos/${fileName}`;
 
       // Update Company Logo URL in DB
       await storage.updateCompany(companyId, { logoUrl: publicUrl });
@@ -4202,42 +4183,21 @@ export async function registerRoutes(
       let userToAdd = await storage.getUserByEmail(email);
 
       if (!userToAdd) {
-        // Create user in Supabase first
-        if (!supabaseAdmin) {
-          return res.status(500).json({ message: "Supabase Admin client not configured" });
-        }
-
         if (!password || String(password).length < 6) {
           return res.status(400).json({ message: "Password is required and must be at least 6 characters" });
         }
         const defaultPassword = String(password);
+        const hashedPassword = await bcrypt.hash(defaultPassword, 10);
+        const newUserId = crypto.randomUUID();
 
-        const { data: { user: sbUser }, error: sbError } = await supabaseAdmin.auth.admin.createUser({
-          email,
-          password: defaultPassword,
-          email_confirm: true,
-          user_metadata: { name: name || email.split('@')[0], full_name: name }
-        });
-
-        if (sbError) {
-          console.error("Supabase Admin Create User Error:", sbError);
-          let errMsg = sbError.message;
-          if (errMsg.toLowerCase().includes("already registered") || errMsg.toLowerCase().includes("already exists")) {
-            errMsg = "A user with this email address already exists.";
-          }
-          return res.status(400).json({ message: errMsg });
-        }
-
-        if (!sbUser) return res.status(500).json({ message: "No user returned from Auth" });
-
-        // Create in our DB
+        // Create directly in our DB using the JWT-based auth
         userToAdd = await storage.createUser({
-          id: sbUser.id,
-          email: sbUser.email!,
-          name: name || sbUser.user_metadata?.name || "New User",
+          id: newUserId,
+          email: email.trim(),
+          name: name || email.split('@')[0],
           username: username || email.split('@')[0],
-          password: "", // Handled by Supabase
-          passwordChanged: false
+          password: hashedPassword,
+          passwordChanged: false,
         });
       }
 
@@ -4294,20 +4254,9 @@ export async function registerRoutes(
 
       const userId = (req as any).user.id;
 
-      // Update in Supabase
-      if (!supabaseAdmin) return res.status(500).json({ message: "Admin client not configured" });
-
-      const { error: sbError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
-        password: newPassword
-      });
-
-      if (sbError) {
-        console.error("STpabase Update Password Error:", sbError);
-        return res.status(400).json({ message: "Failed to update password in auth system: " + sbError.message });
-      }
-
-      // Update local flag
-      await storage.updateUser(userId, { passwordChanged: true });
+      // Hash and update password directly in our DB
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+      await storage.updateUser(userId, { password: hashedPassword, passwordChanged: true });
 
       res.json({ message: "Password updated successfully" });
     } catch (err: any) {
@@ -4435,29 +4384,14 @@ export async function registerRoutes(
 
       if (name) {
         await storage.updateUser(targetUserId, { name: name.trim() });
-        if (supabaseAdmin) {
-          await supabaseAdmin.auth.admin.updateUserById(targetUserId, {
-            user_metadata: { name: name.trim(), full_name: name.trim() }
-          });
-        }
       }
 
       if (password) {
         if (password.length < 6) {
           return res.status(400).json({ message: "Password must be at least 6 characters" });
         }
-        if (supabaseAdmin) {
-          const { error: sbError } = await supabaseAdmin.auth.admin.updateUserById(targetUserId, {
-            password: password
-          });
-          if (sbError) {
-            console.error("Supabase Admin Update Password Error:", sbError);
-            return res.status(400).json({ message: "Failed to update password in auth system: " + sbError.message });
-          }
-          await storage.updateUser(targetUserId, { passwordChanged: true });
-        } else {
-          return res.status(500).json({ message: "Supabase Admin client not configured" });
-        }
+        const hashedPassword = await bcrypt.hash(password, 10);
+        await storage.updateUser(targetUserId, { password: hashedPassword, passwordChanged: true });
       }
 
       res.json({ message: "User details and access updated" });
@@ -12280,31 +12214,24 @@ export async function registerRoutes(
       }
 
       try {
-        if (!supabaseAdmin) throw new Error("Supabase Admin client not configured");
-
         const file = req.file;
         const fileExt = path.extname(file.originalname);
         const fileName = `${Date.now()}-${Math.round(Math.random() * 1e9)}${fileExt}`;
-        const filePath = `logos/${fileName}`;
 
-        const { data, error } = await supabaseAdmin.storage
-          .from('logos')
-          .upload(filePath, file.buffer, {
-            contentType: file.mimetype,
-            upsert: true
-          });
+        const uploadDir = path.join(rootDir, 'uploads', 'logos');
+        if (!fs.existsSync(uploadDir)) {
+          fs.mkdirSync(uploadDir, { recursive: true });
+        }
 
-        if (error) throw error;
+        const localPath = path.join(uploadDir, fileName);
+        await fs.promises.writeFile(localPath, file.buffer);
 
-        const { data: { publicUrl } } = supabaseAdmin.storage
-          .from('logos')
-          .getPublicUrl(filePath);
-
-        console.log("File uploaded successfully to Supabase:", publicUrl);
+        const publicUrl = `${req.protocol}://${req.get('host')}/uploads/logos/${fileName}`;
+        console.log("File uploaded successfully:", publicUrl);
         res.json({ url: publicUrl });
       } catch (uploadErr: any) {
-        console.error("Supabase General Upload Error:", uploadErr);
-        res.status(500).json({ message: "Failed to upload file to storage" });
+        console.error("Upload Error:", uploadErr);
+        res.status(500).json({ message: "Failed to upload file" });
       }
     });
   });
@@ -12414,20 +12341,27 @@ export async function registerRoutes(
       const { email } = req.body;
       if (!email) return res.status(400).json({ message: "Email is required" });
 
-      if (!supabaseAdmin) {
-        return res.status(500).json({ message: "Supabase not configured" });
-      }
+      // Look up user — always return the same message to prevent enumeration
+      const user = await storage.getUserByEmail(email.trim().toLowerCase());
+      if (user) {
+        const token = await storage.createResetToken(user.id);
+        const resetUrl = `${req.protocol}://${req.get('host')}/reset-password?token=${token}`;
 
-      // Supabase native reset flow
-      const { error } = await supabaseAdmin.auth.resetPasswordForEmail(email, {
-        redirectTo: `${req.protocol}://${req.get('host')}/reset-password`,
-      });
-
-      if (error) {
-        console.error("Supabase reset error:", error);
-        // Still return success to prevent enumeration if it's a "user not found" style error
-        if (error.status === 429) {
-          return res.status(429).json({ message: "Too many requests. Please try again later." });
+        const { Resend } = await import("resend");
+        const apiKey = process.env.RESEND_API_KEY;
+        if (apiKey) {
+          const resend = new Resend(apiKey);
+          await resend.emails.send({
+            from: "noreply@fisczim.com",
+            to: [user.email],
+            subject: "Reset your password",
+            html: `<p>Click the link below to reset your password. It expires in 1 hour.</p>
+                   <p><a href="${resetUrl}">${resetUrl}</a></p>
+                   <p>If you did not request this, ignore this email.</p>`,
+          }).catch((err: any) => console.error("[Auth] Failed to send reset email:", err));
+        } else {
+          // Dev fallback — log the link so it can be used without email
+          console.log(`[Auth] Password reset link (no email key set): ${resetUrl}`);
         }
       }
 
@@ -12444,33 +12378,18 @@ export async function registerRoutes(
       if (!token || !newPassword) return res.status(400).json({ message: "Token and password required" });
       if (newPassword.length < 6) return res.status(400).json({ message: "Password must be at least 6 characters" });
 
-      if (!supabaseAdmin) {
-        return res.status(500).json({ message: "Supabase not configured" });
+      // Verify the reset token from our DB
+      const userId = await storage.verifyResetToken(token);
+      if (!userId) {
+        return res.status(400).json({ message: "Invalid or expired reset token" });
       }
 
-      // We use the admin client to update the user's password directly if we have a token
-      // However, Supabase recovery tokens are usually consumed by the client side.
-      // If we are doing it via the server, we need the token to be valid.
+      // Hash and update the password
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+      await storage.updateUser(userId, { password: hashedPassword, passwordChanged: true });
 
-      // In a standard Supabase flow, the user clicks the link, gets a session, 
-      // and then calls `updateUser`.
-      // If the user is sending the token to our API, we can try to exchange it.
-
-      const { data, error } = await supabaseAdmin.auth.admin.updateUserById(
-        // This requires us to have verified the token somehow or mapped it.
-        // Assuming the 'token' passed is the userId (not secure) or we exchange it.
-
-        // BETTER: Use the native Supabase reset flow where the client handles the token.
-        // But the user requested our API.
-        // Let's use the Verify API if possible, or just advise client-side reset.
-
-        // Refined approach: If the client provides a token, they might be using a recovery flow.
-        // For simplicity with this current architecture, let's keep it robust.
-        token, // Token is expected to be handled by supabase.auth.updateUser on the frontend.
-        { password: newPassword }
-      );
-
-      if (error) throw error;
+      // Mark token as used
+      await storage.consumeResetToken(token);
 
       res.json({ message: "Password updated successfully" });
     } catch (error: any) {

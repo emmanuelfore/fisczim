@@ -54,7 +54,6 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { useState, useEffect } from "react";
 import { apiFetch } from "@/lib/api";
-import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { useBranding } from "@/hooks/use-branding";
 

@@ -1,0 +1,15 @@
+client/src/pages/auth/FiscalStackAuth.tsx(118,17): error TS2339: Property 'session' does not exist on type 'AuthResponse'.
+client/src/pages/auth/FiscalZoneAuth.tsx(97,17): error TS2339: Property 'session' does not exist on type 'AuthResponse'.
+client/src/pages/user-profile.tsx(76,13): error TS2554: Expected 2 arguments, but got 1.
+server/lib/fiscalization.ts(159,39): error TS2345: Argument of type '{ productId: number; taxTypeId: number; lekakuTaxId: string | null; lekakuTaxType: string | null; rate: string; appliedForQuantity: string | null; }' is not assignable to parameter of type '{ taxTypeId: number; lekakuTaxId: string; lekakuTaxType: string; rate: string; appliedForQuantity: string | null; }'.
+  Types of property 'lekakuTaxId' are incompatible.
+    Type 'string | null' is not assignable to type 'string'.
+      Type 'null' is not assignable to type 'string'.
+server/lib/fiscalization.ts(197,17): error TS2322: Type 'LekakuTaxType' is not assignable to type '"PercentageLevy" | "FixedValueLevy" | "WithholdingTax"'.
+  Type '"Exempt"' is not assignable to type '"PercentageLevy" | "FixedValueLevy" | "WithholdingTax"'.
+server/lib/fiscalization.ts(215,13): error TS2322: Type 'LekakuTaxType' is not assignable to type '"Exempt" | "VAT" | "NonVAT"'.
+  Type '"PercentageLevy"' is not assignable to type '"Exempt" | "VAT" | "NonVAT"'.
+server/lib/fiscalization.ts(1420,56): error TS2304: Cannot find name 'LekakuReceiptPayment'.
+server/lib/fiscalization.ts(1430,19): error TS2304: Cannot find name 'LekakuReceiptPayment'.
+server/lib/fiscalization.ts(1528,31): error TS2339: Property 'fiscalDayNo' does not exist on type 'LekakuReceipt'.
+server/routes/auth.ts(207,15): error TS2488: Type 'QueryResult<Record<string, unknown>> | []' must have a '[Symbol.iterator]()' method that returns an iterator.

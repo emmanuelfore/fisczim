@@ -5235,3 +5235,34 @@ export const fiscalizationJobs = pgTable("fiscalization_jobs", {
 export const insertFiscalizationJobSchema = createInsertSchema(fiscalizationJobs).omit({ id: true, createdAt: true, updatedAt: true });
 export type FiscalizationJob = typeof fiscalizationJobs.$inferSelect;
 export type InsertFiscalizationJob = z.infer<typeof insertFiscalizationJobSchema>;
+
+// ─── Sage Business Cloud Integration ─────────────────────────────────────────
+
+export const sageConnections = pgTable("sage_connections", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").references(() => companies.id).notNull().unique(),
+  sageBusinessId: text("sage_business_id").notNull(),
+  accessToken: text("access_token").notNull(),
+  refreshToken: text("refresh_token").notNull(),
+  tokenExpiresAt: timestamp("token_expires_at").notNull(),
+  connectedAt: timestamp("connected_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  companyIdIdx: index("sage_connections_company_id_idx").on(table.companyId),
+  sageBusinessIdIdx: index("sage_connections_sage_business_id_idx").on(table.sageBusinessId),
+}));
+
+export const sageFiscalEvents = pgTable("sage_fiscal_events", {
+  id: serial("id").primaryKey(),
+  originId: text("origin_id").notNull(),
+  companyId: integer("company_id").references(() => companies.id).notNull(),
+  status: text("status").notNull(), // success, failed, skipped
+  details: jsonb("details"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  originCompanyIdx: index("sage_fiscal_events_origin_company_idx").on(table.originId, table.companyId),
+  statusIdx: index("sage_fiscal_events_status_idx").on(table.status),
+}));
+
+export type SageConnection = typeof sageConnections.$inferSelect;
+export type SageFiscalEvent = typeof sageFiscalEvents.$inferSelect;

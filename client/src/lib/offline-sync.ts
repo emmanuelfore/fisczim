@@ -13,7 +13,7 @@ import {
 import { apiFetch } from './api';
 import { buildUrl, api } from '@shared/routes';
 import { getIsOnline } from './online-state';
-import { supabase } from './supabase';
+import { auth } from './auth';
 
 export type SyncStatus = 'idle' | 'syncing' | 'error' | 'complete';
 
@@ -32,12 +32,12 @@ export interface SyncResult {
 async function getFreshToken(): Promise<string | null> {
     try {
         // Force a refresh to get a guaranteed-fresh token
-        const { data: refreshed } = await supabase.auth.refreshSession();
-        if (refreshed?.session?.access_token) return refreshed.session.access_token;
+        const refreshed = await auth.refreshTokens();
+        if (refreshed?.accessToken) return refreshed.accessToken;
 
         // Refresh failed (e.g. refresh token expired) — try existing session
-        const { data } = await supabase.auth.getSession();
-        return data?.session?.access_token ?? null;
+        const token = auth.getAccessToken() || localStorage.getItem('access_token');
+        return token ?? null;
     } catch (err) {
         console.warn('[Sync] Token refresh failed:', err);
         return null;

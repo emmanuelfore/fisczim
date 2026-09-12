@@ -92,7 +92,8 @@ export default {
         },
       },
       fontFamily: {
-        sans: ["Inter", "sans-serif"],
+        sans: ["Inter", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "sans-serif"],
+        lekaku: ["Inter", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "sans-serif"],
         display: ["Outfit", "sans-serif"],
         mono: ["Fira Code", "monospace"],
         jakarta: ["Plus Jakarta Sans", "sans-serif"],

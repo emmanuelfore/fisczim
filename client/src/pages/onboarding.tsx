@@ -49,16 +49,67 @@ import {
   ShieldCheck,
   Clock,
 } from "lucide-react";
-import { insertCompanySchema } from "@shared/schema";
+import { insertCompanyBaseSchema } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { useState, useEffect } from "react";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useBranding } from "@/hooks/use-branding";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
+
+// Tax-number rules differ per country/fiscal authority:
+// Zimbabwe (ZIMRA): TIN exactly 10 digits, VAT 9 or 10 digits.
+// Lesotho (RSL/LEKAKU): single-currency LSL, TIN format 9 digits +
+// hyphen + check digit (e.g. 200153280-9), VAT registration number is a
+// free field (format validation deferred).
+const COMPANY_TAX_RULES: Record<
+  string,
+  {
+    tin: RegExp | null;
+    tinMessage: string;
+    vat: RegExp | null;
+    vatMessage: string;
+    currency: string;
+    singleCurrency: boolean;
+  }
+> = {
+  Zimbabwe: {
+    tin: /^\d{10}$/,
+    tinMessage: "TIN must be exactly 10 digits",
+    vat: /^\d{9,10}$/,
+    vatMessage: "VAT number must be 9 or 10 digits",
+    currency: "USD",
+    singleCurrency: false,
+  },
+  Lesotho: {
+    tin: /^\d{9}-\d$/,
+    tinMessage: "RSL TIN must look like 200153280-9 (9 digits, hyphen, check digit)",
+    vat: null,
+    vatMessage: "",
+    currency: "LSL",
+    singleCurrency: true,
+  },
+};
+
+const taxRulesFor = (country?: string) =>
+  COMPANY_TAX_RULES[country || ""] || COMPANY_TAX_RULES.Zimbabwe;
+
+const LEKAKU_GREEN = "#0E7A4F";
+const LEKAKU_GREEN_DARK = "#0A5C3C";
+const LEKAKU_PAPER = "#FAF8F2";
+const LEKAKU_STONE = "#EDE9DD";
+const LEKAKU_INK = "#10231A";
+const LEKAKU_BLUE = "#1B4F9C";
+
+function LekakuBlanketStripe() {
+  return (
+    <div aria-hidden style={{ height: 8, background: `linear-gradient(90deg, ${LEKAKU_GREEN} 0 22%, #fff 22% 26%, ${LEKAKU_BLUE} 26% 48%, #111 48% 52%, ${LEKAKU_BLUE} 52% 74%, #fff 74% 78%, ${LEKAKU_GREEN} 78% 100%)` }} />
+  );
+}
 
 // Company Onboarding Schema
-const companySchema = insertCompanySchema
+const companySchema = insertCompanyBaseSchema
   .pick({
     name: true,
     tin: true,
@@ -77,20 +128,13 @@ const companySchema = insertCompanySchema
     city: z.string().min(1, "City is required"),
     phone: z.string().min(1, "Phone number is required"),
     email: z.string().email("Invalid email address"),
-    country: z.string().default("Zimbabwe"),
-    tin: z
-      .string()
-      .regex(/^\d{10}$/, "TIN must be exactly 10 digits")
-      .or(z.literal(""))
-      .optional(),
-
+    country: z.string().default("Lesotho"),
+    // Free-form at field level (Lesotho TIN contains a hyphen, VAT is a
+    // free field); exact formats enforced per country in superRefine.
+    tin: z.string().optional(),
     // Optional or specialized fields
     bpNumber: z.string().optional(),
-    vatNumber: z
-      .string()
-      .regex(/^\d{9,10}$/, "VAT number must be 9 or 10 digits")
-      .or(z.literal(""))
-      .optional(),
+    vatNumber: z.string().optional(),
     vatRegistered: z.boolean().default(false),
     logoUrl: z.string().optional(),
     tradingName: z.string().optional(),
@@ -98,6 +142,23 @@ const companySchema = insertCompanySchema
     fdmsApiKey: z.string().optional(),
   })
   .superRefine((data, ctx) => {
+    const rules = taxRulesFor(data.country);
+    // Length/format rules are country-specific (ZIMRA vs RSL formats).
+    // A null rule means free field (validated later).
+    if (data.tin && rules.tin && !rules.tin.test(data.tin)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["tin"],
+        message: rules.tinMessage,
+      });
+    }
+    if (data.vatNumber && rules.vat && !rules.vat.test(data.vatNumber)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["vatNumber"],
+        message: rules.vatMessage,
+      });
+    }
     if (!data.vatRegistered) return;
     if (!data.tin) {
       ctx.addIssue({
@@ -123,6 +184,7 @@ export default function OnboardingPage() {
   const { user } = useAuth();
   const createCompany = useCreateCompany();
   const { brand } = useBranding();
+  const { isLesotho: isFiscalLesotho } = useFiscalAuthority();
 
   // Steps: 1 = Company Basics, 2 = Tax Details
   const [currentStep, setCurrentStep] = useState(1);
@@ -141,10 +203,10 @@ export default function OnboardingPage() {
       phone: "",
       email: "",
       address: "",
-      city: "Harare",
+      city: "Maseru",
       logoUrl: "",
-      currency: "USD",
-      country: "Zimbabwe",
+      currency: "LSL",
+      country: "Lesotho",
     },
     mode: "onBlur", // Validate as user navigates
   });
@@ -198,9 +260,13 @@ export default function OnboardingPage() {
     setIsSubmitting(true);
     try {
       const fiscalProvider = data.country === "Lesotho" ? "LEKAKU" : "ZIMRA";
+      const rules = taxRulesFor(data.country);
       const payload = {
         ...data,
         fiscalProvider,
+        // Single-currency authorities (Lesotho/LSL): currency is fixed,
+        // never user-selected.
+        currency: rules.singleCurrency ? rules.currency : data.currency,
         tin: data.vatRegistered ? data.tin || "" : "",
         vatNumber: data.vatRegistered ? data.vatNumber || "" : "",
         vatEnabled: data.vatRegistered,
@@ -237,9 +303,9 @@ export default function OnboardingPage() {
         className={cn(
           "w-10 h-10 rounded-full flex items-center justify-center font-bold border-2 transition-all duration-500",
           step === current
-            ? "bg-violet-600 text-white border-violet-600 shadow-xl scale-110"
+            ? isFiscalLesotho ? "bg-[#0E7A4F] text-white border-[#0E7A4F] shadow-xl scale-110" : "bg-violet-600 text-white border-violet-600 shadow-xl scale-110"
             : step < current
-              ? "bg-emerald-500 border-emerald-500 text-white"
+              ? isFiscalLesotho ? "bg-[#0E7A4F] border-[#0E7A4F] text-white" : "bg-emerald-500 border-emerald-500 text-white"
               : "border-slate-200 text-slate-400 bg-white",
         )}
       >
@@ -248,7 +314,7 @@ export default function OnboardingPage() {
       <span
         className={cn(
           "text-[10px] font-black uppercase tracking-[0.2em]",
-          step === current ? "text-violet-600" : "text-slate-400",
+          step === current ? (isFiscalLesotho ? "text-[#0E7A4F]" : "text-violet-600") : "text-slate-400",
         )}
       >
         {label}
@@ -257,16 +323,20 @@ export default function OnboardingPage() {
   );
 
   const isVatRegistered = companyForm.watch("vatRegistered");
+  const onboardCountry = companyForm.watch("country");
+  const isLesotho = onboardCountry === "Lesotho";
+  const taxRules = taxRulesFor(onboardCountry);
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 sm:p-12 lg:p-20 font-jakarta">
+    <div className={cn("min-h-screen flex items-center justify-center p-4 sm:p-12 lg:p-20", isFiscalLesotho ? "bg-[#FAF8F2] lekaku-branch" : "bg-slate-50")} style={isFiscalLesotho ? { fontFamily: "'Public Sans', system-ui, sans-serif" } : undefined}>
+      {isFiscalLesotho && <div className="fixed top-0 left-0 right-0 z-10"><LekakuBlanketStripe /></div>}
       {/* Simple, Centered Container */}
-      <div className="max-w-2xl w-full bg-white rounded-[2.5rem] shadow-2xl shadow-slate-200/50 p-8 sm:p-12 space-y-10 animate-in fade-in zoom-in-95 duration-700">
+      <div className={cn("max-w-2xl w-full rounded-[2.5rem] shadow-2xl p-8 sm:p-12 space-y-10 animate-in fade-in zoom-in-95 duration-700", isFiscalLesotho ? "bg-white border border-[#EDE9DD] shadow-slate-200/30" : "bg-white shadow-slate-200/50")}>
         {/* Header */}
         <div className="text-center space-y-4">
-          <div className="inline-flex items-center gap-3 px-4 py-2 rounded-2xl bg-slate-50 border border-slate-100 shadow-sm">
-            <Building2 className="w-5 h-5 text-violet-600" />
-            <span className=" font-black uppercase tracking-widest text-slate-900">
+          <div className="inline-flex items-center gap-3 px-4 py-2 rounded-2xl border shadow-sm" style={isFiscalLesotho ? { background: "#fff", borderColor: LEKAKU_STONE } : {}}>
+            <Building2 className="w-5 h-5" style={{ color: isFiscalLesotho ? LEKAKU_GREEN : "#7c3aed" }} />
+            <span className=" font-black uppercase tracking-widest" style={{ color: isFiscalLesotho ? LEKAKU_INK : "#0f172a" }}>
               {brand.name}
             </span>
           </div>
@@ -285,7 +355,8 @@ export default function OnboardingPage() {
           <div className="h-0.5 w-12 bg-slate-100 relative top-[-10px]">
             <div
               className={cn(
-                "h-full bg-violet-600 transition-all duration-500",
+                "h-full transition-all duration-500",
+                isFiscalLesotho ? "bg-[#0E7A4F]" : "bg-violet-600",
                 currentStep > 1 ? "w-full" : "w-0",
               )}
             />
@@ -448,8 +519,20 @@ export default function OnboardingPage() {
                           Country
                         </FormLabel>
                         <Select
-                          onValueChange={field.onChange}
-                          defaultValue={field.value ?? "Zimbabwe"}
+                          onValueChange={(value) => {
+                            field.onChange(value);
+                            // Switching authority resets currency + tax
+                            // numbers, since formats differ (ZIMRA vs RSL).
+                            const next = taxRulesFor(value);
+                            companyForm.setValue("currency", next.currency);
+                            companyForm.setValue("tin", "");
+                            companyForm.setValue("vatNumber", "");
+                            companyForm.clearErrors(["tin", "vatNumber"]);
+                            if (value === "Lesotho" && !companyForm.getValues("city")) {
+                              companyForm.setValue("city", "Maseru");
+                            }
+                          }}
+                          defaultValue={field.value ?? "Lesotho"}
                         >
                           <FormControl>
                             <SelectTrigger className="h-12 bg-slate-50/50 border-slate-100 rounded-xl font-bold">
@@ -471,7 +554,7 @@ export default function OnboardingPage() {
               <div className="pt-6 border-t border-slate-100">
                 <Button
                   type="button"
-                  className="btn-gradient w-full h-14  font-black uppercase tracking-widest rounded-2xl active:scale-95 shadow-xl shadow-transparent hover:shadow-violet-600/20 transition-all"
+                  className={cn("w-full h-14 font-black uppercase tracking-widest rounded-2xl active:scale-95 shadow-xl transition-all", isFiscalLesotho ? "bg-[#0E7A4F] hover:bg-[#0A5C3C] text-white shadow-emerald-900/10" : "btn-gradient shadow-transparent hover:shadow-violet-600/20")}
                   onClick={async () => {
                     const isValid = await companyForm.trigger([
                       "name",
@@ -499,16 +582,17 @@ export default function OnboardingPage() {
               className="space-y-10 animate-in fade-in slide-in-from-right-4 duration-500"
             >
               <div className="space-y-6">
-                <div className="p-6 bg-slate-900 rounded-[2rem] text-white space-y-2 shadow-2xl relative overflow-hidden group">
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-violet-600/20 translate-x-10 -translate-y-10 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-700" />
+                <div className="p-6 rounded-[2rem] text-white space-y-2 shadow-2xl relative overflow-hidden group" style={{ background: isFiscalLesotho ? LEKAKU_INK : "#0f172a" }}>
+                  <div className="absolute top-0 right-0 w-32 h-32 translate-x-10 -translate-y-10 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-700" style={{ background: isFiscalLesotho ? "rgba(14,122,79,0.22)" : "rgba(124,58,237,0.2)" }} />
                   <div className="flex items-center gap-3 relative z-10">
-                    <AlertCircle className="w-5 h-5 text-violet-400" />
+                    <AlertCircle className="w-5 h-5" style={{ color: isFiscalLesotho ? "#7BE3A8" : "#a78bfa" }} />
                     <h4 className="text-base font-bold">Tax Compliance Info</h4>
                   </div>
                   <p className="text-xs text-slate-400 leading-relaxed relative z-10">
                     If your business is not VAT registered yet, leave tax
-                    registration off. You can add TIN, VAT, and ZIMRA device
-                    details later from Settings.
+                    registration off. You can add TIN, VAT, and{" "}
+                    {isLesotho ? "RSL device" : "ZIMRA device"} details later
+                    from Settings.
                   </p>
                 </div>
 
@@ -550,14 +634,16 @@ export default function OnboardingPage() {
                     render={({ field }) => (
                       <FormItem className="space-y-2 flex-1">
                         <FormLabel className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                          Taxpayer ID (TIN){" "}
+                          {isLesotho ? "RSL TIN" : "Taxpayer ID (TIN)"}{" "}
                           {isVatRegistered ? "" : "(optional)"}
                         </FormLabel>
                         <FormControl>
                           <Input
                             placeholder={
                               isVatRegistered
-                                ? "10XXXXXX"
+                                ? isLesotho
+                                  ? "e.g. 200153280-9"
+                                  : "10-digit TIN"
                                 : "Not registered yet"
                             }
                             {...field}
@@ -575,12 +661,17 @@ export default function OnboardingPage() {
                     render={({ field }) => (
                       <FormItem className="space-y-2 flex-1">
                         <FormLabel className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                          VAT Number {isVatRegistered ? "" : "(optional)"}
+                          {isLesotho ? "RSL VAT Number" : "VAT Number"}{" "}
+                          {isVatRegistered ? "" : "(optional)"}
                         </FormLabel>
                         <FormControl>
                           <Input
                             placeholder={
-                              isVatRegistered ? "9XXXXXX" : "Not registered yet"
+                              isVatRegistered
+                                ? isLesotho
+                                  ? "As on RSL certificate"
+                                  : "9 or 10 digits"
+                                : "Not registered yet"
                             }
                             {...field}
                             disabled={!isVatRegistered}
@@ -594,6 +685,8 @@ export default function OnboardingPage() {
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                  {/* BP Number is ZIMRA-specific — hidden for Lesotho. */}
+                  {!isLesotho && (
                   <FormField
                     control={companyForm.control}
                     name="bpNumber"
@@ -613,12 +706,30 @@ export default function OnboardingPage() {
                       </FormItem>
                     )}
                   />
+                  )}
                   <FormField
                     control={companyForm.control}
                     name="currency"
                     render={({ field }) => {
                       const country = companyForm.watch("country");
-                      const defaultCurrency = country === "Lesotho" ? "LSL" : "USD";
+                      const rules = taxRulesFor(country);
+                      // Single-currency authority (Lesotho): no choice needed.
+                      if (rules.singleCurrency) {
+                        return (
+                          <FormItem className="space-y-2 flex-1">
+                            <FormLabel className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                              Reporting Currency
+                            </FormLabel>
+                            <div className="h-12 px-4 flex items-center bg-emerald-50/60 border border-emerald-100 rounded-xl font-bold text-emerald-900">
+                              LSL - Lesotho Loti
+                              <span className="ml-2 text-[10px] font-medium text-emerald-600">
+                                (fixed)
+                              </span>
+                            </div>
+                            <FormMessage />
+                          </FormItem>
+                        );
+                      }
                       return (
                         <FormItem className="space-y-2 flex-1">
                           <FormLabel className="text-[10px] font-black uppercase tracking-widest text-slate-400">
@@ -626,7 +737,7 @@ export default function OnboardingPage() {
                           </FormLabel>
                           <Select
                             onValueChange={field.onChange}
-                            defaultValue={field.value ?? defaultCurrency}
+                            defaultValue={field.value ?? rules.currency}
                           >
                             <FormControl>
                               <SelectTrigger className="h-12 bg-slate-50/50 border-slate-100 rounded-xl font-bold">
@@ -661,7 +772,7 @@ export default function OnboardingPage() {
                 </Button>
                 <Button
                   type="submit"
-                  className="btn-gradient flex-1 h-14  font-black uppercase tracking-widest rounded-2xl shadow-2xl active:scale-95 transition-all"
+                  className={cn("flex-1 h-14 font-black uppercase tracking-widest rounded-2xl shadow-2xl active:scale-95 transition-all", isFiscalLesotho ? "bg-[#0E7A4F] hover:bg-[#0A5C3C] text-white" : "btn-gradient")}
                   disabled={isSubmitting}
                 >
                   {isSubmitting ? (

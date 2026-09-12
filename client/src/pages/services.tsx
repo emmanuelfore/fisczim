@@ -34,6 +34,7 @@ import { useBulkConvertProducts } from "@/hooks/use-products";
 import { Checkbox } from "@/components/ui/checkbox";
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
+import { resolveTaxType } from "@/lib/tax";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -281,32 +282,7 @@ export default function ServicesPage() {
                 </tr>
               ) : (
                 paginatedServices?.map((s) => {
-                  const matchedType = taxTypes.data?.find((t: any) => {
-                    if (s.taxTypeId) return t.id === s.taxTypeId;
-                    // Fallback for legacy data
-                    if (parseFloat(t.rate) === parseFloat(s.taxRate || "0")) {
-                      if (parseFloat(s.taxRate || "0") === 0) {
-                        const isExempt =
-                          s.name.toLowerCase().includes("exempt") ||
-                          s.description?.toLowerCase().includes("exempt");
-                        if (isExempt) {
-                          const zimraTaxId = t.zimraTaxId?.toString();
-                          return (
-                            zimraTaxId == "1" ||
-                            t.zimraCode === "C" ||
-                            t.zimraCode === "E" ||
-                            t.name.toLowerCase().includes("exempt")
-                          );
-                        }
-                        return (
-                          t.zimraTaxId === "2" ||
-                          t.name.toLowerCase().includes("zero")
-                        );
-                      }
-                      return true;
-                    }
-                    return false;
-                  });
+                  const matchedType = resolveTaxType(s, taxTypes.data);
                   return (
                     <tr
                       key={s.id}

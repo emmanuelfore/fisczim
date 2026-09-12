@@ -12,15 +12,17 @@ export interface BrandConfig {
 }
 
 export const BRAND_CONFIGS: Record<Brand, BrandConfig> = {
+  // lekaku branch: Lesotho deployment uses the same FiscalStack artwork
+  // recolored green (public/fiscalstack-lesotho-logo.png).
   fiscalstack: {
     name: "FiscalStack",
-    logo: "/fiscalstack-logo.png",
-    supportEmail: "info@fiscalstack.co.zw",
+    logo: "/fiscalstack-lesotho-logo.png",
+    supportEmail: "lesotho@fiscalstack.co.zw",
     website: "https://fiscalstack.co.zw",
-    whatsappMessage: "Hi FiscalStack! I'd like to learn more about your fiscalization platform.",
-    heroTitle: "Seamless ZIMRA Compliant Invoicing.",
-    heroSubtitle: "Manage customers, products, and fiscalization in one secure platform.",
-    primaryColor: "256 90% 60%", // Violet/Indigo
+    whatsappMessage: "Hi FiscalStack Lesotho! I'd like to learn more about your fiscalization platform.",
+    heroTitle: "RSL Compliant Fiscalisation for Lesotho.",
+    heroSubtitle: "Manage customers, products, and LEKAKU fiscalization in one secure platform.",
+    primaryColor: "156 79% 27%", // Lesotho green
   },
   fiscalzone: {
     name: "FiscalZone",

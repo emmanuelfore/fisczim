@@ -4,6 +4,8 @@ import { insertProductSchema, type InsertProduct } from "@shared/schema";
 import { useCreateProduct } from "@/hooks/use-products";
 import { useCostCenters } from "@/hooks/use-cost-centers";
 import { useTaxConfig } from "@/hooks/use-tax-config";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
+import { useActiveCompany } from "@/hooks/use-active-company";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -38,6 +40,7 @@ import { useState, useEffect } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
+import { resolveTaxType } from "@/lib/tax";
 import { ImageUpload } from "@/components/ui/image-upload";
 import { HsCodeAssistant } from "@/components/products/hs-code-assistant";
 
@@ -55,6 +58,19 @@ export function CreateProductDialog({
   const [isService, setIsService] = useState(defaultType === "service");
   const createProduct = useCreateProduct(companyId);
   const { taxCategories, taxTypes } = useTaxConfig(companyId);
+  // Lesotho: only offer current-environment, active RSL main taxes
+  // (VAT/NonVAT/Exempt). Levy kinds live on product levies, never as the
+  // main tax — the preflight rejects them there.
+  const { isLesotho } = useFiscalAuthority();
+  const { activeCompany: dialogCompany } = useActiveCompany();
+  const lekakuEnv = (dialogCompany as any)?.zimraEnvironment === "production" ? "production" : "test";
+  const visibleTaxTypes = (taxTypes.data || []).filter((t: any) => {
+    if (!isLesotho) return true;
+    if (!t.lekakuTaxId) return false;
+    if ((t.lekakuEnvironment || "test") !== lekakuEnv) return false;
+    if (t.isActive === false) return false;
+    return !["PercentageLevy", "FixedValueLevy", "WithholdingTax"].includes(t.lekakuTaxType);
+  });
   const { toast } = useToast();
 
   const { data: categories } = useQuery({
@@ -145,11 +161,13 @@ export function CreateProductDialog({
     string | undefined
   >(undefined);
 
-  // Sync with default value or tax types load
+  // Sync with default value or tax types load. New products have no
+  // taxTypeId yet, so this resolves the form's rate against the tax config.
   useEffect(() => {
     if (taxTypes.data && !selectedTaxTypeId && open) {
-      const defaultType = taxTypes.data?.find(
-        (t: any) => t.rate === form.getValues("taxRate"),
+      const defaultType = resolveTaxType(
+        { taxRate: form.getValues("taxRate") },
+        taxTypes.data,
       );
       if (defaultType) setSelectedTaxTypeId(defaultType.id.toString());
     }
@@ -666,7 +684,7 @@ export function CreateProductDialog({
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel className="text-xs uppercase tracking-wide text-blue-700 font-semibold">
-                        ZIMRA Tax Type
+                        {isLesotho ? "RSL Tax Type" : "ZIMRA Tax Type"}
                       </FormLabel>
                       <Select
                         onValueChange={(val) => {
@@ -688,9 +706,9 @@ export function CreateProductDialog({
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent className="rounded-xl shadow-xl">
-                          {taxTypes.data?.map((t: any) => (
+                          {visibleTaxTypes?.map((t: any) => (
                             <SelectItem key={t.id} value={t.id.toString()}>
-                              {t.name} ({t.rate}%)
+                              {t.name} ({t.rate}%){isLesotho && t.lekakuTaxId ? ` · ID ${t.lekakuTaxId}` : ""}
                             </SelectItem>
                           ))}
                         </SelectContent>

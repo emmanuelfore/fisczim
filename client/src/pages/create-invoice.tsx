@@ -85,6 +85,11 @@ import {
 } from "@/lib/invoice-templates";
 import { usePermissions } from "@/hooks/use-permissions";
 import { apiFetch } from "@/lib/api";
+import {
+  isExemptTaxType,
+  isZeroRatedTaxType,
+  resolveTaxType,
+} from "@/lib/tax";
 import { QuantityInput } from "@/components/ui/quantity-input";
 
 
@@ -1794,26 +1799,18 @@ export default function CreateInvoicePage() {
                               totalAmt = lineVal + vatAmt;
                             }
 
-                            // Determine Tax Status
-                            const matchingType = taxTypes.data?.find(
-                              (t: any) => t.id == item.taxTypeId,
+                            // Determine Tax Status from the tax config entry.
+                            const matchingType = resolveTaxType(
+                              item,
+                              taxTypes.data,
                             );
-                            const isExempt =
-                              matchingType?.zimraTaxId == 1 ||
-                              matchingType?.zimraTaxId == "1" ||
-                              matchingType?.zimraCode === "C" ||
-                              matchingType?.zimraCode === "E" ||
-                              matchingType?.name
-                                ?.toLowerCase()
-                                .includes("exempt");
+                            const isExempt = isExemptTaxType(matchingType);
                             const isZeroRated =
-                              matchingType?.zimraTaxId == 2 ||
-                              matchingType?.zimraTaxId == "2" ||
-                              matchingType?.zimraCode === "D" ||
-                              matchingType?.name
-                                ?.toLowerCase()
-                                .includes("zero rated") ||
-                              (!isExempt && item.taxRate === 0);
+                              !isExempt &&
+                              isZeroRatedTaxType(
+                                matchingType,
+                                item.taxRate,
+                              );
 
                             return (
                               <motion.tr

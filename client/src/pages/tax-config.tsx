@@ -19,6 +19,7 @@ import { ShieldCheck, Calculator, Smartphone, Pencil, RefreshCw, CheckCircle, XC
 import { apiFetch } from "@/lib/api";
 
 import { useActiveCompany } from "@/hooks/use-active-company";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 import { useState } from "react";
 
 export default function TaxConfigPage() {
@@ -27,6 +28,7 @@ export default function TaxConfigPage() {
     activeCompanyId,
     isLoading: isLoadingActive,
   } = useActiveCompany();
+  const { isLesotho } = useFiscalAuthority();
   const currentCompany = activeCompany;
   const isLoadingCompanies = isLoadingActive;
   const companyId = activeCompanyId;
@@ -34,9 +36,33 @@ export default function TaxConfigPage() {
   const [health, setHealth] = useState<any>(null);
   const [checkingHealth, setCheckingHealth] = useState(false);
   const [healthError, setHealthError] = useState("");
+  const [lekakuHealth, setLekakuHealth] = useState<any>(null);
+
+  const runLekakuHealthCheck = async () => {
+    if (!companyId) return;
+    setCheckingHealth(true);
+    setHealthError("");
+    setLekakuHealth(null);
+    try {
+      const res = await apiFetch(`/api/companies/${companyId}/lekaku/tax-health`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        setHealthError(err?.message || "Health check failed");
+      } else {
+        setLekakuHealth(await res.json());
+      }
+    } catch (err: any) {
+      setHealthError(err?.message || "Health check failed");
+    } finally {
+      setCheckingHealth(false);
+    }
+  };
 
   const runHealthCheck = async () => {
     if (!companyId) return;
+    if (isLesotho) return runLekakuHealthCheck();
     setCheckingHealth(true);
     setHealthError("");
     setHealth(null);
@@ -102,7 +128,7 @@ export default function TaxConfigPage() {
               Your company is currently marked as{" "}
               <strong>not registered for VAT</strong>. VAT will be automatically
               disabled (set to 0%) for all invoices to ensure compliance with
-              ZIMRA regulations for non-VAT taxpayers.
+              {isLesotho ? "RSL" : "ZIMRA"} regulations for non-VAT taxpayers.
             </p>
           </div>
         </div>
@@ -117,7 +143,7 @@ export default function TaxConfigPage() {
                 <ShieldCheck className="w-5 h-5 mr-2" />
                 Fiscal Connection
               </CardTitle>
-              <CardDescription>ZIMRA FDMS Configuration</CardDescription>
+              <CardDescription>{isLesotho ? "RSL LEKAKU Configuration" : "ZIMRA FDMS Configuration"}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <form
@@ -136,7 +162,7 @@ export default function TaxConfigPage() {
                       body: JSON.stringify(data),
                     });
                     if (res.ok) {
-                      alert("ZIMRA settings updated.");
+                      alert(isLesotho ? "RSL settings updated." : "ZIMRA settings updated.");
                       window.location.reload();
                     } else {
                       alert("Failed to update settings");
@@ -154,21 +180,21 @@ export default function TaxConfigPage() {
 
                 <div className="space-y-3">
                   <div className="space-y-1">
-                    <Label>TIN (Taxpayer ID)</Label>
+                    <Label>{isLesotho ? "RSL TIN" : "TIN (Taxpayer ID)"}</Label>
                     <Input
                       name="tin"
                       defaultValue={currentCompany.tin || ""}
                       className="font-mono bg-white"
-                      placeholder="2000000000"
+                      placeholder={isLesotho ? "200153280-9" : "2000000000"}
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label>Fiscal Device ID</Label>
+                    <Label>{isLesotho ? "RSL Device ID" : "Fiscal Device ID"}</Label>
                     <Input
                       name="fdmsDeviceId"
                       defaultValue={currentCompany.fdmsDeviceId || ""}
                       className="font-mono bg-white"
-                      placeholder="HTML-12345"
+                      placeholder={isLesotho ? "Device ID issued by RSL" : "HTML-12345"}
                     />
                   </div>
                 </div>
@@ -177,7 +203,7 @@ export default function TaxConfigPage() {
                   type="submit"
                   className="w-full mt-4 bg-emerald-600 hover:bg-emerald-700"
                 >
-                  Save ZIMRA Settings
+                  {isLesotho ? "Save RSL Settings" : "Save ZIMRA Settings"}
                 </Button>
               </form>
             </CardContent>
@@ -193,10 +219,12 @@ export default function TaxConfigPage() {
                 <div>
                   <CardTitle className="flex items-center text-blue-700">
                     <Calculator className="w-5 h-5 mr-2" />
-                    Tax Rates & ZIMRA Types
+                    {isLesotho ? "Tax Rates & RSL Types" : "Tax Rates & ZIMRA Types"}
                   </CardTitle>
                   <CardDescription>
-                    Manage master tax rates used by categories
+                    {isLesotho
+                      ? "RSL-issued taxes for this environment — read-only. Rates and IDs come from Sync, never typed by hand."
+                      : "Manage master tax rates used by categories"}
                   </CardDescription>
                 </div>
                 <ManageTaxTypeDialog />
@@ -208,20 +236,21 @@ export default function TaxConfigPage() {
                   <thead className="bg-slate-50 border-b border-slate-100">
                     <tr>
                       <th className="p-3 font-medium text-slate-500">Name</th>
-                      <th className="p-3 font-medium text-slate-500">Code</th>
-                      <th className="p-3 font-medium text-slate-500">ID</th>
+                      <th className="p-3 font-medium text-slate-500">{isLesotho ? "Kind" : "Code"}</th>
+                      <th className="p-3 font-medium text-slate-500">{isLesotho ? "RSL ID" : "ID"}</th>
                       <th className="p-3 font-medium text-slate-500 text-right">
                         Rate
                       </th>
                       <th className="p-3 font-medium text-slate-500">
-                        Valid From
+                        {isLesotho ? "Valid Till" : "Valid From"}
                       </th>
+                      {isLesotho && <th className="p-3 font-medium text-slate-500">Env</th>}
                       <th className="p-3 font-medium w-[50px]"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {taxTypes.data?.map((t: any) => (
-                      <tr key={t.id} className="hover:bg-slate-50/50">
+                    {(isLesotho ? taxTypes.data?.filter((t: any) => t.lekakuTaxId) : taxTypes.data)?.map((t: any) => (
+                      <tr key={t.id} className={`hover:bg-slate-50/50 ${isLesotho && t.isActive === false ? "opacity-60" : ""}`}>
                         <td className="p-3 font-medium text-slate-900">
                           {t.name}
                           <div className="text-xs text-slate-500 font-normal">
@@ -229,32 +258,40 @@ export default function TaxConfigPage() {
                           </div>
                         </td>
                         <td className="p-3 text-slate-700 font-mono">
-                          {t.zimraCode}
+                          {isLesotho ? (t.lekakuTaxType || "—") : t.zimraCode}
                         </td>
                         <td className="p-3 text-slate-700 font-mono">
-                          {t.zimraTaxId || "—"}
+                          {isLesotho ? (t.lekakuTaxId || "—") : (t.zimraTaxId || "—")}
                         </td>
                         <td className="p-3 text-right font-bold text-slate-900">
-                          {t.rate}%
+                          {isLesotho && t.lekakuTaxType === "Exempt" ? "—" : `${t.rate}%`}
                         </td>
                         <td className="p-3 text-slate-500 text-xs">
-                          {new Date(t.effectiveFrom).toLocaleDateString()}
-                          {t.effectiveTo &&
-                            ` - ${new Date(t.effectiveTo).toLocaleDateString()}`}
+                          {isLesotho
+                            ? (t.lekakuValidTill || "—")
+                            : <>{new Date(t.effectiveFrom).toLocaleDateString()}
+                              {t.effectiveTo && ` - ${new Date(t.effectiveTo).toLocaleDateString()}`}</>}
                         </td>
+                        {isLesotho && <td className="p-3 font-mono text-xs text-slate-500">{(t.lekakuEnvironment || "test").toUpperCase()}</td>}
                         <td className="p-3 text-right">
-                          <ManageTaxTypeDialog
-                            taxType={t}
-                            trigger={
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-8 w-8 p-0"
-                              >
-                                <Pencil className="w-4 h-4 text-slate-500" />
-                              </Button>
-                            }
-                          />
+                          {isLesotho && t.lekakuTaxId ? (
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${t.isActive === false ? "bg-red-50 text-red-700 border-red-200" : "bg-green-50 text-green-700 border-green-200"}`}>
+                              {t.isActive === false ? "expired" : "synced"}
+                            </span>
+                          ) : (
+                            <ManageTaxTypeDialog
+                              taxType={t}
+                              trigger={
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 w-8 p-0"
+                                >
+                                  <Pencil className="w-4 h-4 text-slate-500" />
+                                </Button>
+                              }
+                            />
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -264,19 +301,19 @@ export default function TaxConfigPage() {
             </CardContent>
           </Card>
 
-          {/* ZIMRA Tax Mapping Health */}
+          {/* Tax Mapping Health — authority-aware */}
           <Card className="card-depth border-none">
             <CardHeader>
               <div className="flex justify-between items-center">
                 <div>
                   <CardTitle className="flex items-center text-purple-700">
                     <Smartphone className="w-5 h-5 mr-2" />
-                    ZIMRA Tax Mapping Health
+                    {isLesotho ? "RSL Tax Mapping Health" : "ZIMRA Tax Mapping Health"}
                   </CardTitle>
                   <CardDescription>
-                    Validates your tax types against the live ZIMRA device config — catches
-                    duplicate rates, wrong tax IDs and percent mismatches that cause Red
-                    invoices.
+                    {isLesotho
+                      ? "Validates your tax types against the live RSL gateway config for this environment — catches unmapped products, stale rates, expired taxes and wrong-environment IDs that cause RCPT025 rejections."
+                      : "Validates your tax types against the live ZIMRA device config — catches duplicate rates, wrong tax IDs and percent mismatches that cause Red invoices."}
                   </CardDescription>
                 </div>
                 <Button
@@ -285,7 +322,7 @@ export default function TaxConfigPage() {
                   disabled={checkingHealth}
                 >
                   <RefreshCw className={`mr-2 h-4 w-4 ${checkingHealth ? "animate-spin" : ""}`} />
-                  Check Against ZIMRA
+                  {isLesotho ? "Check Against RSL" : "Check Against ZIMRA"}
                 </Button>
               </div>
             </CardHeader>
@@ -297,7 +334,86 @@ export default function TaxConfigPage() {
                 </div>
               )}
 
-              {health && (
+              {isLesotho && lekakuHealth && (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="font-mono text-xs px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      {(lekakuHealth.environment || "test").toUpperCase()}
+                    </span>
+                    <span className="text-slate-500">
+                      {lekakuHealth.liveAvailable
+                        ? `${lekakuHealth.liveTaxes.length} live RSL taxes`
+                        : "Gateway unreachable — local checks only"}
+                    </span>
+                  </div>
+                  {lekakuHealth.issues.length > 0 ? (
+                    <div className="space-y-2">
+                      {lekakuHealth.issues.map((issue: any, i: number) => (
+                        <div
+                          key={i}
+                          className={`flex items-start gap-2 p-3 rounded-lg border text-sm ${
+                            issue.severity === "error"
+                              ? "bg-red-50 border-red-200 text-red-800"
+                              : "bg-amber-50 border-amber-200 text-amber-800"
+                          }`}
+                        >
+                          {issue.severity === "error" ? (
+                            <XCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                          ) : (
+                            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+                          )}
+                          <span>
+                            <span className="font-mono text-xs mr-2 opacity-70">
+                              {issue.code}
+                            </span>
+                            {issue.message}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm">
+                      <CheckCircle className="w-4 h-4 shrink-0" />
+                      All products map cleanly to current-environment RSL taxes.
+                    </div>
+                  )}
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm">
+                      <thead className="bg-slate-50 border-b border-slate-100">
+                        <tr>
+                          <th className="p-2.5 font-medium text-slate-500">Local Tax</th>
+                          <th className="p-2.5 font-medium text-slate-500 text-right">Rate</th>
+                          <th className="p-2.5 font-medium text-slate-500">RSL ID</th>
+                          <th className="p-2.5 font-medium text-slate-500">Kind</th>
+                          <th className="p-2.5 font-medium text-slate-500">Valid Till</th>
+                          <th className="p-2.5 font-medium text-slate-500">Env</th>
+                          <th className="p-2.5 font-medium text-slate-500">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {lekakuHealth.localTaxes.map((t: any) => (
+                          <tr key={t.id} className="hover:bg-slate-50/50">
+                            <td className="p-2.5 font-medium text-slate-900">{t.name}</td>
+                            <td className="p-2.5 text-right font-bold text-slate-900">{t.lekakuTaxType === "Exempt" ? "—" : `${t.rate}%`}</td>
+                            <td className="p-2.5 font-mono text-slate-700">{t.lekakuTaxId}</td>
+                            <td className="p-2.5 text-slate-700">{t.lekakuTaxType}</td>
+                            <td className="p-2.5 text-slate-500 text-xs">{t.lekakuValidTill || "—"}</td>
+                            <td className="p-2.5 font-mono text-xs text-slate-500">{(t.lekakuEnvironment || "test").toUpperCase()}</td>
+                            <td className="p-2.5">
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${t.isActive === false ? "bg-red-50 text-red-700 border-red-200" : "bg-green-50 text-green-700 border-green-200"}`}>
+                                {t.isActive === false ? "expired" : "active"}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {!isLesotho && health && (
                 <div className="space-y-4">
                   {health.issues.length > 0 ? (
                     <div className="space-y-2">
@@ -367,10 +483,11 @@ export default function TaxConfigPage() {
                 </div>
               )}
 
-              {!health && !healthError && (
+              {!health && !lekakuHealth && !healthError && (
                 <p className="text-sm text-muted-foreground">
-                  Run a check to see how each of your tax types maps to the ZIMRA device
-                  and whether any configuration will produce invalid receipts.
+                  {isLesotho
+                    ? "Run a check to see how each product maps to the current-environment RSL taxes and whether any configuration will produce RCPT025 rejections."
+                    : "Run a check to see how each of your tax types maps to the ZIMRA device and whether any configuration will produce invalid receipts."}
                 </p>
               )}
             </CardContent>

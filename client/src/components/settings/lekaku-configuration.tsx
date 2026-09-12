@@ -7,17 +7,21 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useState } from "react";
-import { Plus, Save } from "lucide-react";
+import { RefreshCw, Save } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { LEKAKU_DEFAULT_GATEWAY } from "@shared/lekaku";
 
 type LekakuKind = "VAT" | "NonVAT" | "Exempt" | "PercentageLevy" | "FixedValueLevy" | "WithholdingTax";
-type Tax = { id: number; name: string; rate: string; lekakuTaxId?: string; lekakuTaxType?: LekakuKind };
+type Tax = {
+  id: number; name: string; rate: string; isActive?: boolean;
+  lekakuTaxId?: string; lekakuTaxType?: LekakuKind; lekakuTaxCode?: string | null;
+  lekakuEnvironment?: string | null; lekakuValidFrom?: string | null; lekakuValidTill?: string | null;
+};
 type Product = { id: number; name: string; sku?: string };
 
 export function LekakuConfiguration({ companyId, formData, setFormData }: { companyId: number; formData: any; setFormData: (value: any) => void }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [tax, setTax] = useState({ name: "", lekakuTaxId: "", rate: "0", lekakuTaxType: "VAT" as LekakuKind });
   const [selectedLevyId, setSelectedLevyId] = useState<string>("");
   const [selectedProducts, setSelectedProducts] = useState<Set<number>>(new Set());
   const [fixedQuantity, setFixedQuantity] = useState("1");
@@ -27,18 +31,24 @@ export function LekakuConfiguration({ companyId, formData, setFormData }: { comp
   const { data: products = [] } = useQuery({ queryKey: ["products", companyId], queryFn: async () => (await apiFetch(`/api/companies/${companyId}/products`)).json() as Promise<Product[]> });
   const { data: assignments = [] } = useQuery({ queryKey: ["lekaku-product-levies", companyId], queryFn: async () => (await apiFetch(`/api/companies/${companyId}/lekaku/product-levies`)).json() as Promise<Array<{ productId: number; taxTypeId: number; appliedForQuantity?: string }>> });
   const levies = taxes.filter(t => ["PercentageLevy", "FixedValueLevy", "WithholdingTax"].includes(t.lekakuTaxType || ""));
+  // Gateway-issued reference rows only — test and production gateways use
+  // different taxIDs, so each row carries its environment.
+  const referenceRows = taxes.filter(t => t.lekakuTaxId);
 
-  const createTax = useMutation({
+  const syncTaxes = useMutation({
     mutationFn: async () => {
-      const response = await apiFetch("/api/tax-types", { method: "POST", body: JSON.stringify({
-        companyId, name: tax.name, code: `LS-${tax.lekakuTaxType}-${tax.lekakuTaxId}`, rate: Number(tax.rate),
-        lekakuTaxId: tax.lekakuTaxId, lekakuTaxType: tax.lekakuTaxType,
-        effectiveFrom: new Date().toISOString().slice(0, 10), isActive: true,
-      }) });
-      if (!response.ok) throw new Error((await response.json()).message || "Could not save tax");
+      const response = await apiFetch(`/api/companies/${companyId}/lekaku/config/sync`, { method: "POST" });
+      if (!response.ok) throw new Error((await response.json()).message || "Could not sync RSL taxes");
+      return response.json();
     },
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["tax-types", companyId] }); setTax({ name: "", lekakuTaxId: "", rate: "0", lekakuTaxType: "VAT" }); },
-    onError: (error: Error) => toast({ title: "Tax not saved", description: error.message, variant: "destructive" }),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["tax-types", companyId] });
+      const parts = [`${data.added ?? 0} added`, `${data.updated ?? 0} updated`];
+      if (data.remap) parts.push(`${data.remap.remappedProducts ?? 0} products remapped`);
+      if (data.remap?.unmapped?.length) parts.push(`${data.remap.unmapped.length} need attention`);
+      toast({ title: "RSL taxes synced", description: `${parts.join(" • ")} (${data.environment || "test"})` });
+    },
+    onError: (error: Error) => toast({ title: "Sync failed", description: error.message, variant: "destructive" }),
   });
 
   const saveAssignments = useMutation({
@@ -52,18 +62,38 @@ export function LekakuConfiguration({ companyId, formData, setFormData }: { comp
     <Card className="border-emerald-200">
       <CardHeader><CardTitle>LEKAKU gateway</CardTitle><CardDescription>Paste the HTTPS gateway host supplied by Revenue Services Lesotho. The system adds the documented endpoint path automatically.</CardDescription></CardHeader>
       <CardContent className="grid gap-3 md:grid-cols-2">
-        <div><Label>Gateway host</Label><Input value={formData.lekakuGatewayUrl || ""} onChange={e => setFormData({ ...formData, fiscalProvider: "LEKAKU", country: "Lesotho", currency: "LSL", lekakuGatewayUrl: e.target.value })} placeholder="https://gateway.example.rsl.ls" /></div>
+        <div><Label>Gateway host</Label><Input value={formData.lekakuGatewayUrl || ""} onChange={e => setFormData({ ...formData, fiscalProvider: "LEKAKU", country: "Lesotho", currency: "LSL", lekakuGatewayUrl: e.target.value })} placeholder={LEKAKU_DEFAULT_GATEWAY} /></div>
         <div><Label>Provider</Label><Input value="LEKAKU - Lesotho" disabled /></div>
         <div><Label>RSL device ID</Label><Input value={formData.fdmsDeviceId || ""} onChange={e => setFormData({ ...formData, fdmsDeviceId: e.target.value })} placeholder="Device ID issued by RSL" /></div>
         <div><Label>Device certificate and private key</Label><p className="mt-2 text-xs text-muted-foreground">Use the existing secure fiscal-device credentials section to register or rotate the RSL certificate. LEKAKU sends them as the TLS client certificate and signs each receipt with the private key.</p></div>
-        <p className="text-xs text-muted-foreground md:col-span-2">Example request: <code>{(formData.lekakuGatewayUrl || "https://your-rsl-host")}/Device/v2/&lt;deviceID&gt;/SubmitReceipt</code>. Click the global <strong>Save changes</strong> button after editing this page.</p>
+        <p className="text-xs text-muted-foreground md:col-span-2">Example request: <code>{(formData.lekakuGatewayUrl || LEKAKU_DEFAULT_GATEWAY)}/Device/v2/&lt;deviceID&gt;/SubmitReceipt</code>. Leave blank to use the default RSL gateway. Click the global <strong>Save changes</strong> button after editing this page.</p>
       </CardContent>
     </Card>
 
-    <Card><CardHeader><CardTitle>Taxes and levies</CardTitle><CardDescription>Create your RSL-issued tax IDs here. VAT, NonVAT and Exempt are main taxes; levy types are additional taxes.</CardDescription></CardHeader><CardContent className="space-y-4">
-      <div className="grid gap-3 md:grid-cols-4"><Input value={tax.name} onChange={e => setTax({ ...tax, name: e.target.value })} placeholder="Name" /><Input value={tax.lekakuTaxId} onChange={e => setTax({ ...tax, lekakuTaxId: e.target.value })} placeholder="RSL tax ID" /><Input type="number" step="0.01" value={tax.rate} onChange={e => setTax({ ...tax, rate: e.target.value })} placeholder="Rate" /><Select value={tax.lekakuTaxType} onValueChange={(value: LekakuKind) => setTax({ ...tax, lekakuTaxType: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{(["VAT", "NonVAT", "Exempt", "PercentageLevy", "FixedValueLevy", "WithholdingTax"] as LekakuKind[]).map(kind => <SelectItem key={kind} value={kind}>{kind}</SelectItem>)}</SelectContent></Select></div>
-      <Button onClick={() => createTax.mutate()} disabled={!tax.name || !tax.lekakuTaxId || createTax.isPending}><Plus className="mr-2 h-4 w-4" />Add tax or levy</Button>
-      <div className="rounded-md border"><div className="grid grid-cols-4 gap-2 border-b bg-muted/40 p-2 text-xs font-medium"><span>Name</span><span>RSL ID</span><span>Rate</span><span>Kind</span></div>{taxes.map(t => <div className="grid grid-cols-4 gap-2 p-2 text-sm" key={t.id}><span>{t.name}</span><span>{t.lekakuTaxId || "-"}</span><span>{t.rate}%</span><span>{t.lekakuTaxType || "Not mapped"}</span></div>)}</div>
+    <Card><CardHeader>
+      <div className="flex items-center justify-between gap-3">
+        <div><CardTitle>RSL tax reference</CardTitle><CardDescription>Read-only taxes issued by the gateway. VAT, NonVAT and Exempt are main taxes; levy types ride on top of a line. Manual entry is disabled — hand-typed IDs cause RCPT025 rejections.</CardDescription></div>
+        <Button variant="outline" size="sm" onClick={() => syncTaxes.mutate()} disabled={syncTaxes.isPending}><RefreshCw className={`mr-2 h-4 w-4 ${syncTaxes.isPending ? "animate-spin" : ""}`} />{syncTaxes.isPending ? "Syncing…" : "Sync from RSL"}</Button>
+      </div>
+    </CardHeader><CardContent className="space-y-4">
+      {referenceRows.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No RSL taxes synced yet. Register the device, then press <strong>Sync from RSL</strong> (and again after every TEST↔PRODUCTION switch — tax IDs differ per gateway).</p>
+      ) : (
+        <div className="rounded-md border overflow-x-auto"><div className="grid grid-cols-7 gap-2 border-b bg-muted/40 p-2 text-xs font-medium min-w-[720px]"><span>Name</span><span>RSL ID</span><span>Kind</span><span>Rate</span><span>Valid till</span><span>Env</span><span>Status</span></div>
+          {referenceRows.map(t => (
+            <div className="grid grid-cols-7 gap-2 p-2 text-sm min-w-[720px]" key={t.id}>
+              <span>{t.name}</span>
+              <span className="font-mono">{t.lekakuTaxId}</span>
+              <span>{t.lekakuTaxType}</span>
+              <span>{t.lekakuTaxType === "Exempt" ? "—" : `${t.rate}%`}</span>
+              <span>{t.lekakuValidTill || "—"}</span>
+              <span className="font-mono text-xs">{(t.lekakuEnvironment || "test").toUpperCase()}</span>
+              <span className={`text-xs font-semibold ${t.isActive === false ? "text-red-600" : "text-emerald-700"}`}>{t.isActive === false ? "Expired" : "Active"}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <p className="text-xs text-muted-foreground">Expired rows stay for history — never assign products to them. Re-sync to pick up new or superseded taxes.</p>
     </CardContent></Card>
 
     <Card><CardHeader><CardTitle>Apply levy to products</CardTitle><CardDescription>Select a levy, tick the affected products, then save. Main tax remains on each product; this adds the selected levy on top.</CardDescription></CardHeader><CardContent className="space-y-4">

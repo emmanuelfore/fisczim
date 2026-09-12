@@ -41,6 +41,8 @@ import { DayManagementControls } from "@/components/zimra/day-management-control
 
 import { useActiveCompany } from "@/hooks/use-active-company";
 import { useBranchContext } from "@/lib/branch-context";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
+import { LekakuDeviceConfig } from "@/components/settings/lekaku-device-config";
 
 function cleanDeviceId(value: unknown) {
   const text = String(value || "").trim();
@@ -49,6 +51,7 @@ function cleanDeviceId(value: unknown) {
 
 export default function ZimraSettingsPage() {
   const { activeCompany, isLoading: isLoadingActive } = useActiveCompany();
+  const { isLesotho } = useFiscalAuthority();
   const currentCompany = activeCompany;
   const isLoading = isLoadingActive;
 
@@ -67,6 +70,19 @@ export default function ZimraSettingsPage() {
 
   return (
     <Layout>
+      {/* Lesotho companies set up their RSL device on this same page —
+          only the endpoint and credentials flow differ (LEKAKU). */}
+      {isLesotho && (
+        <div className="mb-4 flex items-center justify-end">
+          <Link href="/settings?tab=tax">
+            <Button variant="outline">
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Configure Taxes & Levies
+            </Button>
+          </Link>
+        </div>
+      )}
+      {!isLesotho && (
       <div className="mb-4 flex items-center justify-end">
         <Link href="/zimra-logs">
           <Button variant="outline">
@@ -75,8 +91,12 @@ export default function ZimraSettingsPage() {
           </Button>
         </Link>
       </div>
+      )}
 
       <div className="max-w-3xl">
+        {isLesotho ? (
+          <LekakuDeviceConfig company={currentCompany} />
+        ) : (
         <Card className="card-depth border-none h-fit">
           <CardHeader>
             <CardTitle className="flex items-center">
@@ -91,6 +111,7 @@ export default function ZimraSettingsPage() {
             <ZimraDeviceConfig company={currentCompany} />
           </CardContent>
         </Card>
+        )}
       </div>
     </Layout>
   );

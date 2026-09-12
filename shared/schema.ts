@@ -67,6 +67,9 @@ export const companies = pgTable("companies", {
   currency: text("currency").default("USD"),
   fiscalProvider: text("fiscal_provider").default("ZIMRA"), // ZIMRA or LEKAKU
   lekakuGatewayUrl: text("lekaku_gateway_url"),
+  // LEKAKU receipt arithmetic mode (spec TaxRoundingType). Must stay stable
+  // within a fiscal day — the device signature hashes the rounded amounts.
+  lekakuTaxRoundingType: text("lekaku_tax_rounding_type").default("PerReceipt"), // "PerReceipt" | "PerReceiptLine"
   phone: text("phone").notNull(),
   email: text("email").notNull(),
   website: text("website"),
@@ -455,8 +458,17 @@ export const taxTypes = pgTable("tax_types", {
   zimraTaxId: text("zimra_tax_id"), // Optional ZIMRA ID e.g. "3"
   // Revenue Services Lesotho / LEKAKU mapping.  Levy tax types are assigned
   // to products through productTaxLevies rather than replacing the main tax.
+  //
+  // IMPORTANT: test and production gateways issue DIFFERENT taxIDs for the
+  // same semantic tax. Rows are therefore scoped per environment
+  // (lekakuEnvironment) and products are remapped on env switch — never
+  // reuse one env's taxID against the other gateway (RCPT025).
   lekakuTaxId: text("lekaku_tax_id"),
   lekakuTaxType: text("lekaku_tax_type"), // VAT, NonVAT, Exempt, PercentageLevy, FixedValueLevy, WithholdingTax
+  lekakuTaxCode: text("lekaku_tax_code"), // gateway taxCode (all-or-nothing per receipt)
+  lekakuEnvironment: text("lekaku_environment").default("test"), // "test" | "production"
+  lekakuValidFrom: date("lekaku_valid_from"), // gateway taxValidFrom
+  lekakuValidTill: date("lekaku_valid_till"), // gateway taxValidTill (null = no expiry)
   defaultHsCode: text("default_hs_code"), // Default HS code used for this tax type
   calculationMethod: text("calculation_method").default("INCLUSIVE"), // INCLUSIVE, EXCLUSIVE
 }, (table) => {
@@ -924,13 +936,47 @@ export const currenciesRelations = relations(currencies, ({ one }) => ({
 
 export const insertUserSchema = createInsertSchema(users).omit({ createdAt: true });
 export const insertResetTokenSchema = createInsertSchema(resetTokens).omit({ id: true, createdAt: true });
-export const insertCompanySchema = createInsertSchema(companies).omit({ id: true, createdAt: true }).extend({
-  tin: z.string().regex(/^\d{10}$/, "TIN must be exactly 10 digits").or(z.string().length(0)).nullable().optional().transform(v => v === "" ? null : v),
-  vatNumber: z.string().regex(/^\d{9,10}$/, "VAT number must be 9 or 10 digits").or(z.string().length(0)).nullable().optional().transform(v => v === "" ? null : v),
-  bpNumber: z.string().regex(/^\d{10}$/, "BP number must be exactly 10 digits").or(z.string().length(0)).nullable().optional().transform(v => v === "" ? null : v),
+export const insertCompanyBaseSchema = createInsertSchema(companies).omit({ id: true, createdAt: true }).extend({
+  tin: z.string().nullable().optional().transform(v => v === "" ? null : v),
+  vatNumber: z.string().nullable().optional().transform(v => v === "" ? null : v),
+  bpNumber: z.string().nullable().optional().transform(v => v === "" ? null : v),
+});
+export const insertCompanySchema = insertCompanyBaseSchema.superRefine((data, ctx) => {
+  // Tax-number formats are authority-specific: ZIMRA wants 10-digit TINs,
+  // RSL/LEKAKU TINs look like 200153280-9 and VAT numbers are free-form.
+  const isLesotho = (data.country || "") === "Lesotho" || (data as any).fiscalProvider === "LEKAKU";
+  const tin = (data.tin || "") as string;
+  if (tin) {
+    const ok = isLesotho ? /^\d{9}-\d$/.test(tin) : /^\d{10}$/.test(tin);
+    if (!ok) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["tin"],
+        message: isLesotho
+          ? "RSL TIN must look like 200153280-9 (9 digits, hyphen, check digit)"
+          : "TIN must be exactly 10 digits",
+      });
+    }
+  }
+  const vat = (data.vatNumber || "") as string;
+  if (vat && !isLesotho && !/^\d{9,10}$/.test(vat)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["vatNumber"],
+      message: "VAT number must be 9 or 10 digits",
+    });
+  }
+  const bp = (data.bpNumber || "") as string;
+  if (bp && !isLesotho && !/^\d{10}$/.test(bp)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["bpNumber"],
+      message: "BP number must be exactly 10 digits",
+    });
+  }
 });
 export const insertCustomerSchema = createInsertSchema(customers).omit({ id: true, createdAt: true }).extend({
-  tin: z.string().regex(/^\d{10}$/, "TIN must be exactly 10 digits").or(z.string().length(0)).nullable().optional().transform(v => v === "" ? null : v),
+  tin: z.string().regex(/^(\d{10}|\d{9}-\d)$/, "TIN must be 10 digits (ZIMRA) or like 200153280-9 (RSL)").or(z.string().length(0)).nullable().optional().transform(v => v === "" ? null : v),
   vatNumber: z.string().regex(/^\d{9,10}$/, "VAT number must be 9 or 10 digits").or(z.string().length(0)).nullable().optional().transform(v => v === "" ? null : v),
   bpNumber: z.string().regex(/^\d{10}$/, "BP number must be exactly 10 digits").or(z.string().length(0)).nullable().optional().transform(v => v === "" ? null : v),
 });

@@ -25,8 +25,9 @@ export function useFiscalAuthority() {
         verifyLabel: isLesotho ? "Verify with RSL" : "Verify with ZIMRA",
         verifyUrl: isLesotho ? "https://lekaku.rsl.co.ls/verify" : "https://fdms.zimra.co.zw/verify",
         
-        // Settings
-        settingsRoute: isLesotho ? "/lekaku-settings" : "/zimra-settings",
+        // Settings — single device setup page; it switches authority
+        // (ZIMRA vs LEKAKU endpoint) based on the active company.
+        settingsRoute: "/zimra-settings",
         settingsLabel: isLesotho ? "LEKAKU Settings" : "ZIMRA Settings",
         
         // Tax

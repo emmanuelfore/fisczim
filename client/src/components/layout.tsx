@@ -1,6 +1,7 @@
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { useCompanies } from "@/hooks/use-companies";
+import { AdminSidebar } from "@/components/admin-sidebar";
 import {
   LayoutDashboard,
   FileText,
@@ -146,6 +147,11 @@ export function Layout({
     user?.id ?? null,
   );
   const { brand, currentBrand } = useBranding();
+  const isLekaku = currentBrand === "fiscalstack";
+  const navActiveClass = isLekaku ? "bg-emerald-800/30 text-emerald-50 shadow-[inset_3px_0_0_#10b981]" : "bg-slate-100 text-slate-900";
+  const navIdleClass = isLekaku ? "text-emerald-100/70 hover:bg-emerald-800/30 hover:text-white" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900";
+  const navIconActiveClass = isLekaku ? "text-emerald-400" : "text-slate-700";
+  const navIconIdleClass = isLekaku ? "text-emerald-200/60" : "text-slate-400";
   const { toast } = useToast();
   const { t } = useI18n();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -1360,39 +1366,57 @@ export function Layout({
       <style>{`
         .fz-admin,
         .admin-blueprint {
-          font-family: var(--font-sans) !important;
+          font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
         }
         .fz-admin .font-display,
         .admin-blueprint .font-display {
-          font-family: var(--font-display) !important;
+          font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
         }
         .admin-shell {
-          background: #F8FAFC;
-          color: #0F172A;
+          background: #FAF8F2;
+          color: #10231A;
         }
 
         .admin-blueprint .admin-sidebar {
-          background: #0f172a !important;
-          color: #f8fafc !important;
-          border-right: 1px solid #1e293b !important;
+          background: #064e3b !important;
+          color: #f0fdf4 !important;
+          border-right: 1px solid #065f46 !important;
           box-shadow: none !important;
         }
-        .admin-blueprint .admin-sidebar .text-slate-800 { color: #f8fafc !important; }
-        .admin-blueprint .admin-sidebar .text-slate-500 { color: #94a3b8 !important; }
-        .admin-blueprint .admin-sidebar .bg-slate-100 { background: #1e293b !important; }
+        .lekaku-branch.admin-blueprint .admin-sidebar {
+          background: #064e3b !important;
+          border-right: 1px solid #065f46 !important;
+        }
+        .admin-blueprint .admin-sidebar .text-slate-800 { color: #f0fdf4 !important; }
+        .admin-blueprint .admin-sidebar .text-slate-500 { color: #a7f3d0 !important; }
+        .lekaku-branch.admin-blueprint .admin-sidebar .text-slate-500 { color: #a7f3d0 !important; }
+        .admin-blueprint .admin-sidebar .bg-slate-100 { background: #065f46 !important; }
+        .lekaku-branch.admin-blueprint .admin-sidebar .bg-slate-100 { background: #065f46 !important; }
         .admin-blueprint .admin-sidebar .border-slate-50,
         .admin-blueprint .admin-sidebar .border-slate-100,
         .admin-blueprint .admin-sidebar .border-slate-200,
         .admin-blueprint .admin-sidebar .border-slate-200\/60 {
-          border-color: #1e293b !important;
+          border-color: #065f46 !important;
+        }
+        .lekaku-branch.admin-blueprint .admin-sidebar .border-slate-50,
+        .lekaku-branch.admin-blueprint .admin-sidebar .border-slate-100,
+        .lekaku-branch.admin-blueprint .admin-sidebar .border-slate-200,
+        .lekaku-branch.admin-blueprint .admin-sidebar .border-slate-200\/60 {
+          border-color: #065f46 !important;
         }
         .admin-blueprint .admin-sidebar .bg-slate-900 {
-          background: rgba(73, 37, 238, 0.15) !important;
+          background: rgba(16, 185, 129, 0.18) !important;
           color: #ffffff !important;
           box-shadow: none !important;
         }
+        .lekaku-branch.admin-blueprint .admin-sidebar .bg-slate-900 {
+          background: rgba(16, 185, 129, 0.18) !important;
+        }
         .admin-blueprint .admin-sidebar .hover\:bg-slate-50:hover {
-          background: #1e293b !important;
+          background: #065f46 !important;
+        }
+        .lekaku-branch.admin-blueprint .admin-sidebar .hover\:bg-slate-50:hover {
+          background: #065f46 !important;
         }
         .admin-blueprint .nav-item {
           transform: translateX(0);
@@ -1439,8 +1463,8 @@ export function Layout({
           transform: translateX(0);
         }
         .admin-blueprint .admin-header {
-          background: rgba(248, 250, 252, 0.94) !important;
-          border-bottom: none !important;
+          background: rgba(250, 248, 242, 0.96) !important;
+          border-bottom: 1px solid #EDE9DD !important;
           backdrop-filter: blur(16px);
         }
         .admin-blueprint .page-shell {
@@ -1448,51 +1472,165 @@ export function Layout({
           border: none !important;
           background: transparent !important;
           box-shadow: none !important;
+          padding: 24px 32px 32px !important;
+          max-width: 1280px;
+          width: 100%;
+          margin: 0 auto;
+        }
+        @media (max-width: 768px) {
+          .admin-blueprint .page-shell {
+            padding: 16px 16px 24px !important;
+          }
         }
         .admin-blueprint .shadcn-card {
-          background: #FFFFFF;
-          border-color: #E5E7EB;
-          box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+          background: #FAF8F2;
+          border-color: #EDE9DD;
+          box-shadow: 0 1px 2px rgba(16, 35, 26, 0.05);
         }
+        .btn-gradient,
+        .lekaku-branch .btn-gradient {
+          background: linear-gradient(to right, #059669, #047857) !important;
+        }
+        ::-webkit-scrollbar-thumb,
+        .lekaku-branch ::-webkit-scrollbar-thumb {
+          background-image: linear-gradient(to bottom, #0E7A4F, #10b981) !important;
+        }
+        /* Global accent recolor: all violet/indigo/blue → LEKAKU green */
+        .bg-violet-600, .bg-indigo-600, .bg-blue-600,
+        .bg-purple-600, .bg-indigo-500,
+        .lekaku-branch .bg-violet-600, .lekaku-branch .bg-indigo-600, .lekaku-branch .bg-blue-600,
+        .lekaku-branch .bg-purple-600, .lekaku-branch .bg-indigo-500 {
+          background-color: #059669 !important;
+        }
+        .text-violet-600, .text-indigo-600, .text-blue-600,
+        .text-purple-600, .text-indigo-500, .text-indigo-700,
+        .lekaku-branch .text-violet-600, .lekaku-branch .text-indigo-600, .lekaku-branch .text-blue-600,
+        .lekaku-branch .text-purple-600, .lekaku-branch .text-indigo-500, .lekaku-branch .text-indigo-700 {
+          color: #047857 !important;
+        }
+        .border-violet-200, .border-indigo-200, .border-blue-200,
+        .lekaku-branch .border-violet-200, .lekaku-branch .border-indigo-200, .lekaku-branch .border-blue-200 {
+          border-color: #a7f3d0 !important;
+        }
+        .from-violet-600, .via-indigo-600, .to-blue-600,
+        .lekaku-branch .from-violet-600, .lekaku-branch .via-indigo-600, .lekaku-branch .to-blue-600 {
+          --tw-gradient-from: #059669 !important;
+          --tw-gradient-via: #059669 !important;
+          --tw-gradient-to: #047857 !important;
+        }
+        .shadow-indigo-500\/20,
+        .lekaku-branch .shadow-indigo-500\/20 { --tw-shadow-color: rgba(16,185,129,0.2) !important; }
+        .bg-violet-50, .bg-indigo-50, .bg-blue-50, .bg-purple-50,
+        .lekaku-branch .bg-violet-50, .lekaku-branch .bg-indigo-50, .lekaku-branch .bg-blue-50,
+        .lekaku-branch .bg-purple-50 {
+          background-color: #ecfdf5 !important;
+        }
+        .hover\:bg-violet-50:hover, .hover\:bg-indigo-50:hover,
+        .hover\:bg-blue-50:hover,
+        .lekaku-branch .hover\:bg-violet-50:hover, .lekaku-branch .hover\:bg-indigo-50:hover,
+        .lekaku-branch .hover\:bg-blue-50:hover {
+          background-color: #d1fae5 !important;
+        }
+        /* LEKAKU typography system — Inter only */
+        .lekaku-branch .nav-item {
+          font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+          font-size: 14px;
+          font-weight: 500;
+          line-height: 20px;
+          letter-spacing: 0;
+        }
+        .lekaku-branch .nav-item.active,
+        .lekaku-branch .nav-item [data-active="true"] {
+          font-weight: 600 !important;
+        }
+        .lekaku-branch .nav-item .font-display {
+          font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+          font-weight: 500;
+        }
+        /* Extend theme everywhere: PAPER ground, STONE borders, INK text, GREEN accents */
+        .lekaku-branch .bg-slate-50 { background-color: #FAF8F2 !important; }
+        .lekaku-branch .bg-slate-100 { background-color: #FAF8F2 !important; }
+        .lekaku-branch .border-slate-200 { border-color: #EDE9DD !important; }
+        .lekaku-branch .border-slate-100 { border-color: #EDE9DD !important; }
+        .lekaku-branch .text-slate-900 { color: #10231A !important; }
+        .lekaku-branch .text-slate-600 { color: #3D4A43 !important; }
+        .lekaku-branch .text-slate-500 { color: #5A6660 !important; }
         .admin-blueprint label {
           color: #334155;
-          font-weight: 650;
-        }
-        .admin-blueprint .text-xs {
-          font-size: 13px !important;
-          line-height: 1.125rem !important;
+          font-weight: 600;
         }
         .page-shell > div > h1 {
-          letter-spacing: -0.02em;
-          font-weight: 750;
+          font-size: 28px;
+          font-weight: 700;
+          line-height: 34px;
+          letter-spacing: -0.5px;
         }
       `}</style>
+      {isLekaku && (
+        <div
+          aria-hidden
+          style={{
+            height: 10,
+            background: `linear-gradient(90deg, #0E7A4F 0%, #FFFFFF 22%, #1B4F9C 26%, #111111 48%, #1B4F9C 52%, #FFFFFF 74%, #0E7A4F 100%)`,
+            position: 'fixed',
+            top: 0, left: 0, right: 0, zIndex: 100
+          }}
+        />
+      )}
 
       <div
         className={cn(
-          "min-h-screen bg-slate-50 flex transition-all duration-300 admin-shell admin-blueprint",
+          "min-h-screen flex transition-all duration-300 admin-shell admin-blueprint",
           currentBrand === "fiscalzone"
-            ? "fz-admin"
-            : "font-sans selection:bg-blue-500/20",
+            ? "fz-admin bg-slate-50 font-sans selection:bg-blue-500/20"
+            : currentBrand === "fiscalstack"
+              ? "bg-[#FAF8F2] lekaku-branch pt-[10px] font-['Public_Sans',system-ui,sans-serif] selection:bg-emerald-500/20"
+              : "bg-slate-50 font-sans selection:bg-blue-500/20",
         )}
       >
-        {/* Primary Navigation Sidebar */}
-        <aside
-          className={cn(
-            "admin-sidebar bg-[#0f172a] border-r border-slate-800/60 shadow-[1px_0_10px_rgba(0,0,0,0.02)] flex shrink-0 flex-col overflow-hidden transition-all duration-500 ease-in-out",
-            "fixed inset-y-0 left-0 z-50 lg:inset-y-0 lg:h-screen lg:max-h-screen",
-            isSidebarCollapsed ? "w-20" : "w-[264px]",
-            isMobileMenuOpen
-              ? "translate-x-0"
-              : "-translate-x-full lg:translate-x-0",
-          )}
-        >
+        {isLekaku && (
+          <div
+            aria-hidden
+            className="fixed top-0 left-0 right-0 z-[100] pointer-events-none"
+            style={{
+              height: 10,
+              background:
+                "linear-gradient(90deg, #0E7A4F 0% 22%, #FFFFFF 22% 26%, #1B4F9C 26% 48%, #111111 48% 52%, #1B4F9C 52% 74%, #FFFFFF 74% 78%, #0E7A4F 78% 100%)",
+            }}
+          />
+        )}
+        {/* Primary Navigation Sidebar — LEKAKU spec */}
+        {isLekaku && (
+          <>
+            <AdminSidebar collapsed={isSidebarCollapsed} navItems={navItems} onToggleCollapse={() => setIsSidebarCollapsed((v) => !v)} />
+            {isMobileMenuOpen && (
+              <div className="lg:hidden fixed inset-0 z-50 flex">
+                <div className="fixed inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setIsMobileMenuOpen(false)} />
+                <div className="relative">
+                  <AdminSidebar collapsed={false} navItems={navItems} forceVisible onNavigate={() => setIsMobileMenuOpen(false)} />
+                </div>
+              </div>
+            )}
+          </>
+        )}
+        {!isLekaku && (
+          <aside
+            className={cn(
+              "admin-sidebar border-r shadow-[1px_0_10px_rgba(0,0,0,0.02)] flex shrink-0 flex-col overflow-hidden transition-all duration-500 ease-in-out",
+              "bg-[#0f172a] border-slate-800/60",
+              "fixed inset-y-0 left-0 z-50 lg:inset-y-0 lg:h-screen lg:max-h-screen",
+              isSidebarCollapsed ? "w-20" : "w-[264px]",
+              isMobileMenuOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
+            )}
+          >
           <div
             className={cn(
-              "relative h-[68px] flex items-center bg-[#0f172a]",
+              "relative h-[68px] flex items-center overflow-hidden",
+              currentBrand === "fiscalstack" ? "bg-[#064e3b]" : "bg-[#0f172a]",
               isSidebarCollapsed ? "px-3 justify-center" : "px-4",
             )}
           >
+            {isLekaku && <div aria-hidden className="absolute top-0 left-0 right-0 h-[4px]" style={{ background: "linear-gradient(90deg, #0E7A4F 0 22%, #fff 22% 26%, #1B4F9C 26% 48%, #111 48% 52%, #1B4F9C 52% 74%, #fff 74% 78%, #0E7A4F 78% 100%)" }} />}
             <div
               className={cn(
                 "flex items-center gap-2 transition-all w-full",
@@ -1581,9 +1719,7 @@ export function Layout({
                           <div
                             className={cn(
                               "w-11 h-11 rounded-[10px] flex items-center justify-center cursor-pointer transition-all duration-300 relative group collapsed-item mx-auto mb-1 nav-item",
-                              isActiveGroup
-                                ? "bg-slate-800/80 text-white shadow-[inset_3px_0_0_#4925ee]"
-                                : "text-slate-400 hover:bg-slate-800/50 hover:text-white",
+                              isActiveGroup ? navActiveClass : navIdleClass,
                             )}
                           >
                             <item.icon className="w-[18px] h-[18px]" />
@@ -1622,16 +1758,16 @@ export function Layout({
                                             className={cn(
                                               "flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-all  font-medium nav-sub-item",
                                               isGrandchildActive
-                                                ? "bg-slate-800/80 text-white shadow-[inset_3px_0_0_#4925ee]"
-                                                : "text-slate-400 hover:bg-slate-800/50 hover:text-white",
+                                                ? navActiveClass
+                                                : navIdleClass,
                                             )}
                                           >
                                             <grandchild.icon
                                               className={cn(
                                                 "w-[18px] h-[18px]",
                                                 isGrandchildActive
-                                                  ? "text-[#2563EB]"
-                                                  : "text-[#94A3B8]",
+                                                  ? navIconActiveClass
+                                                  : navIconIdleClass,
                                               )}
                                             />
                                             <span>{t(grandchild.label)}</span>
@@ -1651,16 +1787,16 @@ export function Layout({
                                   className={cn(
                                     "flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-all  font-medium mb-1 nav-sub-item",
                                     isChildActive
-                                      ? "bg-slate-800/80 text-white shadow-[inset_3px_0_0_#4925ee]"
-                                      : "text-slate-400 hover:bg-slate-800/50 hover:text-white",
+                                      ? navActiveClass
+                                      : navIdleClass,
                                   )}
                                 >
                                   <child.icon
                                     className={cn(
                                       "w-[18px] h-[18px]",
                                       isChildActive
-                                        ? "text-[#2563EB]"
-                                        : "text-[#94A3B8]",
+                                        ? navIconActiveClass
+                                        : navIconIdleClass,
                                     )}
                                   />
                                   <span>{t(child.label)}</span>
@@ -1684,9 +1820,7 @@ export function Layout({
                           <div
                             className={cn(
                               "flex items-center w-full px-3 py-2.5 rounded-[10px] text-[16px] font-semibold transition-all duration-200 cursor-pointer select-none group nav-item",
-                              isActiveGroup
-                                ? "bg-slate-800/80 text-white shadow-[inset_3px_0_0_#4925ee]"
-                                : "text-slate-400 hover:bg-slate-800/50 hover:text-white",
+                              isActiveGroup ? navActiveClass : navIdleClass,
                             )}
                           >
                             <div className="flex items-center gap-3 min-w-0">
@@ -1694,8 +1828,8 @@ export function Layout({
                                 className={cn(
                                   "w-[18px] h-[18px] shrink-0",
                                   isActiveGroup
-                                    ? "text-[#2563EB]"
-                                    : "text-[#94A3B8] group-hover:text-[#475569]",
+                                    ? navIconActiveClass
+                                    : "text-[#94A3B8] group-hover:text-emerald-200",
                                 )}
                               />
                               <span className="font-display tracking-tight text-[16px]">
@@ -1753,7 +1887,7 @@ export function Layout({
                                             "flex items-center w-full px-2.5 py-2.5 rounded-lg font-medium transition-all duration-150 cursor-pointer select-none group/sub nav-sub-item",
                                             isNestedActive
                                               ? "bg-slate-800/30 text-white"
-                                              : "text-slate-400 hover:bg-slate-800/50 hover:text-white",
+                                              : navIdleClass,
                                           )}
                                         >
                                           <div className="flex items-center gap-3 min-w-0">
@@ -1761,7 +1895,7 @@ export function Layout({
                                               className={cn(
                                                 "w-[18px] h-[18px] shrink-0",
                                                 isNestedActive
-                                                  ? "text-[#2563EB]"
+                                                  ? navIconActiveClass
                                                   : "text-[#94A3B8] group-hover/sub:text-[#475569]",
                                               )}
                                             />
@@ -1803,16 +1937,16 @@ export function Layout({
                                                   className={cn(
                                                     "flex items-center gap-3 px-2.5 py-2.5 rounded-lg font-medium transition-all duration-150 cursor-pointer nav-sub-item",
                                                     isGrandchildActive
-                                                      ? "bg-slate-800/80 text-white shadow-[inset_3px_0_0_#4925ee]"
-                                                      : "text-slate-400 hover:bg-slate-800/50 hover:text-white",
+                                                      ? navActiveClass
+                                                      : navIdleClass,
                                                   )}
                                                 >
                                                   <grandchild.icon
                                                     className={cn(
                                                       "w-[18px] h-[18px] shrink-0",
                                                       isGrandchildActive
-                                                        ? "text-[#2563EB]"
-                                                        : "text-[#94A3B8]",
+                                                        ? navIconActiveClass
+                                                        : navIconIdleClass,
                                                     )}
                                                   />
                                                   <span className="truncate">
@@ -1836,16 +1970,16 @@ export function Layout({
                                     className={cn(
                                       "flex items-center gap-3 px-2.5 py-2.5 rounded-lg  font-medium transition-all duration-150 cursor-pointer nav-sub-item",
                                       isChildActive
-                                        ? "bg-slate-800/80 text-white shadow-[inset_3px_0_0_#4925ee]"
-                                        : "text-slate-400 hover:bg-slate-800/50 hover:text-white",
+                                        ? navActiveClass
+                                        : navIdleClass,
                                     )}
                                   >
                                     <child.icon
                                       className={cn(
                                         "w-[18px] h-[18px] shrink-0",
                                         isChildActive
-                                          ? "text-[#2563EB]"
-                                          : "text-[#94A3B8]",
+                                          ? navIconActiveClass
+                                          : navIconIdleClass,
                                       )}
                                     />
                                     <span className="truncate">
@@ -1871,8 +2005,8 @@ export function Layout({
                         className={cn(
                           "w-11 h-11 rounded-[10px] flex items-center justify-center cursor-pointer transition-all duration-300 relative group collapsed-item mx-auto mb-1 nav-item",
                           isActive
-                            ? "bg-slate-800/80 text-white shadow-[inset_3px_0_0_#4925ee]"
-                            : "text-slate-400 hover:bg-slate-800/50 hover:text-white",
+                            ? navActiveClass
+                            : navIdleClass,
                         )}
                       >
                         <item.icon className="w-[18px] h-[18px]" />
@@ -1891,16 +2025,16 @@ export function Layout({
                         className={cn(
                           "flex items-center gap-3 px-3 py-2.5 rounded-[10px] text-[16px] font-semibold transition-all duration-200 cursor-pointer select-none group nav-item",
                           isActive
-                            ? "bg-slate-800/80 text-white shadow-[inset_3px_0_0_#4925ee]"
-                            : "text-slate-400 hover:bg-slate-800/50 hover:text-white",
+                            ? navActiveClass
+                            : navIdleClass,
                         )}
                       >
                         <item.icon
                           className={cn(
                             "w-[18px] h-[18px] shrink-0",
                             isActive
-                              ? "text-[#2563EB]"
-                              : "text-[#94A3B8] group-hover:text-[#475569]",
+                              ? navIconActiveClass
+                              : "text-[#94A3B8] group-hover:text-emerald-200",
                           )}
                         />
                         <span className="font-display tracking-tight">
@@ -1914,9 +2048,16 @@ export function Layout({
             </div>
           </nav>
 
+          {isLekaku && !isSidebarCollapsed && (
+            <div className="px-4 py-3 border-t border-emerald-800/30 mt-2">
+              <p className="text-[10px] font-mono tracking-[0.14em] text-emerald-200/60 text-center">Khotso · Pula · Nala</p>
+              <p className="text-[10px] font-medium text-emerald-200/40 text-center mt-1">RSL · LSL · Lesotho</p>
+            </div>
+          )}
           <div
             className={cn(
-              "sticky bottom-0 z-20 mt-auto border-t border-slate-800/60 bg-[#0f172a]",
+              "sticky bottom-0 z-20 mt-auto border-t",
+              isLekaku ? "border-emerald-800/50 bg-[#064e3b]" : "border-slate-800/60 bg-[#0f172a]",
               isSidebarCollapsed ? "p-2" : "p-3 space-y-3",
             )}
           >
@@ -2059,16 +2200,24 @@ export function Layout({
             </DropdownMenu>
           </div>
         </aside>
+        )}
 
-        {/* Main Administrative Workspace */}
+        {/* Main Administrative Workspace — page content above extended sidebar header */}
         <div
           className={cn(
-            "flex-1 flex flex-col min-h-screen min-w-0 transition-all duration-500 ease-in-out",
-            isSidebarCollapsed ? "lg:ml-20" : "lg:ml-[264px]",
+            "flex-1 flex flex-col min-h-screen min-w-0 transition-all duration-500 ease-in-out relative",
+            isLekaku ? "z-[30] bg-[#FAF8F2] lg:rounded-tl-[16px] lg:overflow-hidden lg:border-l lg:border-t lg:border-[#EDE9DD]" : "z-auto",
+            isLekaku ? (isSidebarCollapsed ? "lg:ml-[72px]" : "lg:ml-[236px]") : (isSidebarCollapsed ? "lg:ml-20" : "lg:ml-[264px]"),
           )}
         >
-          {/* Top Header */}
-          <header className="admin-header h-[80px] bg-[#F8FAFC]/90 backdrop-blur-md flex items-center justify-between gap-3 px-4 sm:px-6 z-40 sticky top-0 border-b border-slate-200 lg:border-b-0 lg:bg-[#F8FAFC] lg:relative lg:backdrop-blur-none">
+          {/* Top Header — right at top under global stripe */}
+          <header className={cn(
+            "admin-header h-[80px] flex items-center justify-between gap-3 px-4 sm:px-6 sticky",
+            isLekaku
+              ? "bg-[#FAF8F2] top-[10px] z-[30] lg:rounded-tl-[16px]"
+              : "bg-[#F8FAFC]/90 backdrop-blur-md z-40 border-slate-200 top-0 lg:border-b-0 lg:bg-[#F8FAFC] lg:relative lg:backdrop-blur-none",
+            isLekaku && !isSidebarCollapsed && "lg:pl-[80px]",
+          )}>
             {/* Mobile Menu Toggle */}
             <Button
               variant="ghost"
@@ -2325,11 +2474,13 @@ export function Layout({
               </div>
             )}
 
-          {/* Page Content */}
+          {/* Page Content — lekaku flush top so hero stripe sits right under header */}
           <main
             className={cn(
-              "flex-1 max-w-[1600px] w-full mx-auto",
-              "px-4 pb-4 pt-1 sm:px-7 sm:pb-8 sm:pt-1",
+              "flex-1 w-full mx-auto",
+              isLekaku
+                ? "max-w-none px-0 pb-8 pt-0"
+                : "max-w-[1600px] px-4 pb-4 pt-1 sm:px-7 sm:pb-8 sm:pt-1",
             )}
           >
             {isImmersiveRoute ? (

@@ -1,10 +1,51 @@
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Cormorant+Garamond:ital,wght@0,300;0,500;0,600;1,300;1,500;1,600&family=DM+Mono:wght@300;400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
+  /* LEKAKU typography system — Inter-only */
+  --lekaku-font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+  /* Size tokens */
+  --lk-text-page-title: 28px;
+  --lk-text-section: 18px;
+  --lk-text-card-heading: 15px;
+  --lk-text-metric-lg: 30px;
+  --lk-text-metric-md: 22px;
+  --lk-text-body: 14px;
+  --lk-text-secondary: 13px;
+  --lk-text-sm: 12px;
+  --lk-text-caption: 11px;
+  --lk-text-badge: 10px;
+
+  /* Weight tokens */
+  --lk-weight-regular: 400;
+  --lk-weight-medium: 500;
+  --lk-weight-semibold: 600;
+  --lk-weight-bold: 700;
+
+  /* Colour tokens */
+  --lk-ink: #10231A;
+  --lk-body: #3D4A43;
+  --lk-muted: #5A6660;
+  --lk-green: #0E7A4F;
+  --lk-paper: #FAF8F2;
+  --lk-stone: #EDE9DD;
+
+  /* Line-height tokens */
+  --lk-lh-title: 34px;
+  --lk-lh-section: 24px;
+  --lk-lh-body: 21px;
+  --lk-lh-sm: 17px;
+  --lk-lh-caption: 16px;
+
+  /* Letter-spacing tokens */
+  --lk-ls-title: -0.5px;
+  --lk-ls-badge: 0.3px;
+
   --font-sans: 'Outfit', sans-serif;
   --font-display: 'Outfit', sans-serif;
   --font-mono: 'Fira Code', monospace;
@@ -13,13 +54,13 @@
   --font-cormorant: 'Cormorant Garamond', serif;
   --font-dmmono: 'DM Mono', monospace;
 
-  /* Vibrant Professional Palette - Violet/Indigo/Cyan */
+  /* Lesotho deployment palette - RSL green (lekaku branch) */
   --background: 220 30% 98%;
   /* Slightly tinted cool white */
   --foreground: 222 47% 11%;
 
-  --primary: 256 90% 60%;
-  /* Vibrant Violet */
+  --primary: 156 79% 27%;
+  /* Lesotho green */
   --primary-foreground: 0 0% 100%;
 
   --secondary: 210 40% 96%;
@@ -28,36 +69,218 @@
   --muted: 210 40% 96%;
   --muted-foreground: 215 16% 47%;
 
-  --accent: 256 90% 96%;
-  --accent-foreground: 256 90% 60%;
+  --accent: 156 79% 95%;
+  --accent-foreground: 156 79% 27%;
 
   --destructive: 0 84% 60%;
   --destructive-foreground: 210 40% 98%;
 
   --border: 214 32% 91%;
   --input: 214 32% 91%;
-  --ring: 256 90% 60%;
+  --ring: 156 79% 27%;
 
   /* Sidebar colors - Light mode */
   --sidebar: 210 40% 96%;
   --sidebar-foreground: 222 47% 11%;
   --sidebar-border: 214 32% 91%;
-  --sidebar-ring: 256 90% 60%;
-  --sidebar-primary: 256 90% 60%;
+  --sidebar-ring: 156 79% 27%;
+  --sidebar-primary: 156 79% 27%;
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 256 90% 96%;
-  --sidebar-accent-foreground: 256 90% 60%;
+  --sidebar-accent: 156 79% 95%;
+  --sidebar-accent-foreground: 156 79% 27%;
 
   --radius: 0.75rem;
 }
 
+/* ============================================================
+   LEKAKU Admin — Inter-only Typography System
+   All font-family, size, weight and colour rules for .lekaku-branch
+   ============================================================ */
+.lekaku-branch,
+.lekaku-branch *,
+.admin-shell.lekaku-branch {
+  font-family: var(--lekaku-font) !important;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Headings: use Inter, no serif */
+.lekaku-branch h1,
+.lekaku-branch h2,
+.lekaku-branch h3,
+.lekaku-branch h4,
+.lekaku-branch h5,
+.lekaku-branch h6,
+.lekaku-branch .font-display {
+  font-family: var(--lekaku-font) !important;
+  letter-spacing: var(--lk-ls-title);
+}
+
+/* Page title */
+.lekaku-branch .lk-page-title {
+  font-size: var(--lk-text-page-title);
+  font-weight: var(--lk-weight-bold);
+  line-height: var(--lk-lh-title);
+  letter-spacing: var(--lk-ls-title);
+  color: var(--lk-ink);
+}
+
+/* Section heading */
+.lekaku-branch .lk-section-heading {
+  font-size: var(--lk-text-section);
+  font-weight: var(--lk-weight-bold);
+  line-height: var(--lk-lh-section);
+  color: var(--lk-ink);
+}
+
+/* Card heading */
+.lekaku-branch .lk-card-heading {
+  font-size: var(--lk-text-card-heading);
+  font-weight: var(--lk-weight-semibold);
+  line-height: 21px;
+  color: var(--lk-ink);
+}
+
+/* Large metric (e.g. $12,450) */
+.lekaku-branch .lk-metric-lg {
+  font-size: var(--lk-text-metric-lg);
+  font-weight: var(--lk-weight-bold);
+  line-height: 36px;
+  letter-spacing: var(--lk-ls-title);
+  color: var(--lk-ink);
+}
+
+/* Medium metric */
+.lekaku-branch .lk-metric-md {
+  font-size: var(--lk-text-metric-md);
+  font-weight: var(--lk-weight-bold);
+  line-height: 30px;
+  color: var(--lk-ink);
+}
+
+/* Body */
+.lekaku-branch .lk-body {
+  font-size: var(--lk-text-body);
+  font-weight: var(--lk-weight-regular);
+  line-height: var(--lk-lh-body);
+  color: var(--lk-body);
+}
+
+/* Secondary / supporting text */
+.lekaku-branch .lk-secondary {
+  font-size: var(--lk-text-secondary);
+  font-weight: var(--lk-weight-regular);
+  line-height: 19px;
+  color: var(--lk-muted);
+}
+
+/* Caption */
+.lekaku-branch .lk-caption {
+  font-size: var(--lk-text-caption);
+  font-weight: var(--lk-weight-medium);
+  line-height: var(--lk-lh-caption);
+  color: var(--lk-muted);
+}
+
+/* Badge text */
+.lekaku-branch .lk-badge {
+  font-size: var(--lk-text-badge);
+  font-weight: var(--lk-weight-bold);
+  letter-spacing: var(--lk-ls-badge);
+  line-height: var(--lk-lh-caption);
+}
+
+/* Button text */
+.lekaku-branch button,
+.lekaku-branch [role="button"] {
+  font-family: var(--lekaku-font) !important;
+  font-size: 13px;
+  font-weight: var(--lk-weight-semibold);
+  line-height: 20px;
+}
+
+/* Navigation items */
+.lekaku-branch .nav-item span,
+.lekaku-branch .nav-item a {
+  font-size: 14px;
+  font-weight: var(--lk-weight-medium);
+  line-height: 20px;
+}
+.lekaku-branch .nav-item.active span,
+.lekaku-branch .nav-item.active a {
+  font-weight: var(--lk-weight-semibold) !important;
+}
+
+/* Table headers */
+.lekaku-branch th,
+.lekaku-branch .data-table-header {
+  font-size: 11px !important;
+  font-weight: var(--lk-weight-semibold) !important;
+  line-height: 16px !important;
+  color: var(--lk-muted) !important;
+  letter-spacing: 0.2px;
+}
+
+/* Table body rows */
+.lekaku-branch td,
+.lekaku-branch .data-table-cell {
+  font-size: 13px !important;
+  font-weight: var(--lk-weight-regular) !important;
+  line-height: 19px !important;
+  color: var(--lk-ink) !important;
+}
+
+/* Form labels */
+.lekaku-branch label {
+  font-size: 12px;
+  font-weight: var(--lk-weight-semibold);
+  line-height: var(--lk-lh-sm);
+  color: var(--lk-body);
+}
+
+/* Inputs */
+.lekaku-branch input,
+.lekaku-branch textarea,
+.lekaku-branch select {
+  font-size: 14px;
+  font-weight: var(--lk-weight-regular);
+  color: var(--lk-ink);
+  font-family: var(--lekaku-font) !important;
+}
+.lekaku-branch input::placeholder,
+.lekaku-branch textarea::placeholder {
+  font-size: 14px;
+  font-weight: var(--lk-weight-regular);
+  color: var(--lk-muted);
+  opacity: 1;
+}
+
+/* Colour overrides for the Lekaku brand */
+.lekaku-branch .bg-violet-600,
+.lekaku-branch .bg-indigo-600,
+.lekaku-branch .bg-blue-600,
+.lekaku-branch .bg-purple-600,
+.lekaku-branch .bg-indigo-500 { background-color: #0E7A4F !important; }
+.lekaku-branch .text-violet-600,
+.lekaku-branch .text-indigo-600,
+.lekaku-branch .text-blue-600,
+.lekaku-branch .text-purple-600 { color: #0E7A4F !important; }
+.lekaku-branch .border-violet-200,
+.lekaku-branch .border-indigo-200,
+.lekaku-branch .border-blue-200 { border-color: #a7f3d0 !important; }
+.lekaku-branch .bg-violet-50,
+.lekaku-branch .bg-indigo-50,
+.lekaku-branch .bg-blue-50,
+.lekaku-branch .bg-purple-50 { background-color: #ecfdf5 !important; }
+.lekaku-branch .bg-slate-50 { background-color: #FAF8F2 !important; }
+.lekaku-branch .border-slate-200 { border-color: #EDE9DD !important; }
 .dark {
   /* Dark mode sidebar colors - high contrast on dark brown background */
   --sidebar: 20 25% 15%;
   --sidebar-foreground: 0 0% 95%;
   --sidebar-border: 20 20% 25%;
-  --sidebar-ring: 256 90% 60%;
-  --sidebar-primary: 256 90% 60%;
+  --sidebar-ring: 156 79% 27%;
+  --sidebar-primary: 156 79% 27%;
   --sidebar-primary-foreground: 0 0% 100%;
   --sidebar-accent: 20 20% 25%;
   --sidebar-accent-foreground: 0 0% 95%;

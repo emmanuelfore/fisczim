@@ -2,25 +2,6 @@ import { auth } from "./auth";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
 
-// Force-clear stale Supabase→self-host migration cache once
-const MIGRATION_VERSION = "20260906-supabase-restore-v2";
-try {
-  if (typeof window !== 'undefined' && localStorage.getItem("migration_version") !== MIGRATION_VERSION) {
-    console.log("[Migration] Clearing stale cache", MIGRATION_VERSION);
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('refresh_token');
-    localStorage.removeItem('auth_user');
-    localStorage.removeItem('selectedCompanyId');
-    localStorage.removeItem('selectedBranchId');
-    // offline IndexedDB will be cleared lazily on next 401, but also bump version
-    localStorage.setItem("migration_version", MIGRATION_VERSION);
-    // force service worker update if present
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => r.update()));
-    }
-  }
-} catch {}
-
 // ── Synchronous Session Cache ──
 let cachedSession: any = null;
 let sessionInitialized = false;
@@ -94,30 +75,48 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
             signal: init?.signal ?? controller?.signal,
         });
 
-        if (response.status === 401 && !url.toString().includes('/api/auth/login')) {
-            console.warn('[apiFetch] 401 Unauthorized - clearing token');
-            localStorage.removeItem('access_token');
-            localStorage.removeItem('refresh_token');
-            localStorage.removeItem('auth_user');
-            // Clear offline IndexedDB cache (stale companies) so next login re-fetches
-            try { const { clearCachedUser } = await import('./offline-db'); await clearCachedUser(); } catch {}
-            invalidateSessionCache();
-            // Auto-redirect once per session (prevents redirect loop)
-            // In Electron (desktop POS) redirect to /pos-login, not /auth
-            if (typeof window !== 'undefined' && !(window as any).__authRedirecting) {
-                const isElectron = !!(window as any).electronAPI?.isElectron || window.navigator.userAgent.toLowerCase().includes('electron/');
-                const path = window.location.pathname;
-                const isAuthRoute = path.includes('/auth');
-                const isPosLoginRoute = path === '/pos-login' || path.startsWith('/pos-login');
-                if (isElectron) {
-                    if (!isPosLoginRoute) {
+        const urlStr = url.toString();
+        const isAuthEndpoint = urlStr.includes('/api/auth/');
+        const alreadyRetried = (init as any)?._authRetried === true;
+
+        // 401 received: silently try ONE token refresh then retry the original request.
+        // Never retry auth endpoints themselves, and never retry more than once.
+        if (response.status === 401 && !isAuthEndpoint && !alreadyRetried) {
+            let refreshSucceeded = false;
+            try {
+                const refreshed = await auth.refreshTokens();
+                if (refreshed?.accessToken) {
+                    refreshSucceeded = true;
+                    if (timeoutId) window.clearTimeout(timeoutId);
+                    return apiFetch(input, { ...init, _authRetried: true } as any);
+                }
+            } catch {
+                // Fall through — refresh failed, session is dead.
+            }
+
+            if (!refreshSucceeded) {
+                // Refresh token is dead (or missing) — clear session and redirect to login.
+                console.warn('[apiFetch] 401 and token refresh failed — clearing session');
+                localStorage.removeItem('access_token');
+                localStorage.removeItem('refresh_token');
+                localStorage.removeItem('auth_user');
+                try { const { clearCachedUser } = await import('./offline-db'); await clearCachedUser(); } catch {}
+                invalidateSessionCache();
+                if (typeof window !== 'undefined' && !(window as any).__authRedirecting) {
+                    const isElectron = !!(window as any).electronAPI?.isElectron || window.navigator.userAgent.toLowerCase().includes('electron/');
+                    const path = window.location.pathname;
+                    const isAuthRoute = path.includes('/auth');
+                    const isPosLoginRoute = path === '/pos-login' || path.startsWith('/pos-login');
+                    const isPublicRoute = path === '/' || path === '' || path.startsWith('/auth') || path.startsWith('/forgot-password') || path.startsWith('/reset-password');
+                    if (isElectron) {
+                        if (!isPosLoginRoute && !isPublicRoute) {
+                            (window as any).__authRedirecting = true;
+                            window.location.href = '/pos-login';
+                        }
+                    } else if (!isAuthRoute && !isPublicRoute) {
                         (window as any).__authRedirecting = true;
-                        window.location.href = '/pos-login';
+                        window.location.href = '/auth';
                     }
-                    // already on /pos-login — stay, no loop
-                } else if (!isAuthRoute) {
-                    (window as any).__authRedirecting = true;
-                    window.location.href = '/auth';
                 }
             }
         }

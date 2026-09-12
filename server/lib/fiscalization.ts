@@ -1,7 +1,8 @@
 import { storage } from "../storage.js";
 import { ZimraDevice, ReceiptData, ZimraConfigResponse, ZimraApiError, ZimraLogger } from "../zimra.js";
-import { LekakuDevice, LekakuConfig, LekakuReceipt, LekakuReceiptLine, LekakuTaxType, prepareLekakuReceipt, getLekakuReceiptSignatureInput } from "../lekaku.js";
+import { LekakuDevice, LekakuConfig, LekakuReceipt, LekakuReceiptLine, LekakuReceiptPayment, LekakuTaxType, prepareLekakuReceipt, getLekakuReceiptSignatureInput } from "../lekaku.js";
 import { Invoice, products, productTaxLevies, taxTypes } from "../../shared/schema.js";
+import { LEKAKU_DEFAULT_GATEWAY, getLekakuGatewayUrl } from "../../shared/lekaku.js";
 import fs from "fs";
 import path from "path";
 import { logAction } from "../audit.js";
@@ -138,7 +139,17 @@ function formatLesothoDate(date: Date): string {
     return local.toISOString().slice(0, 19); // "YYYY-MM-DDTHH:mm:ss"
 }
 
-async function fetchProductLevies(companyId: number, productIds: number[]): Promise<Map<number, Array<{ taxTypeId: number; lekakuTaxId: string; lekakuTaxType: string; rate: string; appliedForQuantity: string | null }>>> {
+export interface LekakuLevyEntry {
+    taxTypeId: number;
+    lekakuTaxId: string;
+    lekakuTaxType: string;
+    rate: string;
+    appliedForQuantity: string | null;
+    validFrom?: string | null;
+    validTill?: string | null;
+}
+
+async function fetchProductLevies(companyId: number, productIds: number[]): Promise<Map<number, LekakuLevyEntry[]>> {
     if (productIds.length === 0) return new Map();
     const levies = await db
         .select({
@@ -148,49 +159,110 @@ async function fetchProductLevies(companyId: number, productIds: number[]): Prom
             lekakuTaxType: taxTypes.lekakuTaxType,
             rate: taxTypes.rate,
             appliedForQuantity: productTaxLevies.appliedForQuantity,
+            validFrom: taxTypes.lekakuValidFrom,
+            validTill: taxTypes.lekakuValidTill,
         })
         .from(productTaxLevies)
         .innerJoin(taxTypes, eq(productTaxLevies.taxTypeId, taxTypes.id))
         .where(and(eq(taxTypes.companyId, companyId), inArray(productTaxLevies.productId, productIds)));
-    
-    const map = new Map<number, Array<{ taxTypeId: number; lekakuTaxId: string; lekakuTaxType: string; rate: string; appliedForQuantity: string | null }>>();
+
+    const map = new Map<number, LekakuLevyEntry[]>();
     for (const levy of levies) {
         if (!map.has(levy.productId)) map.set(levy.productId, []);
-        map.get(levy.productId)!.push(levy);
+        map.get(levy.productId)!.push(levy as LekakuLevyEntry);
     }
     return map;
 }
 
+export interface LekakuMappedTax {
+    taxID: number;
+    taxType: LekakuTaxType;
+    /** Authoritative gateway rate — the ONLY rate ever sent (RCPT025). */
+    taxRate: number;
+    taxCode?: string;
+    validFrom?: string | null;
+    validTill?: string | null;
+}
+
+/**
+ * LEKAKU preflight: validates every line against the synced gateway
+ * reference data BEFORE anything is signed or submitted, so failures are
+ * local, readable errors — never gateway rejections.
+ */
+export function assertLekakuTaxPreflight(
+    items: any[],
+    taxMapping: Map<number, LekakuMappedTax>,
+    leviesMap: Map<number, LekakuLevyEntry[]>,
+    receiptDate: string,
+): void {
+    const day = String(receiptDate || "").slice(0, 10);
+    for (let index = 0; index < items.length; index++) {
+        const item = items[index];
+        const label = item.description || `line ${index + 1}`;
+        const itemTaxTypeId = item.product?.taxTypeId || item.taxTypeId;
+        const mapped = itemTaxTypeId ? taxMapping.get(itemTaxTypeId) : undefined;
+        if (!mapped) {
+            throw new Error(`LEKAKU tax error on "${label}": product tax is not mapped to a current RSL tax — run "Sync Tax Config" for this environment, then remap the product.`);
+        }
+        if (!["VAT", "NonVAT", "Exempt"].includes(mapped.taxType)) {
+            throw new Error(`LEKAKU tax error on "${label}": ${mapped.taxType} cannot be a receipt line's main tax (only VAT, NonVAT, Exempt) — use it as a product levy instead.`);
+        }
+        if (mapped.validFrom && day && day < mapped.validFrom) {
+            throw new Error(`LEKAKU tax error on "${label}": tax ${mapped.taxID} is not yet valid (valid from ${mapped.validFrom}) — re-sync RSL config.`);
+        }
+        if (mapped.validTill && day && day > mapped.validTill) {
+            throw new Error(`LEKAKU tax error on "${label}": tax ${mapped.taxID} expired on ${mapped.validTill} — re-sync RSL config.`);
+        }
+        const productId = item.product?.id || item.productId;
+        for (const levy of (productId ? leviesMap.get(productId) || [] : [])) {
+            if (!levy.lekakuTaxId || !levy.lekakuTaxType) {
+                throw new Error(`LEKAKU tax error on "${label}": a product levy is not mapped to an RSL tax — remap levies in product settings.`);
+            }
+            if (!["PercentageLevy", "FixedValueLevy", "WithholdingTax"].includes(levy.lekakuTaxType)) {
+                throw new Error(`LEKAKU tax error on "${label}": ${levy.lekakuTaxType} cannot be a levy (only PercentageLevy, FixedValueLevy, WithholdingTax).`);
+            }
+            if (levy.validTill && day && day > levy.validTill) {
+                throw new Error(`LEKAKU tax error on "${label}": levy tax ${levy.lekakuTaxId} expired on ${levy.validTill} — re-sync RSL config.`);
+            }
+            if (levy.lekakuTaxType === "FixedValueLevy" && !(levy.appliedForQuantity && Number(levy.appliedForQuantity) > 0)) {
+                throw new Error(`LEKAKU tax error on "${label}": fixed levy ${levy.lekakuTaxId} requires appliedForQuantity.`);
+            }
+        }
+    }
+}
+
 function buildLekakuReceiptLines(
     items: any[],
-    leviesMap: Map<number, Array<{ taxTypeId: number; lekakuTaxId: string; lekakuTaxType: string; rate: string; appliedForQuantity: string | null }>>,
-    taxMapping: Map<number, { taxID: number; taxType: string }>
+    leviesMap: Map<number, LekakuLevyEntry[]>,
+    taxMapping: Map<number, LekakuMappedTax>
 ): LekakuReceiptLine[] {
     const receiptLines: LekakuReceiptLine[] = [];
-    
+
     for (let index = 0; index < items.length; index++) {
         const item = items[index];
         const unitPrice = Number(item.unitPrice || item.price || 0);
         const quantity = Number(item.quantity || 1);
         const lineTotal = roundMoney(unitPrice * quantity);
-        const taxPercent = Number(item.taxRate || 0);
-        
-        // Find the main tax type for this line
+
+        // Main tax comes ONLY from the synced gateway mapping (RCPT025:
+        // taxRate/taxID/taxType must exactly match the gateway record).
+        // Preflight guarantees the entry exists.
         const itemTaxTypeId = item.product?.taxTypeId || item.taxTypeId;
         const taxMapEntry = taxMapping.get(itemTaxTypeId);
-        const mainTaxID = taxMapEntry?.taxID || 1; // Default to VAT
-        const mainTaxType = (taxMapEntry?.taxType as LekakuTaxType) || "VAT";
-        
+        const mainTaxID = taxMapEntry?.taxID ?? 1;
+        const mainTaxType = (taxMapEntry?.taxType ?? "VAT") as LekakuReceiptLine["taxType"];
+        const mainTaxRate = taxMapEntry ? taxMapEntry.taxRate : Number(item.taxRate || 0);
+
         // Get levies for this product
         const productId = item.product?.id || item.productId;
         const productLevies = productId ? leviesMap.get(productId) || [] : [];
-        
+
         const additionalTaxes: LekakuReceiptLine["additionalTaxes"] = [];
         for (const levy of productLevies) {
             if (!levy.lekakuTaxId || !levy.lekakuTaxType) continue;
-            const levyType = levy.lekakuTaxType as LekakuTaxType;
-            if (!["PercentageLevy", "FixedValueLevy", "WithholdingTax"].includes(levyType)) continue;
-            
+            if (!["PercentageLevy", "FixedValueLevy", "WithholdingTax"].includes(levy.lekakuTaxType)) continue;
+            const levyType = levy.lekakuTaxType as "PercentageLevy" | "FixedValueLevy" | "WithholdingTax";
+
             additionalTaxes.push({
                 taxID: parseInt(levy.lekakuTaxId),
                 receiptLineId: index + 1,
@@ -199,10 +271,10 @@ function buildLekakuReceiptLines(
                 appliedForQuantity: levy.appliedForQuantity ? parseFloat(levy.appliedForQuantity) : undefined,
             });
         }
-        
+
         // HS code - optional for Lesotho, use default if not provided
         const hsCode = item.product?.hsCode ? String(item.product.hsCode).replace(/\D/g, "").slice(0, 8) : "99999999";
-        
+
         const receiptLine: LekakuReceiptLine = {
             receiptLineType: lineTotal < 0 ? "Discount" : "Sale",
             receiptLineNo: index + 1,
@@ -213,13 +285,25 @@ function buildLekakuReceiptLines(
             receiptLineHSCode: hsCode || undefined,
             taxID: mainTaxID,
             taxType: mainTaxType,
-            taxRate: mainTaxType !== "Exempt" ? taxPercent : undefined,
+            // Spec: Exempt carries NO taxRate at all; every other line sends
+            // the gateway-authoritative rate (never the invoice's stored rate).
+            taxRate: mainTaxType !== "Exempt" ? mainTaxRate : undefined,
             additionalTaxes: additionalTaxes.length > 0 ? additionalTaxes : undefined,
         };
-        
+
         receiptLines.push(receiptLine);
     }
-    
+
+    // Spec taxCode rule: optional but all-or-nothing across lines. Send codes
+    // only when EVERY line's mapped tax carries one; otherwise omit everywhere.
+    const codes = receiptLines.map((line, i) => {
+        const entry = taxMapping.get(items[i]?.product?.taxTypeId || items[i]?.taxTypeId);
+        return entry?.taxCode || undefined;
+    });
+    if (codes.every(Boolean)) {
+        receiptLines.forEach((line, i) => { line.taxCode = codes[i]; });
+    }
+
     return receiptLines;
 }
 
@@ -1390,12 +1474,12 @@ export const processInvoiceFiscalizationLEKAKU = async (
         throw new Error("Company is not configured for LEKAKU fiscalization");
     }
 
-    if (!company.lekakuGatewayUrl || !company.fdmsDeviceId) {
-        throw new Error("Company has not configured LEKAKU gateway URL or device ID");
+    if (!company.fdmsDeviceId) {
+        throw new Error("Company has not configured its RSL (LEKAKU) device ID");
     }
 
     const device = new LekakuDevice({
-        baseUrl: company.lekakuGatewayUrl,
+        baseUrl: (company.lekakuGatewayUrl || getLekakuGatewayUrl(company.zimraEnvironment)).trim(),
         deviceId: company.fdmsDeviceId,
         privateKey: company.zimraPrivateKey,
         certificate: company.zimraCertificate,
@@ -1407,13 +1491,70 @@ export const processInvoiceFiscalizationLEKAKU = async (
         .filter(Boolean);
     const leviesMap = await fetchProductLevies(companyId, productIds);
 
-    const taxMapping = new Map<number, { taxID: number; taxType: string }>();
-    const companyTaxTypes = await db.select().from(taxTypes).where(eq(taxTypes.companyId, companyId));
-    for (const tt of companyTaxTypes) {
-        if (tt.lekakuTaxId && tt.lekakuTaxType) {
-            taxMapping.set(tt.id, { taxID: parseInt(tt.lekakuTaxId), taxType: tt.lekakuTaxType });
+    // Current gateway environment — mappings are env-scoped because test
+    // and production gateways issue DIFFERENT taxIDs for the same tax.
+    const lekakuEnv = (company.zimraEnvironment === "production" ? "production" : "test") as "test" | "production";
+    const buildTaxMapping = async () => {
+        const mapping = new Map<number, LekakuMappedTax>();
+        const companyTaxTypes = await db.select().from(taxTypes).where(eq(taxTypes.companyId, companyId));
+        for (const tt of companyTaxTypes) {
+            if (!tt.lekakuTaxId || !tt.lekakuTaxType) continue;
+            if ((tt.lekakuEnvironment || "test") !== lekakuEnv) continue; // never mix envs
+            if (tt.isActive === false) continue; // expired/superseded per last sync
+            mapping.set(tt.id, {
+                taxID: parseInt(tt.lekakuTaxId),
+                taxType: tt.lekakuTaxType as LekakuTaxType,
+                taxRate: Number(tt.rate || 0),
+                taxCode: tt.lekakuTaxCode || undefined,
+                validFrom: tt.lekakuValidFrom,
+                validTill: tt.lekakuValidTill,
+            });
         }
-    }
+        return mapping;
+    };
+
+    // Resolve the receipt date BEFORE building lines — validity windows are
+    // evaluated against it.
+    const resolveReceiptDate = () => {
+        let d = invoice.offlineDate || formatLesothoDate(new Date());
+        if (invoice.offlineDate) {
+            const parseHarareLocal = (v: string) => {
+                const m = v.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/);
+                return m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4] - 2, +m[5], +m[6])) : null;
+            };
+            const signedAt = parseHarareLocal(invoice.offlineDate);
+            if (signedAt) d = formatLesothoDate(signedAt);
+        }
+        return d;
+    };
+    const effectiveReceiptDate = resolveReceiptDate();
+
+    // Fail locally with readable errors — never at the gateway.
+    let taxMapping = await buildTaxMapping();
+    assertLekakuTaxPreflight(items, taxMapping, leviesMap, effectiveReceiptDate);
+
+    const buildSignedReceipt = async (
+        receiptCounter: number, receiptGlobalNo: number, prevHash: string | null,
+        lines: LekakuReceiptLine[],
+    ) => {
+        const receipt: LekakuReceipt = {
+            receiptType, receiptCurrency: "LSL",
+            receiptCounter, receiptGlobalNo,
+            invoiceNo: invoice.invoiceNumber,
+            receiptDate: effectiveReceiptDate,
+            receiptLinesTaxInclusive: invoice.taxInclusive || false,
+            receiptLines: lines,
+            receiptPayments: payments,
+            buyerData, creditDebitNote,
+            receiptNotes: invoice.notes
+                ? (creditDebitNote ? `${invoice.notes} (Ref: ${invoice.relatedInvoiceId})` : invoice.notes)
+                : (receiptType !== "FiscalInvoice" ? `Correction of data entry error` : undefined),
+            // Spec TaxRoundingType — stored per company, stable per fiscal day.
+            taxRoundingType: (company.lekakuTaxRoundingType === "PerReceiptLine" ? "PerReceiptLine" : "PerReceipt"),
+        };
+        const prepared = prepareLekakuReceipt(receipt);
+        return { prepared, signed: device.signReceipt(prepared, prevHash || undefined) };
+    };
 
     const receiptLines = buildLekakuReceiptLines(items, leviesMap, taxMapping);
 
@@ -1483,40 +1624,34 @@ export const processInvoiceFiscalizationLEKAKU = async (
     const nextReceiptCounter = (company.dailyReceiptCount || 0) + 1;
     const nextGlobalNo = (company.lastReceiptGlobalNo || 0) + 1;
     const activeFiscalDayNo = company.currentFiscalDayNo || 1;
+    const prevHash = invoice.offlinePreviousHash || ((nextReceiptCounter === 1) ? null : (company.lastFiscalHash || null));
 
-    let effectiveReceiptDate = invoice.offlineDate || formatLesothoDate(new Date());
-    if (invoice.offlineDate) {
-        const parseHarareLocal = (v: string) => {
-            const m = v.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/);
-            return m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4] - 2, +m[5], +m[6])) : null;
-        };
-        const signedAt = parseHarareLocal(invoice.offlineDate);
-        if (signedAt) {
-            effectiveReceiptDate = formatLesothoDate(signedAt);
-        }
-    }
-
-    const receipt: LekakuReceipt = {
-        receiptType,
-        receiptCurrency: "LSL",
-        receiptCounter: nextReceiptCounter,
-        receiptGlobalNo: nextGlobalNo,
-        invoiceNo: invoice.invoiceNumber,
-        receiptDate: effectiveReceiptDate,
-        receiptLinesTaxInclusive: invoice.taxInclusive || false,
-        receiptLines,
-        receiptPayments: payments,
-        buyerData,
-        creditDebitNote,
-        receiptNotes: invoice.notes
-            ? (creditDebitNote ? `${invoice.notes} (Ref: ${invoice.relatedInvoiceId})` : invoice.notes)
-            : (receiptType !== "FiscalInvoice" ? `Correction of data entry error` : undefined),
+    const submitOnce = async (lines: LekakuReceiptLine[]) => {
+        const { prepared, signed } = await buildSignedReceipt(nextReceiptCounter, nextGlobalNo, prevHash, lines);
+        const result = await device.submitReceipt(signed, prevHash);
+        return { prepared, result };
     };
 
-    const prepared = prepareLekakuReceipt(receipt);
-    const prevHash = invoice.offlinePreviousHash || ((nextReceiptCounter === 1) ? null : (company.lastFiscalHash || null));
-    const signed = device.signReceipt(prepared, prevHash);
-    const result = await device.submitReceipt(signed, prevHash);
+    let prepared: LekakuReceipt;
+    let result: any;
+    try {
+        ({ prepared, result } = await submitOnce(receiptLines));
+    } catch (err: any) {
+        // RCPT025 = the gateway disagrees about a tax triple (e.g. a rate was
+        // superseded after our last sync). Re-sync once from authoritative
+        // data, rebuild, retry once — then surface RSL's message verbatim.
+        // Safe: the first attempt failed validation, so nothing was recorded.
+        const code = String(err?.details?.errorCode || "");
+        const detail = String(err?.details?.detail || err?.message || "");
+        if (!/RCPT025/.test(code + " " + detail)) throw err;
+        const fresh = await device.getConfig();
+        const freshTaxes = fresh?.applicableTaxes || [];
+        if (!freshTaxes.length) throw err;
+        await storage.syncLekakuTaxes(companyId, freshTaxes, lekakuEnv);
+        taxMapping = await buildTaxMapping();
+        assertLekakuTaxPreflight(items, taxMapping, leviesMap, effectiveReceiptDate);
+        ({ prepared, result } = await submitOnce(buildLekakuReceiptLines(items, leviesMap, taxMapping)));
+    }
 
     const qrCode = device.generateQrCode(result.hash, prepared.receiptGlobalNo, prepared.receiptDate);
 
@@ -1525,7 +1660,7 @@ export const processInvoiceFiscalizationLEKAKU = async (
         qrCodeData: qrCode,
         verificationCode: result.verificationCode,
         fiscalSignature: result.signature,
-        fiscalDayNo: prepared.fiscalDayNo || activeFiscalDayNo,
+        fiscalDayNo: activeFiscalDayNo,
         receiptCounter: prepared.receiptCounter,
         receiptGlobalNo: prepared.receiptGlobalNo,
         syncedWithFdms: true,

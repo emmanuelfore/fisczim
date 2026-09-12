@@ -11,8 +11,8 @@ import { Link } from "wouter";
 import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 
 export function DeviceStatusWidget({ companyId }: { companyId: number }) {
-  const { data: status, isLoading, isError } = useDeviceStatus(companyId);
-  const { settingsLabel, settingsRoute } = useFiscalAuthority();
+  const { settingsLabel, settingsRoute, isLesotho } = useFiscalAuthority();
+  const { data: status, isLoading, isError, error } = useDeviceStatus(companyId, isLesotho);
 
   if (isLoading) {
     return (
@@ -38,6 +38,9 @@ export function DeviceStatusWidget({ companyId }: { companyId: number }) {
           </TooltipTrigger>
           <TooltipContent>
             <p>Failed to check device status</p>
+            <p className="text-slate-400 max-w-[260px] break-words">
+              {(error as any)?.message || "Unknown error — check Network tab for lekaku/status"}
+            </p>
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>

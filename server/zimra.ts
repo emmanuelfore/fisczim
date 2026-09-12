@@ -40,13 +40,24 @@ export class ZimraOfflineError extends Error {
 // Base URLs
 const ZIMRA_TEST_URL = 'https://fdmsapitest.zimra.co.zw';
 const ZIMRA_PROD_URL = 'https://fdmsapi.zimra.co.zw';
+// LEKAKU gateways — on the `lekaku` branch (COUNTRY_SCOPE=Lesotho) every
+// fiscal call must hit RSL, not ZIMRA. Mirrors shared/lekaku.ts constants
+// so getZimraBaseUrl remains the single fiscal gateway resolver.
+const LEKAKU_TEST_GATEWAY = 'https://lekukaapi.rsl.org.ls:8443';
+const LEKAKU_PROD_GATEWAY = 'https://lekukaapi.rsl.org.ls';
 
 /**
- * Get the appropriate ZIMRA base URL based on environment
+ * Get the appropriate fiscal gateway base URL based on environment.
+ * On the `lekaku` branch (COUNTRY_SCOPE=Lesotho) this resolves to the RSL
+ * LEKAKU gateway so *all* endpoints hit lekuka URL rather than ZIMRA.
  * @param environment - 'test' or 'production'
  * @returns The base URL for the specified environment
  */
 export function getZimraBaseUrl(environment: 'test' | 'production' = 'test'): string {
+    const isLekakuDeployment = (process.env.COUNTRY_SCOPE || "").trim().toLowerCase() === "lesotho";
+    if (isLekakuDeployment) {
+        return environment === 'production' ? LEKAKU_PROD_GATEWAY : LEKAKU_TEST_GATEWAY;
+    }
     return environment === 'production' ? ZIMRA_PROD_URL : ZIMRA_TEST_URL;
 }
 

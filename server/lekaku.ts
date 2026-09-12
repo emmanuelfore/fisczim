@@ -1,6 +1,7 @@
 import axios, { AxiosInstance } from "axios";
 import https from "https";
 import crypto from "crypto";
+import forge from "node-forge";
 
 /**
  * Client for Revenue Services Lesotho's LEKAKU E-Invoicing Gateway API v1.11.
@@ -27,6 +28,9 @@ export interface LekakuConfig {
   privateKey?: string;
   certificate?: string;
   timeoutMs?: number;
+  /** Sent as HTTP headers on every request (FDMS convention). */
+  deviceModelName?: string;
+  deviceModelVersion?: string;
 }
 
 export interface LekakuAdditionalTax {
@@ -126,46 +130,83 @@ export function prepareLekakuReceipt(input: LekakuReceipt): LekakuReceipt {
         throw new Error(`LEKAKU fixed levy ${levy.taxID} requires appliedForQuantity`);
       }
     }
+  }
 
+  // Shared per-line base math (spec: pre-tax base; inclusive lines strip the
+  // fixed levies first, then divide out the summed percentage rates).
+  const parsed = receipt.receiptLines.map((line) => {
+    const additional = line.additionalTaxes || [];
     const percentageTaxes = [
       { taxID: line.taxID, taxCode: line.taxCode, taxType: line.taxType, taxRate: line.taxRate || 0 },
       ...additional.filter(t => t.taxType === "PercentageLevy" || t.taxType === "WithholdingTax"),
     ];
-    const fixedLevy = additional
-      .filter(t => t.taxType === "FixedValueLevy")
-      .reduce((sum, levy) => sum + levy.taxRate * (levy.appliedForQuantity || line.receiptLineQuantity), 0);
+    const fixedLevies = additional.filter(t => t.taxType === "FixedValueLevy");
+    const fixedRaw = fixedLevies.reduce((sum, levy) => sum + levy.taxRate * (levy.appliedForQuantity || line.receiptLineQuantity), 0);
     const percentageRate = percentageTaxes.reduce((sum, tax) => sum + tax.taxRate, 0);
     const base = receipt.receiptLinesTaxInclusive
-      ? (line.receiptLineTotal - fixedLevy) / (1 + percentageRate / 100)
+      ? (line.receiptLineTotal - fixedRaw) / (1 + percentageRate / 100)
       : line.receiptLineTotal;
+    return { line, percentageTaxes, fixedLevies, base };
+  });
 
-    const calculatePercentage = (rate: number) => money(base * rate / 100);
-    for (const tax of percentageTaxes) {
-      // LEKAKU's PerReceiptLine mode rounds each line before aggregation.
-      // PerReceipt is rounded at the tax bucket level below.
-      const taxAmount = tax.taxType === "Exempt" ? 0 : calculatePercentage(tax.taxRate);
+  if (rounding === "PerReceiptLine") {
+    // Round each line first, then sum (round-then-sum).
+    for (const p of parsed) {
+      const calc = (rate: number) => money(p.base * rate / 100);
+      for (const tax of p.percentageTaxes) {
+        const taxAmount = tax.taxType === "Exempt" ? 0 : calc(tax.taxRate);
+        const salesAmountWithTax = receipt.receiptLinesTaxInclusive
+          ? money(p.base + taxAmount)
+          : money(p.line.receiptLineTotal + taxAmount);
+        add({ ...tax, taxAmount, salesAmountWithTax });
+      }
+      for (const levy of p.fixedLevies) {
+        const taxAmount = money(levy.taxRate * (levy.appliedForQuantity || p.line.receiptLineQuantity));
+        add({
+          taxID: levy.taxID, taxCode: levy.taxCode, taxType: levy.taxType, taxRate: levy.taxRate,
+          taxAmount,
+          salesAmountWithTax: receipt.receiptLinesTaxInclusive ? money(p.base + taxAmount) : money(p.line.receiptLineTotal + taxAmount),
+        });
+      }
+    }
+  } else {
+    // PerReceipt (default): aggregate bases per (taxID, taxCode) bucket,
+    // then round once (aggregate-then-round).
+    interface Bucket {
+      tax: { taxID: number; taxCode?: string; taxType: LekakuTaxType; taxRate: number };
+      baseSum: number; lineSum: number; fixedRaw: number;
+    }
+    const buckets = new Map<string, Bucket>();
+    const bucketOf = (tax: Bucket["tax"]): Bucket => {
+      const key = taxKey(tax);
+      let b = buckets.get(key);
+      if (!b) {
+        b = { tax, baseSum: 0, lineSum: 0, fixedRaw: 0 };
+        buckets.set(key, b);
+      }
+      return b;
+    };
+    for (const p of parsed) {
+      for (const tax of p.percentageTaxes) {
+        const b = bucketOf({ taxID: tax.taxID, taxCode: tax.taxCode, taxType: tax.taxType as LekakuTaxType, taxRate: tax.taxRate });
+        b.baseSum += p.base;
+        b.lineSum += p.line.receiptLineTotal;
+      }
+      for (const levy of p.fixedLevies) {
+        const b = bucketOf({ taxID: levy.taxID, taxCode: levy.taxCode, taxType: levy.taxType, taxRate: levy.taxRate });
+        b.baseSum += p.base;
+        b.lineSum += p.line.receiptLineTotal;
+        b.fixedRaw += levy.taxRate * (levy.appliedForQuantity || p.line.receiptLineQuantity);
+      }
+    }
+    for (const b of buckets.values()) {
+      const isFixed = b.fixedRaw > 0 || (b.tax.taxType === "FixedValueLevy");
+      const taxAmount = b.tax.taxType === "Exempt" ? 0 : isFixed ? money(b.fixedRaw) : money(b.baseSum * b.tax.taxRate / 100);
       const salesAmountWithTax = receipt.receiptLinesTaxInclusive
-        ? money(base + taxAmount)
-        : money(line.receiptLineTotal + taxAmount);
-      add({ ...tax, taxAmount, salesAmountWithTax });
+        ? money(b.baseSum + taxAmount)
+        : money(b.lineSum + taxAmount);
+      taxes.set(taxKey(b.tax), { ...b.tax, taxAmount, salesAmountWithTax });
     }
-    for (const levy of additional.filter(t => t.taxType === "FixedValueLevy")) {
-      const taxAmount = money(levy.taxRate * (levy.appliedForQuantity || line.receiptLineQuantity));
-      add({
-        taxID: levy.taxID, taxCode: levy.taxCode, taxType: levy.taxType, taxRate: levy.taxRate,
-        taxAmount,
-        salesAmountWithTax: receipt.receiptLinesTaxInclusive ? money(base + taxAmount) : money(line.receiptLineTotal + taxAmount),
-      });
-    }
-  }
-
-  // In PerReceipt mode, recompute percentage tax amounts from grouped bases.
-  // The line-level amounts above are already correct for PerReceiptLine.
-  if (rounding === "PerReceipt") {
-    // The receipt-level formula and the line aggregation coincide for an
-    // exclusive receipt. Inclusive multi-tax lines require LEKAKU's exact
-    // per-line allocation, which the base calculation above preserves.
-    for (const tax of taxes.values()) tax.taxAmount = money(tax.taxAmount);
   }
 
   receipt.receiptTaxes = [...taxes.values()].sort((a, b) => a.taxID - b.taxID || (a.taxCode || "").localeCompare(b.taxCode || ""));
@@ -202,6 +243,14 @@ export class LekakuDevice {
     this.client = axios.create({
       baseURL: config.baseUrl.replace(/\/$/, ""),
       timeout: config.timeoutMs || 30_000,
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        // RSL requires the device model as headers (FDMS convention,
+        // same as ZIMRA's 'Server'/'1.0' defaults).
+        DeviceModelName: config.deviceModelName || "Server",
+        DeviceModelVersion: config.deviceModelVersion || "1.0",
+      },
       httpsAgent: config.privateKey && config.certificate
         ? new https.Agent({ key: config.privateKey, cert: config.certificate, rejectUnauthorized: true })
         : undefined,
@@ -229,19 +278,33 @@ export class LekakuDevice {
     }
   }
 
-  /** Registration is the only unauthenticated device operation in API v1.11. */
-  async verifyTaxpayerInformation(): Promise<any> {
+  /**
+   * Registration is the only unauthenticated device operation in API v1.11.
+   * RSL expects a POST carrying the activation key and device serial
+   * (PascalCase fields); the device ID rides in the URL.
+   */
+  async verifyTaxpayerInformation(activationKey?: string, deviceSerialNo?: string): Promise<any> {
+    const endpoint = `/Public/v1/${this.deviceId}/VerifyTaxpayerInformation`;
     try {
-      return (await this.client.get(`/Public/v1/${this.deviceId}/VerifyTaxpayerInformation`)).data;
+      return (await this.client.post(endpoint, {
+        ...(activationKey ? { ActivationKey: activationKey } : {}),
+        ...(deviceSerialNo ? { DeviceSerialNo: deviceSerialNo } : {}),
+      })).data;
     } catch (error: any) {
-      throw new LekakuApiError(error.response?.status || 0, `/Public/v1/${this.deviceId}/VerifyTaxpayerInformation`, error.response?.data || error.message);
+      throw new LekakuApiError(error.response?.status || 0, endpoint, error.response?.data || error.message);
     }
   }
 
-  async registerDevice(certificateRequest: string, deviceModelName?: string, deviceModelVersion?: string): Promise<any> {
+  async registerDevice(certificateRequest: string, activationKey?: string, deviceSerialNo?: string): Promise<any> {
     const endpoint = `/Public/v1/${this.deviceId}/RegisterDevice`;
     try {
-      return (await this.client.post(endpoint, { certificateRequest, deviceModelName, deviceModelVersion })).data;
+      return (await this.client.post(endpoint, {
+        certificateRequest,
+        // RSL-issued activation key + serial (mirrors the ZIMRA flow);
+        // omitted when the device has none.
+        ...(activationKey ? { ActivationKey: activationKey } : {}),
+        ...(deviceSerialNo ? { DeviceSerialNo: deviceSerialNo } : {}),
+      })).data;
     } catch (error: any) {
       throw new LekakuApiError(error.response?.status || 0, endpoint, error.response?.data || error.message);
     }
@@ -260,4 +323,28 @@ export class LekakuDevice {
   generateQrCode(hash: string, globalNo: number, receiptDate: string): string {
     return `LEKAKU|${this.deviceId}|${globalNo}|${receiptDate}|${hash}`;
   }
+}
+
+/**
+ * Generates a fresh RSA keypair + CSR for LEKAKU device registration,
+ * mirroring the ZIMRA flow. The private key is kept server-side (saved to
+ * the company); only the CSR is sent to RSL, which returns the certificate.
+ */
+export function generateLekakuKeypair(deviceId: string | number, deviceSerialNo?: string): {
+  privateKey: string;
+  certificateRequest: string;
+} {
+  const keys = forge.pki.rsa.generateKeyPair(2048);
+  const csr = forge.pki.createCertificationRequest();
+  csr.publicKey = keys.publicKey;
+  const serial = (deviceSerialNo || "").trim();
+  // RSL spec: CN = RSL-<Fiscal_device_serial_no>-<zero_padded_10_digit_deviceId>
+  // e.g. SN: 001 + 187 => RSL-SN: 001-0000000187
+  const paddedId = String(deviceId).trim().padStart(10, "0");
+  csr.setSubject([{ name: "commonName", value: serial ? `RSL-${serial}-${paddedId}` : `RSL-${paddedId}` }]);
+  csr.sign(keys.privateKey, forge.md.sha256.create());
+  return {
+    privateKey: forge.pki.privateKeyToPem(keys.privateKey),
+    certificateRequest: forge.pki.certificationRequestToPem(csr),
+  };
 }

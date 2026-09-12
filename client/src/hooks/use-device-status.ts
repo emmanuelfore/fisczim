@@ -11,12 +11,18 @@ export interface DeviceStatus {
     certificateExpiry: string | null;
 }
 
-export function useDeviceStatus(companyId: number) {
+export function useDeviceStatus(companyId: number, isLesotho = false) {
     return useQuery<DeviceStatus>({
-        queryKey: ["device-status", companyId],
+        queryKey: ["device-status", companyId, isLesotho ? "lekaku" : "zimra"],
         queryFn: async () => {
             try {
-                const res = await apiFetch(`/api/companies/${companyId}/zimra/status`);
+                // Lesotho companies check LEKAKU config (local check, no
+                // live RSL round-trip); Zimbabwe hits the FDMS status.
+                const res = await apiFetch(
+                    isLesotho
+                        ? `/api/companies/${companyId}/lekaku/status`
+                        : `/api/companies/${companyId}/zimra/status`,
+                );
 
                 // If backend says Not Registered (400)
                 if (res.status === 400) {
@@ -32,10 +38,24 @@ export function useDeviceStatus(companyId: number) {
                 }
 
                 if (!res.ok) {
-                    throw new Error("Failed to fetch device status");
+                    const errBody = await res.json().catch(() => null);
+                    const reason = (errBody as any)?.message || (errBody as any)?.error || res.statusText;
+                    throw new Error(`Device status check failed (HTTP ${res.status}): ${reason}`);
                 }
 
                 const data = await res.json();
+
+                if (isLesotho) {
+                    return {
+                        isConfigured: !!data.isConfigured,
+                        isOnline: !!data.isOnline && !!data.isConfigured,
+                        fiscalDayOpen: !!data.fiscalDayOpen,
+                        fiscalDayStatus: data.fiscalDayStatus || (data.isConfigured ? 'Configured' : 'NotConfigured'),
+                        fiscalDayNumber: data.fiscalDayNumber ?? null,
+                        lastSync: data.lastSync ?? null,
+                        certificateExpiry: null
+                    };
+                }
 
                 // Map ZimraStatusResponse to DeviceStatus
                 return {
@@ -47,12 +67,17 @@ export function useDeviceStatus(companyId: number) {
                     lastSync: data.lastFiscalDayNoAt || data.fiscalDayClosed || null,
                     certificateExpiry: null
                 };
-            } catch (error) {
+            } catch (error: any) {
+                // Network-level failure (backend down / unreachable / aborted).
+                if (error instanceof TypeError) {
+                    throw new Error("Device status check failed: backend unreachable — is the server running and VITE_API_URL correct?");
+                }
                 console.error("Device status fetch error:", error);
                 throw error;
             }
         },
         enabled: !!companyId,
         refetchInterval: 15000, // Poll more frequently (15s) for responsive status
+        retry: 1, // fail fast with the real reason instead of hanging on retries
     });
 }

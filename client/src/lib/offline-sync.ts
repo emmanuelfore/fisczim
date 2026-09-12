@@ -26,21 +26,26 @@ export interface SyncResult {
 
 /**
  * Ensure we have a fresh, valid auth token before syncing.
- * Forces a token refresh so we don't use a stale/expired JWT.
+ * Only rotates when the access token is expired or expiring within 5
+ * minutes — every sync used to force a rotation, and overlapping rotations
+ * (intervals, retries, multiple tabs) invalidated each other and logged
+ * the user out every few minutes.
  * Returns the access token string, or null if unavailable.
  */
 async function getFreshToken(): Promise<string | null> {
     try {
-        // Force a refresh to get a guaranteed-fresh token
-        const refreshed = await auth.refreshTokens();
-        if (refreshed?.accessToken) return refreshed.accessToken;
-
-        // Refresh failed (e.g. refresh token expired) — try existing session
+        const expiresIn = auth.getAccessTokenExpiresIn();
+        if (expiresIn < 300) {
+            const refreshed = await auth.refreshTokens();
+            if (refreshed?.accessToken) return refreshed.accessToken;
+            // Refresh failed — fall through to the existing token; the
+            // request layer will retry/refresh on 401. Never log out here.
+        }
         const token = auth.getAccessToken() || localStorage.getItem('access_token');
         return token ?? null;
     } catch (err) {
         console.warn('[Sync] Token refresh failed:', err);
-        return null;
+        return auth.getAccessToken() || localStorage.getItem('access_token');
     }
 }
 

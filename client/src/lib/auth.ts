@@ -58,6 +58,10 @@ class AuthClient {
   private refreshToken: string | null = null;
   private user: AuthUser | null = null;
   private listeners: Set<(user: AuthUser | null) => void> = new Set();
+  // Single-flight: concurrent refreshTokens() calls share one request so
+  // overlapping rotations can't invalidate each other (multi-tab / intervals).
+  private refreshInFlight: Promise<AuthResponse | null> | null = null;
+  private lastRefreshAt = 0;
 
   constructor() {
     // If we detected a forced Electron logout but the bridge wasn't ready at module eval,
@@ -159,6 +163,7 @@ class AuthClient {
     this.user = data.user;
     this.saveToStorage();
     try { sessionStorage.removeItem('__electron_forced_logout'); } catch {}
+    try { (window as any).__authRedirecting = false; } catch {}
     this.notifyListeners();
 
     return data;
@@ -182,6 +187,7 @@ class AuthClient {
     this.user = data.user;
     this.saveToStorage();
     try { sessionStorage.removeItem('__electron_forced_logout'); } catch {}
+    try { (window as any).__authRedirecting = false; } catch {}
     this.notifyListeners();
 
     return data;
@@ -207,12 +213,40 @@ class AuthClient {
     this.notifyListeners();
   }
 
+  /** Seconds until the current access token expires (Infinity if none/undecodable). */
+  getAccessTokenExpiresIn(): number {
+    try {
+      if (!this.accessToken) return 0;
+      const payload = JSON.parse(atob(this.accessToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+      if (!payload.exp) return Infinity;
+      return payload.exp - Math.floor(Date.now() / 1000);
+    } catch {
+      return 0;
+    }
+  }
+
   async refreshTokens(): Promise<AuthResponse | null> {
     if (!this.refreshToken) {
       console.warn('[Auth] No refresh token available');
       return null;
     }
 
+    // Single-flight: share one in-flight rotation across concurrent callers.
+    if (this.refreshInFlight) return this.refreshInFlight;
+    // Recently rotated (e.g. app foregrounded on mobile and N queries 401'd
+    // at once): reuse the fresh tokens instead of churning the rotation chain.
+    if (this.accessToken && this.user && Date.now() - this.lastRefreshAt < 10_000) {
+      return { user: this.user, accessToken: this.accessToken, refreshToken: this.refreshToken };
+    }
+    this.refreshInFlight = this.doRefresh();
+    try {
+      return await this.refreshInFlight;
+    } finally {
+      this.refreshInFlight = null;
+    }
+  }
+
+  private async doRefresh(): Promise<AuthResponse | null> {
     try {
       const response = await fetch(`${API_URL}/api/auth/refresh`, {
         method: 'POST',
@@ -221,8 +255,15 @@ class AuthClient {
       });
 
       if (!response.ok) {
-        console.error('[Auth] Token refresh failed');
-        this.logout();
+        // Only a definitive 401 means the refresh token itself is dead.
+        // Network errors / 5xx are transient — keep the session, let the
+        // caller fall back to the existing token and retry later.
+        if (response.status === 401) {
+          console.error('[Auth] Refresh token rejected (401) — logging out');
+          this.logout();
+        } else {
+          console.warn(`[Auth] Token refresh returned ${response.status} — keeping existing session`);
+        }
         return null;
       }
 
@@ -230,13 +271,15 @@ class AuthClient {
       this.accessToken = data.accessToken;
       this.refreshToken = data.refreshToken;
       this.user = data.user;
+      this.lastRefreshAt = Date.now();
       this.saveToStorage();
+      try { (window as any).__authRedirecting = false; } catch {}
       this.notifyListeners();
 
       return data;
     } catch (error) {
-      console.error('[Auth] Token refresh error:', error);
-      this.logout();
+      // Network failure — NOT a logout. Session tokens stay intact.
+      console.warn('[Auth] Token refresh network error — keeping existing session:', error);
       return null;
     }
   }

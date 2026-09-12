@@ -26,6 +26,12 @@ export function useOffline(companyId: number): UseOfflineReturn {
     const [lastSyncResult, setLastSyncResult] = useState<SyncResult | null>(null);
     const [lastCacheTime, setLastCacheTimeState] = useState<number | null>(null);
     const isSyncingRef = useRef(false);
+    // Cooldown for *automatic* sync triggers (interval + reconnect). Mobile
+    // network flapping (tunnels, WiFi↔cellular handoffs) can fire reconnects
+    // many times per minute — without this each flap kicked off auth work.
+    // Manual syncs (no arg) always run.
+    const lastAutoSyncAt = useRef(0);
+    const AUTO_SYNC_COOLDOWN_MS = 45_000;
     const { toast } = useToast();
 
     const refreshPendingCount = useCallback(async () => {
@@ -62,8 +68,10 @@ export function useOffline(companyId: number): UseOfflineReturn {
         return () => clearInterval(interval);
     }, [refreshPendingCount, refreshCacheTime]);
 
-    const triggerSync = useCallback(async () => {
+    const triggerSync = useCallback(async (skipIfRecent = false) => {
         if (!companyId || isSyncingRef.current || !getIsOnline()) return;
+        if (skipIfRecent && Date.now() - lastAutoSyncAt.current < AUTO_SYNC_COOLDOWN_MS) return;
+        lastAutoSyncAt.current = Date.now();
 
         isSyncingRef.current = true;
         setSyncStatus('syncing');
@@ -108,7 +116,7 @@ export function useOffline(companyId: number): UseOfflineReturn {
     useEffect(() => {
         if (isOnline && (pendingSalesCount > 0 || pendingShiftsCount > 0)) {
             // Initial sync attempt: wait 2s after coming online to let Supabase finish token refresh
-            const timer = setTimeout(() => triggerSync(), 2000);
+            const timer = setTimeout(() => triggerSync(true), 2000);
             return () => clearTimeout(timer);
         }
     }, [isOnline, pendingSalesCount, pendingShiftsCount, triggerSync]);
@@ -116,7 +124,7 @@ export function useOffline(companyId: number): UseOfflineReturn {
     // Periodic retry every 60s when online and there are pending sales
     useEffect(() => {
         if (!isOnline || (pendingSalesCount === 0 && pendingShiftsCount === 0)) return;
-        const interval = setInterval(() => triggerSync(), 60_000);
+        const interval = setInterval(() => triggerSync(true), 60_000);
         return () => clearInterval(interval);
     }, [isOnline, pendingSalesCount, pendingShiftsCount, triggerSync]);
 

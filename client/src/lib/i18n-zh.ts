@@ -123,7 +123,6 @@ export const zh = {
   "Tax Reports": "税务报表",
   "Tax & ZIMRA Report": "税务与 ZIMRA 报表",
   "VAT Returns": "增值税申报",
-  "Tax Reports": "税务报表",
   "Tax Summary": "税务汇总",
   "Posting Audit Trail": "过账审计追踪",
   Restaurant: "餐饮",

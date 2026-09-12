@@ -1,9 +1,19 @@
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
-const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'your-refresh-secret-key-change-in-production';
+const JWT_SECRET = process.env.JWT_SECRET || '';
+const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || '';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '1h';
 const JWT_REFRESH_EXPIRES_IN = process.env.JWT_REFRESH_EXPIRES_IN || '7d';
+
+// Fail fast if secrets are missing — a missing or default secret causes ALL
+// tokens to become unverifiable after a server restart, booting every user.
+const INSECURE_DEFAULTS = ['your-secret-key-change-in-production', 'your-refresh-secret-key-change-in-production', ''];
+if (INSECURE_DEFAULTS.includes(JWT_SECRET) || INSECURE_DEFAULTS.includes(JWT_REFRESH_SECRET)) {
+  console.error('[JWT] FATAL: JWT_SECRET / JWT_REFRESH_SECRET env vars are missing or set to insecure defaults. Set them in .env and restart the server.');
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  }
+}
 
 export interface TokenPayload {
   userId: string;
@@ -18,7 +28,7 @@ export interface AuthTokens {
 
 export function generateAccessToken(payload: TokenPayload): string {
   return jwt.sign(payload, JWT_SECRET, { 
-    expiresIn: '1h',
+    expiresIn: JWT_EXPIRES_IN as any,
     issuer: 'fisczim',
     audience: 'fisczim-api'
   });
@@ -26,7 +36,7 @@ export function generateAccessToken(payload: TokenPayload): string {
 
 export function generateRefreshToken(payload: TokenPayload): string {
   return jwt.sign(payload, JWT_REFRESH_SECRET, { 
-    expiresIn: '7d',
+    expiresIn: JWT_REFRESH_EXPIRES_IN as any,
     issuer: 'fisczim',
     audience: 'fisczim-refresh'
   });

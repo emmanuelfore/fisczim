@@ -46,6 +46,7 @@ import { BatchVariationManager } from "./batch-variation-manager";
 import { ChefHat, Pill, FlaskConical, Boxes } from "lucide-react";
 import { ImageUpload } from "@/components/ui/image-upload";
 import { HsCodeAssistant } from "@/components/products/hs-code-assistant";
+import { ProductLevyEditor, type LevySelection } from "@/components/products/product-levy-editor";
 
 interface Props {
   product: any;
@@ -161,6 +162,9 @@ export function EditProductDialog({ product, trigger, children }: Props) {
 
   const [selectedTaxTypeId, setSelectedTaxTypeId] = useState<string>("");
 
+  // Additional taxes (LEKAKU levies): products can stack more than one.
+  const [levyDraft, setLevyDraft] = useState<LevySelection[]>([]);
+
   // Sync with initial product once taxTypes load (or dialog opens)
   useEffect(() => {
     if (!open || !taxTypes.data) return;
@@ -175,7 +179,7 @@ export function EditProductDialog({ product, trigger, children }: Props) {
       open={open}
       onOpenChange={(val) => {
         setOpen(val);
-        if (!val) setSelectedTaxTypeId(""); // Reset on close
+        if (!val) { setSelectedTaxTypeId(""); setLevyDraft([]); } // Reset on close
       }}
     >
       <DialogTrigger asChild>
@@ -921,6 +925,7 @@ export function EditProductDialog({ product, trigger, children }: Props) {
                   )}
                 />
               </div>
+              <ProductLevyEditor companyId={product.companyId} productId={product.id} draft={levyDraft} onDraftChange={setLevyDraft} />
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

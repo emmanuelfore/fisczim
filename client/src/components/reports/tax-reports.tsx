@@ -4,6 +4,8 @@ import { apiFetch } from "@/lib/api";
 import { filterRecords, computeTotal } from "@/lib/report-utils";
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useReportExport } from "./report-export";
+import { generateCsvFilename } from "@/lib/report-utils";
 
 interface ReportProps {
   companyId: number;
@@ -79,6 +81,19 @@ export function TaxSummaryReport({
 
   const filtered = filterRecords(data, search, ["taxCode", "taxName"]);
   const netVatTotal = computeTotal(filtered, "netVat");
+  useReportExport(
+    filtered.length
+      ? {
+          rows: filtered.map((row: any) => ({
+            taxCode: row.taxCode, taxName: row.taxName, taxRate: row.taxRate,
+            taxableAmount: row.taxableAmount, outputTax: row.outputTax,
+            inputTax: row.inputTax, netVat: row.netVat,
+          })),
+          columns: ["taxCode", "taxName", "taxRate", "taxableAmount", "outputTax", "inputTax", "netVat"],
+          filename: generateCsvFilename("tax-summary", dateRange.from, dateRange.to),
+        }
+      : null,
+  );
 
   if (isLoading)
     return (

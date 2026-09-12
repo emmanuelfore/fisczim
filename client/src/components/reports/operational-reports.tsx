@@ -5,6 +5,8 @@ import { filterRecords } from "@/lib/report-utils";
 import { format, parseISO } from "date-fns";
 import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useReportExport } from "./report-export";
+import { generateCsvFilename } from "@/lib/report-utils";
 
 interface ReportProps {
   companyId: number;
@@ -179,6 +181,25 @@ export function DailyOperationalReport({ companyId, dateRange, search, hideZeroA
     enabled: !!companyId,
   });
 
+  useReportExport(
+    (data?.days || []).length
+      ? {
+          rows: (data.days || [])
+            .filter((day: any) =>
+              !hideZeroActivity ||
+              Number(day.cashSales || 0) > 0 || Number(day.creditSales || 0) > 0 ||
+              Number(day.collections || 0) > 0 || Number(day.expenses || 0) > 0 ||
+              Number(day.moneyBanked || 0) > 0)
+            .map((day: any) => ({
+              date: day.date, cashSales: day.cashSales, creditSales: day.creditSales,
+              collections: day.collections, expenses: day.expenses, moneyBanked: day.moneyBanked,
+            })),
+          columns: ["date", "cashSales", "creditSales", "collections", "expenses", "moneyBanked"],
+          filename: generateCsvFilename("operational-daily", dateRange.from, dateRange.to),
+        }
+      : null,
+  );
+
   if (isLoading) {
     return (
       <div className="flex justify-center p-12">
@@ -305,6 +326,20 @@ export function WeeklyOperationalReport({ companyId, dateRange, search, hideZero
     enabled: !!companyId,
   });
 
+  useReportExport(
+    (data?.weeks || []).length
+      ? {
+          rows: (data.weeks || []).map((week: any) => ({
+            period: week.periodLabel, startDate: week.startDate, endDate: week.endDate,
+            sales: week.sales, cashSales: week.cashSales, creditSales: week.creditSales,
+            collections: week.collections, expenses: week.expenses, moneyBanked: week.moneyBanked,
+          })),
+          columns: ["period", "startDate", "endDate", "sales", "cashSales", "creditSales", "collections", "expenses", "moneyBanked"],
+          filename: generateCsvFilename("operational-weekly", dateRange.from, dateRange.to),
+        }
+      : null,
+  );
+
   if (isLoading) {
     return (
       <div className="flex justify-center p-12">
@@ -316,6 +351,7 @@ export function WeeklyOperationalReport({ companyId, dateRange, search, hideZero
   if (error) {
     return <div className="p-8 text-center text-red-500 text-sm">Failed to load weekly report</div>;
   }
+
 
   const totals = data?.totals || {};
   let weeks = data?.weeks || [];
@@ -369,6 +405,20 @@ export function MonthlyOperationalReport({ companyId, dateRange, search, hideZer
     enabled: !!companyId,
   });
 
+  useReportExport(
+    (data?.months || []).length
+      ? {
+          rows: (data.months || []).map((month: any) => ({
+            period: month.periodLabel, startDate: month.startDate, endDate: month.endDate,
+            sales: month.sales, cashSales: month.cashSales, creditSales: month.creditSales,
+            collections: month.collections, expenses: month.expenses, moneyBanked: month.moneyBanked,
+          })),
+          columns: ["period", "startDate", "endDate", "sales", "cashSales", "creditSales", "collections", "expenses", "moneyBanked"],
+          filename: generateCsvFilename("operational-monthly", dateRange.from, dateRange.to),
+        }
+      : null,
+  );
+
   if (isLoading) {
     return (
       <div className="flex justify-center p-12">
@@ -380,6 +430,7 @@ export function MonthlyOperationalReport({ companyId, dateRange, search, hideZer
   if (error) {
     return <div className="p-8 text-center text-red-500 text-sm">Failed to load monthly report</div>;
   }
+
 
   const totals = data?.totals || {};
   let months = data?.months || [];
@@ -433,6 +484,20 @@ export function StockMovementReport({ companyId, dateRange, search, hideZeroActi
     enabled: !!companyId,
   });
 
+  useReportExport(
+    (data?.products || []).length
+      ? {
+          rows: (data.products || []).map((row: any) => ({
+            productName: row.productName, sku: row.sku, openingStock: row.openingStock,
+            production: row.production, purchases: row.purchases, sales: row.sales,
+            adjustments: row.adjustments, closingStock: row.closingStock,
+          })),
+          columns: ["productName", "sku", "openingStock", "production", "purchases", "sales", "adjustments", "closingStock"],
+          filename: generateCsvFilename("stock-movement", dateRange.from, dateRange.to),
+        }
+      : null,
+  );
+
   if (isLoading) {
     return (
       <div className="flex justify-center p-12">
@@ -457,6 +522,7 @@ export function StockMovementReport({ companyId, dateRange, search, hideZeroActi
     });
   }
   const totals = data?.totals || {};
+
 
   return (
     <div className="flex flex-col h-full">
@@ -543,6 +609,18 @@ export function ProductProfitMarginsReport(props: ReportProps) {
              Number(row.grossProfit || 0) > 0;
     });
   }
+  useReportExport(
+    filtered.length
+      ? {
+          rows: filtered.map((row: any) => ({
+            product: row.dimension, quantitySold: row.quantitySold, revenue: row.revenue,
+            cogs: row.cogs, grossProfit: row.grossProfit, marginPercent: row.marginPercent,
+          })),
+          columns: ["product", "quantitySold", "revenue", "cogs", "grossProfit", "marginPercent"],
+          filename: generateCsvFilename("profit-margins-product", props.dateRange.from, props.dateRange.to),
+        }
+      : null,
+  );
 
   if (isLoading) {
     return (

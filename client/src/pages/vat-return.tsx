@@ -28,6 +28,8 @@ import { apiFetch } from "@/lib/api";
 import { apiRequest } from "@/lib/queryClient";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
+import { useActiveCompany } from "@/hooks/use-active-company";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 import {
   Table,
   TableBody,
@@ -49,7 +51,7 @@ function formatCurrencyCode(amount: number, code = "USD") {
   }
 }
 
-function currencyLines(amounts: CurrencyAmounts = {}, includeCodes: string[] = []) {
+function currencyLines(amounts: CurrencyAmounts = {}, includeCodes: string[] = [], empty = "No sales yet") {
   const normalized = Object.entries(amounts || {}).reduce((acc, [code, amount]) => {
     acc[String(code || "USD").toUpperCase()] = Number(amount || 0);
     return acc;
@@ -59,7 +61,7 @@ function currencyLines(amounts: CurrencyAmounts = {}, includeCodes: string[] = [
     if (currencyCode && normalized[currencyCode] == null) normalized[currencyCode] = 0;
   });
   const entries = Object.entries(normalized).filter(([, amount]) => includeCodes.length > 0 || Math.abs(Number(amount || 0)) > 0.004);
-  if (entries.length === 0) return <span>{formatCurrencyCode(0, "USD")}</span>;
+  if (entries.length === 0) return <span>{empty}</span>;
   return (
     <span className="flex flex-col gap-1 leading-tight">
       {entries.map(([code, amount]) => (
@@ -70,6 +72,11 @@ function currencyLines(amounts: CurrencyAmounts = {}, includeCodes: string[] = [
 }
 
 export default function VatReturnPage() {
+  const { activeCompany } = useActiveCompany();
+  const { isLesotho } = useFiscalAuthority();
+  // Lesotho (LEKAKU) is single-currency: the VAT return uses only the
+  // company's home currency (LSL) — never the USD/ZWG multi-currency rows.
+  const homeCurrency = String((activeCompany as any)?.currency || (isLesotho ? "LSL" : "USD")).toUpperCase();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [dateRange, setDateRange] = useState({
@@ -98,14 +105,22 @@ export default function VatReturnPage() {
 
   const currentReturnId = `VAT-${localStorage.getItem("selectedCompanyId") || ""}-${dateRange.from.replace(/-/g, "")}-${dateRange.to.replace(/-/g, "")}`;
   const currentLifecycle = vatReturns.find((row) => row.id === currentReturnId);
-  const visibleCurrencyCodes = Array.from(new Set([
-    "USD",
-    "ZWG",
-    ...(report?.availableCurrencies || []),
-    ...Object.keys(report?.outputVatByCurrency || {}),
-    ...Object.keys(report?.inputVatByCurrency || {}),
-    ...Object.keys(report?.netVatByCurrency || {}),
-  ]));
+  // Strict single-currency for Lesotho: drop any non-home buckets so a
+  // stray multi-currency row can never render next to LSL.
+  const showAmounts = (amounts: CurrencyAmounts = {}) => {
+    if (!isLesotho) return amounts;
+    return { [homeCurrency]: Number((amounts as any)?.[homeCurrency] || 0) };
+  };
+  const visibleCurrencyCodes = isLesotho
+    ? [homeCurrency]
+    : Array.from(new Set([
+      "USD",
+      "ZWG",
+      ...(report?.availableCurrencies || []),
+      ...Object.keys(report?.outputVatByCurrency || {}),
+      ...Object.keys(report?.inputVatByCurrency || {}),
+      ...Object.keys(report?.netVatByCurrency || {}),
+    ]));
 
   const draftMutation = useMutation({
     mutationFn: async () => {
@@ -337,7 +352,7 @@ export default function VatReturnPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-3xl font-black text-slate-800">
-                  {currencyLines(report.outputVatByCurrency, visibleCurrencyCodes)}
+                  {currencyLines(showAmounts(report.outputVatByCurrency), visibleCurrencyCodes)}
                 </div>
                 <p className="mt-2 text-xs font-semibold text-slate-500">
                   {report.includedInvoiceCount || 0} eligible fiscal document{report.includedInvoiceCount === 1 ? "" : "s"}
@@ -362,7 +377,7 @@ export default function VatReturnPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-3xl font-black text-slate-800">
-                  {currencyLines(report.inputVatByCurrency, visibleCurrencyCodes)}
+                  {currencyLines(showAmounts(report.inputVatByCurrency), visibleCurrencyCodes)}
                 </div>
               </CardContent>
             </Card>
@@ -388,7 +403,7 @@ export default function VatReturnPage() {
                 <div
                   className={`text-4xl font-black ${report.netVat > 0 ? "text-rose-600" : report.netVat < 0 ? "text-emerald-600" : "text-slate-800"}`}
                 >
-                  {currencyLines(report.netVatByCurrency, visibleCurrencyCodes)}
+                  {currencyLines(showAmounts(report.netVatByCurrency), visibleCurrencyCodes)}
                 </div>
                 {report.netVat < 0 && (
                   <p className="text-xs text-emerald-600 font-bold mt-1">
@@ -467,10 +482,10 @@ export default function VatReturnPage() {
                   {report.dailyBreakdown.map((row: any) => (
                     <TableRow key={row.date}>
                       <TableCell className="pl-6 font-medium text-slate-900">{format(new Date(row.date), "dd MMM yyyy")}</TableCell>
-                      <TableCell>{currencyLines(row.totalSalesByCurrency, visibleCurrencyCodes)}</TableCell>
-                      <TableCell>{currencyLines(row.outputVatByCurrency, visibleCurrencyCodes)}</TableCell>
-                      <TableCell>{currencyLines(row.inputVatByCurrency, visibleCurrencyCodes)}</TableCell>
-                      <TableCell className="text-right pr-6 font-bold">{currencyLines(row.netVatByCurrency, visibleCurrencyCodes)}</TableCell>
+                      <TableCell>{currencyLines(showAmounts(row.totalSalesByCurrency), visibleCurrencyCodes)}</TableCell>
+                      <TableCell>{currencyLines(showAmounts(row.outputVatByCurrency), visibleCurrencyCodes)}</TableCell>
+                      <TableCell>{currencyLines(showAmounts(row.inputVatByCurrency), visibleCurrencyCodes)}</TableCell>
+                      <TableCell className="text-right pr-6 font-bold">{currencyLines(showAmounts(row.netVatByCurrency), visibleCurrencyCodes)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -549,7 +564,7 @@ export default function VatReturnPage() {
                   </span>
                   <div className="flex items-center gap-3">
                     <span className="font-bold">
-                      {currencyLines(row.snapshot?.netVatByCurrency || { USD: Number(row.snapshot?.netVat || 0) }, visibleCurrencyCodes)}
+                      {currencyLines(showAmounts(row.snapshot?.netVatByCurrency || { [homeCurrency]: Number(row.snapshot?.netVat || 0) }), visibleCurrencyCodes)}
                     </span>
                     <Badge variant="outline">{row.status}</Badge>
                   </div>

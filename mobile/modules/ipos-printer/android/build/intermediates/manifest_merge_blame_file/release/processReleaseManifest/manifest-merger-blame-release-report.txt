@@ -1,0 +1,21 @@
+1<?xml version="1.0" encoding="utf-8"?>
+2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+3    package="expo.modules.iposprinter" >
+4
+5    <uses-sdk android:minSdkVersion="21" />
+6
+7    <queries>
+7-->/home/emmanuel/Documents/PROJECTS/fisczim/mobile/modules/ipos-printer/android/src/main/AndroidManifest.xml:4:5-9:15
+8        <package android:name="com.iposprinter.iposprinterservice" />
+8-->/home/emmanuel/Documents/PROJECTS/fisczim/mobile/modules/ipos-printer/android/src/main/AndroidManifest.xml:5:9-70
+8-->/home/emmanuel/Documents/PROJECTS/fisczim/mobile/modules/ipos-printer/android/src/main/AndroidManifest.xml:5:18-67
+9
+10        <intent>
+10-->/home/emmanuel/Documents/PROJECTS/fisczim/mobile/modules/ipos-printer/android/src/main/AndroidManifest.xml:6:9-8:18
+11            <action android:name="com.iposprinter.iposprinterservice.IPosPrinterService" />
+11-->/home/emmanuel/Documents/PROJECTS/fisczim/mobile/modules/ipos-printer/android/src/main/AndroidManifest.xml:7:13-92
+11-->/home/emmanuel/Documents/PROJECTS/fisczim/mobile/modules/ipos-printer/android/src/main/AndroidManifest.xml:7:21-89
+12        </intent>
+13    </queries>
+14
+15</manifest>

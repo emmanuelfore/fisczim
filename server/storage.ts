@@ -759,27 +759,45 @@ export class DatabaseStorage implements IStorage {
       // Initialize default Chart of Accounts
       await this.initializeCompanyAccounts(newCompany.id, tx);
 
-      // Automatically create default currencies (USD and ZIG)
-      await tx.insert(currencies).values([
-        {
-          companyId: newCompany.id,
-          code: "USD",
-          name: "US Dollar",
-          symbol: "$",
-          exchangeRate: "1.000000",
-          isBase: true,
-          isActive: true
-        },
-        {
-          companyId: newCompany.id,
-          code: "ZWG",
-          name: "Zimbabwe Gold",
-          symbol: "ZWG",
-          exchangeRate: "13.500000",
-          isBase: false,
-          isActive: true
-        }
-      ]);
+      // Default currencies are authority-specific. Lesotho (LEKAKU) is
+      // single-currency: LSL only — never seed USD/ZWG there.
+      const isLesothoCompany =
+        (normalizedCompany.country || "") === "Lesotho" ||
+        normalizedCompany.fiscalProvider === "LEKAKU";
+      await tx.insert(currencies).values(
+        isLesothoCompany
+          ? [
+              {
+                companyId: newCompany.id,
+                code: "LSL",
+                name: "Lesotho Loti",
+                symbol: "M",
+                exchangeRate: "1.000000",
+                isBase: true,
+                isActive: true,
+              },
+            ]
+          : [
+              {
+                companyId: newCompany.id,
+                code: "USD",
+                name: "US Dollar",
+                symbol: "$",
+                exchangeRate: "1.000000",
+                isBase: true,
+                isActive: true
+              },
+              {
+                companyId: newCompany.id,
+                code: "ZWG",
+                name: "Zimbabwe Gold",
+                symbol: "ZWG",
+                exchangeRate: "13.500000",
+                isBase: false,
+                isActive: true
+              }
+            ]
+      );
 
       return newCompany;
     });
@@ -2480,26 +2498,45 @@ export class DatabaseStorage implements IStorage {
 
     if (existing.length > 0) return existing;
 
-    await db.insert(currencies).values([
-      {
-        companyId,
-        code: "USD",
-        name: "US Dollar",
-        symbol: "$",
-        exchangeRate: "1.000000",
-        isBase: true,
-        isActive: true
-      },
-      {
-        companyId,
-        code: "ZWG",
-        name: "Zimbabwe Gold",
-        symbol: "ZWG",
-        exchangeRate: "13.500000",
-        isBase: false,
-        isActive: true
-      }
-    ]);
+    // Fallback seed honors the company's authority: Lesotho gets LSL only.
+    const [company] = await db.select().from(companies).where(eq(companies.id, companyId)).limit(1);
+    const isLesothoCompany =
+      (company?.country || "") === "Lesotho" || (company as any)?.fiscalProvider === "LEKAKU";
+
+    await db.insert(currencies).values(
+      isLesothoCompany
+        ? [
+            {
+              companyId,
+              code: "LSL",
+              name: "Lesotho Loti",
+              symbol: "M",
+              exchangeRate: "1.000000",
+              isBase: true,
+              isActive: true,
+            },
+          ]
+        : [
+            {
+              companyId,
+              code: "USD",
+              name: "US Dollar",
+              symbol: "$",
+              exchangeRate: "1.000000",
+              isBase: true,
+              isActive: true
+            },
+            {
+              companyId,
+              code: "ZWG",
+              name: "Zimbabwe Gold",
+              symbol: "ZWG",
+              exchangeRate: "13.500000",
+              isBase: false,
+              isActive: true
+            }
+          ]
+    );
 
     return await db.select().from(currencies).where(
       eq(currencies.companyId, companyId)

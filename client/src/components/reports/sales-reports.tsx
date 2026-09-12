@@ -5,6 +5,8 @@ import { filterRecords, computeTotal } from "@/lib/report-utils";
 import { format, isValid } from "date-fns";
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useReportExport } from "./report-export";
+import { generateCsvFilename } from "@/lib/report-utils";
 
 interface ReportProps {
   companyId: number;
@@ -69,6 +71,15 @@ export function SalesReport({ companyId, dateRange, search, hideZeroActivity }: 
     filtered = filtered.filter((row: any) => (row.invoiceCount || 0) > 0);
   }
   const total = computeTotal(filtered, "total");
+  useReportExport(
+    filtered.length
+      ? {
+          rows: filtered,
+          columns: ["date", "invoiceCount", "currency", "subtotal", "taxAmount", "total"],
+          filename: generateCsvFilename("sales-summary", dateRange.from, dateRange.to),
+        }
+      : null,
+  );
 
   if (isLoading)
     return (
@@ -224,6 +235,15 @@ export function SalesByCustomerReport({
     filtered = filtered.filter((row: any) => (row.invoiceCount || 0) > 0);
   }
   const total = computeTotal(filtered, "total");
+  useReportExport(
+    filtered.length
+      ? {
+          rows: filtered,
+          columns: ["customerName", "invoiceCount", "currency", "total"],
+          filename: generateCsvFilename("sales-by-customer", dateRange.from, dateRange.to),
+        }
+      : null,
+  );
 
   if (isLoading)
     return (
@@ -360,6 +380,15 @@ export function SalesByItemReport({
     filtered = filtered.filter((row: any) => (row.quantitySold || 0) > 0);
   }
   const total = computeTotal(filtered, "revenue");
+  useReportExport(
+    filtered.length
+      ? {
+          rows: filtered,
+          columns: ["description", "quantitySold", "currency", "revenue"],
+          filename: generateCsvFilename("sales-by-item", dateRange.from, dateRange.to),
+        }
+      : null,
+  );
 
   if (isLoading)
     return (

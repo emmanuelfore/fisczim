@@ -46,6 +46,8 @@ import { Link } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useActiveCompany } from "@/hooks/use-active-company";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 import { format } from "date-fns";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -68,6 +70,9 @@ const currencySchema = z.object({
 type CurrencyFormValues = z.infer<typeof currencySchema>;
 
 export default function CurrencySettingsPage() {
+  const { activeCompany } = useActiveCompany();
+  const { isLesotho } = useFiscalAuthority();
+  const homeCurrency = String((activeCompany as any)?.currency || (isLesotho ? "LSL" : "USD")).toUpperCase();
   const companyId = parseInt(localStorage.getItem("selectedCompanyId") || "0");
   const {
     data: currencies,
@@ -205,12 +210,19 @@ export default function CurrencySettingsPage() {
               if (!open) resetForm();
             }}
           >
-            <DialogTrigger asChild>
-              <Button>
-                <Plus className="w-4 h-4 mr-2" />
-                Add Currency
-              </Button>
-            </DialogTrigger>
+            {!isLesotho && (
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Currency
+                </Button>
+              </DialogTrigger>
+            )}
+            {isLesotho && (
+              <p className="text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+                Single currency ({homeCurrency}) — additional currencies are disabled for Lesotho.
+              </p>
+            )}
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>

@@ -390,6 +390,19 @@ export default function POSPage() {
   const [splitAmount, setSplitAmount] = useState<string>("");
   const [selectedCurrencyCode, setSelectedCurrencyCode] =
     useState<string>("USD");
+  // Lesotho is single-currency: the till is always the home currency (LSL).
+  const posIsLesotho =
+    (company as any)?.country === "Lesotho" ||
+    (company as any)?.fiscalProvider === "LEKAKU";
+  const posHomeCurrency = String(
+    (company as any)?.currency || (posIsLesotho ? "LSL" : "USD"),
+  ).toUpperCase();
+  const posCurrencyOptions = posIsLesotho ? [posHomeCurrency] : ["USD", "ZWG"];
+  useEffect(() => {
+    if (posIsLesotho && selectedCurrencyCode !== posHomeCurrency) {
+      setSelectedCurrencyCode(posHomeCurrency);
+    }
+  }, [posIsLesotho, posHomeCurrency]);
   const [isFiscalized, setIsFiscalized] = useState(true);
   const [pendingPrintQueue, setPendingPrintQueue] = useState<number[]>([]);
   const pendingPrintEnqueuedAtRef = useRef<Record<number, number>>({});
@@ -4183,9 +4196,9 @@ export default function POSPage() {
                 </div>
               </div>
 
-              {/* Global Currency Switcher - Hyper Compact */}
+              {/* Global Currency Switcher - Hyper Compact (LSL only in Lesotho) */}
               <div className="flex bg-slate-100/60 p-0.5 rounded-lg shrink-0 border border-slate-200/30">
-                {["USD", "ZWG"].map((cc) => (
+                {posCurrencyOptions.map((cc) => (
                   <button
                     key={cc}
                     onClick={() => setSelectedCurrencyCode(cc)}

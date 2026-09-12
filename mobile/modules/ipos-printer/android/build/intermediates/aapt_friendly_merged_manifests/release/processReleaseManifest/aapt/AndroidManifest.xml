@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="expo.modules.iposprinter" >
+
+    <uses-sdk android:minSdkVersion="21" />
+
+    <queries>
+        <package android:name="com.iposprinter.iposprinterservice" />
+
+        <intent>
+            <action android:name="com.iposprinter.iposprinterservice.IPosPrinterService" />
+        </intent>
+    </queries>
+
+</manifest>

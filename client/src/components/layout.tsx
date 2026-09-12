@@ -499,12 +499,12 @@ export function Layout({
       icon: ShieldCheck,
       label: "Tax & Compliance",
       children: [
-        { icon: Server, label: "ZIMRA Device Settings", href: "/settings?tab=zimra" },
+        { icon: Server, label: "Fiscal Device Settings", href: "/tax-settings" },
         { icon: ClipboardList, label: "Transaction Logs", href: "/zimra-logs" },
         { icon: CalendarClock, label: "Scheduled Jobs", href: "/jobs" },
         { icon: Activity, label: "API Logs", href: "/api-logs" },
-        { icon: Activity, label: "FDMS Test", href: "/fdms-test" },
-        { icon: FileText, label: "Tax & ZIMRA Report", href: "/reports/tax" },
+        { icon: Activity, label: "Fiscal Test", href: "/fiscal-test" },
+        { icon: FileText, label: "Tax Reports", href: "/reports/tax" },
         { icon: Coins, label: "VAT Returns", href: "/accounting/reports/vat-return" },
         {
           icon: ShieldCheck,
@@ -608,7 +608,7 @@ export function Layout({
       children: [
         { icon: LayoutDashboard, label: "Reports Dashboard", href: "/reports" },
         { icon: Receipt, label: "Daily Sales", href: "/reports/daily" },
-        { icon: ShieldCheck, label: "Tax & ZIMRA Report", href: "/reports/tax" },
+        { icon: ShieldCheck, label: "Tax Reports", href: "/reports/tax" },
       ],
     },
     { icon: UserCog, label: "User Management", href: "/team-settings" },
@@ -904,7 +904,7 @@ export function Layout({
     if (location.startsWith("/hr/reports"))
       return {
         title: "HR Reports",
-        subtitle: "Generate ZIMRA and HR compliance reports.",
+        subtitle: "Generate statutory and HR compliance reports.",
       };
     if (location.startsWith("/hr"))
       return {
@@ -914,7 +914,7 @@ export function Layout({
     if (location.startsWith("/tax-config"))
       return {
         title: "Tax Configuration",
-        subtitle: "Manage ZIMRA fiscalisation and tax categories.",
+        subtitle: "Manage fiscalisation and tax categories.",
       };
     if (location.startsWith("/pos-settings"))
       return {
@@ -924,9 +924,9 @@ export function Layout({
     if (location.startsWith("/settings")) {
       if (search.includes("tab=zimra"))
         return {
-          title: "ZIMRA Device",
+          title: "Fiscal Device",
           subtitle:
-            "Configure fiscal device credentials and FDMS connectivity.",
+            "Configure fiscal device credentials and connectivity.",
         };
       if (search.includes("tab=team"))
         return {
@@ -1008,7 +1008,7 @@ export function Layout({
     if (location.startsWith("/subscription"))
       return {
         title: "Subscription & Licensing",
-        subtitle: "Manage hardware bindings for ZIMRA production access.",
+        subtitle: "Manage hardware bindings for production access.",
       };
     if (location.startsWith("/profile"))
       return {
@@ -1018,7 +1018,7 @@ export function Layout({
     if (location.startsWith("/zimra-logs"))
       return {
         title: "Transaction Logs",
-        subtitle: "Review FDMS communication and fiscal submission history.",
+        subtitle: "Review fiscal communication and submission history.",
       };
     if (location.startsWith("/jobs"))
       return {
@@ -1030,14 +1030,14 @@ export function Layout({
         title: "API Logs",
         subtitle: "Incoming API requests and responses.",
       };
-    if (location.startsWith("/zimra-settings"))
+    if (location.startsWith("/tax-settings"))
       return {
-        title: "ZIMRA Settings",
-        subtitle: "Manage fiscal device and ZIMRA configuration.",
+        title: "Tax Settings",
+        subtitle: "Manage fiscal device and tax configuration.",
       };
-    if (location.startsWith("/fdms-test"))
+    if (location.startsWith("/fiscal-test"))
       return {
-        title: "FDMS Test",
+        title: "Fiscal Test",
         subtitle: "Test fiscal device connectivity and FDMS responses.",
       };
     if (location.startsWith("/accounting/coa"))
@@ -1193,7 +1193,7 @@ export function Layout({
       };
     if (location.startsWith("/reports/tax"))
       return {
-        title: "Tax & ZIMRA Reports",
+        title: "Tax Reports",
         subtitle: "Review fiscal, tax, and compliance reporting.",
       };
     if (location.startsWith("/reports/customer-statements"))

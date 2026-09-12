@@ -27,7 +27,7 @@ export function useFiscalAuthority() {
         
         // Settings — single device setup page; it switches authority
         // (ZIMRA vs LEKAKU endpoint) based on the active company.
-        settingsRoute: "/zimra-settings",
+        settingsRoute: "/tax-settings",
         settingsLabel: isLesotho ? "LEKAKU Settings" : "ZIMRA Settings",
         
         // Tax

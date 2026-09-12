@@ -66,7 +66,7 @@ export default function TaxReportsPage() {
     enabled: !!companyId,
   });
 
-  // Fetch ZIMRA Logs
+  // Fetch fiscal communication logs
   const { data: zimraLogs, isLoading: isLoadingLogs } = useQuery({
     queryKey: ["zimra-logs", companyId],
     queryFn: async () => {
@@ -349,15 +349,15 @@ export default function TaxReportsPage() {
           </Card>
         </div>
 
-        {/* ZIMRA Communication Logs */}
+        {/* Fiscal Communication Logs */}
         <Card className="border-none shadow-sm overflow-hidden">
           <CardHeader className="bg-white border-b border-slate-100 flex flex-row items-center justify-between">
             <div>
               <CardTitle className="text-lg font-bold">
-                Recent ZIMRA Logs
+                Recent Fiscal Logs
               </CardTitle>
               <CardDescription>
-                Live communication with ZIMRA servers
+                Live communication with fiscal servers
               </CardDescription>
             </div>
             <History className="h-5 w-5 text-slate-400" />

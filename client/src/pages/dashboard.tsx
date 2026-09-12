@@ -191,7 +191,11 @@ export default function Dashboard() {
   });
   const paymentTotal = paymentData.reduce((acc, p) => acc + p.value, 0);
   const configuredCurrencyCodes = (currencies || []).filter((c: any) => c.isActive !== false).map((c: any) => String(c.code || "").toUpperCase()).filter(Boolean);
-  const visibleCurrencyCodes = Array.from(new Set(["USD", ...configuredCurrencyCodes, configuredCurrencyCodes.includes("ZIG") ? "ZIG" : "ZWG"]));
+  const homeCurrency = String((activeCompany as any)?.currency || (isLesotho ? "LSL" : "USD")).toUpperCase();
+  // Lesotho is single-currency: only the home currency ever renders.
+  const visibleCurrencyCodes = isLesotho
+    ? [homeCurrency]
+    : Array.from(new Set(["USD", ...configuredCurrencyCodes, configuredCurrencyCodes.includes("ZIG") ? "ZIG" : "ZWG"]));
   const totalSalesByCurrency = (operationalMetrics?.totalRevenueByCurrency || {}) as CurrencyAmounts;
   const vatCollectedByCurrency = invoices.reduce((acc, inv) => addCurrencyAmount(acc, inv.currency, inv.taxAmount), {} as CurrencyAmounts);
   const connected = Boolean(deviceStatus?.isConfigured && deviceStatus?.isOnline);
@@ -326,7 +330,6 @@ export default function Dashboard() {
               <div className="space-y-3">
                 {[
                   ["POS Device", connected ? "Online" : "Offline", connected],
-                  ["ZIMRA Connection", connected ? "Connected" : "Offline", connected],
                   ["Internet", "Online", true],
                   ["Database", "Healthy", true],
                 ].map(([label, value, ok]) => (
@@ -338,7 +341,7 @@ export default function Dashboard() {
                   </div>
                 ))}
               </div>
-              <Link href="/zimra-settings" className="mt-4 inline-flex text-[12px] font-semibold" style={{ color: GREEN }}>View details →</Link>
+              <Link href="/tax-settings" className="mt-4 inline-flex text-[12px] font-semibold" style={{ color: GREEN }}>View details →</Link>
             </div>
           </div>
 

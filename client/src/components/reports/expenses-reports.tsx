@@ -5,6 +5,8 @@ import { filterRecords, computeTotal } from "@/lib/report-utils";
 import { format, isValid } from "date-fns";
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useReportExport } from "./report-export";
+import { generateCsvFilename } from "@/lib/report-utils";
 
 interface ReportProps {
   companyId: number;
@@ -98,6 +100,11 @@ export function ExpenseDetailsReport({
     "reference",
   ]);
   const total = computeTotal(filtered, "amount");
+  useReportExport(
+    filtered.length
+      ? { rows: filtered, columns: ['expenseDate', 'category', 'description', 'supplierName', 'paymentMethod', 'currency', 'amount', 'reference'], filename: generateCsvFilename("expense-details", dateRange.from, dateRange.to) }
+      : null,
+  );
 
   if (isLoading)
     return (
@@ -248,6 +255,11 @@ export function ExpensesByCategoryReport({
 
   const filtered = filterRecords(data, search, ["category"]);
   const total = computeTotal(filtered, "total");
+  useReportExport(
+    filtered.length
+      ? { rows: filtered, columns: ['category', 'count', 'total', 'percentage'], filename: generateCsvFilename("expenses-by-category", dateRange.from, dateRange.to) }
+      : null,
+  );
 
   if (isLoading)
     return (

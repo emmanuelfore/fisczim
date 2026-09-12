@@ -193,7 +193,7 @@ export default function SettingsPage() {
     {
       title: t("Fiscal (Tax)"),
       items: [
-        { id: "zimra", label: t("ZIMRA Device") },
+        { id: "zimra", label: t("Fiscal Device") },
         { id: "tax", label: t("Tax Config") },
       ]
     },
@@ -315,7 +315,7 @@ const getTabMeta = (id: string) => {
       case "sales-orders": return { title: t("Sales Orders Configuration"), subtitle: t("Configure deposit percentages, preorder rules, and lay-by default durations.") };
       case "inventory": return { title: t("Inventory Controls"), subtitle: t("Configure inventory valuation methods and default controls.") };
       case "currencies": return { title: t("Currencies"), subtitle: t("Set default currencies and manage exchange rates.") };
-      case "zimra": return { title: t("ZIMRA Device Settings"), subtitle: t("Configure fiscal device connectivity and ZIMRA settings.") };
+      case "zimra": return { title: t("Fiscal Device Settings"), subtitle: t("Configure fiscal device connectivity and tax settings.") };
       case "tax": return { title: t("Tax Configuration"), subtitle: t("Manage tax categories and VAT configuration.") };
       case "app-mode": return { title: t("App Mode Configuration"), subtitle: t("Switch between standard retail, restaurant, or bus modes.") };
       case "pos": return { title: t("POS Terminal Settings"), subtitle: t("Configure registers, printing, receipts, and tills.") };

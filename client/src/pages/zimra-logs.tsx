@@ -143,7 +143,7 @@ export default function ZimraLogs() {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <Link href="/zimra-settings">
+            <Link href="/tax-settings">
               <Button variant="ghost" size="icon">
                 <ArrowLeft className="h-4 w-4" />
               </Button>
@@ -190,7 +190,7 @@ export default function ZimraLogs() {
                     <div>
                       <CardTitle>Transaction History</CardTitle>
                       <CardDescription>
-                        Recent API interactions with ZIMRA FDMS (
+                        Recent API interactions with fiscal servers (
                         {filteredLogs.length} logs)
                       </CardDescription>
                     </div>

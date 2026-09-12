@@ -23,6 +23,8 @@ import {
 import { format, isValid } from "date-fns";
 import { Loader2, Package, List, History, Truck } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useReportExport } from "./report-export";
+import { generateCsvFilename } from "@/lib/report-utils";
 
 interface ReportProps {
   companyId: number;
@@ -249,6 +251,30 @@ export function InventoryHealthReport({ companyId, search }: ReportProps) {
     enabled: !!companyId,
   });
 
+  useReportExport(
+    (data || []).length
+      ? {
+          rows: (data || [])
+            .filter(
+              (item: any) =>
+                String(item.name || "").toLowerCase().includes(search.toLowerCase()) ||
+                (item.sku && String(item.sku).toLowerCase().includes(search.toLowerCase())),
+            )
+            .map((item: any) => {
+              const stock = Number(item.stockLevel || 0);
+              const threshold = Number(item.lowStockThreshold || 0);
+              return {
+                name: item.name, sku: item.sku, stockLevel: item.stockLevel,
+                lowStockThreshold: item.lowStockThreshold,
+                status: stock <= 0 ? "Out of Stock" : stock <= threshold ? "Low Stock" : "OK",
+              };
+            }),
+          columns: ["name", "sku", "stockLevel", "lowStockThreshold", "status"],
+          filename: "stock-alerts.csv",
+        }
+      : null,
+  );
+
   if (isLoading)
     return (
       <div className="flex justify-center p-12">
@@ -352,6 +378,24 @@ export function StockOnHandReport({ companyId, search }: ReportProps) {
     },
     enabled: !!companyId,
   });
+
+  useReportExport(
+    (data || []).length
+      ? {
+          rows: (data || [])
+            .filter(
+              (item: any) =>
+                String(item.name || "").toLowerCase().includes(search.toLowerCase()) ||
+                (item.sku && String(item.sku).toLowerCase().includes(search.toLowerCase())),
+            )
+            .map((item: any) => ({
+              name: item.name, sku: item.sku, stockLevel: item.stockLevel, totalValue: item.totalValue,
+            })),
+          columns: ["name", "sku", "stockLevel", "totalValue"],
+          filename: "stock-on-hand.csv",
+        }
+      : null,
+  );
 
   if (isLoading)
     return (
@@ -519,6 +563,25 @@ export function InventoryMovementsReport({
     },
     enabled: !!companyId,
   });
+
+  useReportExport(
+    (data || []).length
+      ? {
+          rows: (data || [])
+            .filter(
+              (item: any) =>
+                String(item.productName || "").toLowerCase().includes(search.toLowerCase()) ||
+                String(item.reference || "").toLowerCase().includes(search.toLowerCase()),
+            )
+            .map((item: any) => ({
+              date: item.date, productName: item.productName, quantity: item.quantity,
+              reference: item.reference, type: item.type,
+            })),
+          columns: ["date", "productName", "quantity", "reference", "type"],
+          filename: generateCsvFilename("inventory-movements", dateRange.from, dateRange.to),
+        }
+      : null,
+  );
 
   if (isLoading)
     return (
@@ -719,6 +782,26 @@ export function PurchaseHistoryReport({
     },
     enabled: !!companyId,
   });
+
+  useReportExport(
+    (data || []).length
+      ? {
+          rows: (data || [])
+            .filter(
+              (item: any) =>
+                String(item.productName || "").toLowerCase().includes(search.toLowerCase()) ||
+                String(item.supplierName || "").toLowerCase().includes(search.toLowerCase()) ||
+                String(item.reference || "").toLowerCase().includes(search.toLowerCase()),
+            )
+            .map((item: any) => ({
+              date: item.date, supplierName: item.supplierName, productName: item.productName,
+              reference: item.reference, totalCost: item.totalCost,
+            })),
+          columns: ["date", "supplierName", "productName", "reference", "totalCost"],
+          filename: generateCsvFilename("purchase-report", dateRange.from, dateRange.to),
+        }
+      : null,
+  );
 
   if (isLoading)
     return (

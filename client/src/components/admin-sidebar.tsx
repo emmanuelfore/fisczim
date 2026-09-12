@@ -238,22 +238,15 @@ export function AdminSidebar({
         <div aria-hidden className="absolute left-0 top-0 bottom-0 w-[4px]" style={{ background: "#064E3B" }} />
         <div aria-hidden className="absolute -right-10 -top-16 w-44 h-44 rounded-full" style={{ background: "radial-gradient(circle, rgba(123,227,168,0.22) 0%, transparent 70%)" }} />
         <div aria-hidden className="absolute right-16 bottom-0 w-24 h-10 rounded-full" style={{ background: "rgba(255,255,255,0.06)", filter: "blur(12px)" }} />
-        <div className="relative flex items-center gap-3 w-full">
-          <div className="w-11 h-11 rounded-[12px] bg-white flex items-center justify-center shrink-0 shadow-[0_2px_8px_rgba(0,0,0,0.15)]">
-            <img src={brand.logo} alt={brand.name} className="h-7 w-7 object-contain" />
-          </div>
-          <div className="leading-none min-w-0">
-            <div className="text-[19px] font-extrabold tracking-tight text-white" style={{ fontFamily: "Inter, sans-serif", letterSpacing: "-0.02em" }}>LEKAKU</div>
-            <div className="text-[7.5px] font-semibold uppercase text-white/70 mt-1.5" style={{ letterSpacing: "0.8px" }}>Fiscal Compliance Made Simple</div>
-          </div>
-          <div className="ml-auto shrink-0 text-[9px] font-bold px-2 py-1 rounded-full bg-white/15 text-white/90 border border-white/20">RSL</div>
+        <div className="relative flex items-center w-full">
+          <img src={brand.logo} alt={brand.name} className="h-9 w-auto object-contain" style={{ filter: "brightness(0) invert(1)" }} />
           {onToggleCollapse && !forceVisible && (
-            <button onClick={onToggleCollapse} title="Collapse menu" className="ml-2 shrink-0 w-7 h-7 rounded-lg bg-white/15 hover:bg-white/25 flex items-center justify-center text-white">
+            <button onClick={onToggleCollapse} title="Collapse menu" className="ml-auto shrink-0 w-7 h-7 rounded-lg bg-white/15 hover:bg-white/25 flex items-center justify-center text-white">
               <PanelLeftClose className="w-4 h-4" />
             </button>
           )}
           {forceVisible && onNavigate && (
-            <button onClick={onNavigate} title="Close menu" className="ml-2 shrink-0 w-7 h-7 rounded-lg bg-white/15 hover:bg-white/25 flex items-center justify-center text-white">
+            <button onClick={onNavigate} title="Close menu" className="ml-auto shrink-0 w-7 h-7 rounded-lg bg-white/15 hover:bg-white/25 flex items-center justify-center text-white">
               <X className="w-4 h-4" />
             </button>
           )}
@@ -305,8 +298,7 @@ export function AdminSidebar({
                                 className="w-full flex items-center justify-between rounded-[8px] px-3 h-8 text-[13px] transition-colors text-left"
                                 style={{ color: childGroupActive ? SIDEBAR_ACTIVE : SIDEBAR_MUTED, fontWeight: childGroupActive ? 600 : 400, background: childGroupActive ? "#EDE9DD" : "transparent" }}
                               >
-                                <span className="flex items-center gap-2">
-                                  <child.icon className="w-3.5 h-3.5" />
+                                <span className="flex items-center">
                                   {child.label}
                                 </span>
                                 <ChevronRight className={cn("w-3 h-3 transition-transform", childOpen && "rotate-90")} />

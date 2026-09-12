@@ -10478,6 +10478,79 @@ export async function registerRoutes(
     }
   });
 
+  // LEKAKU ping — authenticated Device/v1/GetStatus round-trip (proves the
+  // RSL gateway + device certificate path, mirroring /zimra/ping).
+  app.post("/api/companies/:id/lekaku/ping", requireAuthOrApiKey, async (req, res) => {
+    try {
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
+      const company: any = await storage.getCompany(companyId);
+      if (!company || !company.fdmsDeviceId) {
+        return res.status(400).json({ message: "Company not registered with RSL" });
+      }
+      const device = new LekakuDevice({
+        baseUrl: (company.lekakuGatewayUrl || getLekakuGatewayUrl(company.zimraEnvironment)).trim(),
+        deviceId: String(company.fdmsDeviceId).trim(),
+        privateKey: company.zimraPrivateKey || undefined,
+        certificate: company.zimraCertificate || undefined,
+      });
+      const status = await device.getStatus();
+      await storage.updateCompany(companyId, { lastPing: new Date() } as any);
+      res.json({ overallStatus: "Online", status });
+    } catch (err: any) {
+      console.error("LEKAKU ping error:", err?.message || err);
+      if (err instanceof LekakuApiError) {
+        return res.status(err.statusCode || 500).json({ message: err.message, details: err.details });
+      }
+      res.status(500).json({ message: "Failed to ping RSL: " + (err.message || err) });
+    }
+  });
+
+  // LEKAKU open fiscal day — mirrors /zimra/day/open (status check, then
+  // OpenDay with the next day number; local counters reset the same way).
+  // NOTE: no RSL close-day operation is wired yet, so only open is exposed.
+  app.post("/api/companies/:id/lekaku/day/open", requireAuthOrApiKey, async (req, res) => {
+    try {
+      const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
+      const company: any = await storage.getCompany(companyId);
+      if (!company || !company.fdmsDeviceId) {
+        return res.status(400).json({ message: "Company not registered with RSL" });
+      }
+      const device = new LekakuDevice({
+        baseUrl: (company.lekakuGatewayUrl || getLekakuGatewayUrl(company.zimraEnvironment)).trim(),
+        deviceId: String(company.fdmsDeviceId).trim(),
+        privateKey: company.zimraPrivateKey || undefined,
+        certificate: company.zimraCertificate || undefined,
+      });
+      const status: any = await device.getStatus().catch(() => null);
+      if (status && (status.fiscalDayStatus === "FiscalDayOpened" || status.fiscalDayStatus === "Opened")) {
+        const fiscalDayNo = status.lastFiscalDayNo ?? company.currentFiscalDayNo ?? 1;
+        if (!company.fiscalDayOpen) {
+          await storage.updateCompany(companyId, {
+            currentFiscalDayNo: fiscalDayNo, fiscalDayOpen: true, lastFiscalDayStatus: "FiscalDayOpened",
+          } as any);
+        }
+        return res.json({ message: "Fiscal day is already open", fiscalDayNo });
+      }
+      const nextDayNo = ((status?.lastFiscalDayNo ?? company.currentFiscalDayNo ?? 0)) + 1;
+      const result: any = await device.openDay(nextDayNo);
+      await storage.updateCompany(companyId, {
+        currentFiscalDayNo: result?.fiscalDayNo || nextDayNo,
+        fiscalDayOpen: true,
+        lastFiscalDayStatus: "FiscalDayOpened",
+        fiscalDayOpenedAt: new Date(),
+        dailyReceiptCount: 0,
+        lastFiscalHash: null,
+      } as any);
+      res.json(result);
+    } catch (err: any) {
+      console.error("LEKAKU open day error:", err?.message || err);
+      if (err instanceof LekakuApiError) {
+        return res.status(err.statusCode || 500).json({ message: err.message, details: err.details });
+      }
+      res.status(500).json({ message: "Failed to open fiscal day: " + (err.message || err) });
+    }
+  });
+
   // LEKAKU tax health — validates local tax mapping against the live RSL
   // config BEFORE invoices turn red. Mirrors /zimra/tax-health.
   app.get("/api/companies/:companyId/lekaku/tax-health", requireAuth, async (req, res) => {
@@ -11355,9 +11428,18 @@ export async function registerRoutes(
   app.post(api.currencies.create.path, requireAuth, async (req, res) => {
     try {
       const input = api.currencies.create.input.parse(req.body);
+      const createCompanyId = Number(req.params.companyId);
+      // Lesotho (LEKAKU) is single-currency: only LSL may exist.
+      const createCompany: any = await storage.getCompany(createCompanyId);
+      const createIsLesotho =
+        (createCompany?.country || "") === "Lesotho" ||
+        createCompany?.fiscalProvider === "LEKAKU";
+      if (createIsLesotho && String(input.code || "").toUpperCase() !== "LSL") {
+        return res.status(400).json({ message: "Lesotho companies use a single currency (LSL) only." });
+      }
       const currency = await storage.createCurrency({
         ...input,
-        companyId: Number(req.params.companyId)
+        companyId: createCompanyId
       });
       res.status(201).json(currency);
     } catch (err) {

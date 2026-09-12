@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { format, startOfMonth, endOfMonth } from "date-fns";
 import { Layout } from "@/components/layout";
 import { useCurrencies } from "@/hooks/use-currencies";
 import { useActiveCompany } from "@/hooks/use-active-company";
+import { useFiscalAuthority } from "@/hooks/use-fiscal-authority";
 import { useBranches } from "@/hooks/use-branches";
 import { Button } from "@/components/ui/button";
 import {
@@ -45,7 +46,13 @@ export default function FinancialReportsPage() {
     from: startOfMonth(new Date()),
     to: endOfMonth(new Date()),
   });
+  const { isLesotho } = useFiscalAuthority();
+  const homeCurrency = String((activeCompany as any)?.currency || (isLesotho ? "LSL" : "USD")).toUpperCase();
+  // Lesotho is single-currency: the base is always the home currency.
   const [consolidatedCode, setConsolidatedCode] = useState<string>("USD");
+  useEffect(() => {
+    if (isLesotho && consolidatedCode !== homeCurrency) setConsolidatedCode(homeCurrency);
+  }, [isLesotho, homeCurrency]);
   const [selectedBranchId, setSelectedBranchId] = useState<string>("all");
 
   const defaultStatementTab = location.includes("balance-sheet")
@@ -112,20 +119,28 @@ export default function FinancialReportsPage() {
                 <SelectValue placeholder="USD" />
               </SelectTrigger>
               <SelectContent className="rounded-xl border-slate-100 shadow-xl">
-                <SelectItem value="USD" className="text-xs font-bold">
-                  USD
-                </SelectItem>
-                {currencies
-                  ?.filter((c) => c.code !== "USD")
-                  .map((c) => (
-                    <SelectItem
-                      key={c.id}
-                      value={c.code}
-                      className="text-xs font-bold"
-                    >
-                      {c.code}
+                {isLesotho ? (
+                  <SelectItem value={homeCurrency} className="text-xs font-bold">
+                    {homeCurrency}
+                  </SelectItem>
+                ) : (
+                  <>
+                    <SelectItem value="USD" className="text-xs font-bold">
+                      USD
                     </SelectItem>
-                  ))}
+                    {currencies
+                      ?.filter((c) => c.code !== "USD")
+                      .map((c) => (
+                        <SelectItem
+                          key={c.id}
+                          value={c.code}
+                          className="text-xs font-bold"
+                        >
+                          {c.code}
+                        </SelectItem>
+                      ))}
+                  </>
+                )}
               </SelectContent>
             </Select>
           </div>

@@ -9,7 +9,7 @@ import { CashCollectionReport, PaymentsReceivedReport } from "@/components/repor
 import { ExpenseDetailsReport, ExpensesByCategoryReport } from "@/components/reports/expenses-reports";
 import { TaxSummaryReport } from "@/components/reports/tax-reports";
 import { cn } from "@/lib/utils";
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Link, useRoute, useLocation } from "wouter";
 import {
   Collapsible,
@@ -23,7 +23,9 @@ import { Calendar } from "@/components/ui/calendar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { type DateRange } from "react-day-picker";
-import { downloadCsv, generateCsv } from "@/lib/report-utils";
+import { downloadCsv, generateCsv, generateCsvFilename } from "@/lib/report-utils";
+
+import { ReportExportContext, type ReportExportDef } from "@/components/reports/report-export";
 
 // ── Report definitions ────────────────────────────────────────────────────────
 
@@ -115,7 +117,7 @@ const REPORT_CATEGORIES: {
     icon: Receipt,
     reports: [
       { key: "tax-summary", label: "Tax Summary", category: "taxes", description: "Summarize collected and paid sales taxes across categories for reporting.", endpoint: "tax-summary" },
-      { key: "tax-zimra", label: "Tax & ZIMRA Report", category: "taxes", description: "Monitor ZIMRA fiscal submissions, signature statuses, and device reports.", externalHref: "/reports/tax" },
+      { key: "tax-zimra", label: "Tax Reports", category: "taxes", description: "Monitor fiscal submissions, signature statuses, and device reports.", externalHref: "/reports/tax" },
       { key: "vat-return", label: "VAT Returns", category: "taxes", description: "Generate localized tax calculation returns for revenue authority compliance.", externalHref: "/accounting/reports/vat-return" },
     ],
   },
@@ -146,7 +148,7 @@ const REPORT_CATEGORIES: {
     icon: ShieldCheck,
     reports: [
       { key: "audit-trail", label: "Posting Audit Trail", category: "audit", description: "Audit general ledger postings, trace transactions, and identify system creators.", externalHref: "/accounting/audit-trail" },
-      { key: "zimra-logs", label: "ZIMRA Logs Audit", category: "audit", description: "Deep-dive technical logs of messages exchanged with ZIMRA servers.", externalHref: "/zimra-logs" },
+      { key: "zimra-logs", label: "Fiscal Logs Audit", category: "audit", description: "Deep-dive technical logs of messages exchanged with fiscal servers.", externalHref: "/zimra-logs" },
     ],
   },
 ];
@@ -334,10 +336,10 @@ interface ReportSidebarProps {
 
 function ReportSidebar({ activeReport, onSelect, openCategories, onToggleCategory }: ReportSidebarProps) {
   return (
-    <div className="sticky top-[88px] flex h-[calc(100vh-96px)] w-72 shrink-0 flex-col overflow-hidden rounded-[14px] border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+    <div className="sticky top-[88px] flex h-[calc(100vh-96px)] w-72 shrink-0 flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
       {/* Sidebar header */}
-      <div className="px-4 py-3 border-b border-slate-100 shrink-0 flex items-center justify-between">
-        <span className="text-base font-black text-slate-800 uppercase tracking-tight">Reports Hub</span>
+      <div className="px-1 py-1 mb-2 shrink-0 flex items-center justify-between">
+        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Reports Hub</span>
       </div>
 
       {/* Overview Dashboard Button */}
@@ -371,24 +373,24 @@ function ReportSidebar({ activeReport, onSelect, openCategories, onToggleCategor
             >
               <CollapsibleTrigger asChild>
                 <div className={cn(
-                  "flex items-center justify-between w-full px-3 py-2.5 text-base font-semibold transition-all duration-200 cursor-pointer select-none group",
+                  "flex items-center justify-between w-full px-3 py-2.5 text-sm font-semibold rounded-xl transition-all duration-200 cursor-pointer select-none group",
                   category.reports.some(r => r.key === activeReport)
                     ? "text-violet-700 bg-violet-50"
                     : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
                 )}>
-                  <div className="flex items-center gap-2.5">
+                  <div className="flex items-center gap-3">
                     <div className={cn(
-                      "w-6 h-6 rounded-md flex items-center justify-center shrink-0 transition-colors",
+                      "w-[18px] h-[18px] flex items-center justify-center shrink-0 transition-colors",
                       category.reports.some(r => r.key === activeReport)
-                        ? "bg-violet-100 text-violet-600"
-                        : "bg-slate-100 text-slate-400 group-hover:bg-slate-200 group-hover:text-slate-600"
+                        ? "text-violet-600"
+                        : "text-slate-400 group-hover:text-slate-600"
                     )}>
-                      <CategoryIcon className="w-5 h-5" />
+                      <CategoryIcon className="w-[18px] h-[18px]" />
                     </div>
-                    <span className="text-base tracking-tight">{category.label}</span>
+                    <span className="tracking-tight">{category.label}</span>
                   </div>
                   <ChevronDown className={cn(
-                    "w-5 h-5 transition-transform duration-200 shrink-0",
+                    "w-4 h-4 transition-transform duration-200 shrink-0",
                     isOpen ? "rotate-180 text-violet-400" : "text-slate-300"
                   )} />
                 </div>
@@ -403,7 +405,7 @@ function ReportSidebar({ activeReport, onSelect, openCategories, onToggleCategor
                       return (
                         <Link key={report.key} href={report.externalHref} className="block">
                           <div className={cn(
-                            "flex items-center gap-2 px-3 py-2.5 rounded-lg text-base font-semibold transition-all duration-150 cursor-pointer",
+                            "flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold transition-all duration-150 cursor-pointer",
                             isActive
                               ? "bg-violet-600 text-white shadow-sm shadow-violet-500/20"
                               : "text-slate-500 hover:text-slate-800 hover:bg-slate-50"
@@ -418,7 +420,7 @@ function ReportSidebar({ activeReport, onSelect, openCategories, onToggleCategor
                       <div
                         key={report.key}
                         className={cn(
-                          "flex items-center gap-2 px-3 py-2.5 rounded-lg text-base font-semibold transition-all duration-150 cursor-pointer",
+                          "flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold transition-all duration-150 cursor-pointer",
                           isActive
                             ? "bg-violet-600 text-white shadow-sm shadow-violet-500/20"
                             : "text-slate-500 hover:text-slate-800 hover:bg-slate-50"
@@ -483,10 +485,17 @@ function ReportContent({
     }
   };
 
+  const [registeredExport, setRegisteredExport] = useState<ReportExportDef | null>(null);
+  // Explicit props (if ever passed) win; otherwise use the active report's registration.
+  const activeExport: ReportExportDef | null =
+    csvData && csvColumns && csvFilename
+      ? { rows: csvData, columns: csvColumns, filename: csvFilename }
+      : registeredExport;
+
   const handleExport = () => {
-    if (!csvData || !csvColumns || !csvFilename) return;
-    const csv = generateCsv(csvData, csvColumns);
-    downloadCsv(csvFilename, csv);
+    if (!activeExport) return;
+    const csv = generateCsv(activeExport.rows, activeExport.columns);
+    downloadCsv(activeExport.filename, csv);
   };
 
   const calendarRange: DateRange = { from: dateRange.from, to: dateRange.to };
@@ -579,7 +588,7 @@ function ReportContent({
           variant="outline"
           size="sm"
           className="h-9 px-3 text-sm gap-1.5 border-slate-200 rounded-lg"
-          disabled={!csvData || csvData.length === 0}
+          disabled={!activeExport || activeExport.rows.length === 0}
           onClick={handleExport}
         >
           <Download className="w-3.5 h-3.5" />
@@ -623,7 +632,9 @@ function ReportContent({
             )}
           </div>
         ) : (
-          children
+          <ReportExportContext.Provider value={{ register: setRegisteredExport }}>
+            {children}
+          </ReportExportContext.Provider>
         )}
       </div>
     </div>

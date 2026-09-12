@@ -43,6 +43,7 @@ import { apiFetch } from "@/lib/api";
 import { resolveTaxType } from "@/lib/tax";
 import { ImageUpload } from "@/components/ui/image-upload";
 import { HsCodeAssistant } from "@/components/products/hs-code-assistant";
+import { ProductLevyEditor, type LevySelection } from "@/components/products/product-levy-editor";
 
 export function CreateProductDialog({
   companyId,
@@ -133,11 +134,29 @@ export function CreateProductDialog({
   const onSubmit = async (data: InsertProduct) => {
     try {
       const { companyId: _, ...rest } = data;
-      await createProduct.mutateAsync({ ...rest, productType: isService ? "service" : "good" });
+      const created: any = await createProduct.mutateAsync({ ...rest, productType: isService ? "service" : "good" });
+      if (levyDraft.length > 0 && created?.id) {
+        try {
+          const res = await apiFetch(`/api/companies/${companyId}/products/${created.id}/lekaku-levies`, {
+            method: "PUT",
+            body: JSON.stringify({
+              levies: levyDraft.map((d) => ({
+                taxTypeId: d.taxTypeId,
+                ...(d.appliedForQuantity ? { appliedForQuantity: d.appliedForQuantity } : {}),
+              })),
+            }),
+          });
+          if (!res.ok) throw new Error((await res.json().catch(() => null))?.message || "Could not save additional taxes");
+          toast({ title: `${levyDraft.length} additional tax${levyDraft.length > 1 ? "es" : ""} attached` });
+        } catch (levyErr: any) {
+          toast({ title: "Product created, but levies failed", description: levyErr.message, variant: "destructive" });
+        }
+      }
       toast({
         title: "Success",
         description: `${isService ? "Service" : "Product"} created successfully.`,
       });
+      setLevyDraft([]);
       setOpen(false);
       form.reset({
         ...form.getValues(),
@@ -161,6 +180,9 @@ export function CreateProductDialog({
     string | undefined
   >(undefined);
 
+  // Additional taxes (LEKAKU levies): products can stack more than one.
+  const [levyDraft, setLevyDraft] = useState<LevySelection[]>([]);
+
   // Sync with default value or tax types load. New products have no
   // taxTypeId yet, so this resolves the form's rate against the tax config.
   useEffect(() => {
@@ -178,7 +200,7 @@ export function CreateProductDialog({
       open={open}
       onOpenChange={(val) => {
         setOpen(val);
-        if (!val) setSelectedTaxTypeId(undefined);
+        if (!val) { setSelectedTaxTypeId(undefined); setLevyDraft([]); }
       }}
     >
       <DialogTrigger asChild>
@@ -765,6 +787,7 @@ export function CreateProductDialog({
                   )}
                 />
               </div>
+              <ProductLevyEditor companyId={companyId} draft={levyDraft} onDraftChange={setLevyDraft} />
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

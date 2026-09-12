@@ -5,6 +5,8 @@ import { filterRecords, computeTotal } from "@/lib/report-utils";
 import { format, isValid } from "date-fns";
 import { Loader2, Banknote, TriangleAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useReportExport } from "./report-export";
+import { generateCsvFilename } from "@/lib/report-utils";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -109,6 +111,11 @@ export function TimeToGetPaidReport({
     "customerName",
   ]);
   const total = computeTotal(filtered, "amount");
+  useReportExport(
+    filtered.length
+      ? { rows: filtered, columns: ['invoiceNumber', 'customerName', 'issueDate', 'paymentDate', 'daysToPayment', 'amount'], filename: generateCsvFilename("time-to-get-paid", dateRange.from, dateRange.to) }
+      : null,
+  );
 
   if (isLoading)
     return (
@@ -259,6 +266,11 @@ export function RefundHistoryReport({
     "relatedInvoiceNumber",
   ]);
   const total = computeTotal(filtered, "amount");
+  useReportExport(
+    filtered.length
+      ? { rows: filtered, columns: ['invoiceNumber', 'customerName', 'relatedInvoiceNumber', 'issueDate', 'amount'], filename: generateCsvFilename("refund-history", dateRange.from, dateRange.to) }
+      : null,
+  );
 
   if (isLoading)
     return (
@@ -398,6 +410,11 @@ export function WithholdingTaxReport({
     "customerName",
   ]);
   const total = computeTotal(filtered, "withheldAmount");
+  useReportExport(
+    filtered.length
+      ? { rows: filtered, columns: ['invoiceNumber', 'customerName', 'issueDate', 'total', 'withheldAmount'], filename: generateCsvFilename("withholding-tax", dateRange.from, dateRange.to) }
+      : null,
+  );
 
   if (isLoading)
     return (
@@ -558,6 +575,12 @@ export function PaymentsReceivedReport({
       methods: Object.entries(methods).sort((a, b) => b[1].total - a[1].total),
     };
   }, [filtered]);
+
+  useReportExport(
+    filtered.length
+      ? { rows: filtered, columns: ["invoiceNumber", "customerName", "paymentDate", "paymentMethod", "reference", "amount"], filename: generateCsvFilename("payments-received", dateRange.from, dateRange.to) }
+      : null,
+  );
 
   const dailyStats = useMemo(() => {
     const daily: Record<
@@ -873,6 +896,11 @@ export function CashCollectionReport({
     "reason",
     "shiftId",
   ]);
+  useReportExport(
+    filtered.length
+      ? { rows: filtered, columns: ["cashierName", "cashSales", "collections", "pendingOfflineCash", "expectedCash", "lastCollectionAt", "createdAt", "shiftId", "reason", "amount"], filename: generateCsvFilename("cash-collection", dateRange.from, dateRange.to) }
+      : null,
+  );
 
   const balancesWithPendingOffline = useMemo(() => {
     const rows = new Map<string, any>();

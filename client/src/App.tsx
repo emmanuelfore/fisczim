@@ -62,8 +62,8 @@ import SerialTrackingPage from "@/pages/serial-tracking";
 import ServicesPage from "@/pages/services";
 import TaxConfigPage from "@/pages/tax-config";
 import SettingsPage from "@/pages/settings";
-import ZimraSettingsPage from "@/pages/zimra-settings";
-import FdmsTestPage from "@/pages/fdms-test";
+import TaxSettingsPage from "@/pages/tax-settings";
+import FiscalTestPage from "@/pages/fiscal-test";
 import CurrencySettingsPage from "@/pages/currency-settings";
 import TeamSettingsPage from "@/pages/team-settings";
 import UserProfilePage from "@/pages/user-profile";
@@ -577,8 +577,11 @@ function Router() {
       <Route path="/restaurant/layout">
         {() => <ProtectedRoute component={RestaurantLayoutPage} />}
       </Route>
+      <Route path="/tax-settings">
+        {() => <ProtectedRoute component={TaxSettingsPage} />}
+      </Route>
       <Route path="/zimra-settings">
-        {() => <ProtectedRoute component={ZimraSettingsPage} />}
+        {() => <Redirect to="/tax-settings" />}
       </Route>
       <Route path="/zimra-logs">
         {() => <ProtectedRoute component={ZimraLogsPage} />}
@@ -589,8 +592,11 @@ function Router() {
       <Route path="/api-logs">
         {() => <ProtectedRoute component={ApiLogsPage} />}
       </Route>
+      <Route path="/fiscal-test">
+        {() => <ProtectedRoute component={FiscalTestPage} />}
+      </Route>
       <Route path="/fdms-test">
-        {() => <ProtectedRoute component={FdmsTestPage} />}
+        {() => <Redirect to="/fiscal-test" />}
       </Route>
       <Route path="/restaurant/layout">
         {() => <ProtectedRoute component={RestaurantLayoutPage} />}

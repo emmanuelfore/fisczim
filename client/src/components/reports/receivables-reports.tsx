@@ -5,6 +5,8 @@ import { filterRecords, computeTotal } from "@/lib/report-utils";
 import { format, isValid } from "date-fns";
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useReportExport } from "./report-export";
+import { generateCsvFilename } from "@/lib/report-utils";
 import { Badge } from "@/components/ui/badge";
 
 interface ReportProps {
@@ -94,6 +96,11 @@ export function ArAgingSummaryReport({
 
   const filtered = filterRecords(data, search, ["customerName"]);
   const total = computeTotal(filtered, "total");
+  useReportExport(
+    filtered.length
+      ? { rows: filtered, columns: ["customerName", "current", "days31_60", "days61_90", "days90plus", "total"], filename: generateCsvFilename("ar-aging-summary", dateRange.from, dateRange.to) }
+      : null,
+  );
 
   if (isLoading)
     return (
@@ -407,6 +414,11 @@ export function InvoiceDetailsReport({
     "status",
   ]);
   const total = computeTotal(filtered, "total");
+  useReportExport(
+    filtered.length
+      ? { rows: filtered, columns: ["invoiceNumber", "customerName", "issueDate", "dueDate", "status", "total", "paidAmount", "balanceDue"], filename: generateCsvFilename("invoice-details", dateRange.from, dateRange.to) }
+      : null,
+  );
 
   if (isLoading)
     return (
@@ -713,6 +725,11 @@ export function CustomerBalanceSummaryReport({
 
   const filtered = filterRecords(data, search, ["customerName"]);
   const total = computeTotal(filtered, "balance");
+  useReportExport(
+    filtered.length
+      ? { rows: filtered, columns: ["customerName", "totalInvoiced", "totalPaid", "balance"], filename: generateCsvFilename("customer-balance-summary", dateRange.from, dateRange.to) }
+      : null,
+  );
 
   if (isLoading)
     return (
@@ -914,6 +931,11 @@ export function ReceivableDetailsReport({
     "status",
   ]);
   const total = computeTotal(filtered, "balanceDue");
+  useReportExport(
+    filtered.length
+      ? { rows: filtered, columns: ["invoiceNumber", "customerName", "issueDate", "total", "paidAmount", "balanceDue", "status"], filename: generateCsvFilename("receivable-details", dateRange.from, dateRange.to) }
+      : null,
+  );
 
   if (isLoading)
     return (

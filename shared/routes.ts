@@ -1,0 +1,951 @@
+
+import { z } from 'zod';
+import {
+  insertUserSchema,
+  insertCompanySchema,
+  insertCustomerSchema,
+  insertProductSchema,
+  insertInvoiceSchema,
+  insertInvoiceItemSchema,
+  companies,
+  customers,
+  products,
+  invoices,
+  taxTypes,
+  taxCategories,
+  invoiceItems,
+  insertTaxCategorySchema,
+  insertTaxTypeSchema,
+  currencies,
+  insertCurrencySchema,
+  payments,
+  insertPaymentSchema,
+  insertSupplierSchema,
+  insertExpenseSchema,
+  insertBranchSchema,
+  insertBranchStockSchema,
+  type Supplier,
+  type InventoryTransaction,
+  type Expense,
+  type Branch,
+  type BranchStock,
+  type PriceAdjustment,
+  busVehicles,
+  busRoutes,
+  busTrips,
+  insertBusVehicleSchema,
+  insertBusRouteSchema,
+  insertBusTripSchema,
+  insertBusTicketSchema,
+  insertBusShiftSchema,
+  insertBusReconciliationSchema,
+  apiLogs
+} from './schema.js';
+
+export const errorSchemas = {
+  validation: z.object({
+    message: z.string(),
+    field: z.string().optional(),
+  }),
+  notFound: z.object({
+    message: z.string(),
+  }),
+  internal: z.object({
+    message: z.string(),
+  }),
+  unauthorized: z.object({
+    message: z.string(),
+  })
+};
+
+export const api = {
+  auth: {
+    register: {
+      method: 'POST' as const,
+      path: '/api/auth/register',
+      input: insertUserSchema,
+      responses: {
+        201: z.object({ id: z.number(), email: z.string() }),
+        400: errorSchemas.validation,
+      }
+    },
+    login: {
+      method: 'POST' as const,
+      path: '/api/auth/login',
+      input: z.object({ username: z.string(), password: z.string() }),
+      responses: {
+        200: z.object({ id: z.number(), email: z.string() }),
+        401: errorSchemas.unauthorized,
+      }
+    },
+    logout: {
+      method: 'POST' as const,
+      path: '/api/auth/logout',
+      responses: {
+        200: z.void(),
+      }
+    },
+    user: {
+      method: 'GET' as const,
+      path: '/api/user',
+      responses: {
+        200: z.object({ id: z.string(), email: z.string(), name: z.string().nullable(), isSuperAdmin: z.boolean().optional() }),
+        401: errorSchemas.unauthorized,
+      }
+    }
+  },
+  companies: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/companies',
+      responses: {
+        200: z.array(z.custom<typeof companies.$inferSelect & { role: string }>()),
+      }
+    },
+    create: {
+      method: 'POST' as const,
+      path: '/api/companies',
+      input: insertCompanySchema,
+      responses: {
+        201: z.custom<typeof companies.$inferSelect>(),
+        400: errorSchemas.validation,
+      }
+    },
+    get: {
+      method: "GET" as const,
+      path: "/api/companies/:id",
+      responses: {
+        200: z.custom<typeof companies.$inferSelect>(),
+        404: errorSchemas.notFound,
+      },
+    },
+  },
+  branches: {
+    list: {
+      method: "GET" as const,
+      path: "/api/companies/:companyId/branches",
+      responses: {
+        200: z.array(z.custom<Branch>()),
+      },
+    },
+    create: {
+      method: "POST" as const,
+      path: "/api/companies/:companyId/branches",
+      input: insertBranchSchema.omit({ companyId: true }),
+      responses: {
+        201: z.custom<Branch>(),
+        400: errorSchemas.validation,
+      },
+    },
+    get: {
+      method: "GET" as const,
+      path: "/api/branches/:id",
+      responses: {
+        200: z.custom<Branch>(),
+        404: errorSchemas.notFound,
+      },
+    },
+    update: {
+      method: "PATCH" as const,
+      path: "/api/branches/:id",
+      input: insertBranchSchema.partial(),
+      responses: {
+        200: z.custom<Branch>(),
+        404: errorSchemas.notFound,
+      },
+    },
+    delete: {
+      method: "DELETE" as const,
+      path: "/api/branches/:id",
+      responses: {
+        204: z.void(),
+        404: errorSchemas.notFound,
+      },
+    },
+    stock: {
+      method: "GET" as const,
+      path: "/api/branches/:branchId/stock",
+      responses: {
+        200: z.array(z.custom<BranchStock & { product: any }>()),
+      },
+    },
+    updateStock: {
+      method: "POST" as const,
+      path: "/api/branches/:branchId/stock",
+      input: z.object({
+        productId: z.number(),
+        quantity: z.string().or(z.number()),
+        type: z.enum(["SET", "ADD", "SUBTRACT"]).default("SET"),
+      }),
+      responses: {
+        200: z.custom<BranchStock>(),
+      },
+    },
+  },
+  customers: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/companies/:companyId/customers',
+      responses: {
+        200: z.array(z.custom<typeof customers.$inferSelect>()),
+      }
+    },
+    create: {
+      method: 'POST' as const,
+      path: '/api/companies/:companyId/customers',
+      input: insertCustomerSchema.omit({ companyId: true }),
+      responses: {
+        201: z.custom<typeof customers.$inferSelect>(),
+      }
+    },
+    update: {
+      method: 'PATCH' as const,
+      path: '/api/customers/:id',
+      input: insertCustomerSchema.partial(),
+      responses: {
+        200: z.custom<typeof customers.$inferSelect>(),
+        404: errorSchemas.notFound,
+      }
+    }
+  },
+  products: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/companies/:companyId/products',
+      responses: {
+        200: z.array(z.custom<typeof products.$inferSelect>()),
+      }
+    },
+    create: {
+      method: 'POST' as const,
+      path: '/api/companies/:companyId/products',
+      input: insertProductSchema.omit({ companyId: true }),
+      responses: {
+        201: z.custom<typeof products.$inferSelect>(),
+      }
+    },
+    update: {
+      method: 'PATCH' as const,
+      path: '/api/products/:id',
+      input: insertProductSchema.partial(),
+      responses: {
+        200: z.custom<typeof products.$inferSelect>(),
+        404: errorSchemas.notFound,
+      }
+    },
+    adjustPrice: {
+      method: 'POST' as const,
+      path: '/api/products/:id/adjust-price',
+      input: z.object({
+        newPrice: z.number().or(z.string()),
+        reason: z.string().optional(),
+        effectiveFrom: z.string().optional(),
+      }),
+      responses: {
+        200: z.custom<typeof products.$inferSelect>(),
+        404: errorSchemas.notFound,
+      }
+    },
+    bulkAdjustPrice: {
+      method: 'POST' as const,
+      path: '/api/products/bulk-adjust-price',
+      input: z.object({
+        companyId: z.number(),
+        reason: z.string().optional(),
+        effectiveFrom: z.string().optional(),
+        adjustments: z.array(z.object({
+          productId: z.number(),
+          newPrice: z.number().or(z.string()),
+        })),
+      }),
+      responses: {
+        200: z.object({
+          success: z.boolean(),
+          count: z.number(),
+          updatedProducts: z.array(z.custom<typeof products.$inferSelect>()).optional(),
+        }),
+        400: errorSchemas.validation,
+      }
+    },
+    priceHistory: {
+      method: 'GET' as const,
+      path: '/api/products/:id/price-history',
+      responses: {
+        200: z.array(z.custom<PriceAdjustment & { user?: { username: string } }>()),
+        404: errorSchemas.notFound,
+      }
+    }
+  },
+  invoices: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/companies/:companyId/invoices',
+      responses: {
+        200: z.array(z.custom<typeof invoices.$inferSelect & { customer?: typeof customers.$inferSelect }>()),
+      }
+    },
+    create: {
+      method: 'POST' as const,
+      path: '/api/companies/:companyId/invoices',
+      input: insertInvoiceSchema.omit({ companyId: true }).extend({
+        items: z.array(insertInvoiceItemSchema).min(1, "At least one invoice line is required"),
+        exchangeRate: z.string().optional(), // Explicitly allow if not picked up
+        partnerId: z.number().nullable().optional(),
+        revenueSharePercent: z.union([z.string(), z.number()]).nullable().optional(),
+        customerId: z.number().nullable().optional(),
+      }),
+      responses: {
+        201: z.custom<typeof invoices.$inferSelect>(),
+        400: errorSchemas.validation,
+      }
+    },
+    get: {
+      method: 'GET' as const,
+      path: '/api/invoices/:id',
+      responses: {
+        200: z.custom<typeof invoices.$inferSelect & { items: any[]; customer?: typeof customers.$inferSelect }>(),
+        404: errorSchemas.notFound,
+      }
+    },
+    update: {
+      method: 'PUT' as const,
+      path: '/api/invoices/:id',
+      input: insertInvoiceSchema.partial().extend({
+        items: z.array(insertInvoiceItemSchema).min(1, "At least one invoice line is required").optional(),
+        exchangeRate: z.string().optional(),
+      }),
+      responses: {
+        200: z.custom<typeof invoices.$inferSelect>(),
+        404: errorSchemas.notFound,
+      }
+    },
+    fiscalize: {
+      method: 'POST' as const,
+      path: '/api/invoices/:id/fiscalize',
+      responses: {
+        200: z.custom<typeof invoices.$inferSelect>(),
+        400: errorSchemas.validation,
+      }
+    },
+    orderStatus: {
+      method: 'GET' as const,
+      path: '/api/companies/:companyId/order-status',
+      responses: {
+        200: z.array(z.object({
+          id: z.number(),
+          orderNumber: z.string().nullable(),
+          orderStatus: z.string().nullable(),
+          issueDate: z.string().or(z.date()).nullable(),
+          customerName: z.string().optional()
+        })),
+      }
+    },
+    updateOrderStatus: {
+      method: 'PATCH' as const,
+      path: '/api/invoices/:id/order-status',
+      input: z.object({
+        status: z.enum(['pending', 'preparing', 'ready', 'served', 'cancelled'])
+      }),
+      responses: {
+        200: z.object({ success: z.boolean(), status: z.string() })
+      }
+    },
+    onlineOrder: {
+      method: 'POST' as const,
+      path: '/api/v1/external/orders',
+      input: z.object({
+        customerName: z.string(),
+        customerPhone: z.string().optional(),
+        customerAddress: z.string().optional(),
+        deliveryNotes: z.string().optional(),
+        items: z.array(z.object({
+          productId: z.number(),
+          quantity: z.number(),
+          notes: z.string().optional()
+        })),
+        diningOption: z.enum(['dine_in', 'takeaway', 'delivery']).default('takeaway'),
+        paid: z.boolean().default(false)
+      }),
+      responses: {
+        201: z.object({ success: z.boolean(), orderId: z.number(), orderNumber: z.string() }),
+        401: errorSchemas.unauthorized
+      }
+    }
+  },
+  tax: {
+    types: {
+      method: 'GET' as const,
+      path: '/api/tax/types',
+      responses: {
+        200: z.array(z.custom<typeof taxTypes.$inferSelect>()),
+      }
+    },
+    createType: {
+      method: 'POST' as const,
+      path: '/api/tax/types',
+      input: insertTaxTypeSchema,
+      responses: {
+        201: z.custom<typeof taxTypes.$inferSelect>(),
+      }
+    },
+    updateType: {
+      method: 'PATCH' as const,
+      path: '/api/tax/types/:id',
+      input: insertTaxTypeSchema.partial(),
+      responses: {
+        200: z.custom<typeof taxTypes.$inferSelect>(),
+      }
+    },
+    categories: {
+      method: 'GET' as const,
+      path: '/api/tax/categories',
+      responses: {
+        200: z.array(z.custom<typeof taxCategories.$inferSelect>()),
+      }
+    },
+    createCategory: {
+      method: 'POST' as const,
+      path: '/api/tax/categories',
+      input: insertTaxCategorySchema,
+      responses: {
+        201: z.custom<typeof taxCategories.$inferSelect>(),
+      }
+    },
+    updateCategory: {
+      method: 'PATCH' as const,
+      path: '/api/tax/categories/:id',
+      input: insertTaxCategorySchema.partial(),
+      responses: {
+        200: z.custom<typeof taxCategories.$inferSelect>(),
+      }
+    }
+  },
+  currencies: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/companies/:companyId/currencies',
+      responses: {
+        200: z.array(z.custom<typeof currencies.$inferSelect>()),
+      }
+    },
+    create: {
+      method: 'POST' as const,
+      path: '/api/companies/:companyId/currencies',
+      input: insertCurrencySchema.omit({ companyId: true }),
+      responses: {
+        201: z.custom<typeof currencies.$inferSelect>(),
+      }
+    },
+    update: {
+      method: 'PATCH' as const,
+      path: '/api/currencies/:id',
+      input: insertCurrencySchema.partial(),
+      responses: {
+        200: z.custom<typeof currencies.$inferSelect>(),
+        404: errorSchemas.notFound,
+      }
+    },
+    delete: {
+      method: 'DELETE' as const,
+      path: '/api/currencies/:id',
+      responses: {
+        204: z.void(),
+        404: errorSchemas.notFound,
+      }
+    }
+  },
+  payments: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/invoices/:invoiceId/payments',
+      responses: {
+        200: z.array(z.custom<typeof payments.$inferSelect>()),
+      }
+    },
+    getOne: {
+      method: 'GET' as const,
+      path: '/api/payments/:id',
+      responses: {
+        200: z.any(), // Returning payment + invoice + customer
+        404: errorSchemas.notFound,
+      }
+    },
+    create: {
+      method: 'POST' as const,
+      path: '/api/invoices/:invoiceId/payments',
+      input: insertPaymentSchema.omit({ invoiceId: true }),
+      responses: {
+        201: z.custom<typeof payments.$inferSelect>(),
+      }
+    },
+    delete: {
+      method: 'DELETE' as const,
+      path: '/api/payments/:id',
+      responses: {
+        204: z.void(),
+        404: errorSchemas.notFound,
+      }
+    }
+  },
+  suppliers: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/companies/:companyId/suppliers',
+      responses: {
+        200: z.array(z.custom<Supplier>()),
+      }
+    },
+    create: {
+      method: 'POST' as const,
+      path: '/api/companies/:companyId/suppliers',
+      input: insertSupplierSchema,
+      responses: {
+        201: z.custom<Supplier>(),
+      }
+    },
+    update: {
+      method: 'PATCH' as const,
+      path: '/api/suppliers/:id',
+      input: insertSupplierSchema.partial(),
+      responses: {
+        200: z.custom<Supplier>(),
+        404: errorSchemas.notFound,
+      }
+    }
+  },
+  inventory: {
+    transactions: {
+      method: 'GET' as const,
+      path: '/api/companies/:companyId/inventory/transactions',
+      responses: {
+        200: z.array(z.custom<InventoryTransaction & { userName?: string }>()),
+      }
+    },
+    stockIn: {
+      method: 'POST' as const,
+      path: '/api/companies/:companyId/inventory/stock-in',
+      input: z.object({
+        productId: z.number(),
+        quantity: z.number().or(z.string()),
+        unitCost: z.number().or(z.string()),
+        supplierId: z.number().optional(),
+        notes: z.string().optional()
+      }),
+      responses: {
+        201: z.object({ message: z.string() }),
+      }
+    },
+    batchStockIn: {
+      method: 'POST' as const,
+      path: '/api/companies/:companyId/inventory/batch-stock-in',
+      input: z.object({
+        supplierId: z.number().optional(),
+        notes: z.string().optional(),
+        items: z.array(z.object({
+          productId: z.number(),
+          quantity: z.number().or(z.string()),
+          unitCost: z.number().or(z.string()),
+        }))
+      }),
+      responses: {
+        201: z.object({ message: z.string() }),
+      }
+    },
+    adjust: {
+      method: 'POST' as const,
+      path: '/api/companies/:companyId/inventory/adjust',
+      input: z.object({
+        productId: z.number(),
+        variationId: z.number().optional(),
+        branchId: z.number().optional(),
+        locationId: z.number().optional(),
+        quantity: z.number().or(z.string()), // positive or negative
+        type: z.enum(['ADJUSTMENT', 'SHRINKAGE', 'CORRECTION', 'DAMAGE', 'EXPIRY']).default('ADJUSTMENT'),
+        notes: z.string().optional()
+      }),
+      responses: {
+        201: z.object({ message: z.string() }),
+      }
+    }
+  },
+  expenses: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/companies/:companyId/expenses',
+      responses: {
+        200: z.array(z.custom<Expense>()),
+      }
+    },
+    create: {
+      method: 'POST' as const,
+      path: '/api/companies/:companyId/expenses',
+      input: insertExpenseSchema,
+      responses: {
+        201: z.custom<Expense>(),
+      }
+    },
+    update: {
+      method: 'PATCH' as const,
+      path: '/api/expenses/:id',
+      input: insertExpenseSchema.partial(),
+      responses: {
+        200: z.custom<Expense>(),
+        404: errorSchemas.notFound,
+      }
+    }
+  },
+  reports: {
+    stockValuation: {
+      method: "GET" as const,
+      path: "/api/companies/:companyId/reports/stock-valuation",
+      responses: {
+        200: z.array(z.object({
+          productId: z.number(),
+          name: z.string(),
+          sku: z.string().nullable(),
+          category: z.string().nullable().optional(),
+          stockLevel: z.string(),
+          unitCost: z.string(),
+          valuationMethod: z.enum(["WAC", "FIFO", "LIFO"]).optional(),
+          totalValue: z.string().optional(),
+          totalValuation: z.number()
+        }))
+      }
+    },
+    financialSummary: {
+      method: "GET" as const,
+      path: "/api/companies/:companyId/reports/financial-summary",
+      responses: {
+        200: z.object({
+          revenue: z.number(),
+          cogs: z.number(),
+          grossProfit: z.number(),
+          expenses: z.number(),
+          netProfit: z.number(),
+          expenseBreakdown: z.array(z.object({
+            category: z.string(),
+            amount: z.number()
+          })),
+          drillDown: z.object({
+            revenueItems: z.array(z.any()),
+            cogsItems: z.array(z.any()),
+            expenseItems: z.array(z.any())
+          }).optional()
+        })
+      }
+    },
+    receivablesAging: {
+      method: "GET" as const,
+      path: "/api/companies/:companyId/reports/receivables-aging",
+      responses: {
+        200: z.object({
+          total: z.number(),
+          current: z.number(),
+          days1_15: z.number(),
+          days16_30: z.number(),
+          days31_45: z.number(),
+          above45: z.number(),
+        })
+      }
+    },
+    fiscalYearStats: {
+      method: "GET" as const,
+      path: "/api/companies/:companyId/reports/fiscal-year-stats",
+      responses: {
+        200: z.object({
+          totalSales: z.number(),
+          totalReceipts: z.number(),
+          totalExpenses: z.number(),
+          monthlyData: z.array(z.object({
+            month: z.string(),
+            sales: z.number(),
+            expenses: z.number(),
+          }))
+        })
+      }
+    },
+    operationalMetrics: {
+      method: "GET" as const,
+      path: "/api/reports/operational-metrics/:companyId",
+      responses: {
+        200: z.object({
+          atv: z.number(),
+          profitMargin: z.number(),
+          itemsPerReceipt: z.number(),
+          totalRevenue: z.number(),
+          totalCogs: z.number()
+        })
+      }
+    },
+    hourlySales: {
+      method: "GET" as const,
+      path: "/api/reports/charts/hourly-sales/:companyId",
+      responses: {
+        200: z.array(z.object({
+          hour: z.number(),
+          count: z.number(),
+          total: z.number()
+        }))
+      }
+    },
+    stockAlerts: {
+      method: "GET" as const,
+      path: "/api/reports/stock-alerts/:companyId",
+      responses: {
+        200: z.array(z.any())
+      }
+    },
+    stockOnHand: {
+      method: "GET" as const,
+      path: "/api/reports/inventory/stock-on-hand/:companyId",
+      responses: {
+        200: z.array(z.object({
+          productId: z.number(),
+          name: z.string(),
+          sku: z.string().nullable(),
+          category: z.string().nullable(),
+          stockLevel: z.string(),
+          unitCost: z.string(),
+          totalValue: z.string()
+        }))
+      }
+    },
+    inventoryMovements: {
+      method: "GET" as const,
+      path: "/api/reports/inventory/movements/:companyId",
+      responses: {
+        200: z.array(z.object({
+          transactionId: z.number(),
+          date: z.string(),
+          productName: z.string(),
+          type: z.string(),
+          quantity: z.string(),
+          unitCost: z.string().nullable(),
+          reference: z.string().nullable(),
+          notes: z.string().nullable()
+        }))
+      }
+    },
+    stockAdjustments: {
+      method: "GET" as const,
+      path: "/api/reports/inventory/adjustments/:companyId",
+      responses: {
+        200: z.array(z.object({
+          transactionId: z.number(),
+          date: z.string(),
+          productName: z.string(),
+          sku: z.string().nullable(),
+          type: z.string(),
+          quantity: z.string(),
+          unitCost: z.string().nullable(),
+          totalCost: z.string().nullable(),
+          referenceType: z.string().nullable(),
+          reference: z.string().nullable(),
+          notes: z.string().nullable(),
+          userName: z.string().nullable()
+        }))
+      }
+    },
+    purchaseHistory: {
+      method: "GET" as const,
+      path: "/api/reports/inventory/purchases/:companyId",
+      responses: {
+        200: z.array(z.object({
+          transactionId: z.number(),
+          date: z.string(),
+          productName: z.string(),
+          supplierName: z.string().nullable(),
+          quantity: z.string(),
+          unitCost: z.string(),
+          totalCost: z.string(),
+          reference: z.string().nullable()
+        }))
+      }
+    },
+    abcAnalysis: {
+      method: "GET" as const,
+      path: "/api/companies/:companyId/reports/abc-analysis",
+      responses: {
+        200: z.array(z.object({
+          productId: z.number(),
+          name: z.string(),
+          sku: z.string().nullable(),
+          revenue: z.number(),
+          share: z.number(),
+          cumulativeShare: z.number(),
+          category: z.enum(["A", "B", "C"])
+        }))
+      }
+    },
+    revenueChart: {
+      method: "GET" as const,
+      path: "/api/reports/charts/revenue/:id",
+      responses: {
+        200: z.array(z.object({
+          name: z.string(),
+          total: z.number()
+        }))
+      }
+    },
+    fiscalReport: {
+      method: "GET" as const,
+      path: "/api/companies/:companyId/reports/fiscal-data",
+      responses: {
+        200: z.object({
+          summary: z.object({
+            totalRevenue: z.number(),
+            totalTax: z.number(),
+            receiptsCount: z.number(),
+            fiscalDayNo: z.number().nullable(),
+            date: z.string()
+          }),
+          currencies: z.array(z.object({
+            code: z.string(),
+            name: z.string(),
+            subtotal: z.number(),
+            taxAmount: z.number(),
+            total: z.number(),
+            count: z.number()
+          })),
+          cashiers: z.array(z.object({
+            id: z.string(),
+            name: z.string(),
+            total: z.number(),
+            count: z.number()
+          })),
+          items: z.array(z.object({
+            id: z.number().optional(),
+            name: z.string(),
+            sku: z.string().nullable(),
+            quantity: z.number(),
+            total: z.number()
+          })),
+          taxes: z.array(z.object({
+            taxID: z.number(),
+            taxCode: z.string().nullable(),
+            taxName: z.string(),
+            taxPercent: z.number().nullable(),
+            taxableAmount: z.number(),
+            taxAmount: z.number()
+          }))
+        })
+      }
+    },
+
+  },
+  busTicketing: {
+    vehicles: {
+      list: {
+        method: 'GET' as const,
+        path: '/api/v1/bus-ticketing/vehicles',
+        responses: {
+          200: z.array(z.custom<typeof busVehicles.$inferSelect>()),
+        }
+      },
+      create: {
+        method: 'POST' as const,
+        path: '/api/v1/bus-ticketing/vehicles',
+        input: insertBusVehicleSchema,
+        responses: {
+          201: z.custom<typeof busVehicles.$inferSelect>(),
+        }
+      }
+    },
+    routes: {
+      list: {
+        method: 'GET' as const,
+        path: '/api/v1/bus-ticketing/routes',
+        responses: {
+          200: z.array(z.custom<typeof busRoutes.$inferSelect>()),
+        }
+      },
+      create: {
+        method: 'POST' as const,
+        path: '/api/v1/bus-ticketing/routes',
+        input: insertBusRouteSchema,
+        responses: {
+          201: z.custom<typeof busRoutes.$inferSelect>(),
+        }
+      }
+    },
+    trips: {
+      list: {
+        method: 'GET' as const,
+        path: '/api/v1/bus-ticketing/trips',
+        responses: {
+          200: z.array(z.custom<typeof busTrips.$inferSelect>()),
+        }
+      },
+      active: {
+        method: 'GET' as const,
+        path: '/api/v1/bus-ticketing/trips/active',
+        responses: {
+          200: z.array(z.custom<typeof busTrips.$inferSelect>()),
+        }
+      },
+      create: {
+        method: 'POST' as const,
+        path: '/api/v1/bus-ticketing/trips',
+        input: insertBusTripSchema,
+        responses: {
+          201: z.custom<typeof busTrips.$inferSelect>(),
+        }
+      }
+    },
+    sync: {
+      upload: {
+        method: 'POST' as const,
+        path: '/api/v1/bus-ticketing/sync',
+        input: z.object({
+          tickets: z.array(insertBusTicketSchema),
+          shifts: z.array(insertBusShiftSchema),
+          reconciliations: z.array(insertBusReconciliationSchema)
+        }),
+        responses: {
+          200: z.object({
+            success: z.boolean(),
+            synced: z.object({ tickets: z.number(), shifts: z.number(), reconciliations: z.number() }),
+            skipped: z.object({ tickets: z.number() }).optional(),
+            rejected: z.object({
+              tickets: z.array(z.object({
+                ticketNumber: z.string().optional(),
+                localTicketId: z.string().nullable().optional(),
+                reason: z.string(),
+              })),
+            }).optional(),
+          }),
+        }
+      }
+    }
+  },
+  apiLogs: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/companies/:companyId/api-logs',
+      responses: {
+        200: z.array(z.custom<typeof apiLogs.$inferSelect>()),
+      }
+    }
+  }
+};
+
+export function buildUrl(path: string, params?: Record<string, string | number | boolean | undefined | null>): string {
+  let url = path;
+  const queryParams: Record<string, string> = {};
+
+  if (params) {
+    Object.entries(params).forEach(([key, value]) => {
+      if (value === undefined || value === null) return;
+
+      const placeholder = `:${key}`;
+      if (url.includes(placeholder)) {
+        url = url.replace(placeholder, encodeURIComponent(String(value)));
+      } else {
+        queryParams[key] = String(value);
+      }
+    });
+  }
+
+  const queryString = new URLSearchParams(queryParams).toString();
+  return queryString ? `${url}?${queryString}` : url;
+}

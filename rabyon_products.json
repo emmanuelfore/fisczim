@@ -1,0 +1,6786 @@
+Query: select "id", "name", "category", "product_type", "hs_code" from "products" where "products"."company_id" = $1 -- params: [91]
+Rabyon Products: [
+  {
+    "id": 8117,
+    "name": "TEST VATABLE",
+    "category": null,
+    "productType": "good",
+    "hsCode": "99001000"
+  },
+  {
+    "id": 8118,
+    "name": "TEST ZERO RATED",
+    "category": null,
+    "productType": "good",
+    "hsCode": "99002000"
+  },
+  {
+    "id": 8119,
+    "name": "TEST EXEMPT",
+    "category": null,
+    "productType": "good",
+    "hsCode": "99003000"
+  },
+  {
+    "id": 8450,
+    "name": "2 QUIRE COUNTER BOOKS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8451,
+    "name": "32PGS EXERCISE BOOKS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8452,
+    "name": "350ML COKES",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8453,
+    "name": "375ML COOKING OIL",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8454,
+    "name": "375MLS  ZIMGOLD",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8455,
+    "name": "3D CORNADOS 100G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8457,
+    "name": "4TH STREET 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8458,
+    "name": "5 litre ice cream",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8459,
+    "name": "72PGS EXERCISE BOOKS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8460,
+    "name": "7UP 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8461,
+    "name": "7W LOTION- GLEAMING 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8462,
+    "name": "7W LOTION-CARROT OIL 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8463,
+    "name": "8PM BRANDY",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8464,
+    "name": "A5 1QUIRE COUNTER BOOKS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8465,
+    "name": "A5 32PAGES",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8466,
+    "name": "ACQUACLEAR 1L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8467,
+    "name": "ACQUACLEAR 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8468,
+    "name": "ACQUACLEAR MINERAL WATER 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8469,
+    "name": "ACTIV8 GRAPE 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8470,
+    "name": "ACTIVATE 500MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8471,
+    "name": "ADDIDAS SPRAY 150ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8472,
+    "name": "ADLA POPS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8473,
+    "name": "ALL GOLD SAUCE 700ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8474,
+    "name": "ALOE COLGATE 105G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8475,
+    "name": "ALOHA 1KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8476,
+    "name": "ALOHA 500G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8477,
+    "name": "ALOHA 750MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8478,
+    "name": "ALOHA FABRIC  CONDITIONER 2L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8479,
+    "name": "ALOHA SCOURER 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8480,
+    "name": "ALOHA WASHING POWDER 2KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8481,
+    "name": "ALWAYS PADS 8s",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8482,
+    "name": "AMARULA 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8483,
+    "name": "AMASIP SIP 250ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8484,
+    "name": "AMASIP SIP 400ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8485,
+    "name": "AMASIP SIP 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8486,
+    "name": "AMAZON  MONSTA",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8487,
+    "name": "AMAZON BALLGUMS 2S",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8488,
+    "name": "AMAZON BALLGUMS 2`S",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8489,
+    "name": "AMAZON BUBBLE GUM 4S",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8490,
+    "name": "AMAZON COOKIES",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8491,
+    "name": "AMAZON ECCLAIR POPS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8492,
+    "name": "AMAZON GUMBO 5S",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8493,
+    "name": "AMAZON MONSTA CREAMS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8494,
+    "name": "AMAZON POPS UNITS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8495,
+    "name": "AMAZON TOFFEE BAR",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8496,
+    "name": "AMAZON TOFFEES 5s",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8498,
+    "name": "APPLES",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8499,
+    "name": "APPLES ($1PACK)",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8500,
+    "name": "ARENEL CHOC CREAMS 125G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8501,
+    "name": "ARENEL CHOC CREAMS 150G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8502,
+    "name": "ARENEL CUSTARD CREAMS 150G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8503,
+    "name": "ARENEL FUN PACK",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8504,
+    "name": "ARENEL HADYANA SOUP 50G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8506,
+    "name": "ARENEL LEMON CREAMS 150G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8507,
+    "name": "ARENEL LOOSE 250G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8508,
+    "name": "ARENEL LOOSE 2KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8509,
+    "name": "ARENEL MUKOMBE 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8510,
+    "name": "ARENEL SHERBET POPS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8511,
+    "name": "ARENEL VANILA 120G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8512,
+    "name": "ARENEL VANILLA CREAMS 150G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8513,
+    "name": "ARENEL ZAMBEZI POPS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8514,
+    "name": "AROMAT SEASONING 75G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8515,
+    "name": "AXE SPRAY",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8516,
+    "name": "AYAAN SOLUTION",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8517,
+    "name": "BABY CREZ 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8518,
+    "name": "BABY LINE 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8519,
+    "name": "BABYSOFT TISSUE",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8520,
+    "name": "BAKERS BEST FLOUR 2KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8521,
+    "name": "BAKERS INN LOAF",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8522,
+    "name": "BAKING POWDER 100G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8523,
+    "name": "BALANTINES 1L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8524,
+    "name": "BALLYHOUSE CREMESODA 2L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8525,
+    "name": "BALLYHOUSE DAIRY BLEND 2L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8526,
+    "name": "BALLYHOUSE LEMON 2L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8527,
+    "name": "BALLYHOUSE ORANGE 2L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8528,
+    "name": "BALLYHOUSE RASPBERY 2L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8529,
+    "name": "BANANA UNITS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8530,
+    "name": "BAYGON 300ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8531,
+    "name": "BELGRAVIA GIN 275MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8532,
+    "name": "BELGRAVIA QTS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8533,
+    "name": "BELLA MACARONI 3KGS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8534,
+    "name": "BELLA SPAGHETTI",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8535,
+    "name": "BERVERY HIILS SPRAY",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8536,
+    "name": "BEST CLASSIC WHISKY 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8537,
+    "name": "BEST MARULA FRUIT CREAM 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8538,
+    "name": "BETTER BUY NOODLES 75G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8539,
+    "name": "BETTERBUY MACARONI 3KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8540,
+    "name": "BETTERBUY MEALIE MEAL 10KG.",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8541,
+    "name": "BEVERLY HILLS ROLL ON",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8542,
+    "name": "BEVERLY SPRAY 100ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8543,
+    "name": "BEVERLYHILLS 90MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8545,
+    "name": "BIG BEN 1KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8546,
+    "name": "BIG BOOM 48s",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8547,
+    "name": "BIG FIVE MATCHES CARTON",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8548,
+    "name": "BIG TREE CURRY POWDER 100G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8549,
+    "name": "BIGTREE CORNFLAKES 500G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8550,
+    "name": "BIGTREE CURRY POWDER 50G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8551,
+    "name": "BINTO NOODLES 5 X 70G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8552,
+    "name": "BINTO USAVI 12G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8553,
+    "name": "BINTO USAVI 50G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8554,
+    "name": "BIO CLAIRE 1L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8555,
+    "name": "BISKO 250G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8556,
+    "name": "BISTO 125G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8557,
+    "name": "BISTO 250G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8558,
+    "name": "BIVI SHOE POLISH 50ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8559,
+    "name": "BLACK LABEL PINTS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8560,
+    "name": "BLACKLABEL 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8561,
+    "name": "BLACKLABEL CAN 440MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8562,
+    "name": "BLU",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8563,
+    "name": "BLUE BAND 250G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8564,
+    "name": "BLUE PEN",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8565,
+    "name": "BLUE RIBBON FLOUR 2KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8566,
+    "name": "BLUEBAND 250G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8567,
+    "name": "BLUEBAND 450G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8568,
+    "name": "BODYLUX 200G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8569,
+    "name": "BOHLINGERS 340MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8570,
+    "name": "BOHLINGERS QUARTS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8571,
+    "name": "BONAQUA 5L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8572,
+    "name": "BONAQUA M WATER 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8573,
+    "name": "BOOM 150G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8574,
+    "name": "BOOM 1KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8575,
+    "name": "BOOM 250G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8576,
+    "name": "BOOM 2KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8577,
+    "name": "BOOM 500G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8578,
+    "name": "BOOM BOOM PUFFFS 20G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8580,
+    "name": "BOOM PASTE 200G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8581,
+    "name": "BOOM STA-SOFT2L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8582,
+    "name": "BOOM THICK BLEACH 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8583,
+    "name": "BOTTLE DRINK 700ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8584,
+    "name": "BREAKFAST COFFEE 100G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8585,
+    "name": "BREAKFAST COFFEE 50G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8586,
+    "name": "BREEZE FOAMBATH 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8587,
+    "name": "BRITA VASELINE 100MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8588,
+    "name": "BRITELITE SOAP 1KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8589,
+    "name": "BRONO 250G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8590,
+    "name": "BRONO GRAVY 125G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8591,
+    "name": "BROTHERS  500MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8593,
+    "name": "BULL BRAND 280G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8594,
+    "name": "BULL BRAND 300G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8595,
+    "name": "BULLET WHISKY",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8597,
+    "name": "BUTTERCUP 250G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8598,
+    "name": "BUTTERCUP TUBS 500G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8599,
+    "name": "BUTTERNUT SMALL PACK",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8600,
+    "name": "BUTTERNUTS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8601,
+    "name": "BUTTERNUTS PACKED",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8602,
+    "name": "BUX DEO FOR MEN 150ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8603,
+    "name": "BUX DEO FOR WOMEN 150ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8604,
+    "name": "CA",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8605,
+    "name": "CABBAGES",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8606,
+    "name": "CABBAGES BIG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8607,
+    "name": "CAFEMOL 2S",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8608,
+    "name": "CAMPHOR HERBAL 500G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8609,
+    "name": "CAN STRONG 200ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8610,
+    "name": "CANDLES",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8611,
+    "name": "CAPE STYLE 1L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8612,
+    "name": "CARDBURY 80G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8613,
+    "name": "CARRIER BAGS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8614,
+    "name": "CARROTS 50C",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8615,
+    "name": "CASCADE 1L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8616,
+    "name": "CASCADE 250ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8617,
+    "name": "CASCADE 400ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8618,
+    "name": "CASHEL VALLEY",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8619,
+    "name": "CASTLE CAN 440MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8620,
+    "name": "CASTLE LITE 440MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8621,
+    "name": "CASTLE LITE 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8622,
+    "name": "CASTLE LITE PINT",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8623,
+    "name": "CASTLE PINTS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8624,
+    "name": "CASTLE QUARTS 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8625,
+    "name": "CASTLELITE CAN 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8626,
+    "name": "CASTOR SUGAR 500G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8627,
+    "name": "CAVALLAX SPEED 2",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8628,
+    "name": "CELLOTAPE",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8629,
+    "name": "CELOTAPE BIG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8630,
+    "name": "CERELAC 250G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8631,
+    "name": "CERELAC 500G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8632,
+    "name": "CEREVITA SATCHETS 500G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8633,
+    "name": "CHALLENGER WHISKY",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8634,
+    "name": "CHAMDOR",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8635,
+    "name": "CHAMDOR 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8636,
+    "name": "CHAMPION SALT 1KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8637,
+    "name": "CHAMPIONS 5KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8638,
+    "name": "CHARHON",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8639,
+    "name": "CHARHONS 1KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8641,
+    "name": "CHARHONS 2KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8642,
+    "name": "CHARHONS 32G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8643,
+    "name": "CHARHONS 500G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8644,
+    "name": "CHARHONS COOKIES 1KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8645,
+    "name": "CHARHONS COOKIES 250G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8646,
+    "name": "CHARHONS COOKIES 2KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8648,
+    "name": "CHATEAU 200ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8649,
+    "name": "CHATEAU 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8650,
+    "name": "CHELSEA BISCUITS 175G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8651,
+    "name": "CHIBATAURA ROLLER MEAL",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8653,
+    "name": "CHILLI 100ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8665,
+    "name": "CLERE FOR LADIES 300ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8666,
+    "name": "CLERE FOR LADIES 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8667,
+    "name": "CLERE FOR MEN 400ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8668,
+    "name": "CLERE GLYCERINE",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8669,
+    "name": "CLERE GLYCERINE 100ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8670,
+    "name": "CLERE LOTION 400ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8671,
+    "name": "CLEVER DOC TOOTHPASTE 110G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8672,
+    "name": "CLOSE UP",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8673,
+    "name": "CNARHONS LOOSE2KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8674,
+    "name": "COFFEE BREAK 100G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8675,
+    "name": "COFFEE BREAK 50G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8676,
+    "name": "COKE 1L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8677,
+    "name": "COKE 2L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8678,
+    "name": "COKE 300ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8679,
+    "name": "COKE 350MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8680,
+    "name": "COKE CAN 330ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8681,
+    "name": "COKE CAN 440MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8682,
+    "name": "COKE PET 440MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8683,
+    "name": "COKES 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8685,
+    "name": "COLGATE 100MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8686,
+    "name": "COLGATE 50ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8687,
+    "name": "COLGATE TOOTHBRUSH",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8688,
+    "name": "COOKMORE 2L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8689,
+    "name": "COOLSPLASH 5L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8690,
+    "name": "CORN N NUTS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8691,
+    "name": "CORNFLAKES 500G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8692,
+    "name": "CORTINA DAIRY DRINK 200ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8693,
+    "name": "COTTON 50G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8694,
+    "name": "COTTON WOOL 500G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8695,
+    "name": "COUGH DROPS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8696,
+    "name": "COVO BUNDLE",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8697,
+    "name": "COVO SMALL BUNDLE",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8698,
+    "name": "CRACKERS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8699,
+    "name": "CRAYONS 8S",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8700,
+    "name": "CREAM",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8701,
+    "name": "CREAM BUNS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8702,
+    "name": "CREAM FEAST 100G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8703,
+    "name": "CREAM JUICE 2L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8704,
+    "name": "CREAM JUICE 5L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8705,
+    "name": "CREMORA 375G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8706,
+    "name": "CREMORA 500G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8707,
+    "name": "CRYSTAL MINTS 4S",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8708,
+    "name": "CRYSTAL TOFFEE 4S",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8709,
+    "name": "CUCUMBER BIG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8710,
+    "name": "CUCUMBER PACK",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8711,
+    "name": "CUCUMBER UNIT",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8712,
+    "name": "CUCUMBER UNITS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8713,
+    "name": "CZSHEL VALLEY BEANS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8714,
+    "name": "DAIMA MILK DRINK 250ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8715,
+    "name": "DANDY TWIST 2S",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8716,
+    "name": "DARK N LOVELY",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8718,
+    "name": "DELTA FANTA 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8719,
+    "name": "DELTA LEMON 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8720,
+    "name": "DELTA ORANGE 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8721,
+    "name": "DELTA SPARLETTA 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8722,
+    "name": "DENDAIRY 1L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8723,
+    "name": "DETROIT ENERGIZER 440ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8724,
+    "name": "DETTOL LIQUID 125ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8725,
+    "name": "DETTOL LIQUID 50MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8726,
+    "name": "DETTOL LIQUID 750MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8727,
+    "name": "DETTOL SOAP",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8728,
+    "name": "DIMA 500MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8729,
+    "name": "DLITE 2L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8765,
+    "name": "FAMICOOL TOOTHBRUSH",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8766,
+    "name": "FAMILY DOVI 1L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8767,
+    "name": "FAMILY DOVI 375ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8731,
+    "name": "DOMESTOS 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8732,
+    "name": "DOOM 180ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8733,
+    "name": "DOOM 300ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8734,
+    "name": "DORCO",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8735,
+    "name": "DOVE ROLL ON",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8737,
+    "name": "DRAGON 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8738,
+    "name": "DREADLOCK & BRAID SPRAY 250ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8739,
+    "name": "DRINKING CHOCOLATE 250G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8740,
+    "name": "DUX 250ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8741,
+    "name": "D`LITE BABY CEREAL 250G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8742,
+    "name": "EAGLE INSTANT DRY YEAST 450G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8743,
+    "name": "EAGLE LAGER 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8744,
+    "name": "EAGLE PINTS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8745,
+    "name": "EASYWASH 500G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8746,
+    "name": "ECCLAIR POPS 48S",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8747,
+    "name": "ECKONO 1KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8748,
+    "name": "ECLAIR POPS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8749,
+    "name": "EGGS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8750,
+    "name": "EGGS 6PACK",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8751,
+    "name": "EKONO 5KG RICE",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8752,
+    "name": "EKONO MACARONI 3KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8753,
+    "name": "EKONO RICE 2KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8754,
+    "name": "EKONO SALT 1KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8755,
+    "name": "EKONO SPAGHETTI",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8756,
+    "name": "ELLIS BROWN 750G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8757,
+    "name": "ENERGY DOVI  1LITRE",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8758,
+    "name": "ENERGY SAVER",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8759,
+    "name": "ENGLISH BLAZER 12ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8760,
+    "name": "EPIMAX  400G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8761,
+    "name": "EVEREST 20PACK",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8762,
+    "name": "EVERSHARP PEN",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8763,
+    "name": "EVERYDAY 400G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8764,
+    "name": "EXOTIC FOAMBATH 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8768,
+    "name": "FAMILY MDOVI 1KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8769,
+    "name": "FARAI PADS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8770,
+    "name": "FAZA 2L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8771,
+    "name": "FAZA 5L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8772,
+    "name": "FIFI RICE 5KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8773,
+    "name": "FINGER CREAMS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8774,
+    "name": "FINGERSTICK",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8776,
+    "name": "FIZZI 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8777,
+    "name": "FIZZY DIP SHERBET",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8778,
+    "name": "FLAMES 200ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8779,
+    "name": "FLAMES 20PACK",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8780,
+    "name": "FLASH 2L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8781,
+    "name": "FLASK",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8782,
+    "name": "FOR FLUE 4S",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8784,
+    "name": "FOUNTAIN JUICE 5L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8785,
+    "name": "FREEZE GEL 100ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8786,
+    "name": "FREEZE GEL BLUE 100ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8787,
+    "name": "FRESH LEAVES 125G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8788,
+    "name": "FRESH LEAVES 250G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8789,
+    "name": "FRESH LEAVES 62.5",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8790,
+    "name": "FRIMAX 100G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8791,
+    "name": "FRUIT VALLEY 5L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8792,
+    "name": "FRUITADE 2L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8793,
+    "name": "FRUITCANA 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8794,
+    "name": "FRUITCANA TAMARIND 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8795,
+    "name": "FRUITRIDGE ROLLER MEAL 10KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8796,
+    "name": "FRUITY PLUS 5L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8797,
+    "name": "FULL CREAM 1L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8798,
+    "name": "FUN N FRESH 1L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8799,
+    "name": "FUSION POPS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8800,
+    "name": "GAPE HOPE 750MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8801,
+    "name": "GARLIC",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8802,
+    "name": "GARLIC SMALL",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8803,
+    "name": "GEISHA",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8804,
+    "name": "GEISHA SOAP",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8805,
+    "name": "GENTLE MAGIC CREAM 50ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8806,
+    "name": "GENTLE MAGIC LOTION 125G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8807,
+    "name": "GENTLE MAGIC SERUM",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8808,
+    "name": "GENTLE MAGIC SOAP",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8809,
+    "name": "GILBERTS 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8810,
+    "name": "GINGER ARENEL BISCUITS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8811,
+    "name": "GINGER COOKIES 500G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8812,
+    "name": "GINGER ROUNDS 10G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8813,
+    "name": "GLORIA CAKE FLOUR 2KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8814,
+    "name": "GLORIA FLOUR 2KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8815,
+    "name": "GOAT MILK FOAMBATH 1L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8817,
+    "name": "GOLD BLEND BLACK 200ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8818,
+    "name": "GOLD BLEND BLACK 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8819,
+    "name": "GOLD INSTANT YEAST SATCHET",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8820,
+    "name": "GOLDEN BELL 200ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8821,
+    "name": "GOLDEN MUNCHIES 250G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8822,
+    "name": "GOLDEN PILSNER PINTS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8823,
+    "name": "GOLDSTAR WHITE SUGAR 2KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8824,
+    "name": "GOOD GOOD LOOSE BISCUITS 250G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8825,
+    "name": "GORDONS LONDON DRY GIN 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8826,
+    "name": "GRACA ROSE 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8827,
+    "name": "GRACA WHITE WINE 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8828,
+    "name": "GRANTS 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8829,
+    "name": "GRAPH  BOOKS 32PAGES",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8830,
+    "name": "GREEN APPLE 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8831,
+    "name": "GREEN PEPPER PACK",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8832,
+    "name": "GREEN VALLEY MEDIUM WHITE 750M",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8833,
+    "name": "GREEN VALLEY ROSE",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8834,
+    "name": "GROUND NUTS PACK",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8835,
+    "name": "GROWN UPS 500G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8836,
+    "name": "H",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8837,
+    "name": "HAIR EDGE CONTROL WAX 250ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8838,
+    "name": "HAIR GROWING  OIL SPRAY 250ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8839,
+    "name": "HAIR GROWING FOOD 125ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8842,
+    "name": "HAIR REMOVER LEMON 50ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8843,
+    "name": "HALF LOAF",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8844,
+    "name": "HANDY ANDY 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8845,
+    "name": "HAPPY CHEERS 200ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8846,
+    "name": "HAPPY CHEERS 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8847,
+    "name": "HAPPY SKY NAPPIES",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8848,
+    "name": "HAPPYSKY PADS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8849,
+    "name": "HARMBURGER ROLLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8851,
+    "name": "HARRIER WHISKY 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8852,
+    "name": "HELLO  SNAX",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8853,
+    "name": "HELLO SNAX 20G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8854,
+    "name": "HERBAL SHAMPOO 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8855,
+    "name": "HERITAGE 200ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8856,
+    "name": "HIGHBURY LOOSE BISCUITS 200G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8857,
+    "name": "HIPPO WASHING POWDER 10KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8858,
+    "name": "HOITY TOITY ROLL ON 50ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8859,
+    "name": "HOITY TOITY SPRAY 90ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8860,
+    "name": "HONEY POT 400G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8861,
+    "name": "HONEYPOT MAHEU 200ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8862,
+    "name": "HOT DOG ROLLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8864,
+    "name": "HUFF PUFFS 100G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8865,
+    "name": "HUGGIES DRY",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8866,
+    "name": "HUNTERS DRY 330ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8867,
+    "name": "HUNTERS GOLD 330ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8868,
+    "name": "HUNTERS QUARTS 750MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8869,
+    "name": "HYDRO BOOST 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8870,
+    "name": "HYGIENIX SOAP 175G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8871,
+    "name": "IC",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8872,
+    "name": "ICE CREAM TUB 2L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8881,
+    "name": "IRIS LOOSE",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8882,
+    "name": "ISOPLUS SPRAY 240ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8874,
+    "name": "IDEAL FISH 155G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8875,
+    "name": "IDEAL PEANUT BUTTER 1KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8876,
+    "name": "IDEAL RICE 2KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8877,
+    "name": "IDEAL RICE 5KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8878,
+    "name": "ILGS TOILET TISSUE 3PLY",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8879,
+    "name": "INGRAMS FOR MEN",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8880,
+    "name": "INKOMAS 2L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8883,
+    "name": "IVORY SOAP 250G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8884,
+    "name": "J C LE ROUX  CHANSON 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8885,
+    "name": "J C LE ROUX FLEURETTE 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8886,
+    "name": "J C LE ROUX LE DOMAIN 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8887,
+    "name": "JADE 250G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8889,
+    "name": "JET COOL TOOTHBRUSH",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8890,
+    "name": "JGERMEISTER 1000ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8892,
+    "name": "JIK 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8894,
+    "name": "JNB LOOSE BISCUITS 250G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8895,
+    "name": "JOE COOKIES 100G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8896,
+    "name": "JOE CREAMS 120G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8897,
+    "name": "JOHNSON ACQUEOS CREAM",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8898,
+    "name": "JOHNSON BABY JELLY",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8899,
+    "name": "JOHNSON BABY JELLY 250MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8900,
+    "name": "JOHNSON BABY POWDER 400G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8901,
+    "name": "JOHNSON LOTION 400ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8902,
+    "name": "JOHNSON SOAP",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8903,
+    "name": "JOLLY JUS 5G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8905,
+    "name": "JUMBO 100G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8906,
+    "name": "JUMBO SNAX",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8907,
+    "name": "JUNGLE OATS 1KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8908,
+    "name": "JUPITER 150G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8909,
+    "name": "JUPITER 75G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8911,
+    "name": "KAMBUCHA 450ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8912,
+    "name": "KAPENTA 100G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8913,
+    "name": "KAPENTA 1KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8914,
+    "name": "KAPENTA 250G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8915,
+    "name": "KAPENTA 500G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8916,
+    "name": "KARIBA BUNLOAF",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8917,
+    "name": "KARIBA SWEETBUNS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8918,
+    "name": "KARIBA TWIST",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8919,
+    "name": "KARINGA 50G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8921,
+    "name": "KELLOGGS 500G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8922,
+    "name": "KELLOGGS NOODLES 70G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8923,
+    "name": "KELLOGS CORNFLAKES 1KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8924,
+    "name": "KEMBUCHA 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8925,
+    "name": "KHAKI COVERS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8926,
+    "name": "KING CONE ICE CREAM",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8927,
+    "name": "KING KURLS 100G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8928,
+    "name": "KITOKO 200ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8929,
+    "name": "KITTEN SOFRT TISSUE 4s",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8930,
+    "name": "KIWI SHOE POLISH 100ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8931,
+    "name": "KIWI SHOE POLISH 50ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8932,
+    "name": "KLEAN TISSUE",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8933,
+    "name": "KLEAN TISSUE 4S",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8934,
+    "name": "KNIVES SET",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8936,
+    "name": "KOO BEANS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8937,
+    "name": "KOOP BOND PAPER",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8938,
+    "name": "KREMA 100G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8939,
+    "name": "KRUN",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8940,
+    "name": "KRUNCHYS 75G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8941,
+    "name": "KUNGFU 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8942,
+    "name": "LAAGER ROOIBOS 20S",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8943,
+    "name": "LAAGER ROOIBOS 40S",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8944,
+    "name": "LAAGER ROOIBOS 80S",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8945,
+    "name": "LACTO 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8946,
+    "name": "LACTOGEN 1 & 2",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8947,
+    "name": "LAKKERNAX 100G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8948,
+    "name": "LAVENDER FOAMBATH 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8949,
+    "name": "LAYS 120G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8950,
+    "name": "LAYS 23G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8951,
+    "name": "LEBENA  LOOSE 250G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8952,
+    "name": "LEBENA CREAMS 100G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8953,
+    "name": "LEBENA LOOSE 2KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8955,
+    "name": "LIFE MILK 1LITRE",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8956,
+    "name": "LIFE MILK 250ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8957,
+    "name": "LIFE MILK 500MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8958,
+    "name": "LIFEBUOY SOAP",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8959,
+    "name": "LILI WHITE PADS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8960,
+    "name": "LION MATCHES BOX",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8985,
+    "name": "MAMMA THEMBA  MEALIE MEAL 12.5",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8962,
+    "name": "LIQUI FRUIT 1L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8963,
+    "name": "LOBELS  SUGAR BUNS 4S",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8964,
+    "name": "LOBELS BLOAF",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8965,
+    "name": "LOBELS BREAD",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8966,
+    "name": "LOBELS CREAMS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8967,
+    "name": "LOBELS LOOSE 250G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8968,
+    "name": "LOBENA LOOSE 1KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8969,
+    "name": "LOFNAC BOX",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8970,
+    "name": "LONG LIFE MILK 250ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8972,
+    "name": "LOVE EAT MEALIE MEAL 5KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8973,
+    "name": "LOVE FOAMBATH 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8974,
+    "name": "LUCKYSTAR FISH 155G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8975,
+    "name": "LUNCH BAR MINI 23G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8976,
+    "name": "LUX SOAP",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8977,
+    "name": "MADISON 20PACK",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8978,
+    "name": "MADORA 100G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8979,
+    "name": "MADRAS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8980,
+    "name": "MAGIC MOMENT 200G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8981,
+    "name": "MAHATMA RICE 2KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8982,
+    "name": "MAINSTAY 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8983,
+    "name": "MAKANYANISE",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8984,
+    "name": "MAMAS CONFLAKES 500G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8986,
+    "name": "MAMMOTH ENERGY DRINK 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8987,
+    "name": "MANJU DOVI 375G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8988,
+    "name": "MAPUTI 35G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8989,
+    "name": "MAQ 1KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8990,
+    "name": "MAQ 2KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9031,
+    "name": "MILO 250G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8992,
+    "name": "MARIANA 1KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8993,
+    "name": "MARIANA 2KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8994,
+    "name": "MARIANA 5KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8995,
+    "name": "MARIE BISCUITS 130G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8996,
+    "name": "MARMALADE 500G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8997,
+    "name": "MARTINA 5KG RICE",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8998,
+    "name": "MARTINA RICE 2KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8999,
+    "name": "MASI SOUR MILK 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9000,
+    "name": "MATEMBA 100G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9001,
+    "name": "MATEMBA 1KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9003,
+    "name": "MATEMBA 500G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9004,
+    "name": "MATH SET",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9005,
+    "name": "MAXI COLA",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9006,
+    "name": "MAXIMUM PLEASURE 3S",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9007,
+    "name": "MAYFAIR GIN N DRY LEMON 440ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9008,
+    "name": "MAZOE BLACKBERRY 2L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9009,
+    "name": "MAZOE CREME SODA 2L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9010,
+    "name": "MAZOE ORANGE CRUSH 2L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9011,
+    "name": "MAZOE ORANGE CRUSH 2L ZAMBIA",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9012,
+    "name": "MAZOE RASPBERRY 2L ZAMBIA",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9013,
+    "name": "MAZOE RASPBERY 2L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9014,
+    "name": "MCHUZI MIX 500G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9015,
+    "name": "MCHUZI ROYCO 200G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9016,
+    "name": "MEDIHERB 150G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9017,
+    "name": "MEGA MACARONI",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9018,
+    "name": "MEGA MAIZE CORN &NUTS 70G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9019,
+    "name": "MEGA MAIZE NUTS 70G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9020,
+    "name": "MEGA NOODLES 75G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9021,
+    "name": "MEGA PENNE 400G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9022,
+    "name": "MEGA RICE 5KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9023,
+    "name": "MEGA SALT 1KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9024,
+    "name": "MEGA SNAX 100G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9025,
+    "name": "MEGA SPAGHETTI",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9026,
+    "name": "METHYLATED SPIRIT 100MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9027,
+    "name": "MIGHTY MARKERS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9028,
+    "name": "MILKIT 250ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9029,
+    "name": "MILLION FOAMBATH 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9030,
+    "name": "MILO 125G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9032,
+    "name": "MILO 500G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9033,
+    "name": "MINI",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9034,
+    "name": "MINI  CHOC  CREAMS 100G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9035,
+    "name": "MINI CREAM BUNS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9036,
+    "name": "MINTEX GUM 50S",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9039,
+    "name": "MINUTE MAID GUAVA",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9040,
+    "name": "MINUTE MAID LEMON",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9041,
+    "name": "MINUTE MAID ORANGE",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9042,
+    "name": "MINUTE MAID PULPY",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9043,
+    "name": "MINUTE MAID REFRESH 400ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9044,
+    "name": "MIRINDA CANE 330ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9045,
+    "name": "MIXUP 250G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9046,
+    "name": "MOJO",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9047,
+    "name": "MOJO PINEAPPLE 330ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9048,
+    "name": "MONSTER ENERGY DRINKS 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9049,
+    "name": "MONTELLO 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9050,
+    "name": "MONTELO 200ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9051,
+    "name": "MONTERO 5KG RICE",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9052,
+    "name": "MONTYS BAKED BEANS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9053,
+    "name": "MOOYO MAHEU 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9054,
+    "name": "MOSQUITOE COILS BOX",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9055,
+    "name": "MOVIT HAIR RELAXER 250G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9056,
+    "name": "MR NAX 25G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9057,
+    "name": "MR PUFF",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9058,
+    "name": "MR RICE  2KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9059,
+    "name": "MR RICE 5KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9060,
+    "name": "MR SALT 1KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9061,
+    "name": "MR SAUCE",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9062,
+    "name": "MR STRONG 100ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9063,
+    "name": "MT DEW 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9064,
+    "name": "MUMS PASTA 2KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9065,
+    "name": "NAN 1",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9088,
+    "name": "NOLA MAYONAISE 750G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9089,
+    "name": "NUGGET BIG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9090,
+    "name": "NUGGET POLISH 100ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9091,
+    "name": "NUGGET SMALL",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9092,
+    "name": "NYATHI 1.25L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9093,
+    "name": "OASIS 2L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9094,
+    "name": "OASIS 5L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9066,
+    "name": "NAN 2",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9067,
+    "name": "NAPPIES",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9068,
+    "name": "NATURAL JOY 1LITRE.",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9069,
+    "name": "NEDERBURG 750ML.",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9070,
+    "name": "NEO CREAM BISCUITS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9071,
+    "name": "NETONE AIRTIME",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9072,
+    "name": "NGODA 1.3L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9073,
+    "name": "NIBBLE NAKS 20G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9074,
+    "name": "NIBBLE NAKS BISCUITS 250G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9075,
+    "name": "NIBBLE POTATOE CHIPS 100G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9076,
+    "name": "NIGHTFALL FOAMBATH 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9077,
+    "name": "NIKOLAI CARAMEL 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9078,
+    "name": "NIKOLAI VODKA 200ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9079,
+    "name": "NIKOLAI VODKA 75ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9080,
+    "name": "NIVEA CREAM 400ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9081,
+    "name": "NIVEA LOTION 400ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9082,
+    "name": "NIVEA Q10 400ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9083,
+    "name": "NIVEA ROLL ON",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9084,
+    "name": "NIVEA SHOWER GEL",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9085,
+    "name": "NIVEA SPRAY150ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9086,
+    "name": "NO 9    200ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9087,
+    "name": "NO 9 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9095,
+    "name": "OCEAN BREEZE 1L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9096,
+    "name": "OEAN BREEZE FOAMBATH 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9098,
+    "name": "OH SO HEAVENLY FOAM BATH 2L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9099,
+    "name": "OH SO HEAVENLY LOTION 1L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9100,
+    "name": "OLIVE & ARGAN OIL HAIR FOOD 12",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9101,
+    "name": "OLIVE OIL RELAXER",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9103,
+    "name": "OLIVINE 2L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9104,
+    "name": "OLIVINE BAKED BEANS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9105,
+    "name": "OLMEGA  700MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9106,
+    "name": "ONE SHOT VODKA 200ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9107,
+    "name": "ONIONS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9108,
+    "name": "ONIONS 50C BUNDLE",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9109,
+    "name": "ONIONS UNITS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9110,
+    "name": "ORANGE TOOTHBRUSH",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9111,
+    "name": "ORANGES",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9112,
+    "name": "ORANGES $1 PACK",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9113,
+    "name": "ORANGES 50C PACK",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9114,
+    "name": "PACIFIC BREAZE 20PACK",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9115,
+    "name": "PACIFIC STORM 20PACK",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9116,
+    "name": "PAIN EEZE 2S",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9117,
+    "name": "PAPAS CHIPS 50G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9118,
+    "name": "PASCAL CHOCOLATES",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9119,
+    "name": "PEARLENTA PORRIDGE 1KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9120,
+    "name": "PEAS PACK",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9121,
+    "name": "PEGASUS 20s",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9122,
+    "name": "PENCILS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9123,
+    "name": "PEPPER",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9124,
+    "name": "PEPSI 1L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9125,
+    "name": "PEPSI 2L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9126,
+    "name": "PEPSI 300ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9127,
+    "name": "PEPSI 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9128,
+    "name": "PEPSI 750MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9129,
+    "name": "PEPSI CAN 440ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9130,
+    "name": "PERFECTION SOAP 1KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9131,
+    "name": "PFUKO 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9132,
+    "name": "PILSENER QUARTS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9134,
+    "name": "PINK PETALS FOAM BATH 1L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9135,
+    "name": "PLAIN BUNS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9136,
+    "name": "PLASTIC COVERS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9137,
+    "name": "PLAY BOY 150ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9138,
+    "name": "PLAY GIRL SPRAY 90ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9139,
+    "name": "PLAYGIRL ROLL-ON",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9140,
+    "name": "POLONY 200G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9141,
+    "name": "POP DRINKS 2L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9142,
+    "name": "POP DRINKS 5L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9143,
+    "name": "POPCORN",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9144,
+    "name": "POTATOES $1 PACK",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9145,
+    "name": "POTATOES $10 pack",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9146,
+    "name": "POTATOES $2 PACK",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9147,
+    "name": "POTATOES 50C PACK",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9148,
+    "name": "POTATOES BIG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9149,
+    "name": "POTATOES MEGA PACK",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9150,
+    "name": "POTATOES NEW PACK",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9151,
+    "name": "POTATOES SMALL",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9153,
+    "name": "POWERPLUS 310MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9154,
+    "name": "PRINCE LOOSE BISCUITS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9155,
+    "name": "PROBRANDS DOVI 375ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9156,
+    "name": "PROBRANDS SALT 2KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9157,
+    "name": "PROTEX 150G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9158,
+    "name": "PROTON COOKIES 1KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9159,
+    "name": "PROTON COOKIES 250G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9160,
+    "name": "PROTON COOKIES 2KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9161,
+    "name": "PROTON COOKIES 500G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9162,
+    "name": "PURE DROP 2L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9163,
+    "name": "PURE GLYCERINE 50MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9164,
+    "name": "PUREDROP 750ML COOKING OIL",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9165,
+    "name": "PUSHKIN 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9166,
+    "name": "QUENCH 2L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9167,
+    "name": "QUICK BREW 100S",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9168,
+    "name": "QUICKBREW 50S",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9169,
+    "name": "RABROY SALAD CREAM 400G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9170,
+    "name": "RABROY TOMATO SAUCE",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9171,
+    "name": "RABROY TOMATO SAUCE 375ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9172,
+    "name": "RAHA 2L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9173,
+    "name": "RAINBOW ECCLAIR SWEETS 4S",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9174,
+    "name": "RAJAH SMALL 50G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9175,
+    "name": "RANGER SPIRIT 200ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9176,
+    "name": "RED BULL",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9177,
+    "name": "RED LABEL 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9178,
+    "name": "REDSEAL MEALIE MEAL 10KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9179,
+    "name": "REDSEAL SALT 1KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9180,
+    "name": "REDSEAL SALT 2KGS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9181,
+    "name": "REVIVE 1L LEMON",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9182,
+    "name": "REVIVE 1L ORANGE",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9183,
+    "name": "REVIVE 500ML EDGE",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9184,
+    "name": "REVIVE MAHEU 1L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9185,
+    "name": "REVIVE MAHEU 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9186,
+    "name": "RICOFFY BIG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9187,
+    "name": "RICOFFY SMALL",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9188,
+    "name": "RIPPLES 100G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9189,
+    "name": "RIVELLA 200ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9190,
+    "name": "RIZZLA BOOKLET",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9191,
+    "name": "ROIL 2L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9192,
+    "name": "ROMEO  50ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9194,
+    "name": "ROMI 1KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9195,
+    "name": "ROMI 500G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9196,
+    "name": "ROSE FOAMBATH 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9198,
+    "name": "ROYAL SPICE 80G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9199,
+    "name": "ROYAL SUN SALT 1KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9200,
+    "name": "ROYCO BEEF 75G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9201,
+    "name": "RULER",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9202,
+    "name": "RUSSIAN BEAR  750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9203,
+    "name": "SABLE LAGER 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9204,
+    "name": "SALAD CREAM CROSSE N B 790G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9205,
+    "name": "SATISKIN 2L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9206,
+    "name": "SAVANNA 330ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9207,
+    "name": "SAVANNA QTS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9208,
+    "name": "SCHWEPPES TONIC WATER 200ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9209,
+    "name": "SCORPION BRANDY 200ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9210,
+    "name": "SCOTISH LEADER 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9211,
+    "name": "SHAKE N SIP 250ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9212,
+    "name": "SHAKE N SIP 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9213,
+    "name": "SHAKERZ 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9214,
+    "name": "SHAVING STICKS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9215,
+    "name": "SHIELD ROLL ON 50ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9216,
+    "name": "SHORTBREAD BISCUITS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9217,
+    "name": "SHORTIES 125G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9218,
+    "name": "SHOWER TO SHOWER ROLL ON",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9219,
+    "name": "SHUMBA MAHEU 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9220,
+    "name": "SILO MEALIE MEAL 10KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9221,
+    "name": "SILVER TEA 125G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9222,
+    "name": "SILVER TEA 62.5G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9223,
+    "name": "SIMBA MAHEU",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9224,
+    "name": "SIMPLY HONEY 375G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9225,
+    "name": "SIXER BANANA SPIRIT",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9226,
+    "name": "SKALA 200G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9227,
+    "name": "SKIPPERS  200ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9228,
+    "name": "SKIPPY CHOC",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9229,
+    "name": "SMIRNOFF 750MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9230,
+    "name": "SNOWFLAKE 2.5KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9231,
+    "name": "SODA SATCHETS 7G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9232,
+    "name": "SODA WATER 200ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9234,
+    "name": "SOFT SKIN BODY WASH 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9235,
+    "name": "SOFT TISSUE 4S",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9236,
+    "name": "SOFT TOUCH 350MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9237,
+    "name": "SOFT TOUCH LOTION 50MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9238,
+    "name": "SOFTCARE PADS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9239,
+    "name": "SOFTCARE PAMPER",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9240,
+    "name": "SONA 250G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9241,
+    "name": "SOOPER LOOSE BISCUITS 250G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9242,
+    "name": "SOOPER SPAGHETTI 400G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9243,
+    "name": "SOYA CHUNKS 250G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9244,
+    "name": "SPEEDY NOODLES 70G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9245,
+    "name": "SPRITE CAN 330ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9246,
+    "name": "SPUDS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9247,
+    "name": "SPUDS 30G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9248,
+    "name": "STA-SOFT 2L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9249,
+    "name": "STA-SOFT REFILL",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9251,
+    "name": "STAR BASH PETROLEUM JELLY 300M",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9252,
+    "name": "STAR BASH PETROLEUM JELLY 50ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9253,
+    "name": "STAR BASH SPIRIT 100ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9254,
+    "name": "STAR BRANDY 200ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9255,
+    "name": "STAR CANE",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9256,
+    "name": "STARBASH  FLOOR POLISH 1L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9257,
+    "name": "STARBASH BUBBLE BATH 1L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9258,
+    "name": "STARBASH DISHWASHER 2L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9259,
+    "name": "STARBASH FLOUR POLISH 375ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9260,
+    "name": "STARBASH LIQUID SOAP 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9261,
+    "name": "STARBASH PETROLEUM JELLY 100G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9262,
+    "name": "STARBASH TOILET CLEANER 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9263,
+    "name": "STAY FREE PADS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9264,
+    "name": "STEAM IRON",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9265,
+    "name": "STELLA TEA 125G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9266,
+    "name": "STELLA TEA 250G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9267,
+    "name": "STELLA TEA 62.5G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9268,
+    "name": "STERI MILK 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9269,
+    "name": "STILL BASE 5L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9270,
+    "name": "STING 330ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9271,
+    "name": "STING 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9272,
+    "name": "STING CAN 440MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9273,
+    "name": "STING SPIRIT COOLER 275ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9274,
+    "name": "STOMACHE TABLETS 2S",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9275,
+    "name": "STRETTONS TRIPLE BERRY 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9276,
+    "name": "STRETTONS WILD BERRIES 750ML.",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9277,
+    "name": "STRONG FOAMBATH 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9278,
+    "name": "STUMBO",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9279,
+    "name": "STUMBO UNITS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9281,
+    "name": "SUNFLOWER OIL 2L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9282,
+    "name": "SUNFLOWER OIL 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9283,
+    "name": "SUNJAM  500G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9284,
+    "name": "SUNJAM 1.2KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9285,
+    "name": "SUNJAM 900G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9286,
+    "name": "SUNLIGHT ENERGYSAVER",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9287,
+    "name": "SUNLIGHT LIQUID 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9288,
+    "name": "SUNNY MEALIE MEAL 10KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9289,
+    "name": "SUNNY PORRIDGE",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9290,
+    "name": "SUNSOYA 2L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9291,
+    "name": "SUPER COOKIES BUCKET",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9292,
+    "name": "SUPER MILK 1L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9293,
+    "name": "SUPER ROLLS 4S",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9294,
+    "name": "SUPERBLACK DYE 60MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9296,
+    "name": "SUPERSIP DRINKING YOGIE 400ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9297,
+    "name": "SWEET POTATOES",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9298,
+    "name": "SWITCH 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9299,
+    "name": "Sample Item 1",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9300,
+    "name": "Sample Item 10",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9301,
+    "name": "Sample Item 2",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9302,
+    "name": "Sample Item 3",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9303,
+    "name": "Sample Item 4",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9304,
+    "name": "Sample Item 5",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9305,
+    "name": "Sample Item 6",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9306,
+    "name": "Sample Item 7",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9307,
+    "name": "Sample Item 8",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9308,
+    "name": "Sample Item 9",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9309,
+    "name": "T C 5L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9310,
+    "name": "TANGANDA TEA 125G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9311,
+    "name": "TANGANDA TEA 250G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9312,
+    "name": "TANGANDA TEA 62.5G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9313,
+    "name": "TASTIC DOVI 1L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9314,
+    "name": "TASTIC DOVI SMALL",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9315,
+    "name": "TAXI BAG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9316,
+    "name": "TEA LOAF",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9317,
+    "name": "TEAM SNACKS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9318,
+    "name": "TETRAVARD 5G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9319,
+    "name": "TIGER EYE 200ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9320,
+    "name": "TIP TOP VINEGAR 375ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9321,
+    "name": "TIP TOP VINEGAR BIG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9322,
+    "name": "TIPS 125G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9323,
+    "name": "TIPS 250G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9324,
+    "name": "TIPS 62.5G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9325,
+    "name": "TISSUE OIL 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9326,
+    "name": "TN BREAD",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9327,
+    "name": "TOILET CLEANER 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9328,
+    "name": "TOMANGO 375ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9330,
+    "name": "TOMATOES",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9332,
+    "name": "TOMCO",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9333,
+    "name": "TOOTHBRUSH GOLDENGATE",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9334,
+    "name": "TOP JAM 600G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9335,
+    "name": "TOP MIXED FRUIT JAM 400G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9336,
+    "name": "TOP SOCIETY CREAM 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9337,
+    "name": "TORCH",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9338,
+    "name": "TORCH CELLS 4S",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9339,
+    "name": "TRIPPLE GLYCERINE 500G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9340,
+    "name": "TSUNGA BUNDLE",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9341,
+    "name": "TSUNGA SMALL BUNDLE",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9342,
+    "name": "TWIN SAVER TISSUE 4S",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9343,
+    "name": "TWINSAVER SINGLES",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9344,
+    "name": "TWO KEYS 200MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9345,
+    "name": "TWO KEYS 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9346,
+    "name": "TWO KEYS HONEY 750MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9347,
+    "name": "TYPEK REAMS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9348,
+    "name": "U-FRESH 150MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9349,
+    "name": "U-FRESH 380MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9350,
+    "name": "UFRESH 550MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9351,
+    "name": "UFRESH MAHEU 520MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9352,
+    "name": "VALLEY PRIDE BEANS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9353,
+    "name": "VASELINE BLUESEAL 100ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9354,
+    "name": "VASELINE BLUESEAL 250ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9355,
+    "name": "VASELINE FOR MEN 250ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9356,
+    "name": "VASELINE LOTION 400G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9357,
+    "name": "VAT 69 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9358,
+    "name": "VESTLINE CREAM",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9359,
+    "name": "VESTLINE HAIRFOOD 120ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9360,
+    "name": "VESTLINE HAIRFOOD 60ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9361,
+    "name": "VICEROY 200ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9362,
+    "name": "VICEROY 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9363,
+    "name": "VIM 500G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9364,
+    "name": "VINEGAR WINTER CHEM 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9365,
+    "name": "VINEGAR WINTER CHEM 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9366,
+    "name": "VIP PERFUME 50MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9367,
+    "name": "WATER MELON LARGE",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9368,
+    "name": "WATERMELON BIG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9369,
+    "name": "WATERMELON MEDIUM",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9370,
+    "name": "WATERMELON SMALL",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9371,
+    "name": "WAVIES CHIPS 100G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9372,
+    "name": "WELLINGTON 750MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9374,
+    "name": "WILDCAT 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9375,
+    "name": "WILLARDS CORNFLAKES 500G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9376,
+    "name": "WILLARDS KORN KURLS 100G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9377,
+    "name": "WILLARDS THINGS 150G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9378,
+    "name": "WILLARDS THINGS 75G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9379,
+    "name": "WINNER RICE 5KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9380,
+    "name": "WISH CREAMS 200G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9381,
+    "name": "WOODS COUGH SYRUP 100ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9382,
+    "name": "WOODS COUGH SYRUP 50MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9383,
+    "name": "WOODS SYRUP 100ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9384,
+    "name": "XTRA DISHWASHER 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9385,
+    "name": "XTRA WASHING POWDER 2KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9386,
+    "name": "XZIMNACKS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9387,
+    "name": "YEAST",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9388,
+    "name": "YEBO  SOAP 150G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9389,
+    "name": "YEBO SPAGHETTI",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9390,
+    "name": "YESS DRINKS 430ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9391,
+    "name": "YIPPY LOOSE BISCUITS 200G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9392,
+    "name": "YIPPY NOODLES",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9393,
+    "name": "YM YUM  2KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9394,
+    "name": "YOGIE 250ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9395,
+    "name": "YUM YUM BISCUITS 2KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9396,
+    "name": "YUM YUM ENERGEE30G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9397,
+    "name": "YUM YUM LOOSE BISC 250G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9398,
+    "name": "YUM YUM POTATO CHIPS  100G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9399,
+    "name": "YUMMY YOGHURTS 100ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9400,
+    "name": "YUMMY YUMMY COOKIES",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9401,
+    "name": "ZAMBEZI CAN 440MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9402,
+    "name": "ZAMBEZI CAN 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9403,
+    "name": "ZAMBEZI PINTS 375ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9404,
+    "name": "ZAMBEZI QUARTS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9405,
+    "name": "ZAPNAX 100G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9406,
+    "name": "ZIMGOLD 2L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9407,
+    "name": "ZIMGOLD 375MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9408,
+    "name": "ZIMGOLD LITE TUBS 500G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9409,
+    "name": "ZIMGOLD MAGARINE BRICK",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9410,
+    "name": "ZIMNAKS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9411,
+    "name": "ZUNDEMAHEU 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9412,
+    "name": "chibuku super",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9413,
+    "name": "drinking chocolate 125g",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9414,
+    "name": "pacitah 250g",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8449,
+    "name": "1 QUIRE COUNTER BOOKS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8456,
+    "name": "3QUIRE COUNTER BOOKS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8497,
+    "name": "ANCHOR YEAST 110G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8505,
+    "name": "ARENEL LEMON CREAMS 120G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8544,
+    "name": "BICKIES 100G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8579,
+    "name": "BOOM DISHWASHER 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8592,
+    "name": "BRUTAL FRUIT 275MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8596,
+    "name": "BUTTERCUP  500G BRICK",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8640,
+    "name": "CHARHONS 200G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8647,
+    "name": "CHARHONS COOKIES 500G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8652,
+    "name": "CHICKEN FLINGZ 100G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8654,
+    "name": "CHILLI 200ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8655,
+    "name": "CHIMERA  500G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8656,
+    "name": "CHIMOMBE 1L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8657,
+    "name": "CHOCOLATE BISCUITS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8658,
+    "name": "CHOCOLATE COOKIES 500G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8659,
+    "name": "CHOICE ASSORTED",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8660,
+    "name": "CHOMPKINS 100G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8661,
+    "name": "CHUNKS 2KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8662,
+    "name": "CHUNKS 3KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8663,
+    "name": "CHUNKS MEGA",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8664,
+    "name": "CITRO JUICE 1L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8684,
+    "name": "COLD CARE 4S",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8717,
+    "name": "DAX HAIR GROWER 125ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8730,
+    "name": "DLITE 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8736,
+    "name": "DR MINT 100PCS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8775,
+    "name": "FIZZI 2L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8783,
+    "name": "FOREVER RED SPRAY",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8816,
+    "name": "GOLD BLEND 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8840,
+    "name": "HAIR REMOVER -ALOE 50ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8841,
+    "name": "HAIR REMOVER COSMO SILK",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8850,
+    "name": "HARPIC 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8863,
+    "name": "HOUSEHOLD NEEDLES",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8873,
+    "name": "ICING SUGAR 500G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8888,
+    "name": "JAY JAY CHOCOLATE COATED BISC",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8891,
+    "name": "JIK 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8893,
+    "name": "JNB 2KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8904,
+    "name": "JUICE PLUS 5L",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8910,
+    "name": "JUWISY DRINK 500MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8920,
+    "name": "KEBERG GIN 200MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8935,
+    "name": "KOMBUCHA 330ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8954,
+    "name": "LEMONS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8961,
+    "name": "LION QUARTS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8971,
+    "name": "LOVE EAT  MEALIE MEAL 10KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 8991,
+    "name": "MAQ 500G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9002,
+    "name": "MATEMBA 250G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9037,
+    "name": "MINUTE MAID APPLE",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9038,
+    "name": "MINUTE MAID BERRY",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9097,
+    "name": "OH SO HEAVENLY BODY LOTION 720",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9102,
+    "name": "OLIVE OIL SPRAY 300ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9133,
+    "name": "PINEAPPLE FLAVOURED SUPER 1.25",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9152,
+    "name": "POWERPLAY 440MLS",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9193,
+    "name": "ROMEO GLYCERINE 100G",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9197,
+    "name": "ROYAL MEALIE MEAL 10KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9233,
+    "name": "SOFT N FREE 250ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9250,
+    "name": "STAR BASH BUBBLE BATH 500ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9280,
+    "name": "SUGAR 2KG",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9295,
+    "name": "SUPERMAX RAZOR BLADES",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9329,
+    "name": "TOMANGO SAUCE 375ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9331,
+    "name": "TOMATOES 50C PACK",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  },
+  {
+    "id": 9373,
+    "name": "WHITESTONE 750ML",
+    "category": "General",
+    "productType": "service",
+    "hsCode": ""
+  }
+]

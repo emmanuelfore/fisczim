@@ -1,0 +1,18 @@
+package vpos.apipackage;
+
+/* JADX INFO: loaded from: classes.jar:vpos/apipackage/Mcr.class */
+public class Mcr {
+    public static native int Lib_McrOpen();
+
+    public static native int Lib_McrClose();
+
+    public static native int Lib_McrReset();
+
+    public static native int Lib_McrCheck();
+
+    public static native int Lib_McrRead(byte b, byte b2, byte[] bArr, byte[] bArr2, byte[] bArr3);
+
+    static {
+        System.loadLibrary("PosApi");
+    }
+}

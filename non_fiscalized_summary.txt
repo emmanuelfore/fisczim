@@ -1,0 +1,234 @@
+Found 17 non-fiscalized invoices for Hillend Trading (ID: 12).
+
+========================================
+Invoice ID: 2231
+Invoice Number: INV-937911
+FDMS Status: Pending
+Validation Status: invalid
+Receipt Global No: 145
+Receipt Counter: 11
+Created At: 2026-05-08T05:20:48.123Z
+Items (1):
+  - [ID: 3527] Desc: "0.27mm painted", Qty: 1.00, Price: 3.50, Total: 3.50
+Latest ZIMRA Log (ID: 3412, Status: 200, Date: 2026-05-08T05:20:51.139Z):
+  Error Message: null
+  Response Payload: {"receiptID":335358640,"serverDate":"2026-05-08T09:20:50","operationID":"0HNLCPCLGI4PA:00000001","validationErrors":[{"validationErrorCode":"RCPT011","validationErrorColor":"Gray"},{"validationErrorCode":"RCPT012","validationErrorColor":"Gray"},{"validationErrorCode":"RCPT020","validationErrorColor":"Gray"},{"validationErrorCode":"RCPT030","validationErrorColor":"Gray"}],"receiptServerSignature":{"hash":"qIEvwpxYKq/fIAUNbYtnQBqjM7fFyR32IqBmJzeHSYY=","signature":"D4vErvw+gWwpEFQDBtgIf19c9ZvrnX9+MG1PxJKrbp0tRVDxd6y+GKPMvs0MHSTaqWKnkcUgl8dan14lvmgVWYKCOT1ytj3PU3JcujrysPa7Wfo5sydHgelULIpi3bjo0FCFrc+FwzgVWptukX1JJUeC8CM8HISwXf2PMixP5k3IbpkbO14kWRo5PiGMLZwfCZiTb6eTnezp10YVQwa1KhgNXb+NohVhVg1en0ihKKQfGwAD9LiyFGdKcxy+lMP+PTmD3ckfvV5JBWpYdYyZ5nDfY9EqhH+VvALaNwk3pjU5fVP1Lv5uOF8Qi/vLTx+3NvySeexFyAAH9IVyne0AHw==","certificateThumbprint":"290E2791C18C4CE35D74BA5AAB514A65F54B3BD1"}}
+
+========================================
+Invoice ID: 2087
+Invoice Number: INV-937897
+FDMS Status: pending
+Validation Status: null
+Receipt Global No: null
+Receipt Counter: null
+Created At: 2026-05-05T11:39:06.429Z
+Items (1):
+  - [ID: 3309] Desc: "pvc panel", Qty: 7.00, Price: 58.00, Total: 406.00
+No ZIMRA log found.
+
+========================================
+Invoice ID: 2048
+Invoice Number: INV-937896
+FDMS Status: pending
+Validation Status: null
+Receipt Global No: null
+Receipt Counter: null
+Created At: 2026-05-05T06:08:30.052Z
+Items (2):
+  - [ID: 3215] Desc: "20kgs tile adhesive contractors", Qty: 61.00, Price: 4.00, Total: 244.00
+  - [ID: 3216] Desc: "60x60 floor tiles", Qty: 20.00, Price: 11.95, Total: 239.00
+No ZIMRA log found.
+
+========================================
+Invoice ID: 2018
+Invoice Number: INV-937886
+FDMS Status: pending
+Validation Status: null
+Receipt Global No: null
+Receipt Counter: null
+Created At: 2026-05-02T05:32:30.853Z
+Items (1):
+  - [ID: 3170] Desc: "0.4mm painted", Qty: 68.00, Price: 5.50, Total: 374.00
+No ZIMRA log found.
+
+========================================
+Invoice ID: 1984
+Invoice Number: INV-937885
+FDMS Status: pending
+Validation Status: null
+Receipt Global No: null
+Receipt Counter: null
+Created At: 2026-04-30T12:28:23.767Z
+Items (3):
+  - [ID: 3106] Desc: "30x60 wall tiles", Qty: 11.00, Price: 10.00, Total: 110.00
+  - [ID: 3107] Desc: "40x40floor tiles", Qty: 8.00, Price: 11.00, Total: 88.00
+  - [ID: 3108] Desc: "20kgs tile adhesive contractors", Qty: 50.00, Price: 4.00, Total: 200.00
+No ZIMRA log found.
+
+========================================
+Invoice ID: 1974
+Invoice Number: INV-937884
+FDMS Status: pending
+Validation Status: null
+Receipt Global No: null
+Receipt Counter: null
+Created At: 2026-04-30T05:31:15.454Z
+Items (2):
+  - [ID: 3065] Desc: "0.4mm painted", Qty: 42.00, Price: 5.50, Total: 231.00
+  - [ID: 3066] Desc: "IBR NAILS KG", Qty: 5.00, Price: 3.50, Total: 17.50
+No ZIMRA log found.
+
+========================================
+Invoice ID: 1192
+Invoice Number: INV-937852
+FDMS Status: Failed
+Validation Status: valid
+Receipt Global No: 94
+Receipt Counter: 10
+Created At: 2026-03-28T09:43:23.990Z
+Items (1):
+  - [ID: 1620] Desc: "IBR NAILS KG", Qty: 3.00, Price: 3.50, Total: 10.50
+Latest ZIMRA Log (ID: 2188, Status: 500, Date: 2026-03-28T09:43:55.110Z):
+  Error Message: timeout of 30000ms exceeded
+  Response Payload: {"error":"timeout of 30000ms exceeded"}
+
+========================================
+Invoice ID: 1191
+Invoice Number: INV-937851
+FDMS Status: Failed
+Validation Status: valid
+Receipt Global No: 93
+Receipt Counter: 9
+Created At: 2026-03-28T09:41:36.413Z
+Items (1):
+  - [ID: 1619] Desc: "IBR NAILS KG", Qty: 3.00, Price: 3.50, Total: 10.50
+Latest ZIMRA Log (ID: 2187, Status: 500, Date: 2026-03-28T09:42:07.899Z):
+  Error Message: timeout of 30000ms exceeded
+  Response Payload: {"error":"timeout of 30000ms exceeded"}
+
+========================================
+Invoice ID: 499
+Invoice Number: INV-937791
+FDMS Status: failed
+Validation Status: invalid
+Receipt Global No: 33
+Receipt Counter: 2
+Created At: 2026-02-27T13:05:39.408Z
+Items (2):
+  - [ID: 421] Desc: "IBR NAILS KG", Qty: 1.00, Price: 3.50, Total: 3.50
+  - [ID: 422] Desc: "", Qty: 0.00, Price: 5.50, Total: 0.00
+Latest ZIMRA Log (ID: 1428, Status: 400, Date: 2026-03-06T06:59:53.546Z):
+  Error Message: {"type":"https://httpstatuses.io/400","title":"Bad Request","status":400,"errors":{"receipt.ReceiptLines[1].ReceiptLineName":["The ReceiptLineName field is required."]},"operationID":"0HNJRADTV0UVG:00000001"}
+  Response Payload: {"type":"https://httpstatuses.io/400","title":"Bad Request","errors":{"receipt.ReceiptLines[1].ReceiptLineName":["The ReceiptLineName field is required."]},"status":400,"operationID":"0HNJRADTV0UVG:00000001"}
+
+========================================
+Invoice ID: 498
+Invoice Number: INV-937790
+FDMS Status: failed
+Validation Status: invalid
+Receipt Global No: 33
+Receipt Counter: 2
+Created At: 2026-02-27T11:18:18.600Z
+Items (2):
+  - [ID: 419] Desc: "cornice glue", Qty: 1.00, Price: 4.50, Total: 4.50
+  - [ID: 420] Desc: "", Qty: 0.00, Price: 5.50, Total: 0.00
+Latest ZIMRA Log (ID: 1388, Status: 400, Date: 2026-03-03T05:20:00.700Z):
+  Error Message: {"type":"https://httpstatuses.io/400","title":"Bad Request","status":400,"errors":{"receipt.ReceiptLines[1].ReceiptLineName":["The ReceiptLineName field is required."]},"operationID":"0HNJOTV1IJG38:00000001"}
+  Response Payload: {"type":"https://httpstatuses.io/400","title":"Bad Request","errors":{"receipt.ReceiptLines[1].ReceiptLineName":["The ReceiptLineName field is required."]},"status":400,"operationID":"0HNJOTV1IJG38:00000001"}
+
+========================================
+Invoice ID: 450
+Invoice Number: INV-937773
+FDMS Status: pending
+Validation Status: null
+Receipt Global No: null
+Receipt Counter: null
+Created At: 2026-02-20T12:44:26.650Z
+Items (1):
+  - [ID: 316] Desc: "clout nails", Qty: 1.00, Price: 4.50, Total: 4.50
+No ZIMRA log found.
+
+========================================
+Invoice ID: 325
+Invoice Number: INV-937761
+FDMS Status: issued
+Validation Status: valid
+Receipt Global No: 6
+Receipt Counter: 3
+Created At: 2026-02-16T11:36:34.953Z
+Items (1):
+  - [ID: 107] Desc: "3mm glass", Qty: 2.00, Price: 9.00, Total: 18.00
+Latest ZIMRA Log (ID: 1090, Status: 200, Date: 2026-02-16T11:37:03.063Z):
+  Error Message: null
+  Response Payload: {"receiptID":281954501,"serverDate":"2026-02-16T15:37:02","operationID":"0HNJDADUUQ0PC:00000001","validationErrors":[],"receiptServerSignature":{"hash":"unUP5WNUmO7MLy6oW5wqSbX1koE1Wq9sEFSuKXN4LVc=","signature":"Q5zMBduozmBU1K6XDsQ5abfAOBnJGlw/8Nlw9VKUu20TFMfrtgLvZ4apU/KkYW7HDljcJ1IzD/Pfw4ZGr7MOxKWgZN4PsmQrtNDk9dODXWMHIs45DkgubCANaElnQmv3j0KdIIf9uuVUkJDbSlAjlzht3qJzmuhTmS4tdaV0kyJQgyJUjlghPcMSiW1YqDI1POiMgMlq0kYLaI7gqxVgMJLSqS95VXd9skZBxrcto/kIyGfNOA4UwbMqtrMIhfioFxS4M5AxkOuFMYf09amSXI9iV3EQQ2T16f0wo2jQuAXd5VIQXDQTgoCp56xGpEdIVJrWhS3QLHzrjYPgbzLlUQ==","certificateThumbprint":"290E2791C18C4CE35D74BA5AAB514A65F54B3BD1"}}
+
+========================================
+Invoice ID: 323
+Invoice Number: INV-937760
+FDMS Status: issued
+Validation Status: valid
+Receipt Global No: 5
+Receipt Counter: 2
+Created At: 2026-02-16T10:07:42.229Z
+Items (1):
+  - [ID: 103] Desc: "0.4mm painted", Qty: 5.00, Price: 5.50, Total: 27.50
+Latest ZIMRA Log (ID: 1086, Status: 200, Date: 2026-02-16T10:08:15.984Z):
+  Error Message: null
+  Response Payload: {"receiptID":281873833,"serverDate":"2026-02-16T14:08:15","operationID":"0HNJDA2GVOGOU:00000001","validationErrors":[],"receiptServerSignature":{"hash":"8n22A5L4RT9kchMcEUNjO+fPa127ulUh4kil8VZASKY=","signature":"TzQZ6gGkqLDfThPuWdrbr4AOS3dtO3fkqLg9VYgwW6sVZT7R840mltdhR3xcEMy4pdOkXLWoSTuOb2BplcFr46V1LtvbmgKqpFi7UiF+SOnYx1tGlTTz1sUWQG6x3uj486JiKoFGryTxPqs01xytslYJh8qxtvRZYsh3YVXO57+7GZf6rLexbeu4wTYKkgE6lhBqbH/3owztaeMFaEg1FNavAlYIbq7TO7W90OKjueWNDiKHeoUynKw4b+IQiRN0J6vdVHyEdffnH4IUhKyLsCsYisfc3D11VsNScmf2JAhQ7T4qhsAYPBDpMVCQGiB/z2VgeAamUJGCjXmXMn6j2Q==","certificateThumbprint":"290E2791C18C4CE35D74BA5AAB514A65F54B3BD1"}}
+
+========================================
+Invoice ID: 321
+Invoice Number: INV-937759
+FDMS Status: issued
+Validation Status: valid
+Receipt Global No: 4
+Receipt Counter: 1
+Created At: 2026-02-16T06:58:08.694Z
+Items (1):
+  - [ID: 101] Desc: "BARBED WIRE 50KG", Qty: 1.00, Price: 78.00, Total: 78.00
+Latest ZIMRA Log (ID: 1082, Status: 200, Date: 2026-02-16T06:58:39.553Z):
+  Error Message: null
+  Response Payload: {"receiptID":281702937,"serverDate":"2026-02-16T10:58:39","operationID":"0HNJD7241ETCC:00000001","validationErrors":[],"receiptServerSignature":{"hash":"/SZ4umyqv2DumSyK54XpreEENoG7xox6INlR38x6ypE=","signature":"alTaJjnXRKRtYxfYSQf7AJEg3PWunvWQyuuLgAAOo2foEcPvTY9IB/WkTmHZ9B3Y0gcwS/kcjVIDSgx0LtXa15gczZv5PSgYkBoeXjZwpM7zzYoPm7WMZc6sH3O/sA4VXmsLhs/3ffiiQvMNP+PS1mImEXu/XNbC0DifMYN9OuFAuesJ0mi/LQ6pg60fnE15lrn3GEDJgbqfhxIrMpbxE2qXk5sBfDk9Zat4CPy8GEi3A7cxhtDecJTu8zrmXySFIv8ZRisM6/RfTzVn+zxaTS3DH1rbWnSjjbZbnTS+vkpEfLZwsCc9gPzV7ZCMyiY44QkdHfX6j/DRKs5LHWOHpw==","certificateThumbprint":"290E2791C18C4CE35D74BA5AAB514A65F54B3BD1"}}
+
+========================================
+Invoice ID: 283
+Invoice Number: INV-937758
+FDMS Status: issued
+Validation Status: valid
+Receipt Global No: 3
+Receipt Counter: 3
+Created At: 2026-02-13T10:22:22.693Z
+Items (1):
+  - [ID: 23] Desc: "0.27mm painted", Qty: 14.40, Price: 3.50, Total: 50.40
+Latest ZIMRA Log (ID: 1058, Status: 200, Date: 2026-02-13T10:22:48.277Z):
+  Error Message: null
+  Response Payload: {"receiptID":280224734,"serverDate":"2026-02-13T14:22:48","operationID":"0HNJAU6OC9SBR:00000001","validationErrors":[],"receiptServerSignature":{"hash":"tttCzkygLbkkw7fbIug3QgAkUBmsPech99q5pee7uXE=","signature":"WuEDGjCLD66IWNjyoTb1N+JMCQL9rQLcOlNu9ir0+Jay6JFkEMq5vaATi1St+3MmSacZ9s9YU6JpkPsLNpFewczTXj90/K+AcphHdsLFH9u3xOpstGwBkN3c/BFE3QC+07Tlj89Llc02/I5G6vrjbX9SofPKb2shZ6t2wWTANKPzMjnPHFPdQUZbqx8SPtDKKVaJPGjGdmwmagXID1gtDLOWa54/MtftJMrhe2h0kjW67BJFUg0FqDy3Vybor+oc+3+tbN8CqkE64Ckbr4OQ6R8GgiUXC1RWOSVRGROfHMSwaJusQpN9L+v2hUmkiFPmJqRGbY2VIoy72yTPjE0/IA==","certificateThumbprint":"290E2791C18C4CE35D74BA5AAB514A65F54B3BD1"}}
+
+========================================
+Invoice ID: 272
+Invoice Number: INV-937757
+FDMS Status: issued
+Validation Status: valid
+Receipt Global No: 2
+Receipt Counter: 2
+Created At: 2026-02-13T06:10:00.334Z
+Items (1):
+  - [ID: 2] Desc: "WIRE NAILS 1KG", Qty: 1.00, Price: 1.60, Total: 1.60
+Latest ZIMRA Log (ID: 1019, Status: 200, Date: 2026-02-13T06:10:45.431Z):
+  Error Message: null
+  Response Payload: {"receiptID":279972527,"serverDate":"2026-02-13T10:10:45","operationID":"0HNJAQBH1FR1A:00000001","validationErrors":[],"receiptServerSignature":{"hash":"7vevsuXnM7XyiWS9/NBc8sTOAvFVpsSAPRtR5T4IpgM=","signature":"DKUaJZNrRG6Sh+OBoIxJDo156r1676kqAM3UQQamEi8c8YlxVr5mWm/FuKL4Dvp5osjposbBjBG6QlnWZuCnZm51VMTcNiYBHlur2fH1Smjk+5ebm8VJ5JEaVz3mr2VNqwc5SAjeRSoR5p/JICOuHBOICy7NTFlv2tTqHoNc/tG9FvFcjc43braLdTH/wqQ3fBAOOwrryVDCdICA+vBKHBpRCp5cA4eDX9aEIsV62gnEAmyBJjXCvo2kPI+e85BT/L3tPpQ6hOqLtDuiyC03LBSQVUCpcLj0U5Fw2agaUsSjqHpGyPlFwpeW5PzTNx0jlywO/gg0bdfAMGqLCjfx6Q==","certificateThumbprint":"290E2791C18C4CE35D74BA5AAB514A65F54B3BD1"}}
+
+========================================
+Invoice ID: 271
+Invoice Number: INV-937756
+FDMS Status: issued
+Validation Status: valid
+Receipt Global No: 1
+Receipt Counter: 1
+Created At: 2026-02-13T05:58:12.021Z
+Items (1):
+  - [ID: 1] Desc: "IBR NAILS KG", Qty: 1.00, Price: 3.50, Total: 3.50
+Latest ZIMRA Log (ID: 1017, Status: 200, Date: 2026-02-13T05:59:08.308Z):
+  Error Message: null
+  Response Payload: {"receiptID":279961931,"serverDate":"2026-02-13T09:59:08","operationID":"0HNJAQBH1ERV2:00000001","validationErrors":[],"receiptServerSignature":{"hash":"JK151NJYFu/d7QvGhpmQwcqQ3EOY8ivlX7unvM+39uQ=","signature":"g36yYmPAvI7a0xDxxeWBMDOnELuVrxNHmfYj5lvJR2RHcUnk82SO52W+yyhyDrjffvA2C4mrfKN5YnQ81eB9V0I6onImTnQcSocON+5x+XvcuMhIIxxj3txJH5FkbrgLttePb80OsoWSCwEmtXy+mszQcEOeLgG3YxaF+Ute51cBeeU18cXoUigG98vVEnqogY/CmXIaMT+59pUP2xHm/AV6ovmyPQDEVu5wBWakrzhhW8c8pD0oxZEReFOYNarqh0MlqGyK0IpVR5z46XGaAuz4Ved1RRH2ybPIMy38iA3uVp0O1iuow/sD//wSYhZVVIYYL7VR4rFQC5NOOPYdQg==","certificateThumbprint":"290E2791C18C4CE35D74BA5AAB514A65F54B3BD1"}}
+

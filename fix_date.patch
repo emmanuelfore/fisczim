@@ -1,0 +1,27 @@
+--- server/api/v1/fiscal.ts
++++ server/api/v1/fiscal.ts
+@@ -165,15 +165,15 @@
+     const receiptCount = closePreflight.dayInvoices.reduce((max, inv) => Math.max(max, inv.receiptCounter || 0), 0);
+     
+-    // Identify opening date
+-    const formatHarareDateOnly = (date: Date) => {
+-      const parts = new Intl.DateTimeFormat('en-GB', {
+-        timeZone: 'Africa/Harare',
+-        year: 'numeric', month: '2-digit', day: '2-digit'
+-      }).formatToParts(date);
+-      const p = (t: string) => parts.find(x => x.type === t)?.value;
+-      return `${p('year')}-${p('month')}-${p('day')}`;
++    // Identify opening date in YYYY-MM-DDTHH:mm:ss format
++    const formatHarareDateTime = (date: Date) => {
++      // Use local time without timezone modifier for ZIMRA
++      // ZIMRA expects YYYY-MM-DDTHH:MM:SS
++      return new Date(date.getTime() - (date.getTimezoneOffset() * 60000)).toISOString().slice(0, 19);
+     };
+ 
+-    let fiscalDayDate = formatHarareDateOnly(new Date());
++    let fiscalDayDate = formatHarareDateTime(new Date());
+     if (company.fiscalDayOpenedAt) {
+-      fiscalDayDate = formatHarareDateOnly(new Date(company.fiscalDayOpenedAt));
++      fiscalDayDate = formatHarareDateTime(new Date(company.fiscalDayOpenedAt));
+     }
+ 

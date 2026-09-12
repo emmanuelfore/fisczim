@@ -1,0 +1,48 @@
+plugins {
+  id 'com.android.library'
+  id 'kotlin-android'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.iposprinter'
+version = '1.0.0'
+
+android {
+  namespace 'expo.modules.iposprinter'
+  compileSdkVersion 34
+
+  defaultConfig {
+    minSdkVersion 21
+    targetSdkVersion 34
+    versionCode 1
+    versionName "1.0.0"
+  }
+
+  buildFeatures {
+    aidl true
+  }
+
+  sourceSets {
+    main {
+      aidl.srcDirs = ['src/main/aidl']
+      java.srcDirs = ['src/main/java']
+    }
+  }
+
+  lintOptions {
+    abortOnError false
+  }
+
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_17
+    targetCompatibility JavaVersion.VERSION_17
+  }
+
+  kotlinOptions {
+    jvmTarget = '17'
+  }
+}
+
+dependencies {
+  implementation "org.jetbrains.kotlin:kotlin-stdlib:1.9.23"
+}

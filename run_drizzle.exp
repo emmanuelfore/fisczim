@@ -1,0 +1,14 @@
+#!/usr/bin/expect -f
+set timeout -1
+spawn npm run db:push
+expect {
+    "Is purchase_return_items table created or renamed" {
+        send "\r"
+        exp_continue
+    }
+    "Is purchase_returns table created or renamed" {
+        send "\r"
+        exp_continue
+    }
+    eof
+}

@@ -1,0 +1,103 @@
+<xml xmlns:v="urn:schemas-microsoft-com:vml"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel">
+ <o:shapelayout v:ext="edit">
+  <o:idmap v:ext="edit" data="1"/>
+ </o:shapelayout><v:shapetype id="_x0000_t75" coordsize="21600,21600" o:spt="75"
+  o:preferrelative="t" path="m@4@5l@4@11@9@11@9@5xe" filled="f" stroked="f">
+  <v:stroke joinstyle="miter"/>
+  <v:formulas>
+   <v:f eqn="if lineDrawn pixelLineWidth 0"/>
+   <v:f eqn="sum @0 1 0"/>
+   <v:f eqn="sum 0 0 @1"/>
+   <v:f eqn="prod @2 1 2"/>
+   <v:f eqn="prod @3 21600 pixelWidth"/>
+   <v:f eqn="prod @3 21600 pixelHeight"/>
+   <v:f eqn="sum @0 0 1"/>
+   <v:f eqn="prod @6 1 2"/>
+   <v:f eqn="prod @7 21600 pixelWidth"/>
+   <v:f eqn="sum @8 21600 0"/>
+   <v:f eqn="prod @7 21600 pixelHeight"/>
+   <v:f eqn="sum @10 21600 0"/>
+  </v:formulas>
+  <v:path o:extrusionok="f" gradientshapeok="t" o:connecttype="rect"/>
+  <o:lock v:ext="edit" aspectratio="t"/>
+ </v:shapetype><v:shape id="_x0000_s1025" type="#_x0000_t75" style='position:absolute;
+  margin-left:1954.2pt;margin-top:63.6pt;width:100.2pt;height:40.8pt;z-index:1'
+  filled="t" fillcolor="window [65]" stroked="t" strokecolor="windowText [64]"
+  o:insetmode="auto">
+  <v:fill color2="window [65]"/>
+  <v:imagedata o:relid="rId1" o:title=""/>
+  <x:ClientData ObjectType="Pict">
+   <x:SizeWithCells/>
+   <x:Anchor>
+    18, 0, 1, 0, 18, 167, 3, 22</x:Anchor>
+   <x:CF>Pict</x:CF>
+   <x:AutoPict/>
+  </x:ClientData>
+ </v:shape><v:shape id="_x0000_s1026" type="#_x0000_t75" style='position:absolute;
+  margin-left:2097pt;margin-top:66.6pt;width:100.2pt;height:40.8pt;z-index:2'
+  filled="t" fillcolor="window [65]" stroked="t" strokecolor="windowText [64]"
+  o:insetmode="auto">
+  <v:fill color2="window [65]"/>
+  <v:imagedata o:relid="rId2" o:title=""/>
+  <x:ClientData ObjectType="Pict">
+   <x:SizeWithCells/>
+   <x:Anchor>
+    18, 238, 1, 5, 18, 405, 4, 4</x:Anchor>
+   <x:CF>Pict</x:CF>
+   <x:AutoPict/>
+  </x:ClientData>
+ </v:shape><v:shape id="_x0000_s1027" type="#_x0000_t75" style='position:absolute;
+  margin-left:2268.6pt;margin-top:63.6pt;width:117pt;height:40.8pt;z-index:3'
+  filled="t" fillcolor="window [65]" stroked="t" strokecolor="windowText [64]"
+  o:insetmode="auto">
+  <v:fill color2="window [65]"/>
+  <v:imagedata o:relid="rId3" o:title=""/>
+  <x:ClientData ObjectType="Pict">
+   <x:SizeWithCells/>
+   <x:Anchor>
+    19, 0, 1, 0, 19, 195, 3, 22</x:Anchor>
+   <x:CF>Pict</x:CF>
+   <x:AutoPict/>
+  </x:ClientData>
+ </v:shape><v:shape id="_x0000_s1028" type="#_x0000_t75" style='position:absolute;
+  margin-left:2379.6pt;margin-top:49.2pt;width:117pt;height:40.8pt;z-index:4'
+  filled="t" fillcolor="window [65]" stroked="t" strokecolor="windowText [64]"
+  o:insetmode="auto">
+  <v:fill color2="window [65]"/>
+  <v:imagedata o:relid="rId4" o:title=""/>
+  <x:ClientData ObjectType="Pict">
+   <x:SizeWithCells/>
+   <x:Anchor>
+    19, 185, 0, 82, 20, 0, 2, 21</x:Anchor>
+   <x:CF>Pict</x:CF>
+   <x:AutoPict/>
+  </x:ClientData>
+ </v:shape><v:shape id="_x0000_s1029" type="#_x0000_t75" style='position:absolute;
+  margin-left:2496.6pt;margin-top:63.6pt;width:99pt;height:40.8pt;z-index:5'
+  filled="t" fillcolor="window [65]" stroked="t" strokecolor="windowText [64]"
+  o:insetmode="auto">
+  <v:fill color2="window [65]"/>
+  <v:imagedata o:relid="rId5" o:title=""/>
+  <x:ClientData ObjectType="Pict">
+   <x:SizeWithCells/>
+   <x:Anchor>
+    20, 0, 1, 0, 20, 165, 3, 22</x:Anchor>
+   <x:CF>Pict</x:CF>
+   <x:AutoPict/>
+  </x:ClientData>
+ </v:shape><v:shape id="_x0000_s1030" type="#_x0000_t75" style='position:absolute;
+  margin-left:2617.2pt;margin-top:58.8pt;width:115.2pt;height:40.8pt;z-index:6'
+  filled="t" fillcolor="window [65]" stroked="t" strokecolor="windowText [64]"
+  o:insetmode="auto">
+  <v:fill color2="window [65]"/>
+  <v:imagedata o:relid="rId6" o:title=""/>
+  <x:ClientData ObjectType="Pict">
+   <x:SizeWithCells/>
+   <x:Anchor>
+    20, 201, 0, 98, 21, 14, 3, 14</x:Anchor>
+   <x:CF>Pict</x:CF>
+   <x:AutoPict/>
+  </x:ClientData>
+ </v:shape></xml>

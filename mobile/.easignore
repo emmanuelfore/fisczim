@@ -1,0 +1,20 @@
+# Kept for local clarity, but EAS uses the repository-root .easignore here.
+# These patterns also work if EAS is ever run with mobile/ as the archive root.
+node_modules
+.expo
+.eas-inspect
+.gradle
+android/.gradle
+android/build
+android/app/build
+ios/build
+
+FiscalStack * ZIMRA Compliant Invoicing.pdf
+libaed.so
+classes.jar
+libcustom_nvram.so
+libcustom_jni.so
+libPosApi.so
+
+!modules/z100-printer/android/libs/*.aar
+!modules/z100-printer/android/src/main/jniLibs/**/*.so

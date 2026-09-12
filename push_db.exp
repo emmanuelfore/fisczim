@@ -1,0 +1,10 @@
+#!/usr/bin/expect -f
+set timeout -1
+spawn npm run db:push
+expect {
+    "Do you want to truncate purchase_orders table?" {
+        send "\r"
+        exp_continue
+    }
+    eof
+}

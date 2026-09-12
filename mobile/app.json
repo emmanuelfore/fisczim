@@ -1,0 +1,67 @@
+{
+  "expo": {
+    "name": "FieldPOS",
+    "slug": "fieldpos",
+    "version": "0.1.0",
+    "orientation": "default",
+    "userInterfaceStyle": "dark",
+    "scheme": "fieldpos",
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#2c1800"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "runtimeVersion": {
+        "policy": "appVersion"
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#2c1800"
+      },
+      "package": "com.rhymy.fieldpos",
+      "softwareKeyboardLayoutMode": "resize",
+      "permissions": [
+        "INTERNET",
+        "BLUETOOTH_SCAN",
+        "BLUETOOTH_CONNECT",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ],
+      "runtimeVersion": "1.0.0"
+    },
+    "androidStatusBar": {
+      "translucent": true,
+      "barStyle": "light-content"
+    },
+    "androidNavigationBar": {
+      "backgroundColor": "#00000000",
+      "barStyle": "light-content"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "75764377-70c6-4866-8672-9a1320483381"
+      }
+    },
+    "plugins": [
+      "expo-asset",
+      "./scripts/withNetworkSecurityConfig",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "FieldPOS uses your location to report live bus trip positions and improve fleet tracking."
+        }
+      ],
+      "@react-native-community/datetimepicker",
+      "expo-audio"
+    ]
+  }
+}

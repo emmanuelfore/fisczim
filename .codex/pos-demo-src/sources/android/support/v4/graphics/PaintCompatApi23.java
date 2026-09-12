@@ -1,0 +1,17 @@
+package android.support.v4.graphics;
+
+import android.graphics.Paint;
+import android.support.annotation.NonNull;
+import android.support.annotation.RequiresApi;
+import android.support.v4.view.MotionEventCompat;
+
+/* JADX INFO: loaded from: classes.dex */
+@RequiresApi(MotionEventCompat.AXIS_BRAKE)
+class PaintCompatApi23 {
+    PaintCompatApi23() {
+    }
+
+    static boolean hasGlyph(@NonNull Paint paint, @NonNull String string) {
+        return paint.hasGlyph(string);
+    }
+}

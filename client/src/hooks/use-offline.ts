@@ -1,0 +1,142 @@
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { getPendingSalesCount, getPendingShiftsCount, getLastCacheTime } from '@/lib/offline-db';
+import { syncPendingSales, type SyncStatus, type SyncResult } from '@/lib/offline-sync';
+import { useToast } from '@/hooks/use-toast';
+import { useIsOnline } from '@/hooks/use-is-online';
+import { getIsOnline } from '@/lib/online-state';
+
+interface UseOfflineReturn {
+    isOnline: boolean;
+    pendingSalesCount: number;
+    syncStatus: SyncStatus;
+    syncProgress: { synced: number; total: number };
+    lastSyncResult: SyncResult | null;
+    triggerSync: () => Promise<void>;
+    refreshPendingCount: () => Promise<void>;
+    lastCacheTime: number | null;
+    refreshCacheTime: () => Promise<void>;
+}
+
+export function useOffline(companyId: number): UseOfflineReturn {
+    const isOnline = useIsOnline();
+    const [pendingSalesCount, setPendingSalesCount] = useState(0);
+    const [pendingShiftsCount, setPendingShiftsCount] = useState(0);
+    const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
+    const [syncProgress, setSyncProgress] = useState({ synced: 0, total: 0 });
+    const [lastSyncResult, setLastSyncResult] = useState<SyncResult | null>(null);
+    const [lastCacheTime, setLastCacheTimeState] = useState<number | null>(null);
+    const isSyncingRef = useRef(false);
+    // Cooldown for *automatic* sync triggers (interval + reconnect). Mobile
+    // network flapping (tunnels, WiFi↔cellular handoffs) can fire reconnects
+    // many times per minute — without this each flap kicked off auth work.
+    // Manual syncs (no arg) always run.
+    const lastAutoSyncAt = useRef(0);
+    const AUTO_SYNC_COOLDOWN_MS = 45_000;
+    const { toast } = useToast();
+
+    const refreshPendingCount = useCallback(async () => {
+        if (!companyId) return;
+        try {
+            const [salesCount, shiftsCount] = await Promise.all([
+                getPendingSalesCount(companyId),
+                getPendingShiftsCount(companyId)
+            ]);
+            setPendingSalesCount(salesCount);
+            setPendingShiftsCount(shiftsCount);
+        } catch (e) {
+            console.error('Failed to get pending counts:', e);
+        }
+    }, [companyId]);
+
+    const refreshCacheTime = useCallback(async () => {
+        if (!companyId) return;
+        try {
+            const time = await getLastCacheTime(companyId);
+            if (time) setLastCacheTimeState(time);
+        } catch (e) {
+            console.error('Failed to get cache time:', e);
+        }
+    }, [companyId]);
+
+    useEffect(() => {
+        refreshPendingCount();
+        refreshCacheTime();
+        const interval = setInterval(() => {
+            refreshPendingCount();
+            refreshCacheTime();
+        }, 10000);
+        return () => clearInterval(interval);
+    }, [refreshPendingCount, refreshCacheTime]);
+
+    const triggerSync = useCallback(async (skipIfRecent = false) => {
+        if (!companyId || isSyncingRef.current || !getIsOnline()) return;
+        if (skipIfRecent && Date.now() - lastAutoSyncAt.current < AUTO_SYNC_COOLDOWN_MS) return;
+        lastAutoSyncAt.current = Date.now();
+
+        isSyncingRef.current = true;
+        setSyncStatus('syncing');
+
+        try {
+            const result = await syncPendingSales(companyId, (synced, total) => {
+                setSyncProgress({ synced, total });
+            });
+
+            setLastSyncResult(result);
+
+            if (result.synced > 0) {
+                toast({
+                    title: '✅ Offline Sales Synced',
+                    description: `${result.synced} of ${result.total} sale(s) synced successfully.${result.failed > 0 ? ` ${result.failed} failed.` : ''}`,
+                });
+            }
+
+            if (result.failed > 0 && result.synced === 0) {
+                const isAuthError = result.errors.some(e => e.error.includes('auth session') || e.error.includes('log in'));
+                toast({
+                    title: isAuthError ? '🔐 Session Expired' : '⚠️ Sync Failed',
+                    description: isAuthError
+                        ? 'Your session expired. Please log out and log back in to sync offline sales.'
+                        : `${result.failed} sale(s) failed to sync. Will retry automatically.`,
+                    variant: 'destructive',
+                });
+            }
+
+            setSyncStatus(result.failed > 0 ? 'error' : 'complete');
+            await refreshPendingCount();
+            setTimeout(() => setSyncStatus('idle'), 3000);
+        } catch (error) {
+            console.error('Sync failed:', error);
+            setSyncStatus('error');
+            setTimeout(() => setSyncStatus('idle'), 5000);
+        } finally {
+            isSyncingRef.current = false;
+        }
+    }, [companyId, toast, refreshPendingCount]);
+
+    useEffect(() => {
+        if (isOnline && (pendingSalesCount > 0 || pendingShiftsCount > 0)) {
+            // Initial sync attempt: wait 2s after coming online to let Supabase finish token refresh
+            const timer = setTimeout(() => triggerSync(true), 2000);
+            return () => clearTimeout(timer);
+        }
+    }, [isOnline, pendingSalesCount, pendingShiftsCount, triggerSync]);
+
+    // Periodic retry every 60s when online and there are pending sales
+    useEffect(() => {
+        if (!isOnline || (pendingSalesCount === 0 && pendingShiftsCount === 0)) return;
+        const interval = setInterval(() => triggerSync(true), 60_000);
+        return () => clearInterval(interval);
+    }, [isOnline, pendingSalesCount, pendingShiftsCount, triggerSync]);
+
+    return {
+        isOnline,
+        pendingSalesCount,
+        syncStatus,
+        syncProgress,
+        lastSyncResult,
+        triggerSync,
+        refreshPendingCount,
+        lastCacheTime,
+        refreshCacheTime,
+    };
+}

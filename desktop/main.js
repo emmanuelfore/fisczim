@@ -1,0 +1,774 @@
+const { app, BrowserWindow, screen, ipcMain, Menu, safeStorage } = require('electron');
+const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
+const { autoUpdater } = require('electron-updater');
+const log = require('electron-log');
+const fetch = require('node-fetch'); // or use built-in fetch in Node 18+
+
+// JWT verification cache
+let jwksCache = null;
+let jwksCacheTime = 0;
+const JWKS_TTL = 60 * 60 * 1000; // 1 hour
+
+// Configure Logger
+log.transports.file.level = "info";
+autoUpdater.logger = log;
+autoUpdater.autoDownload = true;
+log.info('[Main] App starting...');
+
+const { SerialPort } = require('serialport');
+
+const PROD_URL = 'https://fiscalstack.co.zw/pos-login';
+const DEV_URL = 'http://localhost:5001/pos-login';
+
+// Manager PIN cache helpers (Task 8.1)
+const PIN_CACHE_KEY = 'manager-pin-cache';
+
+function loadPinCache() {
+  try {
+    if (!safeStorage.isEncryptionAvailable()) return {};
+    const encPath = app.getPath('userData') + '/pin-cache.enc';
+    if (!fs.existsSync(encPath)) return {};
+    const buf = fs.readFileSync(encPath);
+    const json = safeStorage.decryptString(buf);
+    return JSON.parse(json);
+  } catch { return {}; }
+}
+
+function savePinCache(cache) {
+  try {
+    if (!safeStorage.isEncryptionAvailable()) return;
+    const encrypted = safeStorage.encryptString(JSON.stringify(cache));
+    fs.writeFileSync(app.getPath('userData') + '/pin-cache.enc', encrypted);
+  } catch (err) {
+    log.error('[savePinCache] Failed:', err.message);
+  }
+}
+
+function hashPin(pin, salt) {
+  return crypto.createHash('sha256').update(pin + salt).digest('hex');
+}
+
+/**
+ * Validates IPC input fields before passing to native APIs.
+ * Each field is optional — only fields that are provided (not undefined) are validated.
+ *
+ * @param {object} opts
+ * @param {string} [opts.html]        - Receipt HTML; must be a string ≤ 512 KB
+ * @param {string} [opts.printerName] - Printer name; ≤ 256 chars, no path traversal
+ * @param {string} [opts.pin]         - Manager PIN; must match /^\d{4,8}$/
+ * @param {number} [opts.companyId]   - Company ID; must be a positive integer
+ * @returns {{ error: string, code: 'VALIDATION_ERROR' } | null}
+ */
+function validateIpcInput({ html, printerName, pin, companyId } = {}) {
+  if (html !== undefined) {
+    if (typeof html !== 'string') {
+      return { error: 'html must be a string', code: 'VALIDATION_ERROR' };
+    }
+    if (Buffer.byteLength(html, 'utf8') > 512 * 1024) {
+      return { error: 'html exceeds maximum size of 512 KB', code: 'VALIDATION_ERROR' };
+    }
+  }
+
+  if (printerName !== undefined && printerName !== null) {
+    if (typeof printerName !== 'string') {
+      return { error: 'printerName must be a string', code: 'VALIDATION_ERROR' };
+    }
+    if (printerName.length > 256) {
+      return { error: 'printerName exceeds maximum length of 256 characters', code: 'VALIDATION_ERROR' };
+    }
+    if (printerName.includes('..') || printerName.includes('/') || printerName.includes('\\')) {
+      return { error: 'printerName contains invalid path traversal characters', code: 'VALIDATION_ERROR' };
+    }
+  }
+
+  if (pin !== undefined) {
+    if (!/^\d{4,8}$/.test(pin)) {
+      return { error: 'pin must be a string of 4 to 8 digits', code: 'VALIDATION_ERROR' };
+    }
+  }
+
+  if (companyId !== undefined) {
+    if (!Number.isInteger(companyId) || companyId <= 0) {
+      return { error: 'companyId must be a positive integer', code: 'VALIDATION_ERROR' };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Resolves the URL to load in the main window using the following priority:
+ * 1. `startUrl` field in config.json from app.getPath('userData')
+ * 2. ELECTRON_START_URL environment variable
+ * 3. Production URL if app.isPackaged
+ * 4. Dev default: http://localhost:5001/pos-login
+ */
+function resolveStartUrl() {
+  let url = null;
+
+  // Priority 1: config.json in userData directory
+  try {
+    const configPath = path.join(app.getPath('userData'), 'config.json');
+    if (fs.existsSync(configPath)) {
+      const raw = fs.readFileSync(configPath, 'utf8');
+      const config = JSON.parse(raw);
+      if (config.startUrl) {
+        url = config.startUrl;
+      }
+    }
+  } catch (err) {
+    console.error('[resolveStartUrl] Failed to read config.json:', err.message);
+  }
+
+  // Priority 2: ELECTRON_START_URL environment variable
+  if (!url && process.env.ELECTRON_START_URL) {
+    url = process.env.ELECTRON_START_URL;
+  }
+
+  // Priority 3: packaged production URL
+  if (!url && app.isPackaged) {
+    url = PROD_URL;
+  }
+
+  // Priority 4: dev default
+  if (!url) {
+    url = DEV_URL;
+  }
+
+  // Defensive: desktop must always land on /pos-login — rewrite stale /auth configs
+  // (config.json may contain old https://fiscalstack.co.zw/auth from pre-fix builds)
+  try {
+    const u = new URL(url);
+    if (u.pathname === '/auth' || u.pathname.startsWith('/auth/')) {
+      log.warn(`[resolveStartUrl] Rewriting stale ${u.pathname} → /pos-login`);
+      u.pathname = '/pos-login';
+      u.search = '';
+      url = u.toString();
+      // Persist the fix so next launch is correct
+      try {
+        const configPath = path.join(app.getPath('userData'), 'config.json');
+        const cfg = fs.existsSync(configPath) ? JSON.parse(fs.readFileSync(configPath, 'utf8')) : {};
+        cfg.startUrl = url;
+        fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2), 'utf8');
+      } catch {}
+    }
+  } catch {}
+
+  log.info(`[resolveStartUrl] Resolved: ${url} (isPackaged=${app.isPackaged})`);
+  return url;
+}
+
+/**
+ * Reads config.json from userData and returns the parsed object, or {} on error.
+ */
+function readConfig() {
+  try {
+    const configPath = path.join(app.getPath('userData'), 'config.json');
+    if (fs.existsSync(configPath)) {
+      const raw = fs.readFileSync(configPath, 'utf8');
+      return JSON.parse(raw);
+    }
+  } catch (err) {
+    console.error('[readConfig] Failed to read config.json:', err.message);
+  }
+  return {};
+}
+
+/**
+ * Renders HTML in a hidden BrowserWindow and prints it silently to the named printer.
+ * Shared by print-receipt and test-print handlers.
+ *
+ * @param {string} html - Full HTML string to print
+ * @param {string|undefined} printerName - Target printer name, or undefined for system default
+ * @returns {Promise<true>}
+ */
+function printHtmlToWindow(html, printerName) {
+  return new Promise((resolve, reject) => {
+    let printWindow = new BrowserWindow({
+      show: false,
+      webPreferences: { nodeIntegration: false }
+    });
+
+    // 10-second load timeout
+    const timeout = setTimeout(() => {
+      if (printWindow && !printWindow.isDestroyed()) {
+        printWindow.destroy();
+        printWindow = null;
+      }
+      reject('Print timeout: page did not load within 10 seconds');
+    }, 10000);
+
+    printWindow.webContents.on('did-finish-load', () => {
+      clearTimeout(timeout);
+      printWindow.webContents.print({
+        silent: true,
+        printBackground: true,
+        deviceName: printerName || undefined,
+        // Use no margins so the content itself controls positioning
+        marginsType: 0,
+        // Custom page size: match typical 80mm thermal roll width with a
+        // very tall height so the content length drives the printed page
+        // rather than the system default A4/Letter leaving blank space.
+        pageSize: {
+          width: 80000,   // 80 mm in microns
+          height: 800000  // 800 mm tall — crops to content automatically
+        }
+      }, (success, errorType) => {
+        if (!printWindow.isDestroyed()) {
+          printWindow.destroy();
+          printWindow = null;
+        }
+        if (success) {
+          resolve(true);
+        } else {
+          reject(errorType);
+        }
+      });
+    });
+
+    printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+  });
+}
+
+/**
+ * Registers all IPC handlers. Called once from createWindow().
+ * @param {import('electron').BrowserWindow} mainWindow
+ */
+function registerIpcHandlers(mainWindow) {
+  // Task 4.1: print-receipt — validate, render in hidden window, print silently
+  ipcMain.handle('print-receipt', async (_event, html, printerName) => {
+    const validationError = validateIpcInput({ html, printerName });
+    if (validationError) {
+      return Promise.reject(validationError.error);
+    }
+    return printHtmlToWindow(html, printerName);
+  });
+
+  // Task 4.2: get-printers — return system printer list mapped to { name, isDefault }
+  ipcMain.handle('get-printers', async () => {
+    const printers = await mainWindow.webContents.getPrintersAsync();
+    return printers.map(p => ({ name: p.name, isDefault: p.isDefault }));
+  });
+
+  // Task 4.3: test-print — send a minimal test page to the named printer
+  ipcMain.handle('test-print', async (_event, printerName) => {
+    const validationError = validateIpcInput({ printerName });
+    if (validationError) {
+      return Promise.reject(validationError.error);
+    }
+    const testHtml = '<html><body><h1>Test Print</h1><p>POS Terminal Test Page</p></body></html>';
+    return printHtmlToWindow(testHtml, printerName);
+  });
+
+  // print-raw — receive raw ESC/POS bytes from renderer and send to printer
+  ipcMain.handle('print-raw', async (_event, data, printerName) => {
+    const validationError = validateIpcInput({ printerName });
+    if (validationError) {
+      return Promise.reject(validationError.error);
+    }
+
+    const bytes = Buffer.from(data);
+
+    if (bytes.length === 0) {
+      return Promise.reject('Invalid raw data: Data is empty');
+    }
+
+    log.info(`[Main] print-raw: Received ${bytes.length} bytes for printer: ${printerName || 'System Default'}`);
+
+    const ts = Date.now();
+    const binPath = path.join(app.getPath('userData'), `receipt_${ts}.bin`);
+    const ps1Path = path.join(app.getPath('userData'), `print_${ts}.ps1`);
+
+    try {
+      fs.writeFileSync(binPath, bytes);
+
+      // Determine the printer name — fall back to the system default via WMI
+      const printerLine = printerName
+        ? `$printerName = ${JSON.stringify(printerName)}`
+        : `$printerName = (Get-CimInstance -ClassName Win32_Printer | Where-Object { $_.Default -eq $true } | Select-Object -First 1 -ExpandProperty Name)
+if (-not $printerName) { $printerName = (Get-WmiObject -Query "SELECT * FROM Win32_Printer WHERE Default = TRUE").Name }
+if (-not $printerName) { throw "No default printer is configured." }`;
+
+      // Write a proper multi-line .ps1 file — avoids all -Command quoting/newline issues
+      const psScript = `
+$code = @'
+using System;
+using System.Runtime.InteropServices;
+public class RawPrint {
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+    public class DOCINFOA {
+        [MarshalAs(UnmanagedType.LPStr)] public string pDocName;
+        [MarshalAs(UnmanagedType.LPStr)] public string pOutputFile;
+        [MarshalAs(UnmanagedType.LPStr)] public string pDataType;
+    }
+    [DllImport("winspool.Drv", EntryPoint = "OpenPrinterA", SetLastError = true, CharSet = CharSet.Ansi)]
+    public static extern bool OpenPrinter([MarshalAs(UnmanagedType.LPStr)] string szPrinter, out IntPtr hPrinter, IntPtr pd);
+    [DllImport("winspool.Drv", EntryPoint = "ClosePrinter", SetLastError = true)]
+    public static extern bool ClosePrinter(IntPtr hPrinter);
+    [DllImport("winspool.Drv", EntryPoint = "StartDocPrinterA", SetLastError = true, CharSet = CharSet.Ansi)]
+    public static extern bool StartDocPrinter(IntPtr hPrinter, Int32 level, [In, MarshalAs(UnmanagedType.LPStruct)] DOCINFOA di);
+    [DllImport("winspool.Drv", EntryPoint = "EndDocPrinter", SetLastError = true)]
+    public static extern bool EndDocPrinter(IntPtr hPrinter);
+    [DllImport("winspool.Drv", EntryPoint = "StartPagePrinter", SetLastError = true)]
+    public static extern bool StartPagePrinter(IntPtr hPrinter);
+    [DllImport("winspool.Drv", EntryPoint = "EndPagePrinter", SetLastError = true)]
+    public static extern bool EndPagePrinter(IntPtr hPrinter);
+    [DllImport("winspool.Drv", EntryPoint = "WritePrinter", SetLastError = true)]
+    public static extern bool WritePrinter(IntPtr hPrinter, IntPtr pBytes, Int32 dwCount, out Int32 dwWritten);
+    public static string Send(string printer, byte[] bytes) {
+        IntPtr h;
+        var di = new DOCINFOA { pDocName = "FiscalStack Receipt", pDataType = "RAW" };
+        if (!OpenPrinter(printer, out h, IntPtr.Zero))
+            return "FAIL: Could not open printer [" + printer + "]. Win32 Error: " + Marshal.GetLastWin32Error();
+        if (!StartDocPrinter(h, 1, di)) { ClosePrinter(h); return "FAIL: StartDocPrinter failed. Win32 Error: " + Marshal.GetLastWin32Error(); }
+        if (!StartPagePrinter(h)) { EndDocPrinter(h); ClosePrinter(h); return "FAIL: StartPagePrinter failed."; }
+        IntPtr p = Marshal.AllocCoTaskMem(bytes.Length);
+        Marshal.Copy(bytes, 0, p, bytes.Length);
+        Int32 w;
+        bool ok = WritePrinter(h, p, bytes.Length, out w);
+        Marshal.FreeCoTaskMem(p);
+        EndPagePrinter(h);
+        EndDocPrinter(h);
+        ClosePrinter(h);
+        if (!ok) return "FAIL: WritePrinter failed. Win32 Error: " + Marshal.GetLastWin32Error();
+        return "OK: " + w + " bytes written to [" + printer + "]";
+    }
+}
+'@
+Add-Type -TypeDefinition $code
+${printerLine}
+$binFile = ${JSON.stringify(binPath)}
+$result = [RawPrint]::Send($printerName, [System.IO.File]::ReadAllBytes($binFile))
+Write-Output $result
+`.trimStart();
+
+      fs.writeFileSync(ps1Path, psScript, 'utf8');
+      log.info(`[print-raw] Script written to: ${ps1Path}`);
+
+      return new Promise((resolve, reject) => {
+        require('child_process').exec(
+          `powershell -ExecutionPolicy Bypass -NonInteractive -File "${ps1Path}"`,
+          (err, stdout, stderr) => {
+            // Cleanup temp files
+            for (const f of [binPath, ps1Path]) {
+              if (fs.existsSync(f)) try { fs.unlinkSync(f); } catch (e) { }
+            }
+            const output = (stdout || '').trim();
+            if (output) log.info(`[print-raw] Result: ${output}`);
+            if (stderr && stderr.trim()) log.warn(`[print-raw] stderr: ${stderr.trim()}`);
+            if (err) {
+              log.error('[print-raw] Error:', err.message);
+              return reject(err.message);
+            }
+            if (output.startsWith('FAIL:')) {
+              log.error('[print-raw] Printer failure:', output);
+              return reject(output);
+            }
+            log.info('[print-raw] Success:', output);
+            resolve(true);
+          }
+        );
+      });
+    } catch (err) {
+      for (const f of [binPath, ps1Path]) {
+        if (fs.existsSync(f)) try { fs.unlinkSync(f); } catch (e) { }
+      }
+      log.error('[print-raw] Exception:', err.message);
+      return Promise.reject(err.message);
+    }
+  });
+
+
+
+  // Task 6.1: open-cash-drawer — send ESC/POS kick bytes [0x1B, 0x70, 0x00, 0x19, 0xFA] to the printer
+  ipcMain.handle('open-cash-drawer', async (_event, printerName) => {
+    if (printerName !== undefined) {
+      const validationError = validateIpcInput({ printerName });
+      if (validationError) {
+        return Promise.reject(validationError.error);
+      }
+    }
+    try {
+      // Build HTML containing the raw ESC/POS cash drawer kick sequence as text content.
+      // The bytes ESC p 0 25 250 (0x1B 0x70 0x00 0x19 0xFA) are embedded as actual characters.
+      const kickBytes = String.fromCharCode(0x1B, 0x70, 0x00, 0x19, 0xFA);
+      const drawerHtml = `<html><body><pre style="font-family:monospace">${kickBytes}</pre></body></html>`;
+      return await printHtmlToWindow(drawerHtml, printerName);
+    } catch (err) {
+      return Promise.reject(typeof err === 'string' ? err : (err && err.message) ? err.message : 'Failed to open cash drawer');
+    }
+  });
+
+  // Task 9.2: get-serial-ports — return available serial ports mapped to { path, manufacturer }
+  ipcMain.handle('get-serial-ports', async () => {
+    const ports = await SerialPort.list();
+    return ports.map(p => ({ path: p.path, manufacturer: p.manufacturer }));
+  });
+
+  // Local JWT verification (ES256) — avoids calling Supabase /auth/v1/user
+  ipcMain.handle('verify-token-local', async (_event, token) => {
+    try {
+      const parts = token.split('.');
+      if (parts.length !== 3) return null;
+      const [headerB64, payloadB64, signatureB64] = parts;
+      const header = JSON.parse(Buffer.from(headerB64.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
+      const payload = JSON.parse(Buffer.from(payloadB64.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
+      if (payload.exp && payload.exp * 1000 < Date.now()) return null;
+
+      if (header.alg === 'ES256') {
+        // Fetch JWKS from Supabase
+        const supabaseUrl = process.env.SUPABASE_URL || 'https://nopztclveukecdabuist.supabase.co';
+        const response = await fetch(`${supabaseUrl}/auth/v1/.well-known/jwks.json`);
+        if (!response.ok) return null;
+        const jwks = await response.json();
+        const jwk = jwks.keys.find(k => k.kid === header.kid && k.alg === 'ES256' && k.crv === 'P-256');
+        if (!jwk || !jwk.x || !jwk.y) return null;
+        const x = Buffer.from(jwk.x.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+        const y = Buffer.from(jwk.y.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+        const pubKey = Buffer.concat([Buffer.from([0x04]), x, y]);
+        // Create PEM for P-256
+        const pem = `-----BEGIN PUBLIC KEY-----\n${Buffer.concat([Buffer.from([0x30, 0x59, 0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, 0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, 0x03, 0x42, 0x00]), Buffer.concat([Buffer.from([0x04]), Buffer.from(jwk.x.replace(/-/g, '+').replace(/_/g, '/'), 'base64'), Buffer.from(jwk.y.replace(/-/g, '+').replace(/_/g, '/'), 'base64')])]).toString('base64').match(/.{1,64}/g)?.join('\n')}\n-----END PUBLIC KEY-----`;
+        const { createVerify } = require('crypto');
+        const verify = require('crypto').createVerify('SHA256');
+        verify.update(`${headerB64}.${payloadB64}`);
+        const rawSig = Buffer.from(signatureB64.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+        // Convert raw r||s to DER
+        if (rawSig.length !== 64) return null;
+        const r = rawSig.subarray(0, 32);
+        const s = rawSig.subarray(32, 64);
+        const trim = (buf) => { let i = 0; while (i < buf.length - 1 && buf[i] === 0) i++; return buf.subarray(i); };
+        const rTrim = (() => { let i = 0; while (i < r.length - 1 && r[i] === 0) i++; return r.subarray(i); })();
+        const sTrim = (() => { let i = 0; while (i < s.length - 1 && s[i] === 0) i++; return s.subarray(i); })();
+        const rFinal = (rTrim[0] & 0x80) ? Buffer.concat([Buffer.from([0x00]), rTrim]) : rTrim;
+        const sFinal = (sTrim[0] & 0x80) ? Buffer.concat([Buffer.from([0x00]), sTrim]) : sTrim;
+        const derSig = Buffer.concat([
+          Buffer.from([0x30]),
+          Buffer.from([2 + rFinal.length + 2 + sFinal.length]),
+          Buffer.from([0x02]), Buffer.from([rFinal.length]), rFinal,
+          Buffer.from([0x02]), Buffer.from([sFinal.length]), sFinal,
+        ]);
+        if (!verify.verify(pem, derSig)) return null;
+        return { id: payload.sub, email: payload.email, user_metadata: payload.user_metadata };
+      }
+      return null;
+    } catch (e) {
+    log.error('[Main] verify-token-local error:', e.message);
+    return null;
+  }
+});
+
+  // cache-manager-pins — store scrypt hashes fetched from the server for offline verification
+  ipcMain.handle('cache-manager-pins', async (_event, companyId, hashes) => {
+    const pinError = validateIpcInput({ companyId });
+    if (pinError) return Promise.reject(pinError.error);
+    if (!Array.isArray(hashes)) return Promise.reject('hashes must be an array');
+
+    const cache = loadPinCache();
+    // Store raw scrypt hashes (format: "scryptHex.salt") keyed by companyId
+    cache[companyId] = { scryptHashes: hashes, cachedAt: new Date().toISOString() };
+    savePinCache(cache);
+    log.info(`[cache-manager-pins] Cached ${hashes.length} PIN hash(es) for company ${companyId}`);
+  });
+
+  // Task 8.1: verify-manager-pin — validate PIN and companyId; try online, fall back to cached scrypt hashes
+  ipcMain.handle('verify-manager-pin', async (_event, pin, companyId) => {
+    // Validate PIN format; companyId is optional — we'll handle 0/missing gracefully
+    const pinError = validateIpcInput({ pin });
+    if (pinError) return Promise.reject(pinError.error);
+
+    const cache = loadPinCache();
+
+    // Resolve effective companyId
+    let effectiveCompanyId = (Number.isInteger(companyId) && companyId > 0) ? companyId : null;
+    if (!effectiveCompanyId) {
+      const keys = Object.keys(cache);
+      if (keys.length === 1) {
+        effectiveCompanyId = parseInt(keys[0]);
+        log.warn(`[verify-manager-pin] companyId missing/invalid (${companyId}), falling back to cached companyId: ${effectiveCompanyId}`);
+      }
+    }
+
+    // Try online verification first (if we have a valid companyId)
+    if (effectiveCompanyId) {
+      try {
+        const startUrl = resolveStartUrl();
+        const baseUrl = new URL(startUrl);
+        const apiUrl = `${baseUrl.protocol}//${baseUrl.host}/api/companies/${effectiveCompanyId}/auth/verify-manager-pin`;
+
+        const response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pin }),
+          signal: AbortSignal.timeout(5000),
+        });
+
+        if (response.ok) {
+          log.info(`[verify-manager-pin] Online verification succeeded for company ${effectiveCompanyId}`);
+          return true;
+        }
+        if (response.status === 401) {
+          log.warn(`[verify-manager-pin] Online verification denied for company ${effectiveCompanyId}`);
+          return false;
+        }
+        // Non-401 error (5xx etc.) — fall through to offline cache
+        log.warn(`[verify-manager-pin] Online returned ${response.status}, falling back to cache`);
+      } catch (err) {
+        log.warn('[verify-manager-pin] Online check failed, trying cache:', err.message);
+      }
+
+      // Offline: verify against scrypt hashes cached from the server
+      const entry = cache[effectiveCompanyId];
+      if (entry && Array.isArray(entry.scryptHashes) && entry.scryptHashes.length > 0) {
+        for (const { pinHash } of entry.scryptHashes) {
+          if (!pinHash || !pinHash.includes('.')) continue;
+          const [storedHex, salt] = pinHash.split('.');
+          try {
+            const derived = await new Promise((resolve, reject) => {
+              crypto.scrypt(pin, salt, 64, (err, buf) => err ? reject(err) : resolve(buf.toString('hex')));
+            });
+            if (derived === storedHex) {
+              log.info(`[verify-manager-pin] Offline scrypt verification succeeded for company ${effectiveCompanyId}`);
+              return true;
+            }
+          } catch (scryptErr) {
+            log.error('[verify-manager-pin] scrypt error:', scryptErr.message);
+          }
+        }
+        log.warn(`[verify-manager-pin] Offline scrypt verification failed for company ${effectiveCompanyId}`);
+        return false;
+      }
+
+      log.warn(`[verify-manager-pin] No cached PIN hashes for company ${effectiveCompanyId}`);
+      return false;
+    }
+
+    // No valid companyId — try all cached entries
+    log.warn('[verify-manager-pin] No valid companyId — trying PIN against all cached entries');
+    for (const entry of Object.values(cache)) {
+      if (!entry.scryptHashes) continue;
+      for (const { pinHash } of entry.scryptHashes) {
+        if (!pinHash || !pinHash.includes('.')) continue;
+        const [storedHex, salt] = pinHash.split('.');
+        try {
+          const derived = await new Promise((resolve, reject) => {
+            crypto.scrypt(pin, salt, 64, (err, buf) => err ? reject(err) : resolve(buf.toString('hex')));
+          });
+          if (derived === storedHex) return true;
+        } catch (scryptErr) {
+          log.error('[verify-manager-pin] scrypt error:', scryptErr.message);
+        }
+      }
+    }
+    return false;
+  });
+
+  // Task: clear-storage — clear all local data (IndexedDB, Cache, etc.) to fix corruption
+  ipcMain.handle('clear-storage', async () => {
+    log.warn('[clear-storage] Clearing all session storage data...');
+    const session = mainWindow.webContents.session;
+    try {
+      await session.clearStorageData({
+        storages: ['indexeddb', 'cache', 'localstorage', 'websql', 'serviceworkers']
+      });
+      log.info('[clear-storage] Storage cleared successfully');
+      return true;
+    } catch (err) {
+      log.error('[clear-storage] Failed to clear storage:', err.message);
+      throw err;
+    }
+  });
+
+  // Task: install-update — quit and install the downloaded update
+  ipcMain.handle('install-update', () => {
+    log.info('[Updater] Installing update...');
+    autoUpdater.quitAndInstall();
+  });
+}
+
+
+/**
+ * Opens the configured serial port and forwards trimmed barcode strings to the renderer.
+ * Logs and skips silently if the port is unavailable or not configured.
+ *
+ * @param {import('electron').BrowserWindow} mainWindow
+ * @param {string|undefined} portPath - Serial port path from config.json.scannerPort
+ */
+function initBarcodeScanner(mainWindow, portPath) {
+  if (!portPath) return;
+  try {
+    const port = new SerialPort({ path: portPath, baudRate: 9600 });
+    let buffer = '';
+    port.on('data', (data) => {
+      buffer += data.toString();
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop(); // keep incomplete line
+      for (const line of lines) {
+        const barcode = line.trim();
+        if (barcode) {
+          mainWindow.webContents.send('barcode-scan', barcode);
+        }
+      }
+    });
+    port.on('error', (err) => {
+      log.error('[initBarcodeScanner] Serial port error:', err.message);
+    });
+  } catch (err) {
+    log.error('[initBarcodeScanner] Failed to open port:', err.message);
+  }
+}
+
+/**
+ * Auto-Updater Logic
+ */
+function setupAutoUpdater(mainWindow) {
+  autoUpdater.on('checking-for-update', () => {
+    log.info('[Updater] Checking for update...');
+  });
+  autoUpdater.on('update-available', (info) => {
+    log.info(`[Updater] Update available: ${info.version}`);
+    // Notify renderer (pos-login uses this)
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('update-available', info);
+    }
+  });
+  autoUpdater.on('update-not-available', (info) => {
+    log.info('[Updater] Update not available.');
+  });
+  autoUpdater.on('error', (err) => {
+    log.error(`[Updater] Error: ${err.message}`);
+  });
+  autoUpdater.on('download-progress', (progressObj) => {
+    let log_message = "Download speed: " + progressObj.bytesPerSecond;
+    log_message = log_message + ' - Downloaded ' + progressObj.percent + '%'; // Fixed 'percentage' vs 'percent'
+    log_message = log_message + ' (' + progressObj.transferred + "/" + progressObj.total + ')';
+    log.info(`[Updater] ${log_message}`);
+  });
+  autoUpdater.on('update-downloaded', (info) => {
+    log.info(`[Updater] Update downloaded: ${info.version}. Ready to install.`);
+  });
+
+  // Check for updates on startup (only in production or if packaged)
+  if (app.isPackaged) {
+    autoUpdater.checkForUpdatesAndNotify();
+  }
+}
+
+function createWindow() {
+  // Requirement 3.6: disable the default application menu
+  Menu.setApplicationMenu(null);
+
+  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+  const config = readConfig();
+
+  // IndexedDB: no CSP or session partition overrides are set here, so the renderer
+  // has full access to IndexedDB for offline credential caching, pending sales, and shift data.
+  const mainWindow = new BrowserWindow({
+    width: width,
+    height: height,
+    // Requirement 3.5: apply kiosk mode when enabled in config
+    kiosk: config.kioskMode === true,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js')
+    },
+    title: "POS Desktop Terminal",
+    icon: path.join(__dirname, 'icon.png'), // Placeholder if icon exists
+    show: false // We will show it and maximize it to prevent flickering
+  });
+
+  mainWindow.maximize();
+  mainWindow.show();
+
+  // Open DevTools with Ctrl+Shift+I (toggle)
+  mainWindow.webContents.on('before-input-event', (_event, input) => {
+    if (input.control && input.shift && input.key.toLowerCase() === 'i') {
+      if (mainWindow.webContents.isDevToolsOpened()) {
+        mainWindow.webContents.closeDevTools();
+      } else {
+        mainWindow.webContents.openDevTools({ mode: 'detach' });
+      }
+    }
+  });
+
+
+  registerIpcHandlers(mainWindow);
+
+  initBarcodeScanner(mainWindow, config.scannerPort);
+
+  const posUrl = resolveStartUrl();
+  mainWindow.loadURL(posUrl).catch(err => {
+    mainWindow.loadURL(`data:text/html;charset=utf-8,<html>
+      <body style="font-family: sans-serif; padding: 2rem; background: #fff;">
+        <h2 style="color: #e53e3e;">POS Application Failed to Load</h2>
+        <p><strong>Attempted to start at:</strong> ${posUrl}</p>
+        <p><strong>Error:</strong> ${err.message}</p>
+        <p>If you are testing the packaged application locally, please create a <code>config.json</code> file in <code>%APPDATA%\\fisczim-pos\\</code> with <code>{"startUrl": "http://localhost:5001/pos-login"}</code>, or ensure your production domain is reachable.</p>
+      </body>
+    </html>`);
+  });
+
+  // Requirement 3.4: intercept will-navigate and block external URLs (same-origin check).
+  // Same-origin navigation (e.g., /pos → /reports/pos) is allowed; only cross-origin is blocked.
+  // Defensive: never allow /auth in desktop — rewrite to /pos-login (api.ts 401 handler fallback)
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    try {
+      const target = new URL(url);
+      const origin = new URL(posUrl);
+      if (target.origin !== origin.origin) {
+        event.preventDefault();
+        return;
+      }
+      if (target.pathname === '/auth' || target.pathname.startsWith('/auth/')) {
+        event.preventDefault();
+        log.warn(`[will-navigate] Blocking /auth → redirecting to /pos-login`);
+        mainWindow.loadURL(new URL('/pos-login', origin).toString());
+        return;
+      }
+    } catch (_err) {
+      // Malformed URL — block it
+      event.preventDefault();
+    }
+  });
+
+  // SPA fallback: wouter uses history.pushState which doesn't fire will-navigate — catch in-page navigations too
+  const redirectAuthToPosLogin = (_event, url) => {
+    try {
+      const target = new URL(url);
+      if (target.pathname === '/auth' || target.pathname.startsWith('/auth/')) {
+        log.warn(`[did-navigate] Blocking /auth → redirecting to /pos-login`);
+        mainWindow.loadURL(new URL('/pos-login', new URL(posUrl).origin).toString());
+      }
+    } catch {}
+  };
+  mainWindow.webContents.on('did-navigate', redirectAuthToPosLogin);
+  mainWindow.webContents.on('did-navigate-in-page', redirectAuthToPosLogin);
+
+  // Requirement 3.3: block all new window creation
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+
+  mainWindow.on('closed', function () {
+    app.quit();
+  });
+
+  // Initialize updater
+  setupAutoUpdater(mainWindow);
+}
+
+app.on('ready', () => {
+  createWindow();
+});
+
+app.on('window-all-closed', function () {
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
+});
+
+app.on('activate', function () {
+  if (BrowserWindow.getAllWindows().length === 0) {
+    createWindow();
+  }
+});

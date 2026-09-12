@@ -1,0 +1,56 @@
+{
+  "name": "fisczim-pos",
+  "version": "2.0.1",
+  "description": "Standalone POS for Fiscal Stack",
+  "author": "Fiscal Stack",
+  "main": "main.js",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "build:win": "electron-builder --win",
+    "build:linux": "electron-builder --linux"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/emmanuelfore/fisczim.git"
+  },
+  "build": {
+    "appId": "com.fiscalstack.pos",
+    "productName": "Fiscal Stack POS",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "ia32"
+          ]
+        }
+      ],
+      "publish": [
+        {
+          "provider": "github",
+          "owner": "emmanuelfore",
+          "repo": "fisczim"
+        }
+      ]
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  },
+  "dependencies": {
+    "electron-log": "^5.2.4",
+    "electron-updater": "^6.3.9",
+    "node-fetch": "^2.7.0",
+    "serialport": "^12.0.0"
+  },
+  "devDependencies": {
+    "electron": "31.7.7",
+    "electron-builder": "^26.8.1"
+  }
+}

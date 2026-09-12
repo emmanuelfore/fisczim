@@ -1,0 +1,43 @@
+{
+  "cli": {
+    "version": ">= 18.4.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "NPM_CONFIG_LEGACY_PEER_DEPS": "true"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "NPM_CONFIG_LEGACY_PEER_DEPS": "true",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://nopztclveukecdabuist.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5vcHp0Y2x2ZXVrZWNkYWJ1aXN0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcyMTQ1MTUsImV4cCI6MjEwMjc5MDUxNX0.II6qyf8bJuxE3h-VOcM3Y1TG2TIkeOt0o1sZylfwthA",
+        "EXPO_PUBLIC_API_BASE_URL": "https://fiscalstack.co.zw"
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "NPM_CONFIG_LEGACY_PEER_DEPS": "true",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://nopztclveukecdabuist.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5vcHp0Y2x2ZXVrZWNkYWJ1aXN0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcyMTQ1MTUsImV4cCI6MjEwMjc5MDUxNX0.II6qyf8bJuxE3h-VOcM3Y1TG2TIkeOt0o1sZylfwthA",
+        "EXPO_PUBLIC_API_BASE_URL": "https://fiscalstack.co.zw"
+      }
+    }
+
+  },
+  "submit": {
+    "production": {}
+  }
+}

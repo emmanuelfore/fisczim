@@ -1,0 +1,40 @@
+{
+  "name": "fisczim-interface",
+  "version": "1.0.0",
+  "description": "Fiscal Stack Interface - Receipt Monitoring and Fiscalization",
+  "author": "Fiscal Stack",
+  "main": "main.js",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "build:win": "electron-builder --win",
+    "build:linux": "electron-builder --linux"
+  },
+  "build": {
+    "appId": "com.fiscalstack.interface",
+    "productName": "Fiscal Stack Interface",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64", "ia32"]
+        }
+      ]
+    },
+    "linux": {
+      "target": ["AppImage", "deb"]
+    }
+  },
+  "dependencies": {
+    "chokidar": "^3.5.3",
+    "electron-log": "^5.2.4"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^26.8.1"
+  }
+}

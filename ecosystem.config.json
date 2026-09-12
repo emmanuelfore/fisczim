@@ -1,0 +1,44 @@
+{
+  "apps" : [
+    {
+      "name": "fiscalstack",
+      "script": "./start.sh",
+      "interpreter": "bash",
+      "instances": 1,
+      "exec_mode": "fork",
+      "env": {
+        "NODE_ENV": "production",
+        "PORT": 5000,
+        "VITE_APP_BRAND": "fiscalstack"
+      },
+      "error_file": "./logs/pm2-error.log",
+      "out_file": "./logs/pm2-out.log",
+      "log_date_format": "YYYY-MM-DD HH:mm:ss Z",
+      "merge_logs": true,
+      "autorestart": true,
+      "max_restarts": 10,
+      "min_uptime": "10s",
+      "watch": false
+    },
+    {
+      "name": "fiscalzone",
+      "script": "./start.sh",
+      "interpreter": "bash",
+      "instances": 1,
+      "exec_mode": "fork",
+      "env": {
+        "NODE_ENV": "production",
+        "PORT": 5001,
+        "VITE_APP_BRAND": "fiscalzone"
+      },
+      "error_file": "./logs/pm2-fiscalzone-error.log",
+      "out_file": "./logs/pm2-fiscalzone-out.log",
+      "log_date_format": "YYYY-MM-DD HH:mm:ss Z",
+      "merge_logs": true,
+      "autorestart": true,
+      "max_restarts": 10,
+      "min_uptime": "10s",
+      "watch": false
+    }
+  ]
+}

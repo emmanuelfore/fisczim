@@ -1,0 +1,16 @@
+{
+  "name": "ipos-printer",
+  "version": "1.0.0",
+  "description": "Expo Native Module for com.iposprinter.iposprinterservice",
+  "main": "index.ts",
+  "types": "index.ts",
+  "keywords": [
+    "expo",
+    "react-native",
+    "ipos",
+    "printer",
+    "iposprinterservice"
+  ],
+  "author": "",
+  "license": "MIT"
+}

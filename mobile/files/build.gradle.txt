@@ -1,0 +1,31 @@
+// android/app/build.gradle additions
+// ─────────────────────────────────────────────────────────────
+// 1. Place classes.jar into: android/app/libs/classes.jar
+// 2. Make sure this block exists in your android/app/build.gradle:
+
+android {
+    compileSdkVersion 33
+
+    defaultConfig {
+        minSdkVersion 22       // Z100/CS10 requires API 22+
+        targetSdkVersion 33
+    }
+
+    // Required: the SDK uses native (.so) libraries loaded via System.loadLibrary
+    // They are already bundled inside classes.jar / the device system
+    packagingOptions {
+        pickFirst '**/libc++_shared.so'
+        pickFirst '**/libPrint.so'
+    }
+}
+
+dependencies {
+    // ── HCC SDK ──────────────────────────────────────────────
+    implementation fileTree(dir: 'libs', include: ['*.jar', '*.aar'])
+
+    // ── ZXing (required by PosApiHelper.PrintQrCode_Cut) ─────
+    implementation 'com.google.zxing:core:3.5.2'
+
+    // ── React Native ─────────────────────────────────────────
+    implementation "com.facebook.react:react-native:+"
+}

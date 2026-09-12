@@ -1,0 +1,1241 @@
+import { cn } from "@/lib/utils";
+import { useState, useRef } from "react";
+import { downloadExcel } from "@/lib/export-utils";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { 
+  Plus, 
+  Search, 
+  MoreVertical,
+  Mail,
+  Phone,
+  Briefcase,
+  Loader2,
+  Upload,
+  Download,
+  Trash2,
+  ShieldAlert,
+  Wallet,
+  X,
+  BadgeDollarSign,
+  History
+} from "lucide-react";
+import Papa from "papaparse";
+import { format } from "date-fns";
+import { HRLayout } from "./layout";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useActiveCompany } from "@/hooks/use-active-company";
+import { useAuth } from "@/hooks/use-auth";
+import { Badge } from "@/components/ui/badge";
+import { 
+  Table, 
+  TableBody, 
+  TableCell, 
+  TableHead, 
+  TableHeader, 
+  TableRow 
+} from "@/components/ui/table";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import { useToast } from "@/hooks/use-toast";
+import { queryClient, apiRequest } from "@/lib/queryClient";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+
+export default function HREmployees() {
+  const { user } = useAuth();
+  const { activeCompanyId } = useActiveCompany(!!user, user?.id ?? null);
+  const companyId = activeCompanyId ?? null;
+  const { toast } = useToast();
+
+  const [search, setSearch] = useState("");
+  const [isEmployeeModalOpen, setIsEmployeeModalOpen] = useState(false);
+  const [isContractModalOpen, setIsContractModalOpen] = useState(false);
+  const [isStatutoryModalOpen, setIsStatutoryModalOpen] = useState(false);
+  const [isRecurringModalOpen, setIsRecurringModalOpen] = useState(false);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | null>(null);
+  
+  const [formData, setFormData] = useState({
+    firstName: "",
+    lastName: "",
+    employeeNumber: "",
+    nationalId: "",
+    email: "",
+    phone: "",
+    bankName: "",
+    bankBranch: "",
+    bankAccountNumber: "",
+    ecocashNumber: "",
+    title: "",
+    dateOfBirth: "",
+    gender: "",
+    maritalStatus: "",
+    physicalAddress: "",
+    postalAddress: "",
+    nextOfKinName: "",
+    nextOfKinRelationship: "",
+    nextOfKinPhone: "",
+    nextOfKinAddress: "",
+    emergencyContactName: "",
+    emergencyContactPhone: "",
+    emergencyContactRelation: ""
+  });
+
+  const [contractData, setContractData] = useState({
+    contractType: "PERMANENT",
+    startDate: new Date().toISOString().slice(0, 10),
+    endDate: "",
+    baseSalary: "0",
+    currency: "USD",
+    usdPercentage: "100",
+    zigPercentage: "0",
+    payGradeId: "" as string | number,
+  });
+
+  const [statutoryData, setStatutoryData] = useState({
+    nationalId: "",
+    nssaNumber: "",
+    zimraTaxNumber: ""
+  });
+
+  const [newRecurringItem, setNewRecurringItem] = useState({
+    type: "ALLOWANCE",
+    name: "",
+    amount: "",
+    isTaxable: true,
+    isTaxDeductible: false,
+    startDate: new Date().toISOString().slice(0, 10),
+  });
+
+  const { data: employees = [] as any[], isLoading } = useQuery<any[]>({
+    queryKey: [`/api/companies/${companyId}/payroll/employees`],
+    enabled: !!companyId,
+  });
+
+  const { data: payGrades = [] as any[] } = useQuery<any[]>({
+    queryKey: [`/api/companies/${companyId}/payroll/pay-grades`],
+    enabled: !!companyId,
+  });
+
+  const createEmployeeMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await apiRequest("POST", `/api/companies/${companyId}/payroll/employees`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/payroll/employees`] });
+      setIsEmployeeModalOpen(false);
+      setFormData({ firstName: "", lastName: "", employeeNumber: "", nationalId: "", email: "", phone: "", bankName: "", bankBranch: "", bankAccountNumber: "", ecocashNumber: "", title: "", dateOfBirth: "", gender: "", maritalStatus: "", physicalAddress: "", postalAddress: "", nextOfKinName: "", nextOfKinRelationship: "", nextOfKinPhone: "", nextOfKinAddress: "", emergencyContactName: "", emergencyContactPhone: "", emergencyContactRelation: "" });
+      toast({ title: "Employee created successfully" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to create employee", description: error.message, variant: "destructive" });
+    }
+  });
+
+  const updateContractMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await apiRequest("POST", `/api/companies/${companyId}/payroll/employees/${selectedEmployeeId}/contract`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/payroll/employees`] });
+      setIsContractModalOpen(false);
+      toast({ title: "Contract updated successfully" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to update contract", description: error.message, variant: "destructive" });
+    }
+  });
+
+  const updateEmployeeMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await apiRequest("PUT", `/api/companies/${companyId}/payroll/employees/${selectedEmployeeId}`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/payroll/employees`] });
+      setIsEmployeeModalOpen(false);
+      toast({ title: "Employee updated successfully" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Update failed", description: error.message, variant: "destructive" });
+    }
+  });
+
+  const { data: recurringItems = [], isLoading: isLoadingRecurring } = useQuery<any[]>({
+    queryKey: [`/api/companies/${companyId}/payroll/employees/${selectedEmployeeId}/recurring-items`],
+    enabled: !!companyId && !!selectedEmployeeId && isRecurringModalOpen,
+  });
+
+  const addRecurringItemMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await apiRequest("POST", `/api/companies/${companyId}/payroll/employees/${selectedEmployeeId}/recurring-items`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/payroll/employees/${selectedEmployeeId}/recurring-items`] });
+      toast({ title: "Item added successfully" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to add item", description: error.message, variant: "destructive" });
+    }
+  });
+
+  const toggleRecurringItemMutation = useMutation({
+    mutationFn: async ({ id, isActive }: { id: number, isActive: boolean }) => {
+      const res = await apiRequest("PUT", `/api/companies/${companyId}/payroll/recurring-items/${id}`, { isActive });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/payroll/employees/${selectedEmployeeId}/recurring-items`] });
+      toast({ title: "Status updated" });
+    }
+  });
+
+  const importEmployeesMutation = useMutation({
+    mutationFn: async (data: any[]) => {
+      const res = await apiRequest("POST", `/api/companies/${companyId}/payroll/employees/import`, { rows: data, fileName: importFileName.current });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/payroll/employees`] });
+      setImportResult(data);
+      toast({
+        title: data.errors > 0 ? "Import completed with errors" : "Import Successful",
+        description: data.message || `Imported ${data.imported} employees.`,
+        variant: data.errors > 0 ? "default" : "default",
+      });
+    },
+    onError: (error: any) => {
+      toast({ title: "Import Failed", description: error.message, variant: "destructive" });
+    }
+  });
+
+  const importFileName = useRef<string | null>(null);
+  const [importResult, setImportResult] = useState<any | null>(null);
+
+  const [salaryModal, setSalaryModal] = useState<{ employee: any; open: boolean }>({ employee: null, open: false });
+  const [salaryForm, setSalaryForm] = useState({ newBaseSalary: "", reason: "", effectiveDate: new Date().toISOString().slice(0, 10) });
+  const [timelineModal, setTimelineModal] = useState<{ employee: any; open: boolean }>({ employee: null, open: false });
+
+  const { data: timelineData } = useQuery<any>({
+    queryKey: [`/api/companies/${companyId}/payroll/employees/${timelineModal.employee?.id}/timeline`],
+    enabled: !!companyId && !!timelineModal.employee?.id && timelineModal.open,
+  });
+
+  const { data: salaryHistory = [] as any[] } = useQuery<any[]>({
+    queryKey: [`/api/companies/${companyId}/payroll/employees/${salaryModal.employee?.id}/salary-changes`],
+    enabled: !!companyId && !!salaryModal.employee?.id && salaryModal.open,
+  });
+
+  const salaryChangeMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await apiRequest("POST", `/api/companies/${companyId}/payroll/employees/${salaryModal.employee.id}/salary-change`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/payroll/salary-changes/pending`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/payroll/employees/${salaryModal.employee?.id}/salary-changes`] });
+      toast({ title: "Salary change requested", description: "It will apply after an approver approves it." });
+      setSalaryForm({ newBaseSalary: "", reason: "", effectiveDate: new Date().toISOString().slice(0, 10) });
+    },
+    onError: (error: any) => {
+      toast({ title: "Request failed", description: error.message, variant: "destructive" });
+    }
+  });
+
+  const openSalaryChangeModal = (employee: any) => {
+    setSalaryModal({ employee, open: true });
+    setSalaryForm({
+      newBaseSalary: employee.contracts?.[0]?.baseSalary ?? "",
+      reason: "",
+      effectiveDate: new Date().toISOString().slice(0, 10),
+    });
+  };
+
+  const submitSalaryChange = (e: React.FormEvent) => {
+    e.preventDefault();
+    salaryChangeMutation.mutate({
+      ...salaryForm,
+      newBaseSalary: parseFloat(salaryForm.newBaseSalary),
+      currency: salaryModal.employee.contracts?.[0]?.currency || "USD",
+      payFrequency: salaryModal.employee.contracts?.[0]?.payFrequency || "MONTHLY",
+    });
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    importFileName.current = file.name;
+
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        const mappedData = results.data.map((row: any) => ({
+          employeeNumber: row['Employee Number'] || row.employeeNumber,
+          firstName: row['First Name'] || row.firstName,
+          lastName: row['Last Name'] || row.lastName,
+          nationalId: row['National ID'] || row.nationalId,
+          email: row['Email'] || row.email,
+          phone: row['Phone'] || row.phone,
+          departmentCode: row['Department'] || row.departmentCode,
+          positionTitle: row['Position'] || row.positionTitle,
+          branchCode: row['Branch'] || row.branchCode,
+          joiningDate: row['Joining Date'] || row['Date of Join'] || row.joiningDate,
+          nssaNumber: row['NSSA Number'] || row.nssaNumber,
+          zimraTaxNumber: row['ZIMRA Tax Number'] || row['ZIMRA Number'] || row.zimraTaxNumber,
+          baseSalary: row['Base Salary'] || row.baseSalary,
+          currency: row['Currency'] || row.currency,
+          usdPercentage: row['USD %'] || row.usdPercentage,
+          zigPercentage: row['ZiG %'] || row.zigPercentage,
+          contractType: row['Contract Type'] || row.contractType,
+          payFrequency: row['Pay Frequency'] || row.payFrequency,
+          bankName: row['Bank Name'] || row.bankName,
+          bankBranch: row['Bank Branch'] || row['Branch Code'] || row.bankBranch,
+          bankAccountNumber: row['Account Number'] || row.bankAccountNumber,
+          ecocashNumber: row['Ecocash Number'] || row.ecocashNumber,
+        }));
+        importEmployeesMutation.mutate(mappedData);
+      },
+      error: (error) => {
+        toast({ title: "Failed to parse CSV", description: error.message, variant: "destructive" });
+      }
+    });
+  };
+
+  const handleExport = () => {
+    downloadExcel(`/api/companies/${companyId}/payroll/employees/export`, `employees_export_${new Date().toISOString().split("T")[0]}.csv`);
+  };
+
+  const handleSaveEmployee = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (selectedEmployeeId) {
+      updateEmployeeMutation.mutate({ ...formData, ...statutoryData, ...contractData });
+    } else {
+      const selectedBranchId = Number(localStorage.getItem("selectedBranchId")) || 1;
+      createEmployeeMutation.mutate({ ...formData, ...statutoryData, ...contractData, branchId: selectedBranchId });
+    }
+  };
+
+  const handleUpdateContract = (e: React.FormEvent) => {
+    e.preventDefault();
+    updateContractMutation.mutate({ employeeId: selectedEmployeeId, contractData });
+  };
+
+  const handleUpdateStatutory = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (selectedEmployeeId) {
+      updateEmployeeMutation.mutate({
+        id: selectedEmployeeId,
+        ...statutoryData,
+      });
+    }
+  };
+
+  const handleAddRecurringItem = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (selectedEmployeeId) {
+      addRecurringItemMutation.mutate({
+        employeeId: selectedEmployeeId,
+        ...newRecurringItem,
+        amount: parseFloat(newRecurringItem.amount)
+      });
+    }
+  };
+
+  const openRecurringModal = (employee: any) => {
+    setSelectedEmployeeId(employee.id);
+    setIsRecurringModalOpen(true);
+  };
+
+  const openEmployeeModal = (employee?: any) => {
+    if (employee) {
+      setSelectedEmployeeId(employee.id);
+      setFormData({
+        firstName: employee.firstName || "",
+        lastName: employee.lastName || "",
+        employeeNumber: employee.employeeNumber || "",
+        nationalId: employee.nationalId || "",
+        email: employee.email || "",
+        phone: employee.phone || "",
+        bankName: employee.bankName || "",
+        bankBranch: employee.bankBranch || "",
+        bankAccountNumber: employee.bankAccountNumber || "",
+        ecocashNumber: employee.ecocashNumber || "",
+        title: employee.title || "",
+        dateOfBirth: employee.dateOfBirth || "",
+        gender: employee.gender || "",
+        maritalStatus: employee.maritalStatus || "",
+        physicalAddress: employee.physicalAddress || "",
+        postalAddress: employee.postalAddress || "",
+        nextOfKinName: employee.nextOfKinName || "",
+        nextOfKinRelationship: employee.nextOfKinRelationship || "",
+        nextOfKinPhone: employee.nextOfKinPhone || "",
+        nextOfKinAddress: employee.nextOfKinAddress || "",
+        emergencyContactName: employee.emergencyContactName || "",
+        emergencyContactPhone: employee.emergencyContactPhone || "",
+        emergencyContactRelation: employee.emergencyContactRelation || "",
+      });
+      setStatutoryData({
+        nationalId: employee.nationalId || "",
+        nssaNumber: employee.nssaNumber || "",
+        zimraTaxNumber: employee.zimraTaxNumber || "",
+      });
+      const contract = employee.contracts?.[0];
+      if (contract) {
+        setContractData({
+          contractType: contract.contractType || "PERMANENT",
+          startDate: contract.startDate ? new Date(contract.startDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
+          endDate: contract.endDate ? new Date(contract.endDate).toISOString().slice(0, 10) : "",
+          baseSalary: contract.baseSalary ? String(contract.baseSalary) : "0",
+          currency: contract.currency || "USD",
+          usdPercentage: contract.usdPercentage ? String(contract.usdPercentage) : "100",
+          zigPercentage: contract.zigPercentage ? String(contract.zigPercentage) : "0",
+          payGradeId: contract.payGradeId || "",
+        });
+      }
+    } else {
+      setSelectedEmployeeId(null);
+      setFormData({
+        firstName: "", lastName: "", employeeNumber: `EMP-${Date.now().toString().slice(-4)}`,
+        nationalId: "", email: "", phone: "", bankName: "", bankBranch: "",
+        bankAccountNumber: "", ecocashNumber: "", title: "", dateOfBirth: "",
+        gender: "", maritalStatus: "", physicalAddress: "", postalAddress: "", 
+        nextOfKinName: "", nextOfKinRelationship: "", nextOfKinPhone: "", nextOfKinAddress: "",
+        emergencyContactName: "", emergencyContactPhone: "", emergencyContactRelation: ""
+      });
+      setStatutoryData({ nationalId: "", nssaNumber: "", zimraTaxNumber: "" });
+      setContractData({
+        contractType: "PERMANENT", startDate: new Date().toISOString().slice(0, 10), endDate: "",
+        baseSalary: "0", currency: "USD", usdPercentage: "100", zigPercentage: "0", payGradeId: "",
+      });
+    }
+    setIsEmployeeModalOpen(true);
+  };
+
+  const filteredEmployees = employees.filter((emp: any) => {
+    const term = search.toLowerCase();
+    return (
+      emp.firstName.toLowerCase().includes(term) ||
+      emp.lastName.toLowerCase().includes(term) ||
+      emp.employeeNumber.toLowerCase().includes(term)
+    );
+  });
+
+  return (
+    <HRLayout>
+      <div className="flex flex-col gap-6">
+        {importResult && (
+          <div className={`rounded-lg border px-4 py-3 text-sm ${
+            importResult.errors > 0
+              ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-300"
+              : "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-300"
+          }`}>
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-1">
+                <div className="font-semibold">
+                  {importResult.total} rows: {importResult.imported} imported, {importResult.updated} updated, {importResult.errors} failed
+                </div>
+                {importResult.errors > 0 && (
+                  <ul className="list-disc list-inside space-y-0.5 text-xs max-h-40 overflow-y-auto">
+                    {importResult.report.filter((r: any) => r.status === "ERROR").slice(0, 20).map((r: any, i: number) => (
+                      <li key={i} className="text-amber-700 dark:text-amber-400">
+                        Row {r.rowNumber}: {r.reason}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <Button variant="ghost" size="sm" className="h-7 w-7 p-0 shrink-0" onClick={() => setImportResult(null)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        )}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 tracking-tight">Employee Directory</h1>
+            <p className="text-sm text-slate-500 mt-1">Manage personnel, contracts, and banking details</p>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" className="gap-2" onClick={handleExport}>
+              <Download className="h-4 w-4" /> Export CSV
+            </Button>
+            <div>
+              <input type="file" accept=".csv" id="csv-upload" className="hidden" onChange={handleFileUpload} />
+              <Button variant="outline" className="gap-2" asChild disabled={importEmployeesMutation.isPending}>
+                <label htmlFor="csv-upload" className="cursor-pointer">
+                  {importEmployeesMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} 
+                  Import CSV
+                </label>
+              </Button>
+            </div>
+            <Button onClick={() => openEmployeeModal()} className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white gap-2 shadow-md">
+              <Plus className="h-4 w-4" /> Create Employee
+            </Button>
+        </div>
+      </div>
+
+      <Dialog open={isEmployeeModalOpen} onOpenChange={setIsEmployeeModalOpen}>
+        <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{selectedEmployeeId ? "Edit Employee Details" : "Create Employee"}</DialogTitle>
+            <DialogDescription>
+              {selectedEmployeeId ? "Update comprehensive personnel records and contact details." : "Fill in the details for the new team member."}
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleSaveEmployee} className="space-y-4 pt-2">
+            <Tabs defaultValue="personal" className="w-full">
+              <TabsList className="grid w-full grid-cols-6 h-auto py-1">
+                <TabsTrigger value="personal" className="text-xs">Personal</TabsTrigger>
+                <TabsTrigger value="contact" className="text-xs">Contact</TabsTrigger>
+                <TabsTrigger value="kin" className="text-xs">Next of Kin</TabsTrigger>
+                <TabsTrigger value="banking" className="text-xs">Banking</TabsTrigger>
+                <TabsTrigger value="statutory" className="text-xs">Statutory</TabsTrigger>
+                <TabsTrigger value="salary" className="text-xs">Contract</TabsTrigger>
+              </TabsList>
+              
+              <TabsContent value="personal" className="space-y-4 pt-4">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div className="space-y-2">
+                    <Label>Title</Label>
+                    <Select value={formData.title || ""} onValueChange={(v) => setFormData({...formData, title: v})}>
+                      <SelectTrigger><SelectValue placeholder="Title" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Mr">Mr</SelectItem>
+                        <SelectItem value="Mrs">Mrs</SelectItem>
+                        <SelectItem value="Ms">Ms</SelectItem>
+                        <SelectItem value="Miss">Miss</SelectItem>
+                        <SelectItem value="Dr">Dr</SelectItem>
+                        <SelectItem value="Prof">Prof</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2 md:col-span-3">
+                    <Label>Employee Number</Label>
+                    <Input disabled={!!selectedEmployeeId} value={formData.employeeNumber} onChange={(e) => setFormData({...formData, employeeNumber: e.target.value})} className="bg-slate-50 dark:bg-slate-900" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>First Name</Label>
+                    <Input required value={formData.firstName} onChange={(e) => setFormData({...formData, firstName: e.target.value})} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Last Name</Label>
+                    <Input required value={formData.lastName} onChange={(e) => setFormData({...formData, lastName: e.target.value})} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Date of Birth</Label>
+                    <Input type="date" value={formData.dateOfBirth?.split('T')[0] || ""} onChange={(e) => setFormData({...formData, dateOfBirth: e.target.value})} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Gender</Label>
+                    <Select value={formData.gender || ""} onValueChange={(v) => setFormData({...formData, gender: v})}>
+                      <SelectTrigger><SelectValue placeholder="Gender" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="MALE">Male</SelectItem>
+                        <SelectItem value="FEMALE">Female</SelectItem>
+                        <SelectItem value="OTHER">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </TabsContent>
+              
+              <TabsContent value="contact" className="space-y-4 pt-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Email Address</Label>
+                    <Input type="email" value={formData.email || ""} onChange={(e) => setFormData({...formData, email: e.target.value})} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Phone Number</Label>
+                    <Input value={formData.phone || ""} onChange={(e) => setFormData({...formData, phone: e.target.value})} />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Physical Address</Label>
+                  <Input placeholder="House #, Street, Suburb, City" value={formData.physicalAddress || ""} onChange={(e) => setFormData({...formData, physicalAddress: e.target.value})} />
+                </div>
+              </TabsContent>
+              
+              <TabsContent value="kin" className="space-y-4 pt-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Next of Kin Name</Label>
+                    <Input value={formData.nextOfKinName || ""} onChange={(e) => setFormData({...formData, nextOfKinName: e.target.value})} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Relationship</Label>
+                    <Input placeholder="e.g. Spouse, Sibling" value={formData.nextOfKinRelationship || ""} onChange={(e) => setFormData({...formData, nextOfKinRelationship: e.target.value})} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Next of Kin Phone</Label>
+                    <Input value={formData.nextOfKinPhone || ""} onChange={(e) => setFormData({...formData, nextOfKinPhone: e.target.value})} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Next of Kin Address</Label>
+                    <Input value={formData.nextOfKinAddress || ""} onChange={(e) => setFormData({...formData, nextOfKinAddress: e.target.value})} />
+                  </div>
+                </div>
+              </TabsContent>
+              
+              <TabsContent value="banking" className="space-y-4 pt-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Bank Name</Label>
+                    <Input placeholder="e.g. CABS, FBC" value={formData.bankName || ""} onChange={(e) => setFormData({...formData, bankName: e.target.value})} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Branch Code</Label>
+                    <Input placeholder="e.g. 112233" value={formData.bankBranch || ""} onChange={(e) => setFormData({...formData, bankBranch: e.target.value})} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Account Number</Label>
+                    <Input value={formData.bankAccountNumber || ""} onChange={(e) => setFormData({...formData, bankAccountNumber: e.target.value})} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Ecocash Number</Label>
+                    <Input value={formData.ecocashNumber || ""} onChange={(e) => setFormData({...formData, ecocashNumber: e.target.value})} placeholder="077..." />
+                  </div>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="statutory" className="space-y-4 pt-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>National ID Number</Label>
+                    <Input value={statutoryData.nationalId} onChange={(e) => setStatutoryData({...statutoryData, nationalId: e.target.value})} placeholder="12-345678X90" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>NSSA Number</Label>
+                    <Input value={statutoryData.nssaNumber} onChange={(e) => setStatutoryData({...statutoryData, nssaNumber: e.target.value})} placeholder="NSSA ID" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>ZIMRA Tax Number</Label>
+                    <Input value={statutoryData.zimraTaxNumber} onChange={(e) => setStatutoryData({...statutoryData, zimraTaxNumber: e.target.value})} placeholder="BP Number" />
+                  </div>
+                </div>
+              </TabsContent>
+              
+              <TabsContent value="salary" className="space-y-4 pt-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Contract Type</Label>
+                    <Select 
+                      value={contractData.contractType} 
+                      onValueChange={(v) => setContractData({...contractData, contractType: v})}
+                    >
+                      <SelectTrigger><SelectValue placeholder="Contract type" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="PERMANENT">Permanent</SelectItem>
+                        <SelectItem value="FIXED_TERM">Fixed Term</SelectItem>
+                        <SelectItem value="CASUAL">Casual</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Base Currency</Label>
+                    <Select 
+                      value={contractData.currency} 
+                      onValueChange={(v) => setContractData({...contractData, currency: v})}
+                    >
+                      <SelectTrigger><SelectValue placeholder="Currency" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="USD">USD</SelectItem>
+                        <SelectItem value="ZiG">ZiG</SelectItem>
+                        <SelectItem value="SPLIT">SPLIT (USD/ZiG)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Base Salary</Label>
+                    <Input type="number" step="0.01" value={contractData.baseSalary} onChange={(e) => setContractData({...contractData, baseSalary: e.target.value})} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Pay Grade</Label>
+                    <Select 
+                      value={String(contractData.payGradeId)} 
+                      onValueChange={(v) => setContractData({...contractData, payGradeId: v})}
+                    >
+                      <SelectTrigger><SelectValue placeholder="Select pay grade" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">No Pay Grade (Custom)</SelectItem>
+                        {payGrades.map((grade: any) => (
+                          <SelectItem key={grade.id} value={String(grade.id)}>
+                            {grade.code} - {grade.name} ({grade.currency})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                {contractData.currency === "SPLIT" && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-3 bg-slate-50 dark:bg-slate-900/50 rounded-lg border border-slate-100 dark:border-slate-800">
+                    <div className="space-y-2">
+                      <Label className="text-xs">USD %</Label>
+                      <Input type="number" step="0.1" value={contractData.usdPercentage} onChange={(e) => setContractData({...contractData, usdPercentage: e.target.value})} className="h-8" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs">ZiG %</Label>
+                      <Input type="number" step="0.1" value={contractData.zigPercentage} onChange={(e) => setContractData({...contractData, zigPercentage: e.target.value})} className="h-8" />
+                    </div>
+                  </div>
+                )}
+              </TabsContent>
+            </Tabs>
+            <div className="flex justify-end pt-4 border-t border-slate-100">
+              <Button type="button" variant="outline" className="mr-2" onClick={() => setIsEmployeeModalOpen(false)}>Cancel</Button>
+              <Button type="submit" disabled={updateEmployeeMutation.isPending || createEmployeeMutation.isPending} className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md">
+                {(updateEmployeeMutation.isPending || createEmployeeMutation.isPending) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {selectedEmployeeId ? "Save Changes" : "Create Employee"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isContractModalOpen} onOpenChange={setIsContractModalOpen}>
+          <DialogContent className="sm:max-w-[425px]">
+            <DialogHeader>
+              <DialogTitle>Manage Employee Contract</DialogTitle>
+              <DialogDescription>
+                Set base salary, currency splits, and contract type.
+              </DialogDescription>
+            </DialogHeader>
+            <form onSubmit={handleUpdateContract} className="space-y-4 pt-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Contract Type</Label>
+                  <Select 
+                    value={contractData.contractType} 
+                    onValueChange={(v) => setContractData({...contractData, contractType: v})}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select contract type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="PERMANENT">Permanent</SelectItem>
+                      <SelectItem value="FIXED_TERM">Fixed Term</SelectItem>
+                      <SelectItem value="CASUAL">Casual</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Base Currency</Label>
+                  <Select 
+                    value={contractData.currency} 
+                    onValueChange={(v) => setContractData({...contractData, currency: v})}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select base currency" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="USD">USD</SelectItem>
+                      <SelectItem value="ZiG">ZiG</SelectItem>
+                      <SelectItem value="SPLIT">SPLIT (USD/ZiG)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Base Salary</Label>
+                  <Input type="number" step="0.01" required value={contractData.baseSalary} onChange={(e) => setContractData({...contractData, baseSalary: e.target.value})} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Pay Grade</Label>
+                  <Select 
+                    value={String(contractData.payGradeId)} 
+                    onValueChange={(v) => setContractData({...contractData, payGradeId: v})}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select pay grade" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">No Pay Grade (Custom)</SelectItem>
+                      {payGrades.map((grade: any) => (
+                        <SelectItem key={grade.id} value={String(grade.id)}>
+                          {grade.code} - {grade.name} ({grade.currency})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {contractData.currency === "SPLIT" && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-3 bg-slate-50 dark:bg-slate-900/50 rounded-lg border border-slate-100 dark:border-slate-800">
+                  <div className="space-y-2">
+                    <Label className="text-xs">USD %</Label>
+                    <Input type="number" step="0.1" value={contractData.usdPercentage} onChange={(e) => setContractData({...contractData, usdPercentage: e.target.value})} className="h-8" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs">ZiG %</Label>
+                    <Input type="number" step="0.1" value={contractData.zigPercentage} onChange={(e) => setContractData({...contractData, zigPercentage: e.target.value})} className="h-8" />
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Start Date</Label>
+                  <Input type="date" required value={contractData.startDate} onChange={(e) => setContractData({...contractData, startDate: e.target.value})} />
+                </div>
+                <div className="space-y-2">
+                  <Label>End Date</Label>
+                  <Input type="date" value={contractData.endDate} onChange={(e) => setContractData({...contractData, endDate: e.target.value})} />
+                </div>
+              </div>
+
+              <Button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 mt-4" disabled={updateContractMutation.isPending}>
+                {updateContractMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Save Contract"}
+              </Button>
+            </form>
+          </DialogContent>
+        </Dialog>
+
+        <Card className="border-slate-200/60 shadow-sm bg-white/50 dark:bg-slate-950/50 backdrop-blur-sm">
+          <CardContent className="p-0">
+            <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center gap-4 bg-slate-50/50 dark:bg-slate-900/20 rounded-t-xl">
+              <div className="relative flex-1 max-w-md">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <Input
+                  placeholder="Search employees..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-9 bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 focus-visible:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            <div className="relative w-full overflow-auto">
+              <Table>
+                <TableHeader className="bg-slate-50 dark:bg-slate-900/50">
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead>Employee</TableHead>
+                    <TableHead>Contact</TableHead>
+                    <TableHead>Role & Branch</TableHead>
+                    <TableHead>Contract</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {isLoading ? (
+                    <TableRow>
+                      <TableCell colSpan={5} className="h-48 text-center">
+                        <Loader2 className="h-6 w-6 animate-spin text-blue-500 mx-auto" />
+                        <p className="text-sm text-slate-500 mt-2">Loading directory...</p>
+                      </TableCell>
+                    </TableRow>
+                  ) : filteredEmployees.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={5} className="h-48 text-center text-slate-500">
+                        No employees found matching your search.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    filteredEmployees.map((employee: any) => (
+                      <TableRow key={employee.id} className="group hover:bg-slate-50 dark:hover:bg-slate-900/50 transition-colors">
+                        <TableCell>
+                          <div className="flex items-center gap-3">
+                            <div className="h-10 w-10 rounded-full bg-gradient-to-br from-blue-100 to-indigo-100 dark:from-blue-900/40 dark:to-indigo-900/40 flex items-center justify-center text-blue-700 dark:text-blue-400 font-semibold shadow-inner">
+                              {employee.firstName.charAt(0)}{employee.lastName.charAt(0)}
+                            </div>
+                            <div>
+                              <div className="font-medium text-slate-900 dark:text-slate-100">
+                                {employee.firstName} {employee.lastName}
+                              </div>
+                              <div className="text-xs text-slate-500">
+                                {employee.employeeNumber}
+                              </div>
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-col gap-1 text-sm text-slate-600 dark:text-slate-400">
+                            {employee.email && (
+                              <div className="flex items-center gap-1.5">
+                                <Mail className="h-3 w-3" />
+                                {employee.email}
+                              </div>
+                            )}
+                            {employee.phone && (
+                              <div className="flex items-center gap-1.5">
+                                <Phone className="h-3 w-3" />
+                                {employee.phone}
+                              </div>
+                            )}
+                            {employee.physicalAddress && (
+                              <div className="text-xs text-slate-500 mt-1 line-clamp-1" title={employee.physicalAddress}>
+                                {employee.physicalAddress}
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-1.5 text-sm font-medium text-slate-700 dark:text-slate-300">
+                              <Briefcase className="h-3.5 w-3.5 text-indigo-500" />
+                              {employee.position?.title || "No Position"}
+                            </div>
+                            <div className="text-xs text-slate-500">
+                              {employee.department?.name || "No Department"}
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-col gap-1">
+                            {employee.contracts?.[0] ? (
+                              <>
+                                <div className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                                  {employee.contracts[0].currency} {Number(employee.contracts[0].baseSalary).toLocaleString(undefined, {minimumFractionDigits: 2})}
+                                </div>
+                                <div className="text-xs text-slate-500">
+                                  {employee.contracts[0].contractType}
+                                </div>
+                                {employee.contracts[0].payGradeId && (
+                                  <div className="text-xs text-indigo-500 dark:text-indigo-400 mt-1 font-medium">
+                                    Grade: {payGrades.find(g => g.id === employee.contracts[0].payGradeId)?.code || `ID:${employee.contracts[0].payGradeId}`}
+                                  </div>
+                                )}
+                              </>
+                            ) : (
+                              <span className="text-xs text-slate-400 italic">No Contract</span>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge 
+                            variant="secondary"
+                            className={
+                              employee.status === "ACTIVE" 
+                                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 hover:bg-emerald-200"
+                                : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-400"
+                            }
+                          >
+                            {employee.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <span className="sr-only">Open menu</span>
+                                <MoreVertical className="h-4 w-4 text-slate-500" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-[160px]">
+                              <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem className="cursor-pointer font-medium" onSelect={() => openEmployeeModal(employee)}>
+                                Edit Employee Details
+                              </DropdownMenuItem>
+                              <DropdownMenuItem className="cursor-pointer text-amber-600 dark:text-amber-400" onSelect={() => openSalaryChangeModal(employee)}>
+                                <BadgeDollarSign className="mr-2 h-4 w-4" /> Request Salary Change
+                              </DropdownMenuItem>
+                              <DropdownMenuItem className="cursor-pointer text-emerald-600 dark:text-emerald-400" onSelect={() => openRecurringModal(employee)}>
+                                <Wallet className="mr-2 h-4 w-4" /> Incomes & Deductions
+                              </DropdownMenuItem>
+                              <DropdownMenuItem className="cursor-pointer text-indigo-600 dark:text-indigo-400" onSelect={() => setTimelineModal({ employee, open: true })}>
+                                <History className="mr-2 h-4 w-4" /> View Timeline
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* SALARY CHANGE MODAL */}
+        <Dialog open={salaryModal.open} onOpenChange={(open) => setSalaryModal((s) => ({ ...s, open }))}>
+          <DialogContent className="sm:max-w-[480px]">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <BadgeDollarSign className="h-5 w-5 text-amber-500" />
+                Request Salary Change
+              </DialogTitle>
+              <DialogDescription>
+                {salaryModal.employee?.firstName} {salaryModal.employee?.lastName} — current{" "}
+                {salaryModal.employee?.contracts?.[0]?.currency || "USD"}{" "}
+                {Number(salaryModal.employee?.contracts?.[0]?.baseSalary || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                . An approver must confirm the change before it applies to the contract.
+              </DialogDescription>
+            </DialogHeader>
+            <form onSubmit={submitSalaryChange} className="space-y-4 pt-2">
+              <div className="space-y-2">
+                <Label>New Base Salary</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  required
+                  value={salaryForm.newBaseSalary}
+                  onChange={(e) => setSalaryForm((f) => ({ ...f, newBaseSalary: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Effective Date</Label>
+                <Input
+                  type="date"
+                  required
+                  value={salaryForm.effectiveDate}
+                  onChange={(e) => setSalaryForm((f) => ({ ...f, effectiveDate: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Reason</Label>
+                <Input
+                  required
+                  minLength={3}
+                  placeholder="e.g. Annual review / promotion to Senior Accountant"
+                  value={salaryForm.reason}
+                  onChange={(e) => setSalaryForm((f) => ({ ...f, reason: e.target.value }))}
+                />
+              </div>
+
+              {salaryHistory.length > 0 && (
+                <div className="rounded-md border border-slate-200 dark:border-slate-800 p-3 space-y-1.5">
+                  <div className="text-xs font-semibold text-slate-500 uppercase">Recent changes</div>
+                  {salaryHistory.slice(0, 5).map((c: any) => (
+                    <div key={c.id} className="flex items-center justify-between text-xs">
+                      <span className="text-slate-600 dark:text-slate-300">
+                        {new Date(c.createdAt).toLocaleDateString()} — ${Number(c.previousBaseSalary).toLocaleString()} → ${Number(c.newBaseSalary).toLocaleString()}
+                      </span>
+                      <Badge variant="secondary" className={c.status === "APPROVED" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" : c.status === "REJECTED" ? "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400" : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"}>
+                        {c.status}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button type="button" variant="outline" onClick={() => setSalaryModal((s) => ({ ...s, open: false }))}>Cancel</Button>
+                <Button type="submit" disabled={salaryChangeMutation.isPending} className="bg-amber-600 hover:bg-amber-700 text-white gap-2">
+                  {salaryChangeMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                  Submit for Approval
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
+
+        {/* EMPLOYEE TIMELINE MODAL */}
+        <Dialog open={timelineModal.open} onOpenChange={(open) => setTimelineModal((s) => ({ ...s, open }))}>
+          <DialogContent className="sm:max-w-[640px] max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <History className="h-5 w-5 text-indigo-500" />
+                {timelineModal.employee?.firstName} {timelineModal.employee?.lastName} — Timeline
+              </DialogTitle>
+              <DialogDescription>
+                What we knew about this employee at any point in time. History is never overwritten.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 pt-2">
+              {!timelineData ? (
+                <div className="h-32 flex items-center justify-center">
+                  <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+                </div>
+              ) : timelineData.events?.length === 0 ? (
+                <p className="text-sm text-slate-400 text-center py-8">No recorded history events yet.</p>
+              ) : (
+                <div className="relative pl-6">
+                  <div className="absolute left-2 top-1 bottom-1 w-px bg-slate-200 dark:bg-slate-700" />
+                  {timelineData.events?.map((ev: any, i: number) => (
+                    <div key={i} className="relative pb-5 pl-2">
+                      <span className="absolute -left-4 top-1 h-3 w-3 rounded-full border-2 border-white dark:border-slate-900 bg-indigo-500" />
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-mono text-slate-400">
+                          {new Date(ev.date + "T00:00:00").toLocaleDateString()}
+                        </span>
+                        {ev.effectiveTo && (
+                          <span className="text-[10px] text-slate-400">
+                            until {new Date(ev.effectiveTo + "T00:00:00").toLocaleDateString()}
+                          </span>
+                        )}
+                        <Badge variant="outline" className="text-[10px]">
+                          {ev.type}
+                        </Badge>
+                      </div>
+                      <div className="mt-1 text-sm font-medium text-slate-800 dark:text-slate-100">{ev.title}</div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400">{ev.description}</div>
+                      {ev.reason && <div className="text-xs text-slate-400 mt-0.5">Reason: {ev.reason}</div>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+        <Dialog open={isStatutoryModalOpen} onOpenChange={setIsStatutoryModalOpen}>
+          <DialogContent className="sm:max-w-[425px]">
+            <DialogHeader>
+              <DialogTitle>Statutory Settings</DialogTitle>
+              <DialogDescription>
+                Configure ZIMRA and NSSA details for this employee.
+              </DialogDescription>
+            </DialogHeader>
+            <form onSubmit={handleUpdateStatutory} className="space-y-4 pt-4">
+              <div className="space-y-2">
+                <Label>National ID</Label>
+                <Input value={statutoryData.nationalId} onChange={(e) => setStatutoryData({...statutoryData, nationalId: e.target.value})} required />
+              </div>
+              <div className="space-y-2">
+                <Label>ZIMRA Tax Number</Label>
+                <Input value={statutoryData.zimraTaxNumber} onChange={(e) => setStatutoryData({...statutoryData, zimraTaxNumber: e.target.value})} placeholder="e.g. 020000000" />
+              </div>
+              <div className="space-y-2">
+                <Label>NSSA Number</Label>
+                <Input value={statutoryData.nssaNumber} onChange={(e) => setStatutoryData({...statutoryData, nssaNumber: e.target.value})} />
+              </div>
+              <Button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 mt-4" disabled={updateEmployeeMutation.isPending}>
+                {updateEmployeeMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Save Statutory Settings"}
+              </Button>
+            </form>
+          </DialogContent>
+        </Dialog>
+
+        {/* RECURRING ITEMS MODAL */}
+        <Dialog open={isRecurringModalOpen} onOpenChange={setIsRecurringModalOpen}>
+          <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Employee Incomes & Deductions</DialogTitle>
+              <DialogDescription>
+                Manage individual recurring allowances and deductions assigned specifically to this employee.
+              </DialogDescription>
+            </DialogHeader>
+            
+            <div className="grid md:grid-cols-2 gap-6 mt-4">
+              <div className="space-y-4">
+                <div className="bg-slate-50 dark:bg-slate-900/50 p-4 rounded-xl border border-slate-100 dark:border-slate-800">
+                  <h3 className="text-sm font-semibold mb-3 flex items-center"><Plus className="w-4 h-4 mr-2 text-emerald-500" /> Add New Item</h3>
+                  <form onSubmit={handleAddRecurringItem} className="space-y-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Type</Label>
+                      <Select 
+                        value={newRecurringItem.type} 
+                        onValueChange={(v) => setNewRecurringItem({...newRecurringItem, type: v})}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Select item type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="ALLOWANCE">Allowance (Income)</SelectItem>
+                          <SelectItem value="DEDUCTION">Deduction</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Name</Label>
+                      <Input className="h-8" required value={newRecurringItem.name} onChange={(e) => setNewRecurringItem({...newRecurringItem, name: e.target.value})} placeholder="e.g. Transport Allowance" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Amount ($)</Label>
+                      <Input className="h-8" type="number" step="0.01" required value={newRecurringItem.amount} onChange={(e) => setNewRecurringItem({...newRecurringItem, amount: e.target.value})} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Start Date</Label>
+                      <Input className="h-8" type="date" required value={newRecurringItem.startDate} onChange={(e) => setNewRecurringItem({...newRecurringItem, startDate: e.target.value})} />
+                    </div>
+                    <div className="flex gap-4 pt-2">
+                      <label className="flex items-center gap-2 text-xs cursor-pointer">
+                        <input type="checkbox" checked={newRecurringItem.isTaxable} onChange={(e) => setNewRecurringItem({...newRecurringItem, isTaxable: e.target.checked})} className="rounded text-indigo-600 focus:ring-indigo-500" />
+                        Taxable
+                      </label>
+                      <label className="flex items-center gap-2 text-xs cursor-pointer">
+                        <input type="checkbox" checked={newRecurringItem.isTaxDeductible} onChange={(e) => setNewRecurringItem({...newRecurringItem, isTaxDeductible: e.target.checked})} className="rounded text-indigo-600 focus:ring-indigo-500" />
+                        Tax Deductible
+                      </label>
+                    </div>
+                    <Button type="submit" className="w-full h-8 text-xs bg-slate-900 dark:bg-slate-100 dark:text-slate-900 mt-2" disabled={addRecurringItemMutation.isPending}>
+                      {addRecurringItemMutation.isPending ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : "Add Item"}
+                    </Button>
+                  </form>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div className="bg-white dark:bg-slate-950 p-0 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col h-full overflow-hidden">
+                  <div className="p-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/30">
+                    <h3 className="text-sm font-semibold">Current Assigned Items</h3>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-3 space-y-2 max-h-[300px]">
+                    {isLoadingRecurring ? (
+                      <div className="text-center py-4"><Loader2 className="h-5 w-5 animate-spin text-slate-400 mx-auto" /></div>
+                    ) : recurringItems.length === 0 ? (
+                      <p className="text-xs text-slate-500 text-center py-4">No custom items assigned to this employee.</p>
+                    ) : (
+                      recurringItems.map(item => (
+                        <div key={item.id} className={cn("flex items-center justify-between p-2.5 rounded-lg border text-sm transition-colors", item.isActive ? "border-slate-200 bg-white" : "border-slate-100 bg-slate-50 opacity-60")}>
+                          <div>
+                            <div className="font-medium flex items-center gap-2">
+                              {item.name} 
+                              <Badge variant="outline" className={item.type === "ALLOWANCE" ? "text-emerald-600 border-emerald-200 bg-emerald-50" : "text-rose-600 border-rose-200 bg-rose-50"}>
+                                {item.type === "ALLOWANCE" ? "+" : "-"}${Number(item.amount).toFixed(2)}
+                              </Badge>
+                            </div>
+                            <div className="text-[10px] text-slate-500 mt-1 flex gap-2">
+                              {item.isTaxable && <span>• Taxable</span>}
+                              {item.isTaxDeductible && <span>• Tax Deductible</span>}
+                              <span>• From {format(new Date(item.startDate), 'MMM yyyy')}</span>
+                            </div>
+                          </div>
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className={item.isActive ? "text-rose-600 hover:text-rose-700 hover:bg-rose-50" : "text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"}
+                            onClick={() => toggleRecurringItemMutation.mutate({ id: item.id, isActive: !item.isActive })}
+                            disabled={toggleRecurringItemMutation.isPending}
+                          >
+                            {item.isActive ? "Disable" : "Enable"}
+                          </Button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </div>
+    </HRLayout>
+  );
+}

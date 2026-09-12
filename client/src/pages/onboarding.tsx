@@ -49,7 +49,7 @@ import {
   ShieldCheck,
   Clock,
 } from "lucide-react";
-import { insertCompanySchema } from "@shared/schema";
+import { insertCompanyBaseSchema } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { useState, useEffect } from "react";
@@ -58,7 +58,7 @@ import { cn } from "@/lib/utils";
 import { useBranding } from "@/hooks/use-branding";
 
 // Company Onboarding Schema
-const companySchema = insertCompanySchema
+const companySchema = insertCompanyBaseSchema
   .pick({
     name: true,
     tin: true,

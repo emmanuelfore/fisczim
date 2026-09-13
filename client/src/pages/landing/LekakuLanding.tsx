@@ -423,13 +423,13 @@ function Features() {
 }
 
 const INTEGRATIONS = [
-  { name: "QuickBooks", tag: "ACCOUNTING", d: "Push invoices, customers and VAT totals into QuickBooks Online with guided CSV imports your bookkeeper will recognise." },
-  { name: "Xero", tag: "ACCOUNTING", d: "Export Xero-ready invoices, contacts and bank-friendly statements for fast reconciliation." },
-  { name: "Zoho Books", tag: "ACCOUNTING", d: "Move invoices and customer records into Zoho Books using mapped import templates." },
-  { name: "Sage", tag: "ACCOUNTING", d: "Hand your accountant Sage-compatible journals, VAT reports and customer ledgers at month end." },
-  { name: "Odoo", tag: "ERP", d: "Keep products, customers and invoices in step with Odoo through CSV and API on Production plans." },
-  { name: "ERPNext", tag: "ERP", d: "API-ready JSON exports for sales invoices, items and customers into your ERPNext site." },
-  { name: "Oracle NetSuite", tag: "ENTERPRISE ERP", d: "Enterprise-grade journal and invoice exports formatted for NetSuite import and consolidation." },
+  { name: "QuickBooks", tag: "ACCOUNTING", mark: "Q", brand: "#2CA01C", d: "Push invoices, customers and VAT totals into QuickBooks Online with guided CSV imports your bookkeeper will recognise." },
+  { name: "Xero", tag: "ACCOUNTING", mark: "X", brand: "#13B5EA", d: "Export Xero-ready invoices, contacts and bank-friendly statements for fast reconciliation." },
+  { name: "Zoho Books", tag: "ACCOUNTING", mark: "Z", brand: "#E42527", d: "Move invoices and customer records into Zoho Books using mapped import templates." },
+  { name: "Sage", tag: "ACCOUNTING", mark: "S", brand: "#00A651", d: "Hand your accountant Sage-compatible journals, VAT reports and customer ledgers at month end." },
+  { name: "Odoo", tag: "ERP", mark: "O", brand: "#714B67", d: "Keep products, customers and invoices in step with Odoo through CSV and API on Production plans." },
+  { name: "ERPNext", tag: "ERP", mark: "E", brand: "#16324F", d: "API-ready JSON exports for sales invoices, items and customers into your ERPNext site." },
+  { name: "Oracle NetSuite", tag: "ENTERPRISE ERP", mark: "N", brand: "#C74634", d: "Enterprise-grade journal and invoice exports formatted for NetSuite import and consolidation." },
 ];
 
 function Integrations() {
@@ -448,8 +448,20 @@ function Integrations() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))", gap: 14, marginTop: 40 }}>
           {INTEGRATIONS.map((g) => (
             <div key={g.name} style={{ background: "#fff", border: `1px solid ${STONE}`, borderRadius: 20, padding: "26px 24px" }}>
-              <div style={{ fontFamily: fontMono, fontSize: 10, letterSpacing: "0.14em", color: BLUE, marginBottom: 10 }}>{g.tag}</div>
-              <h3 style={{ fontFamily: fontHead, fontSize: 20, color: INK, margin: "0 0 8px" }}>{g.name}</h3>
+              <div style={{ fontFamily: fontMono, fontSize: 10, letterSpacing: "0.14em", color: BLUE, marginBottom: 12 }}>{g.tag}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
+                <div
+                  aria-hidden
+                  style={{
+                    width: 44, height: 44, borderRadius: 12, background: g.brand, color: "#fff",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontFamily: fontBody, fontWeight: 800, fontSize: 20, flexShrink: 0,
+                  }}
+                >
+                  {g.mark}
+                </div>
+                <h3 style={{ fontFamily: fontHead, fontSize: 20, color: INK, margin: 0 }}>{g.name}</h3>
+              </div>
               <p style={{ fontFamily: fontBody, fontSize: 14, lineHeight: 1.65, color: "#3D4A43", margin: 0 }}>{g.d}</p>
             </div>
           ))}

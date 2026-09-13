@@ -710,7 +710,6 @@ export async function registerRoutes(
 
   const requireAuth = async (req: any, res: any, next: any) => {
     if (!req.isAuthenticated()) {
-      console.log(`[AUTH] 401 Unauthorized at ${req.method} ${req.path} - No user in session`);
       return res.status(401).json({ message: "Unauthorized: Authentication required" });
     }
     next();

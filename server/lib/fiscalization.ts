@@ -1621,6 +1621,11 @@ export const processInvoiceFiscalizationLEKAKU = async (
         }
     }
 
+    // HIGH #9: Acquire advisory lock to prevent race conditions on receipt counters
+    let fiscalLock: { client: any; lockKey: number } | null = null;
+    try {
+        fiscalLock = await acquireFiscalDeviceLock(companyId, null);
+
     const nextReceiptCounter = (company.dailyReceiptCount || 0) + 1;
     const nextGlobalNo = (company.lastReceiptGlobalNo || 0) + 1;
     const activeFiscalDayNo = company.currentFiscalDayNo || 1;
@@ -1678,4 +1683,7 @@ export const processInvoiceFiscalizationLEKAKU = async (
     });
 
     return updatedInvoice;
+    } finally {
+        await releaseFiscalDeviceLock(fiscalLock);
+    }
 };

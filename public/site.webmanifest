@@ -1,13 +1,13 @@
 {
-  "name": "FiscalStack — ZIMRA Invoicing",
-  "short_name": "FiscalStack",
-  "description": "ZIMRA-compliant invoicing & POS for Zimbabwean businesses",
+  "name": "FiscalStack Lesotho — RSL Invoicing",
+  "short_name": "FiscalStack LS",
+  "description": "RSL-compliant invoicing & POS for Lesotho businesses",
   "start_url": "/pos",
   "scope": "/",
   "display": "standalone",
   "orientation": "any",
-  "theme_color": "#0f172a",
-  "background_color": "#0f172a",
+  "theme_color": "#0A5C3C",
+  "background_color": "#0A5C3C",
   "categories": [
     "business",
     "finance",

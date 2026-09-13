@@ -292,8 +292,8 @@ export function Receipt48({ id = "receipt-48", invoice, company, customer, items
                         vCode = "9A2B-C48D-80FE-12A5-99BF"; // Realistic looking placeholder
                     }
 
-                    const verifyUrl = company.fiscalProvider === "LEKAKU" || company.country === "Lesotho" 
-                        ? "https://lekaku.rsl.co.ls/verify" 
+                    const verifyUrl = company.fiscalProvider === "LEKUKA" || company.country === "Lesotho" 
+                        ? "https://lekuka.rsl.co.ls/verify" 
                         : "https://fdms.zimra.co.zw/verify";
                     
                     // Field [29]: QR data

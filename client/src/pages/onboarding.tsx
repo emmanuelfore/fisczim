@@ -197,7 +197,7 @@ export default function OnboardingPage() {
   const onFinalSubmit = async (data: CompanyFormValues) => {
     setIsSubmitting(true);
     try {
-      const fiscalProvider = data.country === "Lesotho" ? "LEKAKU" : "ZIMRA";
+      const fiscalProvider = data.country === "Lesotho" ? "LEKUKA" : "ZIMRA";
       const payload = {
         ...data,
         fiscalProvider,

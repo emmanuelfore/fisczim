@@ -92,7 +92,7 @@ export default function SettingsPage() {
         currency: activeCompany.currency || "USD",
         country: activeCompany.country || "Zimbabwe",
         fiscalProvider: (activeCompany as any).fiscalProvider || "ZIMRA",
-        lekakuGatewayUrl: (activeCompany as any).lekakuGatewayUrl || "",
+        lekukaGatewayUrl: (activeCompany as any).lekukaGatewayUrl || "",
         fdmsDeviceId: activeCompany.fdmsDeviceId || "",
         zimraPrivateKey: activeCompany.zimraPrivateKey || "",
         zimraCertificate: activeCompany.zimraCertificate || "",

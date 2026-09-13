@@ -206,7 +206,7 @@ export function OrganizationProfile({
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label className="text-xs font-medium text-[#64748B]">Country</Label>
-                    <Select value={formData.country || "Zimbabwe"} onValueChange={(country) => setFormData({ ...formData, country, currency: country === "Lesotho" ? "LSL" : formData.currency, fiscalProvider: country === "Lesotho" ? "LEKAKU" : formData.fiscalProvider })}>
+                    <Select value={formData.country || "Zimbabwe"} onValueChange={(country) => setFormData({ ...formData, country, currency: country === "Lesotho" ? "LSL" : formData.currency, fiscalProvider: country === "Lesotho" ? "LEKUKA" : formData.fiscalProvider })}>
                       <SelectTrigger className="h-10 rounded-[10px] border-[#E5E7EB]"><SelectValue /></SelectTrigger>
                       <SelectContent><SelectItem value="Zimbabwe">Zimbabwe</SelectItem><SelectItem value="Lesotho">Lesotho</SelectItem></SelectContent>
                     </Select>

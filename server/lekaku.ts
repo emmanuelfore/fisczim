@@ -4,14 +4,14 @@ import crypto from "crypto";
 import forge from "node-forge";
 
 /**
- * Client for Revenue Services Lesotho's LEKAKU E-Invoicing Gateway API v1.11.
+ * Client for Revenue Services Lesotho's LEKUKA E-Invoicing Gateway API v1.11.
  *
- * LEKAKU uses the same high-level fiscal-day lifecycle as FDMS, but levy taxes
+ * LEKUKA uses the same high-level fiscal-day lifecycle as FDMS, but levy taxes
  * are sent as `additionalTaxes` on a receipt line and must be repeated in the
  * aggregated `receiptTaxes` list.  Keep this client separate from ZIMRA: tax
  * identifiers and gateway URLs are issued by their respective authorities.
  */
-export type LekakuTaxType =
+export type LekukaTaxType =
   | "Exempt"
   | "FixedValueLevy"
   | "NonVAT"
@@ -19,10 +19,10 @@ export type LekakuTaxType =
   | "VAT"
   | "WithholdingTax";
 
-export type LekakuTaxRoundingType = "PerReceipt" | "PerReceiptLine";
+export type LekukaTaxRoundingType = "PerReceipt" | "PerReceiptLine";
 
-export interface LekakuConfig {
-  /** LEKAKU gateway URL supplied by RSL; do not infer this from a ZIMRA URL. */
+export interface LekukaConfig {
+  /** LEKUKA gateway URL supplied by RSL; do not infer this from a ZIMRA URL. */
   baseUrl: string;
   deviceId: number | string;
   privateKey?: string;
@@ -33,17 +33,17 @@ export interface LekakuConfig {
   deviceModelVersion?: string;
 }
 
-export interface LekakuAdditionalTax {
+export interface LekukaAdditionalTax {
   taxID: number;
   receiptLineId: number;
-  taxType: Extract<LekakuTaxType, "FixedValueLevy" | "PercentageLevy" | "WithholdingTax">;
+  taxType: Extract<LekukaTaxType, "FixedValueLevy" | "PercentageLevy" | "WithholdingTax">;
   taxRate: number;
   taxCode?: string;
-  /** Required by LEKAKU for a FixedValueLevy. */
+  /** Required by LEKUKA for a FixedValueLevy. */
   appliedForQuantity?: number;
 }
 
-export interface LekakuReceiptLine {
+export interface LekukaReceiptLine {
   receiptLineType: "Sale" | "Discount" | "Payout";
   receiptLineNo: number;
   receiptLineName: string;
@@ -52,27 +52,27 @@ export interface LekakuReceiptLine {
   receiptLinePrice?: number;
   receiptLineHSCode?: string;
   taxID: number;
-  taxType: Extract<LekakuTaxType, "VAT" | "NonVAT" | "Exempt">;
+  taxType: Extract<LekukaTaxType, "VAT" | "NonVAT" | "Exempt">;
   taxRate?: number;
   taxCode?: string;
-  additionalTaxes?: LekakuAdditionalTax[];
+  additionalTaxes?: LekukaAdditionalTax[];
 }
 
-export interface LekakuReceiptTax {
+export interface LekukaReceiptTax {
   taxID: number;
-  taxType: LekakuTaxType;
+  taxType: LekukaTaxType;
   taxRate?: number;
   taxCode?: string;
   taxAmount: number;
   salesAmountWithTax: number;
 }
 
-export interface LekakuReceiptPayment {
+export interface LekukaReceiptPayment {
   moneyTypeCode: "Cash" | "Card" | "MobileWallet" | "Coupon" | "Credit" | "BankTransfer" | "Other";
   paymentAmount: number;
 }
 
-export interface LekakuReceipt {
+export interface LekukaReceipt {
   receiptType: "Receipt" | "FiscalInvoice" | "Payout" | "CreditNote" | "DebitNote";
   receiptCurrency: "LSL";
   receiptCounter: number;
@@ -80,38 +80,38 @@ export interface LekakuReceipt {
   invoiceNo: string;
   receiptDate: string;
   receiptLinesTaxInclusive: boolean;
-  receiptLines: LekakuReceiptLine[];
-  receiptTaxes?: LekakuReceiptTax[];
-  receiptPayments: LekakuReceiptPayment[];
+  receiptLines: LekukaReceiptLine[];
+  receiptTaxes?: LekukaReceiptTax[];
+  receiptPayments: LekukaReceiptPayment[];
   receiptTotal?: number;
-  taxRoundingType?: LekakuTaxRoundingType;
+  taxRoundingType?: LekukaTaxRoundingType;
   buyerData?: unknown;
   receiptNotes?: string;
   creditDebitNote?: unknown;
   receiptDeviceSignature?: { hash: string; signature: string };
 }
 
-export class LekakuApiError extends Error {
+export class LekukaApiError extends Error {
   constructor(public statusCode: number, public endpoint: string, public details?: unknown) {
-    super(`LEKAKU request to ${endpoint} failed (${statusCode})`);
-    this.name = "LekakuApiError";
+    super(`LEKUKA request to ${endpoint} failed (${statusCode})`);
+    this.name = "LekukaApiError";
   }
 }
 
 const money = (amount: number) => Math.round((amount + Number.EPSILON) * 100) / 100;
-const taxKey = (tax: Pick<LekakuReceiptTax, "taxID" | "taxCode">) => `${tax.taxID}:${tax.taxCode || ""}`;
+const taxKey = (tax: Pick<LekukaReceiptTax, "taxID" | "taxCode">) => `${tax.taxID}:${tax.taxCode || ""}`;
 
 /**
- * Builds the tax table required by LEKAKU v1.11, including levy taxes.
+ * Builds the tax table required by LEKUKA v1.11, including levy taxes.
  * Receipt totals are derived from this table so RCPT038 and RCPT039 use the
  * same amount that is sent to the gateway.
  */
-export function prepareLekakuReceipt(input: LekakuReceipt): LekakuReceipt {
+export function prepareLekukaReceipt(input: LekukaReceipt): LekukaReceipt {
   const receipt = structuredClone(input);
   const rounding = receipt.taxRoundingType || "PerReceipt";
-  const taxes = new Map<string, LekakuReceiptTax>();
+  const taxes = new Map<string, LekukaReceiptTax>();
 
-  const add = (tax: LekakuReceiptTax) => {
+  const add = (tax: LekukaReceiptTax) => {
     const key = taxKey(tax);
     const existing = taxes.get(key);
     if (existing) {
@@ -124,10 +124,10 @@ export function prepareLekakuReceipt(input: LekakuReceipt): LekakuReceipt {
     const additional = line.additionalTaxes || [];
     for (const levy of additional) {
       if (levy.receiptLineId !== line.receiptLineNo) {
-        throw new Error(`LEKAKU levy tax ${levy.taxID} must reference receipt line ${line.receiptLineNo}`);
+        throw new Error(`LEKUKA levy tax ${levy.taxID} must reference receipt line ${line.receiptLineNo}`);
       }
       if (levy.taxType === "FixedValueLevy" && !(levy.appliedForQuantity && levy.appliedForQuantity > 0)) {
-        throw new Error(`LEKAKU fixed levy ${levy.taxID} requires appliedForQuantity`);
+        throw new Error(`LEKUKA fixed levy ${levy.taxID} requires appliedForQuantity`);
       }
     }
   }
@@ -173,7 +173,7 @@ export function prepareLekakuReceipt(input: LekakuReceipt): LekakuReceipt {
     // PerReceipt (default): aggregate bases per (taxID, taxCode) bucket,
     // then round once (aggregate-then-round).
     interface Bucket {
-      tax: { taxID: number; taxCode?: string; taxType: LekakuTaxType; taxRate: number };
+      tax: { taxID: number; taxCode?: string; taxType: LekukaTaxType; taxRate: number };
       baseSum: number; lineSum: number; fixedRaw: number;
     }
     const buckets = new Map<string, Bucket>();
@@ -188,7 +188,7 @@ export function prepareLekakuReceipt(input: LekakuReceipt): LekakuReceipt {
     };
     for (const p of parsed) {
       for (const tax of p.percentageTaxes) {
-        const b = bucketOf({ taxID: tax.taxID, taxCode: tax.taxCode, taxType: tax.taxType as LekakuTaxType, taxRate: tax.taxRate });
+        const b = bucketOf({ taxID: tax.taxID, taxCode: tax.taxCode, taxType: tax.taxType as LekukaTaxType, taxRate: tax.taxRate });
         b.baseSum += p.base;
         b.lineSum += p.line.receiptLineTotal;
       }
@@ -216,15 +216,15 @@ export function prepareLekakuReceipt(input: LekakuReceipt): LekakuReceipt {
 
   const paymentsTotal = money(receipt.receiptPayments.reduce((sum, payment) => sum + payment.paymentAmount, 0));
   if (paymentsTotal !== receipt.receiptTotal) {
-    throw new Error(`LEKAKU payments (${paymentsTotal}) must equal receipt total (${receipt.receiptTotal})`);
+    throw new Error(`LEKUKA payments (${paymentsTotal}) must equal receipt total (${receipt.receiptTotal})`);
   }
   return receipt;
 }
 
-export function getLekakuReceiptSignatureInput(receipt: LekakuReceipt, deviceId: number | string, previousReceiptHash?: string): string {
+export function getLekukaReceiptSignatureInput(receipt: LekukaReceipt, deviceId: number | string, previousReceiptHash?: string): string {
   // Callers that already have the exact gateway tax table (for example a
   // stored/offline receipt) must not have it recalculated before signing.
-  const prepared = receipt.receiptTaxes && receipt.receiptTotal !== undefined ? receipt : prepareLekakuReceipt(receipt);
+  const prepared = receipt.receiptTaxes && receipt.receiptTotal !== undefined ? receipt : prepareLekukaReceipt(receipt);
   const taxInput = prepared.receiptTaxes!.map(t => {
     const rate = t.taxRate === undefined ? "" : t.taxRate.toFixed(2);
     return `${t.taxCode || ""}${rate}${Math.round(t.taxAmount * 100)}${Math.round(t.salesAmountWithTax * 100)}`;
@@ -232,12 +232,12 @@ export function getLekakuReceiptSignatureInput(receipt: LekakuReceipt, deviceId:
   return `${deviceId}${prepared.receiptType.toUpperCase()}${prepared.receiptCurrency.toUpperCase()}${prepared.receiptGlobalNo}${prepared.receiptDate}${Math.round(prepared.receiptTotal! * 100)}${taxInput}${previousReceiptHash || ""}`;
 }
 
-export class LekakuDevice {
+export class LekukaDevice {
   private readonly client: AxiosInstance;
   private readonly deviceId: string;
   private readonly privateKey?: string;
 
-  constructor(config: LekakuConfig) {
+  constructor(config: LekukaConfig) {
     this.deviceId = String(config.deviceId);
     this.privateKey = config.privateKey;
     this.client = axios.create({
@@ -257,11 +257,11 @@ export class LekakuDevice {
     });
   }
 
-  /** Builds the exact SHA-256 input mandated by LEKAKU section 13.2.1. */
-  signReceipt(receipt: LekakuReceipt, previousReceiptHash?: string): LekakuReceipt {
-    if (!this.privateKey) throw new Error("A LEKAKU device private key is required to sign a receipt");
-    const prepared = prepareLekakuReceipt(receipt);
-    const input = getLekakuReceiptSignatureInput(prepared, this.deviceId, previousReceiptHash);
+  /** Builds the exact SHA-256 input mandated by LEKUKA section 13.2.1. */
+  signReceipt(receipt: LekukaReceipt, previousReceiptHash?: string): LekukaReceipt {
+    if (!this.privateKey) throw new Error("A LEKUKA device private key is required to sign a receipt");
+    const prepared = prepareLekukaReceipt(receipt);
+    const input = getLekukaReceiptSignatureInput(prepared, this.deviceId, previousReceiptHash);
     const hash = crypto.createHash("sha256").update(input, "utf8").digest("base64");
     const signer = crypto.createSign("RSA-SHA256");
     signer.update(input, "utf8");
@@ -274,7 +274,7 @@ export class LekakuDevice {
     try {
       return (await this.client.request<T>({ method, url: endpoint, data })).data;
     } catch (error: any) {
-      throw new LekakuApiError(error.response?.status || 0, endpoint, error.response?.data || error.message);
+      throw new LekukaApiError(error.response?.status || 0, endpoint, error.response?.data || error.message);
     }
   }
 
@@ -291,7 +291,7 @@ export class LekakuDevice {
         ...(deviceSerialNo ? { DeviceSerialNo: deviceSerialNo } : {}),
       })).data;
     } catch (error: any) {
-      throw new LekakuApiError(error.response?.status || 0, endpoint, error.response?.data || error.message);
+      throw new LekukaApiError(error.response?.status || 0, endpoint, error.response?.data || error.message);
     }
   }
 
@@ -306,14 +306,14 @@ export class LekakuDevice {
         ...(deviceSerialNo ? { DeviceSerialNo: deviceSerialNo } : {}),
       })).data;
     } catch (error: any) {
-      throw new LekakuApiError(error.response?.status || 0, endpoint, error.response?.data || error.message);
+      throw new LekukaApiError(error.response?.status || 0, endpoint, error.response?.data || error.message);
     }
   }
 
   getConfig() { return this.request<any>("GET", "v2", "GetConfig"); }
   getStatus() { return this.request<any>("GET", "v1", "GetStatus"); }
   openDay(fiscalDayNo?: number) { return this.request<any>("POST", "v1", "OpenDay", fiscalDayNo ? { fiscalDayNo } : {}); }
-  submitReceipt(receipt: LekakuReceipt, previousReceiptHash?: string) {
+  submitReceipt(receipt: LekukaReceipt, previousReceiptHash?: string) {
     return this.request<any>("POST", "v2", "SubmitReceipt", {
       deviceID: Number(this.deviceId),
       receipt: this.signReceipt(receipt, previousReceiptHash),
@@ -321,16 +321,16 @@ export class LekakuDevice {
   }
 
   generateQrCode(hash: string, globalNo: number, receiptDate: string): string {
-    return `LEKAKU|${this.deviceId}|${globalNo}|${receiptDate}|${hash}`;
+    return `LEKUKA|${this.deviceId}|${globalNo}|${receiptDate}|${hash}`;
   }
 }
 
 /**
- * Generates a fresh RSA keypair + CSR for LEKAKU device registration,
+ * Generates a fresh RSA keypair + CSR for LEKUKA device registration,
  * mirroring the ZIMRA flow. The private key is kept server-side (saved to
  * the company); only the CSR is sent to RSL, which returns the certificate.
  */
-export function generateLekakuKeypair(deviceId: string | number, deviceSerialNo?: string): {
+export function generateLekukaKeypair(deviceId: string | number, deviceSerialNo?: string): {
   privateKey: string;
   certificateRequest: string;
 } {

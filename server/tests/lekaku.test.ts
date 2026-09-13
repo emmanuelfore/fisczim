@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
-import { getLekakuReceiptSignatureInput, prepareLekakuReceipt } from "../lekaku.js";
+import { getLekukaReceiptSignatureInput, prepareLekukaReceipt } from "../lekuka.js";
 
-describe("LEKAKU receipt preparation", () => {
+describe("LEKUKA receipt preparation", () => {
   test("builds the v1.11 device-signature input in its documented order", () => {
     const receipt = {
       receiptType: "FiscalInvoice" as const, receiptCurrency: "LSL" as const, receiptCounter: 1, receiptGlobalNo: 432,
@@ -14,11 +14,11 @@ describe("LEKAKU receipt preparation", () => {
         { taxID: 3, taxCode: "D", taxType: "VAT" as const, taxRate: 15, taxAmount: 300, salesAmountWithTax: 2300 },
       ],
     };
-    const input = getLekakuReceiptSignatureInput(receipt, 321, "hNVJXP/ACOiE8McD3pKsDlqBXpuaUqQOfPnMyfZWI9k=");
+    const input = getLekukaReceiptSignatureInput(receipt, 321, "hNVJXP/ACOiE8McD3pKsDlqBXpuaUqQOfPnMyfZWI9k=");
     expect(input).toBe("321FISCALINVOICELSL4322024-02-28T15:43:12945000A0250000B0.000350000C15.0015000115000D15.0030000230000hNVJXP/ACOiE8McD3pKsDlqBXpuaUqQOfPnMyfZWI9k=");
   });
   test("includes a percentage levy in both line data and aggregated receipt taxes", () => {
-    const receipt = prepareLekakuReceipt({
+    const receipt = prepareLekukaReceipt({
       receiptType: "FiscalInvoice", receiptCurrency: "LSL", receiptCounter: 1, receiptGlobalNo: 1,
       invoiceNo: "LS-1", receiptDate: "2026-09-03T10:00:00", receiptLinesTaxInclusive: false,
       receiptPayments: [{ moneyTypeCode: "Cash", paymentAmount: 115 }],
@@ -34,7 +34,7 @@ describe("LEKAKU receipt preparation", () => {
   });
 
   test("adds a fixed levy to an exclusive receipt total", () => {
-    const receipt = prepareLekakuReceipt({
+    const receipt = prepareLekukaReceipt({
       receiptType: "FiscalInvoice", receiptCurrency: "LSL", receiptCounter: 1, receiptGlobalNo: 1,
       invoiceNo: "LS-2", receiptDate: "2026-09-03T10:00:00", receiptLinesTaxInclusive: false,
       receiptPayments: [{ moneyTypeCode: "Cash", paymentAmount: 25 }],
@@ -47,7 +47,7 @@ describe("LEKAKU receipt preparation", () => {
   });
 
   test("rejects a fixed levy without its required appliedForQuantity", () => {
-    expect(() => prepareLekakuReceipt({
+    expect(() => prepareLekukaReceipt({
       receiptType: "FiscalInvoice", receiptCurrency: "LSL", receiptCounter: 1, receiptGlobalNo: 1,
       invoiceNo: "LS-3", receiptDate: "2026-09-03T10:00:00", receiptLinesTaxInclusive: false,
       receiptPayments: [{ moneyTypeCode: "Cash", paymentAmount: 20 }],

@@ -39,7 +39,7 @@ export function DeviceStatusWidget({ companyId }: { companyId: number }) {
           <TooltipContent>
             <p>Failed to check device status</p>
             <p className="text-slate-400 max-w-[260px] break-words">
-              {(error as any)?.message || "Unknown error — check Network tab for lekaku/status"}
+              {(error as any)?.message || "Unknown error — check Network tab for lekuka/status"}
             </p>
           </TooltipContent>
         </Tooltip>

@@ -45,8 +45,8 @@ import manufacturingRouter from "./api/v1/manufacturing.js";
 import { createRolesPermissionsRouter } from "./routes/roles-permissions.js";
 import { createPartnershipsRouter } from "./routes/partnerships.js";
 import { createCustomerFlowRouter } from "./routes/customer-flow.js";
-import { LekakuDevice, LekakuApiError, generateLekakuKeypair } from "./lekaku.js";
-import { LEKAKU_DEFAULT_GATEWAY, getLekakuGatewayUrl } from "../shared/lekaku.js";
+import { LekukaDevice, LekukaApiError, generateLekukaKeypair } from "./lekuka.js";
+import { LEKUKA_DEFAULT_GATEWAY, getLekukaGatewayUrl } from "../shared/lekuka.js";
 import { createFreightRouter } from "./routes/freight.js";
 import { userHasPermission } from "./lib/permissions.js";
 import { resolveActionAccess } from "./lib/approval-policies.js";
@@ -2060,13 +2060,13 @@ export async function registerRoutes(
         .from(companies)
         .orderBy(asc(companies.name));
 
-      // Deployment scoping (lekaku branch): country-scoped deployments
+      // Deployment scoping (lekuka branch): country-scoped deployments
       // only list that country's clients. See COUNTRY_SCOPE.
       const countryScope = (process.env.COUNTRY_SCOPE || "").trim().toLowerCase();
       const scoped = countryScope
         ? rows.filter((r: any) => {
             if ((r.country || "").toLowerCase() === countryScope) return true;
-            if (countryScope === "lesotho" && r.fiscalProvider === "LEKAKU") return true;
+            if (countryScope === "lesotho" && r.fiscalProvider === "LEKUKA") return true;
             return false;
           })
         : rows;
@@ -2679,15 +2679,15 @@ export async function registerRoutes(
         zimraEnvironment: environment
       });
 
-      // LEKAKU companies: taxIDs differ per gateway env — same best-effort
-      // re-sync + remap as the /lekaku/environment endpoint.
-      let lekakuTaxResync: any = undefined;
-      if (company.fiscalProvider === "LEKAKU" || company.country === "Lesotho") {
+      // LEKUKA companies: taxIDs differ per gateway env — same best-effort
+      // re-sync + remap as the /lekuka/environment endpoint.
+      let lekukaTaxResync: any = undefined;
+      if (company.fiscalProvider === "LEKUKA" || company.country === "Lesotho") {
         try {
           const fresh: any = await storage.getCompany(companyId);
-          const { getLekakuGatewayUrl } = await import("../shared/lekaku.js");
-          const syncDevice = new LekakuDevice({
-            baseUrl: (fresh.lekakuGatewayUrl || getLekakuGatewayUrl(environment)).trim(),
+          const { getLekukaGatewayUrl } = await import("../shared/lekuka.js");
+          const syncDevice = new LekukaDevice({
+            baseUrl: (fresh.lekukaGatewayUrl || getLekukaGatewayUrl(environment)).trim(),
             deviceId: String(fresh.fdmsDeviceId || "").trim(),
             privateKey: fresh.zimraPrivateKey || undefined,
             certificate: fresh.zimraCertificate || undefined,
@@ -2695,12 +2695,12 @@ export async function registerRoutes(
           const cfg = await syncDevice.getConfig();
           const taxes = cfg?.applicableTaxes || [];
           if (taxes.length) {
-            const sync = await storage.syncLekakuTaxes(companyId, taxes, environment as "test" | "production");
-            const remap = await storage.remapLekakuTaxesForEnv(companyId, environment as "test" | "production");
-            lekakuTaxResync = { attempted: true, ok: true, ...sync, remap };
-          } else lekakuTaxResync = { attempted: true, ok: false, reason: "gateway returned no applicableTaxes" };
+            const sync = await storage.syncLekukaTaxes(companyId, taxes, environment as "test" | "production");
+            const remap = await storage.remapLekukaTaxesForEnv(companyId, environment as "test" | "production");
+            lekukaTaxResync = { attempted: true, ok: true, ...sync, remap };
+          } else lekukaTaxResync = { attempted: true, ok: false, reason: "gateway returned no applicableTaxes" };
         } catch (syncErr: any) {
-          lekakuTaxResync = { attempted: true, ok: false, reason: syncErr.message || "re-sync failed" };
+          lekukaTaxResync = { attempted: true, ok: false, reason: syncErr.message || "re-sync failed" };
         }
       }
 
@@ -2712,7 +2712,7 @@ export async function registerRoutes(
         previousEnvironment: company.zimraEnvironment,
         currentEnvironment: environment,
         baseUrl: getZimraBaseUrl(environment as "test" | "production"),
-        ...(lekakuTaxResync ? { lekakuTaxResync } : {}),
+        ...(lekukaTaxResync ? { lekukaTaxResync } : {}),
         warning: environment === 'production'
           ? 'You are now using the PRODUCTION ZIMRA environment. All transactions will be real and reported to ZIMRA.'
           : null
@@ -2724,10 +2724,10 @@ export async function registerRoutes(
     }
   });
 
-  // LEKAKU alias — lekaku branch uses RSL gateway for *all* fiscal calls.
-  // Mirrors /zimra/environment but hits LEKAKU gateway (via getZimraBaseUrl
+  // LEKUKA alias — lekuka branch uses RSL gateway for *all* fiscal calls.
+  // Mirrors /zimra/environment but hits LEKUKA gateway (via getZimraBaseUrl
   // override when COUNTRY_SCOPE=Lesotho). Keeps /zimra path working too.
-  app.post("/api/companies/:id/lekaku/environment", requireAuthOrApiKey, async (req, res) => {
+  app.post("/api/companies/:id/lekuka/environment", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = req.params.id ? Number(req.params.id) : (req as any).apiKeyCompanyId;
       const { environment } = req.body;
@@ -2745,7 +2745,7 @@ export async function registerRoutes(
         if (!hasSub) return res.status(402).json({ message: "Active subscription required for PRODUCTION environment", macAddress });
       }
       await storage.updateCompany(companyId, { zimraEnvironment: environment } as any);
-      console.log(`[LEKAKU] Company ${companyId} environment changed: ${company.zimraEnvironment} → ${environment}`);
+      console.log(`[LEKUKA] Company ${companyId} environment changed: ${company.zimraEnvironment} → ${environment}`);
 
       // TaxIDs differ between test and production gateways. Best-effort:
       // re-sync the new env's applicableTaxes and remap products/levies.
@@ -2754,9 +2754,9 @@ export async function registerRoutes(
       let taxResync: any = { attempted: false };
       try {
         const fresh: any = await storage.getCompany(companyId);
-        const { getLekakuGatewayUrl } = await import("../shared/lekaku.js");
-        const syncDevice = new LekakuDevice({
-          baseUrl: (fresh.lekakuGatewayUrl || getLekakuGatewayUrl(environment)).trim(),
+        const { getLekukaGatewayUrl } = await import("../shared/lekuka.js");
+        const syncDevice = new LekukaDevice({
+          baseUrl: (fresh.lekukaGatewayUrl || getLekukaGatewayUrl(environment)).trim(),
           deviceId: String(fresh.fdmsDeviceId || "").trim(),
           privateKey: fresh.zimraPrivateKey || undefined,
           certificate: fresh.zimraCertificate || undefined,
@@ -2764,16 +2764,16 @@ export async function registerRoutes(
         const cfg = await syncDevice.getConfig();
         const taxes = cfg?.applicableTaxes || [];
         if (taxes.length) {
-          const sync = await storage.syncLekakuTaxes(companyId, taxes, environment as "test" | "production");
-          const remap = await storage.remapLekakuTaxesForEnv(companyId, environment as "test" | "production");
+          const sync = await storage.syncLekukaTaxes(companyId, taxes, environment as "test" | "production");
+          const remap = await storage.remapLekukaTaxesForEnv(companyId, environment as "test" | "production");
           taxResync = { attempted: true, ok: true, ...sync, remap };
         } else taxResync = { attempted: true, ok: false, reason: "gateway returned no applicableTaxes" };
       } catch (syncErr: any) {
         taxResync = { attempted: true, ok: false, reason: syncErr.message || "re-sync failed — re-register the device, then Sync Tax Config" };
       }
-      res.json({ success: true, message: `LEKAKU environment switched to ${environment}`, previousEnvironment: company.zimraEnvironment, currentEnvironment: environment, baseUrl: getZimraBaseUrl(environment as "test" | "production"), taxResync });
+      res.json({ success: true, message: `LEKUKA environment switched to ${environment}`, previousEnvironment: company.zimraEnvironment, currentEnvironment: environment, baseUrl: getZimraBaseUrl(environment as "test" | "production"), taxResync });
     } catch (err: any) {
-      console.error("Switch LEKAKU Environment Error:", err);
+      console.error("Switch LEKUKA Environment Error:", err);
       res.status(500).json({ message: "Failed to switch environment: " + err.message });
     }
   });
@@ -10304,9 +10304,9 @@ export async function registerRoutes(
     }
   });
 
-  // LEKAKU levies are configured once, then assigned per product. This keeps
+  // LEKUKA levies are configured once, then assigned per product. This keeps
   // checkout simple and produces `additionalTaxes` for the affected sale line.
-  app.get("/api/companies/:companyId/lekaku/product-levies", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/lekuka/product-levies", requireAuth, async (req, res) => {
     const companyId = Number(req.params.companyId);
     const rows = await db.select({
       productId: productTaxLevies.productId,
@@ -10318,7 +10318,7 @@ export async function registerRoutes(
     res.json(rows);
   });
 
-  app.put("/api/companies/:companyId/products/:productId/lekaku-levies", requireAuth, async (req, res) => {
+  app.put("/api/companies/:companyId/products/:productId/lekuka-levies", requireAuth, async (req, res) => {
     const companyId = Number(req.params.companyId);
     const productId = Number(req.params.productId);
     const levies = z.array(z.object({
@@ -10328,10 +10328,10 @@ export async function registerRoutes(
     const [product] = await db.select({ id: products.id }).from(products)
       .where(and(eq(products.id, productId), eq(products.companyId, companyId)));
     if (!product) return res.status(404).json({ message: "Product not found" });
-    const levyTaxTypes = await db.select({ id: taxTypes.id, type: taxTypes.lekakuTaxType }).from(taxTypes)
+    const levyTaxTypes = await db.select({ id: taxTypes.id, type: taxTypes.lekukaTaxType }).from(taxTypes)
       .where(and(eq(taxTypes.companyId, companyId), inArray(taxTypes.id, levies.map(levy => levy.taxTypeId))));
     if (levyTaxTypes.length !== levies.length || levyTaxTypes.some(t => !["PercentageLevy", "FixedValueLevy", "WithholdingTax"].includes(t.type || ""))) {
-      return res.status(400).json({ message: "Only configured LEKAKU levy tax types can be assigned to products" });
+      return res.status(400).json({ message: "Only configured LEKUKA levy tax types can be assigned to products" });
     }
     await db.transaction(async (tx) => {
       await tx.delete(productTaxLevies).where(eq(productTaxLevies.productId, productId));
@@ -10343,17 +10343,17 @@ export async function registerRoutes(
     res.json({ productId, levies });
   });
 
-  // LEKAKU device registration (mirrors the ZIMRA flow, RSL endpoint).
+  // LEKUKA device registration (mirrors the ZIMRA flow, RSL endpoint).
   // Step 1: verify the taxpayer behind a device ID (public operation).
-  app.post("/api/companies/:companyId/lekaku/verify-taxpayer", requireAuth, async (req, res) => {
+  app.post("/api/companies/:companyId/lekuka/verify-taxpayer", requireAuth, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const { deviceId, activationKey, deviceSerialNo, gatewayUrl } = req.body || {};
       if (!deviceId) return res.status(400).json({ message: "deviceId is required" });
       const company: any = await storage.getCompany(companyId);
       if (!company) return res.status(404).json({ message: "Company not found" });
-      const device = new LekakuDevice({
-        baseUrl: (gatewayUrl || company.lekakuGatewayUrl || getLekakuGatewayUrl(company.zimraEnvironment)).trim(),
+      const device = new LekukaDevice({
+        baseUrl: (gatewayUrl || company.lekukaGatewayUrl || getLekukaGatewayUrl(company.zimraEnvironment)).trim(),
         deviceId: String(deviceId).trim(),
       });
       const info = await device.verifyTaxpayerInformation(
@@ -10362,8 +10362,8 @@ export async function registerRoutes(
       );
       res.json(info);
     } catch (err: any) {
-      console.error("LEKAKU verify-taxpayer error:", err?.message || err);
-      if (err instanceof LekakuApiError) {
+      console.error("LEKUKA verify-taxpayer error:", err?.message || err);
+      if (err instanceof LekukaApiError) {
         return res.status(err.statusCode || 500).json({ message: err.message, details: err.details });
       }
       res.status(500).json({ message: err.message || "Verification failed" });
@@ -10372,7 +10372,7 @@ export async function registerRoutes(
 
   // Step 2: register the device — generates a keypair + CSR locally, RSL
   // returns the certificate. Everything is auto-saved to the company.
-  app.post("/api/companies/:companyId/lekaku/register", requireAuth, async (req, res) => {
+  app.post("/api/companies/:companyId/lekuka/register", requireAuth, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const { deviceId, activationKey, deviceSerialNo, gatewayUrl } = req.body || {};
@@ -10381,12 +10381,12 @@ export async function registerRoutes(
       }
       const company: any = await storage.getCompany(companyId);
       if (!company) return res.status(404).json({ message: "Company not found" });
-      const baseUrl = (gatewayUrl || company.lekakuGatewayUrl || getLekakuGatewayUrl(company.zimraEnvironment)).trim();
+      const baseUrl = (gatewayUrl || company.lekukaGatewayUrl || getLekukaGatewayUrl(company.zimraEnvironment)).trim();
       const cleanDeviceId = String(deviceId).trim();
       const cleanSerialNo = String(deviceSerialNo).trim();
 
-      const { privateKey, certificateRequest } = generateLekakuKeypair(cleanDeviceId, cleanSerialNo);
-      const device = new LekakuDevice({ baseUrl, deviceId: cleanDeviceId });
+      const { privateKey, certificateRequest } = generateLekukaKeypair(cleanDeviceId, cleanSerialNo);
+      const device = new LekukaDevice({ baseUrl, deviceId: cleanDeviceId });
       const result = await device.registerDevice(
         certificateRequest,
         String(activationKey).trim(),
@@ -10399,25 +10399,25 @@ export async function registerRoutes(
         fdmsDeviceId: cleanDeviceId,
         fdmsApiKey: String(activationKey).trim(),
         fdmsDeviceSerialNo: cleanSerialNo,
-        lekakuGatewayUrl: baseUrl,
+        lekukaGatewayUrl: baseUrl,
         zimraPrivateKey: privateKey,
         zimraCertificate: certificate,
-        fiscalProvider: "LEKAKU",
+        fiscalProvider: "LEKUKA",
         country: "Lesotho",
       } as any);
-      res.json({ message: "LEKAKU device registered successfully", certificate });
+      res.json({ message: "LEKUKA device registered successfully", certificate });
     } catch (err: any) {
-      console.error("LEKAKU register error:", err?.message || err);
-      if (err instanceof LekakuApiError) {
+      console.error("LEKUKA register error:", err?.message || err);
+      if (err instanceof LekukaApiError) {
         return res.status(err.statusCode || 500).json({ message: err.message, details: err.details });
       }
       res.status(500).json({ message: err.message || "Registration failed" });
     }
   });
 
-  // LEKAKU device status: local config check + fiscal day state for widget.
-  // lekaku branch: when configured, treat as online (no live RSL ping on every poll).
-  app.get("/api/companies/:companyId/lekaku/status", requireAuth, async (req, res) => { try {
+  // LEKUKA device status: local config check + fiscal day state for widget.
+  // lekuka branch: when configured, treat as online (no live RSL ping on every poll).
+  app.get("/api/companies/:companyId/lekuka/status", requireAuth, async (req, res) => { try {
     const companyId = Number(req.params.companyId);
     if (!Number.isFinite(companyId)) return res.status(400).json({ message: "Invalid company ID" });
     const company: any = await storage.getCompany(companyId);
@@ -10442,21 +10442,21 @@ export async function registerRoutes(
       missing,
     });
   } catch (err: any) {
-    console.error("LEKAKU status error:", err?.message || err);
+    console.error("LEKUKA status error:", err?.message || err);
     res.status(500).json({ message: "Failed to check device status", error: err?.message });
   }
   });
 
-  // LEKAKU applicable taxes — live GetConfig passthrough (spec: Tax array).
+  // LEKUKA applicable taxes — live GetConfig passthrough (spec: Tax array).
   // This is the source of truth every receipt line must reference (RCPT025).
-  app.get("/api/companies/:companyId/lekaku/applicable-taxes", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/lekuka/applicable-taxes", requireAuth, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const company: any = await storage.getCompany(companyId);
       if (!company) return res.status(404).json({ message: "Company not found" });
       if (!company.fdmsDeviceId) return res.status(400).json({ message: "Company not registered with RSL" });
-      const device = new LekakuDevice({
-        baseUrl: (company.lekakuGatewayUrl || getLekakuGatewayUrl(company.zimraEnvironment)).trim(),
+      const device = new LekukaDevice({
+        baseUrl: (company.lekukaGatewayUrl || getLekukaGatewayUrl(company.zimraEnvironment)).trim(),
         deviceId: String(company.fdmsDeviceId).trim(),
         privateKey: company.zimraPrivateKey || undefined,
         certificate: company.zimraCertificate || undefined,
@@ -10464,26 +10464,26 @@ export async function registerRoutes(
       const config = await device.getConfig();
       res.json({ applicableTaxes: config?.applicableTaxes || [], operationID: config?.operationID });
     } catch (err: any) {
-      console.error("LEKAKU applicable-taxes error:", err?.message || err);
-      if (err instanceof LekakuApiError) {
+      console.error("LEKUKA applicable-taxes error:", err?.message || err);
+      if (err instanceof LekukaApiError) {
         return res.status(err.statusCode || 500).json({ message: err.message, details: err.details });
       }
       res.status(500).json({ message: err.message || "Failed to fetch applicable taxes" });
     }
   });
 
-  // LEKAKU config sync — GetConfig → syncLekakuTaxes (env-scoped) + remap.
+  // LEKUKA config sync — GetConfig → syncLekukaTaxes (env-scoped) + remap.
   // Run after registration AND after every test<->production switch:
   // taxIDs differ per gateway env.
-  app.post("/api/companies/:companyId/lekaku/config/sync", requireAuth, async (req, res) => {
+  app.post("/api/companies/:companyId/lekuka/config/sync", requireAuth, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const company: any = await storage.getCompany(companyId);
       if (!company) return res.status(404).json({ message: "Company not found" });
       if (!company.fdmsDeviceId) return res.status(400).json({ message: "Company not registered with RSL" });
       const environment = (company.zimraEnvironment === "production" ? "production" : "test") as "test" | "production";
-      const device = new LekakuDevice({
-        baseUrl: (company.lekakuGatewayUrl || getLekakuGatewayUrl(environment)).trim(),
+      const device = new LekukaDevice({
+        baseUrl: (company.lekukaGatewayUrl || getLekukaGatewayUrl(environment)).trim(),
         deviceId: String(company.fdmsDeviceId).trim(),
         privateKey: company.zimraPrivateKey || undefined,
         certificate: company.zimraCertificate || undefined,
@@ -10491,11 +10491,11 @@ export async function registerRoutes(
       const config = await device.getConfig();
       const taxes = config?.applicableTaxes || [];
       if (!taxes.length) throw new Error("Invalid config response from RSL: missing applicableTaxes");
-      const sync = await storage.syncLekakuTaxes(companyId, taxes, environment);
-      const remap = await storage.remapLekakuTaxesForEnv(companyId, environment);
+      const sync = await storage.syncLekukaTaxes(companyId, taxes, environment);
+      const remap = await storage.remapLekukaTaxesForEnv(companyId, environment);
       if (config?.qrUrl) await storage.updateCompany(companyId, { qrUrl: config.qrUrl } as any);
       res.json({
-        message: "LEKAKU configuration synced successfully",
+        message: "LEKUKA configuration synced successfully",
         environment,
         ...sync,
         remap,
@@ -10511,25 +10511,25 @@ export async function registerRoutes(
         },
       });
     } catch (err: any) {
-      console.error("LEKAKU config sync error:", err?.message || err);
-      if (err instanceof LekakuApiError) {
+      console.error("LEKUKA config sync error:", err?.message || err);
+      if (err instanceof LekukaApiError) {
         return res.status(err.statusCode || 500).json({ message: err.message, details: err.details });
       }
-      res.status(500).json({ message: err.message || "Failed to sync LEKAKU configuration" });
+      res.status(500).json({ message: err.message || "Failed to sync LEKUKA configuration" });
     }
   });
 
-  // LEKAKU tax health — validates local tax mapping against the live RSL
+  // LEKUKA tax health — validates local tax mapping against the live RSL
   // config BEFORE invoices turn red. Mirrors /zimra/tax-health.
-  app.get("/api/companies/:companyId/lekaku/tax-health", requireAuth, async (req, res) => {
+  app.get("/api/companies/:companyId/lekuka/tax-health", requireAuth, async (req, res) => {
     try {
       const companyId = Number(req.params.companyId);
       const company: any = await storage.getCompany(companyId);
       if (!company) return res.status(404).json({ message: "Company not found" });
       if (!company.fdmsDeviceId) return res.status(400).json({ message: "Company not registered with RSL" });
       const environment = (company.zimraEnvironment === "production" ? "production" : "test") as "test" | "production";
-      const device = new LekakuDevice({
-        baseUrl: (company.lekakuGatewayUrl || getLekakuGatewayUrl(environment)).trim(),
+      const device = new LekukaDevice({
+        baseUrl: (company.lekukaGatewayUrl || getLekukaGatewayUrl(environment)).trim(),
         deviceId: String(company.fdmsDeviceId).trim(),
         privateKey: company.zimraPrivateKey || undefined,
         certificate: company.zimraCertificate || undefined,
@@ -10545,21 +10545,21 @@ export async function registerRoutes(
 
       const local = await storage.getTaxTypes(companyId);
       const today = new Date().toISOString().slice(0, 10);
-      const localEnv = local.filter(t => t.lekakuTaxId && (t.lekakuEnvironment || "test") === environment);
+      const localEnv = local.filter(t => t.lekukaTaxId && (t.lekukaEnvironment || "test") === environment);
       const liveById = new Map(live.map((t: any) => [String(t.taxID), t]));
       const issues: Array<{ severity: "error" | "warning"; code: string; message: string }> = [];
 
       for (const t of localEnv) {
-        const g = liveById.get(String(t.lekakuTaxId));
+        const g = liveById.get(String(t.lekukaTaxId));
         if (liveAvailable && !g) {
-          issues.push({ severity: "error", code: "vanished", message: `Local tax "${t.name}" (RSL ID ${t.lekakuTaxId}) is no longer in the ${environment} gateway list — re-sync config.` });
+          issues.push({ severity: "error", code: "vanished", message: `Local tax "${t.name}" (RSL ID ${t.lekukaTaxId}) is no longer in the ${environment} gateway list — re-sync config.` });
         } else if (g) {
-          const liveRate = t.lekakuTaxType === "Exempt" ? "0.00" : Number(g.taxRate ?? 0).toFixed(2);
+          const liveRate = t.lekukaTaxType === "Exempt" ? "0.00" : Number(g.taxRate ?? 0).toFixed(2);
           if (Number(t.rate).toFixed(2) !== liveRate) {
-            issues.push({ severity: "error", code: "stale-rate", message: `Local tax "${t.name}" is ${t.rate} but RSL says ${liveRate} (ID ${t.lekakuTaxId}) — re-sync config.` });
+            issues.push({ severity: "error", code: "stale-rate", message: `Local tax "${t.name}" is ${t.rate} but RSL says ${liveRate} (ID ${t.lekukaTaxId}) — re-sync config.` });
           }
-          if (t.lekakuValidTill && t.lekakuValidTill < today) {
-            issues.push({ severity: "error", code: "expired", message: `RSL tax "${t.name}" (ID ${t.lekakuTaxId}) expired on ${t.lekakuValidTill} — re-sync config.` });
+          if (t.lekukaValidTill && t.lekukaValidTill < today) {
+            issues.push({ severity: "error", code: "expired", message: `RSL tax "${t.name}" (ID ${t.lekukaTaxId}) expired on ${t.lekukaValidTill} — re-sync config.` });
           }
         }
       }
@@ -10568,10 +10568,10 @@ export async function registerRoutes(
       const byId = new Map(local.map(t => [t.id, t]));
       for (const p of companyProducts) {
         const t = p.taxTypeId ? byId.get(p.taxTypeId) : undefined;
-        if (!t || !t.lekakuTaxId) {
+        if (!t || !t.lekukaTaxId) {
           issues.push({ severity: "error", code: "unmapped-product", message: `Product "${p.name}" has no RSL tax mapping — assign one, then sync.` });
-        } else if ((t.lekakuEnvironment || "test") !== environment) {
-          issues.push({ severity: "error", code: "wrong-env", message: `Product "${p.name}" points at a ${t.lekakuEnvironment || "test"} tax (ID ${t.lekakuTaxId}) but the device is on ${environment} — switch remap did not cover it. Re-sync ${environment} config.` });
+        } else if ((t.lekukaEnvironment || "test") !== environment) {
+          issues.push({ severity: "error", code: "wrong-env", message: `Product "${p.name}" points at a ${t.lekukaEnvironment || "test"} tax (ID ${t.lekukaTaxId}) but the device is on ${environment} — switch remap did not cover it. Re-sync ${environment} config.` });
         } else if (t.isActive === false) {
           issues.push({ severity: "error", code: "inactive-tax", message: `Product "${p.name}" uses deactivated tax "${t.name}" — re-sync config and remap.` });
         }
@@ -10581,12 +10581,12 @@ export async function registerRoutes(
       res.json({
         environment, liveAvailable,
         liveTaxes: live.map((t: any) => ({ taxID: t.taxID, taxName: t.taxName, taxRate: t.taxRate, taxType: t.taxType, taxValidFrom: t.taxValidFrom, taxValidTill: t.taxValidTill })),
-        localTaxes: localEnv.map(t => ({ id: t.id, name: t.name, rate: t.rate, lekakuTaxId: t.lekakuTaxId, lekakuTaxType: t.lekakuTaxType, lekakuTaxCode: t.lekakuTaxCode, lekakuEnvironment: t.lekakuEnvironment, lekakuValidFrom: t.lekakuValidFrom, lekakuValidTill: t.lekakuValidTill, isActive: t.isActive })),
+        localTaxes: localEnv.map(t => ({ id: t.id, name: t.name, rate: t.rate, lekukaTaxId: t.lekukaTaxId, lekukaTaxType: t.lekukaTaxType, lekukaTaxCode: t.lekukaTaxCode, lekukaEnvironment: t.lekukaEnvironment, lekukaValidFrom: t.lekukaValidFrom, lekukaValidTill: t.lekukaValidTill, isActive: t.isActive })),
         issues,
       });
     } catch (err: any) {
-      console.error("LEKAKU tax health error:", err?.message || err);
-      res.status(500).json({ message: err.message || "Failed to check LEKAKU tax mapping" });
+      console.error("LEKUKA tax health error:", err?.message || err);
+      res.status(500).json({ message: err.message || "Failed to check LEKUKA tax mapping" });
     }
   });
 

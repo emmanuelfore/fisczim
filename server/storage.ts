@@ -238,8 +238,8 @@ export interface IStorage {
   createTaxCategory(category: InsertTaxCategory & { companyId: number }): Promise<TaxCategory>;
   updateTaxCategory(id: number, companyId: number, category: Partial<InsertTaxCategory>): Promise<TaxCategory | undefined>;
   syncTaxTypes(companyId: number, zimraTaxes: any[]): Promise<TaxType[]>;
-  syncLekakuTaxes(companyId: number, gatewayTaxes: any[], environment: "test" | "production"): Promise<{ synced: TaxType[]; added: number; updated: number; deactivated: number }>;
-  remapLekakuTaxesForEnv(companyId: number, environment: "test" | "production"): Promise<{ remappedProducts: number; remappedLevies: number; unmapped: Array<{ kind: string; productId?: number; taxTypeId: number; reason: string }> }>;
+  syncLekukaTaxes(companyId: number, gatewayTaxes: any[], environment: "test" | "production"): Promise<{ synced: TaxType[]; added: number; updated: number; deactivated: number }>;
+  remapLekukaTaxesForEnv(companyId: number, environment: "test" | "production"): Promise<{ remappedProducts: number; remappedLevies: number; unmapped: Array<{ kind: string; productId?: number; taxTypeId: number; reason: string }> }>;
 
   // Currencies
   getCurrencies(companyId: number): Promise<Currency[]>;
@@ -831,16 +831,16 @@ export class DatabaseStorage implements IStorage {
     if (user?.isSuperAdmin) {
       let allCompanies = await db.select().from(companies);
 
-      // Deployment scoping (lekaku branch): a country-scoped deployment
+      // Deployment scoping (lekuka branch): a country-scoped deployment
       // only exposes that country's clients to superadmins. Set
       // COUNTRY_SCOPE=Lesotho in the Lesotho deployment's environment.
       const countryScope = (process.env.COUNTRY_SCOPE || "").trim().toLowerCase();
       if (countryScope) {
         allCompanies = allCompanies.filter((c) => {
           if ((c.country || "").toLowerCase() === countryScope) return true;
-          // LEKAKU-fiscalized companies belong to Lesotho even if the
+          // LEKUKA-fiscalized companies belong to Lesotho even if the
           // country field was never backfilled.
-          if (countryScope === "lesotho" && (c as any).fiscalProvider === "LEKAKU") return true;
+          if (countryScope === "lesotho" && (c as any).fiscalProvider === "LEKUKA") return true;
           return false;
         });
       }
@@ -2729,20 +2729,20 @@ export class DatabaseStorage implements IStorage {
   }
 
   /**
-   * LEKAKU authoritative tax sync (spec: Tax object from GetConfig).
+   * LEKUKA authoritative tax sync (spec: Tax object from GetConfig).
    *
    * The gateway is the ONLY source of taxID/rate/type/code/validity — this
    * method copies them verbatim into tax_types, scoped per environment
-   * (lekakuEnvironment) because test and production gateways issue DIFFERENT
+   * (lekukaEnvironment) because test and production gateways issue DIFFERENT
    * taxIDs. Rows that vanish from the gateway are deactivated, never deleted
    * (invoice_items history references them by FK).
    */
-  async syncLekakuTaxes(companyId: number, gatewayTaxes: any[], environment: "test" | "production"): Promise<{ synced: TaxType[]; added: number; updated: number; deactivated: number }> {
+  async syncLekukaTaxes(companyId: number, gatewayTaxes: any[], environment: "test" | "production"): Promise<{ synced: TaxType[]; added: number; updated: number; deactivated: number }> {
     const VALID_TYPES = new Set(["Exempt", "FixedValueLevy", "NonVAT", "PercentageLevy", "VAT", "WithholdingTax"]);
     const today = new Date().toISOString().slice(0, 10);
     return await db.transaction(async (tx) => {
       const existing = await tx.select().from(taxTypes).where(eq(taxTypes.companyId, companyId));
-      const existingByKey = new Map(existing.filter(t => t.lekakuTaxId && (t.lekakuEnvironment || "test") === environment).map(t => [String(t.lekakuTaxId), t]));
+      const existingByKey = new Map(existing.filter(t => t.lekukaTaxId && (t.lekukaEnvironment || "test") === environment).map(t => [String(t.lekukaTaxId), t]));
       const seenIds = new Set<string>();
       const synced: TaxType[] = [];
       let added = 0, updated = 0;
@@ -2760,18 +2760,18 @@ export class DatabaseStorage implements IStorage {
         const validFrom = g.taxValidFrom ? String(g.taxValidFrom).slice(0, 10) : today;
         const validTill = g.taxValidTill ? String(g.taxValidTill).slice(0, 10) : null;
         const inWindow = validFrom <= today && (!validTill || validTill >= today);
-        const code = `LEKAKU-${taxType}-${taxId}`;
+        const code = `LEKUKA-${taxType}-${taxId}`;
         const name = g.taxName || `${taxType} ${rate}%`;
 
         const prev = existingByKey.get(taxId);
         if (prev) {
           const [row] = await tx.update(taxTypes).set({
             code, name, rate,
-            description: `RSL LEKAKU Tax ${taxId} (${g.taxName || taxType}) [${environment}]`,
-            lekakuTaxType: taxType,
-            lekakuTaxCode: g.taxCode ? String(g.taxCode) : null,
-            lekakuValidFrom: validFrom,
-            lekakuValidTill: validTill,
+            description: `RSL LEKUKA Tax ${taxId} (${g.taxName || taxType}) [${environment}]`,
+            lekukaTaxType: taxType,
+            lekukaTaxCode: g.taxCode ? String(g.taxCode) : null,
+            lekukaValidFrom: validFrom,
+            lekukaValidTill: validTill,
             effectiveFrom: validFrom,
             isActive: inWindow,
           }).where(eq(taxTypes.id, prev.id)).returning();
@@ -2780,15 +2780,15 @@ export class DatabaseStorage implements IStorage {
           const [row] = await tx.insert(taxTypes).values({
             companyId,
             code, name, rate,
-            description: `RSL LEKAKU Tax ${taxId} (${g.taxName || taxType}) [${environment}]`,
+            description: `RSL LEKUKA Tax ${taxId} (${g.taxName || taxType}) [${environment}]`,
             isActive: inWindow,
             effectiveFrom: validFrom,
-            lekakuTaxId: taxId,
-            lekakuTaxType: taxType,
-            lekakuTaxCode: g.taxCode ? String(g.taxCode) : null,
-            lekakuEnvironment: environment,
-            lekakuValidFrom: validFrom,
-            lekakuValidTill: validTill,
+            lekukaTaxId: taxId,
+            lekukaTaxType: taxType,
+            lekukaTaxCode: g.taxCode ? String(g.taxCode) : null,
+            lekukaEnvironment: environment,
+            lekukaValidFrom: validFrom,
+            lekukaValidTill: validTill,
           }).returning();
           synced.push(row); added++;
           existingByKey.set(taxId, row);
@@ -2799,8 +2799,8 @@ export class DatabaseStorage implements IStorage {
       // superseded). Referenced history stays intact via soft-deactivate.
       let deactivated = 0;
       for (const t of existing) {
-        if (!t.lekakuTaxId || (t.lekakuEnvironment || "test") !== environment) continue;
-        if (seenIds.has(String(t.lekakuTaxId))) continue;
+        if (!t.lekukaTaxId || (t.lekukaEnvironment || "test") !== environment) continue;
+        if (seenIds.has(String(t.lekukaTaxId))) continue;
         if (t.isActive === false) continue;
         await tx.update(taxTypes).set({ isActive: false }).where(eq(taxTypes.id, t.id));
         deactivated++;
@@ -2810,29 +2810,29 @@ export class DatabaseStorage implements IStorage {
   }
 
   /**
-   * Remap products + product levies to another environment's LEKAKU rows.
+   * Remap products + product levies to another environment's LEKUKA rows.
    * Called after a test<->production switch (taxIDs differ per gateway).
-   * Match rule is strict: same lekakuTaxType AND same rate (AND same code
+   * Match rule is strict: same lekukaTaxType AND same rate (AND same code
    * when both sides carry one). Ambiguous or missing targets are reported
    * in `unmapped` for tax-health instead of guessed.
    */
-  async remapLekakuTaxesForEnv(companyId: number, environment: "test" | "production"): Promise<{ remappedProducts: number; remappedLevies: number; unmapped: Array<{ kind: string; productId?: number; taxTypeId: number; reason: string }> }> {
+  async remapLekukaTaxesForEnv(companyId: number, environment: "test" | "production"): Promise<{ remappedProducts: number; remappedLevies: number; unmapped: Array<{ kind: string; productId?: number; taxTypeId: number; reason: string }> }> {
     const all = await db.select().from(taxTypes).where(eq(taxTypes.companyId, companyId));
-    const targets = all.filter(t => t.lekakuTaxId && (t.lekakuEnvironment || "test") === environment && t.isActive !== false);
+    const targets = all.filter(t => t.lekukaTaxId && (t.lekukaEnvironment || "test") === environment && t.isActive !== false);
     const byTypeRate = new Map<string, typeof targets>();
     for (const t of targets) {
-      const key = `${t.lekakuTaxType}|${Number(t.rate).toFixed(2)}|${t.lekakuTaxCode || ""}`;
+      const key = `${t.lekukaTaxType}|${Number(t.rate).toFixed(2)}|${t.lekukaTaxCode || ""}`;
       if (!byTypeRate.has(key)) byTypeRate.set(key, []);
       byTypeRate.get(key)!.push(t);
     }
     const resolve = (src: any): { id: number } | { missing: string } => {
-      if (!src?.lekakuTaxId) return { missing: "source row has no LEKAKU mapping" };
-      if ((src.lekakuEnvironment || "test") === environment) return { id: src.id }; // already correct env
-      const key = `${src.lekakuTaxType}|${Number(src.rate).toFixed(2)}|${src.lekakuTaxCode || ""}`;
+      if (!src?.lekukaTaxId) return { missing: "source row has no LEKUKA mapping" };
+      if ((src.lekukaEnvironment || "test") === environment) return { id: src.id }; // already correct env
+      const key = `${src.lekukaTaxType}|${Number(src.rate).toFixed(2)}|${src.lekukaTaxCode || ""}`;
       const cands = byTypeRate.get(key) || [];
       if (cands.length === 1) return { id: cands[0].id };
-      if (cands.length === 0) return { missing: `no ${environment} tax for ${src.lekakuTaxType} @ ${src.rate}${src.lekakuTaxCode ? ` code ${src.lekakuTaxCode}` : ""} — re-sync ${environment} config` };
-      return { missing: `ambiguous ${environment} target for ${src.lekakuTaxType} @ ${src.rate} (${cands.length} candidates) — fix manually` };
+      if (cands.length === 0) return { missing: `no ${environment} tax for ${src.lekukaTaxType} @ ${src.rate}${src.lekukaTaxCode ? ` code ${src.lekukaTaxCode}` : ""} — re-sync ${environment} config` };
+      return { missing: `ambiguous ${environment} target for ${src.lekukaTaxType} @ ${src.rate} (${cands.length} candidates) — fix manually` };
     };
 
     let remappedProducts = 0, remappedLevies = 0;
@@ -2843,7 +2843,7 @@ export class DatabaseStorage implements IStorage {
     for (const p of companyProducts) {
       if (!p.taxTypeId) continue;
       const src = byId.get(p.taxTypeId);
-      if (!src?.lekakuTaxId) continue; // not a LEKAKU-mapped tax — nothing to do
+      if (!src?.lekukaTaxId) continue; // not a LEKUKA-mapped tax — nothing to do
       const r = resolve(src);
       if ("id" in r) {
         if (r.id !== p.taxTypeId) {
@@ -2859,7 +2859,7 @@ export class DatabaseStorage implements IStorage {
       .where(eq(products.companyId, companyId));
     for (const l of levyRows) {
       const src = byId.get(l.taxTypeId);
-      if (!src?.lekakuTaxId) continue;
+      if (!src?.lekukaTaxId) continue;
       const r = resolve(src);
       if ("id" in r) {
         if (r.id !== l.taxTypeId) {

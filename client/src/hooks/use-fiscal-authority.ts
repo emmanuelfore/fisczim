@@ -1,14 +1,14 @@
 import { useActiveCompany } from "./use-active-company";
 
-export type FiscalAuthority = "ZIMRA" | "LEKAKU";
+export type FiscalAuthority = "ZIMRA" | "LEKUKA";
 
 export function useFiscalAuthority() {
     const { activeCompany } = useActiveCompany(true);
     
     const fiscalProvider = activeCompany?.fiscalProvider as FiscalAuthority || 
-                          (activeCompany?.country === "Lesotho" ? "LEKAKU" : "ZIMRA");
+                          (activeCompany?.country === "Lesotho" ? "LEKUKA" : "ZIMRA");
     
-    const isLesotho = fiscalProvider === "LEKAKU";
+    const isLesotho = fiscalProvider === "LEKUKA";
     
     return {
         fiscalProvider,
@@ -18,28 +18,28 @@ export function useFiscalAuthority() {
         // Authority names
         authorityName: isLesotho ? "RSL" : "ZIMRA",
         authorityFullName: isLesotho ? "Revenue Services Lesotho" : "Zimbabwe Revenue Authority",
-        authorityShortName: isLesotho ? "LEKAKU" : "ZIMRA",
+        authorityShortName: isLesotho ? "LEKUKA" : "ZIMRA",
         
         // Portal/Verification
-        portalName: isLesotho ? "LEKAKU Portal" : "ZIMRA Portal",
+        portalName: isLesotho ? "LEKUKA Portal" : "ZIMRA Portal",
         verifyLabel: isLesotho ? "Verify with RSL" : "Verify with ZIMRA",
-        verifyUrl: isLesotho ? "https://lekaku.rsl.co.ls/verify" : "https://fdms.zimra.co.zw/verify",
+        verifyUrl: isLesotho ? "https://lekuka.rsl.co.ls/verify" : "https://fdms.zimra.co.zw/verify",
         
         // Settings
-        settingsRoute: isLesotho ? "/lekaku-settings" : "/zimra-settings",
-        settingsLabel: isLesotho ? "LEKAKU Settings" : "ZIMRA Settings",
+        settingsRoute: isLesotho ? "/lekuka-settings" : "/zimra-settings",
+        settingsLabel: isLesotho ? "LEKUKA Settings" : "ZIMRA Settings",
         
         // Tax
         taxIdLabel: isLesotho ? "RSL Tax ID" : "ZIMRA Tax ID",
         taxCodeLabel: isLesotho ? "RSL Tax Code" : "ZIMRA Tax Code",
         
         // Device
-        deviceLabel: isLesotho ? "LEKAKU Device" : "ZIMRA Device",
-        deviceIdLabel: isLesotho ? "LEKAKU Device ID" : "ZIMRA Device ID",
+        deviceLabel: isLesotho ? "LEKUKA Device" : "ZIMRA Device",
+        deviceIdLabel: isLesotho ? "LEKUKA Device ID" : "ZIMRA Device ID",
         
         // Logs
-        logsLabel: isLesotho ? "LEKAKU Logs" : "ZIMRA Logs",
-        logsRoute: isLesotho ? "/lekaku-logs" : "/zimra-logs",
+        logsLabel: isLesotho ? "LEKUKA Logs" : "ZIMRA Logs",
+        logsRoute: isLesotho ? "/lekuka-logs" : "/zimra-logs",
         
         // Day management
         fiscalDayLabel: isLesotho ? "Fiscal Day" : "Fiscal Day",

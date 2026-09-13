@@ -13,14 +13,14 @@ export interface DeviceStatus {
 
 export function useDeviceStatus(companyId: number, isLesotho = false) {
     return useQuery<DeviceStatus>({
-        queryKey: ["device-status", companyId, isLesotho ? "lekaku" : "zimra"],
+        queryKey: ["device-status", companyId, isLesotho ? "lekuka" : "zimra"],
         queryFn: async () => {
             try {
                 // Lesotho companies check LEKAKU config (local check, no
                 // live RSL round-trip); Zimbabwe hits the FDMS status.
                 const res = await apiFetch(
                     isLesotho
-                        ? `/api/companies/${companyId}/lekaku/status`
+                        ? `/api/companies/${companyId}/lekuka/status`
                         : `/api/companies/${companyId}/zimra/status`,
                 );
 

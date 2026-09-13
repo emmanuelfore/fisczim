@@ -11,7 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { RefreshCw, ShieldCheck, Zap } from "lucide-react";
 import { TaxTypesManager } from "./tax-types-manager";
-import { LekakuConfiguration } from "./lekaku-configuration";
+import { LekukaConfiguration } from "./lekuka-configuration";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
@@ -34,8 +34,8 @@ export function TaxComplianceSettings({
 
   if (isLesotho) {
     return <div className="space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div><h2 className="text-xl font-bold text-slate-900">Lesotho fiscal setup</h2><p className="text-muted-foreground">Configure LEKAKU, main taxes and product-level levies.</p></div>
-      <LekakuConfiguration companyId={companyId} formData={formData} setFormData={setFormData} />
+      <div><h2 className="text-xl font-bold text-slate-900">Lesotho fiscal setup</h2><p className="text-muted-foreground">Configure LEKUKA, main taxes and product-level levies.</p></div>
+      <LekukaConfiguration companyId={companyId} formData={formData} setFormData={setFormData} />
     </div>;
   }
 

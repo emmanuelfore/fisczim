@@ -85,7 +85,7 @@ function Nav() {
           </span>
         </button>
         <nav className="lk-nav-links" style={{ display: "flex", gap: 22 }}>
-          {["Solutions", "Features", "Pricing", "FAQ"].map((l) => (
+          {["Solutions", "Features", "Integrations", "Pricing", "FAQ"].map((l) => (
             <a key={l} href={`#${l.toLowerCase()}`} style={link}>
               {l}
             </a>
@@ -126,7 +126,7 @@ function Nav() {
       </div>
       {open && (
         <div style={{ padding: "8px 24px 18px", display: "flex", flexDirection: "column", gap: 12, background: PAPER }}>
-          {["Solutions", "Features", "Pricing", "FAQ"].map((l) => (
+          {["Solutions", "Features", "Integrations", "Pricing", "FAQ"].map((l) => (
             <a key={l} href={`#${l.toLowerCase()}`} onClick={() => setOpen(false)} style={link}>
               {l}
             </a>
@@ -422,6 +422,54 @@ function Features() {
   );
 }
 
+const INTEGRATIONS = [
+  { name: "QuickBooks", tag: "ACCOUNTING", d: "Push invoices, customers and VAT totals into QuickBooks Online with guided CSV imports your bookkeeper will recognise." },
+  { name: "Xero", tag: "ACCOUNTING", d: "Export Xero-ready invoices, contacts and bank-friendly statements for fast reconciliation." },
+  { name: "Zoho Books", tag: "ACCOUNTING", d: "Move invoices and customer records into Zoho Books using mapped import templates." },
+  { name: "Sage", tag: "ACCOUNTING", d: "Hand your accountant Sage-compatible journals, VAT reports and customer ledgers at month end." },
+  { name: "Odoo", tag: "ERP", d: "Keep products, customers and invoices in step with Odoo through CSV and API on Production plans." },
+  { name: "ERPNext", tag: "ERP", d: "API-ready JSON exports for sales invoices, items and customers into your ERPNext site." },
+  { name: "Oracle NetSuite", tag: "ENTERPRISE ERP", d: "Enterprise-grade journal and invoice exports formatted for NetSuite import and consolidation." },
+];
+
+function Integrations() {
+  return (
+    <section id="integrations" style={{ background: PAPER, padding: "88px 24px" }}>
+      <div style={{ maxWidth: 1180, margin: "0 auto" }}>
+        <div style={{ fontFamily: fontMono, fontSize: 11, letterSpacing: "0.18em", color: GREEN }}>INTEGRATIONS</div>
+        <h2 style={{ fontFamily: fontHead, fontSize: "clamp(2rem,4vw,3rem)", color: INK, margin: "10px 0 12px", letterSpacing: "-0.02em" }}>
+          Plays well with the systems you already use.
+        </h2>
+        <p style={{ fontFamily: fontBody, fontSize: 16, color: "#5A6660", maxWidth: 600 }}>
+          No rip-and-replace. FiscalStack handles RSL fiscalisation and day-to-day
+          selling, while invoices, customers and reports flow into your accounting
+          system or ERP — through guided exports and API.
+        </p>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))", gap: 14, marginTop: 40 }}>
+          {INTEGRATIONS.map((g) => (
+            <div key={g.name} style={{ background: "#fff", border: `1px solid ${STONE}`, borderRadius: 20, padding: "26px 24px" }}>
+              <div style={{ fontFamily: fontMono, fontSize: 10, letterSpacing: "0.14em", color: BLUE, marginBottom: 10 }}>{g.tag}</div>
+              <h3 style={{ fontFamily: fontHead, fontSize: 20, color: INK, margin: "0 0 8px" }}>{g.name}</h3>
+              <p style={{ fontFamily: fontBody, fontSize: 14, lineHeight: 1.65, color: "#3D4A43", margin: 0 }}>{g.d}</p>
+            </div>
+          ))}
+          <div style={{ background: INK, color: "#fff", borderRadius: 20, padding: "26px 24px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
+            <div style={{ fontFamily: fontMono, fontSize: 10, letterSpacing: "0.14em", color: "#7BE3A8", marginBottom: 10 }}>CUSTOM / API</div>
+            <h3 style={{ fontFamily: fontHead, fontSize: 20, color: "#fff", margin: "0 0 8px" }}>Something else?</h3>
+            <p style={{ fontFamily: fontBody, fontSize: 14, lineHeight: 1.65, opacity: 0.7, margin: "0 0 18px" }}>Production and Enterprise plans include API access and onboarding help to connect your exact stack.</p>
+            <button
+              onClick={() => window.open(waUrl("Lumela! I want to connect FiscalStack to my accounting system."), "_blank")}
+              style={{ fontFamily: fontBody, fontWeight: 700, fontSize: 14, padding: "12px", borderRadius: 999, background: GREEN, color: "#fff", border: "none", cursor: "pointer" }}
+            >
+              Talk to us →
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function Compliance() {
   const steps = [
     ["1", "Register your business", "Add your company with its RSL Tax Identification Number. We set LSL, 15% VAT and Maseru timezone for you."],
@@ -574,6 +622,7 @@ function Faq() {
     ["How does RSL verification work?", "Every fiscalized invoice carries a QR code. Anyone — including RSL officers — can scan it to confirm the sale on the LEKAKU system. Verification details live on lekaku.rsl.co.ls."],
     ["How do we pay for subscriptions?", "By bank transfer or card, invoiced in loti. Inside the app, cash, card and bank-transfer sales are tracked as native payment methods."],
     ["Do I need to buy fiscal hardware?", "No. FiscalStack is fully virtual — it runs on the phones and computers you already have, plus any receipt printer. No devices to install or maintain."],
+    ["Does FiscalStack connect to my accounting system?", "Yes. Export invoices, customers, VAT reports and journals in formats that import cleanly into QuickBooks, Xero, Zoho Books, Sage, Odoo, ERPNext and NetSuite — with API access on Production and Enterprise plans."],
     ["What happens when the internet goes down?", "You keep selling. The POS queues transactions locally with full receipt printing, then submits them to LEKAKU automatically when connectivity returns — critical for areas outside Maseru."],
     ["Is my data safe if I cancel?", "Always yours. Export invoices, reports and records (PDF, CSV, JSON) at any time, with a 90-day window after cancellation."],
   ];
@@ -615,7 +664,7 @@ function Footer() {
             <p style={{ fontFamily: fontMono, fontSize: 11, color: "#7BE3A8" }}>lesotho@fiscalstack.co.zw · +266 5812 3456</p>
           </div>
           {[
-            ["Product", ["Solutions", "Features", "Pricing", "FAQ"]],
+            ["Product", ["Solutions", "Features", "Integrations", "Pricing", "FAQ"]],
             ["Company", ["Sign in", "Get started", "WhatsApp us"]],
           ].map(([h, items]) => (
             <div key={h as string}>
@@ -650,6 +699,7 @@ export default function LekakuLanding() {
       <Mission />
       <Solutions />
       <Features />
+      <Integrations />
       <Compliance />
       <Support />
       <Testimonials />

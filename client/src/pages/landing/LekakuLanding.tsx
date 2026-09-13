@@ -363,7 +363,7 @@ function Solutions() {
           {cards.map((c) => (
             <div key={c.title} style={{ background: INK, color: "#fff", borderRadius: 24, padding: "36px 32px", display: "flex", flexDirection: "column" }}>
               <div style={{ fontFamily: fontMono, fontSize: 10, letterSpacing: "0.14em", color: "#7BE3A8", marginBottom: 12 }}>{c.tag}</div>
-              <h3 style={{ fontFamily: fontHead, fontSize: 28, margin: "0 0 10px" }}>{c.title}</h3>
+              <h3 style={{ fontFamily: fontHead, fontSize: 28, margin: "0 0 10px", color: "#fff" }}>{c.title}</h3>
               <p style={{ fontFamily: fontBody, fontSize: 14.5, lineHeight: 1.7, opacity: 0.7, margin: "0 0 20px" }}>{c.desc}</p>
               <ul style={{ listStyle: "none", padding: 0, margin: "0 0 28px", display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
                 {c.points.map((pt) => (
@@ -433,14 +433,14 @@ function Compliance() {
     <section id="compliance" style={{ background: GREEN_DARK, padding: "88px 24px", color: "#fff" }}>
       <div style={{ maxWidth: 1180, margin: "0 auto" }}>
         <div style={{ fontFamily: fontMono, fontSize: 11, letterSpacing: "0.18em", color: "#7BE3A8" }}>RSL COMPLIANCE PATH</div>
-        <h2 style={{ fontFamily: fontHead, fontSize: "clamp(2rem,4vw,3rem)", margin: "10px 0 12px" }}>
+        <h2 style={{ fontFamily: fontHead, fontSize: "clamp(2rem,4vw,3rem)", margin: "10px 0 12px", color: "#fff" }}>
           From signup to fiscalized in a day.
         </h2>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))", gap: 14, marginTop: 36 }}>
           {steps.map(([n, t, d]) => (
             <div key={n} style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.14)", borderRadius: 20, padding: "24px 22px" }}>
               <div style={{ width: 40, height: 40, borderRadius: "50%", background: "#fff", color: GREEN_DARK, fontFamily: fontHead, fontWeight: 700, fontSize: 18, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 14 }}>{n}</div>
-              <h3 style={{ fontFamily: fontBody, fontWeight: 700, fontSize: 16, margin: "0 0 8px" }}>{t}</h3>
+              <h3 style={{ fontFamily: fontBody, fontWeight: 700, fontSize: 16, margin: "0 0 8px", color: "#fff" }}>{t}</h3>
               <p style={{ fontFamily: fontBody, fontSize: 13.5, lineHeight: 1.65, opacity: 0.75, margin: 0 }}>{d}</p>
             </div>
           ))}

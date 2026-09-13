@@ -3122,6 +3122,8 @@ export const employees = pgTable("employees", {
   status: text("status").default("ACTIVE").notNull(), // ACTIVE, INACTIVE, SUSPENDED, TERMINATED
   joiningDate: date("joining_date").notNull(),
   terminationDate: date("termination_date"),
+  terminationType: text("termination_type"), // RESIGNATION, DISMISSAL, RETRENCHMENT, CONTRACT_EXPIRY, DEATH, OTHER
+  terminationReason: text("termination_reason"),
   
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -3136,9 +3138,10 @@ export const employees = pgTable("employees", {
 export const employeeContracts = pgTable("employee_contracts", {
   id: serial("id").primaryKey(),
   employeeId: integer("employee_id").references(() => employees.id).notNull(),
-  contractType: text("contract_type").default("PERMANENT").notNull(), // PERMANENT, FIXED_TERM, CASUAL
+  contractType: text("contract_type").default("PERMANENT").notNull(), // PERMANENT, FIXED_TERM, CASUAL, PROBATIONARY
   startDate: date("start_date").notNull(),
   endDate: date("end_date"),
+  probationEndDate: date("probation_end_date"),
   payFrequency: text("pay_frequency").default("MONTHLY").notNull(), // MONTHLY, WEEKLY, FORTNIGHTLY, DAILY
   baseSalary: decimal("base_salary", { precision: 15, scale: 2 }).notNull(), // Total base salary in base contract currency
   currency: text("currency").default("USD").notNull(), // USD, ZiG, or SPLIT
@@ -3461,7 +3464,7 @@ export const leaveRequests = pgTable("leave_requests", {
   id: serial("id").primaryKey(),
   companyId: integer("company_id").references(() => companies.id).notNull(),
   employeeId: integer("employee_id").references(() => employees.id).notNull(),
-  leaveType: text("leave_type").default("ANNUAL").notNull(), // ANNUAL, SICK, MATERNITY, COMPASSIONATE, UNPAID, CUSTOM
+  leaveType: text("leave_type").default("ANNUAL").notNull(), // ANNUAL, SICK, MATERNITY, PATERNITY, COMPASSIONATE, UNPAID, CUSTOM
   startDate: date("start_date").notNull(),
   endDate: date("end_date").notNull(),
   totalDays: integer("total_days").notNull(),

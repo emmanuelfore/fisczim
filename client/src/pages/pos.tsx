@@ -190,7 +190,6 @@ export default function POSPage() {
   const isCashier = (company as any)?.role === "cashier";
   const { data: products, isLoading: isLoadingProducts } =
     useProducts(companyId, selectedBranchId || undefined);
-  const { data: serialNumbers = [] } = useProductSerials(companyId, undefined, "IN_STOCK");
 
   // Emergency fallback: if React Query returns nothing but we have a companyId,
   // read directly from IndexedDB. This handles edge cases where the query
@@ -202,6 +201,7 @@ export default function POSPage() {
   const [cachedCustomersFallback, setCachedCustomersFallback] = useState<any[]>(
     [],
   );
+  const [cachedSerialsFallback, setCachedSerialsFallback] = useState<any[]>([]);
   useEffect(() => {
     if (!companyId) return;
     import("@/lib/offline-db").then(
@@ -210,6 +210,7 @@ export default function POSPage() {
         getCachedCompanySettings,
         getCachedCompaniesList,
         getCachedCustomers,
+        getCachedProductSerials,
       }) => {
         // Products
         getCachedProducts(companyId).then((cached) => {
@@ -241,6 +242,12 @@ export default function POSPage() {
             setCachedCustomersFallback(cached);
           }
         });
+        // Product Serials
+        getCachedProductSerials(companyId).then((cached) => {
+          if (cached && cached.length > 0) {
+            setCachedSerialsFallback(cached);
+          }
+        });
       },
     );
   }, [companyId]);
@@ -248,6 +255,8 @@ export default function POSPage() {
   const { data: currencies } = useCurrencies(companyId);
   const { taxTypes } = useTaxConfig(companyId);
   const createInvoice = useCreateInvoice(companyId);
+  const { data: serialNumbers = [] } = useProductSerials(companyId, undefined, "IN_STOCK");
+  const effectiveSerials: any[] = (serialNumbers as any[]).length > 0 ? (serialNumbers as any[]) : cachedSerialsFallback;
 
   // Offline support
   const {
@@ -2131,12 +2140,20 @@ export default function POSPage() {
         error.name === "AbortError" ||
         error.message?.includes("aborted")
       ) {
-        toast({
-          title: "Request Timed Out",
-          description:
-            "The request took too long or was interrupted. Please check your connection and try again.",
-          variant: "destructive",
-        });
+        if (!navigator.onLine) {
+          toast({
+            title: "Offline Mode",
+            description:
+              "Connection interrupted. Your sale has been saved locally and will sync when you're back online.",
+          });
+        } else {
+          toast({
+            title: "Request Timed Out",
+            description:
+              "The server took too long to respond. The sale was saved locally and will retry automatically.",
+            variant: "destructive",
+          });
+        }
       } else {
         toast({
           title: "Error",
@@ -2909,11 +2926,45 @@ export default function POSPage() {
       const res = await apiFetch(
         `/api/pos/last-receipt?companyId=${companyId}`,
       );
-      if (res.ok) setReprintList(await res.json());
-      else
+      if (res.ok) {
+        setReprintList(await res.json());
+      } else if (!navigator.onLine) {
+        // Offline: use salesHistory from IndexedDB
+        const { getSalesHistory } = await import("@/lib/offline-db");
+        const history = await getSalesHistory(companyId);
+        const today = new Date().toISOString().slice(0, 10);
+        const todaySales = history
+          .filter((s: any) => s.issueDate?.startsWith(today))
+          .sort((a: any, b: any) => (b.issueDate || "").localeCompare(a.issueDate || ""));
+        if (todaySales.length > 0) {
+          setReprintList(todaySales.slice(0, 10));
+        } else {
+          toast({ title: "No receipts found for today (offline)", variant: "destructive" });
+        }
+      } else {
         toast({ title: "No receipts found for today", variant: "destructive" });
+      }
     } catch {
-      toast({ title: "Failed to load receipts", variant: "destructive" });
+      // Offline fallback: use salesHistory
+      if (!navigator.onLine) {
+        try {
+          const { getSalesHistory } = await import("@/lib/offline-db");
+          const history = await getSalesHistory(companyId);
+          const today = new Date().toISOString().slice(0, 10);
+          const todaySales = history
+            .filter((s: any) => s.issueDate?.startsWith(today))
+            .sort((a: any, b: any) => (b.issueDate || "").localeCompare(a.issueDate || ""));
+          if (todaySales.length > 0) {
+            setReprintList(todaySales.slice(0, 10));
+          } else {
+            toast({ title: "No receipts found for today (offline)", variant: "destructive" });
+          }
+        } catch {
+          toast({ title: "Failed to load receipts", variant: "destructive" });
+        }
+      } else {
+        toast({ title: "Failed to load receipts", variant: "destructive" });
+      }
     }
     setReprintListLoading(false);
   };
@@ -2926,9 +2977,35 @@ export default function POSPage() {
       const res = await apiFetch(
         `/api/pos/invoice-search?companyId=${companyId}&q=${encodeURIComponent(q)}`,
       );
-      if (res.ok) setCnSearchResults(await res.json());
+      if (res.ok) {
+        setCnSearchResults(await res.json());
+      } else if (!navigator.onLine) {
+        // Offline: search salesHistory from IndexedDB
+        const { getSalesHistory } = await import("@/lib/offline-db");
+        const history = await getSalesHistory(companyId);
+        const query = q.toLowerCase();
+        const results = history.filter((inv: any) =>
+          (inv.receiptNumber || "").toLowerCase().includes(query) ||
+          (inv.customerName || "").toLowerCase().includes(query) ||
+          (inv.invoiceNumber || "").toLowerCase().includes(query)
+        );
+        setCnSearchResults(results.slice(0, 20));
+      }
     } catch {
-      /* ignore */
+      // Offline fallback
+      if (!navigator.onLine) {
+        try {
+          const { getSalesHistory } = await import("@/lib/offline-db");
+          const history = await getSalesHistory(companyId);
+          const query = q.toLowerCase();
+          const results = history.filter((inv: any) =>
+            (inv.receiptNumber || "").toLowerCase().includes(query) ||
+            (inv.customerName || "").toLowerCase().includes(query) ||
+            (inv.invoiceNumber || "").toLowerCase().includes(query)
+          );
+          setCnSearchResults(results.slice(0, 20));
+        } catch { /* ignore */ }
+      }
     }
     setCnSearching(false);
   };
@@ -2953,13 +3030,51 @@ export default function POSPage() {
             originalItem: it,
           })),
         );
+      } else if (!navigator.onLine) {
+        // Offline: try to find the invoice in salesHistory
+        const { getSaleHistoryById } = await import("@/lib/offline-db");
+        const cached = await getSaleHistoryById(inv.id);
+        if (cached) {
+          setCnActiveInvoice(cached);
+          setCnSelectedItems(
+            (cached.items || []).map((it: any) => ({
+              productId: it.productId,
+              quantity: Number(it.quantity),
+              originalItem: it,
+            })),
+          );
+        } else {
+          toast({ title: "Invoice not found in offline cache", variant: "destructive" });
+        }
       }
     } catch {
-      toast({
-        title: "Error",
-        description: "Could not fetch invoice details",
-        variant: "destructive",
-      });
+      // Offline fallback
+      if (!navigator.onLine) {
+        try {
+          const { getSaleHistoryById } = await import("@/lib/offline-db");
+          const cached = await getSaleHistoryById(inv.id);
+          if (cached) {
+            setCnActiveInvoice(cached);
+            setCnSelectedItems(
+              (cached.items || []).map((it: any) => ({
+                productId: it.productId,
+                quantity: Number(it.quantity),
+                originalItem: it,
+              })),
+            );
+          } else {
+            toast({ title: "Invoice not found in offline cache", variant: "destructive" });
+          }
+        } catch {
+          toast({ title: "Could not fetch invoice details", variant: "destructive" });
+        }
+      } else {
+        toast({
+          title: "Error",
+          description: "Could not fetch invoice details",
+          variant: "destructive",
+        });
+      }
     }
     setCnProcessing(false);
   };
@@ -3490,7 +3605,7 @@ export default function POSPage() {
                             <SelectValue placeholder="Select Serial Number" />
                           </SelectTrigger>
                           <SelectContent>
-                            {serialNumbers
+                            {effectiveSerials
                               .filter(
                                 (s: any) =>
                                   s.productId === item.productId &&

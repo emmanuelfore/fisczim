@@ -279,6 +279,7 @@ export default function LeaveManagement() {
                   <SelectItem value="ANNUAL">Annual Leave</SelectItem>
                   <SelectItem value="SICK">Sick Leave</SelectItem>
                   <SelectItem value="MATERNITY">Maternity Leave</SelectItem>
+                  <SelectItem value="PATERNITY">Paternity Leave (3 days)</SelectItem>
                   <SelectItem value="COMPASSIONATE">Compassionate</SelectItem>
                   <SelectItem value="UNPAID">Unpaid Leave</SelectItem>
                 </SelectContent>

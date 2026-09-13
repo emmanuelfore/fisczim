@@ -158,7 +158,7 @@ function registerIpcHandlers() {
 
       // Copy to target with timestamp
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const targetFileName = `REVMAX_${timestamp}.txt`;
+      const targetFileName = `FISCALSTACK_${timestamp}.txt`;
       const finalTargetPath = path.join(targetDir, targetFileName);
 
       fs.copyFileSync(sourcePath, finalTargetPath);

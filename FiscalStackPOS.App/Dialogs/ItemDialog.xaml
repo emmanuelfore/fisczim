@@ -1,0 +1,46 @@
+<Window x:Class="FiscalStackPOS.Dialogs.ItemDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="{DynamicResource item.title}" Width="420" SizeToContent="Height" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource BgBrush}" FontFamily="Segoe UI" ShowInTaskbar="False">
+    <Border Style="{StaticResource Card}" Margin="20">
+        <StackPanel>
+            <TextBlock Text="{DynamicResource item.title}" Style="{StaticResource H1Text}" />
+
+            <TextBlock Text="{DynamicResource item.desc}" Style="{StaticResource CaptionText}" Margin="0,8,0,4" />
+            <TextBox x:Name="TxtName" Style="{StaticResource FieldTextBox}" />
+            <Grid Margin="0,12,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="12" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="12" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="{DynamicResource item.qty}" Style="{StaticResource CaptionText}" />
+                    <TextBox x:Name="TxtQty" Style="{StaticResource FieldTextBox}" Text="1" />
+                </StackPanel>
+                <StackPanel Grid.Column="2">
+                    <TextBlock x:Name="LblPrice" Text="{DynamicResource item.price}" Style="{StaticResource CaptionText}" />
+                    <TextBox x:Name="TxtPrice" Style="{StaticResource FieldTextBox}" Text="0.00" />
+                </StackPanel>
+                <StackPanel Grid.Column="4">
+                    <TextBlock Text="{DynamicResource item.vat}" Style="{StaticResource CaptionText}" />
+                    <TextBox x:Name="TxtVat" Style="{StaticResource FieldTextBox}" Text="15.5" />
+                </StackPanel>
+            </Grid>
+            <TextBlock Text="{DynamicResource item.hs}" Style="{StaticResource CaptionText}" Margin="0,12,0,4" />
+            <TextBox x:Name="TxtHs" Style="{StaticResource FieldTextBox}" />
+            <TextBlock x:Name="LblError" Foreground="{StaticResource DangerBrush}" FontSize="12"
+                       Margin="0,8,0,0" Visibility="Collapsed" />
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
+                <Button Content="{DynamicResource common.cancel}" Style="{StaticResource GhostButton}" IsCancel="True" MinWidth="88" />
+                <Button Content="{DynamicResource item.add}" Style="{StaticResource PrimaryButton}" Margin="10,0,0,0"
+                        Click="OnAdd" IsDefault="True" />
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</Window>

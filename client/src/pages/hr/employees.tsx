@@ -94,13 +94,16 @@ export default function HREmployees() {
     nextOfKinAddress: "",
     emergencyContactName: "",
     emergencyContactPhone: "",
-    emergencyContactRelation: ""
+    emergencyContactRelation: "",
+    terminationType: "",
+    terminationReason: ""
   });
 
   const [contractData, setContractData] = useState({
     contractType: "PERMANENT",
     startDate: new Date().toISOString().slice(0, 10),
     endDate: "",
+    probationEndDate: "",
     baseSalary: "0",
     currency: "USD",
     usdPercentage: "100",
@@ -141,7 +144,7 @@ export default function HREmployees() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/payroll/employees`] });
       setIsEmployeeModalOpen(false);
-      setFormData({ firstName: "", lastName: "", employeeNumber: "", nationalId: "", email: "", phone: "", bankName: "", bankBranch: "", bankAccountNumber: "", ecocashNumber: "", title: "", dateOfBirth: "", gender: "", maritalStatus: "", physicalAddress: "", postalAddress: "", nextOfKinName: "", nextOfKinRelationship: "", nextOfKinPhone: "", nextOfKinAddress: "", emergencyContactName: "", emergencyContactPhone: "", emergencyContactRelation: "" });
+      setFormData({ firstName: "", lastName: "", employeeNumber: "", nationalId: "", email: "", phone: "", bankName: "", bankBranch: "", bankAccountNumber: "", ecocashNumber: "", title: "", dateOfBirth: "", gender: "", maritalStatus: "", physicalAddress: "", postalAddress: "", nextOfKinName: "", nextOfKinRelationship: "", nextOfKinPhone: "", nextOfKinAddress: "", emergencyContactName: "", emergencyContactPhone: "", emergencyContactRelation: "", terminationType: "", terminationReason: "" });
       toast({ title: "Employee created successfully" });
     },
     onError: (error: any) => {
@@ -393,6 +396,8 @@ export default function HREmployees() {
         emergencyContactName: employee.emergencyContactName || "",
         emergencyContactPhone: employee.emergencyContactPhone || "",
         emergencyContactRelation: employee.emergencyContactRelation || "",
+        terminationType: employee.terminationType || "",
+        terminationReason: employee.terminationReason || "",
       });
       setStatutoryData({
         nationalId: employee.nationalId || "",
@@ -405,6 +410,7 @@ export default function HREmployees() {
           contractType: contract.contractType || "PERMANENT",
           startDate: contract.startDate ? new Date(contract.startDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
           endDate: contract.endDate ? new Date(contract.endDate).toISOString().slice(0, 10) : "",
+          probationEndDate: contract.probationEndDate ? new Date(contract.probationEndDate).toISOString().slice(0, 10) : "",
           baseSalary: contract.baseSalary ? String(contract.baseSalary) : "0",
           currency: contract.currency || "USD",
           usdPercentage: contract.usdPercentage ? String(contract.usdPercentage) : "100",
@@ -420,11 +426,13 @@ export default function HREmployees() {
         bankAccountNumber: "", ecocashNumber: "", title: "", dateOfBirth: "",
         gender: "", maritalStatus: "", physicalAddress: "", postalAddress: "", 
         nextOfKinName: "", nextOfKinRelationship: "", nextOfKinPhone: "", nextOfKinAddress: "",
-        emergencyContactName: "", emergencyContactPhone: "", emergencyContactRelation: ""
+        emergencyContactName: "", emergencyContactPhone: "", emergencyContactRelation: "",
+        terminationType: "", terminationReason: ""
       });
       setStatutoryData({ nationalId: "", nssaNumber: "", zimraTaxNumber: "" });
       setContractData({
         contractType: "PERMANENT", startDate: new Date().toISOString().slice(0, 10), endDate: "",
+        probationEndDate: "",
         baseSalary: "0", currency: "USD", usdPercentage: "100", zigPercentage: "0", payGradeId: "",
       });
     }
@@ -641,6 +649,31 @@ export default function HREmployees() {
                     <Input value={statutoryData.zimraTaxNumber} onChange={(e) => setStatutoryData({...statutoryData, zimraTaxNumber: e.target.value})} placeholder="BP Number" />
                   </div>
                 </div>
+                {selectedEmployeeId && (
+                  <div className="border-t border-slate-200 dark:border-slate-700 pt-4 mt-4">
+                    <h4 className="text-sm font-semibold text-slate-600 dark:text-slate-400 mb-3">Termination Details</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Termination Type</Label>
+                        <Select value={formData.terminationType || ""} onValueChange={(v) => setFormData({...formData, terminationType: v})}>
+                          <SelectTrigger><SelectValue placeholder="Select type (if applicable)" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="RESIGNATION">Resignation</SelectItem>
+                            <SelectItem value="DISMISSAL">Dismissal</SelectItem>
+                            <SelectItem value="RETRENCHMENT">Retrenchment</SelectItem>
+                            <SelectItem value="CONTRACT_EXPIRY">Contract Expiry</SelectItem>
+                            <SelectItem value="DEATH">Death</SelectItem>
+                            <SelectItem value="OTHER">Other</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Termination Reason</Label>
+                        <Input placeholder="Reason for termination" value={formData.terminationReason || ""} onChange={(e) => setFormData({...formData, terminationReason: e.target.value})} />
+                      </div>
+                    </div>
+                  </div>
+                )}
               </TabsContent>
               
               <TabsContent value="salary" className="space-y-4 pt-4">
@@ -656,6 +689,7 @@ export default function HREmployees() {
                         <SelectItem value="PERMANENT">Permanent</SelectItem>
                         <SelectItem value="FIXED_TERM">Fixed Term</SelectItem>
                         <SelectItem value="CASUAL">Casual</SelectItem>
+                        <SelectItem value="PROBATIONARY">Probationary</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -747,6 +781,7 @@ export default function HREmployees() {
                       <SelectItem value="PERMANENT">Permanent</SelectItem>
                       <SelectItem value="FIXED_TERM">Fixed Term</SelectItem>
                       <SelectItem value="CASUAL">Casual</SelectItem>
+                      <SelectItem value="PROBATIONARY">Probationary</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -815,6 +850,11 @@ export default function HREmployees() {
                 <div className="space-y-2">
                   <Label>End Date</Label>
                   <Input type="date" value={contractData.endDate} onChange={(e) => setContractData({...contractData, endDate: e.target.value})} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Probation End Date</Label>
+                  <Input type="date" value={contractData.probationEndDate || ""} onChange={(e) => setContractData({...contractData, probationEndDate: e.target.value})} />
+                  <p className="text-xs text-slate-500">Zimbabwe common practice: 3 months (max 6 months)</p>
                 </div>
               </div>
 

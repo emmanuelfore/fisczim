@@ -5,7 +5,7 @@ using System.Drawing.Printing;
 using System.IO;
 using System.Windows.Forms;
 
-namespace Revmax_Interface_Promun
+namespace FiscalStack
 {
     public static class NativeThermalPrinter
     {

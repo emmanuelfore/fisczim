@@ -85,7 +85,7 @@ FiscalBridge uses a setup wizard for initial configuration:
 
 ## API Integration
 
-FiscalBridge replaces RevMax API calls with Fiskaztech API:
+FiscalBridge replaces FiscalStack API calls with Fiskaztech API:
 
 - `TransactM()` → `POST /api/companies/{id}/zimra/transact`
 - `TransactMExt()` → `POST /api/companies/{id}/zimra/transact-ext`
@@ -122,10 +122,10 @@ The Windows Forms application has been fully emulated:
 
 | Windows Feature | FiscalBridge Equivalent |
 |----------------|------------------------|
-| RevMaxInterfaceWizard.cs | Setup Wizard (Web UI) |
+| FiscalStackInterfaceWizard.cs | Setup Wizard (Web UI) |
 | Form1.cs (Timer-based file watching) | chokidar file monitoring |
 | ReadFile.cs (Receipt parsing) | receiptParser.js |
-| RevmaxAPI.dll calls | Fiskaztech API HTTP calls |
+| FiscalStack API calls | Fiskaztech API HTTP calls |
 | ReportViewer (Receipt printing) | Electron printing with QR codes |
 | App.config (Settings) | Electron userData/config.json |
 | config.ini (Fiscal config) | configManager.js + fiscal-config.json |

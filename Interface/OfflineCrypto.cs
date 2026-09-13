@@ -10,7 +10,7 @@ using Org.BouncyCastle.Crypto.Parameters;
 using Org.BouncyCastle.OpenSsl;
 using Org.BouncyCastle.Security;
 
-namespace Revmax_Interface_Promun
+namespace FiscalStack
 {
     public class OfflineStateData
     {

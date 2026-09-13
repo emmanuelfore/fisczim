@@ -3,7 +3,7 @@ using System.Configuration;
 using System.Threading;
 using System.Windows.Forms;
 
-namespace Revmax_Interface_Promun
+namespace FiscalStack
 {
     /// <summary>
     /// Automated End-of-Day Z-Report Scheduler.

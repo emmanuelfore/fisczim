@@ -3,7 +3,7 @@ using System.Linq;
 using System.Windows.Forms;
 using Newtonsoft.Json;
 
-namespace Revmax_Interface_Promun
+namespace FiscalStack
 {
     public partial class DashboardForm : Form
     {

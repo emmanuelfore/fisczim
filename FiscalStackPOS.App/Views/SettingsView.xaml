@@ -1,0 +1,102 @@
+<UserControl x:Class="FiscalStackPOS.Views.SettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource BgBrush}" FontFamily="Segoe UI">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="20">
+        <StackPanel MaxWidth="860" HorizontalAlignment="Left">
+
+            <TextBlock Text="{DynamicResource set.title}" Style="{StaticResource H1Text}" />
+
+            <!-- LANGUAGE -->
+            <Border Style="{StaticResource Card}" Margin="0,18,0,0">
+                <StackPanel>
+                    <TextBlock Text="{DynamicResource set.language}" Style="{StaticResource H3Text}" />
+                    <Grid Margin="0,12,0,0">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <ComboBox x:Name="CmbLanguage" SelectionChanged="OnLanguage" MaxWidth="280" HorizontalAlignment="Left"
+                                  Style="{StaticResource FieldComboBox}">
+                            <ComboBoxItem Content="{DynamicResource set.langEn}" Tag="en" />
+                            <ComboBoxItem Content="{DynamicResource set.langZh}" Tag="zh-CN" />
+                        </ComboBox>
+                        <TextBlock x:Name="LblLangRestart" Grid.Column="1" Style="{StaticResource CaptionText}"
+                                   VerticalAlignment="Center" Margin="10,0,0,0" Foreground="{StaticResource SkyBrush}"
+                                   Text="{DynamicResource set.langRestart}" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- ACTIVATION -->
+            <Border Style="{StaticResource Card}" Margin="0,18,0,0">
+                <StackPanel>
+                    <TextBlock Text="{DynamicResource set.activation}" Style="{StaticResource H3Text}" />
+                    <TextBlock x:Name="LblLicenseInfo" Style="{StaticResource BodyText}" Margin="0,8,0,0" TextWrapping="Wrap" />
+                    <Grid Margin="0,12,0,0">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <TextBox x:Name="TxtApiKey" Style="{StaticResource FieldTextBox}" ToolTip="{DynamicResource set.apiKey}" />
+                        <Button Grid.Column="1" Content="{DynamicResource set.applyKey}" Style="{StaticResource PrimaryButton}" Margin="8,0,0,0" HorizontalAlignment="Right" Click="OnApplyKey" />
+                    </Grid>
+                    <TextBlock x:Name="LblActivResult" Style="{StaticResource CaptionText}" Margin="0,8,0,0" TextWrapping="Wrap" Foreground="{StaticResource SkyBrush}" />
+                    <TextBlock Text="{DynamicResource set.env}" Style="{StaticResource CaptionText}" Margin="0,12,0,0" />
+                    <ComboBox x:Name="CmbEnv" SelectionChanged="OnEnv" MaxWidth="280" HorizontalAlignment="Left"
+                              Style="{StaticResource FieldComboBox}">
+                        <ComboBoxItem Content="{DynamicResource set.envProd}" Tag="https://fdmsapi.zimra.co.zw" />
+                        <ComboBoxItem Content="{DynamicResource set.envTest}" Tag="https://fdmsapitest.zimra.co.zw" />
+                    </ComboBox>
+                </StackPanel>
+            </Border>
+
+            <!-- PRINTER -->
+            <Border Style="{StaticResource Card}" Margin="0,14,0,0">
+                <StackPanel>
+                    <TextBlock Text="{DynamicResource set.printerHeader}" Style="{StaticResource H3Text}" />
+                    <Grid Margin="0,12,0,0">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="140"/></Grid.ColumnDefinitions>
+                        <StackPanel><TextBlock Text="{DynamicResource set.printerName}" Style="{StaticResource CaptionText}" /><TextBox x:Name="TxtPrinter" Style="{StaticResource FieldTextBox}" /></StackPanel>
+                        <StackPanel Grid.Column="2"><TextBlock Text="{DynamicResource set.receiptWidth}" Style="{StaticResource CaptionText}" /><ComboBox x:Name="CmbWidth" Style="{StaticResource FieldComboBox}" /></StackPanel>
+                    </Grid>
+                    <CheckBox x:Name="ChkPrint" Content="{DynamicResource set.autoPrint}" Margin="0,14,0,0" />
+                    <CheckBox x:Name="ChkPreview" Content="{DynamicResource set.preview}" Margin="0,8,0,0" />
+                    <CheckBox x:Name="ChkDrawer" Content="{DynamicResource set.drawer}" Margin="0,8,0,0" />
+                    <Grid Margin="0,14,0,0">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <TextBox x:Name="TxtLogo" Style="{StaticResource FieldTextBox}" ToolTip="{DynamicResource set.logo}" />
+                        <Button Grid.Column="1" Content="{DynamicResource set.logoBtn}" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" Click="OnLogo" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- REGISTER -->
+            <Border Style="{StaticResource Card}" Margin="0,14,0,0">
+                <StackPanel>
+                    <TextBlock Text="{DynamicResource set.registerHeader}" Style="{StaticResource H3Text}" />
+                    <Grid Margin="0,12,0,0">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <StackPanel><TextBlock Text="{DynamicResource set.invoicePrefix}" Style="{StaticResource CaptionText}" /><TextBox x:Name="TxtPrefix" Style="{StaticResource FieldTextBox}" /></StackPanel>
+                        <StackPanel Grid.Column="2"><TextBlock Text="{DynamicResource set.digits}" Style="{StaticResource CaptionText}" /><TextBox x:Name="TxtDigits" Style="{StaticResource FieldTextBox}" /></StackPanel>
+                        <StackPanel Grid.Column="4"><TextBlock Text="{DynamicResource set.currency}" Style="{StaticResource CaptionText}" /><TextBox x:Name="TxtCurrency" Style="{StaticResource FieldTextBox}" /></StackPanel>
+                    </Grid>
+                    <CheckBox x:Name="ChkVatIncl" Content="{DynamicResource set.vatIncl}" Margin="0,14,0,0" />
+                </StackPanel>
+            </Border>
+
+            <!-- NETWORK / QUEUE -->
+            <Border Style="{StaticResource Card}" Margin="0,14,0,0">
+                <StackPanel>
+                    <TextBlock Text="{DynamicResource set.networkHeader}" Style="{StaticResource H3Text}" />
+                    <Grid Margin="0,12,0,0">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <StackPanel><TextBlock Text="{DynamicResource set.interval}" Style="{StaticResource CaptionText}" /><TextBox x:Name="TxtInterval" Style="{StaticResource FieldTextBox}" /></StackPanel>
+                        <StackPanel Grid.Column="2"><TextBlock Text="{DynamicResource set.dataFolder}" Style="{StaticResource CaptionText}" /><TextBox x:Name="TxtDataDir" IsReadOnly="True" Style="{StaticResource FieldTextBox}" /></StackPanel>
+                    </Grid>
+                    <CheckBox x:Name="ChkAutoSubmit" Content="{DynamicResource set.autoSubmit}" Margin="0,14,0,0" />
+                    <Button Content="{DynamicResource set.openData}" Style="{StaticResource SecondaryButton}" HorizontalAlignment="Left" Margin="0,10,0,0" Click="OnOpenData" />
+                </StackPanel>
+            </Border>
+
+            <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
+                <Button Content="{DynamicResource set.save}" Style="{StaticResource PrimaryButton}" MinWidth="150" Click="OnSave" />
+                <TextBlock x:Name="LblSaved" Style="{StaticResource CaptionText}" Margin="12,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource SuccessBrush}" />
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

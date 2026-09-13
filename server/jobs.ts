@@ -335,10 +335,29 @@ export async function closeAllFiscalDays() {
                         continue;
                     }
 
-                    // 4. Verify closure asynchronously
+                    // 4. Verify closure asynchronously (with timeout to prevent hanging)
                     console.log(`[Job] Verifying closure status for ${company.name}...`);
                     await new Promise(r => setTimeout(r, 4000));
-                    const verifyStatus = await device.getStatus() as any;
+                    const verifyTimeout = (ms: number) => new Promise<never>((_, reject) =>
+                        setTimeout(() => reject(new Error("ZIMRA verification timed out")), ms)
+                    );
+                    let verifyStatus: any;
+                    try {
+                        verifyStatus = await Promise.race([
+                            device.getStatus(),
+                            verifyTimeout(15000)
+                        ]);
+                    } catch (verifyErr) {
+                        console.warn(`[Job] Verification timed out for ${company.name}; treating as failed.`);
+                        await storage.updateCompany(company.id, {
+                            fiscalDayOpen: true,
+                            lastFiscalDayStatus: 'FiscalDayCloseFailed'
+                        });
+                        companyResult.status = 'close_failed';
+                        companyResult.error = (verifyErr as Error).message;
+                        results.closeFailed++;
+                        continue;
+                    }
 
                     if (verifyStatus.fiscalDayStatus === 'FiscalDayCloseFailed') {
                         await storage.updateCompany(company.id, {

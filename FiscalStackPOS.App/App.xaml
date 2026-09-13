@@ -1,0 +1,16 @@
+<Application x:Class="FiscalStackPOS.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="clr-namespace:ModernWpf;assembly=ModernWpf"
+             ShutdownMode="OnExplicitShutdown">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ui:ThemeResources />
+                <ResourceDictionary Source="Styles/Brand.xaml" />
+                <ResourceDictionary Source="Styles/Controls.xaml" />
+                <ResourceDictionary Source="i18n/en.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

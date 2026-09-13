@@ -162,6 +162,22 @@ router.post("/self-service/leave", async (req, res) => {
       });
     }
 
+    // Labour Act: Paternity leave is 3 working days
+    if (parsed.data.leaveType === "PATERNITY" && workingDays > 3) {
+      return res.status(400).json({
+        error: "VALIDATION_ERROR",
+        message: "Paternity leave is limited to 3 working days per the Zimbabwe Labour Act",
+      });
+    }
+
+    // Labour Act: Maternity leave is 98 consecutive days minimum
+    if (parsed.data.leaveType === "MATERNITY" && workingDays < 98) {
+      return res.status(400).json({
+        error: "VALIDATION_ERROR",
+        message: "Maternity leave must be at least 98 consecutive days per the Zimbabwe Labour Act",
+      });
+    }
+
     const [request] = await db.insert(leaveRequests).values({
       companyId,
       employeeId: emp.id,
@@ -1263,6 +1279,7 @@ router.post("/employees", requirePayrollWrite, async (req, res) => {
       payFrequency: z.string().default("MONTHLY"),
       payGradeId: z.coerce.number().int().optional().nullable(),
       necSectorId: z.coerce.number().int().optional().nullable(),
+      probationEndDate: z.string().optional().nullable(),
     }).optional()
   });
 
@@ -1656,7 +1673,8 @@ router.put("/employees/:id", requirePayrollWrite, async (req, res) => {
       "bankName", "bankBranch", "bankAccountNumber", "ecocashNumber", 
       "emergencyContactName", "emergencyContactPhone", 
       "nextOfKinName", "nextOfKinRelationship", "nextOfKinPhone", "nextOfKinAddress",
-      "status", "joiningDate", "terminationDate", "departmentId", "positionId",
+      "status", "joiningDate", "terminationDate", "terminationType", "terminationReason",
+      "departmentId", "positionId",
     ];
 
     const updates: Record<string, unknown> = {};
@@ -1703,7 +1721,7 @@ router.put("/employees/:id", requirePayrollWrite, async (req, res) => {
         departmentId: (updated.departmentId as number | null) || emp.departmentId || null,
         positionId: (updated.positionId as number | null) || emp.positionId || null,
         branchId: (updated.branchId as number | null) ?? emp.branchId ?? null,
-        reason: `Employee profile updated: ${tracked.join(", ")}`,
+        reason: `Employee profile updated: ${tracked.join(", ")}${updates.terminationType ? ` (${updates.terminationType})` : ""}${updates.terminationReason ? ` — ${updates.terminationReason}` : ""}`,
         createdBy: req.user?.id || null,
       });
     }
@@ -2011,6 +2029,8 @@ router.post("/employees/:id/contract", requirePayrollWrite, async (req, res) => 
     contractType: z.string().default("PERMANENT"),
     startDate: z.string(),
     endDate: z.string().optional().nullable(),
+    probationEndDate: z.string().optional().nullable(),
+    payFrequency: z.string().default("MONTHLY"),
     baseSalary: z.coerce.string(),
     currency: z.string().default("USD"),
     usdPercentage: z.coerce.string().default("100.00"),
@@ -2298,6 +2318,22 @@ router.post("/leave/requests", requirePayrollWrite, async (req, res) => {
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "VALIDATION_ERROR", details: parsed.error.errors });
+
+  // Labour Act: Paternity leave is 3 working days
+  if (parsed.data.leaveType === "PATERNITY" && parsed.data.totalDays > 3) {
+    return res.status(400).json({
+      error: "VALIDATION_ERROR",
+      message: "Paternity leave is limited to 3 working days per the Zimbabwe Labour Act",
+    });
+  }
+
+  // Labour Act: Maternity leave is 98 consecutive days minimum
+  if (parsed.data.leaveType === "MATERNITY" && parsed.data.totalDays < 98) {
+    return res.status(400).json({
+      error: "VALIDATION_ERROR",
+      message: "Maternity leave must be at least 98 consecutive days per the Zimbabwe Labour Act",
+    });
+  }
 
   try {
     const companyId = getTargetCompanyId(req);

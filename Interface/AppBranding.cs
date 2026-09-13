@@ -3,7 +3,7 @@ using System.Drawing;
 using System.IO;
 using System.Windows.Forms;
 
-namespace Revmax_Interface_Promun
+namespace FiscalStack
 {
     internal static class AppBranding
     {

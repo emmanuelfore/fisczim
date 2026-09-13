@@ -1,10 +1,10 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace Revmax_Interface_Promun
+namespace FiscalStack
 {
     public class ZReport
     {

@@ -7,14 +7,14 @@
     <framework targetVersion="4.8" profile="Full" supportedRuntime="4.0.30319" />
   </compatibleFrameworks>
   <dependency>
-    <dependentAssembly dependencyType="install" codebase="FiscalStack.exe.manifest" size="42979">
+    <dependentAssembly dependencyType="install" codebase="FiscalStack.exe.manifest" size="43617">
       <assemblyIdentity name="FiscalStack.exe" version="1.0.0.0" publicKeyToken="0000000000000000" language="neutral" processorArchitecture="msil" type="win32" />
       <hash>
         <dsig:Transforms>
           <dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity" />
         </dsig:Transforms>
         <dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256" />
-        <dsig:DigestValue>7WZUHWtw86IRTnXpt0uJ30R1NVU0e4VEYU5iKMgQHoA=</dsig:DigestValue>
+        <dsig:DigestValue>YJPRJOlfJ95ah13laYdfh7381dwwNzeRTFsP6NTY648=</dsig:DigestValue>
       </hash>
     </dependentAssembly>
   </dependency>

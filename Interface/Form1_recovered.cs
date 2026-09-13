@@ -19,11 +19,11 @@ using System.Windows.Forms;
 using System.Drawing.Imaging;
 using System.Web.Services.Description;
 
-namespace Revmax_Interface_Promun
+namespace FiscalStack
 {
 
 
-    public partial class RevMaxInterfaceWizard : Form
+    public partial class FiscalStackInterfaceWizard : Form
     {
         FiscalStackClient client = new FiscalStackClient();
         string Currency = "";
@@ -69,7 +69,7 @@ namespace Revmax_Interface_Promun
 
 
 
-        public RevMaxInterfaceWizard()
+        public FiscalStackInterfaceWizard()
         {
             InitializeComponent();
 
@@ -157,7 +157,7 @@ namespace Revmax_Interface_Promun
                     Print("FISCAL INVOICE");
                     //Print("COPY INVOICE");
 
-                    //File.Move(receipt, ConfigurationManager.AppSettings.Get("TargetFolder") + "\\REVMAX_" + DateTime.Now + ".txt");
+                    //File.Move(receipt, ConfigurationManager.AppSettings.Get("TargetFolder") + "\\FISCALSTACK_" + DateTime.Now + ".txt");
                 }
                 list.Clear();
 
@@ -166,7 +166,7 @@ namespace Revmax_Interface_Promun
 
             if (!String.IsNullOrEmpty(receiptPath))
             {
-                File.Copy(receiptPath, ConfigurationManager.AppSettings.Get("TargetFolder") + "\\REVMAX_" + DateTime.Now.ToString("dd_mm_yyyy_HH_MM_ss") + ".txt");
+                File.Copy(receiptPath, ConfigurationManager.AppSettings.Get("TargetFolder") + "\\FISCALSTACK_" + DateTime.Now.ToString("dd_mm_yyyy_HH_MM_ss") + ".txt");
                 try
                 {
                     File.Delete(receiptPath);

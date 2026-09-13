@@ -1,0 +1,45 @@
+<Window x:Class="FiscalStackPOS.Dialogs.ProductDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="{DynamicResource pd.title}" Width="460" SizeToContent="Height" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource BgBrush}" FontFamily="Segoe UI" ShowInTaskbar="False">
+    <Border Style="{StaticResource Card}" Margin="20">
+        <StackPanel>
+            <TextBlock Text="{DynamicResource pd.title}" Style="{StaticResource H1Text}" />
+            <TextBlock Text="{DynamicResource pd.desc}"
+                       Style="{StaticResource BodyText}" Margin="0,4,0,12" TextWrapping="Wrap" />
+
+            <TextBlock Text="{DynamicResource pd.name}" Style="{StaticResource CaptionText}" Margin="0,8,0,4" />
+            <TextBox x:Name="TxtName" Style="{StaticResource FieldTextBox}" />
+            <Grid Margin="0,12,0,0">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <StackPanel><TextBlock Text="{DynamicResource pd.code}" Style="{StaticResource CaptionText}" /><TextBox x:Name="TxtCode" Style="{StaticResource FieldTextBox}" /></StackPanel>
+                <StackPanel Grid.Column="2"><TextBlock Text="{DynamicResource pd.barcode}" Style="{StaticResource CaptionText}" /><TextBox x:Name="TxtBarcode" Style="{StaticResource FieldTextBox}" /></StackPanel>
+            </Grid>
+            <Grid Margin="0,12,0,0">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <StackPanel><TextBlock Text="{DynamicResource pd.category}" Style="{StaticResource CaptionText}" /><TextBox x:Name="TxtCategory" Style="{StaticResource FieldTextBox}" /></StackPanel>
+                <StackPanel Grid.Column="2"><TextBlock Text="{DynamicResource pd.hsc}" Style="{StaticResource CaptionText}" /><TextBox x:Name="TxtHs" Style="{StaticResource FieldTextBox}" /></StackPanel>
+            </Grid>
+            <Grid Margin="0,12,0,0">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="12"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <StackPanel><TextBlock x:Name="LblPrice" Text="{DynamicResource pd.price}" Style="{StaticResource CaptionText}" /><TextBox x:Name="TxtPrice" Style="{StaticResource FieldTextBox}" /></StackPanel>
+                <StackPanel Grid.Column="2"><TextBlock Text="{DynamicResource pd.vat}" Style="{StaticResource CaptionText}" /><TextBox x:Name="TxtVat" Style="{StaticResource FieldTextBox}" /></StackPanel>
+            </Grid>
+            <TextBlock Text="{DynamicResource pd.image}" Style="{StaticResource CaptionText}" Margin="0,12,0,4" />
+            <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <TextBox x:Name="TxtImage" Style="{StaticResource FieldTextBox}" />
+                <Button Grid.Column="1" Content="{DynamicResource common.browse}" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" Click="OnBrowse" />
+            </Grid>
+            <TextBlock x:Name="LblError" Foreground="{StaticResource DangerBrush}" FontSize="12" Margin="0,8,0,0" Visibility="Collapsed" />
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
+                <Button Content="{DynamicResource common.cancel}" Style="{StaticResource GhostButton}" IsCancel="True" MinWidth="88" />
+                <Button Content="{DynamicResource common.save}" Style="{StaticResource PrimaryButton}" Margin="10,0,0,0" MinWidth="100"
+                        Click="OnSave" IsDefault="True" />
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</Window>

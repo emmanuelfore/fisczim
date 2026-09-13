@@ -1,4 +1,4 @@
-namespace Revmax_Interface_Promun
+namespace FiscalStack
 {
     partial class TestToolForm
     {

@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using Newtonsoft.Json;
 
-namespace Revmax_Interface_Promun
+namespace FiscalStack
 {
     public partial class TestToolForm : Form
     {

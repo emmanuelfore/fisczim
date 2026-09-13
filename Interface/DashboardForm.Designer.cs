@@ -2,7 +2,7 @@ using System;
 using System.Drawing;
 using System.Windows.Forms;
 
-namespace Revmax_Interface_Promun
+namespace FiscalStack
 {
     public partial class DashboardForm : Form
     {

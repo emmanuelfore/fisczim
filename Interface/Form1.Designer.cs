@@ -1,6 +1,6 @@
-namespace Revmax_Interface_Promun
+namespace FiscalStack
 {
-    partial class RevMaxInterfaceWizard
+    partial class FiscalStackInterfaceWizard
     {
         /// <summary>
         /// Required designer variable.
@@ -29,7 +29,7 @@ namespace Revmax_Interface_Promun
         private void InitializeComponent()
         {
             this.components = new System.ComponentModel.Container();
-            System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(RevMaxInterfaceWizard));
+            System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(FiscalStackInterfaceWizard));
 
             // Tray context menu
             this.contextMenuStrip1 = new System.Windows.Forms.ContextMenuStrip(this.components);
@@ -188,7 +188,7 @@ namespace Revmax_Interface_Promun
             this.reportViewer1.DocumentMapWidth = 0;
             this.reportViewer1.IsDocumentMapWidthFixed = true;
             this.reportViewer1.LocalReport.EnableExternalImages = true;
-            this.reportViewer1.LocalReport.ReportEmbeddedResource = "Revmax_Interface_Promun.Report1.rdlc";
+            this.reportViewer1.LocalReport.ReportEmbeddedResource = "FiscalStack.Report1.rdlc";
             this.reportViewer1.Location = new System.Drawing.Point(3, 3);
             this.reportViewer1.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
             this.reportViewer1.Name = "reportViewer1";
@@ -357,7 +357,7 @@ namespace Revmax_Interface_Promun
             this.txtLog.TabIndex = 11;
             this.txtLog.Text = "FiscalStack Interface ready.\n";
 
-            // ── RevMaxInterfaceWizard (main form) ────────────────────────────
+            // ── FiscalStackInterfaceWizard (main form) ───────────────────────
             this.AutoScaleDimensions = new System.Drawing.SizeF(8F, 16F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(784, 506);
@@ -366,7 +366,7 @@ namespace Revmax_Interface_Promun
             this.Controls.Add(this.txtLog);
             this.MinimumSize = new System.Drawing.Size(800, 550);
             this.Margin = new System.Windows.Forms.Padding(3, 2, 3, 2);
-            this.Name = "RevMaxInterfaceWizard";
+            this.Name = "FiscalStackInterfaceWizard";
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
             this.Text = "FiscalStack Interface";
             this.Load += new System.EventHandler(this.Form1_Load);

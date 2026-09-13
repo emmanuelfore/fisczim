@@ -1,7 +1,7 @@
 import { openDB, type IDBPDatabase } from 'idb';
 
 const DB_NAME = 'pos-offline';
-const DB_VERSION = 9;
+const DB_VERSION = 10;
 
 interface PendingSale {
     id: string;
@@ -102,6 +102,11 @@ export async function getDb(): Promise<IDBPDatabase> {
                 const store = db.createObjectStore('pendingCustomers', { keyPath: 'id' });
                 store.createIndex('byCompany', 'companyId');
                 store.createIndex('byStatus', 'status');
+            }
+
+            // Product Serials (for serial-tracked items offline)
+            if (!db.objectStoreNames.contains('productSerials')) {
+                db.createObjectStore('productSerials');
             }
         },
         blocked() {
@@ -626,6 +631,20 @@ export async function getPendingCustomers(companyId: number): Promise<any[]> {
 export async function removePendingCustomer(id: string): Promise<void> {
     const db = await getDb();
     await db.delete('pendingCustomers', id);
+}
+
+// ─── Product Serials ────────────────────────────────────────────────────────
+
+export async function cacheProductSerials(companyId: number, serials: any[]): Promise<void> {
+    const db = await getDb();
+    await db.put('productSerials', serials, companyId);
+}
+
+export async function getCachedProductSerials(companyId: number): Promise<any[] | undefined> {
+    const db = await getDb();
+    const result = await db.get('productSerials', companyId);
+    if (result) return result;
+    return db.get('productSerials', String(companyId));
 }
 
 // ─── Local Stock Adjustments ─────────────────────────────────────────────────

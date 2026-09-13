@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
+import { cacheProductSerials } from "@/lib/offline-db";
 
 export function useProductSerials(companyId: number, productId?: number, status?: string) {
   return useQuery({
@@ -11,9 +12,15 @@ export function useProductSerials(companyId: number, productId?: number, status?
       const qs = params.toString();
       const res = await apiFetch(`/api/companies/${companyId}/product-serials${qs ? `?${qs}` : ""}`);
       if (!res.ok) throw new Error("Failed to fetch serial numbers");
-      return res.json();
+      const data = await res.json();
+      // Cache for offline use (only unfiltered IN_STOCK serials)
+      if (!productId && status === "IN_STOCK") {
+        cacheProductSerials(companyId, data).catch(() => {});
+      }
+      return data;
     },
     enabled: !!companyId,
+    placeholderData: (prev) => prev,
   });
 }
 

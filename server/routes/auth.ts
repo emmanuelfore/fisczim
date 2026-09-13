@@ -126,6 +126,11 @@ router.post('/register', authLimiter, async (req: Request, res: Response) => {
   try {
     const { email, password, name } = req.body;
 
+    // MEDIUM #17: Registration gate — disable in production unless explicitly enabled
+    if (process.env.NODE_ENV === "production" && process.env.ALLOW_REGISTRATION !== "true") {
+      return res.status(403).json({ message: "Registration is currently disabled. Please contact an administrator." });
+    }
+
     if (!email || !password || !name) {
       return res.status(400).json({ message: 'Email, password, and name are required' });
     }

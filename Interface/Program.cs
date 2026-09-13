@@ -5,7 +5,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
-namespace Revmax_Interface_Promun
+namespace FiscalStack
 {
     internal static class Program
     {
@@ -19,14 +19,14 @@ namespace Revmax_Interface_Promun
             Application.SetCompatibleTextRenderingDefault(false);
             if (ConfigurationManager.AppSettings.Get("Trained") == "0")
             {
-                Application.Run(new RevMaxInterfaceWizard());
+                Application.Run(new FiscalStackInterfaceWizard());
 
 
             }
             else
             {
                 // FiscalStack: launch the main form visibly in a normal window
-                RevMaxInterfaceWizard form = new RevMaxInterfaceWizard();
+                FiscalStackInterfaceWizard form = new FiscalStackInterfaceWizard();
                 form.WindowState = FormWindowState.Normal;
                 form.ShowInTaskbar = true;
                 Application.Run(form);

@@ -418,6 +418,6 @@ For issues or questions:
 
 ### Version 1.0 (Current)
 - Initial API release
-- Full RevMax endpoint support
+- Full FiscalStack endpoint support
 - Test and production environments
 - API key authentication

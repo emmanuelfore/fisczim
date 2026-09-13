@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 using Newtonsoft.Json;
 using System.Configuration;
 
-namespace Revmax_Interface_Promun
+namespace FiscalStack
 {
     public class FiscalStackClient
     {

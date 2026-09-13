@@ -2,7 +2,7 @@ using System;
 using System.Configuration;
 using System.Windows.Forms;
 
-namespace Revmax_Interface_Promun
+namespace FiscalStack
 {
     public static class ReceiptPrinter
     {

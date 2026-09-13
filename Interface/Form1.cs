@@ -20,11 +20,11 @@ using System.Windows.Forms;
 using System.Drawing.Imaging;
 using System.Web.Services.Description;
 
-namespace Revmax_Interface_Promun
+namespace FiscalStack
 {
 
 
-    public partial class RevMaxInterfaceWizard : Form
+    public partial class FiscalStackInterfaceWizard : Form
     {
         FiscalStackClient client = new FiscalStackClient();
         string Discount = "";
@@ -52,7 +52,7 @@ namespace Revmax_Interface_Promun
 
 
 
-        public RevMaxInterfaceWizard()
+        public FiscalStackInterfaceWizard()
         {
             InitializeComponent();
             AppBranding.ApplyIcon(this, this.notifyIcon1);
@@ -251,7 +251,7 @@ namespace Revmax_Interface_Promun
                         Print("FISCAL INVOICE");
                         //Print("COPY INVOICE");
 
-                        //File.Move(receipt, ConfigurationManager.AppSettings.Get("TargetFolder") + "\\REVMAX_" + DateTime.Now + ".txt");
+                        //File.Move(receipt, ConfigurationManager.AppSettings.Get("TargetFolder") + "\\FISCALSTACK_" + DateTime.Now + ".txt");
                     }
                     list.Clear();
 

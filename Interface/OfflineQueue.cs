@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using Newtonsoft.Json;
 
-namespace Revmax_Interface_Promun
+namespace FiscalStack
 {
     public class QueuedInvoice
     {

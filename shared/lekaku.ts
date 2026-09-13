@@ -8,6 +8,6 @@ export const LEKAKU_PROD_GATEWAY = "https://lekukaapi.rsl.org.ls";
 // lekakuGatewayUrl is not explicitly set — mirrors ZIMRA's env switch.
 export const LEKAKU_DEFAULT_GATEWAY = LEKAKU_TEST_GATEWAY;
 
-export function getLekakuGatewayUrl(environment?: string | null): string {
+export function getLekukaGatewayUrl(environment?: string | null): string {
   return environment === "production" ? LEKAKU_PROD_GATEWAY : LEKAKU_TEST_GATEWAY;
 }

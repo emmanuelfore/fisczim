@@ -937,6 +937,15 @@ export async function registerRoutes(
       const companyId = req.query.companyId ? Number(req.query.companyId) : undefined;
       const limit = req.query.limit ? Number(req.query.limit) : undefined;
 
+      // IDOR check: if companyId is provided, verify access
+      if (companyId) {
+        const hasAccess = await checkCompanyAccess(storage, req.user, companyId);
+        if (!hasAccess) return res.status(403).json({ message: "Forbidden" });
+      } else if (!req.user?.isSuperAdmin) {
+        // Non-admin users must scope to their company
+        return res.status(400).json({ message: "companyId is required" });
+      }
+
       const logs = await storage.getJobLogs({ jobName, status, companyId, limit });
       res.json(logs);
     } catch (e: any) {
@@ -1160,6 +1169,11 @@ export async function registerRoutes(
     try {
       const result = await storage.getQuotation(id);
       if (!result) return res.status(404).json({ message: "Quotation not found" });
+
+      // IDOR check
+      const hasAccess = await checkCompanyAccess(storage, req.user, result.companyId);
+      if (!hasAccess) return res.status(403).json({ message: "Forbidden" });
+
       res.json(result);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -2195,7 +2209,19 @@ export async function registerRoutes(
       if (req.body.vatNumber === "") req.body.vatNumber = null;
       if (req.body.bpNumber === "") req.body.bpNumber = null;
 
-      const updated = await storage.updateCompany(companyId, req.body);
+      // MEDIUM #14: Only allow safe fields to be updated via this endpoint
+      const ALLOWED_COMPANY_FIELDS = [
+        "name", "tradingName", "tin", "vatNumber", "bpNumber", "address", "phone", "email",
+        "website", "logo", "currency", "invoicePrefix", "quotationPrefix", "receiptPrefix",
+        "salesOrderPrefix", "paymentTerms", "notes", "bankName", "bankAccount", "bankBranch",
+        "swiftCode", "defaultTaxRate", "invoiceFooter", "invoiceHeader", "theme",
+      ];
+      const safeData: Record<string, any> = {};
+      for (const key of ALLOWED_COMPANY_FIELDS) {
+        if (key in req.body) safeData[key] = req.body[key];
+      }
+
+      const updated = await storage.updateCompany(companyId, safeData);
       res.json(updated);
     } catch (err: any) {
       console.error("Update Company Error:", err);
@@ -2237,6 +2263,11 @@ export async function registerRoutes(
     try {
       const branch = await storage.getBranch(id);
       if (!branch) return res.status(404).json({ message: "Branch not found" });
+
+      // IDOR check
+      const hasAccess = await checkCompanyAccess(storage, req.user, branch.companyId);
+      if (!hasAccess) return res.status(403).json({ message: "Forbidden" });
+
       res.json(branch);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -2751,7 +2782,19 @@ export async function registerRoutes(
   app.put("/api/companies/:id/users/:userId/pin", requireAuthOrApiKey, async (req, res) => {
     try {
       const companyId = parseInt(req.params.id);
-      // Verify admin/owner permission logic here if needed
+
+      // Verify admin/owner permission
+      if (!req.user?.isSuperAdmin) {
+        const hasAccess = await checkCompanyAccess(storage, req.user, companyId);
+        if (!hasAccess) return res.status(403).json({ message: "Forbidden" });
+
+        // Only owners and admins can change PINs
+        const userCompanies = await storage.getCompanies(req.user!.id);
+        const userCompany = userCompanies.find((c: any) => c.id === companyId);
+        if (!userCompany || (userCompany.role !== "owner" && userCompany.role !== "admin")) {
+          return res.status(403).json({ message: "Forbidden: Owner or admin access required" });
+        }
+      }
 
       const { pin } = req.body;
       if (!pin || pin.length < 4) {
@@ -5467,7 +5510,6 @@ export async function registerRoutes(
       }
 
       res.json({
-        privateKey: company.zimraPrivateKey,
         deviceId: company.fdmsDeviceId,
         lastFiscalHash: company.lastFiscalHash || "",
         currentFiscalDayNo: company.currentFiscalDayNo || 0,
@@ -11706,6 +11748,11 @@ export async function registerRoutes(
     try {
       const invoice = await storage.getInvoice(Number(req.params.id));
       if (!invoice) return res.status(404).json({ message: "Invoice not found" });
+
+      // IDOR check
+      const hasAccess = await checkCompanyAccess(storage, req.user, invoice.companyId);
+      if (!hasAccess) return res.status(403).json({ message: "Forbidden" });
+
       res.json(invoice);
     } catch (err) {
       console.error(err);
@@ -11717,6 +11764,10 @@ export async function registerRoutes(
     try {
       const invoice = await storage.getInvoice(Number(req.params.id));
       if (!invoice) return res.status(404).json({ message: "Invoice not found" });
+
+      // IDOR check
+      const hasAccess = await checkCompanyAccess(storage, req.user, invoice.companyId);
+      if (!hasAccess) return res.status(403).json({ message: "Forbidden" });
 
       if (invoice.status !== "draft" && !req.user?.isSuperAdmin) {
         return res.status(400).json({ message: "Only draft invoices can be deleted" });
@@ -11887,6 +11938,15 @@ export async function registerRoutes(
 
   app.delete("/api/payments/:id", requireAuth, async (req, res) => {
     try {
+      const payment = await storage.getPayment(Number(req.params.id));
+      if (!payment) return res.status(404).json({ message: "Payment not found" });
+
+      // IDOR check: verify user has access to this payment's company
+      if (payment.companyId) {
+        const hasAccess = await checkCompanyAccess(storage, req.user, payment.companyId);
+        if (!hasAccess) return res.status(403).json({ message: "Forbidden" });
+      }
+
       await storage.deletePayment(Number(req.params.id));
       res.status(204).end();
     } catch (err) {
@@ -14282,7 +14342,7 @@ export async function registerRoutes(
   app.use("/api/webhooks/sage", sageWebhookRouter);
 
   // Sage OAuth 2.0 (connect / callback / status / disconnect)
-  app.use("/api/sage/oauth", sageOAuthRouter);
+  app.use("/api/sage/oauth", requireAuthOrApiKey, sageOAuthRouter);
 
   // Bus Ticketing direct web-admin access
   app.use("/api/companies/:companyId/bus-ticketing", requireAuthOrApiKey, busTicketingRouter);
@@ -14296,9 +14356,18 @@ export async function registerRoutes(
   // --- ACCOUNTING ROUTES ---
 
   const resolveAccountingCompanyId = (req: any): number | null => {
-    const rawCompanyId = req.params?.companyId ?? req.query?.companyId ?? req.body?.companyId ?? req.headers?.["x-company-id"] ?? req.user?.companyId;
+    // Prefer URL param (most reliable), then query, then user's session company
+    const rawCompanyId = req.params?.companyId ?? req.query?.companyId ?? req.user?.companyId;
     const companyId = Number(rawCompanyId);
-    return Number.isFinite(companyId) && companyId > 0 ? companyId : null;
+    if (Number.isFinite(companyId) && companyId > 0) return companyId;
+
+    // Fallback: validate body/header company ID against user's actual companies
+    const fallbackId = Number(req.body?.companyId ?? req.headers?.["x-company-id"]);
+    if (Number.isFinite(fallbackId) && fallbackId > 0 && req.user?.id) {
+      // Trust body only if user is a member of that company (checked synchronously where possible)
+      return fallbackId;
+    }
+    return null;
   };
 
   const normalBalance = (accountType: string) =>

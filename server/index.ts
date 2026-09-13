@@ -11,11 +11,58 @@ import { initializeScheduler } from "./scheduler.js";
 
 import cors from "cors";
 import compression from "compression";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 
 // ... imports
 
 const app = express();
-app.use(cors()); // Allow all origins for dev simplicity // Allow all origins for dev simplicity
+
+// CRITICAL #1: Restrict CORS to production domain only
+const allowedOrigins = [
+  "https://fiscalstack.co.zw",
+  "https://www.fiscalstack.co.zw",
+  "https://fiscalzone.co.zw",
+  "https://www.fiscalzone.co.zw",
+  "http://localhost:5000",
+  "http://localhost:3000",
+];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
+  credentials: true,
+}));
+
+// CRITICAL #2: Rate limiting
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many requests, please try again later" },
+});
+app.use("/api", globalLimiter);
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many login attempts, please try again later" },
+});
+
+// HIGH #5: Security headers
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
+}));
+
 app.use(compression());
 const httpServer = createServer(app);
 

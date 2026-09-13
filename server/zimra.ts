@@ -305,9 +305,11 @@ export class ZimraDevice {
                 ? new https.Agent({
                     cert: this.config.certificate,
                     key: this.config.privateKey,
-                    rejectUnauthorized: false, // Sometimes needed for test endpoints, be careful in prod
+                    rejectUnauthorized: process.env.NODE_ENV === "production",
                 })
-                : new https.Agent({ rejectUnauthorized: false });
+                : new https.Agent({
+                    rejectUnauthorized: process.env.NODE_ENV === "production",
+                });
 
         this.axiosInstance = axios.create({
             baseURL: this.config.baseUrl,

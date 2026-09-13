@@ -6,8 +6,17 @@ import { db } from '../db.js';
 import { storage } from '../storage.js';
 import { generateTokens, verifyAccessToken, verifyRefreshToken, TokenPayload } from '../lib/jwt.js';
 import { refreshTokens as refreshTokensTable } from '../../shared/schema.js';
+import rateLimit from 'express-rate-limit';
 
 const router = Router();
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many attempts, please try again later" },
+});
 
 // ── DB-backed refresh token helpers ──────────────────────────────────────────
 async function storeRefreshToken(token: string, userId: string): Promise<void> {
@@ -65,7 +74,7 @@ function verifySupabasePassword(password: string, hash: string): boolean {
     );
 
     const derivedHash = derivedKey.toString('base64');
-    return derivedHash === storedHash;
+    return crypto.timingSafeEqual(Buffer.from(derivedHash), Buffer.from(storedHash));
   } catch (error) {
     console.error('Password verification error:', error);
     return false;
@@ -113,7 +122,7 @@ setInterval(() => {
 }, 60 * 60 * 1000); // hourly
 
 // POST /api/auth/register
-router.post('/register', async (req: Request, res: Response) => {
+router.post('/register', authLimiter, async (req: Request, res: Response) => {
   try {
     const { email, password, name } = req.body;
 
@@ -125,8 +134,8 @@ router.post('/register', async (req: Request, res: Response) => {
       return res.status(400).json({ message: 'Invalid email format' });
     }
 
-    if (password.length < 6) {
-      return res.status(400).json({ message: 'Password must be at least 6 characters' });
+    if (password.length < 8) {
+      return res.status(400).json({ message: 'Password must be at least 8 characters' });
     }
 
     // Check if user already exists
@@ -189,7 +198,7 @@ router.post('/register', async (req: Request, res: Response) => {
 });
 
 // POST /api/auth/login
-router.post('/login', async (req: Request, res: Response) => {
+router.post('/login', authLimiter, async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body;
 
@@ -388,8 +397,8 @@ router.post('/change-password', async (req: Request, res: Response) => {
       return res.status(400).json({ message: 'Current password and new password are required' });
     }
 
-    if (newPassword.length < 6) {
-      return res.status(400).json({ message: 'New password must be at least 6 characters' });
+    if (newPassword.length < 8) {
+      return res.status(400).json({ message: 'New password must be at least 8 characters' });
     }
 
     const user = await storage.getUser(payload.userId);
@@ -411,6 +420,9 @@ router.post('/change-password', async (req: Request, res: Response) => {
       password: hashedPassword,
       passwordChanged: true,
     });
+
+    // MEDIUM #16: Revoke all existing refresh tokens on password change
+    await db.delete(refreshTokensTable).where(eq(refreshTokensTable.userId, user.id));
 
     res.json({ message: 'Password changed successfully' });
   } catch (error) {

@@ -88,7 +88,7 @@ self.addEventListener('fetch', (event) => {
 });
 
 const DB_NAME = 'pos-offline';
-const DB_VERSION = 5;
+const DB_VERSION = 10;
 
 function openDB() {
   return new Promise((resolve, reject) => {
@@ -141,7 +141,11 @@ async function syncSales() {
       try {
         const response = await fetch('/api/invoices', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+            'X-Idempotency-Key': sale.idempotencyKey || `sw-${sale.id}-${Date.now()}`
+          },
           body: JSON.stringify(sale.invoiceData),
         });
         if (response.ok) {

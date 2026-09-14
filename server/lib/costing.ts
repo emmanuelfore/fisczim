@@ -133,13 +133,13 @@ export async function consumeInventory(
         // If AVCO, use the calculated avgCost. If FIFO/LIFO, use the layer's specific unit cost.
         const costPerUnit = unitCostForCogs !== null ? unitCostForCogs : Number(layer.unitCost);
         
-        totalCogs += take * costPerUnit;
+        totalCogs = Math.round((totalCogs + take * costPerUnit) * 100) / 100;
         remainingToConsume -= take;
         consumedLayers.push({
             transactionId: layer.id,
             quantity: take,
             unitCost: costPerUnit,
-            totalCost: take * costPerUnit,
+            totalCost: Math.round(take * costPerUnit * 100) / 100,
         });
 
         await activeDb

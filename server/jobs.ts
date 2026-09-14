@@ -227,13 +227,13 @@ function calculateNextRunDate(currentDate: Date, frequency: string): Date {
 export function startRecurringInvoiceWorker() {
     console.log("[Job] Starting Recurring Invoice Worker...");
     // Initial run
-    processRecurringInvoices();
+    processRecurringInvoices().catch(err => console.error('[Job] Recurring invoices initial run failed:', err));
     const recurringEntry = schedulerEntries.find((e) => e.name === 'recurring_invoices');
     if (recurringEntry) recurringEntry.nextRunAt = new Date(Date.now() + 1000 * 60 * 60).toISOString();
 
     // Run every hour
     setInterval(() => {
-        processRecurringInvoices();
+        processRecurringInvoices().catch(err => console.error('[Job] Recurring invoices run failed:', err));
         if (recurringEntry) recurringEntry.nextRunAt = new Date(Date.now() + 1000 * 60 * 60).toISOString();
     }, 1000 * 60 * 60);
 }

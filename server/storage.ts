@@ -733,9 +733,6 @@ export class DatabaseStorage implements IStorage {
     const buf = (await scryptAsync(pin, salt, 64)) as Buffer;
     const computed = buf.toString("hex");
 
-    // Console log for debugging
-    console.log(`[VERIFY] ID: ${userId}, Stored: ${hashed}, Computed: ${computed}`);
-
     return computed === hashed;
   }
 

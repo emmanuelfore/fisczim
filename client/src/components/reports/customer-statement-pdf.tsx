@@ -158,6 +158,10 @@ export const CustomerStatementPDF = ({
   endDate,
   currency = "USD",
 }: StatementPDFProps) => {
+  const customer = data?.customer;
+  if (!customer) {
+    return <Document><Page size="A4"><Text>Customer information unavailable.</Text></Page></Document>;
+  }
   const getSafeDate = (d: any) => {
     if (!d) return new Date();
     const dateObj = new Date(d);

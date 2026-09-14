@@ -16,6 +16,13 @@ import rateLimit from "express-rate-limit";
 
 // ... imports
 
+process.on('unhandledRejection', (reason) => {
+  console.error('[FATAL] Unhandled Rejection:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL] Uncaught Exception:', err);
+});
+
 const app = express();
 
 // CRITICAL #1: Restrict CORS to production domain only

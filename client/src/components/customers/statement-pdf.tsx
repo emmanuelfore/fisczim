@@ -180,6 +180,9 @@ export const StatementPDF = ({
   endDate,
   currency = "USD",
 }: StatementPDFProps) => {
+  if (!company) {
+    return <Document><Page size="A4"><Text>Company information unavailable.</Text></Page></Document>;
+  }
   const cur = currency;
   const pageFont = pdfFontFamily("Roboto");
   return (

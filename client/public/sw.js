@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'v15';
+const CACHE_VERSION = 'v16';
 const STATIC_CACHE = `fiscalstack-static-${CACHE_VERSION}`;
 const NAV_CACHE = `fiscalstack-nav-${CACHE_VERSION}`;
 const FONT_CACHE = `fiscalstack-fonts-${CACHE_VERSION}`;
